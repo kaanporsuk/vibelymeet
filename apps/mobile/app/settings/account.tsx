@@ -51,7 +51,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
-import { isCurrentEmailVerified } from '@shared/verificationSemantics';
+import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verificationSemantics';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -178,7 +178,7 @@ export default function AccountSettingsScreen() {
   const logout = useNativeLogout();
   const { refetch: refetchEntitlements } = useEntitlements();
   const qc = useQueryClient();
-  const email = user?.email ?? '';
+  const email = resolveCanonicalAuthEmail(user) ?? user?.email ?? '';
 
   const [emailForVerification, setEmailForVerification] = useState(email);
 
@@ -271,12 +271,10 @@ export default function AccountSettingsScreen() {
     if (!showEmailVerify) setEmailForVerification(email);
   }, [email, showEmailVerify]);
 
-  const authEmailConfirmed = !!user?.email_confirmed_at;
   const profileEmailVerified = isCurrentEmailVerified({
     emailVerified: profile?.email_verified,
     verifiedEmail: profile?.verified_email ?? null,
     authEmail: email || null,
-    authEmailConfirmed,
   });
 
   const openEmailVerification = useCallback(
@@ -291,19 +289,10 @@ export default function AccountSettingsScreen() {
         });
         return;
       }
-      if (!authEmailConfirmed) {
-        show({
-          title: 'Confirm your inbox first',
-          message: `Confirm ${e} from the inbox link first. After that, come back here to verify it on your profile.`,
-          variant: 'info',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
       setEmailForVerification(e);
       setShowEmailVerify(true);
     },
-    [authEmailConfirmed, email, show],
+    [email, show],
   );
 
   const openPhotoVerification = useCallback(() => {
@@ -800,15 +789,13 @@ export default function AccountSettingsScreen() {
                     ? 'Current account email verified on your profile'
                     : !email
                       ? 'Add an account email first'
-                      : !authEmailConfirmed
-                        ? 'Confirm your email in your inbox first'
-                        : 'Verify your current account email for your profile badge'
+                      : 'Verify your current account email for your profile badge'
                 }
                 right={
                   profileEmailVerified ? (
                     <ValueChip label="Verified" accentColor={theme.success} />
                   ) : (
-                    <ValueChip label={authEmailConfirmed ? 'Verify →' : 'Check inbox'} accentColor={AMBER} />
+                    <ValueChip label="Verify →" accentColor={AMBER} />
                   )
                 }
                 onPress={profileEmailVerified ? undefined : () => openEmailVerification()}

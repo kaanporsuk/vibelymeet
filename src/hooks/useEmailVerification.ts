@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
 
 interface UseEmailVerificationResult {
   sendOtp: (email: string) => Promise<boolean>;
@@ -22,7 +23,12 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
 
       if (error) {
         console.error("Send OTP error:", error);
-        toast.error("Failed to send verification code");
+        const message = await resolveSupabaseFunctionErrorMessage(
+          error,
+          data,
+          "Couldn’t reach the server. Check your connection and try again.",
+        );
+        toast.error(message);
         return false;
       }
 
@@ -35,7 +41,11 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
       return true;
     } catch (error) {
       console.error("Send OTP error:", error);
-      toast.error("Failed to send verification code");
+      const message =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Couldn’t reach the server. Check your connection and try again.";
+      toast.error(message);
       return false;
     } finally {
       setIsSending(false);
@@ -51,7 +61,12 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
 
       if (error) {
         console.error("Verify OTP error:", error);
-        toast.error("Verification failed");
+        const message = await resolveSupabaseFunctionErrorMessage(
+          error,
+          data,
+          "Couldn’t reach the server. Check your connection and try again.",
+        );
+        toast.error(message);
         return false;
       }
 
@@ -64,7 +79,11 @@ export const useEmailVerification = (): UseEmailVerificationResult => {
       return true;
     } catch (error) {
       console.error("Verify OTP error:", error);
-      toast.error("Verification failed");
+      const message =
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Couldn’t reach the server. Check your connection and try again.";
+      toast.error(message);
       return false;
     } finally {
       setIsVerifying(false);

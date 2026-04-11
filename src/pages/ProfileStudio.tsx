@@ -56,7 +56,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { resolvePhotoVerificationState, type PhotoVerificationState } from "@/lib/photoVerificationState";
 import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
-import { isCurrentEmailVerified } from "@shared/verificationSemantics";
+import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from "@shared/verificationSemantics";
 import {
   Drawer,
   DrawerClose,
@@ -263,6 +263,8 @@ const ProfileStudio = () => {
   const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const [emailVerified, setEmailVerified] = useState(false);
   const [accountEmailConfirmed, setAccountEmailConfirmed] = useState(false);
+  /** True when auth exposes a non-empty account email — enough to start in-app OTP (no inbox-link prerequisite). */
+  const [hasAccountEmail, setHasAccountEmail] = useState(false);
   const [emailForVerification, setEmailForVerification] = useState("");
   const [photoVerificationStatus, setPhotoVerificationStatus] = useState<PhotoVerificationState>("none");
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
@@ -286,7 +288,9 @@ const ProfileStudio = () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          setAccountEmailConfirmed(!!user.email_confirmed_at);
+          const emailConfirmed = !!user.email_confirmed_at;
+          setAccountEmailConfirmed(emailConfirmed);
+          setHasAccountEmail(!!resolveCanonicalAuthEmail(user));
           const { data: phoneData } = await supabase
             .from("profiles")
             .select("phone_verified, phone_number, email_verified, verified_email, photo_verified, photo_verification_expires_at")
@@ -294,15 +298,15 @@ const ProfileStudio = () => {
             .maybeSingle();
           if (phoneData?.phone_verified) setPhoneVerified(true);
           setPhoneNumber((phoneData?.phone_number as string | null | undefined) ?? null);
+          const authEmailCanonical = resolveCanonicalAuthEmail(user) ?? user.email ?? null;
           setEmailVerified(
             isCurrentEmailVerified({
               emailVerified: !!phoneData?.email_verified,
               verifiedEmail: (phoneData?.verified_email as string | null | undefined) ?? null,
-              authEmail: user.email ?? null,
-              authEmailConfirmed: !!user.email_confirmed_at,
+              authEmail: authEmailCanonical,
             }),
           );
-          setEmailForVerification(user.email ?? "");
+          setEmailForVerification(authEmailCanonical ?? "");
           const profilePhotoVerified = phoneData?.photo_verified;
           const photoVerificationExpiresAt = phoneData?.photo_verification_expires_at;
 
@@ -447,9 +451,9 @@ const ProfileStudio = () => {
       label: "Email verification",
       description: emailVerified
         ? "Current account email verified"
-        : accountEmailConfirmed
+        : hasAccountEmail
           ? "Verify your current email"
-          : "Confirm your email in your inbox first",
+          : "Add an email to your account first",
       icon: Mail,
       completed: emailVerified,
     },
@@ -463,8 +467,8 @@ const ProfileStudio = () => {
         toast.success("Your email is already verified ✓");
         return;
       }
-      if (!accountEmailConfirmed) {
-        toast.info("Confirm your current account email from your inbox first.");
+      if (!hasAccountEmail) {
+        toast.info("Add an email to your account before verifying it on your profile.");
         return;
       }
       setShowEmailVerification(true);
@@ -492,8 +496,8 @@ const ProfileStudio = () => {
           updates.job = editForm.job;
           updates.company = editForm.company;
           updates.heightCm = editForm.heightCm;
-          updates.location = editForm.location;
-          updates.locationData = editForm.locationData;
+          // location is system-managed — updated only via handleLocationDetect (device GPS → RPC),
+          // never via free-text input. Do not include location/locationData here.
           break;
         case "bio":
           updates.aboutMe = (editForm.aboutMe ?? "").trim().slice(0, MAX_ABOUT_ME_LENGTH) || null;
@@ -635,11 +639,32 @@ const ProfileStudio = () => {
   const handleLocationDetect = async () => {
     setIsDetectingLocation(true);
     try {
-      const location: GeoLocation = await autoDetectLocation();
-      setEditForm((prev) => ({ ...prev, location: location.formatted, locationData: { lat: location.lat, lng: location.lng } }));
-      toast.success("Location detected!");
+      const geoLoc: GeoLocation = await autoDetectLocation();
+      // Normalize display label to "City, Country" when possible.
+      const displayLabel = geoLoc.formatted && geoLoc.formatted !== "Location detected"
+        ? geoLoc.formatted
+        : geoLoc.country;
+      // Persist atomically via RPC — all three fields written together.
+      const { data: rpcResult, error: rpcError } = await supabase.rpc("update_profile_location", {
+        p_user_id: (await supabase.auth.getUser()).data.user?.id,
+        p_location: displayLabel,
+        p_lat: geoLoc.lat,
+        p_lng: geoLoc.lng,
+        p_country: geoLoc.country === "Unknown" ? "" : geoLoc.country,
+      });
+      if (rpcError) throw rpcError;
+      const result = rpcResult as { success?: boolean; error?: string } | null;
+      if (!result?.success) throw new Error(result?.error ?? "location_update_failed");
+      // Reflect the change locally so the drawer shows the new value immediately.
+      setEditForm((prev) => ({
+        ...prev,
+        location: displayLabel,
+        locationData: { lat: geoLoc.lat, lng: geoLoc.lng },
+      }));
+      setProfile((prev) => prev ? { ...prev, location: displayLabel, locationData: { lat: geoLoc.lat, lng: geoLoc.lng } } : prev);
+      toast.success("Location updated!");
     } catch {
-      toast.error("Could not detect location. Please enter manually.");
+      toast.error("Could not detect location. Check your browser's location permissions and try again.");
     } finally {
       setIsDetectingLocation(false);
     }
@@ -701,8 +726,8 @@ const ProfileStudio = () => {
       case "email":
         if (emailVerified) {
           toast.success("Your email is already verified ✓");
-        } else if (!accountEmailConfirmed) {
-          toast.info("Confirm your current account email from your inbox first.");
+        } else if (!hasAccountEmail) {
+          toast.info("Add an email to your account before verifying it on your profile.");
         } else {
           setShowEmailVerification(true);
         }
@@ -1403,12 +1428,29 @@ const ProfileStudio = () => {
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Location</label>
-              <div className="flex gap-2">
-                <Input value={editForm.location || ""} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="Where's home base?" className="glass-card border-border flex-1" />
-                <Button variant="outline" size="icon" onClick={handleLocationDetect} disabled={isDetectingLocation}>
-                  {isDetectingLocation ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
+                <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <span className="flex-1 text-sm text-foreground truncate">
+                  {editForm.location || <span className="text-muted-foreground">Location not set</span>}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-primary hover:text-primary/80 flex-shrink-0 h-7 px-2"
+                  onClick={handleLocationDetect}
+                  disabled={isDetectingLocation}
+                >
+                  {isDetectingLocation ? (
+                    <span className="flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" />Updating…</span>
+                  ) : (
+                    "Update from device"
+                  )}
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Location is set from your device. Exact coordinates are never shown publicly.
+              </p>
             </div>
           </div>
           <DrawerFooter>

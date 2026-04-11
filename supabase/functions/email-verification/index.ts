@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
+import {
+  normalizeEmailAddress,
+  resolveCanonicalAuthEmail,
+} from "../_shared/verificationSemantics.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const EMAIL_VERIFICATION_FROM_EMAIL =
@@ -45,10 +49,12 @@ function logStage(stage: string, meta: Record<string, unknown>) {
   );
 }
 
-function normalizeEmail(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const normalized = input.trim().toLowerCase();
-  return normalized.length > 0 ? normalized : null;
+function identityProvidersForLog(user: {
+  identities?: Array<{ provider?: string | null }> | null;
+}): string[] {
+  return (user.identities ?? [])
+    .map((i) => (typeof i.provider === "string" ? i.provider : null))
+    .filter((p): p is string => !!p);
 }
 
 // Generate a 6-digit OTP using cryptographically secure random
@@ -217,34 +223,55 @@ const handler = async (req: Request): Promise<Response> => {
       // Send OTP
       logStage("send_entered", { requestId, userId: user.id });
       const { email }: SendOtpRequest = await req.json();
-      const requestedEmail = normalizeEmail(email);
-      const authEmail = normalizeEmail(user.email);
+      const requestedEmail = normalizeEmailAddress(email);
+
+      const { data: adminUserData, error: adminUserError } = await supabaseAdmin.auth.admin.getUserById(
+        user.id,
+      );
+      const resolvedUser = adminUserData?.user ?? user;
+      const jwtAuthEmail = normalizeEmailAddress(user.email);
+      const canonicalAuthEmail = resolveCanonicalAuthEmail(resolvedUser) ?? jwtAuthEmail;
+
       logStage("send_user_resolved", {
         requestId,
         userId: user.id,
-        authEmail,
+        jwtUserEmail: user.email ?? null,
+        jwtAuthEmail,
+        canonicalAuthEmail,
         requestedEmail,
-        emailConfirmedAt: user.email_confirmed_at ?? null,
+        emailConfirmedAt: resolvedUser.email_confirmed_at ?? user.email_confirmed_at ?? null,
+        adminUserFetchError: adminUserError?.message ?? null,
+        identityProviders: identityProvidersForLog(resolvedUser),
       });
-      
+
       if (!requestedEmail) {
-        return jsonResponse({ error: "Email is required" }, 400);
+        logStage("send_rejected", { requestId, userId: user.id, branch: "missing_requested_email" });
+        return jsonResponse({ error: "Email is required", code: "missing_requested_email" }, 400);
       }
 
-      if (!authEmail) {
-        return jsonResponse({ error: "Add an email to your account before verifying it in-app." }, 200);
-      }
-
-      if (!user.email_confirmed_at) {
+      if (!canonicalAuthEmail) {
+        logStage("send_rejected", { requestId, userId: user.id, branch: "no_canonical_auth_email" });
         return jsonResponse(
-          { error: "Confirm the inbox link for your account email first, then verify it in-app." },
+          { error: "Add an email to your account before verifying it in-app.", code: "no_canonical_auth_email" },
           200,
         );
       }
 
-      if (requestedEmail !== authEmail) {
-        return jsonResponse({ error: "Only the current email on your account can be verified." }, 200);
+      if (requestedEmail !== canonicalAuthEmail) {
+        logStage("send_rejected", {
+          requestId,
+          userId: user.id,
+          branch: "requested_mismatch_canonical",
+          requestedEmail,
+          canonicalAuthEmail,
+        });
+        return jsonResponse(
+          { error: "Only the current email on your account can be verified.", code: "email_mismatch" },
+          200,
+        );
       }
+
+      const authEmail = canonicalAuthEmail;
 
       const otp = generateOtp();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -311,27 +338,47 @@ const handler = async (req: Request): Promise<Response> => {
     if (action === "verify" && req.method === "POST") {
       // Verify OTP
       const { email, code }: VerifyOtpRequest = await req.json();
-      const requestedEmail = normalizeEmail(email);
-      const authEmail = normalizeEmail(user.email);
+      const requestedEmail = normalizeEmailAddress(email);
+
+      const { data: verifyAdminData, error: verifyAdminError } = await supabaseAdmin.auth.admin.getUserById(
+        user.id,
+      );
+      const verifyResolvedUser = verifyAdminData?.user ?? user;
+      const jwtAuthEmailVerify = normalizeEmailAddress(user.email);
+      const canonicalAuthEmailVerify =
+        resolveCanonicalAuthEmail(verifyResolvedUser) ?? jwtAuthEmailVerify;
+
+      logStage("verify_user_resolved", {
+        requestId,
+        userId: user.id,
+        jwtUserEmail: user.email ?? null,
+        jwtAuthEmail: jwtAuthEmailVerify,
+        canonicalAuthEmail: canonicalAuthEmailVerify,
+        requestedEmail,
+        emailConfirmedAt: verifyResolvedUser.email_confirmed_at ?? user.email_confirmed_at ?? null,
+        adminUserFetchError: verifyAdminError?.message ?? null,
+        identityProviders: identityProvidersForLog(verifyResolvedUser),
+      });
 
       if (!requestedEmail || !code) {
-        return jsonResponse({ error: "Email and code are required" }, 400);
+        return jsonResponse({ error: "Email and code are required", code: "missing_fields" }, 400);
       }
 
-      if (!authEmail) {
-        return jsonResponse({ error: "Add an email to your account before verifying it in-app." }, 200);
-      }
-
-      if (!user.email_confirmed_at) {
+      if (!canonicalAuthEmailVerify) {
         return jsonResponse(
-          { error: "Confirm the inbox link for your account email first, then verify it in-app." },
+          { error: "Add an email to your account before verifying it in-app.", code: "no_canonical_auth_email" },
           200,
         );
       }
 
-      if (requestedEmail !== authEmail) {
-        return jsonResponse({ error: "Only the current email on your account can be verified." }, 200);
+      if (requestedEmail !== canonicalAuthEmailVerify) {
+        return jsonResponse(
+          { error: "Only the current email on your account can be verified.", code: "email_mismatch" },
+          200,
+        );
       }
+
+      const authEmail = canonicalAuthEmailVerify;
 
       console.log(`Verifying OTP for user ${user.id}, email: ${authEmail}`);
 
@@ -414,9 +461,9 @@ const handler = async (req: Request): Promise<Response> => {
       // Update profile
       const { error: profileError } = await supabaseAdmin
         .from("profiles")
-        .update({ 
+        .update({
           email_verified: true,
-          verified_email: user.email ?? authEmail,
+          verified_email: verifyResolvedUser.email ?? user.email ?? authEmail,
         })
         .eq("id", user.id);
 

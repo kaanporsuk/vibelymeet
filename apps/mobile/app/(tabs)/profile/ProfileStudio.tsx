@@ -64,7 +64,7 @@ import VibeScoreCircle from '@/components/profile/VibeScoreCircle';
 import VibeScoreDrawer from '@/components/profile/VibeScoreDrawer';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
-import { isCurrentEmailVerified } from '@shared/verificationSemantics';
+import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verificationSemantics';
 
 const MAX_PHOTOS = 6;
 const MAX_ABOUT_ME_LENGTH = 140;
@@ -175,7 +175,7 @@ export default function ProfileStudio() {
   const [nameEdit, setNameEdit] = useState('');
   const [jobEdit, setJobEdit] = useState('');
   const [heightEdit, setHeightEdit] = useState('');
-  const [locationEdit, setLocationEdit] = useState('');
+  // locationEdit removed — location is system-managed via handleUpdateDeviceLocation.
   const [lifestyleEdit, setLifestyleEdit] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showTaglineSheet, setShowTaglineSheet] = useState(false);
@@ -196,7 +196,6 @@ export default function ProfileStudio() {
     setNameEdit(profile.name ?? '');
     setJobEdit(profile.job ?? '');
     setHeightEdit(profile.height_cm ? String(profile.height_cm) : '');
-    setLocationEdit(profile.location ?? '');
     setLifestyleEdit(profile.lifestyle ?? {});
     setThumbnailError(false);
     const stored = (profile.lifestyle as Record<string, string> | null)?.meeting_preference;
@@ -223,12 +222,11 @@ export default function ProfileStudio() {
 
   // Verification counts
   const verificationStepTotal = 3;
-  const authEmailConfirmed = !!user?.email_confirmed_at;
+  const hasAccountEmail = !!resolveCanonicalAuthEmail(user);
   const emailVerified = isCurrentEmailVerified({
     emailVerified: profile?.email_verified,
     verifiedEmail: profile?.verified_email ?? null,
-    authEmail: user?.email ?? null,
-    authEmailConfirmed,
+    authEmail: resolveCanonicalAuthEmail(user) ?? user?.email ?? null,
   });
   const verificationVerifiedCount =
     (emailVerified ? 1 : 0) +
@@ -383,11 +381,11 @@ export default function ProfileStudio() {
             variant: 'success',
             primaryAction: { label: 'OK', onPress: () => {} },
           });
-        } else if (!authEmailConfirmed) {
+        } else if (!hasAccountEmail) {
           show({
-            title: 'Confirm your inbox first',
-            message: 'Confirm your current account email from the inbox link first. Then come back here to verify it on your profile.',
-            variant: 'info',
+            title: 'Add an email first',
+            message: 'Add an account email before you verify it on your profile.',
+            variant: 'warning',
             primaryAction: { label: 'OK', onPress: () => {} },
           });
         } else {
@@ -554,7 +552,6 @@ export default function ProfileStudio() {
       setNameEdit(profile.name ?? '');
       setJobEdit(profile.job ?? '');
       setHeightEdit(profile.height_cm ? String(profile.height_cm) : '');
-      setLocationEdit(profile.location ?? '');
       setLifestyleEdit({ ...(profile.lifestyle ?? {}) });
     }
     setShowDetailsDrawer(false);
@@ -611,20 +608,103 @@ export default function ProfileStudio() {
         name: nameEdit.trim() || undefined,
         job: jobEdit.trim() || undefined,
         height_cm: parsedHeight !== undefined && !Number.isNaN(parsedHeight) ? parsedHeight : undefined,
-        location: locationEdit.trim() || undefined,
+        // location is system-managed — updated only via handleUpdateDeviceLocation (GPS → RPC).
+        // Do not include location or location_data here.
         lifestyle: Object.keys(lifestyleEdit).length > 0 ? lifestyleEdit : undefined,
       });
       qc.invalidateQueries({ queryKey: ['my-profile'] });
       setShowDetailsDrawer(false);
     } catch (e) {
       show({
-        title: 'Couldn’t save',
+        title: "Couldn't save",
         message: e instanceof Error ? e.message : 'Something went wrong.',
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     } finally {
       setSaving(false);
+    }
+  };
+
+  // ── Device location update ────────────────────────────────────
+  // Replaces any free-text location edit. Captures GPS, reverse-geocodes,
+  // and writes all three fields (location, location_data, country) via RPC.
+
+  const [updatingLocation, setUpdatingLocation] = useState(false);
+
+  const handleUpdateDeviceLocation = async () => {
+    if (updatingLocation) return;
+    setUpdatingLocation(true);
+    try {
+      const Location = await import('expo-location');
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== 'granted') {
+        show({
+          title: 'Location access needed',
+          message: perm.canAskAgain === false
+            ? 'Location is off for Vibely. Enable it in Settings to update your location.'
+            : 'Allow location access so Vibely can set your city.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+
+      // Reverse-geocode to normalized city/country label.
+      let displayLabel = '';
+      let country = '';
+      try {
+        const { data: geoData, error: geoErr } = await supabase.functions.invoke('geocode', {
+          body: { lat, lng },
+        });
+        if (!geoErr && geoData) {
+          const city = typeof geoData.city === 'string' ? geoData.city.trim() : '';
+          country = typeof geoData.country === 'string' ? geoData.country.trim() : '';
+          displayLabel = city && country ? `${city}, ${country}` : (geoData.formatted ?? '');
+        }
+      } catch { /* fall through — geocode failure prevents update */ }
+
+      if (!displayLabel || !country) {
+        show({
+          title: 'Location not recognized',
+          message: "We couldn't match your GPS position to a city. Try again in a moment.",
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('update_profile_location', {
+        p_user_id: user?.id,
+        p_location: displayLabel,
+        p_lat: lat,
+        p_lng: lng,
+        p_country: country,
+      });
+      if (rpcError) throw rpcError;
+      const result = rpcResult as { success?: boolean; error?: string } | null;
+      if (!result?.success) throw new Error(result?.error ?? 'location_update_failed');
+
+      qc.invalidateQueries({ queryKey: ['my-profile'] });
+      show({
+        title: 'Location updated',
+        message: displayLabel,
+        variant: 'success',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } catch (e) {
+      show({
+        title: 'Location update failed',
+        message: e instanceof Error ? e.message : 'Check your connection and try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } finally {
+      setUpdatingLocation(false);
     }
   };
 
@@ -1755,11 +1835,11 @@ export default function ProfileStudio() {
               ) : (
                 <Pressable
                   onPress={() => {
-                    if (!authEmailConfirmed) {
+                    if (!hasAccountEmail) {
                       show({
-                        title: 'Confirm your inbox first',
-                        message: 'Confirm your current account email from the inbox link first. Then come back here to verify it on your profile.',
-                        variant: 'info',
+                        title: 'Add an email first',
+                        message: 'Add an account email before you verify it on your profile.',
+                        variant: 'warning',
                         primaryAction: { label: 'OK', onPress: () => {} },
                       });
                       return;
@@ -1773,11 +1853,11 @@ export default function ProfileStudio() {
                   </RNView>
                   <RNView style={s.verificationCardText}>
                     <Text style={[s.verificationCardTitle, { color: theme.text }]}>Email verification</Text>
-                    <Text style={[s.verificationCardSubtitle, { color: authEmailConfirmed ? theme.tint : theme.textSecondary }]}>
-                      {authEmailConfirmed ? 'Verify your current email' : 'Confirm your email in your inbox first'}
+                    <Text style={[s.verificationCardSubtitle, { color: hasAccountEmail ? theme.tint : theme.textSecondary }]}>
+                      {hasAccountEmail ? 'Verify your current email' : 'Add an email to your account first'}
                     </Text>
                   </RNView>
-                  <Ionicons name="chevron-forward" size={20} color={authEmailConfirmed ? theme.tint : theme.textSecondary} />
+                  <Ionicons name="chevron-forward" size={20} color={hasAccountEmail ? theme.tint : theme.textSecondary} />
                 </Pressable>
               )}
 
@@ -2111,14 +2191,24 @@ export default function ProfileStudio() {
             returnKeyType="next"
           />
           <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.md }]}>Location</Text>
-          <TextInput
-            value={locationEdit}
-            onChangeText={setLocationEdit}
-            placeholder="e.g. London, UK"
-            placeholderTextColor="rgba(255,255,255,0.35)"
-            style={[s.bioInput, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle, color: theme.text, fontSize: 15, fontFamily: fonts.body, minHeight: 44, paddingHorizontal: spacing.md, paddingVertical: 0 }]}
-            returnKeyType="done"
-          />
+          <RNView style={[s.locationRow, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
+            <Ionicons name="location-outline" size={16} color={theme.textSecondary} />
+            <Text style={[s.locationRowText, { color: profile?.location ? theme.text : theme.textSecondary }]} numberOfLines={1}>
+              {profile?.location?.trim() || 'Location not set'}
+            </Text>
+            <Pressable
+              onPress={handleUpdateDeviceLocation}
+              disabled={updatingLocation}
+              style={{ opacity: updatingLocation ? 0.55 : 1 }}
+            >
+              <Text style={{ color: theme.tint, fontSize: 13, fontWeight: '600' }}>
+                {updatingLocation ? 'Updating…' : 'Update'}
+              </Text>
+            </Pressable>
+          </RNView>
+          <Text style={[s.detailHint, { color: theme.textSecondary }]}>
+            Uses your device location. Exact coordinates are never shown publicly.
+          </Text>
           <Text style={[s.detailLabel, { color: theme.textSecondary, marginTop: spacing.lg }]}>Lifestyle</Text>
           <LifestyleDetailsSection values={lifestyleEdit} onChange={(key, value) => setLifestyleEdit(prev => ({ ...prev, [key]: value }))} editable />
           <RNView style={s.sheetFooter}>
@@ -2151,7 +2241,7 @@ export default function ProfileStudio() {
       />
       <EmailVerificationFlow
         visible={showEmailVerify}
-        email={user?.email ?? ''}
+        email={resolveCanonicalAuthEmail(user) ?? user?.email ?? ''}
         onClose={() => setShowEmailVerify(false)}
         onVerified={() => { qc.invalidateQueries({ queryKey: ['my-profile'] }); }}
       />
@@ -3085,6 +3175,25 @@ const s = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
     marginTop: spacing.md,
     marginBottom: spacing.xs,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+  },
+  locationRowText: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: fonts.body,
+  },
+  detailHint: {
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 17,
   },
 
   // ── Sheet shared ──
