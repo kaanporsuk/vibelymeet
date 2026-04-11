@@ -18,11 +18,10 @@ export interface ImagePickerAsset {
 /**
  * Upload an image from a local URI (e.g. from expo-image-picker) to Bunny via upload-image EF.
  * @param asset - { uri, mimeType?, fileName? } from picker
- * @param oldPath - optional existing path to replace (EF may delete old file)
+ * Superseded committed photos are reconciled later by final publish, not during staged upload.
  */
 export async function uploadProfilePhoto(
   asset: ImagePickerAsset,
-  oldPath?: string | null,
   context?: 'onboarding' | 'profile_studio',
 ): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -41,9 +40,6 @@ export async function uploadProfilePhoto(
       name: asset.fileName ?? `photo-${Date.now()}.jpg`,
     } as unknown as Blob
   );
-  if (oldPath) {
-    formData.append('old_path', oldPath);
-  }
   if (context) {
     formData.append('context', context);
   }

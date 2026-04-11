@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useBeforeUnload, useBlocker, useNavigate } from "react-router-dom";
+import type { Session } from "@supabase/supabase-js";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { pickOnboardingNamePrefill } from "@/lib/onboardingNameHydration";
@@ -20,6 +21,7 @@ import {
   readLocalDraftCache,
 } from "@shared/onboardingTypes";
 import {
+  type SupabaseClient,
   loadOnboardingDraft,
   saveOnboardingDraft,
   executeOnboardingCompletion,
@@ -44,17 +46,21 @@ import { VibeVideoStep } from "./steps/VibeVideoStep";
 import { CelebrationStep } from "./steps/CelebrationStep";
 
 const LOCATION_STEP_INDEX = 9;
+const PHOTOS_STEP_INDEX = 7;
+const PHOTO_STEP_BUSY_MESSAGE =
+  "Finish photo uploads first. Retry or remove failed photos before leaving this step so your staged changes are not lost.";
 
 const Onboarding = () => {
   const navigate = useNavigate();
   const { refreshProfile } = useUserProfile();
   const { refreshEntryState } = useAuth();
 
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({ ...DEFAULT_ONBOARDING_DATA });
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [hasUsableStoredName, setHasUsableStoredName] = useState(false);
+  const [photoStepBusy, setPhotoStepBusy] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -68,6 +74,7 @@ const Onboarding = () => {
   const completedRef = useRef(completed);
 
   const needsEmailCollection = !session?.user?.email;
+  const onboardingSupabase = supabase as unknown as SupabaseClient;
   const authProvider = getAuthProvider(session?.user);
   const totalSteps = needsEmailCollection ? TOTAL_STEPS_WITH_EMAIL : TOTAL_STEPS_NO_EMAIL;
   const stepNames = needsEmailCollection
@@ -121,7 +128,7 @@ const Onboarding = () => {
     // Server draft then profile hydration — sequential so an empty draft cannot race
     // ahead and wipe values already merged from `profiles`.
     void (async () => {
-      const result = await loadOnboardingDraft(supabase as any, userId);
+      const result = await loadOnboardingDraft(onboardingSupabase, userId);
       if (result.draft) {
         const sd = result.draft;
         const serverData: OnboardingData = {
@@ -168,7 +175,7 @@ const Onboarding = () => {
       });
       setDraftLoaded(true);
     })();
-  }, [session?.user?.id, session?.user?.user_metadata, draftLoaded]);
+  }, [session?.user?.id, session?.user?.user_metadata, draftLoaded, onboardingSupabase]);
 
   // Write local cache on every change (non-authoritative, for fast resume on same device)
   useEffect(() => {
@@ -181,14 +188,14 @@ const Onboarding = () => {
     if (!session?.user?.id || !draftLoaded || completed) return;
 
     const timer = setTimeout(() => {
-      saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, "web")
+      saveOnboardingDraft(onboardingSupabase, session.user.id, currentStep, data, "web")
         .catch(() => {
           console.warn("[onboarding] server draft save failed (non-fatal)");
         });
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [session?.user?.id, currentStep, data, draftLoaded, completed]);
+  }, [session?.user?.id, currentStep, data, draftLoaded, completed, onboardingSupabase]);
 
   useEffect(() => { currentStepRef.current = currentStep; }, [currentStep]);
   useEffect(() => { completedRef.current = completed; }, [completed]);
@@ -203,13 +210,14 @@ const Onboarding = () => {
   }, [currentStep, stepNames]);
 
   useEffect(() => {
+    const startedAt = startedAtRef.current;
     return () => {
       if (!completedRef.current) {
         trackEvent("onboarding_abandoned", {
           platform: "web",
           last_step: currentStepRef.current,
           last_step_name: stepNames[currentStepRef.current] ?? stepNames[0],
-          total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
+          total_time_seconds: Math.round((Date.now() - startedAt) / 1000),
         });
       }
     };
@@ -229,6 +237,14 @@ const Onboarding = () => {
     setData((prev) => ({ ...prev, ...payload }));
   }, []);
 
+  const isBlockingPhotoStepExit = currentStep === PHOTOS_STEP_INDEX && photoStepBusy;
+
+  const showPhotoStepBusyMessage = useCallback(() => {
+    toast.error(PHOTO_STEP_BUSY_MESSAGE, {
+      id: "onboarding-photo-step-busy",
+    });
+  }, []);
+
   const goNext = useCallback(() => {
     if (currentStep >= totalSteps - 1) return;
     const next = currentStep + 1;
@@ -241,10 +257,31 @@ const Onboarding = () => {
   }, [currentStep, totalSteps, stepNames]);
 
   const goBack = useCallback(() => {
+    if (isBlockingPhotoStepExit) {
+      showPhotoStepBusyMessage();
+      return;
+    }
+
     if (currentStep > 0 && !submitting) {
       setCurrentStep((s) => s - 1);
     }
-  }, [currentStep, submitting]);
+  }, [currentStep, isBlockingPhotoStepExit, showPhotoStepBusyMessage, submitting]);
+
+  const blocker = useBlocker(isBlockingPhotoStepExit);
+
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    showPhotoStepBusyMessage();
+    blocker.reset();
+  }, [blocker, showPhotoStepBusyMessage]);
+
+  useBeforeUnload(
+    useCallback((event) => {
+      if (!isBlockingPhotoStepExit) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }, [isBlockingPhotoStepExit]),
+  );
 
   const handleAgeBlocked = useCallback(async () => {
     toast.error("Vibely is for adults 18 and over.");
@@ -265,7 +302,7 @@ const Onboarding = () => {
 
     try {
       const result = await executeOnboardingCompletion({
-        supabase: supabase as any,
+        supabase: onboardingSupabase,
         userId: session.user.id,
         data,
         clearLocalDraft: async () => {
@@ -292,15 +329,15 @@ const Onboarding = () => {
         refreshProfile(),
         refreshEntryState(),
       ]);
-    } catch (e: any) {
+    } catch (e: unknown) {
       submitOnceRef.current = false;
       setCompletionError(
-        e?.message || "Couldn't save your profile. Check your connection and try again."
+        e instanceof Error ? e.message : "Couldn't save your profile. Check your connection and try again."
       );
     } finally {
       setSubmitting(false);
     }
-  }, [session, data, refreshEntryState, refreshProfile]);
+  }, [session, data, onboardingSupabase, refreshEntryState, refreshProfile]);
 
   useEffect(() => {
     if (currentStep === totalSteps - 1) {
@@ -376,6 +413,7 @@ const Onboarding = () => {
               onPhotosChange={(v) => updateField("photos", v)}
               onNext={goNext}
               userId={session?.user?.id ?? ""}
+              onBusyStateChange={setPhotoStepBusy}
             />
           );
         case 8:

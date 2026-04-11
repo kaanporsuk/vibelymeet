@@ -534,10 +534,10 @@ export default function PhotoManageDrawer({
     maxPhotos: MAX_PHOTOS,
   });
   const [saving, setSaving] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   /** Which grid tile shows inline actions (web: hover overlay); only one at a time */
-  const [activeTileIndex, setActiveTileIndex] = useState<number | null>(null);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
   // Fullscreen viewer
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
@@ -596,8 +596,8 @@ export default function PhotoManageDrawer({
   React.useEffect(() => {
     if (!visible) return;
     resetDraft(photosRef.current);
-    setSelectedIndex(0);
-    setActiveTileIndex(null);
+    setSelectedItemId(null);
+    setActiveItemId(null);
     const latestPhotos = photosRef.current;
     const startFullscreenIndex =
       fullscreenOnly && typeof initialFullscreenIndex === 'number'
@@ -637,18 +637,36 @@ export default function PhotoManageDrawer({
     return arrayMove(draftItems, draggingIndex, previewDropIndex);
   }, [draftItems, draggingIndex, previewDropIndex]);
   const coaching = useMemo(() => getCoachingMessage(filledCount), [filledCount]);
+  const displayItemsRef = useRef(displayItems);
+  displayItemsRef.current = displayItems;
+
+  const getDraftIndexById = useCallback((id: string) => {
+    return draftItemsRef.current.findIndex((item) => item.id === id);
+  }, []);
+
+  const resolveNextSelectedIdAfterRemoval = useCallback((id: string) => {
+    const current = displayItemsRef.current;
+    const index = current.findIndex((item) => item.id === id);
+    if (index === -1) return current[0]?.id ?? null;
+    return current[index + 1]?.id ?? current[index - 1]?.id ?? null;
+  }, []);
 
   React.useEffect(() => {
-    if (selectedIndex >= filledCount) {
-      setSelectedIndex(Math.max(0, filledCount - 1));
+    if (draftItems.length === 0) {
+      if (selectedItemId !== null) setSelectedItemId(null);
+      if (activeItemId !== null) setActiveItemId(null);
+    } else {
+      if (!selectedItemId || !draftItems.some((item) => item.id === selectedItemId)) {
+        setSelectedItemId(draftItems[0].id);
+      }
+      if (activeItemId && !draftItems.some((item) => item.id === activeItemId)) {
+        setActiveItemId(null);
+      }
     }
     if (fullscreenIndex !== null && fullscreenIndex >= filledCount) {
       setFullscreenIndex(filledCount > 0 ? filledCount - 1 : null);
     }
-    if (activeTileIndex !== null && !displayItems[activeTileIndex]) {
-      setActiveTileIndex(null);
-    }
-  }, [activeTileIndex, displayItems, filledCount, fullscreenIndex, selectedIndex]);
+  }, [activeItemId, draftItems, filledCount, fullscreenIndex, selectedItemId]);
 
   // ── Photo picker ─────────────────────────────────────────────
   React.useEffect(() => {
@@ -677,7 +695,7 @@ export default function PhotoManageDrawer({
 
   const openAddSourcePicker = useCallback((replaceIndex: number | undefined, anchor: AddPhotoAnchor | null) => {
     addPickerReplaceRef.current = replaceIndex;
-    setActiveTileIndex(null);
+    setActiveItemId(null);
     setAddSourcePicker({ open: true, anchor });
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
@@ -720,11 +738,15 @@ export default function PhotoManageDrawer({
   // ── Tile actions ─────────────────────────────────────────────
 
   const handleMakeMain = useCallback((index: number) => {
-    makeMain(index);
+    const current = displayItemsRef.current[index];
+    if (!current) return;
+    const draftIndex = getDraftIndexById(current.id);
+    if (draftIndex === -1) return;
+    makeMain(draftIndex);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setActiveTileIndex(null);
-    setSelectedIndex(0);
-  }, [makeMain]);
+    setActiveItemId(null);
+    setSelectedItemId(current.id);
+  }, [getDraftIndexById, makeMain]);
 
   const handleRemove = useCallback(
     (id: string) => {
@@ -737,31 +759,35 @@ export default function PhotoManageDrawer({
           onPress: () => {
             // Use id-based removal so the correct item is deleted even if the
             // items array shifts between the tap and the confirmation press.
+            const nextSelectedId =
+              selectedItemId === id ? resolveNextSelectedIdAfterRemoval(id) : selectedItemId;
             removeById(id);
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActiveTileIndex(null);
-            setSelectedIndex(0);
+            setActiveItemId(null);
+            setSelectedItemId(nextSelectedId);
           },
         },
         secondaryAction: { label: 'Keep', onPress: () => {} },
       });
     },
-    [removeById, show],
+    [removeById, resolveNextSelectedIdAfterRemoval, selectedItemId, show],
   );
 
-  const handleReplace = useCallback((index: number) => {
-    setActiveTileIndex(null);
+  const handleReplace = useCallback((id: string, slotIndex: number) => {
+    const replaceIndex = getDraftIndexById(id);
+    if (replaceIndex === -1) return;
+    setActiveItemId(null);
     requestAnimationFrame(() => {
-      const el = slotWrapRefs.current[index];
+      const el = slotWrapRefs.current[slotIndex];
       if (el) {
         el.measureInWindow((x, y, width, height) => {
-          openAddSourcePicker(index, { x, y, width, height });
+          openAddSourcePicker(replaceIndex, { x, y, width, height });
         });
       } else {
-        openAddSourcePicker(index, null);
+        openAddSourcePicker(replaceIndex, null);
       }
     });
-  }, [openAddSourcePicker]);
+  }, [getDraftIndexById, openAddSourcePicker]);
 
   // ── Save / Cancel / Close ────────────────────────────────────
 
@@ -799,7 +825,7 @@ export default function PhotoManageDrawer({
   }, [canSave, hasChanges, onClose, onPhotosChanged, readyPaths, show]);
 
   const confirmDiscard = useCallback(() => {
-    setActiveTileIndex(null);
+    setActiveItemId(null);
     if (!hasChanges) {
       onClose();
       return;
@@ -816,23 +842,19 @@ export default function PhotoManageDrawer({
   // ── Render grid tile (inline actions on selected tile — web SortableTile hover overlay) ──
 
   const onFilledTilePress = useCallback((slotIndex: number) => {
-    const item = draftItemsRef.current[slotIndex];
+    const item = displayItemsRef.current[slotIndex];
     if (!item) return;
-    setSelectedIndex(slotIndex);
+    setSelectedItemId(item.id);
     if (item.status !== 'ready') {
-      setActiveTileIndex(null);
+      setActiveItemId(null);
       return;
     }
-    if (activeTileIndex === slotIndex) {
-      setActiveTileIndex(null);
-    } else {
-      setActiveTileIndex(slotIndex);
-    }
-  }, [activeTileIndex]);
+    setActiveItemId((prev) => (prev === item.id ? null : item.id));
+  }, []);
 
   const beginDrag = useCallback((slotIndex: number) => {
-    setActiveTileIndex(null);
-    if (!draftItemsRef.current[slotIndex]) return;
+    setActiveItemId(null);
+    if (!displayItemsRef.current[slotIndex]) return;
 
     const apply = (L: SlotRect) => {
       slotLayoutsRef.current[slotIndex] = L;
@@ -886,6 +908,7 @@ export default function PhotoManageDrawer({
   const endDrag = useCallback((absoluteX: number, absoluteY: number, fromIndex: number) => {
     const n = draftItemsRef.current.length;
     const targetIndex = previewDropIndexRef.current;
+    const movedItemId = draftItemsRef.current[fromIndex]?.id ?? null;
 
     dragStartRectRef.current = null;
     setDragTranslation({ tx: 0, ty: 0 });
@@ -899,7 +922,7 @@ export default function PhotoManageDrawer({
     /** Commit same order as live preview (ref updated every pan frame from resolveDropTargetIndex) */
     moveItem(fromIndex, targetIndex);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setSelectedIndex(targetIndex);
+    if (movedItemId) setSelectedItemId(movedItemId);
   }, [moveItem]);
 
   const onDragFinalize = useCallback(() => {
@@ -949,7 +972,8 @@ export default function PhotoManageDrawer({
     const item = displayItems[slotIndex] ?? null;
     const previewUri = itemThumbUri(item);
     const isMain = slotIndex === 0 && item !== null;
-    const overlayOpen = activeTileIndex === slotIndex && item?.status === 'ready';
+    const isSelectedTile = item !== null && selectedItemId === item.id;
+    const overlayOpen = item?.status === 'ready' && activeItemId === item.id;
     const isUploadingTile = item?.status === 'uploading';
     const isFailedTile = item?.status === 'failed';
 
@@ -977,7 +1001,7 @@ export default function PhotoManageDrawer({
         >
           <Pressable
             onPress={() => {
-              setActiveTileIndex(null);
+              setActiveItemId(null);
               gridEmptyTriggerRefs.current[slotIndex]?.measureInWindow((x, y, width, height) => {
                 openAddSourcePicker(undefined, { x, y, width, height });
               });
@@ -1007,172 +1031,238 @@ export default function PhotoManageDrawer({
         style={{ flex: 1 }}
         collapsable={false}
       >
-        <GestureDetector gesture={tileGestures[slotIndex]}>
-          <RNView
-            style={[
-              st.gridTile,
-              st.filledTile,
-              { flex: 1 },
-              overlayOpen && st.gridTileActive,
-              isDragSourceStillLifted && { opacity: 0.35 },
-            ]}
-          >
-            {isDragDestinationPlaceholder ? (
-              <RNView style={[StyleSheet.absoluteFill, st.dragDropPlaceholder]} />
-            ) : (
-              previewUri ? (
-                <Image source={{ uri: previewUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-              ) : (
+        {(() => {
+          const tileBody = (
+            <RNView
+              style={[
+                st.gridTile,
+                st.filledTile,
+                { flex: 1 },
+                isSelectedTile && st.gridTileActive,
+                isDragSourceStillLifted && { opacity: 0.35 },
+              ]}
+            >
+              {isDragDestinationPlaceholder ? (
                 <RNView style={[StyleSheet.absoluteFill, st.dragDropPlaceholder]} />
-              )
-            )}
+              ) : (
+                previewUri ? (
+                  <Image source={{ uri: previewUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                ) : (
+                  <RNView style={[StyleSheet.absoluteFill, st.dragDropPlaceholder]} />
+                )
+              )}
 
-            {!overlayOpen && (
-              <>
-                <RNView style={st.positionBadge}>
-                  <Text style={st.positionBadgeText}>{slotIndex + 1}</Text>
-                </RNView>
-                {isMain && (
-                  <RNView style={st.mainBadge}>
-                    <Text style={st.mainBadgeCrown}>👑</Text>
-                    <Text style={st.mainBadgeLabel}>Main</Text>
+              {!overlayOpen && (
+                <>
+                  <RNView style={st.positionBadge}>
+                    <Text style={st.positionBadgeText}>{slotIndex + 1}</Text>
                   </RNView>
-                )}
-              </>
-            )}
+                  {isMain && (
+                    <RNView style={st.mainBadge}>
+                      <Text style={st.mainBadgeCrown}>👑</Text>
+                      <Text style={st.mainBadgeLabel}>Main</Text>
+                    </RNView>
+                  )}
+                </>
+              )}
 
-            {isUploadingTile ? (
-              <RNView style={st.statusOverlay}>
-                <ActivityIndicator color="#fff" />
-                <Text style={st.statusOverlayText}>Uploading…</Text>
-              </RNView>
-            ) : null}
-
-            {isFailedTile ? (
-              <RNView style={st.statusOverlay}>
-                <Ionicons name="alert-circle-outline" size={18} color="#fff" />
-                <Text numberOfLines={2} style={st.statusOverlayText}>
-                  {item.error ?? 'Upload failed'}
-                </Text>
-                <RNView style={st.statusOverlayActions}>
-                  <Pressable
-                    onPress={() => void retryItem(item.id)}
-                    style={({ pressed }) => [
-                      st.statusActionBtn,
-                      pressed && st.statusActionBtnPressed,
-                    ]}
-                  >
-                    <Text style={st.statusActionText}>Retry</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => dismissFailedItem(item.id)}
-                    style={({ pressed }) => [
-                      st.statusActionBtn,
-                      pressed && st.statusActionBtnPressed,
-                    ]}
-                  >
-                    <Text style={st.statusActionText}>
-                      {item.replaceOldPath ? 'Keep current' : 'Remove'}
-                    </Text>
-                  </Pressable>
+              {isUploadingTile ? (
+                <RNView style={st.statusOverlay}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={st.statusOverlayText}>Uploading…</Text>
+                  <RNView style={st.statusOverlayActions}>
+                    <Pressable
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleRemove(item.id);
+                      }}
+                      style={({ pressed }) => [
+                        st.statusActionBtn,
+                        st.statusDeleteActionBtn,
+                        pressed && st.statusDeleteActionBtnPressed,
+                      ]}
+                    >
+                      <Text style={st.statusActionText}>Delete</Text>
+                    </Pressable>
+                  </RNView>
                 </RNView>
-              </RNView>
-            ) : null}
+              ) : null}
 
-            {overlayOpen && (() => {
-              /** Row 1: slots 0–2 (large + stacked pair). Row 2: slots 3–5 (three equal). */
-              const isBottomRowTile = slotIndex >= 3;
+              {isFailedTile ? (
+                <RNView style={st.statusOverlay}>
+                  <Ionicons name="alert-circle-outline" size={18} color="#fff" />
+                  <Text numberOfLines={2} style={st.statusOverlayText}>
+                    {item.error ?? 'Upload failed'}
+                  </Text>
+                  <RNView style={st.statusOverlayActions}>
+                    <Pressable
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void retryItem(item.id);
+                      }}
+                      style={({ pressed }) => [
+                        st.statusActionBtn,
+                        pressed && st.statusActionBtnPressed,
+                      ]}
+                    >
+                      <Text style={st.statusActionText}>Retry</Text>
+                    </Pressable>
+                    {item.replaceOldPath ? (
+                      <Pressable
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          dismissFailedItem(item.id);
+                        }}
+                        style={({ pressed }) => [
+                          st.statusActionBtn,
+                          pressed && st.statusActionBtnPressed,
+                        ]}
+                      >
+                        <Text style={st.statusActionText}>Keep current</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleRemove(item.id);
+                      }}
+                      style={({ pressed }) => [
+                        st.statusActionBtn,
+                        st.statusDeleteActionBtn,
+                        pressed && st.statusDeleteActionBtnPressed,
+                      ]}
+                    >
+                      <Text style={st.statusActionText}>Delete</Text>
+                    </Pressable>
+                  </RNView>
+                </RNView>
+              ) : null}
 
-              const iconBase = (pressed: boolean) => [st.tileIconBtn, pressed && st.tileIconBtnPressed];
+              {overlayOpen && (() => {
+                /** Row 1: slots 0–2 (large + stacked pair). Row 2: slots 3–5 (three equal). */
+                const isBottomRowTile = slotIndex >= 3;
 
-              const actionNodes: React.ReactNode[] = [];
-              if (slotIndex !== 0) {
+                const iconBase = (pressed: boolean) => [st.tileIconBtn, pressed && st.tileIconBtnPressed];
+
+                const actionNodes: React.ReactNode[] = [];
+                if (slotIndex !== 0) {
+                  actionNodes.push(
+                    <Pressable
+                      key="make-main"
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleMakeMain(slotIndex);
+                      }}
+                      style={({ pressed }) => iconBase(pressed)}
+                      accessibilityLabel="Make Main"
+                      hitSlop={6}
+                    >
+                      <Text style={st.tileIconEmoji}>👑</Text>
+                    </Pressable>,
+                  );
+                }
                 actionNodes.push(
                   <Pressable
-                    key="make-main"
-                    onPress={() => handleMakeMain(slotIndex)}
+                    key="expand"
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      setActiveItemId(null);
+                      setFullscreenIndex(slotIndex);
+                    }}
                     style={({ pressed }) => iconBase(pressed)}
-                    accessibilityLabel="Make Main"
+                    accessibilityLabel="View full size"
                     hitSlop={6}
                   >
-                    <Text style={st.tileIconEmoji}>👑</Text>
+                    <Ionicons name="expand-outline" size={15} color="#fff" />
+                  </Pressable>,
+                  <Pressable
+                    key="replace"
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleReplace(item.id, slotIndex);
+                    }}
+                    style={({ pressed }) => iconBase(pressed)}
+                    accessibilityLabel="Replace"
+                    hitSlop={6}
+                  >
+                    <Ionicons name="refresh-outline" size={15} color="#fff" />
+                  </Pressable>,
+                  <Pressable
+                    key="remove"
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleRemove(item.id);
+                    }}
+                    style={({ pressed }) => iconBase(pressed)}
+                    accessibilityLabel="Remove"
+                    hitSlop={6}
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#fff" />
                   </Pressable>,
                 );
-              }
-              actionNodes.push(
-                <Pressable
-                  key="expand"
-                  onPress={() => {
-                    setActiveTileIndex(null);
-                    setFullscreenIndex(slotIndex);
-                  }}
-                  style={({ pressed }) => iconBase(pressed)}
-                  accessibilityLabel="View full size"
-                  hitSlop={6}
-                >
-                  <Ionicons name="expand-outline" size={15} color="#fff" />
-                </Pressable>,
-                <Pressable
-                  key="replace"
-                  onPress={() => handleReplace(slotIndex)}
-                  style={({ pressed }) => iconBase(pressed)}
-                  accessibilityLabel="Replace"
-                  hitSlop={6}
-                >
-                  <Ionicons name="refresh-outline" size={15} color="#fff" />
-                </Pressable>,
-                <Pressable
-                  key="remove"
-                  onPress={() => item && handleRemove(item.id)}
-                  style={({ pressed }) => iconBase(pressed)}
-                  accessibilityLabel="Remove"
-                  hitSlop={6}
-                >
-                  <Ionicons name="trash-outline" size={15} color="#fff" />
-                </Pressable>,
-              );
 
-              const badgeEl = (
-                <RNView style={st.positionBadgeOverlay}>
-                  <Text style={st.positionBadgeText}>{slotIndex + 1}</Text>
-                </RNView>
-              );
+                const badgeEl = (
+                  <RNView style={st.positionBadgeOverlay}>
+                    <Text style={st.positionBadgeText}>{slotIndex + 1}</Text>
+                  </RNView>
+                );
 
-              const mainBadgeEl = isMain ? (
-                <RNView style={st.tileOverlayMainBadge}>
-                  <Text style={st.tileOverlayMainBadgeCrown}>👑</Text>
-                  <Text style={st.tileOverlayMainBadgeLabel}>Main</Text>
-                </RNView>
-              ) : null;
+                const mainBadgeEl = isMain ? (
+                  <RNView style={st.tileOverlayMainBadge}>
+                    <Text style={st.tileOverlayMainBadgeCrown}>👑</Text>
+                    <Text style={st.tileOverlayMainBadgeLabel}>Main</Text>
+                  </RNView>
+                ) : null;
 
-              if (isBottomRowTile) {
-                const mid = Math.ceil(actionNodes.length / 2);
-                const leftCol = actionNodes.slice(0, mid);
-                const rightCol = actionNodes.slice(mid);
+                if (isBottomRowTile) {
+                  const mid = Math.ceil(actionNodes.length / 2);
+                  const leftCol = actionNodes.slice(0, mid);
+                  const rightCol = actionNodes.slice(mid);
+                  return (
+                    <RNView style={[st.tileOverlay, st.tileOverlayBottomVariant]} pointerEvents="box-none">
+                      <RNView style={st.tileOverlayBadgeRowOnly}>{badgeEl}</RNView>
+                      <RNView style={st.tileOverlaySplitCenter}>
+                        <RNView style={st.tileVerticalIconCol}>{leftCol}</RNView>
+                        <RNView style={st.tileVerticalIconCol}>{rightCol}</RNView>
+                      </RNView>
+                      {mainBadgeEl}
+                    </RNView>
+                  );
+                }
+
                 return (
-                  <RNView style={[st.tileOverlay, st.tileOverlayBottomVariant]} pointerEvents="box-none">
-                    <RNView style={st.tileOverlayBadgeRowOnly}>{badgeEl}</RNView>
-                    <RNView style={st.tileOverlaySplitCenter}>
-                      <RNView style={st.tileVerticalIconCol}>{leftCol}</RNView>
-                      <RNView style={st.tileVerticalIconCol}>{rightCol}</RNView>
+                  <RNView style={st.tileOverlay} pointerEvents="box-none">
+                    <RNView style={st.tileOverlayTopRow}>
+                      {badgeEl}
+                      <RNView style={st.tileActionIconsRow}>{actionNodes}</RNView>
                     </RNView>
                     {mainBadgeEl}
                   </RNView>
                 );
-              }
+              })()}
+            </RNView>
+          );
 
-              return (
-                <RNView style={st.tileOverlay} pointerEvents="box-none">
-                  <RNView style={st.tileOverlayTopRow}>
-                    {badgeEl}
-                    <RNView style={st.tileActionIconsRow}>{actionNodes}</RNView>
-                  </RNView>
-                  {mainBadgeEl}
-                </RNView>
-              );
-            })()}
-          </RNView>
-        </GestureDetector>
+          if (item.status === 'ready' && !overlayOpen) {
+            return <GestureDetector gesture={tileGestures[slotIndex]}>{tileBody}</GestureDetector>;
+          }
+
+          if (item.status !== 'ready') {
+            return (
+              <Pressable
+                onPress={() => {
+                  setSelectedItemId(item.id);
+                  setActiveItemId(null);
+                }}
+                style={{ flex: 1 }}
+              >
+                {tileBody}
+              </Pressable>
+            );
+          }
+
+          return tileBody;
+        })()}
       </RNView>
     );
   };
@@ -1459,7 +1549,7 @@ export default function PhotoManageDrawer({
               scrollEnabled={draggingIndex === null}
               keyboardShouldPersistTaps="handled"
               onScrollBeginDrag={() => {
-                if (activeTileIndex !== null) setActiveTileIndex(null);
+                if (activeItemId !== null) setActiveItemId(null);
               }}
             >
               {/* ── Header ── */}
@@ -1481,7 +1571,7 @@ export default function PhotoManageDrawer({
                 style={st.filmstrip}
                 scrollEnabled={draggingIndex === null}
                 onScrollBeginDrag={() => {
-                  if (activeTileIndex !== null) setActiveTileIndex(null);
+                  if (activeItemId !== null) setActiveItemId(null);
                 }}
               >
                 {displayItems.map((item, index) => {
@@ -1491,13 +1581,17 @@ export default function PhotoManageDrawer({
                     <Pressable
                       key={`fs-${index}-${item.id}`}
                       onPress={() => {
-                        setSelectedIndex(index);
-                        setActiveTileIndex(item.status === 'ready' ? index : null);
+                        setSelectedItemId(item.id);
+                        setActiveItemId((prev) =>
+                          item.status === 'ready'
+                            ? (prev === item.id ? null : item.id)
+                            : null,
+                        );
                       }}
                       style={[
                         st.filmstripThumb,
-                        selectedIndex === index && st.filmstripThumbActive,
-                        selectedIndex !== index && { opacity: 0.55 },
+                        selectedItemId === item.id && st.filmstripThumbActive,
+                        selectedItemId !== item.id && { opacity: 0.55 },
                       ]}
                     >
                       <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
@@ -1529,7 +1623,7 @@ export default function PhotoManageDrawer({
                   >
                     <Pressable
                       onPress={() => {
-                        setActiveTileIndex(null);
+                        setActiveItemId(null);
                         filmstripAddTriggerRefs.current[i]?.measureInWindow((x, y, width, height) => {
                           openAddSourcePicker(undefined, { x, y, width, height });
                         });
@@ -1826,6 +1920,12 @@ const st = StyleSheet.create({
   },
   statusActionBtnPressed: {
     backgroundColor: 'rgba(255,255,255,0.24)',
+  },
+  statusDeleteActionBtn: {
+    backgroundColor: 'rgba(239,68,68,0.28)',
+  },
+  statusDeleteActionBtnPressed: {
+    backgroundColor: 'rgba(239,68,68,0.4)',
   },
   statusActionText: {
     fontSize: 11,
