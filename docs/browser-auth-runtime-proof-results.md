@@ -3,7 +3,37 @@
 Date: 2026-04-08  
 Branch: `qa/fresh-vibe-upload-processing-proof`
 
-> **Status (2026-04-11):** This file is **historical evidence** for the branch and date above. Neither the earlier hardening pass nor the **final closure sprint** on branch `hardening/final-closure-sprint` re-ran Playwright or refreshed authenticated browser screenshots. Those sprints re-ran **typecheck**, **web build**, and (final sprint) a small **ESLint** reduction. For closure boundaries see `docs/repo-hardening-closure-2026-04-11.md`, `docs/hardening-final-closure-sprint-2026-04-11.md`, and `docs/rebuild-rehearsal-log.md` §9–§10.
+> **Evidence split:** Sections **1–3+** below are the **frozen narrative** from the 2026-04-08 proof branch. **§ “Fresh re-run — 2026-04-11”** is **new** authenticated Playwright output from the **final proof sprint** (runtime only). It does **not** supersede the older matrix for flows that the script did not exercise in 2026-04-11.
+
+---
+
+## Fresh re-run — 2026-04-11 (final proof sprint, runtime only)
+
+| Field | Value |
+|-------|--------|
+| **Command** | `npm run proof:browser-auth` → `node scripts/browser-auth-runtime-proof.mjs` |
+| **Environment** | Local Playwright (headless Chromium + copied macOS Chrome profile); target **production** `https://www.vibelymeet.com` |
+| **Exit code** | **0** |
+| **Auth model** | Existing **email/password (or prior OAuth) session** in the copied Chrome profile — **not** a Sign in with Apple run |
+
+**What this run exercised (from emitted JSON):**
+
+- **Schedule:** Availability UI; save path; intentional forced-failure / rollback / cleanup (`forcedFailureHit: true`, `proof_forced_failure`); screenshots under temp `browser-auth-runtime-proof/`.
+- **Referrals:** `/settings/referrals` loaded; canonical invite URL and copy text present.
+- **Invite landing:** `/auth?ref=…` with `ref` stored.
+- **OneSignal:** Dashboard load; permission state; worker registration; subscription / OneSignal user ids in artifact JSON.
+- **Vibe Studio:** Authenticated shell text sample and screenshot path recorded.
+
+**Explicitly not executed by this harness (no claim of pass/fail):**
+
+- **Sign in with Apple** (web or native)
+- **Email verification:** send OTP, inbox delivery, verify OTP
+- **Native** app (Expo) flows
+- **`npm run proof:smoke-bootstrap`** / **`proof:vibe-upload-processing`** (not re-run in this sprint)
+
+**Operator note:** Full JSON and PNG paths are written to the temp directory printed by the script (typically under the OS temp folder). Treat user id / email in those artifacts as sensitive.
+
+---
 
 ## 1. Summary
 

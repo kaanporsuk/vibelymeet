@@ -142,4 +142,10 @@ Open gap for remote migration-parity replay because the documented helper requir
 - **Isolation:** Unrelated product edits were **git stash**’d before this sprint; see `docs/hardening-final-closure-sprint-2026-04-11.md` for paths.
 - **Re-ran:** `npm run typecheck`, `npm run build`, `npm run lint` (warning count 274 → 268 after targeted fixes).
 - **Not re-ran:** Playwright `proof:browser-auth`, fresh smoke bootstrap, Supabase migration parity (`SUPABASE_DB_URL` still absent in typical workspace), Sign in with Apple end-to-end on web/native.
-- **Docs touched this sprint:** `docs/active-doc-map.md`, `docs/vibely-canonical-project-reference.md`, `docs/browser-auth-runtime-proof-results.md` (status banner only), this file, `docs/hardening-final-closure-sprint-2026-04-11.md`, `_cursor_context/vibely_rebuild_runbook.md` (historical banner).
+- **Docs touched (closure sprint):** `docs/active-doc-map.md`, `docs/vibely-canonical-project-reference.md`, `docs/browser-auth-runtime-proof-results.md` (status banner only), this file, `docs/hardening-final-closure-sprint-2026-04-11.md`, `_cursor_context/vibely_rebuild_runbook.md` (historical banner). **Follow-up:** final proof sprint updated `docs/browser-auth-runtime-proof-results.md` again — see §11.
+
+## 11. Final proof sprint — runtime refresh (2026-04-11)
+
+- **Re-ran:** `npm run proof:browser-auth` — **exit 0** (Playwright against production web with copied Chrome profile). Evidence table: `docs/browser-auth-runtime-proof-results.md` § “Fresh re-run — 2026-04-11”.
+- **Not re-run:** `proof:smoke-bootstrap`, `proof:vibe-upload-processing`, Supabase parity helper, native builds.
+- **Not executable in automation here:** Sign in with Apple + email OTP send/receive/verify on web and native (requires human Apple ID + mail access + device/simulator).
