@@ -150,7 +150,7 @@ export function usePhotoBatchController({
   maxPhotos = MAX_PHOTOS_DEFAULT,
 }: UsePhotoBatchControllerOptions) {
   const [items, setItems] = useState<PhotoDraftItem[]>(() => initialPhotos.map(createExistingDraft));
-  const [activeUploadCount, setActiveUploadCount] = useState(0);
+  const [activeUploadIds, setActiveUploadIds] = useState<Set<string>>(() => new Set());
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const isMountedRef = useRef(true);
@@ -169,7 +169,7 @@ export function usePhotoBatchController({
     sessionVersionRef.current += 1;
     initialPathsRef.current = nextPhotos;
     if (isMountedRef.current) {
-      setActiveUploadCount(0);
+      setActiveUploadIds(new Set());
     }
     setItems(nextPhotos.map(createExistingDraft));
   }, []);
@@ -182,7 +182,7 @@ export function usePhotoBatchController({
 
   const filledCount = items.length;
   const remainingSlots = Math.max(0, maxPhotos - filledCount);
-  const isUploading = activeUploadCount > 0;
+  const isUploading = activeUploadIds.size > 0;
   const hasFailures = items.some((item) => item.status === 'failed');
   const isExitUnsafe = isUploading || hasFailures;
   const hasChanges = useMemo(() => {
@@ -195,11 +195,12 @@ export function usePhotoBatchController({
     async (
       draftId: string,
       asset: PhotoUploadAsset,
-      replaceOldPath: string | null,
       expectedVersion: number,
     ) => {
       try {
-        const path = await uploadProfilePhoto(asset, replaceOldPath, context);
+        // Keep replaceOldPath local only so staged replaces remain draft-safe
+        // until publish_photo_set commits the final gallery.
+        const path = await uploadProfilePhoto(asset, context);
         if (!isMountedRef.current || expectedVersion !== sessionVersionRef.current) return;
         setItems((prev) => {
           const index = prev.findIndex((item) => item.id === draftId);
@@ -233,7 +234,12 @@ export function usePhotoBatchController({
         });
       } finally {
         if (isMountedRef.current && expectedVersion === sessionVersionRef.current) {
-          setActiveUploadCount((prev) => Math.max(0, prev - 1));
+          setActiveUploadIds((prev) => {
+            if (!prev.has(draftId)) return prev;
+            const next = new Set(prev);
+            next.delete(draftId);
+            return next;
+          });
         }
       }
     },
@@ -272,10 +278,14 @@ export function usePhotoBatchController({
 
       const stagedItems = assets.map((asset) => createPendingDraft(asset, origin));
       const expectedVersion = sessionVersionRef.current;
-      setActiveUploadCount((prev) => prev + stagedItems.length);
+      setActiveUploadIds((prev) => {
+        const next = new Set(prev);
+        stagedItems.forEach((item) => next.add(item.id));
+        return next;
+      });
       setItems((prev) => [...prev, ...stagedItems]);
       stagedItems.forEach((item, index) => {
-        void startUpload(item.id, assets[index], null, expectedVersion);
+        void startUpload(item.id, assets[index], expectedVersion);
       });
     },
     [startUpload, trimAssetsToRemaining],
@@ -286,7 +296,11 @@ export function usePhotoBatchController({
       const target = itemsRef.current[index];
       if (!target) return;
       const expectedVersion = sessionVersionRef.current;
-      setActiveUploadCount((prev) => prev + 1);
+      setActiveUploadIds((prev) => {
+        const next = new Set(prev);
+        next.add(target.id);
+        return next;
+      });
       setItems((prev) => {
         if (!prev[index]) return prev;
         const next = [...prev];
@@ -301,7 +315,7 @@ export function usePhotoBatchController({
         };
         return next;
       });
-      void startUpload(target.id, asset, target.storagePath, expectedVersion);
+      void startUpload(target.id, asset, expectedVersion);
     },
     [startUpload],
   );
@@ -470,10 +484,25 @@ export function usePhotoBatchController({
   }, []);
 
   const removeAtIndex = useCallback((index: number) => {
+    const target = itemsRef.current[index];
+    if (target) {
+      setActiveUploadIds((prev) => {
+        if (!prev.has(target.id)) return prev;
+        const next = new Set(prev);
+        next.delete(target.id);
+        return next;
+      });
+    }
     setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
   const removeById = useCallback((id: string) => {
+    setActiveUploadIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     setItems((prev) => prev.filter((item) => item.id !== id));
   }, []);
 
@@ -482,7 +511,11 @@ export function usePhotoBatchController({
       const current = itemsRef.current.find((item) => item.id === draftId);
       if (!current || current.status !== 'failed' || !current.sourceAsset) return;
       const expectedVersion = sessionVersionRef.current;
-      setActiveUploadCount((prev) => prev + 1);
+      setActiveUploadIds((prev) => {
+        const next = new Set(prev);
+        next.add(draftId);
+        return next;
+      });
       setItems((prev) =>
         prev.map((item) =>
           item.id === draftId
@@ -492,9 +525,9 @@ export function usePhotoBatchController({
                 error: null,
               }
             : item,
-        ),
+          ),
       );
-      void startUpload(draftId, current.sourceAsset, current.replaceOldPath, expectedVersion);
+      void startUpload(draftId, current.sourceAsset, expectedVersion);
     },
     [startUpload],
   );

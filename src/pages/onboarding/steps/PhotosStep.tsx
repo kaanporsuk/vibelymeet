@@ -23,15 +23,19 @@ interface PhotosStepProps {
   onPhotosChange: (v: string[]) => void;
   onNext: () => void;
   userId: string;
+  onBusyStateChange?: (busy: boolean) => void;
 }
 
-export const PhotosStep = ({ photos, onPhotosChange, onNext }: PhotosStepProps) => {
+export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }: PhotosStepProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
 
   // Always-current photos ref so async callbacks don't capture stale prop value
   const photosRef = useRef(photos);
   useEffect(() => { photosRef.current = photos; }, [photos]);
+
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
 
   // Track all blob URLs so we can revoke them on unmount
   const blobUrlsRef = useRef<string[]>([]);
@@ -44,21 +48,38 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext }: PhotosStepProps) 
     blobUrlsRef.current = blobUrlsRef.current.filter((u) => u !== url);
   }, []);
 
+  const isQueueItemActive = useCallback(
+    (itemId: string, status?: QueueItem["status"]) => {
+      const item = queueRef.current.find((queued) => queued.id === itemId);
+      if (!item) return false;
+      return status ? item.status === status : true;
+    },
+    [],
+  );
+
   const uploadItem = useCallback(async (item: QueueItem, session: { access_token: string }) => {
     try {
-      const path = await uploadImageToBunny(item.file, session.access_token, null, "onboarding");
+      const path = await uploadImageToBunny(item.file, session.access_token, "onboarding");
+      if (!isQueueItemActive(item.id, "uploading")) {
+        revokeBlob(item.preview);
+        return null;
+      }
+
       // Remove from queue — success lands in parent's photos via caller
       setQueue((prev) => prev.filter((q) => q.id !== item.id));
       revokeBlob(item.preview);
       return path;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Upload failed";
+      if (!isQueueItemActive(item.id, "uploading")) {
+        return null;
+      }
       setQueue((prev) =>
         prev.map((q) => (q.id === item.id ? { ...q, status: "failed" as const, error: msg } : q))
       );
       return null;
     }
-  }, [revokeBlob]);
+  }, [isQueueItemActive, revokeBlob]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -66,7 +87,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext }: PhotosStepProps) 
     if (!files.length) return;
 
     const currentPhotos = photosRef.current;
-    const currentQueue = queue; // snapshot — set state will supersede
+    const currentQueue = queueRef.current;
     const totalOccupied = currentPhotos.length + currentQueue.length;
     const available = MAX_PHOTOS - totalOccupied;
 
@@ -103,10 +124,10 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext }: PhotosStepProps) 
     if (newPaths.length > 0) {
       onPhotosChange([...photosRef.current, ...newPaths]);
     }
-  }, [queue, uploadItem, onPhotosChange, revokeBlob]);
+  }, [uploadItem, onPhotosChange, revokeBlob]);
 
   const retryItem = useCallback(async (itemId: string) => {
-    const item = queue.find((q) => q.id === itemId);
+    const item = queueRef.current.find((q) => q.id === itemId);
     if (!item) return;
 
     setQueue((prev) =>
@@ -126,7 +147,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext }: PhotosStepProps) 
     if (path) {
       onPhotosChange([...photosRef.current, path]);
     }
-  }, [queue, uploadItem, onPhotosChange]);
+  }, [uploadItem, onPhotosChange]);
 
   const removeQueued = useCallback((itemId: string) => {
     setQueue((prev) => {
@@ -141,19 +162,33 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext }: PhotosStepProps) 
   }, [photos, onPhotosChange]);
 
   const hasUploading = queue.some((q) => q.status === "uploading");
-  const canContinue = photos.length >= MIN_PHOTOS && !hasUploading;
+  const hasFailures = queue.some((q) => q.status === "failed");
+  const isExitUnsafe = hasUploading || hasFailures;
+  const canContinue = photos.length >= MIN_PHOTOS && !isExitUnsafe;
+
+  useEffect(() => {
+    onBusyStateChange?.(isExitUnsafe);
+  }, [isExitUnsafe, onBusyStateChange]);
+
+  useEffect(() => {
+    return () => {
+      onBusyStateChange?.(false);
+    };
+  }, [onBusyStateChange]);
 
   const totalDisplayed = photos.length + queue.length;
   const emptySlots = Math.max(0, MAX_PHOTOS - totalDisplayed);
 
   const buttonLabel =
-    photos.length === 0
-      ? "Add at least 2 photos"
-      : photos.length === 1
-        ? "Add 1 more photo"
-        : hasUploading
-          ? "Uploading…"
-          : "Continue";
+    hasUploading
+      ? "Uploading…"
+      : hasFailures
+        ? "Resolve failed uploads"
+        : photos.length === 0
+          ? "Add at least 2 photos"
+          : photos.length === 1
+            ? "Add 1 more photo"
+            : "Continue";
 
   return (
     <div className="flex flex-col gap-6 pt-8">

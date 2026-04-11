@@ -37,8 +37,14 @@ serve(async (req) => {
 
     const formData = await req.formData();
     const file = formData.get("file") as File;
+    // Legacy compatibility only. Draft-safe photo replace keeps the currently
+    // published asset intact until final publish_photo_set / finalize_onboarding.
     const oldPath = formData.get("old_path") as string | null;
     const context = (formData.get("context") as string) || "profile_studio";
+    const safeReplacedPath =
+      typeof oldPath === "string" && oldPath.startsWith(`photos/${user.id}/`)
+        ? oldPath
+        : null;
 
     if (!file) {
       return json({ success: false, error: "No file provided" });
@@ -104,7 +110,12 @@ serve(async (req) => {
           p_user_id: user.id,
           p_media_type: "photo",
           p_provider_id: storagePath,
-          p_provider_meta: { storageZone, fileType: file.type, fileSize: file.size },
+          p_provider_meta: {
+            storageZone,
+            fileType: file.type,
+            fileSize: file.size,
+            ...(safeReplacedPath ? { replacesStoragePath: safeReplacedPath } : {}),
+          },
           p_context: context === "onboarding" ? "onboarding" : "profile_studio",
           p_storage_path: storagePath,
         },
@@ -127,28 +138,6 @@ serve(async (req) => {
       }
     } catch (e) {
       console.error("[upload-image] session tracking error:", e);
-    }
-
-    // ── Mark old photo session as deleted if replacing ────────────────────────
-    if (oldPath && oldPath.startsWith(`photos/${user.id}/`)) {
-      // Delete from Bunny Storage
-      await fetch(
-        `https://${storageHostname}/${storageZone}/${oldPath}`,
-        {
-          method: "DELETE",
-          headers: { "AccessKey": apiKey },
-        }
-      ).catch(err => console.warn("[upload-image] Failed to delete old file:", err));
-
-      // Mark the old photo's session as deleted
-      try {
-        await adminSupabase.rpc("mark_photo_deleted", {
-          p_user_id: user.id,
-          p_storage_path: oldPath,
-        });
-      } catch (e) {
-        console.error("[upload-image] old session cleanup error:", e);
-      }
     }
 
     return json({ success: true, path: storagePath, sessionId });

@@ -1,21 +1,19 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
+export type UploadImageContext = "onboarding" | "profile_studio";
+
 export async function uploadImageToBunny(
   file: File,
   accessToken: string,
-  oldPath?: string | null,
-  context?: "onboarding" | "profile_studio",
+  context?: UploadImageContext,
 ): Promise<string> {
   const formData = new FormData();
   formData.append("file", file);
-  if (oldPath) {
-    formData.append("old_path", oldPath);
-  }
   if (context) {
     formData.append("context", context);
   }
 
-  let data: any;
+  let data: { success?: boolean; path?: string; error?: string };
   try {
     const res = await fetch(
       `${SUPABASE_URL}/functions/v1/upload-image`,
@@ -45,6 +43,10 @@ export async function uploadImageToBunny(
 
   if (!data.success) {
     throw new Error(data.error || "Image upload failed");
+  }
+
+  if (!data.path) {
+    throw new Error("Image upload failed");
   }
 
   return data.path; // Returns "photos/{userId}/{timestamp}.jpg"

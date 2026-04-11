@@ -60,7 +60,7 @@ type FailedUpload = {
   file: File;
   preview: string;
   error: string;
-  /** When the failure happened during a Replace, this holds the old CDN path */
+  /** Local-only marker so failed staged Replace can revert to the current photo */
   replaceOldPath?: string;
 };
 
@@ -80,6 +80,7 @@ interface SortableTileProps {
   url: string | null;
   index: number;
   isMain: boolean;
+  interactionsDisabled: boolean;
   uploading: boolean;
   /** Blob URL shown as thumbnail while upload is in-flight (before CDN path is ready) */
   previewUrl?: string;
@@ -100,6 +101,7 @@ function SortableTile({
   url,
   index,
   isMain,
+  interactionsDisabled,
   uploading,
   previewUrl,
   failed,
@@ -119,7 +121,7 @@ function SortableTile({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id, disabled: !url });
+  } = useSortable({ id, disabled: !url || interactionsDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -183,7 +185,7 @@ function SortableTile({
       style={style}
       className={cn(
         "group relative rounded-xl overflow-hidden w-full h-full",
-        isPreviewOnly ? "cursor-default" : "cursor-grab active:cursor-grabbing",
+        isPreviewOnly || interactionsDisabled ? "cursor-default" : "cursor-grab active:cursor-grabbing",
       )}
       {...attributes}
       {...(isPreviewOnly ? {} : listeners)}
@@ -224,7 +226,7 @@ function SortableTile({
       )}
 
       {/* Hover overlay — only shown for committed photos */}
-      {!isPreviewOnly && (
+      {!isPreviewOnly && !interactionsDisabled && (
       <div
         className={cn(
           "absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all duration-200 p-2 opacity-0 group-hover:opacity-100",
@@ -555,14 +557,22 @@ export default function PhotoManageDrawer({
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
 
   const initialPhotosRef = useRef<string[]>(photos);
+  const photosRef = useRef(photos);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replaceIndexRef = useRef<number | null>(null);
+  photosRef.current = photos;
+
+  const hasTransientSlots = uploadingSlots.size > 0 || failedSlots.size > 0;
+  const transientSlotsMessage = uploadingSlots.size > 0
+    ? "Finish current photo uploads first"
+    : "Retry or remove failed photo uploads first";
 
   useEffect(() => {
     if (isOpen) {
-      setLocalPhotos(photos);
-      initialPhotosRef.current = photos;
+      const latestPhotos = photosRef.current;
+      setLocalPhotos(latestPhotos);
+      initialPhotosRef.current = latestPhotos;
       setSelectedIndex(0);
       setConfirmRemoveIndex(null);
       setShowDiscardConfirm(false);
@@ -578,7 +588,9 @@ export default function PhotoManageDrawer({
       });
       setUploadingSlots(new Set());
     }
-  }, [isOpen, photos]);
+    // `photos` is intentionally excluded so a refetch while the drawer is open
+    // does not wipe staged edits mid-session.
+  }, [isOpen]);
 
   const filledCount = localPhotos.length;
   const coaching = useMemo(() => getCoachingMessage(filledCount), [filledCount]);
@@ -613,10 +625,15 @@ export default function PhotoManageDrawer({
   // ── Drag handlers ────────────────────────────────────────────
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    if (hasTransientSlots) return;
     setActiveId(String(event.active.id));
-  }, []);
+  }, [hasTransientSlots]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
+    if (hasTransientSlots) {
+      setActiveId(null);
+      return;
+    }
     setActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -625,11 +642,16 @@ export default function PhotoManageDrawer({
     if (oldIndex < localPhotos.length && newIndex < localPhotos.length) {
       setLocalPhotos((prev) => arrayMove(prev, oldIndex, newIndex));
     }
-  }, [slotIds, localPhotos.length]);
+  }, [hasTransientSlots, slotIds, localPhotos.length]);
 
   // ── Upload ───────────────────────────────────────────────────
 
   const uploadFiles = useCallback(async (files: File[], replaceIndex?: number) => {
+    if (hasTransientSlots) {
+      toast.error(transientSlotsMessage);
+      return;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("Not authenticated"); return; }
 
@@ -645,14 +667,14 @@ export default function PhotoManageDrawer({
     if (replaceIndex !== undefined) {
       const file = validFiles[0];
       const preview = URL.createObjectURL(file);
+      const oldPath = localPhotos[replaceIndex];
       blobUrlsRef.current.push(preview);
       // Clear any prior failure on this slot
       setFailedSlots((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
       setPendingPreviews((prev) => new Map(prev).set(replaceIndex, preview));
       setUploadingSlots((prev) => new Set(prev).add(replaceIndex));
       try {
-        const oldPath = localPhotos[replaceIndex];
-        const path = await uploadImageToBunny(file, session.access_token, oldPath);
+        const path = await uploadImageToBunny(file, session.access_token, "profile_studio");
         setLocalPhotos((prev) => { const next = [...prev]; next[replaceIndex] = path; return next; });
         // Success — clean up preview
         setPendingPreviews((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
@@ -665,7 +687,7 @@ export default function PhotoManageDrawer({
           file,
           preview,
           error: msg,
-          replaceOldPath: localPhotos[replaceIndex],
+          replaceOldPath: oldPath,
         }));
       } finally {
         setUploadingSlots((prev) => { const next = new Set(prev); next.delete(replaceIndex); return next; });
@@ -712,7 +734,7 @@ export default function PhotoManageDrawer({
       toUpload.map(async (file, i): Promise<SlotResult> => {
         const slot = slotIndices[i];
         try {
-          const path = await uploadImageToBunny(file, session.access_token, undefined);
+          const path = await uploadImageToBunny(file, session.access_token, "profile_studio");
           return { slot, path, file, preview: previews[i] };
         } catch (err) {
           const msg = err instanceof Error ? err.message : `${file.name} failed to upload`;
@@ -753,9 +775,15 @@ export default function PhotoManageDrawer({
     if (newFailures.size > 0) {
       setFailedSlots((prev) => new Map([...prev, ...newFailures]));
     }
-  }, [localPhotos, failedSlots, revokePreview]);
+  }, [failedSlots, hasTransientSlots, localPhotos, revokePreview, transientSlotsMessage]);
 
-  const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
+  const openFilePicker = useCallback(() => {
+    if (hasTransientSlots) {
+      toast.error(transientSlotsMessage);
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [hasTransientSlots, transientSlotsMessage]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -788,7 +816,7 @@ export default function PhotoManageDrawer({
       const path = await uploadImageToBunny(
         failed.file,
         session.access_token,
-        failed.replaceOldPath ?? undefined,
+        "profile_studio",
       );
 
       if (failed.replaceOldPath !== undefined) {
@@ -818,6 +846,7 @@ export default function PhotoManageDrawer({
   // ── Tile actions ─────────────────────────────────────────────
 
   const handleMakeMain = useCallback((index: number) => {
+    if (hasTransientSlots) return;
     setLocalPhotos((prev) => {
       const next = [...prev];
       const [item] = next.splice(index, 1);
@@ -825,16 +854,18 @@ export default function PhotoManageDrawer({
       return next;
     });
     toast.success("Photo set as main");
-  }, []);
+  }, [hasTransientSlots]);
 
   const handleReplace = useCallback((index: number) => {
+    if (hasTransientSlots) return;
     replaceIndexRef.current = index;
     setTimeout(() => replaceInputRef.current?.click(), 100);
-  }, []);
+  }, [hasTransientSlots]);
 
   const handleDelete = useCallback((index: number) => {
+    if (hasTransientSlots) return;
     setConfirmRemoveIndex(index);
-  }, []);
+  }, [hasTransientSlots]);
 
   const confirmRemove = useCallback(() => {
     if (confirmRemoveIndex !== null) {
@@ -986,6 +1017,7 @@ export default function PhotoManageDrawer({
                         url={localPhotos[0] ?? null}
                         index={0}
                         isMain={!!localPhotos[0]}
+                        interactionsDisabled={hasTransientSlots}
                         uploading={uploadingSlots.has(0)}
                         previewUrl={pendingPreviews.get(0)}
                         failed={failedSlots.get(0)}
@@ -1004,6 +1036,7 @@ export default function PhotoManageDrawer({
                         url={localPhotos[1] ?? null}
                         index={1}
                         isMain={false}
+                        interactionsDisabled={hasTransientSlots}
                         uploading={uploadingSlots.has(1)}
                         previewUrl={pendingPreviews.get(1)}
                         failed={failedSlots.get(1)}
@@ -1020,6 +1053,7 @@ export default function PhotoManageDrawer({
                         url={localPhotos[2] ?? null}
                         index={2}
                         isMain={false}
+                        interactionsDisabled={hasTransientSlots}
                         uploading={uploadingSlots.has(2)}
                         previewUrl={pendingPreviews.get(2)}
                         failed={failedSlots.get(2)}
@@ -1043,6 +1077,7 @@ export default function PhotoManageDrawer({
                         url={localPhotos[i] ?? null}
                         index={i}
                         isMain={false}
+                        interactionsDisabled={hasTransientSlots}
                         uploading={uploadingSlots.has(i)}
                         previewUrl={pendingPreviews.get(i)}
                         failed={failedSlots.get(i)}
@@ -1066,6 +1101,7 @@ export default function PhotoManageDrawer({
                         url={activeUrl}
                         index={activeIndex}
                         isMain={activeIndex === 0}
+                        interactionsDisabled
                         uploading={false}
                         onMakeMain={() => {}}
                         onExpand={() => {}}
