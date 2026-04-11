@@ -24,7 +24,7 @@ import Profile from "./pages/Profile";
 import ProfilePreview from "./pages/ProfilePreview";
 import Settings from "./pages/Settings";
 import VideoDate from "./pages/VideoDate";
-import ReadyGate from "./pages/ReadyRedirect";
+import ReadyRedirect from "./pages/ReadyRedirect";
 import AdminCreateEvent from "./pages/AdminCreateEvent";
 import MatchCelebration from "./pages/MatchCelebration";
 import VibeStudio from "./pages/VibeStudio";
@@ -142,7 +142,7 @@ const App = () => (
                 <Route path="/settings/referrals" element={<ProtectedRoute><Referrals /></ProtectedRoute>} />
                 <Route path="/settings/ticket/:id" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
                 <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
-                <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyGate /></ProtectedRoute>} />
+                <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyRedirect /></ProtectedRoute>} />
                 <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
                 <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
                 <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />

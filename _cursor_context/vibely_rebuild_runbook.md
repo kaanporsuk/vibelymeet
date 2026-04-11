@@ -520,7 +520,7 @@ Authenticated:
 - `/profile`
 - `/settings`
 - `/date/:id`
-- `/ready/:id`
+- `/ready/:readyId` — **`ReadyRedirect`** (session/event resolution → event lobby); not a standalone ready-gate page (see `docs/repo-hardening-closure-2026-04-11.md`)
 - `/schedule`
 - `/credits`
 - `/credits/success`
@@ -535,9 +535,9 @@ Admin:
 
 ### Route caveats
 
-- `src/pages/VideoLobby.tsx` exists but is **not** routed.
+- **`src/pages/VideoLobby.tsx` — removed 2026-04-11** (was unrouted dead surface; see `docs/repo-hardening-closure-2026-04-11.md`). **Do not expect this file** in a fresh checkout.
 - `/vibe-studio` is a dedicated studio surface (web + native) and should be treated as a first-class management route.
-- `/vibe-feed` contains mock/sample media and is not evidence of a production-wired feature.
+- **`/vibe-feed` / `VibeFeed`** — named in older audits; **not present** in current `src/App.tsx` / `src/pages/`. Treat mock-feed references as **historical** unless the route is re-added.
 
 ---
 
@@ -697,7 +697,7 @@ A rebuild should not be considered complete until all of the following are true:
 ## 21. Operator notes
 
 - Prefer **rebuild by preservation**, not opportunistic cleanup.
-- Do not remove files like `VideoLobby.tsx` merely because they are unrouted; document first, then decide.
+- **`VideoLobby.tsx` was removed in 2026-04-11** after documentation (`docs/repo-hardening-closure-2026-04-11.md`) — the old “unrouted but keep” warning applied **before** that removal; do not reintroduce without product need.
 - All 28 functions are in config.toml (post-hardening); no exceptions.
 - Treat the root `.env` as historical artifact, not source of truth.
 - After any successful rebuild, immediately generate updated manifests and a rebuild delta so the next operator is not relying on memory.
