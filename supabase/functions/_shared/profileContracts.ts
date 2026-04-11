@@ -1,5 +1,31 @@
 import type { AuthUserId } from "./identity";
 
+/**
+ * Post-onboarding profile rows must not receive `location`, `location_data`, or `country`
+ * via PostgREST `profiles.update` / client upserts. The canonical write path is
+ * `update_profile_location` (see migrations `20260416100000_canonical_location_model.sql`).
+ */
+const FORBIDDEN_DIRECT_PROFILE_LOCATION_WRITE_KEYS = new Set([
+  "location",
+  "locationData",
+  "location_data",
+  "country",
+]);
+
+/**
+ * Runtime guard for web (`profileService`) and native (`profileApi`) generic updaters.
+ * Throws if a caller passes disallowed keys (including via `as any`).
+ */
+export function assertNoDirectProfileLocationWrites(updates: Record<string, unknown>): void {
+  for (const key of FORBIDDEN_DIRECT_PROFILE_LOCATION_WRITE_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(updates, key)) continue;
+    if (updates[key] === undefined) continue;
+    throw new Error(
+      `profiles: direct write to "${key}" is forbidden; use update_profile_location RPC.`,
+    );
+  }
+}
+
 export const DEFAULT_BOOTSTRAP_AGE = 18;
 export const DEFAULT_BOOTSTRAP_GENDER = "prefer_not_to_say";
 

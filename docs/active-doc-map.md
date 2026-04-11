@@ -23,6 +23,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 |---|---|
 | Launch blocker status, build ids, pass/fail updates | `docs/native-final-blocker-matrix.md` |
 | Browser/runtime proof results | `docs/browser-auth-runtime-proof-results.md` |
+| Post-audit ops checklist (Supabase vs Vercel vs manual QA) | `docs/post-audit-operational-verification-checklist.md` |
 | Fresh smoke bootstrap method and proof boundaries | `docs/fresh-smoke-proof-bootstrap.md` |
 | Proof policy and rebuild-proof context | `docs/authenticated-proof-and-rebuild-plan.md` |
 | Clean rebuild rehearsal log | `docs/rebuild-rehearsal-log.md` |
@@ -64,7 +65,7 @@ These remain in-repo for audit history, provenance, or deep context, but they ar
 - `docs/native-web-handoff-burndown.md` — historical scope/handoff reference, still cited only for accepted web handoffs
 - `_cursor_context/vibely_rebuild_runbook.md` — canonical for frozen web rebuild only, not native launch closure (banner at top notes 2026-04-11 removals)
 - `_cursor_context/vibely_discrepancy_report.md` — historical rebuild audit
-- **Other `_cursor_context/*.md` files** — audit/snapshot provenance; they may still name removed pages (`VideoLobby.tsx`, standalone `ReadyGate.tsx`) or Lovable-era hosting. Do not treat them as current route or deploy truth without cross-checking `docs/repo-hardening-closure-2026-04-11.md` and the live `src/App.tsx` route table.
+- **`_cursor_context/vibely_golden_snapshot_audited.md`** and **`_cursor_context/vibely_rebuild_runbook.md`** — include a **2026-04-11** alignment note for `/ready/:readyId` → `ReadyRedirect` and removed unrouted surfaces; still **verify** against `src/App.tsx` for any older § inventory counts. **Other `_cursor_context/*.md` files** — audit/snapshot provenance; some may still name Lovable-era hosting or pre-removal paths. Do not treat them as current route or deploy truth without cross-checking `docs/repo-hardening-closure-2026-04-11.md` and the live `src/App.tsx` route table.
 - `docs/_archive/historical/vibely_golden_snapshot_audited_duplicate_2026-04-11.md` — archived duplicate copy; use `_cursor_context/vibely_golden_snapshot_audited.md`
 
 ---

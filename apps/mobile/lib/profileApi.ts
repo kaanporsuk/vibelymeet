@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { normalizeRelationshipIntent } from '@shared/profileContracts';
+import { assertNoDirectProfileLocationWrites, normalizeRelationshipIntent } from '@shared/profileContracts';
 import type { EventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 
@@ -245,12 +245,12 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
   }
 }
 
-export async function updateMyProfile(updates: Partial<{
+/** Generic profile patch fields — excludes location columns (use `update_profile_location` RPC). */
+export type NativeProfileUpdatePayload = Partial<{
   name: string;
   gender: string;
   interested_in: string[];
   tagline: string;
-  location: string;
   job: string;
   company: string;
   about_me: string;
@@ -263,21 +263,22 @@ export async function updateMyProfile(updates: Partial<{
   vibe_caption: string | null;
   birth_date: string | null;
   height_cm: number | null;
-  location_data: { lat: number; lng: number } | null;
   /** Vibe tag labels — persisted via `profile_vibes` + `vibe_tags` (not a column on `profiles`). */
   vibes: string[];
   preferred_age_min: number | null;
   preferred_age_max: number | null;
   event_discovery_prefs: EventDiscoveryPrefs;
-}>): Promise<void> {
+}>;
+
+export async function updateMyProfile(updates: NativeProfileUpdatePayload): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
+  assertNoDirectProfileLocationWrites(updates as Record<string, unknown>);
   const db: Record<string, unknown> = {};
   if (updates.name !== undefined) db.name = updates.name;
   if (updates.gender !== undefined) db.gender = updates.gender;
   if (updates.interested_in !== undefined) db.interested_in = updates.interested_in;
   if (updates.tagline !== undefined) db.tagline = updates.tagline;
-  if (updates.location !== undefined) db.location = updates.location;
   if (updates.job !== undefined) db.job = updates.job;
   if (updates.company !== undefined) db.company = updates.company;
   if (updates.about_me !== undefined) db.about_me = updates.about_me;
@@ -303,7 +304,6 @@ export async function updateMyProfile(updates: Partial<{
     }
   }
   if (updates.height_cm !== undefined) db.height_cm = updates.height_cm;
-  if (updates.location_data !== undefined) db.location_data = updates.location_data;
   if (updates.preferred_age_min !== undefined) db.preferred_age_min = updates.preferred_age_min;
   if (updates.preferred_age_max !== undefined) db.preferred_age_max = updates.preferred_age_max;
   if (updates.event_discovery_prefs !== undefined) {

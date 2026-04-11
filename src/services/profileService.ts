@@ -1,5 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
-import { normalizeRelationshipIntent } from "@shared/profileContracts";
+import {
+  assertNoDirectProfileLocationWrites,
+  normalizeRelationshipIntent,
+} from "@shared/profileContracts";
 import type { EventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 
@@ -46,6 +49,9 @@ export interface ProfileData {
   preferredAgeMax: number | null;
   eventDiscoveryPrefs: EventDiscoveryPrefs;
 }
+
+/** Fields excluded from generic `updateMyProfile` / `createProfile` table writes — use `update_profile_location` RPC. */
+export type ProfileUpdatePayload = Omit<Partial<ProfileData>, "location" | "locationData">;
 
 // Database profile interface (snake_case)
 interface DbProfile {
@@ -190,8 +196,8 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
   };
 };
 
-// Convert frontend profile to DB format
-export const profileToDb = (profile: Partial<ProfileData>): Record<string, unknown> => {
+// Convert frontend profile to DB format (does not map location fields — use `update_profile_location` RPC).
+export const profileToDb = (profile: ProfileUpdatePayload): Record<string, unknown> => {
   const dbData: Record<string, unknown> = {};
 
   if (profile.name !== undefined) dbData.name = profile.name;
@@ -206,8 +212,6 @@ export const profileToDb = (profile: Partial<ProfileData>): Record<string, unkno
   if (profile.interestedIn !== undefined) dbData.interested_in = profile.interestedIn;
   if (profile.tagline !== undefined) dbData.tagline = profile.tagline;
   if (profile.heightCm !== undefined) dbData.height_cm = profile.heightCm;
-  if (profile.location !== undefined) dbData.location = profile.location;
-  if (profile.locationData !== undefined) dbData.location_data = profile.locationData;
   if (profile.job !== undefined) dbData.job = profile.job;
   if (profile.company !== undefined) dbData.company = profile.company;
   if (profile.aboutMe !== undefined) dbData.about_me = profile.aboutMe;
@@ -287,10 +291,11 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
 };
 
 // Update current user's profile
-export const updateMyProfile = async (updates: Partial<ProfileData>): Promise<void> => {
+export const updateMyProfile = async (updates: ProfileUpdatePayload): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  assertNoDirectProfileLocationWrites(updates as Record<string, unknown>);
   const dbUpdates = profileToDb(updates);
   
   if (Object.keys(dbUpdates).length > 0) {
@@ -343,10 +348,11 @@ export const syncProfileVibes = async (profileId: string, vibeLabels: string[]):
 };
 
 // Create a new profile during onboarding
-export const createProfile = async (profileData: Partial<ProfileData>): Promise<void> => {
+export const createProfile = async (profileData: ProfileUpdatePayload): Promise<void> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  assertNoDirectProfileLocationWrites(profileData as Record<string, unknown>);
   // Server-side age validation as safety net
   if (profileData.birthDate) {
     const age = calculateAge(profileData.birthDate);

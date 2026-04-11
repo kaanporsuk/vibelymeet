@@ -74,6 +74,7 @@ import {
   getZodiacEmoji,
   calculateAge,
   type ProfileData,
+  type ProfileUpdatePayload,
   type GeoLocation,
 } from "@/services/profileService";
 import { Crown, Star } from "lucide-react";
@@ -495,7 +496,7 @@ const ProfileStudio = () => {
   const handleSave = async (type: DrawerType) => {
     setIsSaving(true);
     try {
-      const updates: Partial<ProfileData> = {};
+      const updates: ProfileUpdatePayload = {};
       switch (type) {
         case "basics":
           updates.name = editForm.name;
