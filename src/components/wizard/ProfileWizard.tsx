@@ -291,10 +291,10 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         if (photo && file) {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("Not authenticated");
-          const { path } = await uploadImageToBunny(file, session.access_token);
+          const { path } = await uploadImageToBunny(file, session.access_token, "profile_studio");
           uploadedPhotoUrls.push(path);
-        } else if (photo && photo.startsWith('http')) {
-          // Already a URL (maybe from previous session)
+        } else if (photo && !photo.startsWith("blob:")) {
+          // Already persisted storage path / URL from a previous save
           uploadedPhotoUrls.push(photo);
         }
       }
@@ -309,11 +309,20 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
 
       // Save all changes to the database
       await updateMyProfile({
-        photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : undefined,
-        avatarUrl: uploadedPhotoUrls[0] || undefined,
         prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
         vibes: vibes.length > 0 ? vibes : undefined,
       });
+
+      const { data: photoResult, error: photoError } = await supabase.rpc("publish_photo_set", {
+        p_user_id: user.id,
+        p_photos: uploadedPhotoUrls,
+        p_context: "profile_studio",
+      });
+      if (photoError) throw photoError;
+      const pr = photoResult as Record<string, unknown> | null;
+      if (pr && pr.success !== true) {
+        throw new Error(String(pr.error ?? "Photo save failed"));
+      }
 
       await refreshProgressFromServer();
 
@@ -595,9 +604,9 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                     if (photo && file) {
                                       const { data: { session: sess } } = await supabase.auth.getSession();
                                       if (!sess) throw new Error("Not authenticated");
-                                      const { path } = await uploadImageToBunny(file, sess.access_token);
+                                      const { path } = await uploadImageToBunny(file, sess.access_token, "profile_studio");
                                       uploadedPhotoUrls.push(path);
-                                  } else if (photo && photo.startsWith('http')) {
+                                  } else if (photo && !photo.startsWith("blob:")) {
                                     uploadedPhotoUrls.push(photo);
                                   }
                                 }
@@ -605,11 +614,19 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                   .filter(p => p.answer && p.answer.trim())
                                   .map(p => ({ question: p.question, answer: p.answer.trim() }));
                                 await updateMyProfile({
-                                  photos: uploadedPhotoUrls.length > 0 ? uploadedPhotoUrls : undefined,
-                                  avatarUrl: uploadedPhotoUrls[0] || undefined,
                                   prompts: dbPrompts.length > 0 ? dbPrompts : undefined,
                                   vibes: vibes.length > 0 ? vibes : undefined,
                                 });
+                                const { data: photoResult, error: photoError } = await supabase.rpc("publish_photo_set", {
+                                  p_user_id: user.id,
+                                  p_photos: uploadedPhotoUrls,
+                                  p_context: "profile_studio",
+                                });
+                                if (photoError) throw photoError;
+                                const pr = photoResult as Record<string, unknown> | null;
+                                if (pr && pr.success !== true) {
+                                  throw new Error(String(pr.error ?? "Photo save failed"));
+                                }
                                 await refreshProgressFromServer();
                                 toast.success("Progress saved!");
                               } catch (error) {

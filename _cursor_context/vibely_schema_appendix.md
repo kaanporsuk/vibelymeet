@@ -41,6 +41,18 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 
 ## 2. Schema summary
 
+### Current-state addendum (2026-04-12, repo-local Sprint 2)
+
+- The linked/live Sprint 1 baseline remains **45 public tables** after `20260417100000_media_lifecycle_foundation.sql`.
+- The repo now contains pending Sprint 2 migration `20260417110000_media_lifecycle_profile_media_wiring.sql`, which adds **`profile_vibe_videos`** as the next public table (**46th** once applied).
+- Sprint 2 keeps legacy compatibility mirrors in place:
+  - `profiles.photos` + `profiles.avatar_url` remain the published profile-photo snapshot.
+  - `profiles.bunny_video_uid` + `profiles.bunny_video_status` remain the published vibe-video snapshot.
+- Sprint 2 makes those two profile-media surfaces dual-write into the media lifecycle model:
+  - profile photos now register/update `media_assets` and active `media_references`
+  - vibe videos now register/update `media_assets`, `media_references`, and canonical per-user rows in `profile_vibe_videos`
+- Chat media, account-deletion purge, cron enablement, and verification-selfie policy are intentionally unchanged in this sprint.
+
 ### Public schema object counts
 
 - **41 public tables**

@@ -22,11 +22,12 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `profiles` insert/update | Table | Create/update profile (name, gender, tagline, etc.) | Same |
 | `user_credits` upsert | Table | Initial credits on onboarding | Same |
 | `geocode` | Edge Function | Resolve location for events | Same |
-| `upload-image` (Bunny) | Edge Function | Profile photo upload | Same (Bunny adapter) |
+| `upload-image` (Bunny) | Edge Function | Profile photo upload; explicit `context` (`onboarding` / `profile_studio`) now registers draft-safe lifecycle assets | Same (Bunny adapter); chat-image uploads omit profile context and stay outside Sprint 2 |
+| `publish_photo_set` | RPC | Canonical published-photo save path; updates `profiles.photos` / `avatar_url` and active `media_references` together | Same profile photo save path on web + native |
 | profileService (profiles, profile_vibes, event_registrations, matches) | Queries | Load profile + related counts | Same queries or shared API layer |
-| `create-video-upload` | Edge Function | Bunny Stream object + TUS signature | Native `vibeVideoApi`; web `VibeStudioModal`. Hard failures use **non-2xx** HTTP + JSON `{ success: false, error, code? }` (success remains **200** + `{ success: true, ... }`). |
-| `delete-vibe-video` | Edge Function | Delete Bunny video + clear profile fields | Native + web Profile; response includes `bunnyRemoteDeleteOk` / `possibleBunnyOrphan` for ops. |
-| `video-webhook` | Edge Function | Bunny encoding callbacks → `profiles.bunny_video_status` | **No JWT**; `?token=` must match `BUNNY_VIDEO_WEBHOOK_TOKEN`. See `docs/vibe-video-webhook-operator.md`. |
+| `create-video-upload` | Edge Function | Bunny Stream object + TUS signature; activates the current primary vibe video in lifecycle tables while keeping `profiles.bunny_video_uid` / `bunny_video_status` current | Native `vibeVideoApi`; web `VibeStudioModal`. Hard failures use **non-2xx** HTTP + JSON `{ success: false, error, code? }` (success remains **200** + `{ success: true, ... }`). |
+| `delete-vibe-video` | Edge Function | Clear current vibe-video snapshot, release active reference, and defer physical Bunny delete to lifecycle worker | Native + web Profile; compatibility response keys remain, but remote delete is no longer inline in Sprint 2. |
+| `video-webhook` | Edge Function | Bunny encoding callbacks → `draft_media_sessions`, `profile_vibe_videos.video_status`, and current `profiles.bunny_video_status` | **No JWT**; `?token=` must match `BUNNY_VIDEO_WEBHOOK_TOKEN`. See `docs/vibe-video-webhook-operator.md`. |
 
 ---
 
@@ -134,9 +135,10 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `media_references` | Table | Links media assets to product entities (profiles, messages, events) | Read-only via RLS for asset owners |
 | `media_delete_jobs` | Table | Deletion work queue with retry/backoff | service_role only |
 | `media_retention_settings` | Table | Admin-configurable per-family retention policy | Read-only for authenticated (admin writes via service_role) |
+| `profile_vibe_videos` | Table | Canonical per-user vibe-video history with one active/current primary row | No direct client reads yet; legacy clients still read `profiles.bunny_video_uid` |
 | `process-media-delete-jobs` | Edge Function | Cron worker: drain delete queue via Bunny/Supabase provider helpers | Server-only (CRON_SECRET auth) |
 
-> Added in migration `20260417100000_media_lifecycle_foundation.sql`. These tables are backend infrastructure — no client changes required. Existing upload/delete flows are unchanged; Sprint 2+ will wire them into the new model.
+> Sprint 1 added the foundation tables in `20260417100000_media_lifecycle_foundation.sql`. Sprint 2 (`20260417110000_media_lifecycle_profile_media_wiring.sql`) now wires **vibe videos** and **profile photos** into this model while preserving legacy profile columns as the published client contract. Chat media is still untouched in this sprint.
 
 ---
 

@@ -1,3 +1,4 @@
+Initialising login role...
 export type Json =
   | string
   | number
@@ -2112,6 +2113,53 @@ export type Database = {
           },
         ]
       }
+      profile_vibe_videos: {
+        Row: {
+          asset_id: string
+          created_at: string
+          display_order: number
+          id: string
+          is_active: boolean
+          is_primary: boolean
+          removed_at: string | null
+          updated_at: string
+          user_id: string
+          video_status: string
+        }
+        Insert: {
+          asset_id: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          removed_at?: string | null
+          updated_at?: string
+          user_id: string
+          video_status?: string
+        }
+        Update: {
+          asset_id?: string
+          created_at?: string
+          display_order?: number
+          id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          removed_at?: string | null
+          updated_at?: string
+          user_id?: string
+          video_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_vibe_videos_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "media_assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profile_vibes: {
         Row: {
           created_at: string
@@ -3444,6 +3492,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      activate_profile_vibe_video: {
+        Args: { p_user_id: string; p_video_id: string; p_video_status?: string }
+        Returns: Json
+      }
       admin_cancel_event: { Args: { p_event_id: string }; Returns: Json }
       admin_create_event_payment_exception: {
         Args: {
@@ -3538,6 +3590,14 @@ export type Database = {
         }
       }
       clear_expired_pauses: { Args: never; Returns: number }
+      clear_profile_vibe_video: {
+        Args: {
+          p_clear_caption?: boolean
+          p_released_by?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       complete_media_delete_job: {
         Args: { p_error?: string; p_job_id: string; p_success: boolean }
         Returns: Json
@@ -3597,6 +3657,26 @@ export type Database = {
       enqueue_media_delete: {
         Args: { p_asset_id: string; p_job_type?: string }
         Returns: Json
+      }
+      ensure_profile_photo_asset: {
+        Args: {
+          p_legacy_id?: string
+          p_legacy_table?: string
+          p_status?: string
+          p_storage_path: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      ensure_vibe_video_asset: {
+        Args: {
+          p_legacy_id?: string
+          p_legacy_table?: string
+          p_status?: string
+          p_user_id: string
+          p_video_id: string
+        }
+        Returns: string
       }
       expire_stale_match_calls: { Args: never; Returns: number }
       expire_stale_video_sessions: { Args: never; Returns: number }
@@ -3788,6 +3868,10 @@ export type Database = {
         Args: { p_match_id: string }
         Returns: undefined
       }
+      mark_media_asset_soft_deleted_if_unreferenced: {
+        Args: { p_asset_id: string; p_deleted_at?: string }
+        Returns: Json
+      }
       mark_photo_deleted: {
         Args: { p_storage_path: string; p_user_id: string }
         Returns: Json
@@ -3800,6 +3884,10 @@ export type Database = {
       match_call_transition: {
         Args: { p_action: string; p_call_id: string }
         Returns: Json
+      }
+      media_compute_purge_after: {
+        Args: { p_deleted_at?: string; p_media_family: string }
+        Returns: string
       }
       normalize_relationship_intent: {
         Args: { p_intent: string }
@@ -3864,6 +3952,10 @@ export type Database = {
       }
       submit_post_date_verdict: {
         Args: { p_liked: boolean; p_session_id: string }
+        Returns: Json
+      }
+      sync_profile_photo_media: {
+        Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
         Returns: Json
       }
       update_media_session_status: {

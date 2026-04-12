@@ -49,20 +49,20 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 ## 2. Inventory summary
 
-### Deployable directories
+> Current repo addendum (2026-04-12): the repo now has **44 deployable Edge Functions** plus `_shared`. Sprint 2 does **not** add a new Edge Function; it changes `create-video-upload`, `delete-vibe-video`, and `upload-image` so vibe videos and profile photos dual-write into media lifecycle tables while preserving legacy profile columns as compatibility mirrors.
+
+### Deployable directories (historical baseline)
 
 There are **34 deployable Edge Functions** plus one shared helper directory:
 
 - deployable functions: **34**
 - shared helper directory: `_shared`
 
-These counts describe the original frozen baseline. Current repo counts are listed in the addendum above.
-
-### Config coverage
+### Config coverage (historical baseline)
 
 `supabase/config.toml` explicitly configures **all 34** functions. No config gaps remain.
 
-Current repo status (2026-04-12): `supabase/config.toml` explicitly configures **all 44** deployable functions, including `process-media-delete-jobs`.
+For exact current repo inventory, use the 2026-04-12 addendum above plus `_cursor_context/vibely_machine_readable_inventory.json`.
 
 ### Gateway JWT posture from config (post-hardening)
 
@@ -227,37 +227,37 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** creates Bunny Stream upload metadata / authorization for user vibe-video uploads
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/components/vibe-video/VibeStudioModal.tsx`
-- **Primary tables touched:** `profiles`
+- **Primary tables touched:** `profiles`, `media_assets`, `media_references`, `profile_vibe_videos`, `draft_media_sessions`
 - **External services:** Bunny Stream
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`, `BUNNY_STREAM_CDN_HOSTNAME`
-- **Rebuild notes:** frontend then uploads directly to Bunny’s TUS endpoint; function is only one part of the upload chain
+- **Rebuild notes:** frontend still uploads directly to Bunny’s TUS endpoint; Sprint 2 now activates the current/primary vibe video in lifecycle tables immediately and keeps `profiles.bunny_video_uid` / `bunny_video_status` as the published compatibility mirror.
 
 ### `video-webhook`
 - **Purpose:** receives Bunny video-status callbacks and updates profile video readiness state
 - **Auth posture:** Class B — public webhook; protected by URL token. Requires `BUNNY_VIDEO_WEBHOOK_TOKEN` (query param); fail-closed if secret missing.
 - **Frontend call sites:** none; provider webhook target
-- **Primary tables touched:** `profiles`
+- **Primary tables touched:** `draft_media_sessions`, `profiles`, `profile_vibe_videos`
 - **External services:** Bunny Stream
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_VIDEO_WEBHOOK_TOKEN`
-- **Rebuild notes:** Bunny dashboard must send callback URL with `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>`; webhook registration must be restored outside the repo
+- **Rebuild notes:** Bunny dashboard must send callback URL with `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>`; Sprint 2 keeps `profiles.bunny_video_status` current for old consumers while also updating `profile_vibe_videos.video_status`.
 
 ### `delete-vibe-video`
-- **Purpose:** deletes the current user’s Bunny vibe video and clears profile metadata
+- **Purpose:** clears the current user’s active vibe-video reference and published profile metadata
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/pages/Profile.tsx`
-- **Primary tables touched:** `profiles`
-- **External services:** Bunny Stream
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`
-- **Rebuild notes:** intentionally clears DB state even if Bunny deletion fails, so operators should monitor for orphaned remote media
+- **Primary tables touched:** `profiles`, `media_references`, `media_assets`, `profile_vibe_videos`, `draft_media_sessions`
+- **External services:** none directly in Sprint 2; physical Bunny deletion is deferred to `process-media-delete-jobs`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** Sprint 2 no longer hard-deletes the provider asset inline. The function clears the compatibility mirror immediately, releases the active reference, and lets retention + worker processing handle physical deletion later.
 
 ### `upload-image`
 - **Purpose:** uploads user images to Bunny Storage
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/services/imageUploadService.ts`
-- **Primary tables touched:** none directly in the function body
+- **Primary tables touched:** `draft_media_sessions`, `media_assets` (only when explicit `context` is `onboarding` or `profile_studio`)
 - **External services:** Bunny Storage
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`
-- **Rebuild notes:** media path conventions matter even though the function itself is storage-oriented rather than table-oriented
+- **Rebuild notes:** Sprint 2 keeps chat-image uploads out of profile-photo lifecycle by requiring an explicit profile context before draft-session/media-asset registration is attempted.
 
 ### `upload-event-cover`
 - **Purpose:** uploads event cover assets for admins and returns CDN-backed URLs
