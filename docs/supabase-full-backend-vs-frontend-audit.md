@@ -18,7 +18,9 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 ### 1a. Deployed functions (CLI)
 
-35 ACTIVE functions (names match repo `supabase/functions/*`).
+36 ACTIVE functions (names match repo `supabase/functions/*`).
+
+> `process-media-delete-jobs` added in Sprint 1 media lifecycle foundation. CRON_SECRET auth, no JWT. Drains `media_delete_jobs` queue via Bunny Stream/Storage delete helpers.
 
 ### 1b–1e. Per-function summary
 
@@ -58,6 +60,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 | upload-voice | POST | true | Voice note upload | voiceUploadService (fetch) | chatMediaUpload (fetch) | Storage/Bunny |
 | verify-admin | POST | true | Admin gate | ProtectedRoute | — | Supabase |
 | video-webhook | POST | false | Bunny video lifecycle | — | — | Bunny |
+| process-media-delete-jobs | POST | false | Cron: drain media delete queue | — | — | Bunny Stream/Storage |
 
 ### Flags (§1e)
 
@@ -65,7 +68,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 |-------|----------|-------|
 | **Web-only invokes** (no native): `verify-admin`, `upload-event-cover`, `forward-geocode`, `event-notifications`, `admin-review-verification`, `create-checkout-session`, `generate-daily-drops`, `send-notification`, `geocode`, `delete-account` | **LOW–MEDIUM** | Many intentional (admin, Stripe web, marketing). **MEDIUM:** `delete-account` — README defers native delete; users on app only lack parity. |
 | **Native fetch vs web invoke** for same function: `upload-image`, `create-credits-checkout`, `create-video-upload`, `delete-vibe-video` | **LOW** | Same endpoints; ensure auth headers and error handling match. |
-| **Neither client** (webhooks/cron): `stripe-webhook`, `revenuecat-webhook`, `video-webhook`, `push-webhook`, `email-drip`, `unsubscribe`, `generate-daily-drops` (only admin triggers from web) | OK | Expected server-to-server. |
+| **Neither client** (webhooks/cron): `stripe-webhook`, `revenuecat-webhook`, `video-webhook`, `push-webhook`, `email-drip`, `unsubscribe`, `generate-daily-drops` (only admin triggers from web), `process-media-delete-jobs` | OK | Expected server-to-server. |
 | **Divergence:** `request-account-deletion` — web uses raw `fetch`, native uses `invoke` | **LOW** | Both hit same function; JWT differs (`verify_jwt=false` — must pass anon key + body correctly on web). |
 
 **Recommendations**

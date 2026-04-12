@@ -69,6 +69,26 @@ Secrets (Stripe, Twilio, etc.) are **not** in git — set in Dashboard → Edge 
 
 If **user-supabase** MCP is enabled in Cursor, tools such as `list_migrations`, `list_tables`, `execute_sql`, `apply_migration`, and `deploy_edge_function` can read or change the project **that MCP is authenticated to**. Confirm in MCP settings that it points at **`schdyxcunwcvddlcshwd`** so agent actions match this CLI-linked project.
 
+## Media lifecycle worker
+
+The `process-media-delete-jobs` function drains the `media_delete_jobs` queue.
+Auth: `CRON_SECRET` bearer token (same as `generate-daily-drops` and other cron workers).
+
+```bash
+# Deploy
+supabase functions deploy process-media-delete-jobs --project-ref schdyxcunwcvddlcshwd
+
+# Manual test (dry-run, reads queue without consuming)
+curl -X POST "${SUPABASE_URL}/functions/v1/process-media-delete-jobs" \
+  -H "Authorization: Bearer ${CRON_SECRET}" \
+  -H "Content-Type: application/json" \
+  -d ‘{"dry_run": true}’
+```
+
+No new secrets required — uses existing `CRON_SECRET`, `BUNNY_STREAM_*`, `BUNNY_STORAGE_*`.
+
+**Config:** `verify_jwt = false` in `supabase/config.toml` (CRON_SECRET bearer auth, same pattern as other cron workers).
+
 ## Safety checklist
 
 - [ ] `supabase projects list` shows linked ref = `schdyxcunwcvddlcshwd`

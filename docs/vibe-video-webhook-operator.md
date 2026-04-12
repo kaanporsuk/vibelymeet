@@ -79,7 +79,7 @@ Other statuses leave row as **`processing`** (until a later event or manual fix)
 | `create-video-upload` HTTP **401/503/502** | Auth or Bunny secrets on Edge — see function logs |
 | Playback URL null, dev warns missing hostname | `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` / persisted hostname — see mobile runbook |
 | HLS error / black player, hostname OK | Bunny **CDN hotlink / referrer / token** — compare browser vs app |
-| Delete succeeds in UI but asset remains in Bunny | **`delete-vibe-video`**: profile cleared even if Bunny DELETE fails — check logs for `bunnyRemoteDeleteOk: false` and `possibleBunnyOrphan` |
+| Delete succeeds in UI but asset remains in Bunny | **`delete-vibe-video`**: profile cleared even if Bunny DELETE fails — check logs for `bunnyRemoteDeleteOk: false` and `possibleBunnyOrphan`. **Future (Sprint 2):** orphaned assets will be tracked in `media_assets` table and cleaned up by `process-media-delete-jobs` worker. |
 
 ---
 

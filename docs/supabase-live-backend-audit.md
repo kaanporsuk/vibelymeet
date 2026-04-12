@@ -12,19 +12,22 @@
 
 ## SECTION 1: LIVE DATABASE SCHEMA vs CODE
 
-### 1. Live public tables (41)
+### 1. Live public tables (45)
 
 ```
 account_deletion_requests, admin_activity_logs, admin_notifications, age_gate_blocks,
 blocked_users, credit_adjustments, daily_drop_cooldowns, daily_drops, date_feedback,
 date_proposals, email_drip_log, email_verifications, event_registrations, event_swipes,
 event_vibes, events, feedback, match_calls, match_mutes, match_notification_mutes,
-matches, messages, notification_log, notification_preferences, photo_verifications,
+matches, media_assets, media_delete_jobs, media_references, media_retention_settings,
+messages, notification_log, notification_preferences, photo_verifications,
 premium_history, profile_vibes, profiles, push_campaigns, push_notification_events,
 push_notification_events_admin, rate_limits, subscriptions, user_credits, user_reports,
 user_roles, user_schedules, user_suspensions, user_warnings, verification_attempts,
 vibe_tags, video_sessions
 ```
+
+> **media_*** tables added in migration `20260417100000_media_lifecycle_foundation.sql` (Sprint 1 — media lifecycle foundation). These tables track physical media assets, product-level references, deletion jobs, and admin retention settings. They do not yet replace legacy columns (`profiles.photos`, `profiles.bunny_video_uid`, `messages.audio_url`, etc.) — those remain the published snapshot until Sprint 2+ dual-write and backfill.
 
 ### 1a. Tables: Live DB vs `src/integrations/supabase/types.ts`
 
@@ -63,7 +66,9 @@ Relevant FKs (from live DB, `confdeltype`: `c` = CASCADE, `a` = NO ACTION):
 
 ### Live public RPCs (callable; triggers omitted)
 
-Routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premium_status`, `daily_drop_transition`, `deduct_credit`, `drain_match_queue`, `find_mystery_match`, `generate_recurring_events`, `get_event_deck`, `get_other_city_events`, `get_visible_events`, `handle_swipe`, `leave_matching_queue`, `ready_gate_transition`, `update_participant_status`, `video_date_transition`.
+Routines: `can_view_profile_photo`, `check_mutual_vibe_and_match`, `check_premium_status`, `claim_media_delete_jobs`, `complete_media_delete_job`, `daily_drop_transition`, `deduct_credit`, `drain_match_queue`, `enqueue_media_delete`, `find_mystery_match`, `generate_recurring_events`, `get_event_deck`, `get_other_city_events`, `get_visible_events`, `handle_swipe`, `leave_matching_queue`, `promote_purgeable_assets`, `ready_gate_transition`, `release_media_reference`, `update_participant_status`, `video_date_transition`.
+
+> **Media lifecycle RPCs** (added in `20260417100000`): `claim_media_delete_jobs`, `complete_media_delete_job`, `enqueue_media_delete`, `promote_purgeable_assets`, `release_media_reference` — all service_role only, called by `process-media-delete-jobs` worker.
 
 ### 2a. RPC calls in code
 
