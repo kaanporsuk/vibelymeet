@@ -20,7 +20,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 ### 1a. Deployed functions (CLI)
 
-36 ACTIVE functions (names match repo `supabase/functions/*`).
+Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 
 > `process-media-delete-jobs` added in Sprint 1 media lifecycle foundation. CRON_SECRET auth, no JWT. Drains `media_delete_jobs` queue via Bunny Stream/Storage delete helpers.
 
@@ -62,7 +62,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 | upload-voice | POST | true | Voice note upload | voiceUploadService (fetch) | chatMediaUpload (fetch) | Storage/Bunny |
 | verify-admin | POST | true | Admin gate | ProtectedRoute | — | Supabase |
 | video-webhook | POST | false | Bunny video lifecycle | — | — | Bunny |
-| process-media-delete-jobs | POST | false | Cron: drain media delete queue | — | — | Bunny Stream/Storage |
+| process-media-delete-jobs | POST | false | Cron: drain media delete queue (dry-run preview only does not promote purgeable assets) | — | — | Bunny Stream/Storage |
 
 ### Flags (§1e)
 

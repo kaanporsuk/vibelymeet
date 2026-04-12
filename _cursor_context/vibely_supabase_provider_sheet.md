@@ -19,6 +19,17 @@ It is meant to answer, in one place:
 
 This document is intentionally more operational than the general External Dependency Ledger.
 
+### Current-state addendum (2026-04-12)
+
+The frozen baseline counts below are not the current repo/cloud totals.
+
+- Current linked-project schema includes **45 public tables**.
+- Current repo contains **244** migration files.
+- Current repo contains **44** deployable Edge Functions plus `_shared`.
+- Sprint 1 media lifecycle foundation adds `media_retention_settings`, `media_assets`, `media_references`, `media_delete_jobs`, and the `process-media-delete-jobs` worker.
+- `verification_selfie` retention is seeded but intentionally disabled (`worker_enabled = false`).
+- Chat media retention rows are intentionally seeded as `retain_until_eligible` with no active purge clock yet.
+
 ---
 
 ## 2. Why Supabase is the highest-risk provider
@@ -407,4 +418,3 @@ To truly rebuild Vibely, you need a Supabase project whose:
 all match the intended baseline closely enough to satisfy real product flows.
 
 This sheet is the provider-level control point for that reality.
-

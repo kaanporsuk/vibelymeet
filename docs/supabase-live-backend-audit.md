@@ -32,7 +32,10 @@ vibe_tags, video_sessions
 
 ### 1a. Tables: Live DB vs `src/integrations/supabase/types.ts`
 
-// NOTE: As of 2026-04-12, the types file is regenerated from the linked Supabase project, but always verify live DB for source of truth. Table counts and alignment may drift between migrations and typegen runs. Refer to the migration manifest and live DB for canonical state.
+As of 2026-04-12, the linked live DB is the source of truth.
+
+- The checked-in `src/integrations/supabase/types.ts` does include the four `media_*` tables and the five media lifecycle RPCs added in `20260417100000_media_lifecycle_foundation.sql`.
+- Even so, prefer live DB state plus the migration manifest whenever typegen and live schema diverge.
 
 ### 1b. Code references `supabase.from('TABLE_NAME')` vs live tables
 
@@ -111,7 +114,9 @@ All critical RPCs exist with the expected signatures.
 
 ## SECTION 3: LIVE EDGE FUNCTIONS vs CODE
 
-### 3a. Deployed Edge Functions (live)
+### 3a. Deployed Edge Functions (historical 2026-03-18 snapshot)
+
+> Update 2026-04-12: the linked project and repo have moved beyond this March snapshot. The current repo contains 44 deployable Edge Functions (excluding `_shared`), and `process-media-delete-jobs` is deployed live with `verify_jwt = false` plus `CRON_SECRET` bearer auth. Use `_cursor_context/vibely_edge_function_manifest.md` plus `supabase functions list` for the canonical current inventory.
 
 33 functions: `delete-account`, `email-verification`, `event-notifications`, `push-webhook`, `geocode`, `verify-admin`, `forward-geocode`, `daily-room`, `phone-verify`, `admin-review-verification`, `create-video-upload`, `video-webhook`, `delete-vibe-video`, `upload-image`, `upload-voice`, `upload-event-cover`, `create-checkout-session`, `stripe-webhook`, `create-event-checkout`, `create-credits-checkout`, `create-portal-session`, `cancel-deletion`, `request-account-deletion`, `send-notification`, `generate-daily-drops`, `upload-chat-video`, `daily-drop-actions`, `send-message`, `swipe-actions`, `revenuecat-webhook`.
 
@@ -171,7 +176,7 @@ No direct bucket names in client code. Legacy buckets (profile-photos, vibe-vide
 
 ### 5a. RLS status
 
-All 41 public tables have `rowsecurity = true`. **No table with RLS disabled is accessed by client code.**
+All 45 public tables have `rowsecurity = true`. **No table with RLS disabled is accessed by client code.**
 
 ### 5b. Tables with RLS enabled but zero policies
 

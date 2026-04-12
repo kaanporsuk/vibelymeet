@@ -19,6 +19,15 @@ It answers:
 
 This is especially important for Vibely because the migration chain is **not** purely schema DDL. It includes policy rewrites, storage changes, backfills, destructive cleanup, and test-data manipulation.
 
+### Current-state addendum (2026-04-12)
+
+The repo has moved well beyond the frozen/archive counts below.
+
+- Current repo migration count: **244** files under `supabase/migrations`.
+- Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
+- That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
+- For current deploy work, treat the live migration list plus this file as additive history: the baseline/archive counts below remain historically useful, but they are not the current total.
+
 ---
 
 ## 2. Migration summary

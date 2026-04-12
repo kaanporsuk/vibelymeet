@@ -51,6 +51,23 @@ You should treat the following as the canonical rebuild set for this frozen stat
 
 Do **not** rebuild from the generic `README.md` in the repo. It is insufficient.
 
+### Current-state addendum (2026-04-12)
+
+For current backend verification and deploy work, supplement this frozen runbook with:
+
+1. `docs/media-lifecycle-sprint1-report.md`
+2. `docs/supabase-cloud-deploy.md`
+3. `_cursor_context/vibely_schema_appendix.md`
+4. `_cursor_context/vibely_migration_manifest.md`
+5. `_cursor_context/vibely_edge_function_manifest.md`
+6. `_cursor_context/vibely_machine_readable_inventory.json`
+
+Sprint 1 media lifecycle foundation is additive to the frozen rebuild baseline:
+- migration `20260417100000_media_lifecycle_foundation.sql`
+- Edge Function `process-media-delete-jobs`
+- cron intentionally still disabled
+- dry-run preview intentionally non-mutating and limited to already-queued jobs
+
 ---
 
 ## 4. Rebuild strategy

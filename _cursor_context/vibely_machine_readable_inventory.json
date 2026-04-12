@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-08",
+  "generated_at": "2026-04-12",
   "artifact_type": "machine_readable_inventory",
   "project": {
     "name": "Vibely",
@@ -47,12 +47,12 @@
       "components": 259,
       "hooks": 53,
       "services": 6,
-      "edge_functions_deployable": 33,
+      "edge_functions_deployable": 44,
       "edge_function_shared_dirs": 1,
-      "migrations": 113,
-      "public_tables": 41,
+      "migrations": 244,
+      "public_tables": 45,
       "public_views": 1,
-      "public_functions": 26,
+      "public_functions": 31,
       "public_enums": 4,
       "public_assets": 23
     },
@@ -398,6 +398,10 @@
       "match_mutes",
       "match_notification_mutes",
       "matches",
+      "media_assets",
+      "media_delete_jobs",
+      "media_references",
+      "media_retention_settings",
       "messages",
       "notification_log",
       "notification_preferences",
@@ -427,8 +431,12 @@
       "check_gender_compatibility",
       "check_mutual_vibe_and_match",
       "check_premium_status",
+      "claim_media_delete_jobs",
+      "complete_media_delete_job",
+      "daily_drop_transition",
       "deduct_credit",
       "drain_match_queue",
+      "enqueue_media_delete",
       "find_mystery_match",
       "find_video_date_match",
       "generate_recurring_events",
@@ -445,10 +453,11 @@
       "join_matching_queue",
       "leave_matching_queue",
       "mark_lobby_foreground",
+      "promote_purgeable_assets",
+      "ready_gate_transition",
+      "release_media_reference",
       "update_participant_status",
-      "daily_drop_transition",
-      "video_date_transition",
-      "ready_gate_transition"
+      "video_date_transition"
     ],
     "public_enums": [
       "app_role",
@@ -517,6 +526,19 @@
   },
   "edge_functions": [
     {
+      "name": "admin-proof-selfie-sign",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/AdminPhotoVerificationPanel.tsx"
+      ]
+    },
+    {
       "name": "admin-review-verification",
       "config_listed": true,
       "verify_jwt": true,
@@ -539,6 +561,7 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
+        "apps/mobile/lib/useDeletionRecovery.ts",
         "src/hooks/useDeletionRecovery.ts"
       ]
     },
@@ -560,14 +583,17 @@
     {
       "name": "create-credits-checkout",
       "config_listed": true,
-      "verify_jwt": true,
+      "verify_jwt": false,
       "env_vars": [
+        "CREDITS_CHECKOUT_APP_ORIGIN",
         "STRIPE_SECRET_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/pages/Credits.tsx"
+        "src/pages/Credits.tsx",
+        "apps/mobile/lib/creditsCheckout.ts",
+        "apps/mobile/app/settings/credits.tsx"
       ]
     },
     {
@@ -580,7 +606,8 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/components/events/PaymentModal.tsx"
+        "src/components/events/PaymentModal.tsx",
+        "apps/mobile/app/(tabs)/events/[id].tsx"
       ]
     },
     {
@@ -593,7 +620,9 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/components/premium/PremiumSettingsCard.tsx"
+        "src/components/premium/PremiumSettingsCard.tsx",
+        "apps/mobile/app/settings/index.tsx",
+        "src/components/settings/AccountSettingsDrawer.tsx"
       ]
     },
     {
@@ -609,7 +638,38 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/components/vibe-video/VibeStudioModal.tsx"
+        "apps/mobile/docs/native-vibe-video-runbook.md",
+        "apps/mobile/lib/vibeVideoState.ts",
+        "apps/mobile/app/(onboarding)/index.tsx",
+        "apps/mobile/lib/vibeVideoPlaybackUrl.ts",
+        "apps/mobile/lib/vibeVideoApi.ts",
+        "src/lib/heroVideo/heroVideoUploadController.ts"
+      ]
+    },
+    {
+      "name": "credit-replenish",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
+    },
+    {
+      "name": "daily-drop-actions",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useDailyDrop.ts",
+        "apps/mobile/lib/dailyDropApi.ts",
+        "apps/mobile/README.md"
       ]
     },
     {
@@ -624,9 +684,50 @@
       ],
       "frontend_references": [
         "src/hooks/useMatchCall.ts",
+        "src/pages/VideoDate.tsx",
+        "apps/mobile/lib/matchCallApi.ts",
         "src/hooks/useVideoCall.ts",
-        "src/pages/VideoDate.tsx"
+        "apps/mobile/lib/videoDateApi.ts",
+        "apps/mobile/README.md"
       ]
+    },
+    {
+      "name": "date-reminder-cron",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useDateReminders.ts"
+      ]
+    },
+    {
+      "name": "date-suggestion-actions",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/hooks/useDateSuggestionActions.ts",
+        "apps/mobile/lib/dateSuggestionApply.ts"
+      ]
+    },
+    {
+      "name": "date-suggestion-expiry",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
     },
     {
       "name": "delete-account",
@@ -639,7 +740,13 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/hooks/useDeleteAccount.ts"
+        "src/App.tsx",
+        "src/pages/legal/CommunityGuidelines.tsx",
+        "apps/mobile/app/_layout.tsx",
+        "src/pages/legal/TermsOfService.tsx",
+        "src/pages/legal/PrivacyPolicy.tsx",
+        "apps/mobile/app/settings/account.tsx",
+        "apps/mobile/README.md"
       ]
     },
     {
@@ -654,33 +761,26 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/pages/Profile.tsx"
+        "src/pages/VibeStudio.tsx",
+        "apps/mobile/docs/native-vibe-video-runbook.md",
+        "apps/mobile/lib/vibeVideoDiagnostics.ts",
+        "apps/mobile/lib/vibeVideoApi.ts"
       ]
-    },
-    {
-      "name": "email-drip",
-      "config_listed": true,
-      "verify_jwt": false,
-      "env_vars": [
-        "CRON_SECRET",
-        "RESEND_API_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL",
-        "UNSUB_HMAC_SECRET"
-      ],
-      "frontend_references": []
     },
     {
       "name": "email-verification",
       "config_listed": true,
       "verify_jwt": true,
       "env_vars": [
+        "EMAIL_VERIFICATION_FROM_EMAIL",
+        "EMAIL_VERIFICATION_OTP_SECRET",
         "RESEND_API_KEY",
         "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_URL"
       ],
       "frontend_references": [
+        "apps/mobile/components/verification/EmailVerificationFlow.tsx",
         "src/hooks/useEmailVerification.ts"
       ]
     },
@@ -699,6 +799,20 @@
       ]
     },
     {
+      "name": "event-reminders",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/notifications/NotificationManager.tsx",
+        "src/hooks/useEventReminders.ts"
+      ]
+    },
+    {
       "name": "forward-geocode",
       "config_listed": true,
       "verify_jwt": true,
@@ -708,7 +822,13 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/components/admin/AdminEventFormModal.tsx"
+        "src/components/settings/DiscoveryDrawer.tsx",
+        "src/pages/onboarding/steps/LocationStep.tsx",
+        "src/components/events/EventsFilterBar.tsx",
+        "src/components/admin/AdminEventFormModal.tsx",
+        "apps/mobile/components/onboarding/steps/LocationStep.tsx",
+        "apps/mobile/app/settings/discovery.tsx",
+        "apps/mobile/components/events/EventFilterSheet.tsx"
       ]
     },
     {
@@ -717,52 +837,14 @@
       "verify_jwt": false,
       "env_vars": [
         "CRON_SECRET",
+        "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_URL"
       ],
       "frontend_references": [
+        "apps/mobile/lib/dailyDropSchedule.ts",
+        "src/lib/dailyDropSchedule.ts",
         "src/components/admin/AdminDailyDropCard.tsx"
-      ]
-    },
-    {
-      "name": "daily-drop-actions",
-      "config_listed": true,
-      "verify_jwt": true,
-      "env_vars": [
-        "SUPABASE_ANON_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL"
-      ],
-      "frontend_references": [
-        "src/hooks/useDailyDrop.ts"
-      ]
-    },
-    {
-      "name": "send-message",
-      "config_listed": true,
-      "verify_jwt": true,
-      "env_vars": [
-        "SUPABASE_ANON_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL"
-      ],
-      "frontend_references": [
-        "src/hooks/useMessages.ts",
-        "apps/mobile/lib/chatApi.ts"
-      ],
-      "notes": "Text, vibe_clip, voice publish paths; see docs/chat-video-vibe-clip-architecture.md"
-    },
-    {
-      "name": "swipe-actions",
-      "config_listed": true,
-      "verify_jwt": true,
-      "env_vars": [
-        "SUPABASE_ANON_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL"
-      ],
-      "frontend_references": [
-        "src/hooks/useSwipeAction.ts"
       ]
     },
     {
@@ -774,8 +856,28 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
+        "src/services/profileService.ts",
+        "src/pages/onboarding/steps/LocationStep.tsx",
+        "src/components/events/EventsFilterBar.tsx",
         "src/pages/Events.tsx",
-        "src/services/profileService.ts"
+        "apps/mobile/app/settings/discovery.tsx",
+        "apps/mobile/app/(tabs)/events/index.tsx",
+        "apps/mobile/app/(tabs)/profile/ProfileStudio.tsx",
+        "src/components/settings/DiscoveryDrawer.tsx",
+        "apps/mobile/components/onboarding/steps/LocationStep.tsx",
+        "src/components/admin/AdminEventFormModal.tsx",
+        "apps/mobile/components/events/EventFilterSheet.tsx"
+      ]
+    },
+    {
+      "name": "health",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [],
+      "frontend_references": [
+        "src/lib/healthUrl.ts",
+        "src/components/connectivity/OfflineBanner.tsx",
+        "src/components/PhoneVerification.tsx"
       ]
     },
     {
@@ -791,8 +893,46 @@
         "TWILIO_VERIFY_SERVICE_SID"
       ],
       "frontend_references": [
+        "apps/mobile/components/verification/PhoneVerificationFlow.tsx",
         "src/components/PhoneVerification.tsx"
       ]
+    },
+    {
+      "name": "post-date-verdict",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "apps/mobile/lib/videoDateApi.ts",
+        "apps/mobile/components/video-date/PostDateSurvey.tsx",
+        "src/components/video-date/PostDateSurvey.tsx"
+      ]
+    },
+    {
+      "name": "process-media-delete-jobs",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
+    },
+    {
+      "name": "process-waitlist-promotion-notify-queue",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "CRON_SECRET",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": []
     },
     {
       "name": "push-webhook",
@@ -816,7 +956,70 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/pages/legal/DeleteAccountWeb.tsx"
+        "src/hooks/useDeleteAccount.ts",
+        "src/pages/legal/DeleteAccountWeb.tsx",
+        "apps/mobile/app/delete-account.tsx"
+      ]
+    },
+    {
+      "name": "revenuecat-webhook",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "REVENUECAT_WEBHOOK_AUTHORIZATION",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "apps/mobile/README.md",
+        "apps/mobile/lib/revenuecat.ts"
+      ]
+    },
+    {
+      "name": "send-email",
+      "config_listed": true,
+      "verify_jwt": false,
+      "env_vars": [
+        "APP_URL",
+        "FROM_EMAIL",
+        "RESEND_API_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/SupportInbox.tsx"
+      ]
+    },
+    {
+      "name": "send-game-event",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "apps/mobile/lib/gamesApi.ts",
+        "src/lib/webGamesApi.ts"
+      ]
+    },
+    {
+      "name": "send-message",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/services/voiceUploadService.ts",
+        "src/hooks/useMessages.ts",
+        "apps/mobile/README.md",
+        "apps/mobile/lib/chatMediaUpload.ts",
+        "apps/mobile/lib/chatApi.ts"
       ]
     },
     {
@@ -832,7 +1035,27 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/lib/notifications.ts"
+        "src/components/notifications/NotificationManager.tsx",
+        "src/lib/notifications.ts",
+        "apps/mobile/lib/onesignal.ts",
+        "apps/mobile/components/NotificationDeepLinkHandler.tsx",
+        "src/hooks/useEventVibes.ts",
+        "src/hooks/useDateReminders.ts",
+        "src/hooks/useEventReminders.ts"
+      ]
+    },
+    {
+      "name": "send-support-reply",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "RESEND_API_KEY",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/SupportInbox.tsx"
       ]
     },
     {
@@ -849,15 +1072,50 @@
       "frontend_references": []
     },
     {
-      "name": "unsubscribe",
+      "name": "swipe-actions",
       "config_listed": true,
-      "verify_jwt": false,
+      "verify_jwt": true,
       "env_vars": [
+        "SUPABASE_ANON_KEY",
         "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL",
-        "UNSUB_HMAC_SECRET"
+        "SUPABASE_URL"
       ],
-      "frontend_references": []
+      "frontend_references": [
+        "src/hooks/useSwipeAction.ts",
+        "apps/mobile/README.md",
+        "apps/mobile/lib/eventsApi.ts"
+      ]
+    },
+    {
+      "name": "sync-revenuecat-subscriber",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "REVENUECAT_SECRET_API_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "apps/mobile/lib/syncRevenueCatSubscriber.ts",
+        "apps/mobile/lib/revenuecat.ts"
+      ]
+    },
+    {
+      "name": "upload-chat-video",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "BUNNY_CDN_HOSTNAME",
+        "BUNNY_STORAGE_API_KEY",
+        "BUNNY_STORAGE_ZONE",
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/services/chatVideoUploadService.ts",
+        "apps/mobile/lib/chatVibeClipThumbnail.ts",
+        "apps/mobile/lib/chatMediaUpload.ts"
+      ]
     },
     {
       "name": "upload-event-cover",
@@ -882,10 +1140,16 @@
         "BUNNY_STORAGE_API_KEY",
         "BUNNY_STORAGE_ZONE",
         "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/services/imageUploadService.ts"
+        "src/services/imageUploadService.ts",
+        "src/types/games.ts",
+        "apps/mobile/README.md",
+        "apps/mobile/lib/uploadImage.ts",
+        "apps/mobile/lib/photoBatchController.ts",
+        "apps/mobile/lib/chatMediaUpload.ts"
       ]
     },
     {
@@ -900,7 +1164,10 @@
         "SUPABASE_URL"
       ],
       "frontend_references": [
-        "src/services/voiceUploadService.ts"
+        "src/services/voiceUploadService.ts",
+        "src/hooks/useMessages.ts",
+        "apps/mobile/lib/chatMediaUpload.ts",
+        "apps/mobile/lib/chatApi.ts"
       ]
     },
     {
@@ -917,19 +1184,6 @@
       ]
     },
     {
-      "name": "vibe-notification",
-      "config_listed": true,
-      "verify_jwt": true,
-      "env_vars": [
-        "SUPABASE_ANON_KEY",
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_URL"
-      ],
-      "frontend_references": [
-        "src/hooks/useEventVibes.ts"
-      ]
-    },
-    {
       "name": "video-webhook",
       "config_listed": true,
       "verify_jwt": false,
@@ -938,14 +1192,16 @@
         "SUPABASE_SERVICE_ROLE_KEY",
         "SUPABASE_URL"
       ],
-      "frontend_references": []
+      "frontend_references": [
+        "apps/mobile/docs/native-vibe-video-runbook.md"
+      ]
     }
   ],
   "function_config_gaps": [],
   "migrations": {
-    "count": 105,
+    "count": 244,
     "first": "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
-    "last": "20260412143000_phase3_legacy_queue_contract_cleanup.sql",
+    "last": "20260417100000_media_lifecycle_foundation.sql",
     "files": [
       "20251218002545_d8e57774-e32c-4b62-ba72-476b014bc930.sql",
       "20251218002813_781c162f-bcbf-42b7-838a-a72e0dc707c5.sql",
@@ -1038,6 +1294,8 @@
       "20260308221841_a41e28c2-3d0d-43a4-9168-687cbabb0534.sql",
       "20260308221853_4734cdb3-6032-4ce7-824e-c445fee37cdd.sql",
       "20260308223451_5cb15e92-a308-4e01-9dd8-f80a727bc382.sql",
+      "20260309000534_legacy_remote_artifact.sql",
+      "20260309005543_legacy_remote_artifact.sql",
       "20260309025904_e67e0f18-d092-4863-947e-f859aac7a978.sql",
       "20260309025913_4a26eafe-cba5-4764-875c-edd250a2ec04.sql",
       "20260309034333_6812c46a-0ce5-46f6-a3ae-0afea31710f6.sql",
@@ -1048,10 +1306,147 @@
       "20260310003534_7dccf499-0724-4dae-a6e4-6b170816431e.sql",
       "20260310124808_84e1cfb5-c367-4e34-a610-b555e7907d5b.sql",
       "20260310124838_45630bae-e49a-4d34-a108-326f06e5ed18.sql",
+      "20260311000000_chat_videos_anon_read.sql",
+      "20260311120000_profiles_pause_columns.sql",
+      "20260311120001_get_event_deck_exclude_paused.sql",
+      "20260311133000_video_date_state_machine.sql",
+      "20260311141500_get_event_deck_auth_guard.sql",
+      "20260311153000_ready_gate_transition.sql",
+      "20260311160000_daily_drop_transition.sql",
+      "20260311200000_notification_preferences_mobile_player.sql",
+      "20260312000000_subscriptions_provider_revenuecat.sql",
+      "20260318052946_add_realtime_publication_tables.sql",
+      "20260318120000_mark_match_messages_read.sql",
+      "20260319120000_notification_preference_groups.sql",
+      "20260319130000_event_reminder_cron.sql",
+      "20260319140000_secure_event_reminder_queue.sql",
+      "20260319140001_fix_cron_idempotent.sql",
+      "20260320120000_profiles_privacy_discovery_columns.sql",
+      "20260320160000_notification_preferences_paused_until_guard.sql",
+      "20260320210000_support_tickets.sql",
+      "20260321085625_events_language_column.sql",
+      "20260321085626_get_visible_events_add_language.sql",
+      "20260321140000_profiles_privacy_visibility_columns_idempotent.sql",
+      "20260322100000_profiles_account_pause_columns.sql",
+      "20260322150000_mark_support_reply_read_rpc.sql",
+      "20260322150100_mark_support_reply_read_public_qualify.sql",
+      "20260322160000_messages_bundling_index.sql",
+      "20260322170000_support_ticket_reference_sequence.sql",
+      "20260322180000_fix_reference_id_trigger.sql",
+      "20260322190000_fix_messages_bundling_index.sql",
+      "20260322200000_support_ticket_seq_grants.sql",
+      "20260322200100_daily_drop_cron.sql",
+      "20260322210000_revoke_anon_support_ticket_seq.sql",
+      "20260322220000_profiles_account_paused_not_null.sql",
+      "20260323120000_vibe_score_backend.sql",
+      "20260323140000_daily_drop_hardening.sql",
+      "20260323141000_emergency_drop_vibe_score_triggers.sql",
+      "20260323141001_diagnose_profiles_columns.sql",
+      "20260323142000_ensure_profiles_vibe_score_columns.sql",
+      "20260323150000_fix_vibe_score_function.sql",
+      "20260324100000_fix_vibe_score_video_points.sql",
+      "20260324120000_get_visible_events_server_premium_radius.sql",
+      "20260325100000_get_visible_events_no_coord_edge_case.sql",
+      "20260325210000_get_event_deck_about_me.sql",
+      "20260326120000_date_suggestion_foundation.sql",
+      "20260326173000_date_suggestion_apply_v2_idempotency.sql",
+      "20260327120000_vibe_score_prompts_max_10.sql",
+      "20260327130000_messages_vibe_game_kind.sql",
+      "20260328120000_messages_outbound_client_request_id_unique.sql",
+      "20260328190000_date_suggestion_cancel_idempotent.sql",
+      "20260329100000_vibe_clip_message_kind.sql",
+      "20260329150000_message_reactions.sql",
+      "20260329160000_is_profile_hidden_helper.sql",
+      "20260329160100_get_event_deck_hidden_helper.sql",
+      "20260329160200_handle_swipe_pause_check.sql",
+      "20260329160300_find_mystery_match_pause_check.sql",
+      "20260329160400_daily_drop_candidates_pause_check.sql",
+      "20260329203000_drop_pref_notification_columns.sql",
+      "20260330100000_messages_message_kind_voice.sql",
+      "20260330100002_privacy_enforcement.sql",
+      "20260330100003_deck_uses_discoverable.sql",
+      "20260330233253_support_ticket_rate_limit.sql",
+      "20260330233254_tighten_support_grants.sql",
+      "20260331100000_premium_history_table_and_indexes.sql",
+      "20260331110000_stripe_credit_checkout_grants.sql",
+      "20260331120000_check_premium_sync_profiles_get_visible_events.sql",
+      "20260331130000_profiles_subscription_tier.sql",
+      "20260331140000_tier_config_overrides.sql",
+      "20260331150000_sync_trigger_sets_subscription_tier.sql",
+      "20260331160000_enforce_event_registration_tier.sql",
+      "20260331170000_credit_adjustments_nullable_admin.sql",
+      "20260331180000_drop_super_vibe_credits.sql",
+      "20260331200000_credit_replenish.sql",
+      "20260331201000_date_plan_push_reminder_columns.sql",
+      "20260331202000_schedule_credit_date_reminder_cron.sql",
+      "20260401100000_onboarding_columns.sql",
+      "20260401100001_consolidate_relationship_intent.sql",
+      "20260401100002_backfill_onboarding_complete.sql",
+      "20260401100003_complete_onboarding_rpc.sql",
+      "20260401100004_protect_onboarding_complete.sql",
+      "20260401100005_update_onboarding_stage_rpc.sql",
+      "20260401200000_community_agreed_at.sql",
+      "20260402110000_complete_onboarding_about_me_optional.sql",
+      "20260402120000_onboarding_drafts.sql",
+      "20260402130000_draft_media_sessions.sql",
+      "20260402140000_photo_session_rpcs.sql",
+      "20260402150000_finalize_onboarding_photo_sessions.sql",
+      "20260402150500_handle_swipe_vibe_recorded_result.sql",
+      "20260403100000_onboarding_rpc_no_set_role.sql",
+      "20260403110000_fix_onboarding_birth_date_cast_and_gate.sql",
+      "20260403120000_submit_post_date_verdict.sql",
+      "20260403173000_event_payment_exceptions_min_ops.sql",
+      "20260404090000_normalize_relationship_intent_canonical.sql",
+      "20260404100000_vibe_score_intent_coalesce_bunny_uid.sql",
+      "20260404110000_deck_daily_drop_relationship_intent_coalesce.sql",
+      "20260404120000_calculate_vibe_score_intent_coalesce.sql",
+      "20260404130000_comment_calculate_vibe_score_from_row.sql",
+      "20260404140000_video_date_enter_handshake_ready_gate_guard.sql",
+      "20260404150000_swipe_drain_video_session_semantics.sql",
       "20260404183000_phase1_presence_atomic_cleanup.sql",
       "20260404191500_phase1_1_true_lobby_foreground.sql",
       "20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql",
-      "20260412143000_phase3_legacy_queue_contract_cleanup.sql"
+      "20260405103000_event_admission_rpc_auth_stripe_settle.sql",
+      "20260407120000_paid_waitlist_promotion.sql",
+      "20260407121000_schedule_waitlist_promotion_notify_cron.sql",
+      "20260407180000_sprint2_discovery_prefs.sql",
+      "20260408120000_waitlist_promotion_cron_vault.sql",
+      "20260408130000_referral_attribution_server_rpc.sql",
+      "20260408173000_event_registrations_rls_recursion_fix.sql",
+      "20260409100000_video_date_reconnect_grace_queue_sync.sql",
+      "20260409110000_expire_video_date_reconnect_grace_cron.sql",
+      "20260410120000_get_event_attendee_preview.sql",
+      "20260411120000_admin_event_cancel_delete_rpc.sql",
+      "20260411134909_remote_history_align.sql",
+      "20260411134952_remote_history_align.sql",
+      "20260412120000_event_cancel_truth_capacity.sql",
+      "20260412143000_phase3_legacy_queue_contract_cleanup.sql",
+      "20260412150000_backend_profile_bootstrap.sql",
+      "20260412160000_finalize_onboarding_draft_safe.sql",
+      "20260412170000_vibe_video_single_writer_ready_score.sql",
+      "20260412180000_photo_upload_hardening.sql",
+      "20260413100000_completion_contract_required_fields.sql",
+      "20260413110000_location_required_completion_contract.sql",
+      "20260413120000_verification_semantics_alignment.sql",
+      "20260413130000_onboarding_stage_deprecation.sql",
+      "20260413140000_legacy_column_deprecation_comments.sql",
+      "20260413150000_resolve_entry_state_rpc.sql",
+      "20260413160000_auth_fk_hardening_credits_and_deletion_requests.sql",
+      "20260413170000_profile_fk_hardening_blocked_users_and_schedules.sql",
+      "20260413180000_profile_fk_hardening_user_reports.sql",
+      "20260413183000_confirmed_location_completion_contract.sql",
+      "20260413190000_canonicalize_match_notification_mutes.sql",
+      "20260413200000_retire_match_mutes.sql",
+      "20260414100000_fix_phone_normalization_entry_state.sql",
+      "20260414120000_detect_ghost_bootstrap_accounts_rpc.sql",
+      "20260414140000_match_call_transition_rpc.sql",
+      "20260414150000_expire_stale_match_calls_cron.sql",
+      "20260414160000_resolve_entry_state_account_suspended.sql",
+      "20260415100000_get_event_deck_preferred_age.sql",
+      "20260415120000_entry_state_deletion_requested.sql",
+      "20260416100000_canonical_location_model.sql",
+      "20260416110000_regional_events_require_location.sql",
+      "20260417100000_media_lifecycle_foundation.sql"
     ],
     "sprint2_discovery_preference_controls_addendum_2026_04": {
       "note": "Branch sprint-2-discovery-preference-controls. The files[] array above may lag; these two SQL files exist under supabase/migrations/.",
@@ -1094,6 +1489,28 @@
       "contains_hardcoded_user_uuid_operations": true,
       "contains_security_policy_hotfixes": true,
       "cold_replay_safe_without_review": false
+    },
+    "media_lifecycle_sprint1_foundation_2026_04": {
+      "file": "20260417100000_media_lifecycle_foundation.sql",
+      "adds_tables": [
+        "media_retention_settings",
+        "media_assets",
+        "media_references",
+        "media_delete_jobs"
+      ],
+      "adds_functions": [
+        "enqueue_media_delete",
+        "release_media_reference",
+        "claim_media_delete_jobs",
+        "complete_media_delete_job",
+        "promote_purgeable_assets"
+      ],
+      "worker": "process-media-delete-jobs",
+      "notes": [
+        "verification_selfie retention seeded but worker disabled",
+        "chat media seeded retain_until_eligible with no active purge clock",
+        "dry_run preview is non-mutating and only previews already-queued jobs"
+      ]
     }
   },
   "hardcoded_runtime_dependencies": [
