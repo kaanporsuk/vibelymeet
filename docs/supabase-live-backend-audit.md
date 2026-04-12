@@ -29,13 +29,10 @@ vibe_tags, video_sessions
 
 > **media_*** tables added in migration `20260417100000_media_lifecycle_foundation.sql` (Sprint 1 — media lifecycle foundation). These tables track physical media assets, product-level references, deletion jobs, and admin retention settings. They do not yet replace legacy columns (`profiles.photos`, `profiles.bunny_video_uid`, `messages.audio_url`, etc.) — those remain the published snapshot until Sprint 2+ dual-write and backfill.
 
+
 ### 1a. Tables: Live DB vs `src/integrations/supabase/types.ts`
 
-- **In types and in live:** All 41 tables above are present in `types.ts` (including `push_notification_events_admin`).
-- **In live but not in types:** None.
-- **In types but not in live:** None.
-
-**Result:** Schema and types are aligned.
+// NOTE: As of 2026-04-12, the types file is regenerated from the linked Supabase project, but always verify live DB for source of truth. Table counts and alignment may drift between migrations and typegen runs. Refer to the migration manifest and live DB for canonical state.
 
 ### 1b. Code references `supabase.from('TABLE_NAME')` vs live tables
 

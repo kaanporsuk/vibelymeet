@@ -82,7 +82,7 @@ supabase functions deploy process-media-delete-jobs --project-ref schdyxcunwcvdd
 curl -X POST "${SUPABASE_URL}/functions/v1/process-media-delete-jobs" \
   -H "Authorization: Bearer ${CRON_SECRET}" \
   -H "Content-Type: application/json" \
-  -d ‘{"dry_run": true}’
+  -d '{"dry_run": true}'
 ```
 
 No new secrets required — uses existing `CRON_SECRET`, `BUNNY_STREAM_*`, `BUNNY_STORAGE_*`.

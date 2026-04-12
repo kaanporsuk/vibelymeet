@@ -120,6 +120,7 @@ Deno.serve(async (req) => {
     // complete, no status change, no attempt increment.  It reads existing
     // pending/failed jobs and reports what a real run would process.
     if (isDryRun) {
+      // Dry-run: preview only, no mutations, no claims, no promote, no status changes.
       console.log(
         `[${workerId}] DRY_RUN preview family=${familyFilter ?? "all"} batch=${batchSize}`,
       );
@@ -153,7 +154,7 @@ Deno.serve(async (req) => {
       }
 
       const rows = (preview ?? []) as unknown as DryRunPreviewRow[];
-      stats.claimed = rows.length;
+      const preview_count = rows.length;
 
       for (const row of rows) {
         console.log(
@@ -162,11 +163,18 @@ Deno.serve(async (req) => {
           `object_id=${row.provider_object_id} path=${row.provider_path} ` +
           `attempts=${row.attempts}`,
         );
-        stats.skipped++;
       }
 
-      console.log(`[${workerId}] dry-run complete, ${rows.length} jobs previewed, zero mutations`);
-      return json({ success: true, dry_run: true, message: "Dry-run preview only — zero mutations performed", worker_id: workerId, stats });
+      console.log(`[${workerId}] dry-run complete, ${preview_count} jobs previewed, zero mutations`);
+      // Explicitly do not report 'claimed' in dry-run, only preview_count.
+      return json({
+        success: true,
+        dry_run: true,
+        message: "Dry-run preview only — zero mutations performed. Only previews existing pending/failed jobs; does NOT simulate promote_purgeable_assets.",
+        worker_id: workerId,
+        preview_count,
+        stats
+      });
     }
 
     // ── Step 1: Promote purgeable assets (real execution only) ───────────────

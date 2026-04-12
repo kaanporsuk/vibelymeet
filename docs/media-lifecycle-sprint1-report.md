@@ -22,6 +22,7 @@ all provider surfaces (Bunny Stream, Bunny Storage, Supabase Storage).
 | `media_references` | Links physical assets to product entities; tracks active/released state |
 | `media_delete_jobs` | Deletion work queue with retry, backoff support |
 
+
 ### RPCs Created
 
 | RPC | Caller | Purpose |
@@ -31,6 +32,13 @@ all provider surfaces (Bunny Stream, Bunny Storage, Supabase Storage).
 | `claim_media_delete_jobs` | service_role | Worker claims a batch of pending jobs (SKIP LOCKED) |
 | `complete_media_delete_job` | service_role | Worker reports job result; updates asset status |
 | `promote_purgeable_assets` | service_role | Moves soft_deleted assets past their purge_after to purge_ready + enqueues jobs |
+
+### Dry-run Limitations
+
+- The `process-media-delete-jobs` function supports a `dry_run` mode for safe previewing.
+- **Dry-run only previews existing `pending` or `failed` jobs.**
+- It does **not** simulate or preview the effect of `promote_purgeable_assets` (i.e., assets that would become eligible for deletion after promotion are not included).
+- No jobs are claimed, mutated, or status-changed in dry-run mode. The output includes a `preview_count` of jobs that would be processed if run for real.
 
 ### Retention Defaults Seeded
 
