@@ -83,7 +83,22 @@ Deploying the function **before** the migration will cause voice inserts to fail
 
 ---
 
-## 7. Implementation map
+## 7. Media retention and cleanup
+
+Chat media (voice, Vibe Clip, chat video, thumbnails) is tracked in the `media_assets` / `media_references` lifecycle model (migration `20260417100000_media_lifecycle_foundation.sql`).
+
+**Current policy:** `retain_until_eligible` with `eligible_days = NULL`. This means **no automatic purge** runs for any chat media. Assets are retained indefinitely while at least one valid side still retains the chat.
+
+**Purge eligibility (Sprint 3):** A chat media asset becomes purge-eligible only when:
+- both parties deleted the chat, OR
+- both parties deleted their accounts, OR
+- one side deleted their account AND the other side deleted the chat
+
+Until Sprint 3 wires the reference-release logic into message/match/account deletion flows, chat media is never purged by the worker.
+
+---
+
+## 8. Implementation map
 
 | Area | Files |
 |------|--------|

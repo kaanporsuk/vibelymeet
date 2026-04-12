@@ -126,8 +126,22 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 ---
 
+## Media lifecycle (backend-only)
+
+| Contract | Type | Purpose | Native use |
+|----------|------|---------|------------|
+| `media_assets` | Table | Canonical registry of all physical media files/streams | No direct client use — service_role only |
+| `media_references` | Table | Links media assets to product entities (profiles, messages, events) | Read-only via RLS for asset owners |
+| `media_delete_jobs` | Table | Deletion work queue with retry/backoff | service_role only |
+| `media_retention_settings` | Table | Admin-configurable per-family retention policy | Read-only for authenticated (admin writes via service_role) |
+| `process-media-delete-jobs` | Edge Function | Cron worker: drain delete queue via Bunny/Supabase provider helpers | Server-only (CRON_SECRET auth) |
+
+> Added in migration `20260417100000_media_lifecycle_foundation.sql`. These tables are backend infrastructure — no client changes required. Existing upload/delete flows are unchanged; Sprint 2+ will wire them into the new model.
+
+---
+
 ## Edge Functions inventory (reference)
 
-From `supabase/functions/`: admin-review-verification, cancel-deletion, create-checkout-session, create-credits-checkout, create-event-checkout, create-portal-session, create-video-upload, daily-drop-actions, daily-room, delete-account, delete-vibe-video, email-verification, event-notifications, forward-geocode, generate-daily-drops, geocode, phone-verify, push-webhook, request-account-deletion, revenuecat-webhook, send-message, send-notification, stripe-webhook, swipe-actions, upload-chat-video, upload-event-cover, upload-image, upload-voice, verify-admin, video-webhook.
+From `supabase/functions/`: admin-review-verification, cancel-deletion, create-checkout-session, create-credits-checkout, create-event-checkout, create-portal-session, create-video-upload, daily-drop-actions, daily-room, delete-account, delete-vibe-video, email-verification, event-notifications, forward-geocode, generate-daily-drops, geocode, phone-verify, process-media-delete-jobs, push-webhook, request-account-deletion, revenuecat-webhook, send-message, send-notification, stripe-webhook, swipe-actions, upload-chat-video, upload-event-cover, upload-image, upload-voice, verify-admin, video-webhook.
 
 Native-v1 critical: send-message, swipe-actions, daily-drop-actions, daily-room, send-notification, account-pause, account-resume, geocode, create-checkout-session (web); revenuecat-webhook (native). Others as needed per screen.
