@@ -73,8 +73,8 @@ serve(async (req) => {
       "image/heif": "heic",
     };
     const ext = extMap[file.type] ?? "jpg";
-    const timestamp = Date.now();
-    const storagePath = `photos/${user.id}/${timestamp}.${ext}`;
+    const uniqueId = crypto.randomUUID();
+    const storagePath = `photos/${user.id}/${uniqueId}.${ext}`;
 
     const fileBuffer = await file.arrayBuffer();
     const uploadRes = await fetch(

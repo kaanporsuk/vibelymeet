@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
 import { Plus, X, Crown, Upload, GripVertical, Image as ImageIcon, Expand } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
+
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
+import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT, resolvePhotoUrl } from "@/lib/photoUtils";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
 
 interface PhotoManagerProps {
@@ -34,7 +36,12 @@ export const PhotoManager = ({
     if (!files || files.length === 0) return;
 
     const remainingSlots = MAX_PHOTOS - photos.length;
-    const filesToAdd = Array.from(files).slice(0, remainingSlots);
+    const picked = Array.from(files);
+    const allowed = picked.filter(isAllowedProfilePhotoUploadFile);
+    if (allowed.length < picked.length) {
+      toast.error("Use JPEG, PNG, or WebP for profile photos.");
+    }
+    const filesToAdd = allowed.slice(0, remainingSlots);
 
     const newPhotos = [...photos];
     const newFiles = [...photoFiles];
@@ -116,7 +123,7 @@ export const PhotoManager = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={PROFILE_PHOTO_ACCEPT}
         multiple
         className="hidden"
         onChange={handleFileSelect}

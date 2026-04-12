@@ -1,6 +1,9 @@
 import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Crown, Camera, Plane, Music, Utensils, Dumbbell, X } from "lucide-react";
+import { toast } from "sonner";
+
+import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
 
 interface PhotoUploadGridProps {
   photos: string[];
@@ -31,6 +34,11 @@ const PhotoUploadGrid = ({ photos, onPhotosChange, onFilesChange }: PhotoUploadG
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, slot: number) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!isAllowedProfilePhotoUploadFile(file)) {
+        toast.error("Use JPEG, PNG, or WebP for profile photos.");
+        setActiveSlot(null);
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         const newPhotos = [...photos];
@@ -50,7 +58,7 @@ const PhotoUploadGrid = ({ photos, onPhotosChange, onFilesChange }: PhotoUploadG
     e.preventDefault();
     setDragOver(null);
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("image/")) {
+    if (file && isAllowedProfilePhotoUploadFile(file)) {
       const reader = new FileReader();
       reader.onload = () => {
         const newPhotos = [...photos];
@@ -62,6 +70,8 @@ const PhotoUploadGrid = ({ photos, onPhotosChange, onFilesChange }: PhotoUploadG
         updateFiles(newFiles);
       };
       reader.readAsDataURL(file);
+    } else if (file) {
+      toast.error("Use JPEG, PNG, or WebP for profile photos.");
     }
   };
 
@@ -85,7 +95,7 @@ const PhotoUploadGrid = ({ photos, onPhotosChange, onFilesChange }: PhotoUploadG
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={PROFILE_PHOTO_ACCEPT}
         className="hidden"
         onChange={(e) => activeSlot !== null && handleFileSelect(e, activeSlot)}
       />

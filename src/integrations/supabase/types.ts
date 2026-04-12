@@ -3553,6 +3553,10 @@ export type Database = {
         Args: { p_storage_path: string; p_user_id: string }
         Returns: Json
       }
+      mark_photo_drafts_deleted: {
+        Args: { p_paths: string[] }
+        Returns: Json
+      }
       mark_support_reply_read: {
         Args: { p_reply_id: string }
         Returns: undefined

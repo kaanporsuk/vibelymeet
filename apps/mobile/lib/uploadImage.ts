@@ -1,13 +1,14 @@
 /**
  * Upload a profile photo via the upload-image Edge Function (same contract as web).
- * Returns the storage path (e.g. photos/{userId}/{timestamp}.jpg) to store in profiles.photos.
+ * Returns storage path + draft session id for reconciliation.
  */
 
+import { prepareProfilePhotoAssetForUpload, type NormalizedImageAsset } from '@/lib/imageAssetNormalize';
 import { supabase } from '@/lib/supabase';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
-export type UploadImageResult = { path: string };
+export type UploadImageResult = { path: string; sessionId: string | null };
 
 export interface ImagePickerAsset {
   uri: string;
@@ -17,13 +18,13 @@ export interface ImagePickerAsset {
 
 /**
  * Upload an image from a local URI (e.g. from expo-image-picker) to Bunny via upload-image EF.
- * @param asset - { uri, mimeType?, fileName? } from picker
  * Superseded committed photos are reconciled later by final publish, not during staged upload.
  */
 export async function uploadProfilePhoto(
-  asset: ImagePickerAsset,
+  asset: ImagePickerAsset | NormalizedImageAsset,
   context?: 'onboarding' | 'profile_studio',
-): Promise<string> {
+  options?: { signal?: AbortSignal },
+): Promise<UploadImageResult> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
 
@@ -31,38 +32,47 @@ export async function uploadProfilePhoto(
     throw new Error('[uploadImage] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
   }
 
-  const formData = new FormData();
-  formData.append(
-    'file',
-    {
-      uri: asset.uri,
-      type: asset.mimeType ?? 'image/jpeg',
-      name: asset.fileName ?? `photo-${Date.now()}.jpg`,
-    } as unknown as Blob
-  );
-  if (context) {
-    formData.append('context', context);
-  }
-
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: formData,
-  });
-
-  const text = await res.text();
-  let data: { success?: boolean; path?: string; error?: string };
+  const prepared = await prepareProfilePhotoAssetForUpload(asset);
   try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error('Upload service unavailable. Please try again.');
-  }
+    const formData = new FormData();
+    formData.append(
+      'file',
+      {
+        uri: prepared.uri,
+        type: prepared.mimeType ?? 'image/jpeg',
+        name: prepared.fileName ?? `photo-${Date.now()}.jpg`,
+      } as unknown as Blob,
+    );
+    if (context) {
+      formData.append('context', context);
+    }
 
-  if (!data.success || !data.path) {
-    throw new Error(data.error ?? 'Image upload failed');
-  }
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: formData,
+      signal: options?.signal,
+    });
 
-  return data.path;
+    const text = await res.text();
+    let data: { success?: boolean; path?: string; sessionId?: string | null; error?: string };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Upload service unavailable. Please try again.');
+    }
+
+    if (!data.success || !data.path) {
+      throw new Error(data.error ?? 'Image upload failed');
+    }
+
+    return {
+      path: data.path,
+      sessionId: data.sessionId ?? null,
+    };
+  } finally {
+    prepared.cleanup?.();
+  }
 }

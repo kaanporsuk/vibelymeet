@@ -39,6 +39,8 @@ import { cn } from "@/lib/utils";
 import { thumbnailUrl, fullScreenUrl } from "@/utils/imageUrl";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
+import { markEphemeralPhotoPathsDeleted } from "@/lib/photoDraftReconcile";
+import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -557,6 +559,8 @@ export default function PhotoManageDrawer({
   const [fullscreenIndex, setFullscreenIndex] = useState<number | null>(null);
 
   const initialPhotosRef = useRef<string[]>(photos);
+  /** Bumps when the drawer closes so in-flight uploads don't mutate state; matches native abort semantics. */
+  const uploadSessionRef = useRef(0);
   const photosRef = useRef(photos);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -567,6 +571,12 @@ export default function PhotoManageDrawer({
   const transientSlotsMessage = uploadingSlots.size > 0
     ? "Finish current photo uploads first"
     : "Retry or remove failed photo uploads first";
+
+  useEffect(() => {
+    if (!isOpen) {
+      uploadSessionRef.current += 1;
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -652,12 +662,20 @@ export default function PhotoManageDrawer({
       return;
     }
 
+    const sessionAtBatchStart = uploadSessionRef.current;
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("Not authenticated"); return; }
 
     const validFiles = files.filter((file) => {
-      if (file.size > MAX_FILE_SIZE) { toast.error(`${file.name} exceeds 10MB limit`); return false; }
-      if (!file.type.startsWith("image/")) { toast.error(`${file.name} is not an image`); return false; }
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name} exceeds 10MB limit`);
+        return false;
+      }
+      if (!isAllowedProfilePhotoUploadFile(file)) {
+        toast.error(`Use JPEG, PNG, or WebP for profile photos (${file.name}).`);
+        return false;
+      }
       return true;
     });
 
@@ -674,7 +692,11 @@ export default function PhotoManageDrawer({
       setPendingPreviews((prev) => new Map(prev).set(replaceIndex, preview));
       setUploadingSlots((prev) => new Set(prev).add(replaceIndex));
       try {
-        const path = await uploadImageToBunny(file, session.access_token, "profile_studio");
+        const { path } = await uploadImageToBunny(file, session.access_token, "profile_studio");
+        if (sessionAtBatchStart !== uploadSessionRef.current) {
+          void markEphemeralPhotoPathsDeleted([path]);
+          return;
+        }
         setLocalPhotos((prev) => { const next = [...prev]; next[replaceIndex] = path; return next; });
         // Success — clean up preview
         setPendingPreviews((prev) => { const next = new Map(prev); next.delete(replaceIndex); return next; });
@@ -729,12 +751,23 @@ export default function PhotoManageDrawer({
     setUploadingSlots((prev) => new Set([...prev, ...slotIndices]));
 
     // Upload all in parallel; track success/failure per slot
-    type SlotResult = { slot: number; path: string | null; file: File; preview: string; error?: string };
+    type SlotResult = {
+      slot: number;
+      path: string | null;
+      file: File;
+      preview: string;
+      error?: string;
+      stale?: boolean;
+    };
     const results: SlotResult[] = await Promise.all(
       toUpload.map(async (file, i): Promise<SlotResult> => {
         const slot = slotIndices[i];
         try {
-          const path = await uploadImageToBunny(file, session.access_token, "profile_studio");
+          const { path } = await uploadImageToBunny(file, session.access_token, "profile_studio");
+          if (sessionAtBatchStart !== uploadSessionRef.current) {
+            void markEphemeralPhotoPathsDeleted([path]);
+            return { slot, path: null, file, preview: previews[i], stale: true };
+          }
           return { slot, path, file, preview: previews[i] };
         } catch (err) {
           const msg = err instanceof Error ? err.message : `${file.name} failed to upload`;
@@ -766,6 +799,8 @@ export default function PhotoManageDrawer({
     for (const r of results) {
       if (r.path !== null) {
         // Success — revoke blob
+        revokePreview(r.preview);
+      } else if (r.stale) {
         revokePreview(r.preview);
       } else {
         // Failure — keep blob alive for retry overlay
@@ -804,6 +839,8 @@ export default function PhotoManageDrawer({
     const failed = failedSlots.get(slot);
     if (!failed) return;
 
+    const sessionAtRetry = uploadSessionRef.current;
+
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { toast.error("Not authenticated"); return; }
 
@@ -813,11 +850,16 @@ export default function PhotoManageDrawer({
     setUploadingSlots((prev) => new Set(prev).add(slot));
 
     try {
-      const path = await uploadImageToBunny(
+      const { path } = await uploadImageToBunny(
         failed.file,
         session.access_token,
         "profile_studio",
       );
+
+      if (sessionAtRetry !== uploadSessionRef.current) {
+        void markEphemeralPhotoPathsDeleted([path]);
+        return;
+      }
 
       if (failed.replaceOldPath !== undefined) {
         // Was a Replace — overwrite the existing slot in localPhotos
@@ -867,13 +909,19 @@ export default function PhotoManageDrawer({
     setConfirmRemoveIndex(index);
   }, [hasTransientSlots]);
 
-  const confirmRemove = useCallback(() => {
+  const confirmRemove = useCallback(async () => {
     if (confirmRemoveIndex !== null) {
-      setLocalPhotos((prev) => prev.filter((_, i) => i !== confirmRemoveIndex));
+      const idx = confirmRemoveIndex;
+      const removedPath = localPhotos[idx];
+      const baseline = new Set(initialPhotosRef.current);
+      setLocalPhotos((prev) => prev.filter((_, i) => i !== idx));
       toast.success("Photo removed");
+      if (removedPath?.startsWith("photos/") && !baseline.has(removedPath)) {
+        await markEphemeralPhotoPathsDeleted([removedPath]);
+      }
     }
     setConfirmRemoveIndex(null);
-  }, [confirmRemoveIndex]);
+  }, [confirmRemoveIndex, localPhotos]);
 
   // ── Save / Cancel / Close ────────────────────────────────────
 
@@ -1157,7 +1205,7 @@ export default function PhotoManageDrawer({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept={PROFILE_PHOTO_ACCEPT}
               multiple
               className="hidden"
               onChange={handleFileChange}
@@ -1165,7 +1213,7 @@ export default function PhotoManageDrawer({
             <input
               ref={replaceInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept={PROFILE_PHOTO_ACCEPT}
               className="hidden"
               onChange={handleReplaceFileChange}
             />
@@ -1189,7 +1237,15 @@ export default function PhotoManageDrawer({
             message="Your photo changes will be lost."
             confirmLabel="Discard"
             confirmDestructive
-            onConfirm={() => { setShowDiscardConfirm(false); onClose(); }}
+            onConfirm={async () => {
+              setShowDiscardConfirm(false);
+              const baseline = new Set(initialPhotosRef.current);
+              const ephemeral = localPhotos.filter((p) => p && !baseline.has(p));
+              if (ephemeral.length > 0) {
+                await markEphemeralPhotoPathsDeleted(ephemeral);
+              }
+              onClose();
+            }}
             onCancel={() => setShowDiscardConfirm(false)}
           />
 

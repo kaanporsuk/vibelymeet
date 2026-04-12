@@ -2,18 +2,23 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export type UploadImageContext = "onboarding" | "profile_studio";
 
+export type UploadImageToBunnyResult = {
+  path: string;
+  sessionId: string | null;
+};
+
 export async function uploadImageToBunny(
   file: File,
   accessToken: string,
   context?: UploadImageContext,
-): Promise<string> {
+): Promise<UploadImageToBunnyResult> {
   const formData = new FormData();
   formData.append("file", file);
   if (context) {
     formData.append("context", context);
   }
 
-  let data: { success?: boolean; path?: string; error?: string };
+  let data: { success?: boolean; path?: string; sessionId?: string | null; error?: string };
   try {
     const res = await fetch(
       `${SUPABASE_URL}/functions/v1/upload-image`,
@@ -39,8 +44,6 @@ export async function uploadImageToBunny(
     throw new Error("Network error during upload. Check your connection.");
   }
 
-  console.error("[uploadImageToBunny] Response:", JSON.stringify(data));
-
   if (!data.success) {
     throw new Error(data.error || "Image upload failed");
   }
@@ -49,5 +52,8 @@ export async function uploadImageToBunny(
     throw new Error("Image upload failed");
   }
 
-  return data.path; // Returns "photos/{userId}/{timestamp}.jpg"
+  return {
+    path: data.path,
+    sessionId: data.sessionId ?? null,
+  };
 }

@@ -291,8 +291,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         if (photo && file) {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("Not authenticated");
-          const url = await uploadImageToBunny(file, session.access_token);
-          uploadedPhotoUrls.push(url);
+          const { path } = await uploadImageToBunny(file, session.access_token);
+          uploadedPhotoUrls.push(path);
         } else if (photo && photo.startsWith('http')) {
           // Already a URL (maybe from previous session)
           uploadedPhotoUrls.push(photo);
@@ -595,8 +595,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                                     if (photo && file) {
                                       const { data: { session: sess } } = await supabase.auth.getSession();
                                       if (!sess) throw new Error("Not authenticated");
-                                      const url = await uploadImageToBunny(file, sess.access_token);
-                                      uploadedPhotoUrls.push(url);
+                                      const { path } = await uploadImageToBunny(file, sess.access_token);
+                                      uploadedPhotoUrls.push(path);
                                   } else if (photo && photo.startsWith('http')) {
                                     uploadedPhotoUrls.push(photo);
                                   }
