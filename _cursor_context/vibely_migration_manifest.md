@@ -19,6 +19,15 @@ It answers:
 
 This is especially important for Vibely because the migration chain is **not** purely schema DDL. It includes policy rewrites, storage changes, backfills, destructive cleanup, and test-data manipulation.
 
+### Current-state addendum (2026-04-12)
+
+The repo has moved well beyond the frozen/archive counts below.
+
+- Current repo migration count: **244** files under `supabase/migrations`.
+- Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
+- That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
+- For current deploy work, treat the live migration list plus this file as additive history: the baseline/archive counts below remain historically useful, but they are not the current total.
+
 ---
 
 ## 2. Migration summary
@@ -102,6 +111,18 @@ Key deltas recorded in this migration:
   - `join_matching_queue` and `find_video_date_match` are now compatibility no-ops returning a deprecated contract.
   - `leave_matching_queue` is kept for compatibility and returns `deprecated: true` while preserving cleanup behavior.
 - This pass does not alter payment settlement semantics or swipe-first matching product flow.
+
+### Sprint 1 media lifecycle foundation addendum (2026-04-12 verification)
+
+Added migration:
+- `20260417100000_media_lifecycle_foundation.sql`
+
+Key deltas recorded in this migration:
+- Creates `media_retention_settings`, `media_assets`, `media_references`, and `media_delete_jobs`.
+- Seeds retention policy rows for `vibe_video`, `profile_photo`, `verification_selfie`, `chat_image`, `chat_video`, `chat_video_thumbnail`, `voice_message`, and `event_cover`.
+- Leaves `verification_selfie` worker processing disabled for Sprint 1 (`worker_enabled = false`).
+- Seeds chat families as `retain_until_eligible` with `eligible_days = null`, so no purge clock starts automatically yet.
+- Adds service-role RPCs `enqueue_media_delete`, `release_media_reference`, `claim_media_delete_jobs`, `complete_media_delete_job`, and `promote_purgeable_assets`.
 
 ---
 
@@ -609,4 +630,3 @@ The Vibely migration history is rich, real, and operationally meaningful — but
 - at least two schema objects visible in types but not created anywhere in the frozen SQL set
 
 That means this migration manifest is not just an inventory. It is a warning label for rebuild strategy: **preserve the history, but do not replay it blindly.**
-

@@ -22,6 +22,21 @@ This document is optimized for rebuild and maintenance work. For exact TypeScrip
 
 - `src/integrations/supabase/types.ts`
 
+### Current-state addendum (2026-04-12)
+
+The frozen baseline counts below are no longer the current repo/cloud counts.
+
+- Current linked-project schema includes **45 public tables** after Sprint 1 media lifecycle foundation.
+- The four new tables are `media_retention_settings`, `media_assets`, `media_references`, and `media_delete_jobs`.
+- Current typed/public RPC surface should include **31** functions once `src/integrations/supabase/types.ts` is regenerated from the linked project, including:
+  - `enqueue_media_delete`
+  - `release_media_reference`
+  - `claim_media_delete_jobs`
+  - `complete_media_delete_job`
+  - `promote_purgeable_assets`
+- `verification_selfie` retention is intentionally seeded but disabled (`worker_enabled = false`).
+- Chat media families are intentionally seeded as `retain_until_eligible` with no active purge clock yet.
+
 ---
 
 ## 2. Schema summary
@@ -33,6 +48,8 @@ This document is optimized for rebuild and maintenance work. For exact TypeScrip
 - **22 typed public SQL functions / RPC surfaces**
 - **3 public enums**
 - **6 storage buckets referenced by migrations**
+
+These counts describe the frozen 2026-03-10 baseline, not the current 2026-04-12 linked project.
 
 ### Public enums
 
@@ -1011,4 +1028,3 @@ The frozen Vibely pre-native-hardening baseline already contains a relatively ma
 - admin moderation and account lifecycle tooling
 
 For rebuild purposes, the critical takeaway is that Vibely is not just a React frontend with a few tables. It is a tightly coupled product database with event, media, moderation, messaging, payments, and notification subsystems already encoded in the schema.
-

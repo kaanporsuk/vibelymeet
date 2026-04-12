@@ -23,6 +23,28 @@ It answers:
 
 This is a rebuild and hardening artifact, not a substitute for reading function code.
 
+### Current-state addendum (2026-04-12)
+
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead:
+
+- Current repo inventory: **44 deployable Edge Functions** plus `_shared`.
+- `supabase/config.toml` now explicitly configures all 44 deployable functions.
+- Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
+- Current repo-only additions beyond the original baseline list include:
+  - `admin-proof-selfie-sign`
+  - `date-suggestion-actions`
+  - `date-suggestion-expiry`
+  - `event-reminders`
+  - `health`
+  - `post-date-verdict`
+  - `process-media-delete-jobs`
+  - `send-email`
+  - `send-game-event`
+  - `send-support-reply`
+  - `sync-revenuecat-subscriber`
+  - `upload-chat-video`
+- Some functions documented in the original frozen baseline are no longer current repo directories, including `account-pause`, `account-resume`, `email-drip`, `unsubscribe`, and `vibe-notification`.
+
 ---
 
 ## 2. Inventory summary
@@ -34,9 +56,13 @@ There are **34 deployable Edge Functions** plus one shared helper directory:
 - deployable functions: **34**
 - shared helper directory: `_shared`
 
+These counts describe the original frozen baseline. Current repo counts are listed in the addendum above.
+
 ### Config coverage
 
 `supabase/config.toml` explicitly configures **all 34** functions. No config gaps remain.
+
+Current repo status (2026-04-12): `supabase/config.toml` explicitly configures **all 44** deployable functions, including `process-media-delete-jobs`.
 
 ### Gateway JWT posture from config (post-hardening)
 
@@ -560,4 +586,3 @@ The Vibely Edge Function layer is not a thin helper tier. It is a major part of 
 - admin operations
 
 A successful rebuild requires preserving not only the function files, but also their auth posture, secrets, external registrations, and function-to-frontend call contracts.
-

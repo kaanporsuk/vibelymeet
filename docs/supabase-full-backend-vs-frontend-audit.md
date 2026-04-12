@@ -12,13 +12,15 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 **Live DB SQL:** Sections that require Postgres (full RPC enumeration vs `types.ts`, `pg_publication_tables`, RLS dump, triggers, cron, indexes, storage buckets) should be executed in the **Supabase SQL Editor** using the queries in this doc. This report uses **generated types** (`src/integrations/supabase/types.ts`) as the RPC catalog and **migrations** for RLS/trigger hints where live SQL was not executed here.
 
+> Update 2026-04-12: this document remains useful as a March 2026 audit snapshot, but it is no longer a complete current inventory by itself. The current repo contains 44 deployable Edge Functions (excluding `_shared`), and the linked project has the Sprint 1 media lifecycle worker `process-media-delete-jobs` deployed with cron still disabled. Current server-only/admin additions not represented in the original matrix below include `admin-proof-selfie-sign`, `date-suggestion-actions`, `date-suggestion-expiry`, `event-reminders`, `health`, `post-date-verdict`, `process-media-delete-jobs`, `send-email`, `send-game-event`, `send-support-reply`, and `sync-revenuecat-subscriber`. Use `_cursor_context/vibely_edge_function_manifest.md` for the canonical current function inventory.
+
 ---
 
 ## 1. Edge Functions — inventory & web/native matrix
 
 ### 1a. Deployed functions (CLI)
 
-36 ACTIVE functions (names match repo `supabase/functions/*`).
+Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 
 > `process-media-delete-jobs` added in Sprint 1 media lifecycle foundation. CRON_SECRET auth, no JWT. Drains `media_delete_jobs` queue via Bunny Stream/Storage delete helpers.
 
@@ -60,7 +62,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 | upload-voice | POST | true | Voice note upload | voiceUploadService (fetch) | chatMediaUpload (fetch) | Storage/Bunny |
 | verify-admin | POST | true | Admin gate | ProtectedRoute | — | Supabase |
 | video-webhook | POST | false | Bunny video lifecycle | — | — | Bunny |
-| process-media-delete-jobs | POST | false | Cron: drain media delete queue | — | — | Bunny Stream/Storage |
+| process-media-delete-jobs | POST | false | Cron: drain media delete queue (dry-run preview only does not promote purgeable assets) | — | — | Bunny Stream/Storage |
 
 ### Flags (§1e)
 
