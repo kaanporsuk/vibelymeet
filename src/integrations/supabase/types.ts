@@ -9,8 +9,268 @@ export type Json =
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    __InternalSupabase: {
+      PostgrestVersion: "14.1"
+    }
+    public: {
+      Tables: {
+        // ...other tables...
+        media_assets: {
+          Row: {
+            bytes: number | null
+            created_at: string
+            deleted_at: string | null
+            id: string
+            last_error: string | null
+            legacy_id: string | null
+            legacy_table: string | null
+            media_family: string
+            mime_type: string | null
+            owner_user_id: string | null
+            provider: string
+            provider_object_id: string | null
+            provider_path: string | null
+            purge_after: string | null
+            purged_at: string | null
+            status: string
+            updated_at: string
+          }
+          Insert: {
+            bytes?: number | null
+            created_at?: string
+            deleted_at?: string | null
+            id?: string
+            last_error?: string | null
+            legacy_id?: string | null
+            legacy_table?: string | null
+            media_family: string
+            mime_type?: string | null
+            owner_user_id?: string | null
+            provider: string
+            provider_object_id?: string | null
+            provider_path?: string | null
+            purge_after?: string | null
+            purged_at?: string | null
+            status?: string
+            updated_at?: string
+          }
+          Update: {
+            bytes?: number | null
+            created_at?: string
+            deleted_at?: string | null
+            id?: string
+            last_error?: string | null
+            legacy_id?: string | null
+            legacy_table?: string | null
+            media_family?: string
+            mime_type?: string | null
+            owner_user_id?: string | null
+            provider?: string
+            provider_object_id?: string | null
+            provider_path?: string | null
+            purge_after?: string | null
+            purged_at?: string | null
+            status?: string
+            updated_at?: string
+          }
+          Relationships: [
+            {
+              foreignKeyName: "media_assets_media_family_fkey"
+              columns: ["media_family"]
+              isOneToOne: false
+              referencedRelation: "media_retention_settings"
+              referencedColumns: ["media_family"]
+            },
+          ]
+        }
+        ,
+        media_delete_jobs: {
+          Row: {
+            asset_id: string
+            attempts: number
+            completed_at: string | null
+            created_at: string
+            id: string
+            job_type: string
+            last_error: string | null
+            max_attempts: number
+            next_attempt_at: string
+            provider: string
+            provider_object_id: string | null
+            provider_path: string | null
+            started_at: string | null
+            status: string
+            updated_at: string
+            worker_id: string | null
+          }
+          Insert: {
+            asset_id: string
+            attempts?: number
+            completed_at?: string | null
+            created_at?: string
+            id?: string
+            job_type?: string
+            last_error?: string | null
+            max_attempts?: number
+            next_attempt_at?: string
+            provider: string
+            provider_object_id?: string | null
+            provider_path?: string | null
+            started_at?: string | null
+            status?: string
+            updated_at?: string
+            worker_id?: string | null
+          }
+          Update: {
+            asset_id?: string
+            attempts?: number
+            completed_at?: string | null
+            created_at?: string
+            id?: string
+            job_type?: string
+            last_error?: string | null
+            max_attempts?: number
+            next_attempt_at?: string
+            provider?: string
+            provider_object_id?: string | null
+            provider_path?: string | null
+            started_at?: string | null
+            status?: string
+            updated_at?: string
+            worker_id?: string | null
+          }
+          Relationships: [
+            {
+              foreignKeyName: "media_delete_jobs_asset_id_fkey"
+              columns: ["asset_id"]
+              isOneToOne: false
+              referencedRelation: "media_assets"
+              referencedColumns: ["id"]
+            },
+          ]
+        }
+        ,
+        media_references: {
+          Row: {
+            asset_id: string
+            created_at: string
+            id: string
+            is_active: boolean
+            ref_id: string
+            ref_key: string | null
+            ref_table: string
+            ref_type: string
+            released_at: string | null
+            released_by: string | null
+            updated_at: string
+          }
+          Insert: {
+            asset_id: string
+            created_at?: string
+            id?: string
+            is_active?: boolean
+            ref_id: string
+            ref_key?: string | null
+            ref_table: string
+            ref_type: string
+            released_at?: string | null
+            released_by?: string | null
+            updated_at?: string
+          }
+          Update: {
+            asset_id?: string
+            created_at?: string
+            id?: string
+            is_active?: boolean
+            ref_id?: string
+            ref_key?: string | null
+            ref_table?: string
+            ref_type?: string
+            released_at?: string | null
+            released_by?: string | null
+            updated_at?: string
+          }
+          Relationships: [
+            {
+              foreignKeyName: "media_references_asset_id_fkey"
+              columns: ["asset_id"]
+              isOneToOne: false
+              referencedRelation: "media_assets"
+              referencedColumns: ["id"]
+            },
+          ]
+        }
+        ,
+        media_retention_settings: {
+          Row: {
+            batch_size: number
+            dry_run: boolean
+            eligible_days: number | null
+            max_attempts: number
+            media_family: string
+            notes: string | null
+            retention_days: number | null
+            retention_mode: string
+            updated_at: string
+            updated_by: string | null
+            worker_enabled: boolean
+          }
+          Insert: {
+            batch_size?: number
+            dry_run?: boolean
+            eligible_days?: number | null
+            max_attempts?: number
+            media_family: string
+            notes?: string | null
+            retention_days?: number | null
+            retention_mode?: string
+            updated_at?: string
+            updated_by?: string | null
+            worker_enabled?: boolean
+          }
+          Update: {
+            batch_size?: number
+            dry_run?: boolean
+            eligible_days?: number | null
+            max_attempts?: number
+            media_family?: string
+            notes?: string | null
+            retention_days?: number | null
+            retention_mode?: string
+            updated_at?: string
+            updated_by?: string | null
+            worker_enabled?: boolean
+          }
+          Relationships: []
+        }
+        // ...other tables...
+      }
+      Functions: {
+        // ...other functions...
+        enqueue_media_delete: {
+          Args: { p_asset_id: string; p_job_type?: string }
+          Returns: Json
+        },
+        release_media_reference: {
+          Args: { p_reference_id: string; p_released_by?: string }
+          Returns: Json
+        },
+        claim_media_delete_jobs: {
+          Args: { p_batch_size?: number; p_family_filter?: string; p_worker_id: string }
+          Returns: any[]
+        },
+        complete_media_delete_job: {
+          Args: { p_error?: string; p_job_id: string; p_success: boolean }
+          Returns: Json
+        },
+        promote_purgeable_assets: {
+          Args: { p_limit?: number }
+          Returns: number
+        },
+        // ...other functions...
+      }
+      // ...other schema...
+    }
   }
   graphql_public: {
     Tables: {
