@@ -103,6 +103,26 @@ Key deltas recorded in this migration:
   - `leave_matching_queue` is kept for compatibility and returns `deprecated: true` while preserving cleanup behavior.
 - This pass does not alter payment settlement semantics or swipe-first matching product flow.
 
+### Media lifecycle addendum (2026-04-12)
+
+Current repo state now contains **245** migration files under `supabase/migrations`.
+
+Media lifecycle progression:
+- `20260417100000_media_lifecycle_foundation.sql` — Sprint 1 foundation:
+  - adds `media_retention_settings`, `media_assets`, `media_references`, `media_delete_jobs`
+  - seeds retention policies and introduces worker-facing RPCs / `process-media-delete-jobs`
+- `20260417110000_media_lifecycle_profile_media_wiring.sql` — Sprint 2 profile-media wiring:
+  - adds `profile_vibe_videos` for future multi-video-per-user support with a single current/primary marker
+  - redefines `publish_photo_set`, `mark_photo_deleted`, `mark_photo_drafts_deleted`, `update_media_session_status`, `publish_media_session`, and `finalize_onboarding`
+  - adds helper functions `media_compute_purge_after`, `mark_media_asset_soft_deleted_if_unreferenced`, `ensure_profile_photo_asset`, `ensure_vibe_video_asset`, `sync_profile_photo_media`, `activate_profile_vibe_video`, and `clear_profile_vibe_video`
+  - conservatively backfills existing live `profiles.photos` / `avatar_url` / `bunny_video_uid` rows into lifecycle tables when applied
+
+Important Sprint 2 boundaries:
+- keeps `profiles.bunny_video_uid` / `profiles.bunny_video_status` as the compatibility mirror for the primary vibe video
+- keeps `profiles.photos` / `profiles.avatar_url` as the compatibility mirror for published profile photos
+- does **not** enable `process-media-delete-jobs` cron
+- does **not** wire chat-media eligibility purge or account-deletion purge rewrite
+
 ---
 
 ## 3. The single most important migration finding
@@ -609,4 +629,3 @@ The Vibely migration history is rich, real, and operationally meaningful — but
 - at least two schema objects visible in types but not created anywhere in the frozen SQL set
 
 That means this migration manifest is not just an inventory. It is a warning label for rebuild strategy: **preserve the history, but do not replay it blindly.**
-

@@ -12,6 +12,8 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 **Live DB SQL:** Sections that require Postgres (full RPC enumeration vs `types.ts`, `pg_publication_tables`, RLS dump, triggers, cron, indexes, storage buckets) should be executed in the **Supabase SQL Editor** using the queries in this doc. This report uses **generated types** (`src/integrations/supabase/types.ts`) as the RPC catalog and **migrations** for RLS/trigger hints where live SQL was not executed here.
 
+> Current repo addendum (2026-04-12): this document is still a historical/live audit snapshot. The current repo now contains **44 deployable Edge Functions** and **245 migrations**. Sprint 2 adds repo-local migration `20260417110000_media_lifecycle_profile_media_wiring.sql`, which introduces `profile_vibe_videos` and wires vibe videos/profile photos into `media_assets` / `media_references` while preserving `profiles.photos` / `avatar_url` / `bunny_video_uid` / `bunny_video_status` as compatibility mirrors. Those Sprint 2 counts and behaviors are not reflected in the historical tables below until that migration is applied.
+
 ---
 
 ## 1. Edge Functions — inventory & web/native matrix

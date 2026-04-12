@@ -35,17 +35,6 @@ serve(async (req) => {
       return json({ success: false, error: "Unauthorized", code: "unauthorized" }, 401);
     }
 
-    const libraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
-    const apiKey = Deno.env.get("BUNNY_STREAM_API_KEY");
-
-    if (!libraryId || !apiKey) {
-      console.error("[delete-vibe-video] missing BUNNY_STREAM_LIBRARY_ID or BUNNY_STREAM_API_KEY");
-      return json(
-        { success: false, error: "Bunny credentials not configured", code: "bunny_config_missing" },
-        503,
-      );
-    }
-
     const adminSupabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -73,41 +62,35 @@ serve(async (req) => {
       );
     }
 
-    let bunnyRemoteDeleteHttpStatus: number | null = null;
-    let bunnyRemoteDeleteOk = false;
-    try {
-      const deleteResponse = await fetch(
-        `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`,
-        {
-          method: "DELETE",
-          headers: { "AccessKey": apiKey },
-        },
+    const { data: lifecycleResult, error: lifecycleError } = await adminSupabase.rpc(
+      "clear_profile_vibe_video",
+      {
+        p_user_id: user.id,
+        p_clear_caption: true,
+        p_released_by: "user_action",
+      },
+    );
+
+    if (lifecycleError) {
+      console.error(
+        `[delete-vibe-video] lifecycle clear failed userId=${user.id} videoId=${videoId} err=${lifecycleError.message}`,
       );
-      bunnyRemoteDeleteHttpStatus = deleteResponse.status;
-      bunnyRemoteDeleteOk = deleteResponse.ok;
-      console.log(
-        `[delete-vibe-video] outcome ${JSON.stringify({
-          userId: user.id,
-          videoId,
-          bunnyRemoteDeleteHttpStatus,
-          bunnyRemoteDeleteOk,
-        })}`,
+      return json(
+        { success: false, error: "Failed to delete vibe video", code: "lifecycle_clear_failed" },
+        500,
       );
-      if (!deleteResponse.ok) {
-        const errBody = await deleteResponse.text().catch(() => "");
-        console.error(
-          `[delete-vibe-video] Bunny DELETE non-OK body snippet: ${errBody.slice(0, 200)}`,
-        );
-      }
-    } catch (deleteErr) {
-      console.error("[delete-vibe-video] Bunny delete network/error:", deleteErr);
     }
 
-    // ── Clear profile columns ────────────────────────────────────────────────
-    await adminSupabase
-      .from("profiles")
-      .update({ bunny_video_uid: null, bunny_video_status: "none", vibe_caption: null })
-      .eq("id", user.id);
+    const lr = lifecycleResult as Record<string, unknown> | null;
+    if (lr?.success !== true) {
+      console.error(
+        `[delete-vibe-video] lifecycle clear rejected userId=${user.id} videoId=${videoId} error=${lr?.error}`,
+      );
+      return json(
+        { success: false, error: "Failed to delete vibe video", code: "lifecycle_clear_failed" },
+        500,
+      );
+    }
 
     // ── Mark all active/published sessions for this video as deleted ─────────
     const { error: sessionError } = await adminSupabase
@@ -125,7 +108,7 @@ serve(async (req) => {
     }
 
     console.log(
-      `[delete-vibe-video] db_cleared userId=${user.id} hadVideoToDelete=true bunnyOk=${bunnyRemoteDeleteOk}`,
+      `[delete-vibe-video] db_cleared userId=${user.id} hadVideoToDelete=true deleteDeferredToWorker=true`,
     );
 
     return json(
@@ -133,9 +116,10 @@ serve(async (req) => {
         success: true,
         hadVideoToDelete: true,
         dbProfileCleared: true,
-        bunnyRemoteDeleteOk,
-        bunnyRemoteDeleteHttpStatus,
-        possibleBunnyOrphan: !bunnyRemoteDeleteOk,
+        bunnyRemoteDeleteOk: null,
+        bunnyRemoteDeleteHttpStatus: null,
+        possibleBunnyOrphan: false,
+        deleteDeferredToWorker: true,
       },
       200,
     );

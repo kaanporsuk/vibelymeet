@@ -3,6 +3,8 @@
 > **Canonical for frozen web rebuild only.** This file is not the native launch-closure runbook. For current launch execution, use `docs/active-doc-map.md`.
 >
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
+>
+> **2026-04-12:** Repo current-state addendum: the repo now contains **245 migrations** and **44 deployable Edge Functions**. Sprint 1 media lifecycle foundation is live-aligned; repo-local Sprint 2 adds `20260417110000_media_lifecycle_profile_media_wiring.sql` plus targeted changes to `create-video-upload`, `delete-vibe-video`, and `upload-image`. Rollout of Sprint 2 must keep `process-media-delete-jobs` cron **disabled**.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  
@@ -403,6 +405,8 @@ supabase secrets list
 
 Deploy all function directories except `_shared`:
 
+> Historical baseline note: the explicit list below predates later function additions. For exact current repo inventory, prefer `find supabase/functions -mindepth 1 -maxdepth 1 -type d` and the machine-readable inventory. For Sprint 2 media lifecycle rollout, the targeted function deploy set is `create-video-upload`, `delete-vibe-video`, and `upload-image` after applying migration `20260417110000_media_lifecycle_profile_media_wiring.sql`.
+
 - `account-pause`
 - `account-resume`
 - `admin-review-verification`
@@ -449,7 +453,7 @@ If you deploy functions individually, do so deliberately and preserve JWT behavi
 
 ### JWT behavior (post-hardening)
 
-`supabase/config.toml` configures **all 30** functions. No gaps.
+`supabase/config.toml` configures **all 30** baseline functions shown in this historical section. No gaps at that snapshot.
 
 - **23 functions** have `verify_jwt = true` (JWT enforced at gateway): account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
 - **7 functions** have `verify_jwt = false` (public-but-protected by secret/token in code): stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
@@ -701,4 +705,3 @@ A rebuild should not be considered complete until all of the following are true:
 - All 28 functions are in config.toml (post-hardening); no exceptions.
 - Treat the root `.env` as historical artifact, not source of truth.
 - After any successful rebuild, immediately generate updated manifests and a rebuild delta so the next operator is not relying on memory.
-

@@ -4,10 +4,13 @@ This document closes the **webhook / operator readiness** gap for Vibe Video (we
 
 ## Architecture (short)
 
-1. Client calls **`create-video-upload`** (JWT) → Bunny Stream video object + TUS credentials; profile set to `uploading` then client finishes TUS upload.
-2. Client calls **`saveVibeVideoToProfile`** (or equivalent) → profile `bunny_video_uid` + `processing`.
+1. Client calls **`create-video-upload`** (JWT) → Bunny Stream video object + TUS credentials; Sprint 2 also activates a current primary vibe-video row in lifecycle tables and mirrors `profiles.bunny_video_uid` / `bunny_video_status = 'uploading'`.
+2. Client finishes TUS upload directly to Bunny Stream.
 3. Bunny transcodes → sends **HTTP POST** to your **`video-webhook`** Edge Function.
-4. **`video-webhook`** updates `profiles.bunny_video_status` to `ready` (Bunny status `3` or `4`) or `failed` (`5`).
+4. **`video-webhook`** updates `draft_media_sessions`, `profile_vibe_videos.video_status`, and the current `profiles.bunny_video_status` to `ready` (Bunny status `3` or `4`) or `failed` (`5`).
+
+Deletion behavior changed in Sprint 2:
+- **`delete-vibe-video`** now clears the published profile snapshot immediately, releases the active lifecycle reference, and leaves physical Bunny deletion to `process-media-delete-jobs` after retention / manual promotion.
 
 If step 3–4 never happens, native and web stay on **`processing`** until timeout/poll gives up or an operator fixes the webhook.
 
@@ -79,7 +82,7 @@ Other statuses leave row as **`processing`** (until a later event or manual fix)
 | `create-video-upload` HTTP **401/503/502** | Auth or Bunny secrets on Edge — see function logs |
 | Playback URL null, dev warns missing hostname | `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` / persisted hostname — see mobile runbook |
 | HLS error / black player, hostname OK | Bunny **CDN hotlink / referrer / token** — compare browser vs app |
-| Delete succeeds in UI but asset remains in Bunny | **`delete-vibe-video`**: profile cleared even if Bunny DELETE fails — check logs for `bunnyRemoteDeleteOk: false` and `possibleBunnyOrphan`. **Future (Sprint 2):** orphaned assets will be tracked in `media_assets` table and cleaned up by `process-media-delete-jobs` worker. |
+| Delete succeeds in UI but asset remains in Bunny immediately afterward | **Expected in Sprint 2** when the asset is only soft-deleted/released. Check `media_assets` / `media_delete_jobs` and run `process-media-delete-jobs` manually if you are validating purge behavior before cron is enabled. |
 
 ---
 
@@ -95,7 +98,7 @@ supabase functions deploy video-webhook --project-ref <ref>
 
 Secrets (no redeploy required for value-only updates, after initial deploy):
 
-- `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`, `BUNNY_STREAM_CDN_HOSTNAME` — used by `create-video-upload` / `delete-vibe-video`.
+- `BUNNY_STREAM_LIBRARY_ID`, `BUNNY_STREAM_API_KEY`, `BUNNY_STREAM_CDN_HOSTNAME` — used by `create-video-upload`.
 - `BUNNY_VIDEO_WEBHOOK_TOKEN` — used only by `video-webhook`.
 
 ---
@@ -106,8 +109,8 @@ These names are what **this repo’s Edge Functions and native app** expect. If 
 
 | Variable / setting | Used where | Notes |
 |--------------------|------------|--------|
-| **`BUNNY_STREAM_LIBRARY_ID`** | `create-video-upload`, `delete-vibe-video` | Stream library GUID from Bunny dashboard. |
-| **`BUNNY_STREAM_API_KEY`** | Same | Stream **library** API key (not Storage password alone). |
+| **`BUNNY_STREAM_LIBRARY_ID`** | `create-video-upload` | Stream library GUID from Bunny dashboard. |
+| **`BUNNY_STREAM_API_KEY`** | `create-video-upload` | Stream **library** API key (not Storage password alone). |
 | **`BUNNY_STREAM_CDN_HOSTNAME`** | `create-video-upload` response → native persists + builds HLS/thumb URLs | Must be the **Stream pull zone / CDN hostname** for the library (same as web `VITE_BUNNY_STREAM_CDN_HOSTNAME` / mobile `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME`). |
 | **`BUNNY_VIDEO_WEBHOOK_TOKEN`** | `video-webhook` query `?token=` | Long random secret; must match Bunny webhook URL exactly. |
 | **`BUNNY_STORAGE_ZONE`**, **`BUNNY_STORAGE_API_KEY`**, **`BUNNY_CDN_HOSTNAME`** | Not referenced by the three Vibe Video Edge Functions in this repo | If you use them elsewhere (e.g. image CDN), keep them separate from Stream hostnames. |

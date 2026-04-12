@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +41,11 @@ serve(async (req) => {
     // Legacy compatibility only. Draft-safe photo replace keeps the currently
     // published asset intact until final publish_photo_set / finalize_onboarding.
     const oldPath = formData.get("old_path") as string | null;
-    const context = (formData.get("context") as string) || "profile_studio";
+    const rawContext = formData.get("context");
+    const context =
+      rawContext === "onboarding" || rawContext === "profile_studio"
+        ? rawContext
+        : null;
     const safeReplacedPath =
       typeof oldPath === "string" && oldPath.startsWith(`photos/${user.id}/`)
         ? oldPath
@@ -95,49 +100,69 @@ serve(async (req) => {
       return json({ success: false, error: "Upload to CDN failed" });
     }
 
-    // ── Create draft media session for this photo ────────────────────────────
-    // Photos go directly to 'ready' since no transcoding step is needed.
+    // ── Profile-photo lifecycle registration / draft session tracking ────────
+    // Only explicit profile/onboarding callers participate in Sprint 2 media
+    // lifecycle wiring. Chat image uploads continue to use this Edge Function
+    // for raw Bunny upload only and remain untouched by profile-photo cleanup.
     const adminSupabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
     let sessionId: string | null = null;
-    try {
-      const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
-        "create_media_session",
-        {
-          p_user_id: user.id,
-          p_media_type: "photo",
-          p_provider_id: storagePath,
-          p_provider_meta: {
-            storageZone,
-            fileType: file.type,
-            fileSize: file.size,
-            ...(safeReplacedPath ? { replacesStoragePath: safeReplacedPath } : {}),
+    if (context) {
+      try {
+        const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
+          "create_media_session",
+          {
+            p_user_id: user.id,
+            p_media_type: "photo",
+            p_provider_id: storagePath,
+            p_provider_meta: {
+              storageZone,
+              fileType: file.type,
+              fileSize: file.size,
+              ...(safeReplacedPath ? { replacesStoragePath: safeReplacedPath } : {}),
+            },
+            p_context: context,
+            p_storage_path: storagePath,
           },
-          p_context: context === "onboarding" ? "onboarding" : "profile_studio",
-          p_storage_path: storagePath,
-        },
-      );
+        );
 
-      if (sessionError) {
-        console.error(`[upload-image] session creation failed userId=${user.id} path=${storagePath} err=${sessionError.message}`);
-      } else {
-        const sr = sessionResult as Record<string, unknown> | null;
-        if (sr?.success) {
-          sessionId = (sr.session_id as string) ?? null;
-          // Advance session directly to 'ready' since Bunny upload is complete
-          await adminSupabase
-            .from("draft_media_sessions")
-            .update({ status: "ready" })
-            .eq("id", sessionId);
+        if (sessionError) {
+          console.error(`[upload-image] session creation failed userId=${user.id} path=${storagePath} err=${sessionError.message}`);
         } else {
-          console.error(`[upload-image] session RPC failed userId=${user.id} error=${sr?.error}`);
+          const sr = sessionResult as Record<string, unknown> | null;
+          if (sr?.success) {
+            sessionId = (sr.session_id as string) ?? null;
+            // Advance session directly to 'ready' since Bunny upload is complete
+            await adminSupabase
+              .from("draft_media_sessions")
+              .update({ status: "ready" })
+              .eq("id", sessionId);
+          } else {
+            console.error(`[upload-image] session RPC failed userId=${user.id} error=${sr?.error}`);
+          }
         }
+
+        const lifecycle = await registerMediaAsset(adminSupabase, {
+          provider: PROVIDERS.BUNNY_STORAGE,
+          mediaFamily: MEDIA_FAMILIES.PROFILE_PHOTO,
+          ownerUserId: user.id,
+          providerPath: storagePath,
+          mimeType: file.type,
+          bytes: file.size,
+          legacyTable: sessionId ? "draft_media_sessions" : "profiles",
+          legacyId: sessionId ?? `${user.id}:draft:${storagePath}`,
+          status: "uploading",
+        });
+
+        if (!lifecycle.success) {
+          console.error(`[upload-image] media asset registration failed userId=${user.id} path=${storagePath} err=${lifecycle.error}`);
+        }
+      } catch (e) {
+        console.error("[upload-image] session/lifecycle tracking error:", e);
       }
-    } catch (e) {
-      console.error("[upload-image] session tracking error:", e);
     }
 
     return json({ success: true, path: storagePath, sessionId });

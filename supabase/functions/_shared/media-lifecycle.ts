@@ -5,8 +5,8 @@
  * interact with the media_assets / media_references / media_delete_jobs
  * tables via service-role Supabase client.
  *
- * Sprint 1: scaffolding + mapping documentation.
- * Sprint 2+: will add register/release/enqueue convenience wrappers.
+ * Sprint 2: used by profile-photo / vibe-video upload flows for dual-write
+ * registration into media_assets while legacy profile columns remain active.
  */
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -73,6 +73,7 @@ export interface RegisterAssetParams {
   bytes?: number | null;
   legacyTable?: string | null;
   legacyId?: string | null;
+  status?: "uploading" | "active" | "soft_deleted";
 }
 
 /**
@@ -84,7 +85,62 @@ export interface RegisterAssetParams {
 export async function registerMediaAsset(
   admin: SupabaseClient,
   params: RegisterAssetParams,
-): Promise<{ success: boolean; assetId?: string; error?: string }> {
+): Promise<{ success: boolean; assetId?: string; created?: boolean; error?: string }> {
+  const desiredStatus = params.status ?? "active";
+
+  let lookup = admin
+    .from("media_assets")
+    .select("id,status")
+    .eq("provider", params.provider)
+    .limit(1);
+
+  if (params.providerObjectId) {
+    lookup = lookup.eq("provider_object_id", params.providerObjectId);
+  } else if (params.providerPath) {
+    lookup = lookup.eq("provider_path", params.providerPath);
+  } else {
+    return { success: false, error: "providerObjectId or providerPath is required" };
+  }
+
+  const { data: existing, error: lookupError } = await lookup.maybeSingle();
+  if (lookupError) {
+    return { success: false, error: lookupError.message };
+  }
+
+  if (existing?.id) {
+    const updates: Record<string, unknown> = {
+      media_family: params.mediaFamily,
+      owner_user_id: params.ownerUserId,
+      provider_object_id: params.providerObjectId ?? null,
+      provider_path: params.providerPath ?? null,
+      mime_type: params.mimeType ?? null,
+      bytes: params.bytes ?? null,
+      legacy_table: params.legacyTable ?? null,
+      legacy_id: params.legacyId ?? null,
+    };
+
+    if (desiredStatus === "active") {
+      updates.status = "active";
+      updates.deleted_at = null;
+      updates.purge_after = null;
+      updates.purged_at = null;
+      updates.last_error = null;
+    } else if (existing.status !== "active") {
+      updates.status = desiredStatus;
+    }
+
+    const { error: updateError } = await admin
+      .from("media_assets")
+      .update(updates)
+      .eq("id", existing.id);
+
+    if (updateError) {
+      return { success: false, error: updateError.message };
+    }
+
+    return { success: true, assetId: existing.id, created: false };
+  }
+
   const { data, error } = await admin
     .from("media_assets")
     .insert({
@@ -95,7 +151,7 @@ export async function registerMediaAsset(
       provider_path: params.providerPath ?? null,
       mime_type: params.mimeType ?? null,
       bytes: params.bytes ?? null,
-      status: "active",
+      status: desiredStatus,
       legacy_table: params.legacyTable ?? null,
       legacy_id: params.legacyId ?? null,
     })
@@ -105,7 +161,7 @@ export async function registerMediaAsset(
   if (error) {
     return { success: false, error: error.message };
   }
-  return { success: true, assetId: data.id };
+  return { success: true, assetId: data.id, created: true };
 }
 
 // ─── Reference management ───────────────────────────────────────────────────
