@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   View as RNView,
   Text,
@@ -617,6 +618,15 @@ export default function PhotoManageDrawer({
   // content) don't trigger resetDraft and wipe staged edits mid-session.
   }, [visible, fullscreenOnly, initialFullscreenIndex, resetDraft]);
 
+  /** Closing the drawer must reset to the server snapshot and reconcile ephemeral uploads (abort + mark sessions). */
+  const prevVisibleRef = React.useRef(visible);
+  React.useEffect(() => {
+    if (prevVisibleRef.current && !visible) {
+      resetDraft(photosRef.current);
+    }
+    prevVisibleRef.current = visible;
+  }, [visible, resetDraft]);
+
   React.useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -750,27 +760,32 @@ export default function PhotoManageDrawer({
 
   const handleRemove = useCallback(
     (id: string) => {
-      show({
-        title: 'Remove this photo?',
-        message: 'It will disappear from your profile.',
-        variant: 'destructive',
-        primaryAction: {
-          label: 'Remove',
-          onPress: () => {
-            // Use id-based removal so the correct item is deleted even if the
-            // items array shifts between the tap and the confirmation press.
-            const nextSelectedId =
-              selectedItemId === id ? resolveNextSelectedIdAfterRemoval(id) : selectedItemId;
-            removeById(id);
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setActiveItemId(null);
-            setSelectedItemId(nextSelectedId);
+      // Use OS Alert instead of VibelyDialog (second RN Modal). Stacking Modals over
+      // the photo sheet often fails to show or receive touches — other tile actions
+      // work because they do not open another Modal.
+      void Haptics.selectionAsync();
+      Alert.alert(
+        'Remove this photo?',
+        'It will disappear from your profile.',
+        [
+          { text: 'Keep', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => {
+              const nextSelectedId =
+                selectedItemId === id ? resolveNextSelectedIdAfterRemoval(id) : selectedItemId;
+              removeById(id);
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveItemId(null);
+              setSelectedItemId(nextSelectedId);
+            },
           },
-        },
-        secondaryAction: { label: 'Keep', onPress: () => {} },
-      });
+        ],
+        { cancelable: true },
+      );
     },
-    [removeById, resolveNextSelectedIdAfterRemoval, selectedItemId, show],
+    [removeById, resolveNextSelectedIdAfterRemoval, selectedItemId],
   );
 
   const handleReplace = useCallback((id: string, slotIndex: number) => {

@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 
+import {
+  normalizeDocumentAssetForUpload,
+  normalizePickerAssetForUpload,
+} from '@/lib/imageAssetNormalize';
 import { getDocumentAsyncSafe, isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
+import { supabase } from '@/lib/supabase';
 import { uploadProfilePhoto } from '@/lib/uploadImage';
 
 const MAX_PHOTOS_DEFAULT = 6;
@@ -41,6 +47,8 @@ export type PhotoUploadAsset = {
 export type PhotoDraftItem = {
   id: string;
   storagePath: string | null;
+  /** Draft media session id from upload-image (ready to reconcile with publish / discard) */
+  sessionId: string | null;
   previewUri: string | null;
   status: PhotoDraftStatus;
   error: string | null;
@@ -57,6 +65,15 @@ type UsePhotoBatchControllerOptions = {
 };
 
 let draftIdCounter = 0;
+
+/** iOS 14+ — request JPEG/compatible representation when possible (library only; camera unchanged). */
+const iosLibraryPreferredCompat =
+  Platform.OS === 'ios'
+    ? {
+        preferredAssetRepresentationMode:
+          ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+      }
+    : {};
 
 function nextDraftId(prefix: string): string {
   draftIdCounter += 1;
@@ -77,6 +94,7 @@ function createExistingDraft(path: string): PhotoDraftItem {
   return {
     id: nextDraftId('existing'),
     storagePath: path,
+    sessionId: null,
     previewUri: null,
     status: 'ready',
     error: null,
@@ -90,38 +108,13 @@ function createPendingDraft(asset: PhotoUploadAsset, origin: Exclude<PhotoBatchO
   return {
     id: nextDraftId(origin),
     storagePath: null,
+    sessionId: null,
     previewUri: asset.uri,
     status: 'uploading',
     error: null,
     replaceOldPath: null,
     sourceAsset: asset,
     origin,
-  };
-}
-
-function normalizePickerAsset(
-  asset: Pick<ImagePicker.ImagePickerAsset, 'uri' | 'mimeType' | 'fileName'>,
-): PhotoUploadAsset | null {
-  const uri = asset.uri?.trim();
-  if (!uri) return null;
-  return {
-    uri,
-    mimeType: asset.mimeType ?? 'image/jpeg',
-    fileName: asset.fileName ?? undefined,
-  };
-}
-
-function normalizeDocumentAsset(
-  asset: { uri: string; mimeType?: string | null; name?: string | null },
-): PhotoUploadAsset | null {
-  const uri = asset.uri?.trim();
-  if (!uri) return null;
-  const mime = asset.mimeType ?? 'image/jpeg';
-  if (!mime.startsWith('image/')) return null;
-  return {
-    uri,
-    mimeType: mime,
-    fileName: asset.name ?? undefined,
   };
 }
 
@@ -139,6 +132,38 @@ function showOkDialog(show: DialogShow, title: string, message: string, variant:
   });
 }
 
+function isAbortError(error: unknown): boolean {
+  if (error == null) return false;
+  if (typeof error === 'object' && 'name' in error && (error as { name: string }).name === 'AbortError') {
+    return true;
+  }
+  if (error instanceof Error && /aborted/i.test(error.message)) return true;
+  return false;
+}
+
+/** Paths uploaded in this edit session that are not in the keeper set (server snapshot). */
+function collectEphemeralStoragePaths(
+  items: PhotoDraftItem[],
+  keepPaths: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  for (const it of items) {
+    if (it.status === 'ready' && it.storagePath && !keepPaths.has(it.storagePath)) {
+      out.push(it.storagePath);
+    }
+  }
+  return out;
+}
+
+async function markPhotoDraftsDeletedOnServer(paths: string[]): Promise<void> {
+  const unique = [...new Set(paths)].filter(Boolean);
+  if (unique.length === 0) return;
+  const { error } = await supabase.rpc('mark_photo_drafts_deleted', { p_paths: unique });
+  if (error && __DEV__) {
+    console.warn('[photoBatchController] mark_photo_drafts_deleted failed:', error.message);
+  }
+}
+
 export function getPhotoDraftDisplayUri(item: PhotoDraftItem | null | undefined): string | null {
   return item?.previewUri?.trim() || item?.storagePath?.trim() || null;
 }
@@ -154,6 +179,7 @@ export function usePhotoBatchController({
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const isMountedRef = useRef(true);
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   useEffect(() => {
     return () => {
@@ -165,14 +191,56 @@ export function usePhotoBatchController({
   const sessionVersionRef = useRef(0);
   const chooseFileSupported = useMemo(() => isDocumentPickerAvailable(), []);
 
-  const resetDraft = useCallback((nextPhotos: string[]) => {
-    sessionVersionRef.current += 1;
-    initialPathsRef.current = nextPhotos;
-    if (isMountedRef.current) {
-      setActiveUploadIds(new Set());
-    }
-    setItems(nextPhotos.map(createExistingDraft));
+  const takeAbortSlot = useCallback((draftId: string): AbortController => {
+    abortControllersRef.current.get(draftId)?.abort();
+    const ac = new AbortController();
+    abortControllersRef.current.set(draftId, ac);
+    return ac;
   }, []);
+
+  const releaseAbortSlot = useCallback((draftId: string, ac: AbortController) => {
+    if (abortControllersRef.current.get(draftId) === ac) {
+      abortControllersRef.current.delete(draftId);
+    }
+  }, []);
+
+  const abortAllUploads = useCallback(() => {
+    abortControllersRef.current.forEach((ac) => ac.abort());
+    abortControllersRef.current.clear();
+  }, []);
+
+  const resetDraft = useCallback(
+    (nextPhotos: string[]) => {
+      const keep = new Set(nextPhotos);
+      const toMark = collectEphemeralStoragePaths(itemsRef.current, keep);
+
+      sessionVersionRef.current += 1;
+      abortAllUploads();
+
+      if (isMountedRef.current) {
+        setActiveUploadIds(new Set());
+      }
+
+      initialPathsRef.current = nextPhotos;
+      setItems(nextPhotos.map(createExistingDraft));
+
+      if (toMark.length > 0) {
+        void markPhotoDraftsDeletedOnServer(toMark);
+      }
+    },
+    [abortAllUploads],
+  );
+
+  useEffect(() => {
+    return () => {
+      const keep = new Set(initialPathsRef.current);
+      const toMark = collectEphemeralStoragePaths(itemsRef.current, keep);
+      abortAllUploads();
+      if (toMark.length > 0) {
+        void markPhotoDraftsDeletedOnServer(toMark);
+      }
+    };
+  }, [abortAllUploads]);
 
   const readyPaths = useMemo(
     () =>
@@ -192,24 +260,27 @@ export function usePhotoBatchController({
   }, [items]);
 
   const startUpload = useCallback(
-    async (
-      draftId: string,
-      asset: PhotoUploadAsset,
-      expectedVersion: number,
-    ) => {
+    async (draftId: string, asset: PhotoUploadAsset, expectedVersion: number) => {
+      const ac = takeAbortSlot(draftId);
       try {
-        // Keep replaceOldPath local only so staged replaces remain draft-safe
-        // until publish_photo_set commits the final gallery.
-        const path = await uploadProfilePhoto(asset, context);
-        if (!isMountedRef.current || expectedVersion !== sessionVersionRef.current) return;
+        const result = await uploadProfilePhoto(asset, context, { signal: ac.signal });
+        if (ac.signal.aborted) return;
+        if (!isMountedRef.current || expectedVersion !== sessionVersionRef.current) {
+          void markPhotoDraftsDeletedOnServer([result.path]);
+          return;
+        }
         setItems((prev) => {
           const index = prev.findIndex((item) => item.id === draftId);
-          if (index === -1) return prev;
+          if (index === -1) {
+            void markPhotoDraftsDeletedOnServer([result.path]);
+            return prev;
+          }
           const current = prev[index];
           const next = [...prev];
           next[index] = {
             ...current,
-            storagePath: path,
+            storagePath: result.path,
+            sessionId: result.sessionId,
             status: 'ready',
             error: null,
             replaceOldPath: null,
@@ -218,6 +289,7 @@ export function usePhotoBatchController({
           return next;
         });
       } catch (error) {
+        if (isAbortError(error)) return;
         if (!isMountedRef.current || expectedVersion !== sessionVersionRef.current) return;
         const message = error instanceof Error ? error.message : 'Upload failed';
         setItems((prev) => {
@@ -233,6 +305,7 @@ export function usePhotoBatchController({
           return next;
         });
       } finally {
+        releaseAbortSlot(draftId, ac);
         if (isMountedRef.current && expectedVersion === sessionVersionRef.current) {
           setActiveUploadIds((prev) => {
             if (!prev.has(draftId)) return prev;
@@ -243,7 +316,7 @@ export function usePhotoBatchController({
         }
       }
     },
-    [context],
+    [context, releaseAbortSlot, takeAbortSlot],
   );
 
   const trimAssetsToRemaining = useCallback(
@@ -309,6 +382,7 @@ export function usePhotoBatchController({
           previewUri: asset.uri,
           status: 'uploading',
           error: null,
+          sessionId: null,
           replaceOldPath: prev[index].storagePath,
           sourceAsset: asset,
           origin,
@@ -342,12 +416,13 @@ export function usePhotoBatchController({
       allowsMultipleSelection: remainingSlots > 1,
       selectionLimit: remainingSlots,
       quality: 0.9,
+      ...iosLibraryPreferredCompat,
     });
     if (result.canceled || !result.assets?.length) return;
 
     const assets = result.assets
-      .map((asset) => normalizePickerAsset(asset))
-      .filter((asset): asset is PhotoUploadAsset => asset !== null);
+      .map((asset) => normalizePickerAssetForUpload(asset))
+      .filter((asset): asset is NonNullable<typeof asset> => asset !== null);
     stageNewAssets(assets, 'library');
   }, [maxPhotos, remainingSlots, show, stageNewAssets]);
 
@@ -377,8 +452,8 @@ export function usePhotoBatchController({
     if (result.canceled || !result.assets?.length) return;
 
     const assets = result.assets
-      .map((asset) => normalizeDocumentAsset(asset))
-      .filter((asset): asset is PhotoUploadAsset => asset !== null);
+      .map((asset) => normalizeDocumentAssetForUpload(asset))
+      .filter((asset): asset is NonNullable<typeof asset> => asset !== null);
 
     if (assets.length === 0) {
       showOkDialog(show, 'Not an image', 'Please choose a JPEG, PNG, or WebP file.', 'warning');
@@ -401,10 +476,11 @@ export function usePhotoBatchController({
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.9,
+        ...iosLibraryPreferredCompat,
       });
       if (result.canceled || !result.assets?.[0]) return;
 
-      const asset = normalizePickerAsset(result.assets[0]);
+      const asset = normalizePickerAssetForUpload(result.assets[0]);
       if (!asset) return;
       replaceAtIndex(index, asset, 'library');
     },
@@ -427,7 +503,7 @@ export function usePhotoBatchController({
       }
       if (result.canceled || !result.assets?.[0]) return;
 
-      const asset = normalizeDocumentAsset(result.assets[0]);
+      const asset = normalizeDocumentAssetForUpload(result.assets[0]);
       if (!asset) {
         showOkDialog(show, 'Not an image', 'Please choose a JPEG, PNG, or WebP file.', 'warning');
         return;
@@ -462,7 +538,7 @@ export function usePhotoBatchController({
       });
       if (result.canceled || !result.assets?.[0]) return;
 
-      const asset = normalizePickerAsset(result.assets[0]);
+      const asset = normalizePickerAssetForUpload(result.assets[0]);
       if (!asset) return;
 
       if (replaceIndex === undefined) {
@@ -483,28 +559,48 @@ export function usePhotoBatchController({
     setItems((prev) => arrayMove(prev, index, 0));
   }, []);
 
-  const removeAtIndex = useCallback((index: number) => {
-    const target = itemsRef.current[index];
-    if (target) {
+  const reconcileRemoveItem = useCallback((item: PhotoDraftItem | undefined) => {
+    if (!item) return;
+    abortControllersRef.current.get(item.id)?.abort();
+    abortControllersRef.current.delete(item.id);
+    if (
+      item.status === 'ready' &&
+      item.storagePath &&
+      !initialPathsRef.current.includes(item.storagePath)
+    ) {
+      void markPhotoDraftsDeletedOnServer([item.storagePath]);
+    }
+  }, []);
+
+  const removeAtIndex = useCallback(
+    (index: number) => {
+      const target = itemsRef.current[index];
+      reconcileRemoveItem(target);
       setActiveUploadIds((prev) => {
-        if (!prev.has(target.id)) return prev;
+        if (!target || !prev.has(target.id)) return prev;
         const next = new Set(prev);
         next.delete(target.id);
         return next;
       });
-    }
-    setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
-  }, []);
+      setItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    },
+    [reconcileRemoveItem],
+  );
 
-  const removeById = useCallback((id: string) => {
-    setActiveUploadIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    setItems((prev) => prev.filter((item) => item.id !== id));
-  }, []);
+  const removeById = useCallback(
+    (id: string) => {
+      const target = itemsRef.current.find((item) => item.id === id);
+      reconcileRemoveItem(target);
+      setActiveUploadIds((prev) => {
+        if (!target || !prev.has(target.id)) return prev;
+        const next = new Set(prev);
+        next.delete(target.id);
+        return next;
+      });
+      setItems((prev) => prev.filter((item) => item.id !== id));
+    },
+    [reconcileRemoveItem],
+  );
 
   const retryItem = useCallback(
     async (draftId: string) => {
@@ -523,9 +619,10 @@ export function usePhotoBatchController({
                 ...item,
                 status: 'uploading',
                 error: null,
+                sessionId: null,
               }
             : item,
-          ),
+        ),
       );
       void startUpload(draftId, current.sourceAsset, expectedVersion);
     },
@@ -548,6 +645,7 @@ export function usePhotoBatchController({
           error: null,
           replaceOldPath: null,
           sourceAsset: null,
+          sessionId: null,
           origin: 'existing',
         };
         return next;

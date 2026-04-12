@@ -4,6 +4,7 @@ import { Plus, X, Loader2, Crown, AlertCircle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { uploadImageToBunny } from "@/services/imageUploadService";
 import { supabase } from "@/integrations/supabase/client";
+import { isAllowedProfilePhotoUploadFile, PROFILE_PHOTO_ACCEPT } from "@/lib/photoUtils";
 import { getImageUrl } from "@/utils/imageUrl";
 import { toast } from "sonner";
 
@@ -59,7 +60,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
 
   const uploadItem = useCallback(async (item: QueueItem, session: { access_token: string }) => {
     try {
-      const path = await uploadImageToBunny(item.file, session.access_token, "onboarding");
+      const { path } = await uploadImageToBunny(item.file, session.access_token, "onboarding");
       if (!isQueueItemActive(item.id, "uploading")) {
         revokeBlob(item.preview);
         return null;
@@ -96,7 +97,14 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
       return;
     }
 
-    const toAdd = files.slice(0, available);
+    const allowed = files.filter(isAllowedProfilePhotoUploadFile);
+    const rejected = files.length - allowed.length;
+    if (rejected > 0) {
+      toast.error("Use JPEG, PNG, or WebP for profile photos.");
+    }
+    if (allowed.length === 0) return;
+
+    const toAdd = allowed.slice(0, available);
 
     const newItems: QueueItem[] = toAdd.map((file) => {
       const preview = URL.createObjectURL(file);
@@ -204,7 +212,7 @@ export const PhotosStep = ({ photos, onPhotosChange, onNext, onBusyStateChange }
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={PROFILE_PHOTO_ACCEPT}
         multiple
         className="hidden"
         onChange={handleFileSelect}

@@ -2004,7 +2004,11 @@ export default function ProfileStudio() {
         </RNView>
       </RNView>
 
-      {/* ═══ Modals & Sheets ═══ */}
+    </ScrollView>
+
+      {/* ═══ Modals & Sheets (outside main ScrollView) ═══
+          Nested RN Modals under a vertical ScrollView break touch targeting on some devices
+          (stacked Modal for photo drawer + VibelyDialog confirm). Keep overlays as siblings. */}
 
       {vibeScoreProfile ? (
         <VibeScoreDrawer
@@ -2255,8 +2259,6 @@ export default function ProfileStudio() {
           qc.invalidateQueries({ queryKey: ['my-profile'] });
         }}
       />
-
-    </ScrollView>
 
     <AddPhotoSourcePopover
       visible={photoSourceMenu.open}
