@@ -90,7 +90,7 @@ supabase functions deploy admin-media-lifecycle-controls --project-ref schdyxcun
 
 Use the admin panel / `admin-media-lifecycle-controls` for read-only readiness previews and retention-setting updates.
 Use `process-media-delete-jobs` dry-run for exact queue preview behavior.
-Do **not** enable cron casually; see `docs/media-lifecycle-operations-runbook.md` for the guarded activation plan and rollback procedure.
+Cron is enabled: `media-delete-worker-every-15m` (jobid 17, `*/15 * * * *`, batch_size 10). See `docs/media-lifecycle-operations-runbook.md` for rollback procedure.
 
 ```bash
 # Deploy
