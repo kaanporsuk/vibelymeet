@@ -41,8 +41,13 @@ export const ActiveCallBanner = ({
                 {mode === "ready_gate" ? "Ready Gate in progress" : "You have an active date!"}
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                {partnerName ? `With ${partnerName}` : "Tap to rejoin"}{" "}
-                {mode === "ready_gate" ? "— finish on the event lobby" : "💚"}
+                {mode === "ready_gate"
+                  ? partnerName
+                    ? `${partnerName} — open the event lobby to finish Ready Gate`
+                    : "Open the event lobby to finish Ready Gate"
+                  : partnerName
+                    ? `With ${partnerName} — tap Rejoin`
+                    : "Tap Rejoin to return 💚"}
               </p>
             </div>
           </div>

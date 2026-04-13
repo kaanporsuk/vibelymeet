@@ -99,7 +99,7 @@ const EventLobby = () => {
   });
 
   // Queue drain / realtime — activates ready gate when a queued video session becomes ready
-  const { queuedCount } = useMatchQueue({
+  const { queuedCount, refreshQueueCount } = useMatchQueue({
     eventId,
     currentStatus: currentStatus || "browsing",
     onVideoSessionReady: () => {
@@ -181,6 +181,7 @@ const EventLobby = () => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void stampForeground();
+        void refreshQueueCount();
       }
     };
 
@@ -193,7 +194,7 @@ const EventLobby = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(intervalId);
     };
-  }, [eventId, user?.id, location.pathname, currentStatus]);
+  }, [eventId, user?.id, location.pathname, currentStatus, refreshQueueCount]);
 
   // Backend-truth-first: scoped active session for this event (ready gate vs /date)
   useEffect(() => {
@@ -466,10 +467,13 @@ const EventLobby = () => {
                   </span>
                   Live now
                 </span>
-                {queuedCount > 0 && (
-                  <span className="inline-flex max-w-[140px] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25">
+                {queuedCount > 0 && !activeSessionId && (
+                  <span
+                    className="inline-flex max-w-[min(200px,46vw)] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25"
+                    title="Mutual matches are in the queue ahead of you. You will enter Ready Gate when promoted — not the same as being in Ready Gate right now."
+                  >
                     <Sparkles className="w-3 h-3 shrink-0 opacity-90" />
-                    {queuedCount} queued
+                    {queuedCount === 1 ? "1 waiting in queue" : `${queuedCount} waiting in queue`}
                   </span>
                 )}
               </div>
@@ -672,13 +676,14 @@ const EventLobby = () => {
 
       {/* Ready Gate Overlay */}
       <AnimatePresence>
-        {activeSessionId && eventId && (
+        {sessionHydrated && activeSessionId && eventId && (
           <ReadyGateOverlay
             sessionId={activeSessionId}
             eventId={eventId}
             onClose={() => {
               setActiveSessionId(null);
               setStatus("browsing");
+              void refetchScopedSession();
               if (eventId && user?.id) {
                 void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
               }

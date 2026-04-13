@@ -97,7 +97,7 @@ const Dashboard = () => {
   const { user } = useUserProfile();
   useRealtimeEvents();
 
-  const { activeSession, refetch: refetchActiveSession } = useSessionHydration();
+  const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useSessionHydration();
   const [showDashboardPhoneNudge, setShowDashboardPhoneNudge] = useState(false);
 
   useEffect(() => {
@@ -482,7 +482,7 @@ const Dashboard = () => {
 
       <main className="max-w-lg mx-auto px-4 py-6 space-y-8">
         <AnimatePresence>
-          {activeSession && (
+          {sessionHydrated && activeSession && (
             <motion.div
               key="active-call"
               initial={{ opacity: 0, height: 0 }}
