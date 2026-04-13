@@ -73,7 +73,9 @@
 | Send | Edge **`send-message`** (and related media upload paths) | `chatApi.ts`, `chatMediaUpload.ts`, **`ChatOutboxRunner`** (offline/foreground retry) |
 | Realtime | Supabase Realtime on `messages` | Subscriptions + query invalidation |
 
-**Gaps:** README lists **read receipts / deep link polish** as deferred — backlog items, not new contracts.
+**Read receipts (launch):** Both clients call RPC **`mark_match_messages_read`** when the thread is viewed (native: focus + app foreground + thread load; web: tab visible + thread load). Outbound ticks use DB **`messages.read_at`** (native already mapped; web maps `readAt` → read/delivered for “me” rows).
+
+**Notification deep links (launch):** OneSignal `click` routes via `NotificationDeepLinkHandler` (`additionalData.url` / `deep_link` / `launchURL`, plus **`other_user_id`** for `/chat/:profileId`). If the session is not hydrated yet, the path is **queued** (`pendingNotificationDeepLink.ts`) and applied after sign-in; **`/date/:sessionId`** is reconciled to **`/ready/:id`**, **`/date/:id`**, or **`/event/:eventId/lobby`** from `video_sessions` + `event_registrations`. Support: **`support_reply`** → `/settings/ticket/:id`.
 
 ### 2.6 Event visibility / location path
 
@@ -124,7 +126,7 @@
 | Video date | `daily-room` + `video_date_transition` | **Good** | Survey, vibe/extend | Ahead on survey |
 | Daily drop | `daily_drop_transition` + tables | **Good** | UI polish | Good |
 | Swipe/match | `get_event_deck` + `swipe-actions` + drain | **Good** | — | Good |
-| Chat | `send-message` + outbox | **Good** | Read receipts deferred | Ahead |
+| Chat | `send-message` + outbox + **`mark_match_messages_read`** | **Good** | Edge-case polish only | **Aligned** (Sprint 2: web RPC + read ticks; native focus/foreground mark) |
 | Events/location | `get_visible_events` | **Good** | — | Good |
 | Vibe video | TUS + Bunny + profile columns | **Good** | Processing edge cases | Good |
 | Post-date survey | Same RPC/verdict stack as web (`PostDateSurvey` component) | **Implemented** on `date/[id]` when `showFeedback` after a joined call (`hadConnectedOnce`) | **Sprint 1:** remote `phase === 'ended'`, **sync_reconnect** `ended`, and **End** control now converge on survey; pre-connect **abort** intentionally skips survey | Align with web for edge reopen cases only if product requires |
@@ -134,7 +136,7 @@
 ## 5. Exact gap list (prioritized)
 
 1. **Video date end paths:** Addressed in **`native/sprint1-video-date-end-path-parity`** — survey after joined-call ends via control End, **sync_reconnect** `ended`, or realtime **`phase === 'ended'`**; pre-connect abort still skips survey.
-2. **Notification deep links + read receipts** — README-deferred; launch-priority polish.
+2. **Notification deep links + read receipts** — Addressed in **`native/sprint2-deeplinks-read-receipts`** (pending deep link queue + read parity).
 3. **Video date in-call extras** (mutual vibe, credit extend) — web ahead; product call.
 4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
 

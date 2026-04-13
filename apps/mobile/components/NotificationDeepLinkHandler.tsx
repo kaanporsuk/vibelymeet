@@ -2,14 +2,20 @@
  * Routes OneSignal notification opens into expo-router when payload includes a path.
  * Expects `additionalData.url` (matches web/send-notification `data.url`) or `launchURL`.
  * Foreground: suppress message notifications when already viewing that chat thread.
+ * When unauthenticated, queues the path until session is ready (see `pendingNotificationDeepLink`).
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { router, usePathname, type Href } from 'expo-router';
 import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import {
+  clearPendingNotificationDeepLink,
+  queueNotificationDeepLinkPath,
+  takePendingNotificationDeepLinkPath,
+} from '@/lib/pendingNotificationDeepLink';
 
 function hrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): Href | null {
   const raw =
@@ -96,6 +102,29 @@ export function NotificationRouteTracker() {
 
 export function NotificationDeepLinkHandler() {
   const { user } = useAuth();
+  const prevUserIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const prev = prevUserIdRef.current;
+    if (prev && !user?.id) {
+      clearPendingNotificationDeepLink();
+    }
+    prevUserIdRef.current = user?.id ?? undefined;
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const pending = takePendingNotificationDeepLinkPath();
+    if (!pending) return;
+    void (async () => {
+      const href = (await reconcileHrefWithRegistration(pending, user.id)) as Href;
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_pending_navigate', {
+        href: String(href),
+      });
+      router.push(href);
+    })();
+  }, [user?.id]);
+
   useEffect(() => {
     const onClick = (event: unknown) => {
       void (async () => {
@@ -109,23 +138,37 @@ export function NotificationDeepLinkHandler() {
         const launchURL = n?.launchURL ?? e?.launchURL;
         const data = additionalData as Record<string, unknown> | undefined;
         if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
-          router.push(`/settings/ticket/${data.ticket_id}`);
+          const ticketPath = `/settings/ticket/${data.ticket_id}`;
+          if (!user?.id) {
+            queueNotificationDeepLinkPath(ticketPath);
+            rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', {
+              href: ticketPath,
+            });
+            return;
+          }
+          router.push(ticketPath as Href);
           return;
         }
         let href = resolveNotificationHref(additionalData, launchURL);
-        if (href && user?.id) {
-          href = (await reconcileHrefWithRegistration(String(href), user.id)) as Href;
+        if (!href) {
+          if (additionalData && typeof additionalData === 'object') {
+            rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
+              has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
+            });
+          }
+          return;
         }
-        if (href) {
-          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
-            href: String(href),
-          });
-          router.push(href);
-        } else if (additionalData && typeof additionalData === 'object') {
-          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
-            has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
-          });
+        const pathStr = String(href);
+        if (!user?.id) {
+          queueNotificationDeepLinkPath(pathStr);
+          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });
+          return;
         }
+        href = (await reconcileHrefWithRegistration(pathStr, user.id)) as Href;
+        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
+          href: String(href),
+        });
+        router.push(href);
       })();
     };
 

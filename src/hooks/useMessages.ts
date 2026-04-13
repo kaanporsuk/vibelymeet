@@ -26,6 +26,8 @@ export interface Message {
   sender: "me" | "them";
   time: string;
   createdAt: string;
+  /** Partner read receipt for outbound messages (matches native `read_at` → status). */
+  readAt?: string | null;
   audioUrl?: string;
   audioDuration?: number;
   videoUrl?: string;
@@ -105,6 +107,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
             sender: row.sender_id === currentUserId ? ("me" as const) : ("them" as const),
             time: new Date(row.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             createdAt: row.created_at,
+            readAt: row.read_at,
             audioUrl: row.audio_url || undefined,
             audioDuration: row.audio_duration_seconds || undefined,
             videoUrl: row.video_url || undefined,
