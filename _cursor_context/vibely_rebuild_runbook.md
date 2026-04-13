@@ -68,6 +68,8 @@ Sprint 1 media lifecycle foundation is additive to the frozen rebuild baseline:
 - cron intentionally still disabled
 - dry-run preview intentionally non-mutating and limited to already-queued jobs
 
+**Stage 1 / Stream 1 (2026-04-18):** apply `20260418120000_tighten_promote_ready_gate_helper.sql` on the target Supabase project (`supabase db push --linked` when linked) so remote promotion behavior matches repo SQL. Web/native hydration for active session vs ready-gate routes ships in application code on branch `stage1/stream1-backend-promotion-and-hydration`; details are summarized in `_cursor_context/vibely_migration_manifest.md` (Stage 1 / Stream 1 addendum). This stream does **not** add a durable notification outbox.
+
 ---
 
 ## 4. Rebuild strategy

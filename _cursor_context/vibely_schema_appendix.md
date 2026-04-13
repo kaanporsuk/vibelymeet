@@ -102,6 +102,10 @@ Migration `20260412143000_phase3_legacy_queue_contract_cleanup.sql` consolidates
   - `find_video_date_match` → deprecated no-op
   - `leave_matching_queue` → retained compatibility cleanup path, marked deprecated in response/comment
 
+### Stage 1 / Stream 1 promotion helper delta (2026-04-18)
+
+Migration `20260418120000_tighten_promote_ready_gate_helper.sql` tightens **implementation only** for `public.promote_ready_gate_if_eligible(p_event_id, p_uid)` → `jsonb` (locking, event/session validity, conflict handling). Callers such as **`mark_lobby_foreground`** and promotion paths inside **`drain_match_queue`** keep the same **operational contract** at the app boundary: this stream does not change swipe payloads, queue RPC names, or add a notification outbox.
+
 ---
 
 ## 3. Storage buckets and media schema surfaces
@@ -174,6 +178,7 @@ The generated type surface exposes the following public functions.
 - `join_matching_queue(p_event_id, p_user_id)` → `Json` (deprecated compatibility no-op)
 - `leave_matching_queue(p_event_id)` → `Json` (deprecated compatibility surface; retained cleanup behavior for older clients)
 - `drain_match_queue(p_event_id)` → `Json`
+- `promote_ready_gate_if_eligible(p_event_id, p_uid)` → `jsonb` (promotion helper used from lobby-foreground / drain paths; **implementation** tightened 2026-04-18 — see migration manifest Stage 1 / Stream 1 addendum)
 - `update_participant_status(p_event_id, p_status)` → `undefined` (activity/status update only)
 - `mark_lobby_foreground(p_event_id)` → `undefined` (canonical 60s lobby-foreground presence proof)
 
