@@ -132,6 +132,15 @@ Important Sprint 2 boundaries:
 - does **not** enable `process-media-delete-jobs` cron
 - does **not** wire chat-media eligibility purge or account-deletion purge rewrite
 
+### Stage 1 / Stream 1 — promote-ready-gate + session hydration (2026-04-18)
+
+Branch: `stage1/stream1-backend-promotion-and-hydration`.
+
+- **Migration:** `20260418120000_tighten_promote_ready_gate_helper.sql` replaces `public.promote_ready_gate_if_eligible(p_event_id, p_uid)` with a stricter implementation: live event validity (`events` share-lock, ended/cancelled rejected), queued TTL + non-ended session checks, deterministic `event_registrations` row locks in `profile_id` order after `video_sessions` `FOR UPDATE SKIP LOCKED`, and a conflict guard when another non-ended session exists. **RPC signature and return shape for this function are unchanged** at the SQL boundary.
+- **Backend-owned promotion tightening only:** `mark_lobby_foreground` and **`drain_match_queue` retain their roles**; the latter remains the **fallback** path that invokes cleanup/promotion for queued work—this stream does not remove or replace `drain_match_queue`.
+- **App layer (not in the migration file):** web and native add **session hydration before route decisions** (`useActiveSession`, route hydration components) so users in `in_ready_gate` are not left on a stale `/date` shell; native deep links align with the same rules.
+- **Explicitly out of scope for this stream:** no new **durable notification outbox** tables or delivery pipeline; push/deep-link behavior stays on existing Edge + client paths.
+
 ---
 
 ## 3. The single most important migration finding

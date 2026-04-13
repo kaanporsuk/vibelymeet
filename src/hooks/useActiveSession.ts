@@ -1,22 +1,20 @@
-/**
- * Active session detection — parity with web `useActiveSession` (Stage 1 / Stream 1).
- * - Video rejoin: in_handshake / in_date with a live video_sessions row → /date/[id]
- * - Ready Gate: in_ready_gate → /ready/[id] (native) or lobby overlay (event screen)
- */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
-import { supabase } from '@/lib/supabase';
-import { pickRegistrationForActiveSession } from '@shared/matching/activeSession';
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  pickRegistrationForActiveSession,
+  type ActiveSessionBase,
+} from "@shared/matching/activeSession";
 
-export type ActiveSession =
-  | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' }
-  | { kind: 'ready_gate'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_ready_gate' };
+export type ActiveSession = ActiveSessionBase;
 
-type Options = { eventId?: string | null };
+type UseActiveSessionOptions = {
+  /** When set, only return a session for this event (lobby-scoped hydration). */
+  eventId?: string | null;
+};
 
 export function useActiveSession(
   userId: string | null | undefined,
-  options?: Options
+  options?: UseActiveSessionOptions
 ): {
   activeSession: ActiveSession | null;
   hydrated: boolean;
@@ -44,14 +42,14 @@ export function useActiveSession(
     }
 
     const { data: regs, error: regError } = await supabase
-      .from('event_registrations')
-      .select('event_id, current_room_id, queue_status, current_partner_id')
-      .eq('profile_id', userId)
-      .in('queue_status', ['in_handshake', 'in_date', 'in_ready_gate'])
-      .not('current_room_id', 'is', null);
+      .from("event_registrations")
+      .select("event_id, current_room_id, queue_status, current_partner_id")
+      .eq("profile_id", userId)
+      .in("queue_status", ["in_handshake", "in_date", "in_ready_gate"])
+      .not("current_room_id", "is", null);
 
     if (regError) {
-      if (__DEV__) console.warn('[useActiveSession] reg query failed:', regError.message);
+      if (import.meta.env.DEV) console.warn("[useActiveSession] reg query failed:", regError.message);
       if (mounted.current) {
         setActiveSession(null);
         setHydrated(true);
@@ -78,14 +76,14 @@ export function useActiveSession(
     }
 
     const { data: session, error: sessionError } = await supabase
-      .from('video_sessions')
-      .select('id, ended_at')
-      .eq('id', reg.current_room_id)
-      .is('ended_at', null)
+      .from("video_sessions")
+      .select("id, ended_at")
+      .eq("id", reg.current_room_id)
+      .is("ended_at", null)
       .maybeSingle();
 
     if (sessionError) {
-      if (__DEV__) console.warn('[useActiveSession] session query failed:', sessionError.message);
+      if (import.meta.env.DEV) console.warn("[useActiveSession] session query failed:", sessionError.message);
       if (mounted.current) {
         setActiveSession(null);
         setHydrated(true);
@@ -104,12 +102,12 @@ export function useActiveSession(
     let partnerName: string | null = null;
     if (reg.current_partner_id) {
       const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', reg.current_partner_id)
+        .from("profiles")
+        .select("name")
+        .eq("id", reg.current_partner_id)
         .maybeSingle();
-      if (profileError && __DEV__) {
-        console.warn('[useActiveSession] partner query failed:', profileError.message);
+      if (profileError && import.meta.env.DEV) {
+        console.warn("[useActiveSession] partner query failed:", profileError.message);
       } else {
         partnerName = profile?.name ?? null;
       }
@@ -123,10 +121,10 @@ export function useActiveSession(
     };
 
     if (mounted.current) {
-      if (qs === 'in_ready_gate') {
-        setActiveSession({ kind: 'ready_gate', ...base, queueStatus: 'in_ready_gate' });
-      } else if (qs === 'in_handshake' || qs === 'in_date') {
-        setActiveSession({ kind: 'video', ...base, queueStatus: qs });
+      if (qs === "in_ready_gate") {
+        setActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" });
+      } else if (qs === "in_handshake" || qs === "in_date") {
+        setActiveSession({ kind: "video", ...base, queueStatus: qs });
       } else {
         setActiveSession(null);
       }
@@ -139,25 +137,24 @@ export function useActiveSession(
   }, [check]);
 
   useEffect(() => {
-    const sub = (state: AppStateStatus) => {
-      if (state === 'active') void check();
+    const onVis = () => {
+      if (document.visibilityState === "visible") void check();
     };
-    sub(AppState.currentState);
-    const subId = AppState.addEventListener('change', sub);
-    return () => subId.remove();
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [check]);
 
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel(`active-session-reg-native-${userId}`)
+      .channel(`active-session-reg-${userId}`)
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'event_registrations',
+          event: "*",
+          schema: "public",
+          table: "event_registrations",
           filter: `profile_id=eq.${userId}`,
         },
         () => {
@@ -171,8 +168,10 @@ export function useActiveSession(
     };
   }, [userId, check]);
 
-  return useMemo(
+  const stable = useMemo(
     () => ({ activeSession, hydrated, refetch: check }),
     [activeSession, hydrated, check]
   );
+
+  return stable;
 }

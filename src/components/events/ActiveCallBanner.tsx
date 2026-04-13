@@ -5,11 +5,19 @@ import { Button } from "@/components/ui/button";
 interface ActiveCallBannerProps {
   sessionId: string;
   partnerName?: string;
+  /** ready_gate = lobby overlay destination; video = /date */
+  mode?: "video" | "ready_gate";
   onRejoin: () => void;
   onEnd: () => void;
 }
 
-export const ActiveCallBanner = ({ sessionId, partnerName, onRejoin, onEnd }: ActiveCallBannerProps) => {
+export const ActiveCallBanner = ({
+  sessionId,
+  partnerName,
+  mode = "video",
+  onRejoin,
+  onEnd,
+}: ActiveCallBannerProps) => {
   return (
     <motion.div
       initial={{ y: -80, opacity: 0 }}
@@ -30,10 +38,11 @@ export const ActiveCallBanner = ({ sessionId, partnerName, onRejoin, onEnd }: Ac
             </motion.div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground truncate">
-                You have an active date!
+                {mode === "ready_gate" ? "Ready Gate in progress" : "You have an active date!"}
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                {partnerName ? `With ${partnerName}` : "Tap to rejoin"} 💚
+                {partnerName ? `With ${partnerName}` : "Tap to rejoin"}{" "}
+                {mode === "ready_gate" ? "— finish on the event lobby" : "💚"}
               </p>
             </div>
           </div>

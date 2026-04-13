@@ -15,6 +15,7 @@ import { useReadyGate } from '@/lib/readyGateApi';
 import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { supabase } from '@/lib/supabase';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -105,6 +106,28 @@ export function ReadyGateOverlay({
   useEffect(() => {
     void updateParticipantStatus(eventId, 'in_ready_gate');
   }, [eventId, userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [{ data: reg }, { data: vs }] = await Promise.all([
+        supabase
+          .from('event_registrations')
+          .select('queue_status')
+          .eq('event_id', eventId)
+          .eq('profile_id', userId)
+          .maybeSingle(),
+        supabase.from('video_sessions').select('ended_at').eq('id', sessionId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      if (!vs || vs.ended_at != null || reg?.queue_status !== 'in_ready_gate') {
+        onClose();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, eventId, userId, onClose]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;

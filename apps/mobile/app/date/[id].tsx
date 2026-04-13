@@ -193,6 +193,26 @@ export default function VideoDateScreen() {
 
   phaseRef.current = phase;
 
+  useEffect(() => {
+    if (!sessionId || !user?.id) return;
+    let cancelled = false;
+    void (async () => {
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('queue_status')
+        .eq('profile_id', user.id)
+        .eq('current_room_id', sessionId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (reg?.queue_status === 'in_ready_gate') {
+        router.replace(`/ready/${sessionId}` as const);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, user?.id]);
+
   const clearFirstConnectWatchdog = useCallback(() => {
     if (firstConnectWatchdogRef.current) {
       clearTimeout(firstConnectWatchdogRef.current);

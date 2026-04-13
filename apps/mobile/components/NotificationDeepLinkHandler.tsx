@@ -8,6 +8,8 @@ import { router, usePathname, type Href } from 'expo-router';
 import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 function hrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): Href | null {
   const raw =
@@ -45,6 +47,23 @@ function resolveNotificationHref(
   return base;
 }
 
+/** If payload targets /date/:id but user is still in Ready Gate, route to /ready/:id instead. */
+async function reconcileHrefWithRegistration(href: string, userId: string): Promise<string> {
+  const m = href.match(/^\/date\/([^/?#]+)/);
+  if (!m) return href;
+  const sid = m[1];
+  const { data: reg } = await supabase
+    .from('event_registrations')
+    .select('queue_status')
+    .eq('profile_id', userId)
+    .eq('current_room_id', sid)
+    .maybeSingle();
+  if (reg?.queue_status === 'in_ready_gate') {
+    return `/ready/${sid}`;
+  }
+  return href;
+}
+
 /** Keeps notificationRouteRef in sync for foreground suppression. */
 export function NotificationRouteTracker() {
   const pathname = usePathname();
@@ -55,32 +74,38 @@ export function NotificationRouteTracker() {
 }
 
 export function NotificationDeepLinkHandler() {
+  const { user } = useAuth();
   useEffect(() => {
     const onClick = (event: unknown) => {
-      const e = event as {
-        notification?: { additionalData?: Record<string, unknown>; launchURL?: string };
-        additionalData?: Record<string, unknown>;
-        launchURL?: string;
-      };
-      const n = e?.notification ?? e;
-      const additionalData = n?.additionalData ?? e?.additionalData;
-      const launchURL = n?.launchURL ?? e?.launchURL;
-      const data = additionalData as Record<string, unknown> | undefined;
-      if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
-        router.push(`/settings/ticket/${data.ticket_id}`);
-        return;
-      }
-      const href = resolveNotificationHref(additionalData, launchURL);
-      if (href) {
-        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
-          href: String(href),
-        });
-        router.push(href);
-      } else if (additionalData && typeof additionalData === 'object') {
-        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
-          has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
-        });
-      }
+      void (async () => {
+        const e = event as {
+          notification?: { additionalData?: Record<string, unknown>; launchURL?: string };
+          additionalData?: Record<string, unknown>;
+          launchURL?: string;
+        };
+        const n = e?.notification ?? e;
+        const additionalData = n?.additionalData ?? e?.additionalData;
+        const launchURL = n?.launchURL ?? e?.launchURL;
+        const data = additionalData as Record<string, unknown> | undefined;
+        if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
+          router.push(`/settings/ticket/${data.ticket_id}`);
+          return;
+        }
+        let href = resolveNotificationHref(additionalData, launchURL);
+        if (href && user?.id) {
+          href = (await reconcileHrefWithRegistration(String(href), user.id)) as Href;
+        }
+        if (href) {
+          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
+            href: String(href),
+          });
+          router.push(href);
+        } else if (additionalData && typeof additionalData === 'object') {
+          rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
+            has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
+          });
+        }
+      })();
     };
 
     const onForeground = (event: NotificationWillDisplayEvent) => {
@@ -121,7 +146,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, []);
+  }, [user?.id]);
 
   return null;
 }
