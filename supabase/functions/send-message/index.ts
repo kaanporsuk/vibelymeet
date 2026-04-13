@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,6 +32,32 @@ function notificationPreviewFromTextContent(trimmed: string): string {
   const sansUrls = stripEmbeddedHttpUrlsForPushBody(trimmed);
   if (!sansUrls || !pushPlainBodyHasSubstance(sansUrls)) return "Message";
   return sansUrls.length > 80 ? sansUrls.slice(0, 80) + "…" : sansUrls;
+}
+
+function shouldSyncLifecycleForTextContent(trimmed: string): boolean {
+  return trimmed.startsWith(CHAT_IMAGE_MESSAGE_PREFIX)
+    || (/^https?:\/\/\S+$/i.test(trimmed) && /\.(jpe?g|png|gif|webp)(\?|#|$)/i.test(trimmed));
+}
+
+async function ensureMessageMediaOrRollback(
+  serviceClient: ReturnType<typeof createClient>,
+  messageId: string,
+  label: string,
+): Promise<boolean> {
+  const syncResult = await syncChatMessageMedia(serviceClient, messageId);
+  if (syncResult.success) {
+    return true;
+  }
+
+  console.error(`send-message ${label} media sync failed:`, syncResult.error);
+  const { error: rollbackError } = await serviceClient
+    .from("messages")
+    .delete()
+    .eq("id", messageId);
+  if (rollbackError) {
+    console.error(`send-message ${label} rollback delete failed:`, rollbackError);
+  }
+  return false;
 }
 
 serve(async (req) => {
@@ -223,6 +250,13 @@ serve(async (req) => {
         );
       }
 
+      if (!(await ensureMessageMediaOrRollback(serviceClient, insertedClip.id, "vibe_clip"))) {
+        return new Response(
+          JSON.stringify({ success: false, error: "media_sync_failed" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       const recipientId =
         match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
 
@@ -321,6 +355,13 @@ serve(async (req) => {
         console.error("send-message voice insert error:", voiceInsertError);
         return new Response(
           JSON.stringify({ success: false, error: "insert_failed" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      if (!(await ensureMessageMediaOrRollback(serviceClient, insertedVoice.id, "voice"))) {
+        return new Response(
+          JSON.stringify({ success: false, error: "media_sync_failed" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
@@ -441,6 +482,16 @@ serve(async (req) => {
       }
 
       messageRow = inserted;
+
+      if (
+        shouldSyncLifecycleForTextContent(trimmed)
+        && !(await ensureMessageMediaOrRollback(serviceClient, inserted.id, "text_or_image"))
+      ) {
+        return new Response(
+          JSON.stringify({ success: false, error: "media_sync_failed" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     } else {
       idempotent = true;
     }

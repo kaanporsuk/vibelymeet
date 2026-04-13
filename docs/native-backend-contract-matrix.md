@@ -22,7 +22,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `profiles` insert/update | Table | Create/update profile (name, gender, tagline, etc.) | Same |
 | `user_credits` upsert | Table | Initial credits on onboarding | Same |
 | `geocode` | Edge Function | Resolve location for events | Same |
-| `upload-image` (Bunny) | Edge Function | Profile photo upload; explicit `context` (`onboarding` / `profile_studio`) now registers draft-safe lifecycle assets | Same (Bunny adapter); chat-image uploads omit profile context and stay outside Sprint 2 |
+| `upload-image` (Bunny) | Edge Function | Profile photo upload and chat-image upload. `context = onboarding | profile_studio` keeps draft-safe profile lifecycle; `context = chat` + `match_id` registers `chat_image` assets after membership check | Same (Bunny adapter); native/web chat-image send now passes `context = chat` and `match_id` |
 | `publish_photo_set` | RPC | Canonical published-photo save path; updates `profiles.photos` / `avatar_url` and active `media_references` together | Same profile photo save path on web + native |
 | profileService (profiles, profile_vibes, event_registrations, matches) | Queries | Load profile + related counts | Same queries or shared API layer |
 | `create-video-upload` | Edge Function | Bunny Stream object + TUS signature; activates the current primary vibe video in lifecycle tables while keeping `profiles.bunny_video_uid` / `bunny_video_status` current | Native `vibeVideoApi`; web `VibeStudioModal`. Hard failures use **non-2xx** HTTP + JSON `{ success: false, error, code? }` (success remains **200** + `{ success: true, ... }`). |
@@ -58,7 +58,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
-| `send-message` | Edge Function | Text/image (`content`), **`message_kind: voice`** (after `upload-voice`), **`message_kind: vibe_clip`** (after `upload-chat-video`); idempotency via `client_request_id`; `send-notification` | Same; no client `messages.insert` for voice or Vibe Clip — see `docs/chat-video-vibe-clip-architecture.md` |
+| `send-message` | Edge Function | Text/image (`content`), **`message_kind: voice`** (after `upload-voice`), **`message_kind: vibe_clip`** (after `upload-chat-video`); idempotency via `client_request_id`; `send-notification`; Sprint 3 also syncs persisted media into `media_assets` / `media_references` / `chat_media_retention_states` | Same; no client `messages.insert` for voice or Vibe Clip — see `docs/chat-video-vibe-clip-architecture.md` |
 | `messages` | Table + Realtime | History and live updates | Same; subscribe same channel |
 | Bunny (voice/chat video) | Upload then URL in message | Audio/video message payloads | Same upload flow or native adapter |
 
@@ -120,9 +120,9 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 |----------|------|---------|------------|
 | `account-pause` | Edge Function | Pause account | Same (settings) |
 | `account-resume` | Edge Function | Resume account | Same |
-| `request-account-deletion` | Edge Function | Start scheduled deletion grace window | Same |
-| `cancel-deletion` | Edge Function | Recover account during deletion grace window | Same |
-| `delete-account` | Edge Function | Legacy authenticated wrapper around scheduled deletion + cleanup/sign-out | Not required in normal app flow |
+| `request-account-deletion` | Edge Function | Start scheduled deletion grace window; authenticated same-user calls now apply only a reversible pending media hold, not final deletion | Same |
+| `cancel-deletion` | Edge Function | Recover account during deletion grace window and clear the reversible pending media hold | Same |
+| `delete-account` | Edge Function | Authenticated scheduled-deletion wrapper; applies the same reversible pending hold before sign-out/cleanup | Not required in normal app flow |
 | `verify-admin` | Edge Function | Admin gating | Web only (admin routes) |
 
 ---
@@ -136,9 +136,11 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `media_delete_jobs` | Table | Deletion work queue with retry/backoff | service_role only |
 | `media_retention_settings` | Table | Admin-configurable per-family retention policy | Read-only for authenticated (admin writes via service_role) |
 | `profile_vibe_videos` | Table | Canonical per-user vibe-video history with one active/current primary row | No direct client reads yet; legacy clients still read `profiles.bunny_video_uid` |
+| `chat_media_retention_states` | Table | Durable per-match participant retention state for chat media; survives message/match hard deletes and now also records grace-window pending deletion via `account_deletion_pending_at` | No direct client reads in normal UI |
+| `delete_chat_for_current_user` | RPC | Backend-owned one-sided chat-retention release (`chat_deleted`) without service-role access | Shared authenticated client contract for future “delete chat for me” UI |
 | `process-media-delete-jobs` | Edge Function | Cron worker: drain delete queue via Bunny/Supabase provider helpers | Server-only (CRON_SECRET auth) |
 
-> Sprint 1 added the foundation tables in `20260417100000_media_lifecycle_foundation.sql`. Sprint 2 (`20260417110000_media_lifecycle_profile_media_wiring.sql`) now wires **vibe videos** and **profile photos** into this model while preserving legacy profile columns as the published client contract. Chat media is still untouched in this sprint.
+> Sprint 1 added the foundation tables in `20260417100000_media_lifecycle_foundation.sql`. Sprint 2 (`20260417110000_media_lifecycle_profile_media_wiring.sql`) wires **vibe videos** and **profile photos** into this model while preserving legacy profile columns as the published client contract. Sprint 3 (`20260419100000_media_lifecycle_chat_account_cleanup.sql` + `20260419103000_chat_retention_user_wrappers.sql`) makes **chat images/videos/thumbnails/voice** lifecycle-managed. The grace-period follow-up (`20260419110000_account_deletion_grace_media_fix.sql`) keeps pending deletion reversible and moves final `account_deleted` release to the actual completion event. Cron is still disabled.
 
 ---
 

@@ -79,7 +79,7 @@ export function ScavengerStartSheet({ visible, onClose, matchId, partnerName, in
       if (result.canceled || !result.assets?.[0]) return;
       setUploading(true);
       const asset = result.assets[0];
-      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? 'image/jpeg');
+      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? 'image/jpeg', matchId);
       setSenderPhotoUrl(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not upload photo.');

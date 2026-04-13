@@ -54,7 +54,7 @@ export async function executeOutboxItem(
     } else if (payload.kind === 'image') {
       let publicUrl = item.uploadedPublicUrl;
       if (!publicUrl) {
-        publicUrl = await uploadChatImageMessage(payload.uri, payload.mimeType);
+        publicUrl = await uploadChatImageMessage(payload.uri, payload.mimeType, matchId);
       }
       uploadedPublicUrl = publicUrl;
       const row = await invokeSendMessageEdge({

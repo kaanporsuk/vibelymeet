@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,6 +68,31 @@ serve(async (req) => {
       );
     }
 
+    if (!conversationId || typeof conversationId !== "string" || conversationId.trim() === "") {
+      return new Response(
+        JSON.stringify({ success: false, error: "conversation_id is required" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const adminSupabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const { data: match, error: matchError } = await adminSupabase
+      .from("matches")
+      .select("id, profile_id_1, profile_id_2")
+      .eq("id", conversationId.trim())
+      .maybeSingle();
+
+    if (matchError || !match || (match.profile_id_1 !== user.id && match.profile_id_2 !== user.id)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Forbidden" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Determine extension
     const extMap: Record<string, string> = {
       "audio/webm": "webm",
@@ -81,9 +107,7 @@ serve(async (req) => {
 
     // Path: voice/{conversationId}/{userId}_{timestamp}.ext
     // or:   voice/{userId}/{timestamp}.ext if no conversationId
-    const folder = conversationId
-      ? `voice/${conversationId}`
-      : `voice/${user.id}`;
+    const folder = `voice/${conversationId.trim()}`;
     const storagePath = `${folder}/${user.id}_${timestamp}.${ext}`;
 
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
@@ -114,6 +138,27 @@ serve(async (req) => {
     // Return both the path and the full CDN URL
     const cdnHostname = Deno.env.get("BUNNY_CDN_HOSTNAME")!;
     const audioUrl = `https://${cdnHostname}/${storagePath}`;
+
+    try {
+      const lifecycle = await registerMediaAsset(adminSupabase, {
+        provider: PROVIDERS.BUNNY_STORAGE,
+        mediaFamily: MEDIA_FAMILIES.VOICE_MESSAGE,
+        ownerUserId: user.id,
+        providerPath: storagePath,
+        mimeType: file.type || baseType || "audio/webm",
+        bytes: file.size,
+        legacyTable: "matches",
+        legacyId: conversationId.trim(),
+        status: "uploading",
+      });
+      if (!lifecycle.success) {
+        console.error(
+          `[upload-voice] voice asset registration failed userId=${user.id} matchId=${conversationId} path=${storagePath} err=${lifecycle.error}`,
+        );
+      }
+    } catch (lifecycleError) {
+      console.error("[upload-voice] lifecycle tracking error:", lifecycleError);
+    }
 
     return new Response(
       JSON.stringify({ success: true, path: storagePath, url: audioUrl }),

@@ -5,8 +5,8 @@
  * interact with the media_assets / media_references / media_delete_jobs
  * tables via service-role Supabase client.
  *
- * Sprint 2: used by profile-photo / vibe-video upload flows for dual-write
- * registration into media_assets while legacy profile columns remain active.
+ * Sprint 2/3: used by profile media, chat media, and account-deletion helpers
+ * for dual-write / lifecycle coordination while legacy product contracts remain active.
  */
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -38,6 +38,7 @@ export const REF_TYPES = {
   PROFILE_PHOTO_SLOT: "profile_photo_slot",
   PROFILE_AVATAR: "profile_avatar",
   MESSAGE_ATTACHMENT: "message_attachment",
+  CHAT_PARTICIPANT_RETENTION: "chat_participant_retention",
   EVENT_COVER: "event_cover",
   VERIFICATION_SELFIE: "verification_selfie",
   VERIFICATION_REFERENCE: "verification_reference",
@@ -80,7 +81,7 @@ export interface RegisterAssetParams {
  * Register a new media asset. Returns the asset ID.
  * Designed for use in upload Edge Functions after a successful provider upload.
  *
- * Sprint 2+ will integrate this into existing upload functions.
+ * Sprint 2/3 integrate this into existing upload functions.
  */
 export async function registerMediaAsset(
   admin: SupabaseClient,
@@ -225,6 +226,85 @@ export async function releaseMediaReference(
   };
 }
 
+export async function syncChatMessageMedia(
+  admin: SupabaseClient,
+  messageId: string,
+): Promise<{ success: boolean; assetsSynced?: number; refsCreated?: number; refsReactivated?: number; error?: string }> {
+  const { data, error } = await admin.rpc("sync_chat_message_media", {
+    p_message_id: messageId,
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  const result = data as Record<string, unknown> | null;
+  return {
+    success: result?.success === true,
+    assetsSynced: typeof result?.assets_synced === "number" ? result.assets_synced as number : undefined,
+    refsCreated: typeof result?.refs_created === "number" ? result.refs_created as number : undefined,
+    refsReactivated: typeof result?.refs_reactivated === "number" ? result.refs_reactivated as number : undefined,
+    error: typeof result?.error === "string" ? result.error : undefined,
+  };
+}
+
+export async function applyAccountDeletionMediaHold(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<{ success: boolean; matchesTouched?: number; refsReleased?: number; error?: string }> {
+  const { data, error } = await admin.rpc("apply_account_deletion_media_hold", {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  const result = data as Record<string, unknown> | null;
+  return {
+    success: result?.success === true,
+    matchesTouched:
+      typeof result?.matches_touched === "number" ? result.matches_touched as number : undefined,
+    refsReleased:
+      typeof result?.refs_released === "number" ? result.refs_released as number : undefined,
+    error: typeof result?.error === "string" ? result.error : undefined,
+  };
+}
+
+export async function cancelAccountDeletionMediaHold(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<{
+  success: boolean;
+  matchesTouched?: number;
+  refsCreated?: number;
+  refsReactivated?: number;
+  assetsReactivated?: number;
+  error?: string;
+}> {
+  const { data, error } = await admin.rpc("cancel_account_deletion_media_hold", {
+    p_user_id: userId,
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  const result = data as Record<string, unknown> | null;
+  return {
+    success: result?.success === true,
+    matchesTouched:
+      typeof result?.matches_touched === "number" ? result.matches_touched as number : undefined,
+    refsCreated:
+      typeof result?.refs_created === "number" ? result.refs_created as number : undefined,
+    refsReactivated:
+      typeof result?.refs_reactivated === "number" ? result.refs_reactivated as number : undefined,
+    assetsReactivated:
+      typeof result?.assets_reactivated === "number" ? result.assets_reactivated as number : undefined,
+    error: typeof result?.error === "string" ? result.error : undefined,
+  };
+}
+
 // ─── Legacy mapping documentation ───────────────────────────────────────────
 //
 // This section documents how existing Vibely tables map to the new media model.
@@ -236,8 +316,7 @@ export async function releaseMediaReference(
 // │ profiles.bunny_video_uid    │ bunny_stream     │ vibe_video               │ profile_vibe_video      │
 // │ profiles.photos[n]          │ bunny_storage    │ profile_photo            │ profile_photo_slot      │
 // │ profiles.avatar_url         │ bunny_storage    │ profile_photo            │ profile_avatar          │
-// │ messages.video_url (clip)   │ bunny_storage    │ chat_video               │ message_attachment      │
-// │ messages.audio_url          │ bunny_storage    │ voice_message            │ message_attachment      │
+// │ chat media by participant   │ bunny_storage    │ chat_*                   │ chat_participant_retention │
 // │ events.cover_image          │ bunny_storage    │ event_cover              │ event_cover             │
 // │ photo_verifications.selfie  │ bunny_storage    │ verification_selfie      │ verification_selfie     │
 // │ draft_media_sessions        │ bunny_*          │ (maps to media_family)   │ (created at publish)    │
@@ -246,7 +325,7 @@ export async function releaseMediaReference(
 // Backfill strategy (Sprint 2):
 //   1. Scan profiles with non-null bunny_video_uid → insert media_asset + reference
 //   2. Scan profiles.photos[] arrays → insert media_asset + reference per slot
-//   3. Scan messages with non-null video_url/audio_url → insert media_asset + reference
+//   3. Scan chat messages with image/video/audio payloads → insert media_asset + participant retention refs
 //   4. Scan events with non-null cover_image → insert media_asset + reference
 //   5. Mark all backfilled assets with legacy_table + legacy_id for traceability
 //

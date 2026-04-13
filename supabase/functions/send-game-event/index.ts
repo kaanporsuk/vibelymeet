@@ -3,6 +3,7 @@
  */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -299,6 +300,26 @@ function completeReason(gameType: string, eventType: string): string {
   return `${gameType}_${eventType}_done`;
 }
 
+async function ensureGameMessageMediaOrRollback(
+  serviceClient: ReturnType<typeof createClient>,
+  messageId: string,
+): Promise<boolean> {
+  const syncResult = await syncChatMessageMedia(serviceClient, messageId);
+  if (syncResult.success) {
+    return true;
+  }
+
+  console.error("send-game-event media sync failed:", syncResult.error);
+  const { error: rollbackError } = await serviceClient
+    .from("messages")
+    .delete()
+    .eq("id", messageId);
+  if (rollbackError) {
+    console.error("send-game-event rollback delete failed:", rollbackError);
+  }
+  return false;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -533,6 +554,16 @@ serve(async (req) => {
       }
       console.error("send-game-event insert error:", insertError);
       return new Response(JSON.stringify({ success: false, error: "insert_failed" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const needsMediaSync = gameType === "scavenger"
+      && (eventType === "session_start" || eventType === "scavenger_photo");
+
+    if (needsMediaSync && !(await ensureGameMessageMediaOrRollback(serviceClient, inserted.id))) {
+      return new Response(JSON.stringify({ success: false, error: "media_sync_failed" }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

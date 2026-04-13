@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -105,6 +106,10 @@ serve(async (req) => {
 
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
+    const adminSupabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
 
     const fileBuffer = await file.arrayBuffer();
     const uploadRes = await fetch(
@@ -175,6 +180,46 @@ serve(async (req) => {
     const aspectRatioNum = typeof aspectRatioRaw === "string" ? Number.parseFloat(aspectRatioRaw) : NaN;
     const aspectRatio =
       Number.isFinite(aspectRatioNum) && aspectRatioNum > 0 ? aspectRatioNum : null;
+
+    try {
+      const videoAsset = await registerMediaAsset(adminSupabase, {
+        provider: PROVIDERS.BUNNY_STORAGE,
+        mediaFamily: MEDIA_FAMILIES.CHAT_VIDEO,
+        ownerUserId: user.id,
+        providerPath: storagePath,
+        mimeType: file.type || baseType || "video/webm",
+        bytes: file.size,
+        legacyTable: "matches",
+        legacyId: matchId.trim(),
+        status: "uploading",
+      });
+      if (!videoAsset.success) {
+        console.error(
+          `[upload-chat-video] video asset registration failed userId=${user.id} matchId=${matchId} path=${storagePath} err=${videoAsset.error}`,
+        );
+      }
+
+      if (thumbnailPath && thumbnailFile) {
+        const thumbAsset = await registerMediaAsset(adminSupabase, {
+          provider: PROVIDERS.BUNNY_STORAGE,
+          mediaFamily: MEDIA_FAMILIES.CHAT_VIDEO_THUMBNAIL,
+          ownerUserId: user.id,
+          providerPath: thumbnailPath,
+          mimeType: thumbnailFile.type || "image/jpeg",
+          bytes: thumbnailFile.size,
+          legacyTable: "matches",
+          legacyId: matchId.trim(),
+          status: "uploading",
+        });
+        if (!thumbAsset.success) {
+          console.error(
+            `[upload-chat-video] thumbnail asset registration failed userId=${user.id} matchId=${matchId} path=${thumbnailPath} err=${thumbAsset.error}`,
+          );
+        }
+      }
+    } catch (lifecycleError) {
+      console.error("[upload-chat-video] lifecycle tracking error:", lifecycleError);
+    }
 
     return new Response(
       JSON.stringify({

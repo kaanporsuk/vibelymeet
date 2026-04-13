@@ -921,7 +921,7 @@ const Chat = () => {
       const tempId = `temp-img-${createdAtMs}`;
       setSendingPhoto(true);
       try {
-        const { path } = await uploadImageToBunny(file, session.access_token);
+        const { path } = await uploadImageToBunny(file, session.access_token, "chat", chatData.matchId);
         const publicUrl = getImageUrl(path, { quality: 88 });
         const content = formatChatImageMessageContent(publicUrl);
         const tempMsg: ChatMessage = {

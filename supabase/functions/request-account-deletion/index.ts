@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { applyAccountDeletionMediaHold } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +13,8 @@ Deno.serve(async (req) => {
 
   try {
     const { email, reason, source } = await req.json();
+    const authHeader = req.headers.get("Authorization");
+    const normalizedRequestedEmail = typeof email === "string" ? email.toLowerCase() : null;
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
       return new Response(
@@ -28,30 +31,55 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Look up user by email using admin API (avoids loading all users)
-    const { data: userData, error: lookupError } = await supabaseAdmin.auth.admin.getUserByEmail(email.toLowerCase());
-
-    if (lookupError || !userData?.user) {
-      // Don't reveal if email exists — always return success
-      return new Response(
-        JSON.stringify({ success: true }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    let authenticatedUserId: string | null = null;
+    let authenticatedEmail: string | null = null;
+    if (authHeader?.startsWith("Bearer ")) {
+      const supabaseUser = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
       );
+      const { data: userRes } = await supabaseUser.auth.getUser();
+      if (userRes?.user?.id) {
+        authenticatedUserId = userRes.user.id;
+        authenticatedEmail = (userRes.user.email ?? "").toLowerCase();
+      }
     }
 
-    const user = userData.user;
+    // Trust the authenticated user for same-user requests so lifecycle hold can
+    // still apply even if the admin email lookup is temporarily unavailable.
+    let userId: string | null = null;
+    if (
+      authenticatedUserId &&
+      authenticatedEmail &&
+      normalizedRequestedEmail &&
+      authenticatedEmail === normalizedRequestedEmail
+    ) {
+      userId = authenticatedUserId;
+    } else {
+      // Look up user by email using admin API (avoids loading all users)
+      const { data: userData, error: lookupError } = await supabaseAdmin.auth.admin.getUserByEmail(normalizedRequestedEmail!);
+      if (lookupError || !userData?.user?.id) {
+        // Don't reveal if email exists — always return success
+        return new Response(
+          JSON.stringify({ success: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      userId = userData.user.id;
+    }
 
     // Check for existing pending request
     const { data: existing } = await supabaseAdmin
       .from("account_deletion_requests")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("status", "pending")
       .maybeSingle();
 
     if (!existing) {
       await supabaseAdmin.from("account_deletion_requests").insert({
-        user_id: user.id,
+        user_id: userId,
         reason: reason ? `[${source || "web"}] ${reason}` : `[${source || "web"}] No reason provided`,
         status: "pending",
       });
@@ -61,9 +89,24 @@ Deno.serve(async (req) => {
       // after admin review, to prevent abuse by unauthenticated callers.
     }
 
+    let mediaHoldApplied = false;
+    if (
+      authenticatedUserId &&
+      authenticatedUserId === userId &&
+      authenticatedEmail &&
+      authenticatedEmail === normalizedRequestedEmail
+    ) {
+      const holdResult = await applyAccountDeletionMediaHold(supabaseAdmin, userId);
+      if (!holdResult.success) {
+        console.error("request-account-deletion media hold apply failed:", holdResult.error);
+      } else {
+        mediaHoldApplied = true;
+      }
+    }
+
     // Always return success to not reveal if email exists
     return new Response(
-      JSON.stringify({ success: true }),
+      JSON.stringify({ success: true, media_hold_applied: mediaHoldApplied }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

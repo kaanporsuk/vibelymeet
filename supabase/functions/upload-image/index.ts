@@ -43,8 +43,13 @@ serve(async (req) => {
     const oldPath = formData.get("old_path") as string | null;
     const rawContext = formData.get("context");
     const context =
-      rawContext === "onboarding" || rawContext === "profile_studio"
+      rawContext === "onboarding" || rawContext === "profile_studio" || rawContext === "chat"
         ? rawContext
+        : null;
+    const rawMatchId = formData.get("match_id");
+    const matchId =
+      typeof rawMatchId === "string" && rawMatchId.trim().length > 0
+        ? rawMatchId.trim()
         : null;
     const safeReplacedPath =
       typeof oldPath === "string" && oldPath.startsWith(`photos/${user.id}/`)
@@ -67,9 +72,29 @@ serve(async (req) => {
       return json({ success: false, error: "File too large. Maximum 10MB." });
     }
 
+    if (context === "chat" && !matchId) {
+      return json({ success: false, error: "match_id is required for chat uploads" });
+    }
+
     const storageZone = Deno.env.get("BUNNY_STORAGE_ZONE")!;
     const apiKey = Deno.env.get("BUNNY_STORAGE_API_KEY")!;
     const storageHostname = "storage.bunnycdn.com";
+    const adminSupabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    if (context === "chat" && matchId) {
+      const { data: match, error: matchError } = await adminSupabase
+        .from("matches")
+        .select("id, profile_id_1, profile_id_2")
+        .eq("id", matchId)
+        .maybeSingle();
+
+      if (matchError || !match || (match.profile_id_1 !== user.id && match.profile_id_2 !== user.id)) {
+        return json({ success: false, error: "Forbidden" });
+      }
+    }
 
     const extMap: Record<string, string> = {
       "image/png": "png",
@@ -100,17 +125,11 @@ serve(async (req) => {
       return json({ success: false, error: "Upload to CDN failed" });
     }
 
-    // ── Profile-photo lifecycle registration / draft session tracking ────────
-    // Only explicit profile/onboarding callers participate in Sprint 2 media
-    // lifecycle wiring. Chat image uploads continue to use this Edge Function
-    // for raw Bunny upload only and remain untouched by profile-photo cleanup.
-    const adminSupabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
+    // ── Media lifecycle registration / draft session tracking ────────────────
+    // Profile-photo callers keep the draft-safe session flow; chat callers now
+    // register chat_image assets without touching profile-photo semantics.
     let sessionId: string | null = null;
-    if (context) {
+    if (context === "onboarding" || context === "profile_studio") {
       try {
         const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
           "create_media_session",
@@ -162,6 +181,28 @@ serve(async (req) => {
         }
       } catch (e) {
         console.error("[upload-image] session/lifecycle tracking error:", e);
+      }
+    } else if (context === "chat" && matchId) {
+      try {
+        const lifecycle = await registerMediaAsset(adminSupabase, {
+          provider: PROVIDERS.BUNNY_STORAGE,
+          mediaFamily: MEDIA_FAMILIES.CHAT_IMAGE,
+          ownerUserId: user.id,
+          providerPath: storagePath,
+          mimeType: file.type,
+          bytes: file.size,
+          legacyTable: "matches",
+          legacyId: matchId,
+          status: "uploading",
+        });
+
+        if (!lifecycle.success) {
+          console.error(
+            `[upload-image] chat media asset registration failed userId=${user.id} matchId=${matchId} path=${storagePath} err=${lifecycle.error}`,
+          );
+        }
+      } catch (e) {
+        console.error("[upload-image] chat lifecycle tracking error:", e);
       }
     }
 
