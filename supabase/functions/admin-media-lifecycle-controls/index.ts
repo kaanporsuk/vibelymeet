@@ -18,6 +18,8 @@ const OWNED_MEDIA_FAMILIES = [
   "event_cover",
 ] as const;
 
+const MEDIA_WORKER_JOB_NAME = "media-delete-worker-every-15m";
+
 type MediaFamily = typeof CHAT_MEDIA_FAMILIES[number] | typeof OWNED_MEDIA_FAMILIES[number] | "verification_selfie";
 type RetentionMode = "soft_delete" | "retain_until_eligible" | "immediate";
 
@@ -69,7 +71,24 @@ type JobRow = {
   next_attempt_at: string;
   last_error: string | null;
   created_at: string;
+  started_at: string | null;
+  worker_id: string | null;
   media_assets?: JobAssetRow | JobAssetRow[] | null;
+};
+
+type CronJobRow = {
+  jobid: number;
+  jobname: string;
+  schedule: string;
+  active: boolean;
+};
+
+type CronRunRow = {
+  runid: number;
+  jobid: number;
+  status: string;
+  start_time: string;
+  end_time: string | null;
 };
 
 function json(body: Record<string, unknown>, status = 200) {
@@ -178,10 +197,6 @@ function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow
     && row.worker_enabled === firstChat?.worker_enabled,
   );
 
-  const recommendationVerdict = orphanLikeTotal > 0 || failedJobTotal > 0
-    ? "keep_disabled"
-    : "enable_later";
-
   const readyByFamily = Object.entries(readyNowByFamily)
     .map(([media_family, values]) => ({
       media_family,
@@ -219,6 +234,8 @@ function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow
         by_family: readyByFamily,
         explanation: "Read-only preview that combines existing pending/failed ready jobs with soft_deleted assets that a real run would promote before claiming. No mutations are performed.",
       },
+      failed_job_total: failedJobTotal,
+      orphan_like_total: orphanLikeTotal,
       notes: [
         "The existing process-media-delete-jobs dry-run only previews queued pending/failed jobs.",
         "This admin snapshot adds promotable soft_deleted assets so operators can see what a real run would likely process first.",
@@ -226,21 +243,216 @@ function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow
       ],
     },
     recommended_activation: {
-      verdict: recommendationVerdict,
+      verdict: orphanLikeTotal > 0 || failedJobTotal > 0 ? "keep_disabled" : "healthy",
       initial_batch_size: 10,
       initial_cadence: "every 15 minutes",
       retry_behavior: "DB-owned exponential backoff: 1m, 5m, 25m, 2h, 10h, up to per-family max_attempts (default 5).",
       initial_family_filter: null,
       rollback: [
-        "Disable the scheduler / remove the cron job.",
-        "Set worker_enabled = false for any affected media families in the admin panel.",
+        "Disable the scheduler: UPDATE cron.job SET active = false WHERE jobname = 'media-delete-worker-every-15m';",
+        "Set worker_enabled = false for the affected family in the admin panel.",
         "Leave existing queued jobs untouched while you inspect media_delete_jobs and provider logs.",
       ],
-      rationale: recommendationVerdict === "keep_disabled"
-        ? "Keep cron disabled until orphan-like or failed-job anomalies are resolved."
-        : "One manual monitored live execution should happen before enabling cron. After that, start with a small batch and observe queue/error behavior.",
+      rationale: orphanLikeTotal > 0 || failedJobTotal > 0
+        ? "Anomalies detected — investigate before next worker run."
+        : "System healthy — cron is running on schedule.",
     },
   };
+}
+
+// ── Ops: fetch cron status + recent runs ─────────────────────────────────────
+
+async function fetchCronStatus(admin: ReturnType<typeof createClient>) {
+  const { data: jobRows, error: jobError } = await admin
+    .from("cron.job" as "media_assets")
+    .select("jobid, jobname, schedule, active")
+    .eq("jobname", MEDIA_WORKER_JOB_NAME)
+    .maybeSingle();
+
+  if (jobError) {
+    console.error("fetchCronStatus job query failed:", jobError.message);
+    return null;
+  }
+
+  const cronJob = jobRows as unknown as CronJobRow | null;
+  if (!cronJob) return null;
+
+  // Fetch recent run history
+  const { data: runs, error: runsError } = await admin
+    .rpc("execute_sql_internal_cron_runs" as "summarize_media_lifecycle_health", {
+      // fall back to raw SQL via a workaround — query cron.job_run_details
+    } as Record<string, never>);
+
+  // cron schema tables aren't directly accessible via PostgREST; use raw RPC path
+  // Instead we'll query via the health RPC and inject cron run data separately
+  void runs; void runsError;
+
+  return { job: cronJob, recent_runs: [] as CronRunRow[] };
+}
+
+// Fetch cron status + recent runs via direct SQL through service-role RPC path
+async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
+  const { data: healthData, error: healthError } = await admin
+    .rpc("summarize_media_lifecycle_health");
+
+  if (healthError) {
+    console.error("health RPC failed:", healthError.message);
+    return { health: null, cron_job: null, recent_runs: [] as CronRunRow[] };
+  }
+
+  const health = healthData as unknown as Record<string, unknown>;
+
+  // Query cron job state
+  const { data: cronData, error: cronError } = await (admin as ReturnType<typeof createClient>)
+    .schema("cron")
+    .from("job")
+    .select("jobid, jobname, schedule, active")
+    .eq("jobname", MEDIA_WORKER_JOB_NAME)
+    .maybeSingle();
+
+  const cronJob = cronError ? null : (cronData as CronJobRow | null);
+
+  // Query recent run details
+  let recentRuns: CronRunRow[] = [];
+  if (cronJob) {
+    const { data: runsData, error: runsError } = await (admin as ReturnType<typeof createClient>)
+      .schema("cron")
+      .from("job_run_details")
+      .select("runid, jobid, status, start_time, end_time")
+      .eq("jobid", cronJob.jobid)
+      .order("runid", { ascending: false })
+      .limit(10);
+
+    if (!runsError && runsData) {
+      recentRuns = runsData as CronRunRow[];
+    }
+  }
+
+  // Compute consecutive failures from recent runs
+  let consecutiveFailures = 0;
+  let lastSucceededAt: string | null = null;
+  let lastFailedAt: string | null = null;
+
+  for (const run of recentRuns) {
+    if (run.status === "succeeded") {
+      if (!lastSucceededAt) lastSucceededAt = run.start_time;
+      break;
+    } else if (run.status === "failed") {
+      consecutiveFailures++;
+      if (!lastFailedAt) lastFailedAt = run.start_time;
+    }
+  }
+
+  return {
+    health,
+    cron_job: cronJob ? {
+      job_id: cronJob.jobid,
+      jobname: cronJob.jobname,
+      schedule: cronJob.schedule,
+      active: cronJob.active,
+      last_succeeded_at: lastSucceededAt,
+      last_failed_at: lastFailedAt,
+      consecutive_failures: consecutiveFailures,
+    } : null,
+    recent_runs: recentRuns.map((r) => ({
+      runid: r.runid,
+      status: r.status,
+      start_time: r.start_time,
+      end_time: r.end_time,
+      duration_ms: r.end_time
+        ? new Date(r.end_time).getTime() - new Date(r.start_time).getTime()
+        : null,
+    })),
+  };
+}
+
+// ── Ops: fetch failed and stale-claimed jobs ──────────────────────────────────
+
+async function fetchOpsJobLists(admin: ReturnType<typeof createClient>) {
+  const STALE_MINUTES = 30;
+  const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString();
+
+  const [failedResult, staleResult] = await Promise.all([
+    admin
+      .from("media_delete_jobs")
+      .select("id, asset_id, provider, provider_path, status, job_type, attempts, max_attempts, last_error, created_at, next_attempt_at, media_assets!inner(media_family)")
+      .in("status", ["failed", "abandoned"])
+      .order("created_at", { ascending: false })
+      .limit(50),
+    admin
+      .from("media_delete_jobs")
+      .select("id, asset_id, provider, provider_path, status, job_type, attempts, started_at, worker_id, created_at, media_assets!inner(media_family)")
+      .eq("status", "claimed")
+      .lt("started_at", staleThreshold)
+      .order("started_at", { ascending: true })
+      .limit(50),
+  ]);
+
+  const normalizeFamily = (row: Record<string, unknown>) => {
+    const asset = row.media_assets as JobAssetRow | JobAssetRow[] | null;
+    const media_family = Array.isArray(asset) ? asset[0]?.media_family ?? "unknown" : asset?.media_family ?? "unknown";
+    const { media_assets: _drop, ...rest } = row;
+    void _drop;
+    return { ...rest, media_family };
+  };
+
+  return {
+    failed_jobs: (failedResult.data ?? []).map(normalizeFamily),
+    stale_claimed_jobs: (staleResult.data ?? []).map(normalizeFamily),
+  };
+}
+
+// ── Main snapshot ─────────────────────────────────────────────────────────────
+
+async function fetchSnapshot(admin: ReturnType<typeof createClient>) {
+  const [settingsResult, assetsResult, jobsResult] = await Promise.all([
+    admin
+      .from("media_retention_settings")
+      .select("media_family, retention_mode, retention_days, eligible_days, worker_enabled, dry_run, batch_size, max_attempts, notes, updated_at, updated_by")
+      .order("media_family", { ascending: true }),
+    admin
+      .from("media_assets")
+      .select("id, media_family, status, provider, purge_after, created_at, deleted_at, last_error, media_references!left(id, is_active)"),
+    admin
+      .from("media_delete_jobs")
+      .select("id, asset_id, provider, status, job_type, attempts, max_attempts, next_attempt_at, last_error, created_at, started_at, worker_id, media_assets!inner(media_family, status, purge_after)"),
+  ]);
+
+  if (settingsResult.error) throw new Error(`settings query failed: ${settingsResult.error.message}`);
+  if (assetsResult.error) throw new Error(`assets query failed: ${assetsResult.error.message}`);
+  if (jobsResult.error) throw new Error(`jobs query failed: ${jobsResult.error.message}`);
+
+  const core = buildSnapshot(
+    (settingsResult.data ?? []) as SettingsRow[],
+    (assetsResult.data ?? []) as AssetRow[],
+    (jobsResult.data ?? []) as JobRow[],
+  );
+
+  const [opsStatus, opsJobs] = await Promise.all([
+    fetchCronStatusViaSQL(admin),
+    fetchOpsJobLists(admin),
+  ]);
+
+  return {
+    ...core,
+    ops: {
+      health: opsStatus.health,
+      cron_job: opsStatus.cron_job,
+      recent_runs: opsStatus.recent_runs,
+      failed_jobs: opsJobs.failed_jobs,
+      stale_claimed_jobs: opsJobs.stale_claimed_jobs,
+    },
+  };
+}
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+
+function ensureNonNegativeInteger(name: string, value: unknown, allowNull = true) {
+  if (value === null && allowNull) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer${allowNull ? " or null" : ""}`);
+  }
+  return value;
 }
 
 async function requireAdmin(req: Request) {
@@ -281,45 +493,6 @@ async function requireAdmin(req: Request) {
   return { admin, userId: authData.user.id };
 }
 
-async function fetchSnapshot(admin: ReturnType<typeof createClient>) {
-  const [settingsResult, assetsResult, jobsResult] = await Promise.all([
-    admin
-      .from("media_retention_settings")
-      .select("media_family, retention_mode, retention_days, eligible_days, worker_enabled, dry_run, batch_size, max_attempts, notes, updated_at, updated_by")
-      .order("media_family", { ascending: true }),
-    admin
-      .from("media_assets")
-      .select("id, media_family, status, provider, purge_after, created_at, deleted_at, last_error, media_references!left(id, is_active)"),
-    admin
-      .from("media_delete_jobs")
-      .select("id, asset_id, provider, status, job_type, attempts, max_attempts, next_attempt_at, last_error, created_at, media_assets!inner(media_family, status, purge_after)"),
-  ]);
-
-  if (settingsResult.error) {
-    throw new Error(`settings query failed: ${settingsResult.error.message}`);
-  }
-  if (assetsResult.error) {
-    throw new Error(`assets query failed: ${assetsResult.error.message}`);
-  }
-  if (jobsResult.error) {
-    throw new Error(`jobs query failed: ${jobsResult.error.message}`);
-  }
-
-  return buildSnapshot(
-    (settingsResult.data ?? []) as SettingsRow[],
-    (assetsResult.data ?? []) as AssetRow[],
-    (jobsResult.data ?? []) as JobRow[],
-  );
-}
-
-function ensureNonNegativeInteger(name: string, value: unknown, allowNull = true) {
-  if (value === null && allowNull) return null;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer${allowNull ? " or null" : ""}`);
-  }
-  return value;
-}
-
 async function logAdminAction(
   admin: ReturnType<typeof createClient>,
   adminUserId: string,
@@ -334,11 +507,12 @@ async function logAdminAction(
     target_id: targetId,
     details,
   });
-
   if (error) {
     console.error("admin-media-lifecycle-controls activity log failed:", error.message);
   }
 }
+
+// ── Request handler ───────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -346,9 +520,7 @@ Deno.serve(async (req) => {
   }
 
   const auth = await requireAdmin(req);
-  if ("error" in auth) {
-    return auth.error;
-  }
+  if ("error" in auth) return auth.error;
 
   try {
     if (req.method === "GET") {
@@ -357,17 +529,94 @@ Deno.serve(async (req) => {
     }
 
     let body: Record<string, unknown> = {};
-    try {
-      body = await req.json();
-    } catch {
-      body = {};
-    }
+    try { body = await req.json(); } catch { body = {}; }
 
     const action = typeof body.action === "string" ? body.action : "snapshot";
+
+    // ── Read-only actions ─────────────────────────────────────────────────────
+
     if (action === "snapshot") {
       const snapshot = await fetchSnapshot(auth.admin);
       return json({ success: true, ...snapshot });
     }
+
+    // ── ops_summary: lightweight health + cron + failed/stale, no full asset scan ──
+
+    if (action === "ops_summary") {
+      const [opsStatus, opsJobs] = await Promise.all([
+        fetchCronStatusViaSQL(auth.admin),
+        fetchOpsJobLists(auth.admin),
+      ]);
+      return json({
+        success: true,
+        health: opsStatus.health,
+        cron_job: opsStatus.cron_job,
+        recent_runs: opsStatus.recent_runs,
+        failed_jobs: opsJobs.failed_jobs,
+        stale_claimed_jobs: opsJobs.stale_claimed_jobs,
+      });
+    }
+
+    // ── Mutation: requeue_stale ───────────────────────────────────────────────
+
+    if (action === "requeue_stale") {
+      const staleMinutes = typeof body.stale_minutes === "number" ? body.stale_minutes : 30;
+      if (!Number.isInteger(staleMinutes) || staleMinutes < 1) {
+        return json({ success: false, error: "stale_minutes must be a positive integer" }, 400);
+      }
+
+      const { data: requeuedCount, error: requeueError } = await auth.admin
+        .rpc("requeue_stale_media_delete_jobs", { p_stale_minutes: staleMinutes });
+
+      if (requeueError) {
+        console.error("requeue_stale RPC failed:", requeueError.message);
+        return json({ success: false, error: requeueError.message }, 500);
+      }
+
+      await logAdminAction(auth.admin, auth.userId, "media_jobs_requeue_stale", "media_delete_jobs", {
+        stale_minutes: staleMinutes,
+        requeued_count: requeuedCount,
+      });
+
+      console.log(`[admin-media-lifecycle-controls] requeue_stale: requeued=${requeuedCount} stale_minutes=${staleMinutes} admin=${auth.userId}`);
+      return json({ success: true, requeued_count: requeuedCount });
+    }
+
+    // ── Mutation: retry_failed ────────────────────────────────────────────────
+
+    if (action === "retry_failed") {
+      const family = typeof body.family === "string" ? body.family : null;
+      const limit = typeof body.limit === "number" ? body.limit : 50;
+      const resetAttempts = body.reset_attempts === true;
+
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return json({ success: false, error: "limit must be an integer between 1 and 500" }, 400);
+      }
+
+      const { data: retriedCount, error: retryError } = await auth.admin
+        .rpc("retry_failed_media_delete_jobs", {
+          p_family: family,
+          p_limit: limit,
+          p_reset_attempts: resetAttempts,
+        });
+
+      if (retryError) {
+        console.error("retry_failed RPC failed:", retryError.message);
+        return json({ success: false, error: retryError.message }, 500);
+      }
+
+      await logAdminAction(auth.admin, auth.userId, "media_jobs_retry_failed", "media_delete_jobs", {
+        family,
+        limit,
+        reset_attempts: resetAttempts,
+        retried_count: retriedCount,
+      });
+
+      console.log(`[admin-media-lifecycle-controls] retry_failed: retried=${retriedCount} family=${family ?? "all"} reset_attempts=${resetAttempts} admin=${auth.userId}`);
+      return json({ success: true, retried_count: retriedCount });
+    }
+
+    // ── Mutation: update_family ───────────────────────────────────────────────
 
     if (action === "update_family") {
       const mediaFamily = body.media_family;
@@ -423,6 +672,8 @@ Deno.serve(async (req) => {
       const snapshot = await fetchSnapshot(auth.admin);
       return json({ success: true, updated: updatedRow, ...snapshot });
     }
+
+    // ── Mutation: update_chat_policy ─────────────────────────────────────────
 
     if (action === "update_chat_policy") {
       const retentionMode = body.retention_mode;
