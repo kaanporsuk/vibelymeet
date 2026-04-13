@@ -45,7 +45,7 @@
 
 **Docs:** `docs/mobile-sprint5.md`, `docs/native-video-date-hardening-deploy.md`.
 
-**Gaps / parity (known):** Post-date survey in-call (web) vs mobile “Date ended” only — **documented gap**. Handshake vibe / credit extend — web has more UI; mobile has phase/timer baseline.
+**Gaps / parity (known):** Post-date survey in-call (web) vs mobile “Date ended” only — **documented gap** (survey parity largely closed Sprint 1). **In-call extras** — **`native/sprint4-in-call-extras-parity`**: handshake **Vibe ✓** waits for **`video_date_transition` (`vibe`)** success before locking UI; **Keep the Vibe** (+2 / +5) shows ephemeral success/error feedback like web toasts (`deduct_credit` unchanged).
 
 ### 2.3 Daily drop transition
 
@@ -123,7 +123,7 @@
 | Area | SoT contract | Native | Gap vs desired | Web parity |
 |------|--------------|--------|------------------|------------|
 | Ready gate | `ready_gate_transition` + `video_sessions` | **Good** | Minor UX/diagnostics | Good |
-| Video date | `daily-room` + `video_date_transition` | **Good** | Survey, vibe/extend | Ahead on survey |
+| Video date | `daily-room` + `video_date_transition` | **Good** | Minor UX only | **Aligned** on in-call vibe + extend feedback (Sprint 4); survey path per Sprint 1 |
 | Daily drop | `daily_drop_transition` + tables | **Good** | UI polish | Good |
 | Swipe/match | `get_event_deck` + `swipe-actions` + drain | **Good** | — | Good |
 | Chat | `send-message` + outbox + **`mark_match_messages_read`** | **Good** | Edge-case polish only | **Aligned** (Sprint 2: web RPC + read ticks; native focus/foreground mark) |
@@ -137,7 +137,7 @@
 
 1. **Video date end paths:** Addressed in **`native/sprint1-video-date-end-path-parity`** — survey after joined-call ends via control End, **sync_reconnect** `ended`, or realtime **`phase === 'ended'`**; pre-connect abort still skips survey.
 2. **Notification deep links + read receipts** — Addressed in **`native/sprint2-deeplinks-read-receipts`** (pending deep link queue + read parity). **Entry-gate timing** — **`native/sprint3-entry-gate-deeplink-polish`**: queue until **`entryState.state === 'complete'`** (same as `EntryStateRouteGate`) to avoid redirect churn.
-3. **Video date in-call extras** (mutual vibe, credit extend) — web ahead; product call.
+3. **Video date in-call extras** — Addressed in **`native/sprint4-in-call-extras-parity`** (vibe RPC success gating + extend toasts parity; same `deduct_credit` / timer rules as web).
 4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
 
 ---

@@ -158,6 +158,8 @@ export default function VideoDateScreen() {
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   const [showMutualToast, setShowMutualToast] = useState(false);
+  /** Ephemeral feedback after +2 / +5 min credit (web: sonner toasts). */
+  const [extendBanner, setExtendBanner] = useState<{ kind: 'success' | 'error'; minutes?: number } | null>(null);
   const [blurIntensity, setBlurIntensity] = useState(80);
   const [credits, setCredits] = useState({ extraTime: 0, extendedVibe: 0 });
   const [isExtending, setIsExtending] = useState(false);
@@ -466,9 +468,9 @@ export default function VideoDateScreen() {
     else router.replace('/(tabs)/events');
   }, [leaveAndCleanup, eventId]);
 
-  const handleUserVibe = useCallback(async () => {
-    if (!sessionId) return;
-    await recordVibe(sessionId);
+  const handleUserVibe = useCallback(async (): Promise<boolean> => {
+    if (!sessionId) return false;
+    return await recordVibe(sessionId);
   }, [sessionId]);
 
   const handleMutualToastComplete = useCallback(() => {
@@ -497,22 +499,38 @@ export default function VideoDateScreen() {
     async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<boolean> => {
       if (!user?.id) return false;
       setIsExtending(true);
-      const ok = await deductCredit(user.id, type);
-      if (ok) {
-        if (sessionId) {
-          trackEvent('video_date_extended', { session_id: sessionId });
-          trackEvent('credit_used', { type, minutes });
+      setExtendBanner(null);
+      let ok = false;
+      try {
+        ok = await deductCredit(user.id, type);
+        if (ok) {
+          if (sessionId) {
+            trackEvent('video_date_extended', { session_id: sessionId });
+            trackEvent('credit_used', { type, minutes });
+          }
+          setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+          setCredits((c) =>
+            type === 'extra_time'
+              ? { ...c, extraTime: Math.max(0, c.extraTime - 1) }
+              : { ...c, extendedVibe: Math.max(0, c.extendedVibe - 1) }
+          );
+          setExtendBanner({ kind: 'success', minutes });
+        } else {
+          setExtendBanner({ kind: 'error' });
         }
-        setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
-        setCredits((c) =>
-          type === 'extra_time' ? { ...c, extraTime: Math.max(0, c.extraTime - 1) } : { ...c, extendedVibe: Math.max(0, c.extendedVibe - 1) }
-        );
+      } finally {
+        setIsExtending(false);
       }
-      setIsExtending(false);
       return ok;
     },
     [user?.id, sessionId]
   );
+
+  useEffect(() => {
+    if (!extendBanner) return;
+    const t = setTimeout(() => setExtendBanner(null), 2500);
+    return () => clearTimeout(t);
+  }, [extendBanner]);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
@@ -1050,6 +1068,33 @@ export default function VideoDateScreen() {
         </View>
       ) : null}
 
+      {extendBanner?.kind === 'success' && extendBanner.minutes != null ? (
+        <View
+          style={[
+            styles.extendBanner,
+            { backgroundColor: theme.tintSoft, borderColor: theme.tint },
+          ]}
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={[styles.extendBannerText, { color: theme.text }]}>
+            {extendBanner.minutes} extra minutes added!
+          </Text>
+        </View>
+      ) : null}
+      {extendBanner?.kind === 'error' ? (
+        <View
+          style={[
+            styles.extendBanner,
+            { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+          ]}
+          accessibilityLiveRegion="assertive"
+        >
+          <Text style={[styles.extendBannerText, { color: theme.text }]}>
+            Couldn't add time. Try again.
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.controlsBar}>
         <VideoDateControls
           isMuted={isMuted}
@@ -1084,6 +1129,16 @@ const styles = StyleSheet.create({
   error: { fontSize: 16, textAlign: 'center', marginBottom: 16 },
   errorBar: { position: 'absolute', top: 100, left: 16, right: 16, padding: 12, borderRadius: 8 },
   errorBarText: { color: '#fff', textAlign: 'center' },
+  extendBanner: {
+    position: 'absolute',
+    top: 156,
+    left: 16,
+    right: 16,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  extendBannerText: { textAlign: 'center', fontSize: 14, fontWeight: '600' },
   button: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16 },
   remoteContainer: { ...StyleSheet.absoluteFillObject },
