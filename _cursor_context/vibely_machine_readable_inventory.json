@@ -70,7 +70,7 @@
       "repo_inventory_counts": {
         "edge_functions_deployable": 45,
         "edge_function_shared_dirs": 1,
-        "migrations": 261,
+        "migrations": 262,
         "live_public_tables_after_sprint3": 48
       },
       "live_sprint3_migrations": [
