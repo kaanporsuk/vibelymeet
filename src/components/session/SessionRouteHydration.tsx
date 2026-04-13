@@ -1,12 +1,17 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useUserProfile } from "@/contexts/AuthContext";
-import { useSessionHydration } from "@/contexts/NotificationContext";
-import { supabase } from "@/integrations/supabase/client";
+import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 
 /**
- * Backend-truth-first: reconcile URL with registration + video_sessions before relying on local route state.
- * Redirects when `/date/:id` contradicts backend (still in Ready Gate, or session already ended).
+ * Primary URL-level owner for `/date/:id` when hydrated active session says **ready_gate**
+ * for the same session id → send user to event lobby (where Ready Gate overlay opens).
+ *
+ * **Defense-in-depth:** `VideoDate` still enforces participant / `in_ready_gate` / `ended_at`
+ * during its load effect so deep links work before hydration completes (race window).
+ *
+ * **Ended sessions:** corrected in `VideoDate` load (toast + navigate), not here — avoids
+ * duplicate `video_sessions` ended checks racing the same screen.
  */
 export function SessionRouteHydration() {
   const location = useLocation();
@@ -31,29 +36,7 @@ export function SessionRouteHydration() {
       lastReadyGateRedirectKey.current = key;
 
       navigate(`/event/${encodeURIComponent(activeSession.eventId)}/lobby`, { replace: true });
-      return;
     }
-
-    let cancelled = false;
-    void (async () => {
-      const { data: vs } = await supabase
-        .from("video_sessions")
-        .select("ended_at, event_id")
-        .eq("id", sessionIdFromUrl)
-        .maybeSingle();
-
-      if (cancelled || !vs?.ended_at) return;
-
-      if (vs.event_id) {
-        navigate(`/event/${encodeURIComponent(vs.event_id)}/lobby`, { replace: true });
-      } else {
-        navigate("/home", { replace: true });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [user?.id, hydrated, activeSession, location.pathname, navigate]);
 
   return null;

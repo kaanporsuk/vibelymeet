@@ -11,7 +11,11 @@ import { DAILY_DROP_ACTIONABLE_STATUSES } from '@/lib/dailyDropSchedule';
 
 let OneSignal: any = null;
 try {
-  OneSignal = require('react-native-onesignal').OneSignal ?? require('react-native-onesignal').default;
+  /* Optional native module — may be absent in some builds. */
+  /* eslint-disable @typescript-eslint/no-require-imports -- Metro optional native import */
+  OneSignal =
+    require('react-native-onesignal').OneSignal ?? require('react-native-onesignal').default;
+  /* eslint-enable @typescript-eslint/no-require-imports */
 } catch {}
 
 /** Covers daily-drop half of badge + any missed realtime; message unread updates via realtime invalidation. */

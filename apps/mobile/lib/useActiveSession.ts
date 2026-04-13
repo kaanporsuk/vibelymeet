@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { pickRegistrationForActiveSession } from '@shared/matching/activeSession';
+import { pickRegistrationForActiveSession } from '@clientShared/matching/activeSession';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' }

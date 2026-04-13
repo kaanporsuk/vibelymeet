@@ -114,6 +114,8 @@ try {
 
 function RootLayout() {
   const [loaded, error] = useFonts({
+    // Metro font asset; require() is the supported API for useFonts.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- TTF asset bundling
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     // Vibely body text (web: Inter)
     Inter_400Regular,

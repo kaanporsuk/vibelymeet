@@ -22,6 +22,12 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     const filePath = fs.existsSync(base) ? base : `${base}.ts`;
     return { type: 'sourceFile', filePath };
   }
+  if (moduleName.startsWith('@clientShared/')) {
+    const sub = moduleName.slice('@clientShared/'.length);
+    const base = path.resolve(workspaceRoot, 'shared', sub);
+    const filePath = fs.existsSync(base) ? base : `${base}.ts`;
+    return { type: 'sourceFile', filePath };
+  }
   if (upstreamResolveRequest) {
     return upstreamResolveRequest(context, moduleName, platform);
   }

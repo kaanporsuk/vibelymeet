@@ -1,5 +1,6 @@
 /**
  * Shared active-session resolution for web + native (Stage 1 / Stream 1).
+ * Lives under repo-root `shared/` (client-neutral), not Edge function bundles.
  * Registration queue_status is authoritative for routing; video_sessions confirms row is live.
  */
 

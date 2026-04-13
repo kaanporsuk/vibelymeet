@@ -22,6 +22,9 @@
       ],
       "@shared/*": [
         "./supabase/functions/_shared/*"
+      ],
+      "@clientShared/*": [
+        "./shared/*"
       ]
     },
     "skipLibCheck": true,
