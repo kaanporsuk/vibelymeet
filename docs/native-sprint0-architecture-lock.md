@@ -45,7 +45,7 @@
 
 **Docs:** `docs/mobile-sprint5.md`, `docs/native-video-date-hardening-deploy.md`.
 
-**Gaps / parity (known):** Post-date survey in-call (web) vs mobile “Date ended” only — **documented gap** (survey parity largely closed Sprint 1). **In-call extras** — **`native/sprint4-in-call-extras-parity`**: handshake **Vibe ✓** waits for **`video_date_transition` (`vibe`)** success before locking UI; **Keep the Vibe** (+2 / +5) shows ephemeral success/error feedback like web toasts (`deduct_credit` unchanged).
+**Gaps / parity (current):** Joined-call end paths now converge on **`PostDateSurvey`** (Sprint 1). The intentional remaining difference is **pre-connect abort**: if the user never joined the Daily room, mobile exits back to lobby without survey. **In-call extras** parity is closed: handshake **Vibe ✓** waits for **`video_date_transition` (`vibe`)** success before locking UI, and **Keep the Vibe** (+2 / +5) shows ephemeral success/error feedback like web toasts (`deduct_credit` unchanged).
 
 ### 2.3 Daily drop transition
 
@@ -109,7 +109,7 @@
 | **Chat thread** | `app/chat/[id].tsx` | Thread + games + media |
 | **Ready gate** | `app/ready/[id].tsx`, overlay in lobby | Full-screen + in-lobby |
 | **Video date** | `app/date/[id].tsx` | Daily room |
-| **Post-date survey** | Embedded in **`/date/[id]`** when `phase === 'ended'` && `showFeedback` | Uses `@/components/video-date/PostDateSurvey` — see gap list for end-path coverage |
+| **Post-date survey** | Embedded in **`/date/[id]`** when `phase === 'ended'` && `showFeedback` | Uses `@/components/video-date/PostDateSurvey`; joined-call end paths now converge here |
 | **Profile** | `app/(tabs)/profile/index.tsx`, `ProfileStudio.tsx` | Edit + vibe video |
 | **Settings** | `app/settings/*` | Account, notifications, privacy, credits, support, etc. |
 | **Premium** | `app/premium.tsx` | RevenueCat |
@@ -143,23 +143,17 @@
 
 ---
 
-## 6. Recommended implementation order (after Sprint 0)
+## 6. Landed follow-on sequence
 
-1. **Survey / end-path parity** (`date/[id].tsx` + `PostDateSurvey`) — unify when `phase === 'ended'` so survey is not skipped on remote-only termination (reuse existing component).
-2. Deep links + read receipts (as launch requires).
-3. In-call vibe/extend parity (optional).
+1. **Sprint 1:** video-date end paths now route joined-call exits through `PostDateSurvey`; pre-connect abort intentionally skips survey.
+2. **Sprint 2 + 3:** deep-link queueing and chat read-receipt parity landed, then deep-link routing was tightened to wait for `EntryStateRouteGate` completion.
+3. **Sprint 4:** in-call extras parity landed for vibe success gating and +2 / +5 minute feedback.
 
----
-
-## 7. First concrete native branch after Sprint 0 (recommended)
-
-**`native/sprint1-video-date-end-path-parity`** (or `native/sprint1-post-date-survey-end-paths`)
-
-- Scope: **End-path coverage only** — no new backend observability, no contract changes unless a missing RPC is discovered during implementation.
+Further launch-polish items live in `docs/native-sprint5-launch-polish-triage.md`; this doc stays focused on the locked contract and the landed state.
 
 ---
 
-## 8. Doc alignment
+## 7. Doc alignment
 
 - **Canonical project reference:** `docs/vibely-canonical-project-reference.md` (import boundaries, `@shared`).
 - **Active entry map:** `docs/active-doc-map.md` — this file is the **native architecture lock** for v1 planning.
@@ -167,7 +161,7 @@
 
 ---
 
-## 9. Explicit non-goals
+## 8. Explicit non-goals
 
 - No reopening **event-loop backend** redesign or new observability features unless new production evidence appears.
 - No partitioning/export/retention scope beyond shipped Phase 3c.

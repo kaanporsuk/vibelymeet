@@ -55,7 +55,8 @@ cd apps/mobile && npm start
 - **Sprint 4:** Daily Drop (view, send opener/reply, pass via `daily_drop_transition` + `daily-drop-actions`); Ready Gate (mark ready, snooze, forfeit via `ready_gate_transition`); navigation to date on both_ready. See `docs/mobile-sprint4.md`.
 - **Sprint 5:** Live video date: join Daily.co room via `daily-room` (create_date_room), `video_date_transition` (enter_handshake, end), local/remote video, end/leave with delete_room + backend end. See `docs/mobile-sprint5.md`.
 - **Sprint 6:** RevenueCat entitlements + release hardening: canonical backend subscription (Stripe + RevenueCat), premium screen (offerings, purchase, restore), RevenueCat webhook sync. See `docs/mobile-sprint6.md`.
-- **Deferred:** Read receipts and notification deep link, post-date survey on mobile. Schedule, public profile, match celebration, delete-account native flow remain as current repo (link-out or later).
+- **Now landed after Sprint 5:** notification deep-link queueing/gating, chat read-receipt parity, post-date survey end-path parity for joined calls, and in-call vibe/extend parity. See `docs/native-sprint0-architecture-lock.md` and `docs/native-sprint5-launch-polish-triage.md`.
+- **Deferred:** Schedule remains web handoff. Delete-account native flow, legal/marketing/admin surfaces, and non-launch polish continue to stay out of the active native launch-critical scope.
 
 ## Release readiness (Sprint 6)
 
