@@ -161,6 +161,19 @@ Branch: `stage1/stream1-backend-promotion-and-hydration`.
 - **App layer (not in the migration file):** web and native add **session hydration before route decisions** (`useActiveSession`, route hydration components) so users in `in_ready_gate` are not left on a stale `/date` shell; native deep links align with the same rules.
 - **Explicitly out of scope for this stream:** no new **durable notification outbox** tables or delivery pipeline; push/deep-link behavior stays on existing Edge + client paths.
 
+### Stage 1 / Stream 1C — conflicting-session race hardening (2026-04-20)
+
+Branch: `stage1/stream1_9-conflicting-session-race-hardening`.
+
+- **Contract bugfix (separate concern):** `20260420120000_drain_match_queue_flat_promotion_envelope.sql` redefines `public.drain_match_queue(p_event_id)` so it still calls `promote_ready_gate_if_eligible` but returns the **flat** JSON expected by web/native (fixes nested-`promotion` envelope drift). Merge as its own small PR if you prefer to separate from session logic.
+- **Mutual swipe hardening:** `20260420123000_handle_swipe_mutual_session_conflict_guard.sql` adds the same **non-ended session conflict guard** used in `promote_ready_gate_if_eligible` **before** `handle_swipe` inserts into `video_sessions`, excluding the same participant pair (still `already_matched` via `ON CONFLICT`). Returns `result: participant_has_active_session_conflict` when a *different* pair’s session already holds either user.
+
+### Stage 1 / Stream 1D — trust / fairness (2026-04-13)
+
+Branch: `stage1/stream1_10-trust-fairness-work`.
+
+- **App-only:** `SWIPE_SESSION_CONFLICT_USER_MESSAGE` in `supabase/functions/_shared/matching/videoSessionFlow.ts` is shown on web (Sonner `toast.info`) and native (lobby dialog) when mutual swipe returns `participant_has_active_session_conflict`, closing the silent-failure gap for that path. No notification or routing changes.
+
 ---
 
 ## 3. The single most important migration finding

@@ -6,6 +6,7 @@ import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
 import {
   type SwipeSessionStageResult,
+  SWIPE_SESSION_CONFLICT_USER_MESSAGE,
   videoSessionIdFromSwipePayload,
 } from "@shared/matching/videoSessionFlow";
 
@@ -122,6 +123,10 @@ export const useSwipeAction = ({
             return raw;
 
           case "already_matched":
+            return raw;
+
+          case "participant_has_active_session_conflict":
+            toast.info(SWIPE_SESSION_CONFLICT_USER_MESSAGE, { duration: 4200 });
             return raw;
 
           case "blocked":

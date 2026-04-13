@@ -48,6 +48,37 @@ export function videoSessionIdFromDrainPayload(
   return typeof v === "string" && v.length > 0 ? v : undefined;
 }
 
+/**
+ * When `handle_swipe` returns `participant_has_active_session_conflict`, the server refused a new
+ * mutual session because either user already has another non-ended `video_sessions` row in this event
+ * (see `promote_ready_gate_if_eligible` / mutual insert guard). Surfacing this copy improves trust vs a silent no-op.
+ */
+export const SWIPE_SESSION_CONFLICT_USER_MESSAGE =
+  "You already have a pending match in this event. Finish Ready Gate or wait for that session to end before matching with someone else.";
+
+/** Shown when a queued mutual session hits server TTL (`expire_stale_video_sessions` → `queued_ttl_expired`). */
+export const QUEUED_MATCH_TIMED_OUT_USER_MESSAGE =
+  "A queued match ran out of time before Ready Gate opened. You can keep browsing and matching in this event.";
+
+/**
+ * True when Realtime `video_sessions` UPDATE reflects queued → expired TTL cleanup for this user.
+ * `ended_reason` may be omitted from payloads; we still trust queued→expired as the lobby-visible TTL path.
+ */
+export function isVideoSessionQueuedTtlExpiryTransition(
+  oldRow: Record<string, unknown> | null | undefined,
+  newRow: Record<string, unknown>,
+  userId: string,
+): boolean {
+  const p1 = newRow.participant_1_id;
+  const p2 = newRow.participant_2_id;
+  if (p1 !== userId && p2 !== userId) return false;
+  if ((oldRow?.ready_gate_status as string | undefined) !== "queued") return false;
+  if ((newRow.ready_gate_status as string | undefined) !== "expired") return false;
+  const er = newRow.ended_reason as string | undefined;
+  if (er != null && er !== "" && er !== "queued_ttl_expired") return false;
+  return true;
+}
+
 /** Lobby deep link: opens ready gate overlay when user lands with a pending session. */
 export function buildEventLobbyPendingSessionUrl(eventId: string, videoSessionId: string): string {
   const enc = encodeURIComponent(videoSessionId);
@@ -63,6 +94,8 @@ export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
   "limit_reached",
   "already_super_vibed_recently",
   "already_matched",
+  /** Another non-ended session for this event already involves one participant (aligned with promotion helper). */
+  "participant_has_active_session_conflict",
   /** Cancelled/archived event: `handle_swipe` — do not burn the current deck card. */
   "event_not_active",
 ]);
