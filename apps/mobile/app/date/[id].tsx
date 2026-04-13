@@ -171,7 +171,8 @@ export default function VideoDateScreen() {
   const phaseRef = useRef(phase);
   const hadConnectedOnceRef = useRef(false);
   const prevIsConnectedRef = useRef(false);
-  const graceExpiredFiredRef = useRef(false);
+  /** True after sync_reconnect reports ended (avoid calling handleCallEnd every poll tick). */
+  const reconnectEndedHandledRef = useRef(false);
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
@@ -409,8 +410,9 @@ export default function VideoDateScreen() {
       const r = await syncVideoDateReconnect(sessionId);
       if (cancelled || !r) return;
       if (r.ended) {
-        if (r.ended_reason === 'reconnect_grace_expired' && !graceExpiredFiredRef.current) {
-          graceExpiredFiredRef.current = true;
+        // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
+        if (!reconnectEndedHandledRef.current && hadConnectedOnceRef.current) {
+          reconnectEndedHandledRef.current = true;
           void handleCallEndRef.current?.();
         }
         setIsPartnerDisconnected(false);
@@ -418,7 +420,7 @@ export default function VideoDateScreen() {
         setReconnectionGrace(0);
         return;
       }
-      graceExpiredFiredRef.current = false;
+      reconnectEndedHandledRef.current = false;
       const hasGrace = !!r.reconnect_grace_ends_at;
       const show = hasGrace && r.partner_marked_away;
       setIsPartnerDisconnected(show);
@@ -452,12 +454,17 @@ export default function VideoDateScreen() {
     }
   }, [isConnected, sessionId, phase]);
 
-  const handleLeave = useCallback(async () => {
+  /** In-call / post-connect: end date, cleanup Daily, show PostDateSurvey (navigation from survey only). */
+  const handleEndDateFromControls = useCallback(async () => {
+    await handleCallEnd();
+  }, [handleCallEnd]);
+
+  /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
+  const handleAbortConnection = useCallback(async () => {
     await leaveAndCleanup();
-    handleCallEnd();
-    if (eventId) router.replace(`/event/${eventId}/lobby`);
+    if (eventId) router.replace(`/event/${eventId}/lobby` as const);
     else router.replace('/(tabs)/events');
-  }, [leaveAndCleanup, handleCallEnd, eventId]);
+  }, [leaveAndCleanup, eventId]);
 
   const handleUserVibe = useCallback(async () => {
     if (!sessionId) return;
@@ -757,7 +764,17 @@ export default function VideoDateScreen() {
   ]);
 
   useEffect(() => {
-    if (phase === 'ended' && sessionId) leaveAndCleanup();
+    reconnectEndedHandledRef.current = false;
+  }, [sessionId]);
+
+  /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
+  useEffect(() => {
+    if (phase !== 'ended' || !sessionId) return;
+    if (!hadConnectedOnceRef.current) return;
+    setShowFeedback(true);
+    if (callRef.current) {
+      void leaveAndCleanup();
+    }
   }, [phase, sessionId, leaveAndCleanup]);
 
   useEffect(() => {
@@ -954,7 +971,7 @@ export default function VideoDateScreen() {
       </View>
 
         {(isConnecting || awaitingFirstConnect) && (
-          <ConnectionOverlay isConnecting={isConnecting} onLeave={handleLeave} />
+          <ConnectionOverlay isConnecting={isConnecting} onLeave={handleAbortConnection} />
         )}
 
         {firstConnectTimedOut && !isConnected && (
@@ -970,7 +987,7 @@ export default function VideoDateScreen() {
                   <Text style={styles.initialRetryText}>Retry connection</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => void handleLeave()}
+                  onPress={() => void handleAbortConnection()}
                   style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
                 >
                   <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
@@ -1039,7 +1056,7 @@ export default function VideoDateScreen() {
           isVideoOff={isVideoOff}
           onToggleMute={toggleMute}
           onToggleVideo={toggleVideo}
-          onLeave={handleLeave}
+          onLeave={handleEndDateFromControls}
           onViewProfile={() => setShowProfileSheet(true)}
           onAddTime={phase === 'date' ? handleAddTimeShortcut : undefined}
           hasCredits={credits.extraTime > 0 || credits.extendedVibe > 0}
