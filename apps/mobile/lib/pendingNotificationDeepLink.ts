@@ -1,6 +1,7 @@
 /**
- * OneSignal notification opens can fire before Supabase session is hydrated (cold start / resume).
- * Queue the in-app path and navigate once `user.id` is available; clear on sign-out.
+ * OneSignal notification opens can fire before the app is ready to honor protected routes.
+ * Queue the in-app path until **session + entry state** match `EntryStateRouteGate` (see
+ * `NotificationDeepLinkHandler`); clear on sign-out.
  */
 
 let pendingPath: string | null = null;
