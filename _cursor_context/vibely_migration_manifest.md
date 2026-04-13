@@ -23,7 +23,7 @@ This is especially important for Vibely because the migration chain is **not** p
 
 The repo has moved well beyond the frozen/archive counts below.
 
-- Current repo migration count: **261** files under `supabase/migrations` after `20260425120000_event_loop_observability_retention_prune.sql` (re-baseline this line when migrations are added).
+- Current repo migration count: **262** files under `supabase/migrations` after `20260425130000_event_loop_prune_revoke_client_roles.sql` (re-baseline this line when migrations are added).
 - Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
 - That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
 - Sprint 2 profile-media wiring landed as `20260417110000_media_lifecycle_profile_media_wiring.sql`.
@@ -241,6 +241,7 @@ Branch: `phase3b/event-loop-retention-policy`.
 Branch: `phase3c/event-loop-observability-retention`.
 
 - **Migration:** `20260425120000_event_loop_observability_retention_prune.sql` — `public.prune_event_loop_observability_events(p_batch_limit default 5000, p_retention_days default 30)` returns JSON (`deleted_count`, `cutoff_utc`, `batch_limit`, `retention_days`, `has_more_to_prune`). **SECURITY DEFINER**; `EXECUTE` for **`service_role`** only. Batched `DELETE` on `event_loop_observability_events` only; write-path loggers and `v_event_loop_*` view definitions unchanged.
+- **Follow-up:** `20260425130000_event_loop_prune_revoke_client_roles.sql` — explicit `REVOKE` from **`anon` / `authenticated`** (aligns with default-grant hygiene on new functions).
 - **Scheduler:** enable **`pg_cron`** (or run SQL manually) per `docs/supabase-cloud-deploy.md` — not committed in-repo.
 
 ---
