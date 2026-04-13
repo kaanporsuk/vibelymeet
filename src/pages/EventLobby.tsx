@@ -10,6 +10,7 @@ import { useEventDeck, DeckProfile } from "@/hooks/useEventDeck";
 import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
+import { useActiveSession } from "@/hooks/useActiveSession";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { addMinutes, differenceInSeconds } from "date-fns";
@@ -48,20 +49,25 @@ const EventLobby = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Ready Gate overlay state
+  // Ready Gate overlay state (server-backed; optimistic updates via refetch)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const {
+    activeSession: scopedSession,
+    hydrated: sessionHydrated,
+    refetch: refetchScopedSession,
+  } = useActiveSession(user?.id, { eventId });
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
   useEffect(() => {
     const pending =
       searchParams.get("pendingVideoSession") ?? searchParams.get("pendingMatch");
     if (pending) {
-      setActiveSessionId(pending);
       searchParams.delete("pendingVideoSession");
       searchParams.delete("pendingMatch");
       setSearchParams(searchParams, { replace: true });
+      void refetchScopedSession();
     }
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, refetchScopedSession]);
 
   // Track seen profile IDs to prevent duplicates on refetch (bump deckNonce when this changes).
   const seenProfileIds = useRef<Set<string>>(new Set());
@@ -84,8 +90,8 @@ const EventLobby = () => {
   // Swipe action — show Ready Gate on immediate match
   const { swipe, isProcessing } = useSwipeAction({
     eventId: eventId || "",
-    onVideoSessionReady: (videoSessionId) => {
-      setActiveSessionId(videoSessionId);
+    onVideoSessionReady: () => {
+      void refetchScopedSession();
     },
     onVideoSessionQueued: () => {
       // Toast already handled by useSwipeAction
@@ -96,8 +102,8 @@ const EventLobby = () => {
   const { queuedCount } = useMatchQueue({
     eventId,
     currentStatus: currentStatus || "browsing",
-    onVideoSessionReady: (videoSessionId, _partnerId) => {
-      setActiveSessionId(videoSessionId);
+    onVideoSessionReady: () => {
+      void refetchScopedSession();
     },
   });
 
@@ -189,22 +195,19 @@ const EventLobby = () => {
     };
   }, [eventId, user?.id, location.pathname, currentStatus]);
 
-  // BUG 4 FIX: Check if user already has a pending ready gate on mount
+  // Backend-truth-first: scoped active session for this event (ready gate vs /date)
   useEffect(() => {
-    if (!user?.id || !eventId) return;
-    const checkExisting = async () => {
-      const { data } = await supabase
-        .from("event_registrations")
-        .select("queue_status, current_room_id")
-        .eq("event_id", eventId)
-        .eq("profile_id", user.id)
-        .maybeSingle();
-      if (data?.queue_status === "in_ready_gate" && data.current_room_id && !activeSessionId) {
-        setActiveSessionId(data.current_room_id);
-      }
-    };
-    checkExisting();
-  }, [user?.id, eventId, activeSessionId]);
+    if (!sessionHydrated || !eventId) return;
+    if (scopedSession?.eventId === eventId && scopedSession.kind === "video") {
+      navigate(`/date/${scopedSession.sessionId}`, { replace: true });
+      return;
+    }
+    if (scopedSession?.eventId === eventId && scopedSession.kind === "ready_gate") {
+      setActiveSessionId(scopedSession.sessionId);
+      return;
+    }
+    setActiveSessionId(null);
+  }, [sessionHydrated, eventId, scopedSession, navigate]);
 
   // Returning from video date / survey: fresh deck, no stale overlay.
   useEffect(() => {
@@ -241,7 +244,7 @@ const EventLobby = () => {
             newData.current_room_id
           ) {
             console.log("[Lobby] Realtime: ready gate detected", newData.current_room_id);
-            setActiveSessionId(newData.current_room_id as string);
+            void refetchScopedSession();
           }
         }
       )
@@ -249,7 +252,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId]);
+  }, [user?.id, eventId, refetchScopedSession]);
 
   // Event countdown timer
   useEffect(() => {

@@ -49,6 +49,7 @@ import Referrals from "./pages/Referrals";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
+import { SessionRouteHydration } from "./components/session/SessionRouteHydration";
 import { AuthProvider } from "@/contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import { NotificationManager } from "./components/notifications/NotificationManager";
@@ -115,6 +116,7 @@ const App = () => (
             <BrowserRouter>
               <WebPasswordRecoveryHandler />
               <PostHogPageTracker />
+              <SessionRouteHydration />
               <WebOnBreakBanner />
               <WebPendingDeletionBanner />
               <AppContent />

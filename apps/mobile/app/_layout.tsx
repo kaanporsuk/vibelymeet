@@ -34,6 +34,7 @@ import 'react-native-reanimated';
 import { useColorScheme } from '@/components/useColorScheme';
 import { PushRegistration } from '@/components/PushRegistration';
 import { NotificationDeepLinkHandler, NotificationRouteTracker } from '@/components/NotificationDeepLinkHandler';
+import { NativeSessionRouteHydration } from '@/components/NativeSessionRouteHydration';
 import { NotificationPauseForeground } from '@/components/NotificationPauseForeground';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
@@ -495,6 +496,7 @@ function RootLayoutNav() {
         <ReferralAttributionSync syncTick={referralSyncTick} />
         <PushRegistration />
         <NotificationRouteTracker />
+        <NativeSessionRouteHydration />
         <NotificationDeepLinkHandler />
         <NotificationPauseForeground />
         <DeactivatedAccountReactivationPrompt />

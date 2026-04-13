@@ -43,6 +43,7 @@ import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOf
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
@@ -167,6 +168,10 @@ export default function EventLobbyScreen() {
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
+  const { activeSession: scopedSession, hydrated: sessionHydrated } = useActiveSession(user?.id, {
+    eventId: id,
+  });
+
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
 
   useFocusEffect(
@@ -266,20 +271,15 @@ export default function EventLobbyScreen() {
   }, [id, user?.id]);
 
   useEffect(() => {
-    if (!id || !user?.id) return;
-    const check = async () => {
-      const { data } = await supabase
-        .from('event_registrations')
-        .select('queue_status, current_room_id')
-        .eq('event_id', id)
-        .eq('profile_id', user.id)
-        .maybeSingle();
-      if (data?.queue_status === 'in_ready_gate' && data.current_room_id) {
-        await openReadyGateWithSession(data.current_room_id as string);
-      }
-    };
-    check();
-  }, [id, user?.id, openReadyGateWithSession]);
+    if (!sessionHydrated || !id) return;
+    if (scopedSession?.eventId === id && scopedSession.kind === 'video') {
+      router.replace(`/date/${scopedSession.sessionId}` as const);
+      return;
+    }
+    if (scopedSession?.eventId === id && scopedSession.kind === 'ready_gate') {
+      void openReadyGateWithSession(scopedSession.sessionId);
+    }
+  }, [sessionHydrated, id, scopedSession, openReadyGateWithSession]);
 
   useEffect(() => {
     if (!id || !user?.id) return;

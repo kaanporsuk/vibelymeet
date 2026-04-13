@@ -72,6 +72,29 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
     setStatus("in_ready_gate");
   }, [setStatus]);
 
+  useEffect(() => {
+    if (!sessionId || !eventId || !user?.id) return;
+    let cancelled = false;
+    void (async () => {
+      const [{ data: reg }, { data: vs }] = await Promise.all([
+        supabase
+          .from("event_registrations")
+          .select("queue_status")
+          .eq("event_id", eventId)
+          .eq("profile_id", user.id)
+          .maybeSingle(),
+        supabase.from("video_sessions").select("ended_at").eq("id", sessionId).maybeSingle(),
+      ]);
+      if (cancelled) return;
+      if (!vs || vs.ended_at != null || reg?.queue_status !== "in_ready_gate") {
+        onClose();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, eventId, user?.id, onClose]);
+
   // Fetch partner photo + shared vibes
   useEffect(() => {
     if (!sessionId || !user?.id) return;

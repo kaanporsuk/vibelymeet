@@ -195,6 +195,20 @@ const VideoDate = () => {
           return;
         }
 
+        const { data: reg } = await supabase
+          .from("event_registrations")
+          .select("queue_status")
+          .eq("event_id", sessionRow.event_id)
+          .eq("profile_id", user.id)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (reg?.queue_status === "in_ready_gate") {
+          navigate(`/event/${encodeURIComponent(sessionRow.event_id)}/lobby`, { replace: true });
+          return;
+        }
+
         if (sessionRow.daily_room_name) {
           canonicalRoomNameRef.current = sessionRow.daily_room_name;
         }
@@ -267,7 +281,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id]);
+  }, [id, user?.id, navigate]);
 
   // Server-side phase timing + enter_handshake (only after participant guard passes).
   useEffect(() => {

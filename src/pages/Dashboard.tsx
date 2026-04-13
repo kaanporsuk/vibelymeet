@@ -29,7 +29,7 @@ import { useDashboardMatches } from "@/hooks/useMatches";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { useScheduleHub } from "@/hooks/useScheduleHub";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
-import { useNotifications } from "@/contexts/NotificationContext";
+import { useNotifications, useSessionHydration } from "@/contexts/NotificationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
@@ -97,11 +97,7 @@ const Dashboard = () => {
   const { user } = useUserProfile();
   useRealtimeEvents();
 
-  const [activeSession, setActiveSession] = useState<{
-    sessionId: string;
-    eventId: string;
-    queueStatus: "in_handshake" | "in_date" | "in_ready_gate";
-  } | null>(null);
+  const { activeSession, refetch: refetchActiveSession } = useSessionHydration();
   const [showDashboardPhoneNudge, setShowDashboardPhoneNudge] = useState(false);
 
   useEffect(() => {
@@ -116,38 +112,6 @@ const Dashboard = () => {
       }
     };
     void check();
-  }, [user?.id]);
-
-  useEffect(() => {
-    const checkActive = async () => {
-      if (!user?.id) return;
-
-      const { data: reg } = await supabase
-        .from("event_registrations")
-        .select("event_id, current_room_id, queue_status")
-        .eq("profile_id", user.id)
-        .in("queue_status", ["in_handshake", "in_date", "in_ready_gate"])
-        .not("current_room_id", "is", null)
-        .maybeSingle();
-
-      if (reg?.current_room_id) {
-        const { data: session } = await supabase
-          .from("video_sessions")
-          .select("id, ended_at")
-          .eq("id", reg.current_room_id)
-          .is("ended_at", null)
-          .maybeSingle();
-
-        if (session) {
-          setActiveSession({
-            sessionId: session.id,
-            eventId: reg.event_id,
-            queueStatus: reg.queue_status as "in_handshake" | "in_date" | "in_ready_gate",
-          });
-        }
-      }
-    };
-    void checkActive();
   }, [user?.id]);
 
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
@@ -527,8 +491,21 @@ const Dashboard = () => {
             >
               <ActiveCallBanner
                 sessionId={activeSession.sessionId}
-                onRejoin={() => navigate(`/date/${activeSession.sessionId}`)}
+                mode={activeSession.kind === "ready_gate" ? "ready_gate" : "video"}
+                onRejoin={() =>
+                  activeSession.kind === "ready_gate"
+                    ? navigate(`/event/${activeSession.eventId}/lobby`)
+                    : navigate(`/date/${activeSession.sessionId}`)
+                }
                 onEnd={async () => {
+                  if (activeSession.kind === "ready_gate") {
+                    await supabase.rpc("ready_gate_transition", {
+                      p_session_id: activeSession.sessionId,
+                      p_action: "forfeit",
+                    });
+                    await refetchActiveSession();
+                    return;
+                  }
                   await supabase
                     .from("video_sessions")
                     .update({ ended_at: new Date().toISOString() })
@@ -544,7 +521,7 @@ const Dashboard = () => {
                       .eq("profile_id", user.id)
                       .eq("event_id", activeSession.eventId);
                   }
-                  setActiveSession(null);
+                  await refetchActiveSession();
                 }}
               />
             </motion.div>
@@ -578,7 +555,11 @@ const Dashboard = () => {
                 key={reminder.id}
                 reminder={reminder}
                 onJoinDate={() => {
-                  if (activeSession && (activeSession.queueStatus === "in_handshake" || activeSession.queueStatus === "in_date")) {
+                  if (
+                    activeSession &&
+                    activeSession.kind === "video" &&
+                    (activeSession.queueStatus === "in_handshake" || activeSession.queueStatus === "in_date")
+                  ) {
                     navigate(`/date/${activeSession.sessionId}`);
                     return;
                   }
