@@ -7,6 +7,7 @@ import { Text } from '@/components/Themed';
 import { useColorScheme } from '@/components/useColorScheme';
 import Colors from '@/constants/Colors';
 import { requestPasswordReset, updatePassword } from '@/lib/authApi';
+import { useAuth } from '@/context/AuthContext';
 import { VibelyButton } from '@/components/ui';
 import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
 import {
@@ -24,6 +25,7 @@ function firstRouteParam(value: string | string[] | undefined): string | null {
 }
 
 export default function ResetPasswordScreen() {
+  const { refreshEntryState } = useAuth();
   const params = useLocalSearchParams<{
     authError?: string | string[];
     recovery?: PasswordRecoveryStatus | string | string[];
@@ -68,10 +70,12 @@ export default function ResetPasswordScreen() {
   useEffect(() => {
     if (!passwordUpdated) return;
     const timer = setTimeout(() => {
-      router.replace('/');
+      void refreshEntryState().finally(() => {
+        router.replace('/');
+      });
     }, 900);
     return () => clearTimeout(timer);
-  }, [passwordUpdated]);
+  }, [passwordUpdated, refreshEntryState]);
 
   const handleRequestReset = async () => {
     if (!email.trim()) return;
@@ -170,7 +174,7 @@ export default function ResetPasswordScreen() {
       {recoveryReady && passwordUpdated ? (
         <VibelyButton
           label="Continue now"
-          onPress={() => router.replace('/')}
+          onPress={() => void refreshEntryState().finally(() => router.replace('/'))}
           variant="secondary"
           style={{ marginTop: 16 }}
         />

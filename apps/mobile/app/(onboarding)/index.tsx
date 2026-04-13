@@ -284,6 +284,17 @@ export default function OnboardingV2Screen() {
     });
   }, [logout]);
 
+  /** Re-resolve entry state before leaving onboarding so `EntryStateRouteGate` matches server (launch handoff). */
+  const navigateToTabsHome = useCallback(async () => {
+    await refreshEntryState();
+    router.replace('/(tabs)');
+  }, [refreshEntryState]);
+
+  const navigateToEventsTab = useCallback(async () => {
+    await refreshEntryState();
+    router.replace('/(tabs)/events');
+  }, [refreshEntryState]);
+
   const completeOnboarding = useCallback(async () => {
     if (!session?.user?.id || submitOnceRef.current) return;
     submitOnceRef.current = true;
@@ -442,8 +453,8 @@ export default function OnboardingV2Screen() {
             onGoBackToEdit={handleFinalizeErrorBack}
             vibeScore={vibeScore}
             vibeScoreLabel={vibeScoreLabel}
-            onGoNow={() => router.replace('/(tabs)')}
-            onExploreEvents={() => router.replace('/(tabs)/events')}
+            onGoNow={() => void navigateToTabsHome()}
+            onExploreEvents={() => void navigateToEventsTab()}
           />
         );
       case 14:
@@ -457,8 +468,8 @@ export default function OnboardingV2Screen() {
             onGoBackToEdit={handleFinalizeErrorBack}
             vibeScore={vibeScore}
             vibeScoreLabel={vibeScoreLabel}
-            onGoNow={() => router.replace('/(tabs)')}
-            onExploreEvents={() => router.replace('/(tabs)/events')}
+            onGoNow={() => void navigateToTabsHome()}
+            onExploreEvents={() => void navigateToEventsTab()}
           />
         );
     }
@@ -479,6 +490,8 @@ export default function OnboardingV2Screen() {
     updateField,
     retryFinalizeOnboarding,
     handleFinalizeErrorBack,
+    navigateToTabsHome,
+    navigateToEventsTab,
   ]);
 
   const layoutOnBack =

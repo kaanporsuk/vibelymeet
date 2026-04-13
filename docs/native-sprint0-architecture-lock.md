@@ -138,7 +138,8 @@
 1. **Video date end paths:** Addressed in **`native/sprint1-video-date-end-path-parity`** — survey after joined-call ends via control End, **sync_reconnect** `ended`, or realtime **`phase === 'ended'`**; pre-connect abort still skips survey.
 2. **Notification deep links + read receipts** — Addressed in **`native/sprint2-deeplinks-read-receipts`** (pending deep link queue + read parity). **Entry-gate timing** — **`native/sprint3-entry-gate-deeplink-polish`**: queue until **`entryState.state === 'complete'`** (same as `EntryStateRouteGate`) to avoid redirect churn.
 3. **Video date in-call extras** — Addressed in **`native/sprint4-in-call-extras-parity`** (vibe RPC success gating + extend toasts parity; same `deduct_credit` / timer rules as web).
-4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
+4. **Auth / onboarding route handoff** — **`native/sprint5-launch-polish-triage`**: **`refreshEntryState()`** immediately before **`router.replace` to `/(tabs)`** from onboarding celebration and before **`/`** after password reset (complements Sprint 3 entry-gate timing). Matrix: **`docs/native-sprint5-launch-polish-triage.md`**.
+5. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
 
 ---
 
