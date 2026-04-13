@@ -51,6 +51,9 @@ import {
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
   shouldAdvanceLobbyDeckAfterSwipe,
+  SWIPE_SESSION_CONFLICT_USER_MESSAGE,
+  QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
+  isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
@@ -165,6 +168,8 @@ export default function EventLobbyScreen() {
   const [endingBreak, setEndingBreak] = useState(false);
   const [userVibes, setUserVibes] = useState<string[]>([]);
   const lastOpenedSessionRef = useRef<string | null>(null);
+  /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
+  const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
@@ -185,6 +190,10 @@ export default function EventLobbyScreen() {
     const subscription = AppState.addEventListener('change', setAppState);
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    queuedTtlExpiryNotifiedIdsRef.current.clear();
+  }, [id, user?.id]);
 
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -346,6 +355,20 @@ export default function EventLobbyScreen() {
           const old = payload.old as Record<string, unknown> | null;
           const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
           if (!isParticipant) return;
+          const sid = session.id as string;
+          if (
+            user.id &&
+            isVideoSessionQueuedTtlExpiryTransition(old, session, user.id) &&
+            !queuedTtlExpiryNotifiedIdsRef.current.has(sid)
+          ) {
+            queuedTtlExpiryNotifiedIdsRef.current.add(sid);
+            show({
+              title: 'Match window ended',
+              message: QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
+              variant: 'info',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          }
           void refetchDeck();
           refreshQueueAndSuperVibe();
           const newStatus = session.ready_gate_status as string;
@@ -373,7 +396,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck]);
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck, show]);
 
   const timeRemaining = useCountdown(eventEndTime);
 
@@ -498,6 +521,14 @@ export default function EventLobbyScreen() {
           });
           break;
         case 'already_matched':
+          break;
+        case 'participant_has_active_session_conflict':
+          show({
+            title: 'Match in progress',
+            message: SWIPE_SESSION_CONFLICT_USER_MESSAGE,
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
           break;
         case 'event_not_active':
           show({

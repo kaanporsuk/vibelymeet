@@ -21,7 +21,10 @@ import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
-import { shouldAdvanceLobbyDeckAfterSwipe } from "@shared/matching/videoSessionFlow";
+import {
+  QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
+  shouldAdvanceLobbyDeckAfterSwipe,
+} from "@shared/matching/videoSessionFlow";
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -104,6 +107,9 @@ const EventLobby = () => {
     currentStatus: currentStatus || "browsing",
     onVideoSessionReady: () => {
       void refetchScopedSession();
+    },
+    onQueuedSessionExpired: () => {
+      toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
     },
   });
 

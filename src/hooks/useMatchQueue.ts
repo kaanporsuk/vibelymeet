@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import {
   type DrainMatchQueueResult,
+  isVideoSessionQueuedTtlExpiryTransition,
   videoSessionIdFromDrainPayload,
 } from "@shared/matching/videoSessionFlow";
 
@@ -13,6 +14,8 @@ interface UseMatchQueueOptions {
   onVideoSessionReady?: (videoSessionId: string, partnerId: string) => void;
   /** @deprecated Use `onVideoSessionReady` */
   onMatchReady?: (videoSessionId: string, partnerId: string) => void;
+  /** Fired at most once per session id (deduped) when a queued session expires (TTL) for this user. */
+  onQueuedSessionExpired?: (videoSessionId: string) => void;
 }
 
 export const useMatchQueue = ({
@@ -20,14 +23,26 @@ export const useMatchQueue = ({
   currentStatus,
   onVideoSessionReady,
   onMatchReady,
+  onQueuedSessionExpired,
 }: UseMatchQueueOptions) => {
   const { user } = useUserProfile();
   const [queuedCount, setQueuedCount] = useState(0);
   const onReadyRef = useRef(onVideoSessionReady ?? onMatchReady);
+  const onQueuedExpiredRef = useRef(onQueuedSessionExpired);
+  /** Dedupe TTL-expiry toasts per `video_sessions.id` for this hook instance. */
+  const queuedExpiryNotifiedIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     onReadyRef.current = onVideoSessionReady ?? onMatchReady;
   }, [onVideoSessionReady, onMatchReady]);
+
+  useEffect(() => {
+    onQueuedExpiredRef.current = onQueuedSessionExpired;
+  }, [onQueuedSessionExpired]);
+
+  useEffect(() => {
+    queuedExpiryNotifiedIdsRef.current.clear();
+  }, [eventId, user?.id]);
 
   const refreshQueueCount = useCallback(async () => {
     if (!eventId || !user?.id) return;
@@ -89,6 +104,16 @@ export const useMatchQueue = ({
             session.participant_1_id === user.id || session.participant_2_id === user.id;
 
           if (!isParticipant) return;
+
+          const oldRow = payload.old as Record<string, unknown> | null | undefined;
+          const newRow = payload.new as Record<string, unknown>;
+          if (
+            isVideoSessionQueuedTtlExpiryTransition(oldRow, newRow, user.id) &&
+            !queuedExpiryNotifiedIdsRef.current.has(session.id)
+          ) {
+            queuedExpiryNotifiedIdsRef.current.add(session.id);
+            onQueuedExpiredRef.current?.(session.id);
+          }
 
           if (session.ready_gate_status === "ready" && payload.old?.ready_gate_status === "queued") {
             const partnerId =

@@ -117,6 +117,16 @@ Migration `20260412143000_phase3_legacy_queue_contract_cleanup.sql` consolidates
 
 Migration `20260418120000_tighten_promote_ready_gate_helper.sql` tightens **implementation only** for `public.promote_ready_gate_if_eligible(p_event_id, p_uid)` → `jsonb` (locking, event/session validity, conflict handling). Callers such as **`mark_lobby_foreground`** and promotion paths inside **`drain_match_queue`** keep the same **operational contract** at the app boundary: this stream does not change swipe payloads, queue RPC names, or add a notification outbox.
 
+### Stage 1 / Stream 1C — drain RPC envelope + promotion single-path (2026-04-20)
+
+Migration `20260420120000_drain_match_queue_flat_promotion_envelope.sql` keeps **`drain_match_queue` delegating to `promote_ready_gate_if_eligible`** (since `20260417120300_drain_match_queue_promotion.sql`) but **restores the flat JSON shape** from Phase 3 (`found`, `match_id`, `video_session_id`, `event_id`, `partner_id`, optional `queued`) so clients read session ids at the top level. The nested-only `promotion` wrapper meant the tightened conflict guard and locks in the helper could run without the app reliably observing a successful drain.
+
+Migration `20260420123000_handle_swipe_mutual_session_conflict_guard.sql` adds a **`video_sessions` conflict `EXISTS` before mutual insert** in `handle_swipe`, matching `promote_ready_gate_if_eligible` step 6 for “another non-ended session involving either participant,” while **excluding the same actor–target pair** so `INSERT … ON CONFLICT` still yields `already_matched`. New result: `participant_has_active_session_conflict`.
+
+### Stage 1 / Stream 1D — trust / fairness copy (session conflict)
+
+Branch: `stage1/stream1_10-trust-fairness-work`. No SQL change: web (`useSwipeAction`) and native event lobby show **`SWIPE_SESSION_CONFLICT_USER_MESSAGE`** when `result === participant_has_active_session_conflict`, so the server rejection is explained instead of a silent no-advance swipe.
+
 ---
 
 ## 3. Storage buckets and media schema surfaces
