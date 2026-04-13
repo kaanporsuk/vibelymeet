@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,10 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import {
+  READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
+  READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
+} from '@shared/matching/videoSessionFlow';
 
 const GATE_TIMEOUT_SEC = 30;
 
@@ -47,6 +51,8 @@ export default function ReadyGateScreen() {
   const [sessionLookupDone, setSessionLookupDone] = useState(false);
   const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invalidSessionLoggedRef = useRef(false);
+  /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
+  const redirectExplainedRef = useRef(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   useEffect(() => {
@@ -61,10 +67,34 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     setSessionLookupDone(false);
+    redirectExplainedRef.current = false;
   }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
+    const explainInvalidToTabs = () => {
+      if (redirectExplainedRef.current) return;
+      redirectExplainedRef.current = true;
+      showDialog({
+        title: 'Link unavailable',
+        message: READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
+        variant: 'info',
+        primaryAction: { label: 'Continue', onPress: () => router.replace('/(tabs)' as const) },
+      });
+    };
+    const explainStaleToLobby = (eventIdForLobby: string) => {
+      if (redirectExplainedRef.current) return;
+      redirectExplainedRef.current = true;
+      showDialog({
+        title: 'Ready Gate ended',
+        message: READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
+        variant: 'info',
+        primaryAction: {
+          label: 'Continue',
+          onPress: () => router.replace(`/event/${eventIdForLobby}/lobby` as const),
+        },
+      });
+    };
     const load = async () => {
       let revealReadyUi = false;
       try {
@@ -76,7 +106,7 @@ export default function ReadyGateScreen() {
 
         if (!session) {
           rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_row_missing', { session_id: sessionId });
-          router.replace('/(tabs)');
+          explainInvalidToTabs();
           return;
         }
 
@@ -84,22 +114,22 @@ export default function ReadyGateScreen() {
           session.participant_1_id === user.id || session.participant_2_id === user.id;
         if (!isParticipant) {
           rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_not_participant', { session_id: sessionId });
-          router.replace('/(tabs)');
+          explainInvalidToTabs();
           return;
         }
 
         if (session.ended_at) {
           rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_ended', { session_id: sessionId });
           if (session.event_id) {
-            router.replace(`/event/${session.event_id}/lobby` as const);
+            explainStaleToLobby(session.event_id);
           } else {
-            router.replace('/(tabs)' as const);
+            explainInvalidToTabs();
           }
           return;
         }
 
         if (!session.event_id) {
-          router.replace('/(tabs)' as const);
+          explainInvalidToTabs();
           return;
         }
 
@@ -115,7 +145,7 @@ export default function ReadyGateScreen() {
             session_id: sessionId,
             queue_status: reg?.queue_status ?? null,
           });
-          router.replace(`/event/${session.event_id}/lobby` as const);
+          explainStaleToLobby(session.event_id);
           return;
         }
 
@@ -137,7 +167,7 @@ export default function ReadyGateScreen() {
       }
     };
     void load();
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, showDialog]);
 
   useEffect(() => {
     if (isBothReady) {
@@ -228,6 +258,16 @@ export default function ReadyGateScreen() {
           actionLabel="Go back"
           onActionPress={() => router.replace('/(tabs)')}
         />
+      </View>
+    );
+  }
+
+  if (!sessionLookupDone) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        {dialogEl}
+        <ActivityIndicator size="large" color={theme.tint} />
+        <Text style={[styles.loadingHint, { color: theme.textSecondary }]}>Opening Ready Gate…</Text>
       </View>
     );
   }
@@ -361,6 +401,7 @@ export default function ReadyGateScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  loadingHint: { marginTop: spacing.md, fontSize: 15, textAlign: 'center' },
   headerBar: { marginBottom: 0 },
   backBtn: { padding: spacing.xs },
   headerTitle: { fontSize: 18, fontWeight: '600', flex: 1 },

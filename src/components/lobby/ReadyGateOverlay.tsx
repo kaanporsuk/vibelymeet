@@ -8,6 +8,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
+import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -90,7 +91,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       if (!vs || vs.ended_at != null || reg?.queue_status !== "in_ready_gate") {
         if (!invalidCloseToastRef.current) {
           invalidCloseToastRef.current = true;
-          toast.info("This Ready Gate is no longer active.", { duration: 2800 });
+          toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
         }
         onClose();
       }

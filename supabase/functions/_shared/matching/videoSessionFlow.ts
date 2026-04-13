@@ -60,6 +60,14 @@ export const SWIPE_SESSION_CONFLICT_USER_MESSAGE =
 export const QUEUED_MATCH_TIMED_OUT_USER_MESSAGE =
   "A queued match ran out of time before Ready Gate opened. You can keep browsing and matching in this event.";
 
+/** Web `/ready/:id` + native `/ready/[id]` when the session row ended or registration left Ready Gate. */
+export const READY_GATE_STALE_OR_ENDED_USER_MESSAGE =
+  "This Ready Gate is no longer active. We're taking you back to the event.";
+
+/** Deep link invalid: missing session, wrong account, or broken id — safe fallback to events home. */
+export const READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE =
+  "This Ready Gate link isn't valid. We're taking you to your events.";
+
 /**
  * True when Realtime `video_sessions` UPDATE reflects queued → expired TTL cleanup for this user.
  * `ended_reason` may be omitted from payloads; we still trust queued→expired as the lobby-visible TTL path.

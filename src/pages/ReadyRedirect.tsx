@@ -1,7 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import {
+  READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
+  READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
+} from "@shared/matching/videoSessionFlow";
 
 /**
  * Web `/ready/:readyId` entry: parity with native standalone Ready Gate (`app/ready/[id].tsx`).
@@ -13,9 +18,21 @@ const ReadyRedirect = () => {
   const navigate = useNavigate();
   const { readyId } = useParams<{ readyId: string }>();
   const { user } = useUserProfile();
+  const toastShownForReadyKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    toastShownForReadyKeyRef.current = null;
+  }, [readyId]);
 
   useEffect(() => {
     let cancelled = false;
+
+    const notifyOnce = (message: string) => {
+      const key = `${readyId ?? ""}:${message.slice(0, 24)}`;
+      if (toastShownForReadyKeyRef.current === key) return;
+      toastShownForReadyKeyRef.current = key;
+      toast.info(message, { duration: 3600 });
+    };
 
     const redirect = async () => {
       if (!readyId?.trim()) {
@@ -37,6 +54,7 @@ const ReadyRedirect = () => {
       if (cancelled) return;
 
       if (error || !session) {
+        notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
         navigate("/events", { replace: true });
         return;
       }
@@ -44,11 +62,13 @@ const ReadyRedirect = () => {
       const isParticipant =
         session.participant_1_id === user.id || session.participant_2_id === user.id;
       if (!isParticipant) {
+        notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
         navigate("/events", { replace: true });
         return;
       }
 
       if (session.ended_at) {
+        notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
         if (session.event_id) {
           navigate(`/event/${encodeURIComponent(session.event_id)}/lobby`, { replace: true });
         } else {
@@ -58,6 +78,7 @@ const ReadyRedirect = () => {
       }
 
       if (!session.event_id) {
+        notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
         navigate("/events", { replace: true });
         return;
       }
@@ -72,6 +93,7 @@ const ReadyRedirect = () => {
       if (cancelled) return;
 
       if (reg?.queue_status !== "in_ready_gate") {
+        notifyOnce(READY_GATE_STALE_OR_ENDED_USER_MESSAGE);
         navigate(`/event/${encodeURIComponent(session.event_id)}/lobby`, { replace: true });
         return;
       }
