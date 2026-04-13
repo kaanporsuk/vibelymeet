@@ -49,6 +49,8 @@ Review SQL in PRs first; this applies pending migrations to **linked** cloud onl
 
 Phase 2 live-loop observability (`20260423120000_event_loop_observability.sql`) adds table `event_loop_observability_events` and replaces several RPC bodies — **no Edge deploy or new secrets**. Query telemetry with the **service role** in SQL editor or a backend job; the table has RLS with no `authenticated` policy.
 
+Phase 3 (`20260424120000_event_loop_read_model_views.sql`) adds **views only** (`v_event_loop_*`) for hourly rollups and filtered rows — same service-role access pattern; **no** write-path or Edge changes.
+
 ## Deploy Edge Functions
 
 **One function** (typical after code change):

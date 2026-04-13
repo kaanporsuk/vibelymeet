@@ -3540,6 +3540,375 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      },
+      v_event_loop_drain_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          detail_found: boolean | null
+          detail_queued: boolean | null
+          event_id: string | null
+          id: string | null
+          latency_ms: number | null
+          outcome: string | null
+          reason_code: string | null
+          session_id: string | null
+        }
+        Insert: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          detail_found?: never
+          detail_queued?: never
+          event_id?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          reason_code?: never
+          session_id?: never
+        }
+        Update: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          detail_found?: never
+          detail_queued?: never
+          event_id?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          reason_code?: never
+          session_id?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_drain_outcomes_hourly: {
+        Row: {
+          avg_latency_ms: number | null
+          bucket_utc: string | null
+          n: number | null
+          n_found_true: number | null
+          n_queued_wait: number | null
+          outcome: string | null
+          p50_latency_ms: number | null
+          p95_latency_ms: number | null
+          reason_code: string | null
+        }
+        Insert: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          n?: never
+          n_found_true?: never
+          n_queued_wait?: never
+          outcome?: never
+          p50_latency_ms?: never
+          p95_latency_ms?: never
+          reason_code?: never
+        }
+        Update: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          n?: never
+          n_found_true?: never
+          n_queued_wait?: never
+          outcome?: never
+          p50_latency_ms?: never
+          p95_latency_ms?: never
+          reason_code?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_expire_activity_hourly: {
+        Row: {
+          avg_latency_ms: number | null
+          bucket_utc: string | null
+          invoke_count: number | null
+          outcome: string | null
+          sum_hygiene_orphans: number | null
+          sum_queued_ttl_expired: number | null
+          sum_ready_gate_expired: number | null
+          sum_snooze_wake: number | null
+          sum_total_mutations: number | null
+        }
+        Insert: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          invoke_count?: never
+          outcome?: never
+          sum_hygiene_orphans?: never
+          sum_queued_ttl_expired?: never
+          sum_ready_gate_expired?: never
+          sum_snooze_wake?: never
+          sum_total_mutations?: never
+        }
+        Update: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          invoke_count?: never
+          outcome?: never
+          sum_hygiene_orphans?: never
+          sum_queued_ttl_expired?: never
+          sum_ready_gate_expired?: never
+          sum_snooze_wake?: never
+          sum_total_mutations?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_expire_events: {
+        Row: {
+          created_at: string | null
+          detail: Json | null
+          hygiene_orphans: number | null
+          id: string | null
+          latency_ms: number | null
+          outcome: string | null
+          queued_ttl_expired: number | null
+          reason_code: string | null
+          ready_gate_expired: number | null
+          snooze_wake: number | null
+          total_mutations: number | null
+        }
+        Insert: {
+          created_at?: never
+          detail?: never
+          hygiene_orphans?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          queued_ttl_expired?: never
+          reason_code?: never
+          ready_gate_expired?: never
+          snooze_wake?: never
+          total_mutations?: never
+        }
+        Update: {
+          created_at?: never
+          detail?: never
+          hygiene_orphans?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          queued_ttl_expired?: never
+          reason_code?: never
+          ready_gate_expired?: never
+          snooze_wake?: never
+          total_mutations?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_guard_outcomes_hourly: {
+        Row: {
+          bucket_utc: string | null
+          n: number | null
+          operation: string | null
+          outcome: string | null
+          reason_code: string | null
+        }
+        Insert: {
+          bucket_utc?: never
+          n?: never
+          operation?: never
+          outcome?: never
+          reason_code?: never
+        }
+        Update: {
+          bucket_utc?: never
+          n?: never
+          operation?: never
+          outcome?: never
+          reason_code?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_latency_by_operation_outcome_hourly: {
+        Row: {
+          avg_latency_ms: number | null
+          bucket_utc: string | null
+          n: number | null
+          operation: string | null
+          outcome: string | null
+          p50_latency_ms: number | null
+          p95_latency_ms: number | null
+        }
+        Insert: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          n?: never
+          operation?: never
+          outcome?: never
+          p50_latency_ms?: never
+          p95_latency_ms?: never
+        }
+        Update: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          n?: never
+          operation?: never
+          outcome?: never
+          p50_latency_ms?: never
+          p95_latency_ms?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_mark_lobby_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          event_id: string | null
+          id: string | null
+          latency_ms: number | null
+          outcome: string | null
+          promotion: Json | null
+          promotion_promoted: string | null
+          promotion_reason: string | null
+          reason_code: string | null
+          session_id: string | null
+        }
+        Insert: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          event_id?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          promotion?: never
+          promotion_promoted?: never
+          promotion_reason?: never
+          reason_code?: never
+          session_id?: never
+        }
+        Update: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          event_id?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          promotion?: never
+          promotion_promoted?: never
+          promotion_reason?: never
+          reason_code?: never
+          session_id?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_promotion_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          detail_step: string | null
+          event_id: string | null
+          id: string | null
+          latency_ms: number | null
+          outcome: string | null
+          reason_code: string | null
+          session_id: string | null
+        }
+        Insert: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          detail_step?: never
+          event_id?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          reason_code?: never
+          session_id?: never
+        }
+        Update: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          detail_step?: never
+          event_id?: never
+          id?: never
+          latency_ms?: never
+          outcome?: never
+          reason_code?: never
+          session_id?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_promotion_outcomes_hourly: {
+        Row: {
+          avg_latency_ms: number | null
+          bucket_utc: string | null
+          n: number | null
+          outcome: string | null
+          p50_latency_ms: number | null
+          p95_latency_ms: number | null
+          reason_code: string | null
+        }
+        Insert: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          n?: never
+          outcome?: never
+          p50_latency_ms?: never
+          p95_latency_ms?: never
+          reason_code?: never
+        }
+        Update: {
+          avg_latency_ms?: never
+          bucket_utc?: never
+          n?: never
+          outcome?: never
+          p50_latency_ms?: never
+          p95_latency_ms?: never
+          reason_code?: never
+        }
+        Relationships: []
+      }
+      v_event_loop_swipe_mutual_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          event_id: string | null
+          id: string | null
+          immediate: boolean | null
+          latency_ms: number | null
+          mutual: boolean | null
+          outcome: string | null
+          reason_code: string | null
+          session_id: string | null
+          swipe_type: string | null
+        }
+        Insert: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          event_id?: never
+          id?: never
+          immediate?: never
+          latency_ms?: never
+          mutual?: never
+          outcome?: never
+          reason_code?: never
+          session_id?: never
+          swipe_type?: never
+        }
+        Update: {
+          actor_id?: never
+          created_at?: never
+          detail?: never
+          event_id?: never
+          id?: never
+          immediate?: never
+          latency_ms?: never
+          mutual?: never
+          outcome?: never
+          reason_code?: never
+          session_id?: never
+          swipe_type?: never
+        }
+        Relationships: []
       }
     }
     Functions: {
