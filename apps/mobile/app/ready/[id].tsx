@@ -60,27 +60,83 @@ export default function ReadyGateScreen() {
   }, [sessionId, user?.id]);
 
   useEffect(() => {
+    setSessionLookupDone(false);
+  }, [sessionId]);
+
+  useEffect(() => {
     if (!sessionId || !user?.id) return;
     const load = async () => {
+      let revealReadyUi = false;
       try {
         const { data: session } = await supabase
           .from('video_sessions')
-          .select('participant_1_id, participant_2_id, event_id')
+          .select('participant_1_id, participant_2_id, event_id, ended_at')
           .eq('id', sessionId)
           .maybeSingle();
-        if (!session) return;
-        if (session.event_id) setEventId(session.event_id);
-        const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
-        const { data: profile } = await supabase.from('profiles').select('avatar_url, photos').eq('id', partnerId).maybeSingle();
+
+        if (!session) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_row_missing', { session_id: sessionId });
+          router.replace('/(tabs)');
+          return;
+        }
+
+        const isParticipant =
+          session.participant_1_id === user.id || session.participant_2_id === user.id;
+        if (!isParticipant) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_not_participant', { session_id: sessionId });
+          router.replace('/(tabs)');
+          return;
+        }
+
+        if (session.ended_at) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_session_ended', { session_id: sessionId });
+          if (session.event_id) {
+            router.replace(`/event/${session.event_id}/lobby` as const);
+          } else {
+            router.replace('/(tabs)' as const);
+          }
+          return;
+        }
+
+        if (!session.event_id) {
+          router.replace('/(tabs)' as const);
+          return;
+        }
+
+        const { data: reg } = await supabase
+          .from('event_registrations')
+          .select('queue_status')
+          .eq('event_id', session.event_id)
+          .eq('profile_id', user.id)
+          .maybeSingle();
+
+        if (reg?.queue_status !== 'in_ready_gate') {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_not_in_ready_gate', {
+            session_id: sessionId,
+            queue_status: reg?.queue_status ?? null,
+          });
+          router.replace(`/event/${session.event_id}/lobby` as const);
+          return;
+        }
+
+        setEventId(session.event_id);
+        revealReadyUi = true;
+        const partnerId =
+          session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('avatar_url, photos')
+          .eq('id', partnerId)
+          .maybeSingle();
         if (profile) {
           const photo = (profile.photos as string[])?.[0] ?? profile.avatar_url ?? null;
           setPartnerAvatar(photo);
         }
       } finally {
-        setSessionLookupDone(true);
+        if (revealReadyUi) setSessionLookupDone(true);
       }
     };
-    load();
+    void load();
   }, [sessionId, user?.id]);
 
   useEffect(() => {

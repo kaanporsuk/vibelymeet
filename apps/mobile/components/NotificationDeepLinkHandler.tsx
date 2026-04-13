@@ -47,20 +47,41 @@ function resolveNotificationHref(
   return base;
 }
 
-/** If payload targets /date/:id but user is still in Ready Gate, route to /ready/:id instead. */
+/**
+ * If payload targets /date/:id, align with backend truth:
+ * ended session → event lobby (or home); still in_ready_gate → /ready/:id; otherwise keep /date.
+ */
 async function reconcileHrefWithRegistration(href: string, userId: string): Promise<string> {
   const m = href.match(/^\/date\/([^/?#]+)/);
   if (!m) return href;
   const sid = m[1];
+
+  const { data: vs } = await supabase
+    .from('video_sessions')
+    .select('event_id, ended_at')
+    .eq('id', sid)
+    .maybeSingle();
+
+  if (!vs) return href;
+
+  if (vs.ended_at != null) {
+    if (vs.event_id) return `/event/${vs.event_id}/lobby`;
+    return '/(tabs)';
+  }
+
+  if (!vs.event_id) return href;
+
   const { data: reg } = await supabase
     .from('event_registrations')
     .select('queue_status')
     .eq('profile_id', userId)
-    .eq('current_room_id', sid)
+    .eq('event_id', vs.event_id)
     .maybeSingle();
+
   if (reg?.queue_status === 'in_ready_gate') {
     return `/ready/${sid}`;
   }
+
   return href;
 }
 

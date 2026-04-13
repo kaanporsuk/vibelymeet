@@ -176,7 +176,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -192,6 +192,17 @@ const VideoDate = () => {
         if (!isParticipant) {
           setDeniedEventId(sessionRow.event_id ?? undefined);
           setVideoDateAccess("denied");
+          return;
+        }
+
+        if (sessionRow.ended_at) {
+          toast.info("This date has already ended.", { duration: 2800 });
+          navigate(
+            sessionRow.event_id
+              ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+              : "/home",
+            { replace: true }
+          );
           return;
         }
 

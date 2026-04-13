@@ -2,34 +2,58 @@ import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useSessionHydration } from "@/contexts/NotificationContext";
+import { supabase } from "@/integrations/supabase/client";
 
 /**
  * Backend-truth-first: reconcile URL with registration + video_sessions before relying on local route state.
- * Minimal redirects — only when backend clearly contradicts `/date/:id` (still in Ready Gate).
+ * Redirects when `/date/:id` contradicts backend (still in Ready Gate, or session already ended).
  */
 export function SessionRouteHydration() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useUserProfile();
   const { activeSession, hydrated } = useSessionHydration();
-  const lastRedirectKey = useRef<string | null>(null);
+  const lastReadyGateRedirectKey = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user?.id || !hydrated) return;
 
     const m = location.pathname.match(/^\/date\/([^/]+)\/?$/);
-    if (!m) return;
+    if (!m) {
+      lastReadyGateRedirectKey.current = null;
+      return;
+    }
     const sessionIdFromUrl = m[1];
 
-    if (activeSession?.sessionId !== sessionIdFromUrl) return;
+    if (activeSession?.sessionId === sessionIdFromUrl && activeSession.kind === "ready_gate") {
+      const key = `${sessionIdFromUrl}:ready_gate`;
+      if (lastReadyGateRedirectKey.current === key) return;
+      lastReadyGateRedirectKey.current = key;
 
-    if (activeSession.kind !== "ready_gate") return;
+      navigate(`/event/${encodeURIComponent(activeSession.eventId)}/lobby`, { replace: true });
+      return;
+    }
 
-    const key = `${sessionIdFromUrl}:ready_gate`;
-    if (lastRedirectKey.current === key) return;
-    lastRedirectKey.current = key;
+    let cancelled = false;
+    void (async () => {
+      const { data: vs } = await supabase
+        .from("video_sessions")
+        .select("ended_at, event_id")
+        .eq("id", sessionIdFromUrl)
+        .maybeSingle();
 
-    navigate(`/event/${encodeURIComponent(activeSession.eventId)}/lobby`, { replace: true });
+      if (cancelled || !vs?.ended_at) return;
+
+      if (vs.event_id) {
+        navigate(`/event/${encodeURIComponent(vs.event_id)}/lobby`, { replace: true });
+      } else {
+        navigate("/home", { replace: true });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id, hydrated, activeSession, location.pathname, navigate]);
 
   return null;

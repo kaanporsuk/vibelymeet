@@ -197,6 +197,20 @@ export default function VideoDateScreen() {
     if (!sessionId || !user?.id) return;
     let cancelled = false;
     void (async () => {
+      const { data: vs } = await supabase
+        .from('video_sessions')
+        .select('ended_at, event_id')
+        .eq('id', sessionId)
+        .maybeSingle();
+      if (cancelled) return;
+      if (vs?.ended_at != null) {
+        if (vs.event_id) {
+          router.replace(`/event/${vs.event_id}/lobby` as const);
+        } else {
+          router.replace('/(tabs)' as const);
+        }
+        return;
+      }
       const { data: reg } = await supabase
         .from('event_registrations')
         .select('queue_status')

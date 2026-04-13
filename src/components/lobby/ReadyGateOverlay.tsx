@@ -28,6 +28,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const closedRef = useRef(false);
+  const invalidCloseToastRef = useRef(false);
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
@@ -87,6 +88,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       ]);
       if (cancelled) return;
       if (!vs || vs.ended_at != null || reg?.queue_status !== "in_ready_gate") {
+        if (!invalidCloseToastRef.current) {
+          invalidCloseToastRef.current = true;
+          toast.info("This Ready Gate is no longer active.", { duration: 2800 });
+        }
         onClose();
       }
     })();
@@ -94,6 +99,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       cancelled = true;
     };
   }, [sessionId, eventId, user?.id, onClose]);
+
+  useEffect(() => {
+    invalidCloseToastRef.current = false;
+  }, [sessionId]);
 
   // Fetch partner photo + shared vibes
   useEffect(() => {
