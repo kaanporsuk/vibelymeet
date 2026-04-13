@@ -1,6 +1,6 @@
 # Media Lifecycle Operations Runbook
 
-Updated: 2026-04-13
+Updated: 2026-04-14
 
 This runbook is the Sprint 4 operator guide for Vibely's live media lifecycle system.
 
@@ -71,38 +71,46 @@ There are now two different operator previews:
 Use the admin preview for activation planning.
 Use the worker dry-run for exact queue-preview behavior with the live worker.
 
-## Recommended initial worker settings
+## Cron schedule
 
-Current recommendation: **do not enable cron yet.**
+**Status: ENABLED** (2026-04-14)
 
-Before the first scheduled run:
-1. Run one manual monitored live execution of `process-media-delete-jobs`
-2. Observe:
-   - provider delete success rate
-   - `media_delete_jobs` completion/failure behavior
-   - `media_assets` transitions to `purged`
-   - Bunny/Supabase provider-side confirmation for a small sample
-3. Only then consider scheduling cron
+| Setting | Value |
+|---|---|
+| Job name | `media-delete-worker-every-15m` |
+| Job ID | 17 |
+| Schedule | `*/15 * * * *` (every 15 minutes) |
+| Batch size | 10 |
+| Family filter | none |
+| Auth | vault `cron_secret` + `project_url` |
+| Retry | DB-owned exponential backoff (`1m`, `5m`, `25m`, `2h`, `10h`) with per-family `max_attempts` |
 
-If/when cron is enabled, start with:
-- cadence: every 15 minutes
-- batch size: 10
-- family filter: none
-- retry behavior: existing DB-owned exponential backoff (`1m`, `5m`, `25m`, `2h`, `10h`) with per-family `max_attempts` defaults
-
-Rationale:
-- low backlog
-- no failed jobs
-- no orphan-like active assets found in the live audit
-- but no post-Sprint-3 production delete run has yet been blessed as the final operator proof
+Enabled after:
+1. Manual monitored SQL-layer run proved promote → enqueue → claim lifecycle correct (6/6 assets)
+2. Manual monitored real worker run purged all 6 overdue assets with zero failures
+3. Pre-enable audit confirmed clean state: 0 pending/failed jobs, 0 stuck assets
 
 ## Rollback procedure
 
-If the first live execution or early cron runs show unexpected behavior:
-1. disable the scheduler / remove the cron job
-2. set `worker_enabled = false` for the affected families in the admin panel
-3. inspect `media_delete_jobs` and `media_assets.last_error`
-4. verify provider-side object state before resuming
+To disable the cron schedule:
+```sql
+-- Option 1: Remove entirely
+SELECT cron.unschedule('media-delete-worker-every-15m');
+
+-- Option 2: Deactivate (keeps row for re-enable)
+UPDATE cron.job SET active = false WHERE jobname = 'media-delete-worker-every-15m';
+
+-- Re-enable after fix:
+UPDATE cron.job SET active = true WHERE jobname = 'media-delete-worker-every-15m';
+```
+
+If scheduled runs show unexpected behavior:
+1. Disable the cron job (above)
+2. Set `worker_enabled = false` for the affected families in the admin panel
+3. Inspect `media_delete_jobs` for `last_error` on failed rows
+4. Inspect `media_assets` for assets stuck in `purge_ready` or `purging`
+5. Check Edge Function logs: `npx supabase functions logs process-media-delete-jobs --project-ref schdyxcunwcvddlcshwd`
+6. Verify provider-side object state before resuming
 
 ## Deploy notes
 
@@ -112,4 +120,4 @@ Sprint 4 adds one new admin-only Edge Function:
 supabase functions deploy admin-media-lifecycle-controls --project-ref schdyxcunwcvddlcshwd
 ```
 
-Cron remains intentionally disabled after Sprint 4.
+Cron enabled 2026-04-14 as `media-delete-worker-every-15m` (jobid 17, `*/15 * * * *`).
