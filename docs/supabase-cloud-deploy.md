@@ -51,6 +51,8 @@ Phase 2 live-loop observability (`20260423120000_event_loop_observability.sql`) 
 
 Phase 3 (`20260424120000_event_loop_read_model_views.sql`) adds **views only** (`v_event_loop_*`) for hourly rollups and filtered rows — same service-role access pattern; **no** write-path or Edge changes.
 
+Phase 3b (policy branch `phase3b/event-loop-retention-policy`) documents **retention design** for `event_loop_observability_events` in `_cursor_context/event_loop_observability_retention_policy.md` — no DB migration until the policy is approved and implementation is scheduled.
+
 ## Deploy Edge Functions
 
 **One function** (typical after code change):

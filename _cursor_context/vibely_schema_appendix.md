@@ -70,7 +70,7 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 ### Public schema object counts
 
 - **41 public tables** (frozen baseline; linked project has more — see addenda)
-- **1 public view** (frozen baseline); linked project adds **9** `v_event_loop_*` views after Phase 3 migration
+- **1 public view** (frozen baseline); linked project adds **10** `v_event_loop_*` views after Phase 3 migration (5 row-level + 5 hourly)
 - **22 typed public SQL functions / RPC surfaces**
 - **3 public enums**
 - **6 storage buckets referenced by migrations**

@@ -9,6 +9,8 @@
 > **2026-04-23:** Phase 2 adds migration `20260423120000_event_loop_observability.sql` (table `event_loop_observability_events` + instrumented queue/promotion/cleanup RPCs). Apply with normal `supabase db push` / linked migration flow; no new Edge deploy or secrets. Operator reads: service-role SQL / dashboard — not anon/authenticated.
 >
 > **2026-04-24:** Phase 3 adds `20260424120000_event_loop_read_model_views.sql` (read-only views on observability events). Same deploy path; no Edge; `GRANT SELECT` to `service_role` only.
+>
+> **2026-04-13:** Phase 3b (branch `phase3b/event-loop-retention-policy`) is **policy/design only** for `event_loop_observability_events` retention — see `_cursor_context/event_loop_observability_retention_policy.md`. No cron or deletion migrations until agreed.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  
