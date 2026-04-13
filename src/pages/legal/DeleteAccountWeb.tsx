@@ -50,7 +50,7 @@ const DeleteAccountWeb = () => {
       <main className="mx-auto max-w-[480px] px-6 py-10">
         <h1 className="text-2xl font-bold mb-2">Delete Your Vibely Account</h1>
         <p className="text-muted-foreground text-sm mb-8">
-          Submit a deletion request even if you can't access the app.
+          Submit a deletion request even if you can&apos;t access the app. Deletion is scheduled, not immediate.
         </p>
 
         {submitted ? (
@@ -58,7 +58,7 @@ const DeleteAccountWeb = () => {
             <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
             <h2 className="text-lg font-semibold">Request received</h2>
             <p className="text-sm text-muted-foreground">
-              Your account will be reviewed and deleted within 30 days. Check your email for confirmation.
+              If the email matches a Vibely account, we&apos;ll start the deletion grace window and send follow-up instructions. The account is not removed immediately, and the request can still be cancelled from inside the app before the scheduled deletion date.
             </p>
           </div>
         ) : (

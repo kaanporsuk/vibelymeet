@@ -18,10 +18,11 @@ import {
   MessageSquare,
   LifeBuoy,
   Layers,
+  Archive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -43,6 +44,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
     { id: 'engagement' as const, label: 'Engagement', icon: TrendingUp },
     { id: 'campaigns' as const, label: 'Push Campaigns', icon: Bell },
     { id: 'photo-verification' as const, label: 'Photo Verification', icon: ShieldCheck },
+    { id: 'media-lifecycle' as const, label: 'Media Lifecycle', icon: Archive },
     { id: 'reports' as const, label: 'Reports', icon: AlertTriangle },
     { id: 'deletions' as const, label: 'Deletions', icon: UserMinus },
     { id: 'ghost-bootstrap' as const, label: 'Ghost Accounts', icon: Zap },

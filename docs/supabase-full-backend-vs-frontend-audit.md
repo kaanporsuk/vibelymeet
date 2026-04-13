@@ -12,7 +12,7 @@ supabase link --project-ref schdyxcunwcvddlcshwd
 
 **Live DB SQL:** Sections that require Postgres (full RPC enumeration vs `types.ts`, `pg_publication_tables`, RLS dump, triggers, cron, indexes, storage buckets) should be executed in the **Supabase SQL Editor** using the queries in this doc. This report uses **generated types** (`src/integrations/supabase/types.ts`) as the RPC catalog and **migrations** for RLS/trigger hints where live SQL was not executed here.
 
-> Current repo addendum (2026-04-13): this document is still a historical/live audit snapshot. The current repo now contains **44 deployable Edge Functions** and **253 migrations**. Sprint 2 is live and adds `profile_vibe_videos` plus profile-media lifecycle wiring. Sprint 3 is now live and adds `chat_media_retention_states`, authenticated `delete_chat_for_current_user`, chat-media lifecycle registration in `upload-image` / `upload-chat-video` / `upload-voice` / `send-message`, and account-deletion retention-state changes in `request-account-deletion` / `delete-account` / `cancel-deletion`. The grace-period follow-up keeps pending deletion reversible (`account_deletion_pending_at`) and moves final `account_deleted` release to `account_deletion_requests.status = 'completed'`. `process-media-delete-jobs` cron is still intentionally disabled.
+> Current repo addendum (2026-04-13): this document is still a historical/live audit snapshot. The current repo now contains **45 deployable Edge Functions** and **253 migrations**. Sprint 2 is live and adds `profile_vibe_videos` plus profile-media lifecycle wiring. Sprint 3 is now live and adds `chat_media_retention_states`, authenticated `delete_chat_for_current_user`, chat-media lifecycle registration in `upload-image` / `upload-chat-video` / `upload-voice` / `send-message`, and account-deletion retention-state changes in `request-account-deletion` / `delete-account` / `cancel-deletion`. The grace-period follow-up keeps pending deletion reversible (`account_deletion_pending_at`) and moves final `account_deleted` release to `account_deletion_requests.status = 'completed'`. Sprint 4 adds `admin-media-lifecycle-controls` for admin-only retention controls and readiness preview. `process-media-delete-jobs` cron is still intentionally disabled.
 
 ---
 
@@ -31,6 +31,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 | account-pause | POST | true | Pause account | AuthContext | — | Supabase |
 | account-resume | POST | true | Resume account | AuthContext | — | Supabase |
 | admin-review-verification | POST | true | Admin photo verify actions | AdminPhotoVerificationPanel | — | Supabase |
+| admin-media-lifecycle-controls | POST/GET | true | Admin-only retention controls and read-only worker readiness preview | AdminMediaLifecyclePanel | — | Supabase |
 | cancel-deletion | POST | true | Cancel scheduled deletion | useDeletionRecovery | useDeletionRecovery | Supabase |
 | create-checkout-session | POST | true | Stripe subscription checkout | useSubscription | — | Stripe |
 | create-credits-checkout | POST | true | Stripe credits checkout | Credits (invoke) | creditsCheckout (fetch) | Stripe |
@@ -68,7 +69,7 @@ Historical 2026-03-18 CLI snapshot: 36 ACTIVE functions.
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| **Web-only invokes** (no native): `verify-admin`, `upload-event-cover`, `forward-geocode`, `event-notifications`, `admin-review-verification`, `create-checkout-session`, `generate-daily-drops`, `send-notification`, `geocode`, `delete-account` | **LOW–MEDIUM** | Many intentional (admin, Stripe web, marketing). **MEDIUM:** `delete-account` — README defers native delete; users on app only lack parity. |
+| **Web-only invokes** (no native): `verify-admin`, `admin-media-lifecycle-controls`, `upload-event-cover`, `forward-geocode`, `event-notifications`, `admin-review-verification`, `create-checkout-session`, `generate-daily-drops`, `send-notification`, `geocode`, `delete-account` | **LOW–MEDIUM** | Many intentional (admin, Stripe web, marketing). **MEDIUM:** `delete-account` — README defers native delete; users on app only lack parity. |
 | **Native fetch vs web invoke** for same function: `upload-image`, `create-credits-checkout`, `create-video-upload`, `delete-vibe-video` | **LOW** | Same endpoints; ensure auth headers and error handling match. |
 | **Neither client** (webhooks/cron): `stripe-webhook`, `revenuecat-webhook`, `video-webhook`, `push-webhook`, `email-drip`, `unsubscribe`, `generate-daily-drops` (only admin triggers from web), `process-media-delete-jobs` | OK | Expected server-to-server. |
 | **Divergence:** `request-account-deletion` — web uses raw `fetch`, native uses `invoke` | **LOW** | Both hit same function; JWT differs (`verify_jwt=false` — must pass anon key + body correctly on web). |
