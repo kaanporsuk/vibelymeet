@@ -9,8 +9,8 @@
 --   blocked     — eligibility / presence / admission / event validity guard
 --   conflict    — participant already in another active session (pair conflict)
 --   queued      — mutual match deferred to queue (handle_swipe)
---   expired     — reserved for future subtyping (expiry paths use success + detail.kind)
---   hygiene     — orphan registration pointer reconciled (see detail.hygiene_orphans)
+--   expired     — reserved for future subtyping if we split expiry rows by kind
+--   hygiene     — reserved / unused as top-level outcome; orphan reconciles appear in detail.hygiene_orphans (expire uses outcome success|no_op)
 --   error       — unauthorized / unexpected boundary
 --
 -- reason_code — mirrors existing JSON `reason` / `result` strings where applicable.
