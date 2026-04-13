@@ -36,6 +36,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 |---|---|
 | Preflight | `npm run launch:preflight` + `npm run typecheck` |
 | **Architecture, providers, import boundaries (`@shared/*` vs root `shared/`)** | `docs/vibely-canonical-project-reference.md` |
+| **Native v1 architecture lock (routes, backend contracts, providers, gap list)** | `docs/native-sprint0-architecture-lock.md` |
 | Operator execution sheet | `docs/kaan-launch-closure-execution-sheet.md` |
 | Canonical launch-closure runbook | `docs/native-launch-closure-master-runbook.md` |
 | Active launch backlog and blocker matrix | `docs/native-final-blocker-matrix.md` |

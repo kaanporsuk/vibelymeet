@@ -1,6 +1,6 @@
 # Vibely Mobile (Sprint 1)
 
-Expo + React Native + TypeScript app sharing the same Supabase backend as the web app. See `docs/native-build-architecture-plan.md` for full architecture.
+Expo + React Native + TypeScript app sharing the same Supabase backend as the web app. See `docs/native-build-architecture-plan.md` for full architecture. **Sprint 0 architecture lock (contracts, route map, gaps):** `docs/native-sprint0-architecture-lock.md`.
 
 ## Structure
 
