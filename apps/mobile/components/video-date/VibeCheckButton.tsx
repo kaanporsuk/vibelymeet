@@ -11,7 +11,8 @@ import { useColorScheme } from '@/components/useColorScheme';
 
 type Props = {
   timeLeft: number;
-  onVibe: () => void;
+  /** Return false if the server rejected the vibe (UI stays tappable). */
+  onVibe: () => void | Promise<boolean | void>;
   disabled?: boolean;
 };
 
@@ -19,6 +20,7 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [hasVibed, setHasVibed] = React.useState(false);
+  const submittingRef = useRef(false);
   const isProminent = timeLeft <= 20;
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
@@ -34,13 +36,19 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
     return () => loop.stop();
   }, [isProminent, hasVibed, pulseAnim]);
 
-  const handlePress = () => {
-    if (hasVibed || disabled) return;
+  const handlePress = async () => {
+    if (hasVibed || disabled || submittingRef.current) return;
+    submittingRef.current = true;
     try {
-      Vibration.vibrate(30);
-    } catch {}
-    setHasVibed(true);
-    onVibe();
+      try {
+        Vibration.vibrate(30);
+      } catch {}
+      const result = await Promise.resolve(onVibe());
+      if (result === false) return;
+      setHasVibed(true);
+    } finally {
+      submittingRef.current = false;
+    }
   };
 
   if (hasVibed) {
