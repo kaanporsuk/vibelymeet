@@ -55,14 +55,14 @@ export function ActiveCallBanner({
               <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
                 {mode === 'ready_gate' ? 'Your match is waiting!' : 'You have an active date!'}
               </Text>
-              <Text style={[styles.sub, { color: theme.textSecondary }]} numberOfLines={1}>
+              <Text style={[styles.sub, { color: theme.textSecondary }]} numberOfLines={2}>
                 {mode === 'ready_gate'
                   ? partnerName
-                    ? `${partnerName} is ready — tap to continue`
-                    : 'Finish the Ready Gate to start 💚'
+                    ? `${partnerName} — tap Continue to open Ready Gate`
+                    : 'Tap Continue to open Ready Gate and sync up 💚'
                   : partnerName
-                    ? `With ${partnerName}`
-                    : 'Tap to rejoin 💚'}
+                    ? `With ${partnerName} — tap Rejoin`
+                    : 'Tap Rejoin to return 💚'}
               </Text>
             </View>
           </View>

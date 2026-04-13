@@ -121,7 +121,7 @@ export default function DashboardScreen() {
   const theme = Colors[colorScheme];
   const qc = useQueryClient();
   const { user, onboardingComplete } = useAuth();
-  const { activeSession, refetch: refetchActiveSession } = useActiveSession(user?.id);
+  const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useActiveSession(user?.id);
   const {
     pendingDeletion,
     cancelDeletion,
@@ -406,7 +406,7 @@ export default function DashboardScreen() {
       await endVideoDate(activeSession.sessionId);
     }
     await updateParticipantStatus(activeSession.eventId, 'browsing');
-    refetchActiveSession();
+    await refetchActiveSession();
   }, [activeSession, user?.id, refetchActiveSession]);
 
   const loading = nextEventLoading || eventsLoading || matchesLoading;
@@ -728,7 +728,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {activeSession && (
+      {sessionHydrated && activeSession && (
         <View style={[styles.rejoinBannerWrap, { paddingTop: insets.top + 4 }]}>
           <ActiveCallBanner
             sessionId={activeSession.sessionId}

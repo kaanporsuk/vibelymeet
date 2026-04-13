@@ -271,6 +271,11 @@ export default function EventLobbyScreen() {
   }, [id, user?.id]);
 
   useEffect(() => {
+    if (!id || !user?.id || !isLobbyFocused || appState !== 'active') return;
+    void refreshQueueAndSuperVibe();
+  }, [id, user?.id, isLobbyFocused, appState, refreshQueueAndSuperVibe]);
+
+  useEffect(() => {
     if (!sessionHydrated || !id) return;
     if (scopedSession?.eventId === id && scopedSession.kind === 'video') {
       router.replace(`/date/${scopedSession.sessionId}` as const);
@@ -762,10 +767,19 @@ export default function EventLobbyScreen() {
                 <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
                 <Text style={[styles.liveTextStrong, { color: '#86efac' }]}>Live now</Text>
               </View>
-              {queuedMatchCount > 0 ? (
-                <View style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.neonPink, 0.14), borderColor: withAlpha(theme.neonPink, 0.35) }]}>
+              {queuedMatchCount > 0 && !activeSessionId ? (
+                <View
+                  style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.neonPink, 0.14), borderColor: withAlpha(theme.neonPink, 0.35) }]}
+                  accessibilityLabel={
+                    queuedMatchCount === 1
+                      ? 'One mutual match is waiting in the queue before Ready Gate'
+                      : `${queuedMatchCount} mutual matches waiting in the queue before Ready Gate`
+                  }
+                >
                   <Ionicons name="sparkles" size={11} color={theme.neonPink} />
-                  <Text style={[styles.queuedBadgeText, { color: theme.neonPink }]}>{queuedMatchCount} queued</Text>
+                  <Text style={[styles.queuedBadgeText, { color: theme.neonPink }]}>
+                    {queuedMatchCount === 1 ? '1 waiting in queue' : `${queuedMatchCount} waiting in queue`}
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -1030,7 +1044,7 @@ export default function EventLobbyScreen() {
         )}
       </View>
 
-      {activeSessionId && user?.id ? (
+      {sessionHydrated && activeSessionId && user?.id ? (
         <ReadyGateOverlay
           sessionId={activeSessionId}
           eventId={id}
