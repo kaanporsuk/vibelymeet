@@ -46,7 +46,7 @@ Sprint 5 originally used existing `video_sessions`, `daily-room`, and `video_dat
 
 ## Remaining gaps after Sprint 5
 
-- **Post-date survey:** Web shows in-call survey after end; mobile shows "Date ended" + Continue only. Survey can be added in a later sprint.
+- **Post-date survey (Sprint 1 parity, 2026-04):** Native `app/date/[id].tsx` now routes **PostDateSurvey** for user-driven end, **sync_reconnect** `ended`, and **realtime `phase === 'ended'`** when the user had joined the Daily room (`hadConnectedOnce`). Pre-connect abort (connection overlay / “Back to lobby” before a join) still exits **without** survey. Remaining differences vs web are mostly in-call extras (vibe buttons, extend), not survey routing.
 - **Handshake timer / vibe / extend:** Web has handshake countdown, mutual vibe check, and credit-based extend; mobile shows phase + timer but does not implement vibe buttons or extend (can be added later).
 - **Device validation:** Real device or dev-client build required to validate Daily on device; Expo Go does not support the Daily native modules.
 

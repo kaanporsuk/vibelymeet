@@ -127,13 +127,13 @@
 | Chat | `send-message` + outbox | **Good** | Read receipts deferred | Ahead |
 | Events/location | `get_visible_events` | **Good** | — | Good |
 | Vibe video | TUS + Bunny + profile columns | **Good** | Processing edge cases | Good |
-| Post-date survey | Same RPC/verdict stack as web (`PostDateSurvey` component) | **Implemented** when user ends call (`showFeedback` path on `date/[id]`) | **Parity gap:** partner/backend-ended flows may show “Date ended” **without** survey until aligned with web | Web may cover more end paths |
+| Post-date survey | Same RPC/verdict stack as web (`PostDateSurvey` component) | **Implemented** on `date/[id]` when `showFeedback` after a joined call (`hadConnectedOnce`) | **Sprint 1:** remote `phase === 'ended'`, **sync_reconnect** `ended`, and **End** control now converge on survey; pre-connect **abort** intentionally skips survey | Align with web for edge reopen cases only if product requires |
 
 ---
 
 ## 5. Exact gap list (prioritized)
 
-1. **Video date end paths:** Ensure **post-date survey** (and verdict submission) runs on **all** end reasons (partner hang-up, reconnect grace expiry, backend `ended`) matching web — today survey is tightly coupled to the user-initiated **`handleCallEnd`** path (`showFeedback`).
+1. **Video date end paths:** Addressed in **`native/sprint1-video-date-end-path-parity`** — survey after joined-call ends via control End, **sync_reconnect** `ended`, or realtime **`phase === 'ended'`**; pre-connect abort still skips survey.
 2. **Notification deep links + read receipts** — README-deferred; launch-priority polish.
 3. **Video date in-call extras** (mutual vibe, credit extend) — web ahead; product call.
 4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
