@@ -609,6 +609,7 @@ export async function getQueuedMatchCount(eventId: string, userId: string): Prom
     .select('*', { count: 'exact', head: true })
     .eq('event_id', eventId)
     .eq('ready_gate_status', 'queued')
+    .is('ended_at', null)
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`);
   if (error) return 0;
   return count ?? 0;
