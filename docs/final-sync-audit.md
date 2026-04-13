@@ -3,7 +3,7 @@
 **Date:** 2026-03-18  
 **Scope:** Git (origin/main vs local), Supabase Cloud (project ref: schdyxcunwcvddlcshwd), codebase health, native build readiness.
 
-> Update 2026-04-12: this file preserves a March 2026 sync snapshot and should not be treated as the current backend inventory by itself. Current repo/cloud reality for Sprint 1 verification is 244 repo migrations, 45 public tables, and 44 deployable Edge Functions plus `_shared`, including the deployed `process-media-delete-jobs` worker with cron still disabled.
+> Update 2026-04-13: this file preserves a March 2026 sync snapshot and should not be treated as the current backend inventory by itself. Cron is now enabled (`media-delete-worker-every-15m`, jobid 18, `*/15 * * * *`). See `docs/media-lifecycle-operations-runbook.md` for the current operational state.
 
 ---
 

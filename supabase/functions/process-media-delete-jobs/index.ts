@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     if (body?.family) familyFilter = String(body.family);
     if (body?.batch_size && Number.isFinite(body.batch_size)) {
-      batchSize = Math.min(Math.max(1, body.batch_size), 100);
+      batchSize = Math.min(Math.max(1, body.batch_size), 200);
     }
     if (body?.dry_run === true) isDryRun = true;
   } catch {
