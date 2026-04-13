@@ -52,6 +52,7 @@ export const useMatchQueue = ({
       .select("*", { count: "exact", head: true })
       .eq("event_id", eventId)
       .eq("ready_gate_status", "queued")
+      .is("ended_at", null)
       .or(`participant_1_id.eq.${user.id},participant_2_id.eq.${user.id}`);
 
     setQueuedCount(count || 0);
