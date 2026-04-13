@@ -1,4 +1,4 @@
--- 20260413_drain_match_queue_promotion.sql
+-- 20260417120300_drain_match_queue_promotion.sql
 -- Update drain_match_queue to use canonical promotion helper
 
 CREATE OR REPLACE FUNCTION public.drain_match_queue(p_event_id uuid)
