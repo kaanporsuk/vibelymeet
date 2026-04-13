@@ -298,6 +298,42 @@ const Chat = () => {
 
   const partnerUserId = chatData?.otherUser?.id ?? id ?? "";
 
+  const markWebThreadReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleMarkWebThreadRead = useCallback(() => {
+    const mid = chatData?.matchId;
+    if (!mid || !user?.id) return;
+    if (markWebThreadReadTimeoutRef.current) clearTimeout(markWebThreadReadTimeoutRef.current);
+    markWebThreadReadTimeoutRef.current = setTimeout(() => {
+      markWebThreadReadTimeoutRef.current = null;
+      void supabase.rpc("mark_match_messages_read", { p_match_id: mid }).then(({ error }) => {
+        if (error) return;
+        void queryClient.invalidateQueries({
+          queryKey: threadMessagesQueryKey(id || "", currentUserId),
+          exact: true,
+        });
+      });
+    }, 400);
+  }, [chatData?.matchId, chatData?.messages?.length, currentUserId, id, queryClient, user?.id]);
+
+  useEffect(() => {
+    scheduleMarkWebThreadRead();
+    return () => {
+      if (markWebThreadReadTimeoutRef.current) {
+        clearTimeout(markWebThreadReadTimeoutRef.current);
+        markWebThreadReadTimeoutRef.current = null;
+      }
+    };
+  }, [scheduleMarkWebThreadRead]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") scheduleMarkWebThreadRead();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [scheduleMarkWebThreadRead]);
+
   const reactionByMessageId = useMemo(() => {
     const byMsg = new Map<string, MessageReactionRow[]>();
     for (const r of reactionRows as MessageReactionRow[]) {
@@ -369,6 +405,9 @@ const Chat = () => {
   );
 
   const messages: ChatMessage[] = useMemo(() => {
+    const statusFromServer = (sender: "me" | "them", readAt?: string | null): MessageStatusType =>
+      sender === "me" ? (readAt ? "read" : "delivered") : "delivered";
+
     const realMsgs: ChatMessage[] = (chatData?.messages || []).map((m) => {
       const pair = reactionByMessageId.get(m.id) ?? { mine: null, partner: null };
       const sortAtMs = new Date(m.createdAt).getTime();
@@ -381,7 +420,7 @@ const Chat = () => {
           type: m.messageKind === "date_suggestion_event" ? "date-suggestion-event" : "date-suggestion",
           refId: m.refId,
           structuredPayload: m.structuredPayload ?? undefined,
-          status: "delivered" as MessageStatusType,
+          status: statusFromServer(m.sender, m.readAt),
           reactionPair: pair,
           sortAtMs,
         };
@@ -393,7 +432,7 @@ const Chat = () => {
           sender: m.sender,
           time: m.time,
           type: "vibe-game-session" as const,
-          status: "delivered" as MessageStatusType,
+          status: statusFromServer(m.sender, m.readAt),
           gameSessionView: m.gameSessionView,
           reactionPair: pair,
           sortAtMs,
@@ -415,7 +454,7 @@ const Chat = () => {
         videoUrl: m.videoUrl,
         videoDuration: m.videoDuration,
         structuredPayload: m.structuredPayload ?? undefined,
-        status: "delivered" as MessageStatusType,
+        status: statusFromServer(m.sender, m.readAt),
         reactionPair: pair,
         sortAtMs,
       };

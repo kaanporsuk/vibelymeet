@@ -13,11 +13,14 @@ import {
   Image,
   Vibration,
   Dimensions,
+  AppState,
+  type AppStateStatus,
   type DimensionValue,
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -862,13 +865,18 @@ export default function ChatThreadScreen() {
     }
   }, [refetchDateSuggestions, queryClient, otherUserId, user?.id]);
 
-  useEffect(() => {
+  const markReadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleMarkThreadRead = useCallback(() => {
     const mid = data?.matchId;
-    if (!mid || !otherUserId || !user?.id) return;
-    const t = setTimeout(() => {
+    const uid = user?.id;
+    if (!mid || !otherUserId || !uid) return;
+    if (markReadTimeoutRef.current) clearTimeout(markReadTimeoutRef.current);
+    markReadTimeoutRef.current = setTimeout(() => {
+      markReadTimeoutRef.current = null;
       markMatchMessagesRead(mid)
         .then(() => {
-          const key = threadMessagesQueryKey(otherUserId, user.id);
+          const key = threadMessagesQueryKey(otherUserId, uid);
           queryClient.setQueryData(key, (old: unknown) => {
             if (!old || typeof old !== 'object' || !('messages' in old)) return old;
             const o = old as {
@@ -889,8 +897,36 @@ export default function ChatThreadScreen() {
         })
         .catch(() => {});
     }, 400);
-    return () => clearTimeout(t);
   }, [data?.matchId, data?.messages?.length, otherUserId, user?.id, queryClient]);
+
+  useFocusEffect(
+    useCallback(() => {
+      scheduleMarkThreadRead();
+      return () => {
+        if (markReadTimeoutRef.current) {
+          clearTimeout(markReadTimeoutRef.current);
+          markReadTimeoutRef.current = null;
+        }
+      };
+    }, [scheduleMarkThreadRead])
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') scheduleMarkThreadRead();
+    });
+    return () => sub.remove();
+  }, [scheduleMarkThreadRead]);
+
+  useEffect(() => {
+    scheduleMarkThreadRead();
+    return () => {
+      if (markReadTimeoutRef.current) {
+        clearTimeout(markReadTimeoutRef.current);
+        markReadTimeoutRef.current = null;
+      }
+    };
+  }, [scheduleMarkThreadRead]);
 
   const {
     isRinging,
