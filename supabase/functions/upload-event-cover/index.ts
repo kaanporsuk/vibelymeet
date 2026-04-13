@@ -1,5 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  MEDIA_FAMILIES,
+  PROVIDERS,
+  REF_TYPES,
+  registerMediaAsset,
+  createMediaReference,
+  releaseMediaReference,
+} from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -120,6 +128,58 @@ serve(async (req) => {
 
     const cdnHostname = Deno.env.get("BUNNY_CDN_HOSTNAME")!;
     const coverUrl = `https://${cdnHostname}/${storagePath}`;
+
+    // ── Media lifecycle registration ─────────────────────────────────────────
+    const adminSupabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    try {
+      const lifecycle = await registerMediaAsset(adminSupabase, {
+        provider: PROVIDERS.BUNNY_STORAGE,
+        mediaFamily: MEDIA_FAMILIES.EVENT_COVER,
+        ownerUserId: user.id,
+        providerPath: storagePath,
+        mimeType: file.type,
+        bytes: file.size,
+        legacyTable: "events",
+        legacyId: eventId ?? null,
+        status: "active",
+      });
+
+      if (!lifecycle.success) {
+        console.error(`[upload-event-cover] media asset registration failed path=${storagePath} err=${lifecycle.error}`);
+      } else if (lifecycle.assetId && eventId) {
+        // Release any existing event_cover references for this event
+        const { data: existingRefs } = await adminSupabase
+          .from("media_references")
+          .select("id")
+          .eq("ref_type", REF_TYPES.EVENT_COVER)
+          .eq("ref_table", "events")
+          .eq("ref_id", eventId)
+          .eq("is_active", true);
+
+        for (const ref of existingRefs ?? []) {
+          await releaseMediaReference(adminSupabase, ref.id, "replace");
+        }
+
+        // Create new reference
+        const refResult = await createMediaReference(adminSupabase, {
+          assetId: lifecycle.assetId,
+          refType: REF_TYPES.EVENT_COVER,
+          refTable: "events",
+          refId: eventId,
+          refKey: "cover_image",
+        });
+
+        if (!refResult.success) {
+          console.error(`[upload-event-cover] media reference creation failed assetId=${lifecycle.assetId} eventId=${eventId} err=${refResult.error}`);
+        }
+      }
+    } catch (e) {
+      console.error("[upload-event-cover] lifecycle tracking error:", e);
+    }
 
     return new Response(
       JSON.stringify({ success: true, path: storagePath, url: coverUrl }),
