@@ -23,7 +23,7 @@ This is especially important for Vibely because the migration chain is **not** p
 
 The repo has moved well beyond the frozen/archive counts below.
 
-- Current repo migration count: **253** files under `supabase/migrations`.
+- Current repo migration count: **259** files under `supabase/migrations` after `20260423120000_event_loop_observability.sql` (re-baseline this line when migrations are added).
 - Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
 - That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
 - Sprint 2 profile-media wiring landed as `20260417110000_media_lifecycle_profile_media_wiring.sql`.
@@ -173,6 +173,15 @@ Branch: `stage1/stream1_9-conflicting-session-race-hardening`.
 Branch: `stage1/stream1_10-trust-fairness-work`.
 
 - **App-only:** `SWIPE_SESSION_CONFLICT_USER_MESSAGE` in `supabase/functions/_shared/matching/videoSessionFlow.ts` is shown on web (Sonner `toast.info`) and native (lobby dialog) when mutual swipe returns `participant_has_active_session_conflict`, closing the silent-failure gap for that path. No notification or routing changes.
+
+### Phase 2 — live-loop observability (2026-04-23)
+
+Branch: `phase2/observability-queue-promotion`.
+
+- **Migration:** `20260423120000_event_loop_observability.sql` adds append-only table `public.event_loop_observability_events` (RLS enabled; **no** `authenticated`/`anon` policies — read via **service role** or SQL editor only).
+- **Function:** `public.record_event_loop_observability(...)` — `SECURITY DEFINER`, `REVOKE`d from `PUBLIC`; inserts are wrapped in `EXCEPTION WHEN OTHERS` so logging cannot break hot paths.
+- **Instrumented RPCs (replaced in same migration):** `promote_ready_gate_if_eligible`, `drain_match_queue`, `expire_stale_video_sessions`, `mark_lobby_foreground`, and `handle_swipe` (mutual / promotion-relevant branches only). Per-invocation `latency_ms` and structured `outcome` / `reason_code` / `detail` jsonb (cleanup counts for expiry, nested promotion JSON for `mark_lobby_foreground`).
+- **Explicitly out of scope:** notification delivery redesign, client UI, Edge Functions, env vars, or sampling toggles.
 
 ---
 

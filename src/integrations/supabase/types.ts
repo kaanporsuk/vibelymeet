@@ -925,6 +925,45 @@ export type Database = {
         }
         Relationships: []
       }
+      event_loop_observability_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          detail: Json
+          event_id: string | null
+          id: string
+          latency_ms: number | null
+          operation: string
+          outcome: string
+          reason_code: string | null
+          session_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          detail?: Json
+          event_id?: string | null
+          id?: string
+          latency_ms?: number | null
+          operation: string
+          outcome: string
+          reason_code?: string | null
+          session_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          detail?: Json
+          event_id?: string | null
+          id?: string
+          latency_ms?: number | null
+          operation?: string
+          outcome?: string
+          reason_code?: string | null
+          session_id?: string | null
+        }
+        Relationships: []
+      }
       event_payment_exceptions: {
         Row: {
           checkout_session_id: string | null

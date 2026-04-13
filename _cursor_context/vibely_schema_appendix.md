@@ -26,7 +26,7 @@ This document is optimized for rebuild and maintenance work. For exact TypeScrip
 
 The frozen baseline counts below are no longer the current repo/cloud counts.
 
-- Current linked-project schema now includes **47 public tables** after Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup.
+- Current linked-project schema now includes **48 public tables** after Sprint 1–3 media lifecycle work and Phase 2 `event_loop_observability_events` (apply migration on linked project to match).
 - Media lifecycle tables now include `media_retention_settings`, `media_assets`, `media_references`, `media_delete_jobs`, `profile_vibe_videos`, and `chat_media_retention_states`.
 - Sprint 3 makes chat retention eligibility backend-owned:
   - one active `chat_participant_retention` reference per retaining participant
@@ -37,6 +37,7 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 - Current lifecycle/public RPC surface also includes Sprint 3 helpers such as `delete_chat_for_current_user`, `apply_account_deletion_media_hold`, `cancel_account_deletion_media_hold`, `mark_chat_match_participant_deletion_pending`, `complete_account_deletion_media_cleanup`, `restore_chat_match_participant`, and `sync_chat_message_media`.
 - `verification_selfie` retention remains intentionally seeded but disabled (`worker_enabled = false`).
 - Chat media is no longer a placeholder family: `chat_image`, `chat_video`, `chat_video_thumbnail`, and `voice_message` are now live lifecycle-managed while cron remains disabled.
+- **Phase 2 (2026-04-23):** `event_loop_observability_events` — append-only operator telemetry for the live event loop (`promote_ready_gate_if_eligible`, `drain_match_queue`, `expire_stale_video_sessions`, `mark_lobby_foreground`, mutual `handle_swipe` paths). Not exposed to PostgREST clients by default; query with **service role** or SQL editor. See migration `20260423120000_event_loop_observability.sql` and `_cursor_context/vibely_migration_manifest.md` Phase 2 addendum.
 
 ---
 
@@ -44,12 +45,13 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 
 ### Current-state addendum (2026-04-13, linked/live Sprint 3)
 
-- The linked/live project now includes **47 public tables** after:
+- The linked/live project now includes **48 public tables** after:
   - `20260417100000_media_lifecycle_foundation.sql`
   - `20260417110000_media_lifecycle_profile_media_wiring.sql`
   - `20260419100000_media_lifecycle_chat_account_cleanup.sql`
   - `20260419103000_chat_retention_user_wrappers.sql`
   - `20260419110000_account_deletion_grace_media_fix.sql`
+  - `20260423120000_event_loop_observability.sql` (operator telemetry table + instrumented live-loop RPCs)
 - Sprint 2 compatibility mirrors remain in place:
   - `profiles.photos` + `profiles.avatar_url` remain the published profile-photo snapshot.
   - `profiles.bunny_video_uid` + `profiles.bunny_video_status` remain the published vibe-video snapshot.

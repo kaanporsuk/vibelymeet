@@ -47,6 +47,8 @@ supabase db push --linked
 
 Review SQL in PRs first; this applies pending migrations to **linked** cloud only.
 
+Phase 2 live-loop observability (`20260423120000_event_loop_observability.sql`) adds table `event_loop_observability_events` and replaces several RPC bodies — **no Edge deploy or new secrets**. Query telemetry with the **service role** in SQL editor or a backend job; the table has RLS with no `authenticated` policy.
+
 ## Deploy Edge Functions
 
 **One function** (typical after code change):
