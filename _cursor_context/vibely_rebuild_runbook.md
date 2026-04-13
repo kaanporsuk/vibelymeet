@@ -4,7 +4,7 @@
 >
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 >
-> **2026-04-13:** Repo current-state addendum: the repo now contains **253 migrations** and **44 deployable Edge Functions**. Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are live. Chat media and account-deletion retention now dual-write into lifecycle tables, but `process-media-delete-jobs` cron remains **disabled**.
+> **2026-04-13:** Repo current-state addendum: the repo now contains **253 migrations** and **45 deployable Edge Functions**. Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are live. Sprint 4 adds admin lifecycle controls/readiness preview, but `process-media-delete-jobs` cron remains **disabled**.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  
@@ -57,10 +57,11 @@ For current backend verification and deploy work, supplement this frozen runbook
 
 1. `docs/media-lifecycle-sprint1-report.md`
 2. `docs/supabase-cloud-deploy.md`
-3. `_cursor_context/vibely_schema_appendix.md`
-4. `_cursor_context/vibely_migration_manifest.md`
-5. `_cursor_context/vibely_edge_function_manifest.md`
-6. `_cursor_context/vibely_machine_readable_inventory.json`
+3. `docs/media-lifecycle-operations-runbook.md`
+4. `_cursor_context/vibely_schema_appendix.md`
+5. `_cursor_context/vibely_migration_manifest.md`
+6. `_cursor_context/vibely_edge_function_manifest.md`
+7. `_cursor_context/vibely_machine_readable_inventory.json`
 
 Sprint 1 media lifecycle foundation is additive to the frozen rebuild baseline:
 - migration `20260417100000_media_lifecycle_foundation.sql`
@@ -75,6 +76,12 @@ Sprint 3 media lifecycle rollout adds:
 - chat media now remains retained while either participant still retains the conversation
 - pending deletion requests now create only a reversible grace-window hold; they do not count as final deletion for chat eligibility
 - final `account_deleted` chat release and owned profile/vibe cleanup now happen only when the deletion request is marked `completed`; physical deletes remain worker-driven later
+
+Sprint 4 media lifecycle operations adds:
+- Edge Function `admin-media-lifecycle-controls`
+- web admin retention controls plus read-only worker readiness preview
+- guarded cron rollout guidance in `docs/media-lifecycle-operations-runbook.md`
+- cron intentionally still disabled pending a separate monitored activation decision
 
 **Stage 1 / Stream 1 (2026-04-18):** apply `20260418120000_tighten_promote_ready_gate_helper.sql` on the target Supabase project (`supabase db push --linked` when linked) so remote promotion behavior matches repo SQL. Web/native hydration for active session vs ready-gate routes ships in application code on branch `stage1/stream1-backend-promotion-and-hydration`; details are summarized in `_cursor_context/vibely_migration_manifest.md` (Stage 1 / Stream 1 addendum). This stream does **not** add a durable notification outbox.
 

@@ -25,7 +25,7 @@ const PrivacyPolicy = () => {
     {/* Content */}
     <main className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="text-3xl font-bold mb-2">Privacy Policy</h1>
-      <p className="text-muted-foreground mb-10">Effective date: March 2026</p>
+      <p className="text-muted-foreground mb-10">Effective date: April 2026</p>
 
       <div className="space-y-8 text-sm leading-relaxed text-muted-foreground [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:mb-3">
         <section>
@@ -43,7 +43,7 @@ const PrivacyPolicy = () => {
             <li><strong>Profile info:</strong> photos, video intro, bio, location (city only), vibe tags</li>
             <li><strong>Usage data:</strong> features used, swipes, matches, sessions</li>
             <li><strong>Payment data:</strong> processed by Stripe (we never store full card numbers)</li>
-            <li><strong>Verification:</strong> selfie for photo verification (deleted after comparison)</li>
+            <li><strong>Verification:</strong> selfie for photo verification and moderation review (automated deletion for this category is currently disabled while the final retention policy is under review)</li>
           </ul>
         </section>
 
@@ -72,10 +72,12 @@ const PrivacyPolicy = () => {
         <section>
           <h2>5. Data Retention</h2>
           <ul className="list-disc pl-5 space-y-1">
-            <li>Account data: while active + 30 days after deletion</li>
-            <li>Messages: 12 months after conversation ends</li>
+            <li>Account data: while your account is active; deletion requests enter a reversible grace window of about 30 days before final cleanup begins</li>
+            <li>Profile photos and vibe videos: when you remove or replace them, they enter a soft-delete window under the current retention policy before physical deletion</li>
+            <li>Chat media attachments: retained while at least one participant still retains the conversation; once neither side retains it, the media becomes eligible for deletion under the active policy</li>
+            <li>Verification selfies: retained under a provisional verification policy until the final retention policy is approved</li>
             <li>Payment records: 7 years (EU tax law)</li>
-            <li>Deletion requests processed within 30 days</li>
+            <li>Deletion requests: scheduled for completion after the grace period unless cancelled first</li>
           </ul>
         </section>
 

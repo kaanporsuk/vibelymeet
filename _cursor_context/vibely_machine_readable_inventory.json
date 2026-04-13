@@ -47,7 +47,7 @@
       "components": 259,
       "hooks": 53,
       "services": 6,
-      "edge_functions_deployable": 44,
+      "edge_functions_deployable": 45,
       "edge_function_shared_dirs": 1,
       "migrations": 244,
       "public_tables": 45,
@@ -61,10 +61,11 @@
         "Historical inventory_counts above describe the frozen audit baseline, not the full current repo.",
         "Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are now live-aligned on the linked project.",
         "Sprint 3 grace-period follow-up is also live: pending deletion is now reversible and only the completed deletion event counts as final media-retention release.",
+        "Sprint 4 adds admin-media-lifecycle-controls plus admin retention controls/readiness preview. Cron is still intentionally disabled pending a separate monitored activation decision.",
         "process-media-delete-jobs remains deployed but cron is still intentionally disabled."
       ],
       "repo_inventory_counts": {
-        "edge_functions_deployable": 44,
+        "edge_functions_deployable": 45,
         "edge_function_shared_dirs": 1,
         "migrations": 253,
         "live_public_tables_after_sprint3": 47
@@ -117,6 +118,7 @@
         "Pending account deletion now sets only a reversible grace-window hold (`account_deletion_pending_at`).",
         "Final `account_deleted` chat release and owned profile/vibe media cleanup now happen only when the deletion request becomes `completed`.",
         "Shared chat media remains active while another participant still retains the conversation.",
+        "Sprint 4 adds admin-only readiness preview plus retention-setting controls through `admin-media-lifecycle-controls`.",
         "process-media-delete-jobs cron remains disabled."
       ]
     },
@@ -550,6 +552,19 @@
     ]
   },
   "edge_functions": [
+    {
+      "name": "admin-media-lifecycle-controls",
+      "config_listed": true,
+      "verify_jwt": true,
+      "env_vars": [
+        "SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "SUPABASE_URL"
+      ],
+      "frontend_references": [
+        "src/components/admin/AdminMediaLifecyclePanel.tsx"
+      ]
+    },
     {
       "name": "admin-proof-selfie-sign",
       "config_listed": true,

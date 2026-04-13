@@ -31,9 +31,10 @@ import SupportInbox from "@/components/admin/SupportInbox";
 import AdminDailyDropCard from "@/components/admin/AdminDailyDropCard";
 import AdminTierConfigPanel from "@/components/admin/AdminTierConfigPanel";
 import { AdminGhostBootstrapPanel } from "@/components/admin/AdminGhostBootstrapPanel";
+import AdminMediaLifecyclePanel from "@/components/admin/AdminMediaLifecyclePanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -127,6 +128,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Engagement Analytics'}
                 {activePanel === 'campaigns' && 'Push Campaigns'}
                 {activePanel === 'photo-verification' && 'Photo Verification'}
+                {activePanel === 'media-lifecycle' && 'Media Lifecycle'}
                 {activePanel === 'deletions' && 'Account Deletions'}
                 {activePanel === 'feedback' && 'Legacy feedback'}
                 {activePanel === 'support' && 'Support inbox'}
@@ -144,6 +146,7 @@ const AdminDashboard = () => {
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
                 {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
+                {activePanel === 'media-lifecycle' && 'Retention policy controls, worker readiness, and guarded cron rollout planning'}
                 {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
                 {activePanel === 'feedback' && 'Legacy Help & Feedback submissions'}
                 {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
@@ -210,6 +213,7 @@ const AdminDashboard = () => {
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
           {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
+          {activePanel === 'media-lifecycle' && <AdminMediaLifecyclePanel />}
           {activePanel === 'deletions' && <AdminDeletionsPanel />}
           {activePanel === 'feedback' && <AdminFeedbackPanel />}
           {activePanel === 'support' && <SupportInbox />}

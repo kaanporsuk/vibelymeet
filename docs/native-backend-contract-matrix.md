@@ -124,6 +124,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `cancel-deletion` | Edge Function | Recover account during deletion grace window and clear the reversible pending media hold | Same |
 | `delete-account` | Edge Function | Authenticated scheduled-deletion wrapper; applies the same reversible pending hold before sign-out/cleanup | Not required in normal app flow |
 | `verify-admin` | Edge Function | Admin gating | Web only (admin routes) |
+| `admin-media-lifecycle-controls` | Edge Function | Web-admin retention controls plus read-only worker readiness preview | Web admin only |
 
 ---
 
@@ -139,13 +140,14 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | `chat_media_retention_states` | Table | Durable per-match participant retention state for chat media; survives message/match hard deletes and now also records grace-window pending deletion via `account_deletion_pending_at` | No direct client reads in normal UI |
 | `delete_chat_for_current_user` | RPC | Backend-owned one-sided chat-retention release (`chat_deleted`) without service-role access | Shared authenticated client contract for future “delete chat for me” UI |
 | `process-media-delete-jobs` | Edge Function | Cron worker: drain delete queue via Bunny/Supabase provider helpers | Server-only (CRON_SECRET auth) |
+| `admin-media-lifecycle-controls` | Edge Function | Admin-only retention-setting writes and read-only preview of promotable assets + ready jobs | Web admin only |
 
-> Sprint 1 added the foundation tables in `20260417100000_media_lifecycle_foundation.sql`. Sprint 2 (`20260417110000_media_lifecycle_profile_media_wiring.sql`) wires **vibe videos** and **profile photos** into this model while preserving legacy profile columns as the published client contract. Sprint 3 (`20260419100000_media_lifecycle_chat_account_cleanup.sql` + `20260419103000_chat_retention_user_wrappers.sql`) makes **chat images/videos/thumbnails/voice** lifecycle-managed. The grace-period follow-up (`20260419110000_account_deletion_grace_media_fix.sql`) keeps pending deletion reversible and moves final `account_deleted` release to the actual completion event. Cron is still disabled.
+> Sprint 1 added the foundation tables in `20260417100000_media_lifecycle_foundation.sql`. Sprint 2 (`20260417110000_media_lifecycle_profile_media_wiring.sql`) wires **vibe videos** and **profile photos** into this model while preserving legacy profile columns as the published client contract. Sprint 3 (`20260419100000_media_lifecycle_chat_account_cleanup.sql` + `20260419103000_chat_retention_user_wrappers.sql`) makes **chat images/videos/thumbnails/voice** lifecycle-managed. The grace-period follow-up (`20260419110000_account_deletion_grace_media_fix.sql`) keeps pending deletion reversible and moves final `account_deleted` release to the actual completion event. Sprint 4 adds admin-only retention controls/readiness preview via `admin-media-lifecycle-controls`. Cron is still disabled.
 
 ---
 
 ## Edge Functions inventory (reference)
 
-From `supabase/functions/`: admin-review-verification, cancel-deletion, create-checkout-session, create-credits-checkout, create-event-checkout, create-portal-session, create-video-upload, daily-drop-actions, daily-room, delete-account, delete-vibe-video, email-verification, event-notifications, forward-geocode, generate-daily-drops, geocode, phone-verify, process-media-delete-jobs, push-webhook, request-account-deletion, revenuecat-webhook, send-message, send-notification, stripe-webhook, swipe-actions, upload-chat-video, upload-event-cover, upload-image, upload-voice, verify-admin, video-webhook.
+From `supabase/functions/`: admin-media-lifecycle-controls, admin-review-verification, cancel-deletion, create-checkout-session, create-credits-checkout, create-event-checkout, create-portal-session, create-video-upload, daily-drop-actions, daily-room, delete-account, delete-vibe-video, email-verification, event-notifications, forward-geocode, generate-daily-drops, geocode, phone-verify, process-media-delete-jobs, push-webhook, request-account-deletion, revenuecat-webhook, send-message, send-notification, stripe-webhook, swipe-actions, upload-chat-video, upload-event-cover, upload-image, upload-voice, verify-admin, video-webhook.
 
 Native-v1 critical: send-message, swipe-actions, daily-drop-actions, daily-room, send-notification, account-pause, account-resume, geocode, create-checkout-session (web); revenuecat-webhook (native). Others as needed per screen.

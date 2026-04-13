@@ -65,11 +65,11 @@ export const DeleteAccountModal = ({
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-12 h-12 rounded-full bg-destructive/20 flex items-center justify-center">
                   <AlertTriangle className="w-6 h-6 text-destructive" />
-                </div>
-                <DrawerTitle className="text-xl">Delete your account?</DrawerTitle>
+              </div>
+              <DrawerTitle className="text-xl">Delete your account?</DrawerTitle>
               </div>
               <DrawerDescription className="text-left">
-                This will permanently delete your profile, matches, chat history, and all data. This cannot be undone.
+                This starts a scheduled deletion request. You keep access during the grace window, and final cleanup begins only if you do not cancel before the scheduled date.
               </DrawerDescription>
             </DrawerHeader>
 
@@ -78,15 +78,15 @@ export const DeleteAccountModal = ({
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
-                  Your profile and photos
+                  Your profile, vibe video, and profile photos after the grace window ends
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
-                  All your matches and conversations
+                  Your access to matches and conversations
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
-                  Your event history
+                  Shared chat media only after nobody still retains the conversation
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-destructive shrink-0" />
@@ -160,7 +160,7 @@ export const DeleteAccountModal = ({
             <DrawerHeader className="px-0">
               <DrawerTitle className="text-xl">Type DELETE to confirm</DrawerTitle>
               <DrawerDescription className="text-left">
-                Your account will be scheduled for deletion within 30 days. You can recover it by logging in before then.
+                This starts a deletion grace window of about 30 days. You can cancel before the scheduled date and keep your account.
               </DrawerDescription>
             </DrawerHeader>
 
@@ -188,12 +188,12 @@ export const DeleteAccountModal = ({
                 {isDeleting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Deleting...
+                    Scheduling...
                   </>
                 ) : (
                   <>
                     <Trash2 className="w-4 h-4" />
-                    Delete My Account
+                    Schedule Deletion
                   </>
                 )}
               </Button>

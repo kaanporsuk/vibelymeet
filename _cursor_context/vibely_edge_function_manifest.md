@@ -27,8 +27,8 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead:
 
-- Current repo inventory: **44 deployable Edge Functions** plus `_shared`.
-- `supabase/config.toml` now explicitly configures all 44 deployable functions.
+- Current repo inventory: **45 deployable Edge Functions** plus `_shared`.
+- `supabase/config.toml` now explicitly configures all 45 deployable functions.
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
   - `upload-image`
@@ -40,10 +40,14 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
   - `delete-account`
   - `cancel-deletion`
 - Those functions now dual-write chat/account lifecycle state into `media_assets`, `media_references`, and `chat_media_retention_states` while leaving `process-media-delete-jobs` cron disabled.
+- Sprint 4 adds:
+  - `admin-media-lifecycle-controls`
+- That function gives the web admin dashboard a read-only readiness preview plus guarded retention-setting writes while keeping cron disabled by default.
 - Sprint 3 follow-up (`20260419110000_account_deletion_grace_media_fix.sql`) keeps the same function slugs but changes deletion semantics:
   - pending deletion requests now set only a reversible grace-window hold
   - final `account_deleted` chat release and owned-media cleanup happen only when the deletion request becomes `completed`
 - Current repo-only additions beyond the original baseline list include:
+  - `admin-media-lifecycle-controls`
   - `admin-proof-selfie-sign`
   - `date-suggestion-actions`
   - `date-suggestion-expiry`
@@ -62,7 +66,7 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 ## 2. Inventory summary
 
-> Current repo addendum (2026-04-12): the repo now has **44 deployable Edge Functions** plus `_shared`. Sprint 2 does **not** add a new Edge Function; it changes `create-video-upload`, `delete-vibe-video`, and `upload-image` so vibe videos and profile photos dual-write into media lifecycle tables while preserving legacy profile columns as compatibility mirrors.
+> Current repo addendum (2026-04-13): the repo now has **45 deployable Edge Functions** plus `_shared`. Sprint 4 adds `admin-media-lifecycle-controls` for admin-only retention controls and worker-readiness preview while leaving cron disabled until a separate operator decision.
 
 ### Deployable directories (historical baseline)
 
@@ -137,6 +141,14 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Primary tables touched:** `user_roles`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Rebuild notes:** critical for admin route protection; keep role semantics aligned with `app_role` / `user_roles`
+
+### `admin-media-lifecycle-controls`
+- **Purpose:** admin-only media lifecycle control plane: read-only readiness preview plus guarded retention-setting updates
+- **Auth posture:** Class C — `verify_jwt = true`; code verifies admin role in `user_roles`
+- **Frontend call sites:** `src/components/admin/AdminMediaLifecyclePanel.tsx`
+- **Primary tables touched:** `media_retention_settings`, `media_assets`, `media_delete_jobs`, `media_references`, `user_roles`, `admin_activity_logs`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- **Rebuild notes:** preview is intentionally read-only and includes promotable soft-deleted assets that the worker dry-run itself does not simulate. Cron remains a separate operator decision.
 
 ---
 

@@ -74,6 +74,16 @@ If **user-supabase** MCP is enabled in Cursor, tools such as `list_migrations`, 
 The `process-media-delete-jobs` function drains the `media_delete_jobs` queue.
 Auth: `CRON_SECRET` bearer token (same as `generate-daily-drops` and other cron workers).
 
+Sprint 4 adds an admin-only operator function:
+
+```bash
+supabase functions deploy admin-media-lifecycle-controls --project-ref schdyxcunwcvddlcshwd
+```
+
+Use the admin panel / `admin-media-lifecycle-controls` for read-only readiness previews and retention-setting updates.
+Use `process-media-delete-jobs` dry-run for exact queue preview behavior.
+Do **not** enable cron casually; see `docs/media-lifecycle-operations-runbook.md` for the guarded activation plan and rollback procedure.
+
 ```bash
 # Deploy
 supabase functions deploy process-media-delete-jobs --project-ref schdyxcunwcvddlcshwd

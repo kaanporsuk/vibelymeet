@@ -510,7 +510,7 @@ Matches tab → Daily Drop → states per SECTION 2 → opener/reply → Start C
 `/credits` or Settings → packs → Stripe → `/credits/success?pack=…`.
 
 ### 4.11 Account deletion
-Settings → Delete My Account → `DeleteAccountModal` steps → `useDeleteAccount` (backend governs grace — UI copy says permanent; align with `DeletionRecoveryBanner` if 30-day grace exists server-side).
+Settings → Delete My Account → `DeleteAccountModal` steps → `useDeleteAccount` (scheduled deletion with grace-window copy aligned to server behavior; final cleanup begins only after the scheduled date if the user does not cancel).
 
 ### 4.12 Pause/resume
 **Profile** → open **Safety Hub** → Pause account flow (`PauseAccountFlow`): choose **24 Hours**, **1 Week**, or **Indefinite** → confirm → success “Taking a Vibe Break” (profile hidden from guest list; matches kept) → Got it. Resume is via `useAccountStatus` / auth context (not re-documented here — see `PauseAccountFlow` + `AuthContext`).
