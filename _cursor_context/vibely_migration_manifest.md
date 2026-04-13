@@ -230,13 +230,14 @@ GROUP BY operation, outcome
 ORDER BY n DESC;
 ```
 
-### Phase 3b — event-loop observability retention (policy only)
+### Phase 3b — event-loop observability retention (decision brief)
 
 Branch: `phase3b/event-loop-retention-policy`.
 
-- **Design doc:** `_cursor_context/event_loop_observability_retention_policy.md` — retention window options, partitioning vs simple batch delete, rollup expectations (Phase 3 views are non-materialized), optional cold export before purge.
-- **Explicitly out of scope until reviewed:** cron jobs, `DELETE` migrations, Edge Functions, admin UI, product behavior changes.
-- **Rebuild discipline:** this section and the design doc should be updated when an implementation phase adds actual retention automation.
+- **Decision brief:** `_cursor_context/event_loop_observability_retention_policy.md` — **adopted recommendation:** **30d** raw retention, **batched `DELETE` first**, **partitioning deferred**, **cold export deferred**; Phase 3 `v_event_loop_*` views track retained raw rows only.
+- **Planned implementation branch (when approved):** `phase3c/event-loop-observability-retention`.
+- **Explicitly out of scope in Phase 3b:** cron jobs, migrations, Edge Functions, admin UI, product behavior changes.
+- **Rebuild discipline:** update this section when `phase3c` lands (migration name + scheduler choice).
 
 ---
 

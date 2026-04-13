@@ -10,7 +10,7 @@
 >
 > **2026-04-24:** Phase 3 adds `20260424120000_event_loop_read_model_views.sql` (read-only views on observability events). Same deploy path; no Edge; `GRANT SELECT` to `service_role` only.
 >
-> **2026-04-13:** Phase 3b (branch `phase3b/event-loop-retention-policy`) is **policy/design only** for `event_loop_observability_events` retention — see `_cursor_context/event_loop_observability_retention_policy.md`. No cron or deletion migrations until agreed.
+> **2026-04-13:** Phase 3b (branch `phase3b/event-loop-retention-policy`) finalizes a **retention decision brief** for `event_loop_observability_events` (`_cursor_context/event_loop_observability_retention_policy.md`): **30d** raw retention, batched delete first, partitioning and cold export deferred; implementation branch `phase3c/event-loop-observability-retention` when approved. No cron or migrations in Phase 3b.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  
