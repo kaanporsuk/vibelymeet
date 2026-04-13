@@ -64,12 +64,13 @@
         "Sprint 4 adds admin-media-lifecycle-controls plus admin retention controls/readiness preview. Cron is still intentionally disabled pending a separate monitored activation decision.",
         "process-media-delete-jobs remains deployed but cron is still intentionally disabled.",
         "Phase 2 (2026-04-23): event_loop_observability_events + instrumented promote/drain/expire/mark_lobby/handle_swipe mutual paths; see migration 20260423120000_event_loop_observability.sql.",
-        "Phase 3 (2026-04-24): v_event_loop_* read-model views only; migration 20260424120000_event_loop_read_model_views.sql."
+        "Phase 3 (2026-04-24): v_event_loop_* read-model views only; migration 20260424120000_event_loop_read_model_views.sql.",
+        "Phase 3c (2026-04-25): prune_event_loop_observability_events() + batched DELETE retention; migration 20260425120000_event_loop_observability_retention_prune.sql; schedule via pg_cron per deploy doc."
       ],
       "repo_inventory_counts": {
         "edge_functions_deployable": 45,
         "edge_function_shared_dirs": 1,
-        "migrations": 260,
+        "migrations": 261,
         "live_public_tables_after_sprint3": 48
       },
       "live_sprint3_migrations": [
