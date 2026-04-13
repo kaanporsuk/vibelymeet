@@ -5,6 +5,8 @@
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 >
 > **2026-04-13:** Repo current-state addendum: the repo now contains **253 migrations** and **45 deployable Edge Functions**. Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are live. Sprint 4 adds admin lifecycle controls/readiness preview, but `process-media-delete-jobs` cron remains **disabled**.
+>
+> **2026-04-23:** Phase 2 adds migration `20260423120000_event_loop_observability.sql` (table `event_loop_observability_events` + instrumented queue/promotion/cleanup RPCs). Apply with normal `supabase db push` / linked migration flow; no new Edge deploy or secrets. Operator reads: service-role SQL / dashboard — not anon/authenticated.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  

@@ -1,4 +1,4 @@
--- 20260413_mark_lobby_foreground_promotion.sql
+-- 20260417120200_mark_lobby_foreground_promotion.sql
 -- Update mark_lobby_foreground to use canonical promotion helper
 
 CREATE OR REPLACE FUNCTION public.mark_lobby_foreground(

@@ -88,7 +88,7 @@ export const PostDateSurvey = ({
 
   const { checkEventActive } = useEventLifecycle({ eventId });
 
-  // FIX 4 & 5: Queue drain with proper status tracking
+  // While in survey, drain/realtime can promote a queued session — navigate to lobby with pending session.
   const handleQueueMatch = useCallback(
     (videoSessionId: string, _queuePartnerId: string) => {
       toast("Your video date is ready — head to the lobby 💚", { duration: 2000 });
@@ -107,7 +107,6 @@ export const PostDateSurvey = ({
     onVideoSessionReady: handleQueueMatch,
   });
 
-  // FIX 3: Navigate to lobby, not event details
   const finishSurvey = useCallback(async () => {
     const active = await checkEventActive();
 

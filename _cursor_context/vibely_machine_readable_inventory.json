@@ -62,13 +62,14 @@
         "Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are now live-aligned on the linked project.",
         "Sprint 3 grace-period follow-up is also live: pending deletion is now reversible and only the completed deletion event counts as final media-retention release.",
         "Sprint 4 adds admin-media-lifecycle-controls plus admin retention controls/readiness preview. Cron is still intentionally disabled pending a separate monitored activation decision.",
-        "process-media-delete-jobs remains deployed but cron is still intentionally disabled."
+        "process-media-delete-jobs remains deployed but cron is still intentionally disabled.",
+        "Phase 2 (2026-04-23): event_loop_observability_events + instrumented promote/drain/expire/mark_lobby/handle_swipe mutual paths; see migration 20260423120000_event_loop_observability.sql."
       ],
       "repo_inventory_counts": {
         "edge_functions_deployable": 45,
         "edge_function_shared_dirs": 1,
-        "migrations": 253,
-        "live_public_tables_after_sprint3": 47
+        "migrations": 259,
+        "live_public_tables_after_sprint3": 48
       },
       "live_sprint3_migrations": [
         "20260417100000_media_lifecycle_foundation.sql",

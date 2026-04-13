@@ -12,8 +12,6 @@ interface UseMatchQueueOptions {
   currentStatus: string;
   /** Canonical: `video_sessions.id` when queue drain or realtime activates ready gate. */
   onVideoSessionReady?: (videoSessionId: string, partnerId: string) => void;
-  /** @deprecated Use `onVideoSessionReady` */
-  onMatchReady?: (videoSessionId: string, partnerId: string) => void;
   /** Fired at most once per session id (deduped) when a queued session expires (TTL) for this user. */
   onQueuedSessionExpired?: (videoSessionId: string) => void;
 }
@@ -22,19 +20,18 @@ export const useMatchQueue = ({
   eventId,
   currentStatus,
   onVideoSessionReady,
-  onMatchReady,
   onQueuedSessionExpired,
 }: UseMatchQueueOptions) => {
   const { user } = useUserProfile();
   const [queuedCount, setQueuedCount] = useState(0);
-  const onReadyRef = useRef(onVideoSessionReady ?? onMatchReady);
+  const onReadyRef = useRef(onVideoSessionReady);
   const onQueuedExpiredRef = useRef(onQueuedSessionExpired);
   /** Dedupe TTL-expiry toasts per `video_sessions.id` for this hook instance. */
   const queuedExpiryNotifiedIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    onReadyRef.current = onVideoSessionReady ?? onMatchReady;
-  }, [onVideoSessionReady, onMatchReady]);
+    onReadyRef.current = onVideoSessionReady;
+  }, [onVideoSessionReady]);
 
   useEffect(() => {
     onQueuedExpiredRef.current = onQueuedSessionExpired;
