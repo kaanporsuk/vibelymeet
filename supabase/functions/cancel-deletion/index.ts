@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { cancelAccountDeletionMediaHold } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,6 +66,15 @@ serve(async (req) => {
       );
     }
 
+    const holdResult = await cancelAccountDeletionMediaHold(supabaseAdmin, userId);
+    if (!holdResult.success) {
+      console.error("Error restoring deletion media hold:", holdResult.error);
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to restore media retention state" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { data: activeSuspensionRows, error: activeSuspensionError } = await supabaseAdmin
       .from("user_suspensions")
       .select("id")
@@ -92,7 +102,12 @@ serve(async (req) => {
     console.log(`Deletion cancelled for user: ${userId}`);
 
     return new Response(
-      JSON.stringify({ success: true, message: "Account deletion cancelled" }),
+      JSON.stringify({
+        success: true,
+        message: "Account deletion cancelled",
+        media_hold_restored: true,
+        media_hold_matches_touched: holdResult.matchesTouched ?? 0,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

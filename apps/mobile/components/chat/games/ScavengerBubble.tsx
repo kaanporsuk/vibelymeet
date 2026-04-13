@@ -143,7 +143,7 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
       if (result.canceled || !result.assets?.[0]) return;
       setUploading(true);
       const asset = result.assets[0];
-      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? 'image/jpeg');
+      const url = await uploadChatImageMessage(asset.uri, asset.mimeType ?? 'image/jpeg', matchId);
       setSelectedPhotoUrl(url);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Could not upload photo.');

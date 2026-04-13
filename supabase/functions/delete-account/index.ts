@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
+import { applyAccountDeletionMediaHold } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,6 +99,15 @@ serve(async (req) => {
       }
     }
 
+    const mediaHoldResult = await applyAccountDeletionMediaHold(supabaseAdmin, userId);
+    if (!mediaHoldResult.success) {
+      console.error("Error applying deletion media hold:", mediaHoldResult.error);
+      return new Response(
+        JSON.stringify({ success: false, error: "Failed to prepare media cleanup" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // 2. Cancel any active Stripe subscription
     try {
       const { data: subscription } = await supabaseAdmin
@@ -149,7 +159,12 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, message: "Account scheduled for deletion" }),
+      JSON.stringify({
+        success: true,
+        message: "Account scheduled for deletion",
+        media_hold_applied: true,
+        media_hold_matches_touched: mediaHoldResult.matchesTouched ?? 0,
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {

@@ -19,13 +19,16 @@ It answers:
 
 This is especially important for Vibely because the migration chain is **not** purely schema DDL. It includes policy rewrites, storage changes, backfills, destructive cleanup, and test-data manipulation.
 
-### Current-state addendum (2026-04-12)
+### Current-state addendum (2026-04-13)
 
 The repo has moved well beyond the frozen/archive counts below.
 
-- Current repo migration count: **244** files under `supabase/migrations`.
+- Current repo migration count: **253** files under `supabase/migrations`.
 - Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
 - That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
+- Sprint 2 profile-media wiring landed as `20260417110000_media_lifecycle_profile_media_wiring.sql`.
+- Sprint 3 chat/account cleanup landed as `20260419100000_media_lifecycle_chat_account_cleanup.sql` plus `20260419103000_chat_retention_user_wrappers.sql`.
+- Sprint 3 grace-period follow-up landed as `20260419110000_account_deletion_grace_media_fix.sql`.
 - For current deploy work, treat the live migration list plus this file as additive history: the baseline/archive counts below remain historically useful, but they are not the current total.
 
 ---
@@ -112,9 +115,9 @@ Key deltas recorded in this migration:
   - `leave_matching_queue` is kept for compatibility and returns `deprecated: true` while preserving cleanup behavior.
 - This pass does not alter payment settlement semantics or swipe-first matching product flow.
 
-### Media lifecycle addendum (2026-04-12)
+### Media lifecycle addendum (2026-04-13)
 
-Current repo state now contains **245** migration files under `supabase/migrations`.
+Current repo state now contains **253** migration files under `supabase/migrations`.
 
 Media lifecycle progression:
 - `20260417100000_media_lifecycle_foundation.sql` — Sprint 1 foundation:
@@ -125,12 +128,28 @@ Media lifecycle progression:
   - redefines `publish_photo_set`, `mark_photo_deleted`, `mark_photo_drafts_deleted`, `update_media_session_status`, `publish_media_session`, and `finalize_onboarding`
   - adds helper functions `media_compute_purge_after`, `mark_media_asset_soft_deleted_if_unreferenced`, `ensure_profile_photo_asset`, `ensure_vibe_video_asset`, `sync_profile_photo_media`, `activate_profile_vibe_video`, and `clear_profile_vibe_video`
   - conservatively backfills existing live `profiles.photos` / `avatar_url` / `bunny_video_uid` rows into lifecycle tables when applied
+- `20260419100000_media_lifecycle_chat_account_cleanup.sql` — Sprint 3 chat/account cleanup:
+  - adds `chat_media_retention_states`
+  - converts `chat_image`, `chat_video`, `chat_video_thumbnail`, and `voice_message` from placeholder retention settings into live participant-retention wiring
+  - adds helper functions `ensure_chat_media_asset`, `attach_chat_media_asset_to_match`, `sync_chat_message_media`, `release_chat_match_participant`, `restore_chat_match_participant`, `apply_account_deletion_media_hold`, `cancel_account_deletion_media_hold`, and `backfill_chat_message_media_lifecycle`
+  - adds a `BEFORE DELETE` trigger on `matches` so existing destructive match cleanup releases both participants before the row disappears
+- `20260419103000_chat_retention_user_wrappers.sql` — Sprint 3 follow-up:
+  - adds authenticated wrapper RPC `delete_chat_for_current_user(p_match_id uuid)` so client-owned “delete chat for me” can move through the backend retention model without service-role calls
+- `20260419110000_account_deletion_grace_media_fix.sql` — Sprint 3 grace-period correction:
+  - adds `chat_media_retention_states.account_deletion_pending_at` so a pending deletion request is a reversible hold, not a final deletion state
+  - adds helper functions `mark_chat_match_participant_deletion_pending` and `complete_account_deletion_media_cleanup`
+  - redefines `apply_account_deletion_media_hold` / `cancel_account_deletion_media_hold` so pending requests no longer release chat refs
+  - adds an `account_deletion_requests` completion trigger so final `account_deleted` chat release and owned profile/vibe media finalization happen only when the request becomes `completed`
 
 Important Sprint 2 boundaries:
 - keeps `profiles.bunny_video_uid` / `profiles.bunny_video_status` as the compatibility mirror for the primary vibe video
 - keeps `profiles.photos` / `profiles.avatar_url` as the compatibility mirror for published profile photos
 - does **not** enable `process-media-delete-jobs` cron
-- does **not** wire chat-media eligibility purge or account-deletion purge rewrite
+- Sprint 3 boundaries:
+  - chat media now uses lifecycle tables, but `process-media-delete-jobs` cron is still **not** enabled
+  - shared chat media still waits for explicit eligibility; there is no simple TTL-before-eligibility shortcut
+  - pending deletion requests are reversible holds only; they do not count as final deletion for chat eligibility
+  - only the operative completion event (`account_deletion_requests.status = 'completed'`) releases the deleting side as `account_deleted` and moves owned profile/vibe media into final lifecycle cleanup
 
 ### Stage 1 / Stream 1 — promote-ready-gate + session hydration (2026-04-18)
 

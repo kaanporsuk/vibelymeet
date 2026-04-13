@@ -1,6 +1,6 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-export type UploadImageContext = "onboarding" | "profile_studio";
+export type UploadImageContext = "onboarding" | "profile_studio" | "chat";
 
 export type UploadImageToBunnyResult = {
   path: string;
@@ -11,11 +11,15 @@ export async function uploadImageToBunny(
   file: File,
   accessToken: string,
   context?: UploadImageContext,
+  matchId?: string,
 ): Promise<UploadImageToBunnyResult> {
   const formData = new FormData();
   formData.append("file", file);
   if (context) {
     formData.append("context", context);
+  }
+  if (context === "chat" && matchId) {
+    formData.append("match_id", matchId);
   }
 
   let data: { success?: boolean; path?: string; sessionId?: string | null; error?: string };

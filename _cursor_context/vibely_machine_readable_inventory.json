@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-12",
+  "generated_at": "2026-04-13",
   "artifact_type": "machine_readable_inventory",
   "project": {
     "name": "Vibely",
@@ -56,32 +56,53 @@
       "public_enums": 4,
       "public_assets": 23
     },
-    "current_repo_state_2026_04_12": {
+    "current_repo_state_2026_04_13": {
       "notes": [
         "Historical inventory_counts above describe the frozen audit baseline, not the full current repo.",
-        "Sprint 1 media lifecycle foundation is live-aligned; Sprint 2 profile-media wiring is repo-local until migration 20260417110000 is applied."
+        "Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are now live-aligned on the linked project.",
+        "Sprint 3 grace-period follow-up is also live: pending deletion is now reversible and only the completed deletion event counts as final media-retention release.",
+        "process-media-delete-jobs remains deployed but cron is still intentionally disabled."
       ],
       "repo_inventory_counts": {
         "edge_functions_deployable": 44,
         "edge_function_shared_dirs": 1,
-        "migrations": 245,
-        "live_public_tables_after_sprint1": 45,
-        "repo_public_tables_after_sprint2_migration": 46
+        "migrations": 253,
+        "live_public_tables_after_sprint3": 47
       },
-      "pending_repo_only_migrations": [
-        "20260417110000_media_lifecycle_profile_media_wiring.sql"
+      "live_sprint3_migrations": [
+        "20260417100000_media_lifecycle_foundation.sql",
+        "20260417110000_media_lifecycle_profile_media_wiring.sql",
+        "20260419100000_media_lifecycle_chat_account_cleanup.sql",
+        "20260419103000_chat_retention_user_wrappers.sql",
+        "20260419110000_account_deletion_grace_media_fix.sql"
       ],
-      "pending_repo_only_tables": [
-        "profile_vibe_videos"
+      "live_media_lifecycle_tables": [
+        "media_retention_settings",
+        "media_assets",
+        "media_references",
+        "media_delete_jobs",
+        "profile_vibe_videos",
+        "chat_media_retention_states"
       ],
-      "pending_repo_only_media_lifecycle_functions": [
+      "live_media_lifecycle_functions": [
         "media_compute_purge_after",
         "mark_media_asset_soft_deleted_if_unreferenced",
         "ensure_profile_photo_asset",
         "ensure_vibe_video_asset",
         "sync_profile_photo_media",
         "activate_profile_vibe_video",
-        "clear_profile_vibe_video"
+        "clear_profile_vibe_video",
+        "ensure_chat_media_asset",
+        "ensure_chat_media_retention_state",
+        "ensure_chat_media_retention_states_for_match",
+        "sync_chat_message_media",
+        "release_chat_match_participant",
+        "restore_chat_match_participant",
+        "apply_account_deletion_media_hold",
+        "cancel_account_deletion_media_hold",
+        "mark_chat_match_participant_deletion_pending",
+        "complete_account_deletion_media_cleanup",
+        "delete_chat_for_current_user"
       ],
       "compatibility_mirrors_retained": [
         "profiles.photos",
@@ -89,9 +110,13 @@
         "profiles.bunny_video_uid",
         "profiles.bunny_video_status"
       ],
-      "sprint2_behavior_notes": [
+      "sprint3_behavior_notes": [
         "Vibe videos and profile photos dual-write into media_assets/media_references.",
-        "Chat media remains out of Sprint 2 lifecycle wiring.",
+        "Chat images, chat videos, chat video thumbnails, and voice messages now register media_assets and participant-retention references.",
+        "One-sided chat delete no longer makes shared chat media purge-eligible by itself.",
+        "Pending account deletion now sets only a reversible grace-window hold (`account_deletion_pending_at`).",
+        "Final `account_deleted` chat release and owned profile/vibe media cleanup now happen only when the deletion request becomes `completed`.",
+        "Shared chat media remains active while another participant still retains the conversation.",
         "process-media-delete-jobs cron remains disabled."
       ]
     },

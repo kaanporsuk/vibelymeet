@@ -22,36 +22,47 @@ This document is optimized for rebuild and maintenance work. For exact TypeScrip
 
 - `src/integrations/supabase/types.ts`
 
-### Current-state addendum (2026-04-12)
+### Current-state addendum (2026-04-13)
 
 The frozen baseline counts below are no longer the current repo/cloud counts.
 
-- Current linked-project schema includes **45 public tables** after Sprint 1 media lifecycle foundation.
-- The four new tables are `media_retention_settings`, `media_assets`, `media_references`, and `media_delete_jobs`.
-- Current typed/public RPC surface should include **31** functions once `src/integrations/supabase/types.ts` is regenerated from the linked project, including:
-  - `enqueue_media_delete`
-  - `release_media_reference`
-  - `claim_media_delete_jobs`
-  - `complete_media_delete_job`
-  - `promote_purgeable_assets`
-- `verification_selfie` retention is intentionally seeded but disabled (`worker_enabled = false`).
-- Chat media families are intentionally seeded as `retain_until_eligible` with no active purge clock yet.
+- Current linked-project schema now includes **47 public tables** after Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup.
+- Media lifecycle tables now include `media_retention_settings`, `media_assets`, `media_references`, `media_delete_jobs`, `profile_vibe_videos`, and `chat_media_retention_states`.
+- Sprint 3 makes chat retention eligibility backend-owned:
+  - one active `chat_participant_retention` reference per retaining participant
+  - purge eligibility only when neither participant remains in `retention_state = 'retain'`
+- Pending account deletion is now modeled separately from final deletion:
+  - `chat_media_retention_states.account_deletion_pending_at` marks the reversible grace-window hold
+  - final `account_deleted` release now happens only when `account_deletion_requests.status = 'completed'`
+- Current lifecycle/public RPC surface also includes Sprint 3 helpers such as `delete_chat_for_current_user`, `apply_account_deletion_media_hold`, `cancel_account_deletion_media_hold`, `mark_chat_match_participant_deletion_pending`, `complete_account_deletion_media_cleanup`, `restore_chat_match_participant`, and `sync_chat_message_media`.
+- `verification_selfie` retention remains intentionally seeded but disabled (`worker_enabled = false`).
+- Chat media is no longer a placeholder family: `chat_image`, `chat_video`, `chat_video_thumbnail`, and `voice_message` are now live lifecycle-managed while cron remains disabled.
 
 ---
 
 ## 2. Schema summary
 
-### Current-state addendum (2026-04-12, repo-local Sprint 2)
+### Current-state addendum (2026-04-13, linked/live Sprint 3)
 
-- The linked/live Sprint 1 baseline remains **45 public tables** after `20260417100000_media_lifecycle_foundation.sql`.
-- The repo now contains pending Sprint 2 migration `20260417110000_media_lifecycle_profile_media_wiring.sql`, which adds **`profile_vibe_videos`** as the next public table (**46th** once applied).
-- Sprint 2 keeps legacy compatibility mirrors in place:
+- The linked/live project now includes **47 public tables** after:
+  - `20260417100000_media_lifecycle_foundation.sql`
+  - `20260417110000_media_lifecycle_profile_media_wiring.sql`
+  - `20260419100000_media_lifecycle_chat_account_cleanup.sql`
+  - `20260419103000_chat_retention_user_wrappers.sql`
+  - `20260419110000_account_deletion_grace_media_fix.sql`
+- Sprint 2 compatibility mirrors remain in place:
   - `profiles.photos` + `profiles.avatar_url` remain the published profile-photo snapshot.
   - `profiles.bunny_video_uid` + `profiles.bunny_video_status` remain the published vibe-video snapshot.
-- Sprint 2 makes those two profile-media surfaces dual-write into the media lifecycle model:
+- Profile media still dual-writes into the lifecycle model:
   - profile photos now register/update `media_assets` and active `media_references`
   - vibe videos now register/update `media_assets`, `media_references`, and canonical per-user rows in `profile_vibe_videos`
-- Chat media, account-deletion purge, cron enablement, and verification-selfie policy are intentionally unchanged in this sprint.
+- Sprint 3 adds live chat/account cleanup semantics:
+  - chat uploads register `chat_*` assets in `media_assets`
+  - persisted chat messages create active participant-retention references in `media_references`
+  - `request-account-deletion` and `delete-account` now set only a reversible pending-deletion hold (`account_deletion_pending_at`) during the grace window
+  - `cancel-deletion` clears that pending hold without treating the user as finally deleted
+  - actual `account_deleted` chat retention release plus owned profile/vibe media finalization now occurs only when the deletion request is marked `completed`
+- `process-media-delete-jobs` cron remains intentionally disabled.
 
 ### Public schema object counts
 
@@ -61,7 +72,7 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 - **3 public enums**
 - **6 storage buckets referenced by migrations**
 
-These counts describe the frozen 2026-03-10 baseline, not the current 2026-04-12 linked project.
+These counts describe the frozen 2026-03-10 baseline, not the current 2026-04-13 linked project.
 
 ### Public enums
 

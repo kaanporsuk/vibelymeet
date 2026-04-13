@@ -23,13 +23,26 @@ It answers:
 
 This is a rebuild and hardening artifact, not a substitute for reading function code.
 
-### Current-state addendum (2026-04-12)
+### Current-state addendum (2026-04-13)
 
 This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead:
 
 - Current repo inventory: **44 deployable Edge Functions** plus `_shared`.
 - `supabase/config.toml` now explicitly configures all 44 deployable functions.
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
+- Sprint 3 does **not** add a new Edge Function slug, but it changes:
+  - `upload-image`
+  - `upload-chat-video`
+  - `upload-voice`
+  - `send-message`
+  - `send-game-event`
+  - `request-account-deletion`
+  - `delete-account`
+  - `cancel-deletion`
+- Those functions now dual-write chat/account lifecycle state into `media_assets`, `media_references`, and `chat_media_retention_states` while leaving `process-media-delete-jobs` cron disabled.
+- Sprint 3 follow-up (`20260419110000_account_deletion_grace_media_fix.sql`) keeps the same function slugs but changes deletion semantics:
+  - pending deletion requests now set only a reversible grace-window hold
+  - final `account_deleted` chat release and owned-media cleanup happen only when the deletion request becomes `completed`
 - Current repo-only additions beyond the original baseline list include:
   - `admin-proof-selfie-sign`
   - `date-suggestion-actions`
@@ -133,17 +146,17 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** receives deletion requests from the public delete-account flow and creates a pending request if the email maps to a real user
 - **Auth posture:** Class B — intentionally callable without logged-in user auth
 - **Frontend call sites:** `src/pages/legal/DeleteAccountWeb.tsx`
-- **Primary tables touched:** `account_deletion_requests`
+- **Primary tables touched:** `account_deletion_requests`, `chat_media_retention_states`, `media_references`, `media_assets`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** returns generic success even for invalid/nonexistent emails to avoid account enumeration; does not immediately suspend the account
+- **Rebuild notes:** returns generic success even for invalid/nonexistent emails to avoid account enumeration; does not immediately suspend the account. Authenticated same-user requests now apply only a reversible grace-window hold via `apply_account_deletion_media_hold`; they must not treat the user as finally deleted until the deletion request is marked `completed`.
 
 ### `cancel-deletion`
 - **Purpose:** cancels a pending account-deletion request for the authenticated user
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/hooks/useDeletionRecovery.ts`
-- **Primary tables touched:** `account_deletion_requests`, `profiles`
+- **Primary tables touched:** `account_deletion_requests`, `profiles`, `chat_media_retention_states`, `media_references`, `media_assets`
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** relies on pending-request semantics in `account_deletion_requests`; only clears legacy deletion-induced `profiles.is_suspended` holds and must not lift genuine moderation suspensions
+- **Rebuild notes:** relies on pending-request semantics in `account_deletion_requests`; clears the reversible grace-window hold via `cancel_account_deletion_media_hold`; only clears legacy deletion-induced `profiles.is_suspended` holds and must not lift genuine moderation suspensions
 
 ### `account-pause` (Stream 1B)
 - **Purpose:** set profile to paused state (backend-authoritative); updates `profiles.is_paused`, `paused_at`, `paused_until`, `pause_reason`
@@ -165,10 +178,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** authenticated deletion-request wrapper; schedules the same pending deletion hold, signs the user out, and performs Stripe-linked cleanup
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/hooks/useDeleteAccount.ts`
-- **Primary tables touched:** `account_deletion_requests`, `profiles`, `subscriptions`
+- **Primary tables touched:** `account_deletion_requests`, `profiles`, `subscriptions`, `chat_media_retention_states`, `media_references`, `media_assets`
 - **External services:** Stripe
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `STRIPE_SECRET_KEY`
-- **Rebuild notes:** uses shared rate-limiter helper; must stay aligned with `request-account-deletion` semantics and should not mark deletion-hold users as moderation-suspended
+- **Rebuild notes:** uses shared rate-limiter helper; applies only the reversible grace-window hold before sign-out; must stay aligned with `request-account-deletion` semantics and should not mark deletion-hold users as moderation-suspended. Final `account_deleted` lifecycle release is now owned by the database trigger on `account_deletion_requests.status = 'completed'`.
 
 ---
 
@@ -254,10 +267,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** uploads user images to Bunny Storage
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/services/imageUploadService.ts`
-- **Primary tables touched:** `draft_media_sessions`, `media_assets` (only when explicit `context` is `onboarding` or `profile_studio`)
+- **Primary tables touched:** `draft_media_sessions`, `media_assets`
 - **External services:** Bunny Storage
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`
-- **Rebuild notes:** Sprint 2 keeps chat-image uploads out of profile-photo lifecycle by requiring an explicit profile context before draft-session/media-asset registration is attempted.
+- **Rebuild notes:** explicit `context = onboarding | profile_studio` keeps the draft-safe profile flow. Sprint 3 additionally allows `context = chat` with `match_id`, validates match membership, and registers `chat_image` assets without touching profile-photo draft semantics.
 
 ### `upload-event-cover`
 - **Purpose:** uploads event cover assets for admins and returns CDN-backed URLs
@@ -272,10 +285,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** uploads voice-message media and returns CDN-backed paths for chat usage
 - **Auth posture:** Class C — `verify_jwt = true`
 - **Frontend call sites:** `src/services/voiceUploadService.ts`
-- **Primary tables touched:** none directly in the function body
+- **Primary tables touched:** `matches`, `media_assets`
 - **External services:** Bunny Storage / Bunny CDN
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`, `BUNNY_CDN_HOSTNAME`
-- **Rebuild notes:** chat audio behavior depends on this function plus storage bucket / message schema alignment
+- **Rebuild notes:** Sprint 3 requires `conversation_id` / match membership and registers a `voice_message` asset before the later `send-message` publish step attaches participant-retention refs.
 
 ---
 
@@ -418,10 +431,10 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Purpose:** inserts chat messages on behalf of the authenticated user and couples the write with server-owned `"messages"` notifications. Supports **text/image** (`content`), **`message_kind: vibe_clip`** (after `upload-chat-video`), and **`message_kind: voice`** (after `upload-voice`); voice and Vibe Clip require UUID `client_request_id` for durable idempotency.
 - **Auth posture:** Class C — `verify_jwt = true`; determines sender from JWT and validates membership in the match
 - **Frontend call sites:** `src/hooks/useMessages.ts` (`useSendMessage`, `usePublishVibeClip`, `usePublishVoiceMessage`); native `apps/mobile/lib/chatApi.ts` (`invokeSendMessageEdge`, `invokePublishVibeClip`, `invokePublishVoiceMessage`)
-- **Primary tables touched:** `matches`, `messages`, plus `notification_log` indirectly via `send-notification`
+- **Primary tables touched:** `matches`, `messages`, `media_assets`, `media_references`, `chat_media_retention_states`, plus `notification_log` indirectly via `send-notification`
 - **External services:** OneSignal (indirectly via `send-notification`)
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** text path keeps short-window idempotency (same sender, match, content within 5s). Voice/Vibe Clip use `structured_payload.client_request_id` + partial unique index. DB must allow `message_kind = 'voice'` (migration `20260330100000_messages_message_kind_voice.sql`). Operative chat-media doc: `docs/chat-video-vibe-clip-architecture.md`.
+- **Rebuild notes:** text path keeps short-window idempotency (same sender, match, content within 5s). Voice/Vibe Clip use `structured_payload.client_request_id` + partial unique index. Sprint 3 now calls `sync_chat_message_media` after insert for image/voice/vibe-clip rows and rolls the message back if lifecycle attachment fails.
 
 ### `swipe-actions` (Stream 2E)
 - **Purpose:** wraps the `handle_swipe` RPC and couples core swipe/match outcomes with server-owned notifications

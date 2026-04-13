@@ -4,7 +4,7 @@
 >
 > **2026-04-11:** Repo hardening removed unrouted `VideoLobby.tsx` and legacy `ReadyGate.tsx`; `/ready/:readyId` uses `ReadyRedirect`. Mentions of those files below are **historical**. Production hosting is **not** Lovable-first — see root `README.md` and `docs/vibely-canonical-project-reference.md`.
 >
-> **2026-04-12:** Repo current-state addendum: the repo now contains **245 migrations** and **44 deployable Edge Functions**. Sprint 1 media lifecycle foundation is live-aligned; repo-local Sprint 2 adds `20260417110000_media_lifecycle_profile_media_wiring.sql` plus targeted changes to `create-video-upload`, `delete-vibe-video`, and `upload-image`. Rollout of Sprint 2 must keep `process-media-delete-jobs` cron **disabled**.
+> **2026-04-13:** Repo current-state addendum: the repo now contains **253 migrations** and **44 deployable Edge Functions**. Sprint 1 foundation, Sprint 2 profile-media wiring, and Sprint 3 chat/account cleanup are live. Chat media and account-deletion retention now dual-write into lifecycle tables, but `process-media-delete-jobs` cron remains **disabled**.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  
@@ -51,7 +51,7 @@ You should treat the following as the canonical rebuild set for this frozen stat
 
 Do **not** rebuild from the generic `README.md` in the repo. It is insufficient.
 
-### Current-state addendum (2026-04-12)
+### Current-state addendum (2026-04-13)
 
 For current backend verification and deploy work, supplement this frozen runbook with:
 
@@ -67,6 +67,14 @@ Sprint 1 media lifecycle foundation is additive to the frozen rebuild baseline:
 - Edge Function `process-media-delete-jobs`
 - cron intentionally still disabled
 - dry-run preview intentionally non-mutating and limited to already-queued jobs
+
+Sprint 3 media lifecycle rollout adds:
+- migrations `20260419100000_media_lifecycle_chat_account_cleanup.sql` and `20260419103000_chat_retention_user_wrappers.sql`
+- migration `20260419110000_account_deletion_grace_media_fix.sql`
+- no new Edge Function slugs, but updated deployments for `upload-image`, `upload-chat-video`, `upload-voice`, `send-message`, `send-game-event`, `request-account-deletion`, `delete-account`, and `cancel-deletion`
+- chat media now remains retained while either participant still retains the conversation
+- pending deletion requests now create only a reversible grace-window hold; they do not count as final deletion for chat eligibility
+- final `account_deleted` chat release and owned profile/vibe cleanup now happen only when the deletion request is marked `completed`; physical deletes remain worker-driven later
 
 **Stage 1 / Stream 1 (2026-04-18):** apply `20260418120000_tighten_promote_ready_gate_helper.sql` on the target Supabase project (`supabase db push --linked` when linked) so remote promotion behavior matches repo SQL. Web/native hydration for active session vs ready-gate routes ships in application code on branch `stage1/stream1-backend-promotion-and-hydration`; details are summarized in `_cursor_context/vibely_migration_manifest.md` (Stage 1 / Stream 1 addendum). This stream does **not** add a durable notification outbox.
 

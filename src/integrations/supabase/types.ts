@@ -1,4 +1,3 @@
-Initialising login role...
 export type Json =
   | string
   | number
@@ -167,6 +166,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      chat_media_retention_states: {
+        Row: {
+          account_deletion_pending_at: string | null
+          created_at: string
+          id: string
+          match_id: string
+          participant_user_id: string | null
+          participant_user_key: string
+          retention_state: string
+          state_changed_at: string
+          updated_at: string
+        }
+        Insert: {
+          account_deletion_pending_at?: string | null
+          created_at?: string
+          id?: string
+          match_id: string
+          participant_user_id?: string | null
+          participant_user_key: string
+          retention_state?: string
+          state_changed_at?: string
+          updated_at?: string
+        }
+        Update: {
+          account_deletion_pending_at?: string | null
+          created_at?: string
+          id?: string
+          match_id?: string
+          participant_user_id?: string | null
+          participant_user_key?: string
+          retention_state?: string
+          state_changed_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       credit_adjustments: {
         Row: {
@@ -3531,8 +3566,20 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_account_deletion_media_hold: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       apply_referral_attribution: {
         Args: { p_referrer_id: string }
+        Returns: Json
+      }
+      attach_chat_media_asset_to_match: {
+        Args: { p_asset_id: string; p_match_id: string }
+        Returns: Json
+      }
+      backfill_chat_message_media_lifecycle: {
+        Args: { p_limit?: number }
         Returns: Json
       }
       calculate_vibe_score: { Args: { p_user_id: string }; Returns: Json }
@@ -3543,6 +3590,10 @@ export type Database = {
       can_view_profile_photo: {
         Args: { photo_owner_id: string }
         Returns: boolean
+      }
+      cancel_account_deletion_media_hold: {
+        Args: { p_user_id: string }
+        Returns: Json
       }
       cancel_event_registration: { Args: { p_event_id: string }; Returns: Json }
       check_gender_compatibility: {
@@ -3598,6 +3649,10 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_account_deletion_media_cleanup: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       complete_media_delete_job: {
         Args: { p_error?: string; p_job_id: string; p_success: boolean }
         Returns: Json
@@ -3632,6 +3687,10 @@ export type Database = {
         Args: { p_credit_type: string; p_user_id: string }
         Returns: boolean
       }
+      delete_chat_for_current_user: {
+        Args: { p_match_id: string }
+        Returns: Json
+      }
       detect_ghost_bootstrap_accounts: {
         Args: { days_old_threshold?: number; min_activity_threshold?: number }
         Returns: {
@@ -3658,6 +3717,30 @@ export type Database = {
         Args: { p_asset_id: string; p_job_type?: string }
         Returns: Json
       }
+      ensure_chat_media_asset: {
+        Args: {
+          p_legacy_id?: string
+          p_legacy_table?: string
+          p_media_family: string
+          p_owner_user_id: string
+          p_provider_path: string
+          p_status?: string
+        }
+        Returns: string
+      }
+      ensure_chat_media_retention_state: {
+        Args: { p_match_id: string; p_user_id: string }
+        Returns: string
+      }
+      ensure_chat_media_retention_states_for_match: {
+        Args: { p_match_id: string }
+        Returns: {
+          participant_user_id: string
+          participant_user_key: string
+          retention_state: string
+          state_id: string
+        }[]
+      }
       ensure_profile_photo_asset: {
         Args: {
           p_legacy_id?: string
@@ -3681,6 +3764,10 @@ export type Database = {
       expire_stale_match_calls: { Args: never; Returns: number }
       expire_stale_video_sessions: { Args: never; Returns: number }
       expire_video_date_reconnect_graces: { Args: never; Returns: number }
+      extract_chat_image_path_from_content: {
+        Args: { p_content: string }
+        Returns: string
+      }
       finalize_onboarding: {
         Args: { p_final_data?: Json; p_user_id: string }
         Returns: Json
@@ -3860,6 +3947,10 @@ export type Database = {
         Returns: Json
       }
       leave_matching_queue: { Args: { p_event_id: string }; Returns: Json }
+      mark_chat_match_participant_deletion_pending: {
+        Args: { p_match_id: string; p_pending_at?: string; p_user_id: string }
+        Returns: Json
+      }
       mark_lobby_foreground: {
         Args: { p_event_id: string }
         Returns: undefined
@@ -3889,11 +3980,19 @@ export type Database = {
         Args: { p_deleted_at?: string; p_media_family: string }
         Returns: string
       }
+      normalize_media_provider_path: {
+        Args: { p_value: string }
+        Returns: string
+      }
       normalize_relationship_intent: {
         Args: { p_intent: string }
         Returns: string
       }
       promote_purgeable_assets: { Args: { p_limit?: number }; Returns: number }
+      promote_ready_gate_if_eligible: {
+        Args: { p_event_id: string; p_uid: string }
+        Returns: Json
+      }
       promote_waitlist_for_event: {
         Args: { p_event_id: string }
         Returns: Json
@@ -3916,6 +4015,15 @@ export type Database = {
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
+      release_chat_match_participant: {
+        Args: {
+          p_match_id: string
+          p_release_reason?: string
+          p_retention_state: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       release_media_reference: {
         Args: { p_reference_id: string; p_released_by?: string }
         Returns: Json
@@ -3926,6 +4034,10 @@ export type Database = {
         Returns: undefined
       }
       resolve_entry_state: { Args: never; Returns: Json }
+      restore_chat_match_participant: {
+        Args: { p_match_id: string; p_user_id: string }
+        Returns: Json
+      }
       save_onboarding_draft: {
         Args: {
           p_data: Json
@@ -3954,6 +4066,7 @@ export type Database = {
         Args: { p_liked: boolean; p_session_id: string }
         Returns: Json
       }
+      sync_chat_message_media: { Args: { p_message_id: string }; Returns: Json }
       sync_profile_photo_media: {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
         Returns: Json

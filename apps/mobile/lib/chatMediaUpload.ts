@@ -137,7 +137,8 @@ export async function uploadChatVideoMessage(
 
 export async function uploadChatImageMessage(
   imageUri: string,
-  mimeType: string = 'image/jpeg'
+  mimeType: string = 'image/jpeg',
+  matchId: string,
 ): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
@@ -147,6 +148,8 @@ export async function uploadChatImageMessage(
   }
 
   const formData = new FormData();
+  formData.append('context', 'chat');
+  formData.append('match_id', matchId);
   const ext =
     mimeType.includes('png') ? 'png' :
     mimeType.includes('webp') ? 'webp' :
