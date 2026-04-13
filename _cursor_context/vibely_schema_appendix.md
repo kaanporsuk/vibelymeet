@@ -38,6 +38,7 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 - `verification_selfie` retention remains intentionally seeded but disabled (`worker_enabled = false`).
 - Chat media is no longer a placeholder family: `chat_image`, `chat_video`, `chat_video_thumbnail`, and `voice_message` are now live lifecycle-managed while cron remains disabled.
 - **Phase 2 (2026-04-23):** `event_loop_observability_events` — append-only operator telemetry for the live event loop (`promote_ready_gate_if_eligible`, `drain_match_queue`, `expire_stale_video_sessions`, `mark_lobby_foreground`, mutual `handle_swipe` paths). Not exposed to PostgREST clients by default; query with **service role** or SQL editor. See migration `20260423120000_event_loop_observability.sql` and `_cursor_context/vibely_migration_manifest.md` Phase 2 addendum.
+- **Phase 3 (2026-04-24):** `v_event_loop_*` views on `event_loop_observability_events` — hourly rollups and row-level filters for operators (`20260424120000_event_loop_read_model_views.sql`). **Service role** `SELECT` only; see migration manifest Phase 3 operator SQL pack.
 
 ---
 
@@ -68,8 +69,8 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 
 ### Public schema object counts
 
-- **41 public tables**
-- **1 public view**
+- **41 public tables** (frozen baseline; linked project has more — see addenda)
+- **1 public view** (frozen baseline); linked project adds **9** `v_event_loop_*` views after Phase 3 migration
 - **22 typed public SQL functions / RPC surfaces**
 - **3 public enums**
 - **6 storage buckets referenced by migrations**
@@ -82,9 +83,10 @@ These counts describe the frozen 2026-03-10 baseline, not the current 2026-04-13
 - `notification_platform` = `web`, `ios`, `android`, `pwa`
 - `notification_status` = `queued`, `sending`, `sent`, `delivered`, `opened`, `clicked`, `failed`, `bounced`
 
-### Public view
+### Public views
 
 - `push_notification_events_admin`
+- **Phase 3 (operator read model):** `v_event_loop_promotion_events`, `v_event_loop_drain_events`, `v_event_loop_expire_events`, `v_event_loop_swipe_mutual_events`, `v_event_loop_mark_lobby_events`; hourly: `v_event_loop_promotion_outcomes_hourly`, `v_event_loop_drain_outcomes_hourly`, `v_event_loop_expire_activity_hourly`, `v_event_loop_guard_outcomes_hourly`, `v_event_loop_latency_by_operation_outcome_hourly` (`20260424120000_event_loop_read_model_views.sql`).
 
 ### Important caveat
 

@@ -23,7 +23,7 @@ This is especially important for Vibely because the migration chain is **not** p
 
 The repo has moved well beyond the frozen/archive counts below.
 
-- Current repo migration count: **259** files under `supabase/migrations` after `20260423120000_event_loop_observability.sql` (re-baseline this line when migrations are added).
+- Current repo migration count: **260** files under `supabase/migrations` after `20260424120000_event_loop_read_model_views.sql` (re-baseline this line when migrations are added).
 - Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
 - That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
 - Sprint 2 profile-media wiring landed as `20260417110000_media_lifecycle_profile_media_wiring.sql`.
@@ -182,6 +182,53 @@ Branch: `phase2/observability-queue-promotion`.
 - **Function:** `public.record_event_loop_observability(...)` — `SECURITY DEFINER`, `REVOKE`d from `PUBLIC`; inserts are wrapped in `EXCEPTION WHEN OTHERS` so logging cannot break hot paths.
 - **Instrumented RPCs (replaced in same migration):** `promote_ready_gate_if_eligible`, `drain_match_queue`, `expire_stale_video_sessions`, `mark_lobby_foreground`, and `handle_swipe` (mutual / promotion-relevant branches only). Per-invocation `latency_ms` and structured `outcome` / `reason_code` / `detail` jsonb (cleanup counts for expiry, nested promotion JSON for `mark_lobby_foreground`).
 - **Explicitly out of scope:** notification delivery redesign, client UI, Edge Functions, env vars, or sampling toggles.
+
+### Phase 3 — event-loop read model (2026-04-24)
+
+Branch: `phase3/event-loop-read-model`.
+
+- **Migration:** `20260424120000_event_loop_read_model_views.sql` adds **views only** on `public.event_loop_observability_events` (append-only table unchanged; **no** write-path or RPC changes).
+- **Row-level views:** `v_event_loop_promotion_events`, `v_event_loop_drain_events`, `v_event_loop_expire_events`, `v_event_loop_swipe_mutual_events`, `v_event_loop_mark_lobby_events` (includes `detail.promotion` extraction for lobby).
+- **Hourly rollups (UTC `bucket_utc`):** `v_event_loop_promotion_outcomes_hourly`, `v_event_loop_drain_outcomes_hourly`, `v_event_loop_expire_activity_hourly`, `v_event_loop_guard_outcomes_hourly` (conflict/block/error), `v_event_loop_latency_by_operation_outcome_hourly`.
+- **Permissions:** `REVOKE` from `PUBLIC` / `anon` / `authenticated`; `GRANT SELECT` to **`service_role`** only (same posture as base table).
+- **Explicitly out of scope:** retention/archival, admin UI, Edge Functions, product API changes.
+
+#### Operator SQL pack (service role / SQL editor)
+
+```sql
+-- Last 24h: promotion outcome mix
+SELECT outcome, reason_code, SUM(n) AS n
+FROM public.v_event_loop_promotion_outcomes_hourly
+WHERE bucket_utc > now() - interval '24 hours'
+GROUP BY outcome, reason_code
+ORDER BY n DESC;
+
+-- Last 24h: drain useful work vs unauthorized / no-op
+SELECT outcome, reason_code, SUM(n) AS n, SUM(n_found_true) AS found_hits, SUM(n_queued_wait) AS queued_wait_hits
+FROM public.v_event_loop_drain_outcomes_hourly
+WHERE bucket_utc > now() - interval '24 hours'
+GROUP BY outcome, reason_code
+ORDER BY n DESC;
+
+-- Expire / hygiene volume
+SELECT * FROM public.v_event_loop_expire_activity_hourly
+WHERE bucket_utc > now() - interval '7 days'
+ORDER BY bucket_utc DESC
+LIMIT 48;
+
+-- Conflicts / blocks / errors by reason
+SELECT * FROM public.v_event_loop_guard_outcomes_hourly
+WHERE bucket_utc > now() - interval '24 hours'
+ORDER BY n DESC;
+
+-- Latency by operation + outcome (last 24h buckets)
+SELECT operation, outcome, SUM(n) AS n,
+       round(SUM(avg_latency_ms * n) / NULLIF(SUM(n), 0), 2) AS wavg_ms
+FROM public.v_event_loop_latency_by_operation_outcome_hourly
+WHERE bucket_utc > now() - interval '24 hours'
+GROUP BY operation, outcome
+ORDER BY n DESC;
+```
 
 ---
 
