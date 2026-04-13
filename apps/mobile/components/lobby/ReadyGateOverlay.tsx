@@ -16,6 +16,7 @@ import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
+import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -127,7 +128,7 @@ export function ReadyGateOverlay({
           invalidSessionNotifiedRef.current = true;
           show({
             title: 'Ready Gate unavailable',
-            message: 'This session may have ended or you are no longer in Ready Gate.',
+            message: READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
             variant: 'info',
             primaryAction: { label: 'OK', onPress: () => {} },
           });
