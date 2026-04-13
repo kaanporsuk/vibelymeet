@@ -107,6 +107,13 @@ WHERE operation = 'mark_lobby_foreground';
 COMMENT ON VIEW public.v_event_loop_mark_lobby_events IS
   'mark_lobby_foreground rows. Interpret promotion via detail.promotion, not outcome alone.';
 
+COMMENT ON COLUMN public.v_event_loop_mark_lobby_events.outcome IS
+  'Observability outcome for the completed mark_lobby RPC (often success). Not the same as promotion success; use promotion_promoted / promotion_reason.';
+COMMENT ON COLUMN public.v_event_loop_mark_lobby_events.promotion_promoted IS
+  'Text from detail.promotion: promoted=true|false from promote_ready_gate_if_eligible.';
+COMMENT ON COLUMN public.v_event_loop_mark_lobby_events.promotion_reason IS
+  'From detail.promotion when not promoted; NULL when promotion JSON has no reason key.';
+
 -- ---------------------------------------------------------------------------
 -- Hourly rollups (UTC bucket)
 -- ---------------------------------------------------------------------------
