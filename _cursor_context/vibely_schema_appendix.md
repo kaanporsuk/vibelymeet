@@ -39,6 +39,7 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 - Chat media is no longer a placeholder family: `chat_image`, `chat_video`, `chat_video_thumbnail`, and `voice_message` are now live lifecycle-managed while cron remains disabled.
 - **Phase 2 (2026-04-23):** `event_loop_observability_events` — append-only operator telemetry for the live event loop (`promote_ready_gate_if_eligible`, `drain_match_queue`, `expire_stale_video_sessions`, `mark_lobby_foreground`, mutual `handle_swipe` paths). Not exposed to PostgREST clients by default; query with **service role** or SQL editor. See migration `20260423120000_event_loop_observability.sql` and `_cursor_context/vibely_migration_manifest.md` Phase 2 addendum.
 - **Phase 3 (2026-04-24):** `v_event_loop_*` views on `event_loop_observability_events` — hourly rollups and row-level filters for operators (`20260424120000_event_loop_read_model_views.sql`). **Service role** `SELECT` only; see migration manifest Phase 3 operator SQL pack.
+- **Phase 3c (2026-04-25):** `prune_event_loop_observability_events()` — **service role** `EXECUTE` only; batched `DELETE` for rows older than the retention window (default **30 days**). Does not alter views or write-path loggers (`20260425120000_event_loop_observability_retention_prune.sql`).
 
 ---
 
@@ -70,7 +71,7 @@ The frozen baseline counts below are no longer the current repo/cloud counts.
 ### Public schema object counts
 
 - **41 public tables** (frozen baseline; linked project has more — see addenda)
-- **1 public view** (frozen baseline); linked project adds **9** `v_event_loop_*` views after Phase 3 migration
+- **1 public view** (frozen baseline); linked project adds **10** `v_event_loop_*` views after Phase 3 migration (5 row-level + 5 hourly)
 - **22 typed public SQL functions / RPC surfaces**
 - **3 public enums**
 - **6 storage buckets referenced by migrations**

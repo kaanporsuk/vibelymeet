@@ -4421,6 +4421,10 @@ export type Database = {
         Args: { p_intent: string }
         Returns: string
       }
+      prune_event_loop_observability_events: {
+        Args: { p_batch_limit?: number; p_retention_days?: number }
+        Returns: Json
+      }
       promote_purgeable_assets: { Args: { p_limit?: number }; Returns: number }
       promote_ready_gate_if_eligible: {
         Args: { p_event_id: string; p_uid: string }

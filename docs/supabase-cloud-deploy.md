@@ -51,6 +51,10 @@ Phase 2 live-loop observability (`20260423120000_event_loop_observability.sql`) 
 
 Phase 3 (`20260424120000_event_loop_read_model_views.sql`) adds **views only** (`v_event_loop_*`) for hourly rollups and filtered rows — same service-role access pattern; **no** write-path or Edge changes.
 
+Phase 3c (`20260425120000_event_loop_observability_retention_prune.sql`) adds **`prune_event_loop_observability_events`** — batched `DELETE` for rows older than **30 days** (defaults; tunable). **No Edge deploy or new secrets.** Apply migration with `supabase db push --linked`.
+
+**Scheduling (production):** enable **`pg_cron`** on the project and run `SELECT public.prune_event_loop_observability_events();` on a **daily** (or hourly if catching up) schedule, **or** invoke the same SQL from an external trusted runner. Repeat until `has_more_to_prune` is `false` after major backlog. See `_cursor_context/event_loop_observability_retention_policy.md` (Phase 3c section).
+
 ## Deploy Edge Functions
 
 **One function** (typical after code change):

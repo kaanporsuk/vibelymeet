@@ -9,6 +9,8 @@
 > **2026-04-23:** Phase 2 adds migration `20260423120000_event_loop_observability.sql` (table `event_loop_observability_events` + instrumented queue/promotion/cleanup RPCs). Apply with normal `supabase db push` / linked migration flow; no new Edge deploy or secrets. Operator reads: service-role SQL / dashboard — not anon/authenticated.
 >
 > **2026-04-24:** Phase 3 adds `20260424120000_event_loop_read_model_views.sql` (read-only views on observability events). Same deploy path; no Edge; `GRANT SELECT` to `service_role` only.
+>
+> **2026-04-25:** Phase 3c adds `20260425120000_event_loop_observability_retention_prune.sql` — `prune_event_loop_observability_events()` for **30d** batched retention on `event_loop_observability_events`. Schedule with **`pg_cron`** or external SQL runner (`docs/supabase-cloud-deploy.md`). No Edge.
 
 **Version:** post-hardening  
 **Date:** 2026-03-11  
