@@ -107,7 +107,7 @@
 | **Chat thread** | `app/chat/[id].tsx` | Thread + games + media |
 | **Ready gate** | `app/ready/[id].tsx`, overlay in lobby | Full-screen + in-lobby |
 | **Video date** | `app/date/[id].tsx` | Daily room |
-| **Post-date survey** | *Web in-call; mobile deferred* | Component exists in **web** `PostDateSurvey`; not first-class route on native v1 |
+| **Post-date survey** | Embedded in **`/date/[id]`** when `phase === 'ended'` && `showFeedback` | Uses `@/components/video-date/PostDateSurvey` — see gap list for end-path coverage |
 | **Profile** | `app/(tabs)/profile/index.tsx`, `ProfileStudio.tsx` | Edit + vibe video |
 | **Settings** | `app/settings/*` | Account, notifications, privacy, credits, support, etc. |
 | **Premium** | `app/premium.tsx` | RevenueCat |
@@ -127,28 +127,36 @@
 | Chat | `send-message` + outbox | **Good** | Read receipts deferred | Ahead |
 | Events/location | `get_visible_events` | **Good** | — | Good |
 | Vibe video | TUS + Bunny + profile columns | **Good** | Processing edge cases | Good |
-| Post-date survey | Backend survey hooks (web) | **Missing route** | **Highest visible gap** | Reference |
+| Post-date survey | Same RPC/verdict stack as web (`PostDateSurvey` component) | **Implemented** when user ends call (`showFeedback` path on `date/[id]`) | **Parity gap:** partner/backend-ended flows may show “Date ended” **without** survey until aligned with web | Web may cover more end paths |
 
 ---
 
-## 5. Recommended implementation order (after Sprint 0)
+## 5. Exact gap list (prioritized)
 
-1. **Post-date survey parity** on native (`PostDateSurvey` pattern from web) — closes the largest documented UX gap (`docs/mobile-sprint5.md`).
-2. **Notification deep links + read receipts** — README-deferred; pick by launch priority.
-3. **Video date in-call extras** (mutual vibe, extend) — product-dependent; not contract blockers.
-4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh` web) + `docs/native-manual-test-matrix.md` for cross-platform.
-
----
-
-## 6. First concrete native branch after Sprint 0 (recommended)
-
-**`native/sprint1-post-date-survey-parity`** (or equivalent name under `native/*`)
-
-- Brings post-date survey flow in line with web after video date end, using existing backend contracts (no new observability scope).
+1. **Video date end paths:** Ensure **post-date survey** (and verdict submission) runs on **all** end reasons (partner hang-up, reconnect grace expiry, backend `ended`) matching web — today survey is tightly coupled to the user-initiated **`handleCallEnd`** path (`showFeedback`).
+2. **Notification deep links + read receipts** — README-deferred; launch-priority polish.
+3. **Video date in-call extras** (mutual vibe, credit extend) — web ahead; product call.
+4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
 
 ---
 
-## 7. Doc alignment
+## 6. Recommended implementation order (after Sprint 0)
+
+1. **Survey / end-path parity** (`date/[id].tsx` + `PostDateSurvey`) — unify when `phase === 'ended'` so survey is not skipped on remote-only termination (reuse existing component).
+2. Deep links + read receipts (as launch requires).
+3. In-call vibe/extend parity (optional).
+
+---
+
+## 7. First concrete native branch after Sprint 0 (recommended)
+
+**`native/sprint1-video-date-end-path-parity`** (or `native/sprint1-post-date-survey-end-paths`)
+
+- Scope: **End-path coverage only** — no new backend observability, no contract changes unless a missing RPC is discovered during implementation.
+
+---
+
+## 8. Doc alignment
 
 - **Canonical project reference:** `docs/vibely-canonical-project-reference.md` (import boundaries, `@shared`).
 - **Active entry map:** `docs/active-doc-map.md` — this file is the **native architecture lock** for v1 planning.
@@ -156,7 +164,7 @@
 
 ---
 
-## 8. Explicit non-goals
+## 9. Explicit non-goals
 
 - No reopening **event-loop backend** redesign or new observability features unless new production evidence appears.
 - No partitioning/export/retention scope beyond shipped Phase 3c.
