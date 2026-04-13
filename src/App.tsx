@@ -49,6 +49,7 @@ import Referrals from "./pages/Referrals";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import { NotificationProvider } from "./contexts/NotificationContext";
+import { SessionHydrationProvider } from "./contexts/SessionHydrationContext";
 import { SessionRouteHydration } from "./components/session/SessionRouteHydration";
 import { AuthProvider } from "@/contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
@@ -102,6 +103,7 @@ const SentryFallback = ({ resetError }: { resetError: () => void }) => (
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <SessionHydrationProvider>
       <NotificationProvider>
         <TooltipProvider>
           <Toaster />
@@ -170,6 +172,7 @@ const App = () => (
           </Sentry.ErrorBoundary>
         </TooltipProvider>
       </NotificationProvider>
+      </SessionHydrationProvider>
     </AuthProvider>
     <SpeedInsights />
     <Analytics />

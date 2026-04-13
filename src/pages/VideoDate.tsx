@@ -157,6 +157,7 @@ const VideoDate = () => {
   };
 
   // Load session, enforce participant guard, then resolve partner profile (only when allowed).
+  // Ended + in_ready_gate navigations: defense-in-depth vs `SessionRouteHydration` (hydration-gated).
   useEffect(() => {
     if (!id) {
       setVideoDateAccess("not_found");

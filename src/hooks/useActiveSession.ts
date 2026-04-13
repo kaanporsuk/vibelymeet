@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   pickRegistrationForActiveSession,
   type ActiveSessionBase,
-} from "@shared/matching/activeSession";
+} from "@clientShared/matching/activeSession";
 
 export type ActiveSession = ActiveSessionBase;
 

@@ -193,6 +193,7 @@ export default function VideoDateScreen() {
 
   phaseRef.current = phase;
 
+  // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (hydration-gated).
   useEffect(() => {
     if (!sessionId || !user?.id) return;
     let cancelled = false;

@@ -1,6 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-import { useUserProfile } from '@/contexts/AuthContext';
-import { useActiveSession, type ActiveSession as HydratedActiveSession } from "@/hooks/useActiveSession";
 
 export type NotificationType = 'match' | 'message' | 'event' | 'date_proposal';
 
@@ -71,7 +69,7 @@ const generateId = () => `notification-${++notificationId}-${Date.now()}`;
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [readIds, setReadIds] = useState<Set<string>>(new Set());
+  const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
 
   const unreadCount = notifications.filter(n => !n.dismissed && !readIds.has(n.id)).length;
 
@@ -119,7 +117,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   return (
     <NotificationContext.Provider value={{ notifications, unreadCount, addNotification, dismissNotification, markAllAsRead, clearAll }}>
-      <SessionHydrationBridge>{children}</SessionHydrationBridge>
+      {children}
     </NotificationContext.Provider>
   );
 };
@@ -131,38 +129,3 @@ export const useNotifications = () => {
   }
   return context;
 };
-
-/** Backend-derived active video / ready-gate session (Stream 1 hydration). */
-type SessionHydrationContextType = {
-  activeSession: HydratedActiveSession | null;
-  hydrated: boolean;
-  refetch: () => Promise<void>;
-};
-
-const SessionHydrationContext = createContext<SessionHydrationContextType | undefined>(undefined);
-
-function SessionHydrationBridge({ children }: { children: ReactNode }) {
-  const { user } = useUserProfile();
-  const { activeSession, hydrated, refetch } = useActiveSession(user?.id);
-
-  return (
-    <SessionHydrationContext.Provider value={{ activeSession, hydrated, refetch }}>
-      {children}
-    </SessionHydrationContext.Provider>
-  );
-}
-
-/**
- * Backend-derived active session (`ready_gate` / in-call) for shell routing and banners.
- * Values come from `SessionHydrationBridge` (nested under `NotificationProvider`); they are **not** notification inbox state.
- */
-export const useSessionHydration = () => {
-  const ctx = useContext(SessionHydrationContext);
-  if (!ctx) {
-    throw new Error(
-      "useSessionHydration must be used within NotificationProvider (session hydration is provided by SessionHydrationBridge inside it)",
-    );
-  }
-  return ctx;
-};
-

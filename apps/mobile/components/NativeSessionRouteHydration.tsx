@@ -2,11 +2,16 @@ import { useEffect, useRef } from 'react';
 import { router, usePathname } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useActiveSession } from '@/lib/useActiveSession';
-import { supabase } from '@/lib/supabase';
 
 /**
- * Backend-truth-first: reconcile /date/[id] with active session and video_sessions
- * (Ready Gate vs ended session deep links).
+ * Primary URL-level owner for `/date/[id]` when hydrated active session is **ready_gate**
+ * for that session → `/ready/[id]`.
+ *
+ * **Defense-in-depth:** `app/date/[id].tsx` still checks `ended_at` and `in_ready_gate` via
+ * Supabase in an effect (before/without relying on hydration), covering cold-start races.
+ *
+ * **Ended sessions:** handled in the date screen effect (same queries as this file used to
+ * duplicate) — single owner for ended redirect there.
  */
 export function NativeSessionRouteHydration() {
   const pathname = usePathname();
@@ -28,29 +33,7 @@ export function NativeSessionRouteHydration() {
       if (lastReadyKey.current === key) return;
       lastReadyKey.current = key;
       router.replace(`/ready/${sid}` as const);
-      return;
     }
-
-    let cancelled = false;
-    void (async () => {
-      const { data: vs } = await supabase
-        .from('video_sessions')
-        .select('ended_at, event_id')
-        .eq('id', sid)
-        .maybeSingle();
-
-      if (cancelled || !vs?.ended_at) return;
-
-      if (vs.event_id) {
-        router.replace(`/event/${vs.event_id}/lobby` as const);
-      } else {
-        router.replace('/(tabs)' as const);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [user?.id, hydrated, pathname, activeSession]);
 
   return null;
