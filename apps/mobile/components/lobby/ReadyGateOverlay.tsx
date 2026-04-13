@@ -44,6 +44,7 @@ export function ReadyGateOverlay({
   const theme = Colors[colorScheme];
   const { show } = useVibelyDialog();
   const closedRef = useRef(false);
+  const invalidSessionNotifiedRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
@@ -94,6 +95,7 @@ export function ReadyGateOverlay({
 
   useEffect(() => {
     closedRef.current = false;
+    invalidSessionNotifiedRef.current = false;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
     setMarkingReady(false);
@@ -121,13 +123,22 @@ export function ReadyGateOverlay({
       ]);
       if (cancelled) return;
       if (!vs || vs.ended_at != null || reg?.queue_status !== 'in_ready_gate') {
+        if (!invalidSessionNotifiedRef.current) {
+          invalidSessionNotifiedRef.current = true;
+          show({
+            title: 'Ready Gate unavailable',
+            message: 'This session may have ended or you are no longer in Ready Gate.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+        }
         onClose();
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sessionId, eventId, userId, onClose]);
+  }, [sessionId, eventId, userId, onClose, show]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
