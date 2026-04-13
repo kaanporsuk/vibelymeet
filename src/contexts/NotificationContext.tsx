@@ -152,10 +152,16 @@ function SessionHydrationBridge({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Backend-derived active session (`ready_gate` / in-call) for shell routing and banners.
+ * Values come from `SessionHydrationBridge` (nested under `NotificationProvider`); they are **not** notification inbox state.
+ */
 export const useSessionHydration = () => {
   const ctx = useContext(SessionHydrationContext);
   if (!ctx) {
-    throw new Error('useSessionHydration must be used within NotificationProvider');
+    throw new Error(
+      "useSessionHydration must be used within NotificationProvider (session hydration is provided by SessionHydrationBridge inside it)",
+    );
   }
   return ctx;
 };
