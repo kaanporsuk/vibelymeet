@@ -75,7 +75,7 @@
 
 **Read receipts (launch):** Both clients call RPC **`mark_match_messages_read`** when the thread is viewed (native: focus + app foreground + thread load; web: tab visible + thread load). Outbound ticks use DB **`messages.read_at`** (native already mapped; web maps `readAt` → read/delivered for “me” rows).
 
-**Notification deep links (launch):** OneSignal `click` routes via `NotificationDeepLinkHandler` (`additionalData.url` / `deep_link` / `launchURL`, plus **`other_user_id`** for `/chat/:profileId`). If the session is not hydrated yet, the path is **queued** (`pendingNotificationDeepLink.ts`) and applied after sign-in; **`/date/:sessionId`** is reconciled to **`/ready/:id`**, **`/date/:id`**, or **`/event/:eventId/lobby`** from `video_sessions` + `event_registrations`. Support: **`support_reply`** → `/settings/ticket/:id`.
+**Notification deep links (launch):** OneSignal `click` routes via `NotificationDeepLinkHandler` (`additionalData.url` / `deep_link` / `launchURL`, plus **`other_user_id`** for `/chat/:profileId`). Paths are **queued** (`pendingNotificationDeepLink.ts`) until **`EntryStateRouteGate` would allow protected routes**: session present, auth + entry-state loading finished, and **`entryState.state === 'complete'`** (same predicate as `_layout` gate — covers cold start before session, onboarding, and recovery). Then **`router.push`** runs; **`/date/:sessionId`** is reconciled to **`/ready/:id`**, **`/date/:id`**, or **`/event/:eventId/lobby`** from `video_sessions` + `event_registrations`. Support: **`support_reply`** → `/settings/ticket/:id`.
 
 ### 2.6 Event visibility / location path
 
@@ -136,7 +136,7 @@
 ## 5. Exact gap list (prioritized)
 
 1. **Video date end paths:** Addressed in **`native/sprint1-video-date-end-path-parity`** — survey after joined-call ends via control End, **sync_reconnect** `ended`, or realtime **`phase === 'ended'`**; pre-connect abort still skips survey.
-2. **Notification deep links + read receipts** — Addressed in **`native/sprint2-deeplinks-read-receipts`** (pending deep link queue + read parity).
+2. **Notification deep links + read receipts** — Addressed in **`native/sprint2-deeplinks-read-receipts`** (pending deep link queue + read parity). **Entry-gate timing** — **`native/sprint3-entry-gate-deeplink-polish`**: queue until **`entryState.state === 'complete'`** (same as `EntryStateRouteGate`) to avoid redirect churn.
 3. **Video date in-call extras** (mutual vibe, credit extend) — web ahead; product call.
 4. **Ongoing:** Golden-path smoke (`scripts/run_golden_path_smoke.sh`) + `docs/native-manual-test-matrix.md` cross-platform.
 

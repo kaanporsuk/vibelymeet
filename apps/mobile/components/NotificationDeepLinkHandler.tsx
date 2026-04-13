@@ -5,8 +5,10 @@
  * When unauthenticated, queues the path until session is ready (see `pendingNotificationDeepLink`).
  */
 import { useEffect, useRef } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { router, usePathname, type Href } from 'expo-router';
 import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal';
+import type { EntryStateResponse } from '@shared/entryState';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { useAuth } from '@/context/AuthContext';
@@ -16,6 +18,23 @@ import {
   queueNotificationDeepLinkPath,
   takePendingNotificationDeepLinkPath,
 } from '@/lib/pendingNotificationDeepLink';
+
+/**
+ * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
+ * without redirecting to auth / onboarding / recovery (avoids queued-link churn).
+ */
+function isEntryReadyForNotificationDeepLink(
+  session: Session | null,
+  loading: boolean,
+  entryStateLoading: boolean,
+  entryState: EntryStateResponse | null
+): boolean {
+  if (loading || entryStateLoading) return false;
+  if (!session) return false;
+  if (!entryState) return false;
+  if (entryState.state === 'incomplete') return false;
+  return entryState.state === 'complete';
+}
 
 function hrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): Href | null {
   const raw =
@@ -101,8 +120,15 @@ export function NotificationRouteTracker() {
 }
 
 export function NotificationDeepLinkHandler() {
-  const { user } = useAuth();
+  const { user, session, loading, entryState, entryStateLoading } = useAuth();
   const prevUserIdRef = useRef<string | undefined>(undefined);
+
+  const entryReady = isEntryReadyForNotificationDeepLink(
+    session,
+    loading,
+    entryStateLoading,
+    entryState
+  );
 
   useEffect(() => {
     const prev = prevUserIdRef.current;
@@ -113,7 +139,7 @@ export function NotificationDeepLinkHandler() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !entryReady) return;
     const pending = takePendingNotificationDeepLinkPath();
     if (!pending) return;
     void (async () => {
@@ -123,7 +149,7 @@ export function NotificationDeepLinkHandler() {
       });
       router.push(href);
     })();
-  }, [user?.id]);
+  }, [user?.id, entryReady]);
 
   useEffect(() => {
     const onClick = (event: unknown) => {
@@ -139,7 +165,7 @@ export function NotificationDeepLinkHandler() {
         const data = additionalData as Record<string, unknown> | undefined;
         if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
           const ticketPath = `/settings/ticket/${data.ticket_id}`;
-          if (!user?.id) {
+          if (!user?.id || !entryReady) {
             queueNotificationDeepLinkPath(ticketPath);
             rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', {
               href: ticketPath,
@@ -159,7 +185,7 @@ export function NotificationDeepLinkHandler() {
           return;
         }
         const pathStr = String(href);
-        if (!user?.id) {
+        if (!user?.id || !entryReady) {
           queueNotificationDeepLinkPath(pathStr);
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });
           return;
@@ -210,7 +236,7 @@ export function NotificationDeepLinkHandler() {
       OneSignal.Notifications.removeEventListener('click', onClick);
       OneSignal.Notifications.removeEventListener('foregroundWillDisplay', onForeground);
     };
-  }, [user?.id]);
+  }, [user?.id, entryReady]);
 
   return null;
 }
