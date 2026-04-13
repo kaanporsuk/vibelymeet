@@ -260,108 +260,53 @@ function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow
   };
 }
 
-// ── Ops: fetch cron status + recent runs ─────────────────────────────────────
+// ── Ops: fetch cron status + recent runs via SECURITY DEFINER RPC ─────────────
+//
+// The cron schema (cron.job, cron.job_run_details) is NOT exposed through
+// PostgREST regardless of key. Calling .schema("cron").from("job") always
+// returns an error that was previously swallowed, producing cron_job: null.
+// The fix: get_media_worker_cron_status() is a SECURITY DEFINER RPC that
+// queries cron.* directly in SQL and returns everything as JSONB.
 
-async function fetchCronStatus(admin: ReturnType<typeof createClient>) {
-  const { data: jobRows, error: jobError } = await admin
-    .from("cron.job" as "media_assets")
-    .select("jobid, jobname, schedule, active")
-    .eq("jobname", MEDIA_WORKER_JOB_NAME)
-    .maybeSingle();
-
-  if (jobError) {
-    console.error("fetchCronStatus job query failed:", jobError.message);
-    return null;
-  }
-
-  const cronJob = jobRows as unknown as CronJobRow | null;
-  if (!cronJob) return null;
-
-  // Fetch recent run history
-  const { data: runs, error: runsError } = await admin
-    .rpc("execute_sql_internal_cron_runs" as "summarize_media_lifecycle_health", {
-      // fall back to raw SQL via a workaround — query cron.job_run_details
-    } as Record<string, never>);
-
-  // cron schema tables aren't directly accessible via PostgREST; use raw RPC path
-  // Instead we'll query via the health RPC and inject cron run data separately
-  void runs; void runsError;
-
-  return { job: cronJob, recent_runs: [] as CronRunRow[] };
-}
-
-// Fetch cron status + recent runs via direct SQL through service-role RPC path
 async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
-  const { data: healthData, error: healthError } = await admin
-    .rpc("summarize_media_lifecycle_health");
+  const [healthResult, cronResult] = await Promise.all([
+    admin.rpc("summarize_media_lifecycle_health"),
+    admin.rpc("get_media_worker_cron_status"),
+  ]);
 
-  if (healthError) {
-    console.error("health RPC failed:", healthError.message);
-    return { health: null, cron_job: null, recent_runs: [] as CronRunRow[] };
+  if (healthResult.error) {
+    console.error("[admin-media-lifecycle-controls] health RPC failed:", healthResult.error.message);
+  }
+  if (cronResult.error) {
+    console.error("[admin-media-lifecycle-controls] cron status RPC failed:", cronResult.error.message);
   }
 
-  const health = healthData as unknown as Record<string, unknown>;
+  const health = healthResult.data as unknown as Record<string, unknown> | null;
+  const cronRaw = cronResult.data as unknown as Record<string, unknown> | null;
 
-  // Query cron job state
-  const { data: cronData, error: cronError } = await (admin as ReturnType<typeof createClient>)
-    .schema("cron")
-    .from("job")
-    .select("jobid, jobname, schedule, active")
-    .eq("jobname", MEDIA_WORKER_JOB_NAME)
-    .maybeSingle();
-
-  const cronJob = cronError ? null : (cronData as CronJobRow | null);
-
-  // Query recent run details
-  let recentRuns: CronRunRow[] = [];
-  if (cronJob) {
-    const { data: runsData, error: runsError } = await (admin as ReturnType<typeof createClient>)
-      .schema("cron")
-      .from("job_run_details")
-      .select("runid, jobid, status, start_time, end_time")
-      .eq("jobid", cronJob.jobid)
-      .order("runid", { ascending: false })
-      .limit(10);
-
-    if (!runsError && runsData) {
-      recentRuns = runsData as CronRunRow[];
-    }
+  if (!cronRaw || !cronRaw.found) {
+    return { health, cron_job: null, recent_runs: [] as CronRunRow[] };
   }
 
-  // Compute consecutive failures from recent runs
-  let consecutiveFailures = 0;
-  let lastSucceededAt: string | null = null;
-  let lastFailedAt: string | null = null;
-
-  for (const run of recentRuns) {
-    if (run.status === "succeeded") {
-      if (!lastSucceededAt) lastSucceededAt = run.start_time;
-      break;
-    } else if (run.status === "failed") {
-      consecutiveFailures++;
-      if (!lastFailedAt) lastFailedAt = run.start_time;
-    }
-  }
+  const recentRuns = (cronRaw.recent_runs as CronRunRow[] | null) ?? [];
 
   return {
     health,
-    cron_job: cronJob ? {
-      job_id: cronJob.jobid,
-      jobname: cronJob.jobname,
-      schedule: cronJob.schedule,
-      active: cronJob.active,
-      last_succeeded_at: lastSucceededAt,
-      last_failed_at: lastFailedAt,
-      consecutive_failures: consecutiveFailures,
-    } : null,
+    cron_job: {
+      job_id: cronRaw.job_id as number,
+      jobname: cronRaw.jobname as string,
+      schedule: cronRaw.schedule as string,
+      active: cronRaw.active as boolean,
+      last_succeeded_at: (cronRaw.last_succeeded_at as string | null) ?? null,
+      last_failed_at: (cronRaw.last_failed_at as string | null) ?? null,
+      consecutive_failures: (cronRaw.consecutive_failures as number) ?? 0,
+    },
     recent_runs: recentRuns.map((r) => ({
       runid: r.runid,
       status: r.status,
       start_time: r.start_time,
-      end_time: r.end_time,
-      duration_ms: r.end_time
-        ? new Date(r.end_time).getTime() - new Date(r.start_time).getTime()
-        : null,
+      end_time: r.end_time ?? null,
+      duration_ms: (r as unknown as Record<string, unknown>).duration_ms as number | null ?? null,
     })),
   };
 }
