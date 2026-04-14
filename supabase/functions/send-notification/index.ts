@@ -19,6 +19,7 @@ const APP_URL = Deno.env.get('APP_URL') || 'https://vibelymeet.com'
  *
  * Known callers (repo audit) — every push category used in code should appear here or in CATEGORY_PREFERENCE_BYPASS:
  * - send-message, send-game-event → messages
+ * - daily-room create_match_call → match_call
  * - swipe-actions → ready_gate, someone_vibed_you
  * - useEventVibes → mutual_vibe, someone_vibed_you
  * - post-date-verdict, daily-drop-actions (reply) → new_match
@@ -46,6 +47,7 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   date_proposal_accepted: 'notify_messages',
   date_proposal_declined: 'notify_messages',
   messages: 'notify_messages',
+  match_call: 'notify_messages',
   date_suggestion_proposed: 'notify_messages',
   date_suggestion_countered: 'notify_messages',
   date_suggestion_accepted: 'notify_messages',
@@ -96,7 +98,7 @@ function skipsPerBucketPreferenceCheck(category: string): boolean {
 }
 
 // Categories that bypass quiet hours (time-critical / safety / support)
-const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety', 'support_reply']
+const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety', 'support_reply', 'match_call']
 
 type AdmissionStatus = 'confirmed' | 'waitlisted' | string | undefined
 
@@ -240,6 +242,7 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
   date_suggestion_declined: { title: 'Date suggestion declined', body: (ctx) => `${ctx?.senderName ?? 'Someone'} declined` },
   date_suggestion_cancelled: { title: 'Date suggestion cancelled', body: (ctx) => `${ctx?.senderName ?? 'Someone'} cancelled the suggestion` },
   date_suggestion_expiring_soon: { title: 'Date suggestion expiring soon ⏳', body: () => 'Your date suggestion is about to expire. Open chat to respond.' },
+  match_call: { title: 'Incoming call', body: () => 'Open the app to answer' },
   welcome: { title: 'Welcome to Vibely! 💜', body: () => 'Complete your profile to start matching' },
   profile_incomplete: { title: 'Almost there! 📸', body: () => 'Add photos to get 3x more matches' },
 }
@@ -506,7 +509,7 @@ Deno.serve(async (req) => {
       typeof category === 'string' && category.startsWith('date_suggestion_')
 
     // 8. Check per-match mute (messages, new_match, and date suggestion categories)
-    if ((category === 'messages' || category === 'new_match' || isDateSuggestionCategory) && data?.match_id) {
+    if ((category === 'messages' || category === 'match_call' || category === 'new_match' || isDateSuggestionCategory) && data?.match_id) {
       // Canonical per-match mute table.
       const { data: notifMute } = await supabase
         .from('match_notification_mutes')
@@ -594,6 +597,20 @@ Deno.serve(async (req) => {
     const admissionStatus = getAdmissionStatus(data)
     const osData: Record<string, unknown> = { ...(data || {}), category }
     if (
+      category === 'match_call' &&
+      data?.match_id &&
+      data?.sender_id
+    ) {
+      const chatPath = `/chat/${data.sender_id}`
+      osData.match_id = data.match_id
+      osData.other_user_id = data.sender_id
+      osData.sender_id = data.sender_id
+      if (typeof data.call_id === 'string' && data.call_id.trim()) osData.call_id = data.call_id.trim()
+      if (typeof data.call_type === 'string' && data.call_type.trim()) osData.call_type = data.call_type.trim()
+      osData.url = chatPath
+      osData.deep_link = chatPath
+      webPath = chatPath
+    } else if (
       (category === 'messages' || isDateSuggestionCategory) &&
       data?.match_id &&
       data?.sender_id
@@ -628,6 +645,10 @@ Deno.serve(async (req) => {
       contents: { en: finalBody },
       data: osData,
       url: webPath !== '/' ? `${APP_URL}${webPath}` : APP_URL,
+    }
+
+    if (category === 'match_call') {
+      osPayload.priority = 10
     }
 
     if (collapseId) {

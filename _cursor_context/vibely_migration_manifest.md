@@ -30,6 +30,7 @@ The repo has moved well beyond the frozen/archive counts below.
 - Sprint 3 chat/account cleanup landed as `20260419100000_media_lifecycle_chat_account_cleanup.sql` plus `20260419103000_chat_retention_user_wrappers.sql`.
 - Sprint 3 grace-period follow-up landed as `20260419110000_account_deletion_grace_media_fix.sql`.
 - For current deploy work, treat the live migration list plus this file as additive history: the baseline/archive counts below remain historically useful, but they are not the current total.
+- **2026-04-14 (chat/call launch closure branch):** `20260414190000_schedule_match_call_room_cleanup_cron.sql` — optional `pg_cron` + `pg_net` schedule for Edge `match-call-room-cleanup` (Bearer `CRON_SECRET`, same vault pattern as other HTTP crons). Applies only when extensions exist; no client contract change.
 
 ---
 

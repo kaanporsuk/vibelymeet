@@ -16,6 +16,8 @@ interface Message {
   reactionPair?: ReactionPair | null;
   status?: MessageStatusType;
   sendError?: string;
+  /** Queued / offline / sending (web durable outbox) */
+  statusSubtext?: string;
 }
 
 interface MessageBubbleProps {
@@ -164,18 +166,26 @@ export const MessageBubble = ({
         ) : null}
         {isLastInGroup && (
           <div className={cn(
-            "flex items-center gap-1 mt-1",
-            isMe ? "justify-end" : "justify-start"
+            "flex flex-col gap-0.5 mt-1",
+            isMe ? "items-end" : "items-start"
           )}>
-            {isMe && message.sendError ? (
-              <span className="text-[10px] text-primary-foreground/60 tabular-nums">{message.time}</span>
-            ) : (
-              <MessageStatus
-                status={message.status || "delivered"}
-                time={message.time}
-                isMyMessage={isMe}
-              />
-            )}
+            {isMe && message.statusSubtext && !message.sendError ? (
+              <span className="text-[10px] text-primary-foreground/70">{message.statusSubtext}</span>
+            ) : null}
+            <div className={cn(
+              "flex items-center gap-1",
+              isMe ? "justify-end" : "justify-start"
+            )}>
+              {isMe && message.sendError ? (
+                <span className="text-[10px] text-primary-foreground/60 tabular-nums">{message.time}</span>
+              ) : (
+                <MessageStatus
+                  status={message.status || "delivered"}
+                  time={message.time}
+                  isMyMessage={isMe}
+                />
+              )}
+            </div>
           </div>
         )}
 

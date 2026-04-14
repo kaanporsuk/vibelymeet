@@ -1,0 +1,414 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useUserProfile } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { deleteOutboxBlob } from "@/lib/webChatOutbox/blobIdb";
+import { loadWebOutboxItems, saveWebOutboxItems } from "@/lib/webChatOutbox/store";
+import {
+  executeWebOutboxItem,
+  nextBackoffMs,
+  WebOutboxExecuteError,
+} from "@/lib/webChatOutbox/execute";
+import { isLikelyNetworkFailure, outboxFailureUserMessage } from "@/lib/webChatOutbox/network";
+import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
+import type { WebChatOutboxItem, WebChatOutboxPayload, WebChatOutboxQueueState } from "@/lib/webChatOutbox/types";
+import type { ThreadInvalidateScope } from "../../shared/chat/queryKeys";
+
+const HYDRATION_CHECK_INTERVAL_MS = 10_000;
+const HYDRATION_TIMEOUT_MS = 90_000;
+const HYDRATION_RECOVERY_BACKOFF_MS = 5_000;
+
+function isOnline(): boolean {
+  return typeof navigator !== "undefined" ? navigator.onLine : true;
+}
+
+function itemPayloadBlobKey(item: WebChatOutboxItem): string | null {
+  const p = item.payload;
+  if (p.kind === "text") return null;
+  return p.blobKey;
+}
+
+function isEligibleToSend(item: WebChatOutboxItem, online: boolean): boolean {
+  if (!online) return false;
+  if (item.state === "canceled" || item.state === "sent") return false;
+  if (item.state === "awaiting_hydration") return false;
+  if (item.state === "sending") return false;
+  if (item.state === "failed") {
+    if (item.nextRetryAtMs != null && Date.now() < item.nextRetryAtMs) return false;
+    return true;
+  }
+  if (item.state === "waiting_for_network" || item.state === "queued") return true;
+  return false;
+}
+
+type WebChatOutboxContextValue = {
+  items: WebChatOutboxItem[];
+  enqueue: (input: {
+    matchId: string;
+    otherUserId: string;
+    userId: string;
+    payload: WebChatOutboxPayload;
+    invalidateScope?: ThreadInvalidateScope;
+  }) => string | null;
+  retry: (itemId: string) => void;
+  remove: (itemId: string) => void;
+  itemsForMatch: (matchId: string) => WebChatOutboxItem[];
+  reconcileWithServerIds: (serverMessageIds: Set<string>) => void;
+  processTick: (queryClient: QueryClient) => Promise<void>;
+};
+
+const WebChatOutboxContext = createContext<WebChatOutboxContextValue | null>(null);
+
+export function WebChatOutboxProvider({ children }: { children: ReactNode }) {
+  const { user } = useUserProfile();
+  const userId = user?.id ?? null;
+  const [items, setItems] = useState<WebChatOutboxItem[]>([]);
+  const itemsRef = useRef(items);
+  const processingRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    if (!userId) {
+      setItems([]);
+      return;
+    }
+    let cancelled = false;
+    void loadWebOutboxItems(userId).then((loaded) => {
+      if (!cancelled) setItems(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const t = setTimeout(() => {
+      void saveWebOutboxItems(userId, items);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [items, userId]);
+
+  const enqueue = useCallback(
+    (input: {
+      matchId: string;
+      otherUserId: string;
+      userId: string;
+      payload: WebChatOutboxPayload;
+      invalidateScope?: ThreadInvalidateScope;
+    }): string | null => {
+      if (!userId) return null;
+      const id = crypto.randomUUID();
+      const now = Date.now();
+      const onlineNow = isOnline();
+      const initialState: WebChatOutboxQueueState = onlineNow ? "queued" : "waiting_for_network";
+      const item: WebChatOutboxItem = {
+        id,
+        matchId: input.matchId,
+        otherUserId: input.otherUserId,
+        userId: input.userId,
+        payload: input.payload,
+        state: initialState,
+        createdAtMs: now,
+        updatedAtMs: now,
+        attemptCount: 0,
+        invalidateScope: input.invalidateScope,
+      };
+      setItems((prev) => [...prev, item].sort((a, b) => a.createdAtMs - b.createdAtMs));
+      return id;
+    },
+    [userId],
+  );
+
+  const retry = useCallback((itemId: string) => {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.id === itemId
+          ? {
+              ...it,
+              state: isOnline() ? "queued" : "waiting_for_network",
+              lastError: undefined,
+              nextRetryAtMs: undefined,
+              updatedAtMs: Date.now(),
+            }
+          : it,
+      ),
+    );
+  }, []);
+
+  const remove = useCallback((itemId: string) => {
+    const toCleanup: string[] = [];
+    setItems((prev) =>
+      prev.filter((it) => {
+        if (it.id !== itemId) return true;
+        const key = itemPayloadBlobKey(it);
+        if (key) toCleanup.push(key);
+        return false;
+      }),
+    );
+    if (toCleanup.length > 0) {
+      void Promise.all(toCleanup.map((k) => deleteOutboxBlob(k)));
+    }
+  }, []);
+
+  const reconcileWithServerIds = useCallback((serverMessageIds: Set<string>) => {
+    const toCleanup: string[] = [];
+    setItems((prev) =>
+      prev.filter((it) => {
+        if (!it.serverMessageId) return true;
+        if (!serverMessageIds.has(it.serverMessageId)) return true;
+        const key = itemPayloadBlobKey(it);
+        if (key) toCleanup.push(key);
+        return false;
+      }),
+    );
+    if (toCleanup.length > 0) {
+      void Promise.all(toCleanup.map((k) => deleteOutboxBlob(k)));
+    }
+  }, []);
+
+  const itemsForMatch = useCallback(
+    (matchId: string) =>
+      items.filter((it) => it.matchId === matchId && it.state !== "canceled" && it.state !== "sent"),
+    [items],
+  );
+
+  const processTick = useCallback(
+    async (queryClient: QueryClient) => {
+      if (!userId) return;
+      const online = isOnline();
+      const now = Date.now();
+
+      for (const item of itemsRef.current) {
+        if (item.state !== "awaiting_hydration") continue;
+        if (!item.serverMessageId) {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    state: "failed" as const,
+                    lastError: "Message confirmation missing. Retry to continue.",
+                    nextRetryAtMs: now + HYDRATION_RECOVERY_BACKOFF_MS,
+                    updatedAtMs: now,
+                  }
+                : it,
+            ),
+          );
+          continue;
+        }
+        if (!online) continue;
+
+        const deadlineAtMs = item.hydrationDeadlineAtMs ?? item.updatedAtMs + HYDRATION_TIMEOUT_MS;
+        const lastCheckedAtMs = item.hydrationLastCheckedAtMs ?? 0;
+        const dueForCheck = now - lastCheckedAtMs >= HYDRATION_CHECK_INTERVAL_MS;
+        const pastDeadline = now >= deadlineAtMs;
+        if (!dueForCheck && !pastDeadline) continue;
+
+        const { data: serverRow } = await supabase
+          .from("messages")
+          .select("id")
+          .eq("id", item.serverMessageId)
+          .eq("match_id", item.matchId)
+          .maybeSingle();
+
+        if (serverRow?.id) {
+          const key = itemPayloadBlobKey(item);
+          if (key) void deleteOutboxBlob(key);
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    state: "sent" as const,
+                    hydrationLastCheckedAtMs: now,
+                    hydrationDeadlineAtMs: deadlineAtMs,
+                    updatedAtMs: now,
+                  }
+                : it,
+            ),
+          );
+          invalidateAfterThreadMutation(queryClient, item.invalidateScope);
+          continue;
+        }
+
+        if (pastDeadline) {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    state: "failed" as const,
+                    lastError: "Message still syncing. Retry to resend safely.",
+                    nextRetryAtMs: now + HYDRATION_RECOVERY_BACKOFF_MS,
+                    hydrationLastCheckedAtMs: now,
+                    hydrationDeadlineAtMs: deadlineAtMs,
+                    updatedAtMs: now,
+                  }
+                : it,
+            ),
+          );
+        } else {
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? {
+                    ...it,
+                    hydrationLastCheckedAtMs: now,
+                    hydrationDeadlineAtMs: deadlineAtMs,
+                  }
+                : it,
+            ),
+          );
+        }
+      }
+
+      const byMatch = new Map<string, WebChatOutboxItem[]>();
+      for (const it of itemsRef.current) {
+        if (it.state === "canceled" || it.state === "sent") continue;
+        if (!byMatch.has(it.matchId)) byMatch.set(it.matchId, []);
+        byMatch.get(it.matchId)!.push(it);
+      }
+
+      for (const [, list] of byMatch) {
+        list.sort((a, b) => a.createdAtMs - b.createdAtMs);
+        const next = list.find((it) => isEligibleToSend(it, online));
+        if (!next) continue;
+        if (processingRef.current.has(next.id)) continue;
+
+        processingRef.current.add(next.id);
+
+        const attemptCount = next.attemptCount + 1;
+        setItems((prev) =>
+          prev.map((it) =>
+            it.id === next.id
+              ? { ...it, state: "sending" as const, attemptCount, updatedAtMs: Date.now() }
+              : it,
+          ),
+        );
+
+        try {
+          const { serverMessageId, uploadedPublicUrl, uploadedMediaUrl } = await executeWebOutboxItem(
+            { ...next, attemptCount },
+            queryClient,
+          );
+          const successAtMs = Date.now();
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === next.id
+                ? {
+                    ...it,
+                    serverMessageId,
+                    uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
+                    uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
+                    state: "awaiting_hydration" as const,
+                    lastError: undefined,
+                    nextRetryAtMs: undefined,
+                    hydrationLastCheckedAtMs: undefined,
+                    hydrationDeadlineAtMs: successAtMs + HYDRATION_TIMEOUT_MS,
+                    updatedAtMs: successAtMs,
+                  }
+                : it,
+            ),
+          );
+        } catch (e) {
+          const rawMsg = e instanceof Error ? e.message : "Send failed";
+          const backoff = nextBackoffMs(attemptCount);
+          const uploadedPublicUrl = e instanceof WebOutboxExecuteError ? e.uploadedPublicUrl : undefined;
+          const uploadedMediaUrl = e instanceof WebOutboxExecuteError ? e.uploadedMediaUrl : undefined;
+          const offlineNow = !isOnline();
+          const likelyNet = isLikelyNetworkFailure(e);
+          const treatAsOfflineWait = offlineNow || likelyNet;
+          const isClip = next.payload.kind === "video";
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === next.id
+                ? {
+                    ...it,
+                    uploadedPublicUrl: uploadedPublicUrl ?? it.uploadedPublicUrl,
+                    uploadedMediaUrl: uploadedMediaUrl ?? it.uploadedMediaUrl,
+                    state: treatAsOfflineWait ? ("waiting_for_network" as const) : ("failed" as const),
+                    lastError: treatAsOfflineWait ? undefined : outboxFailureUserMessage(rawMsg, isClip),
+                    nextRetryAtMs: treatAsOfflineWait ? undefined : Date.now() + backoff,
+                    attemptCount: treatAsOfflineWait ? next.attemptCount : attemptCount,
+                    updatedAtMs: Date.now(),
+                  }
+                : it,
+            ),
+          );
+        } finally {
+          processingRef.current.delete(next.id);
+        }
+      }
+    },
+    [userId],
+  );
+
+  const value = useMemo<WebChatOutboxContextValue>(
+    () => ({
+      items,
+      enqueue,
+      retry,
+      remove,
+      itemsForMatch,
+      reconcileWithServerIds,
+      processTick,
+    }),
+    [items, enqueue, retry, remove, itemsForMatch, reconcileWithServerIds, processTick],
+  );
+
+  return <WebChatOutboxContext.Provider value={value}>{children}</WebChatOutboxContext.Provider>;
+}
+
+export function useWebChatOutbox(): WebChatOutboxContextValue {
+  const ctx = useContext(WebChatOutboxContext);
+  if (!ctx) {
+    throw new Error("useWebChatOutbox must be used within WebChatOutboxProvider");
+  }
+  return ctx;
+}
+
+/** Background driver: online/offline + interval (mirrors native ChatOutboxRunner). */
+export function WebChatOutboxRunner() {
+  const queryClient = useQueryClient();
+  const { processTick } = useWebChatOutbox();
+
+  const tick = useCallback(async () => {
+    await processTick(queryClient);
+  }, [processTick, queryClient]);
+
+  useEffect(() => {
+    void tick();
+  }, [tick]);
+
+  useEffect(() => {
+    const onNet = () => {
+      void tick();
+    };
+    window.addEventListener("online", onNet);
+    window.addEventListener("offline", onNet);
+    const interval = setInterval(() => {
+      void tick();
+    }, 4000);
+    return () => {
+      window.removeEventListener("online", onNet);
+      window.removeEventListener("offline", onNet);
+      clearInterval(interval);
+    };
+  }, [tick]);
+
+  return null;
+}

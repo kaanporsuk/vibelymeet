@@ -7,7 +7,8 @@ import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared
 
 export type { ThreadInvalidateScope };
 
-function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInvalidateScope | undefined) {
+/** Exported for web chat outbox (same invalidation as send mutations). */
+export function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInvalidateScope | undefined) {
   if (scope?.otherUserId && scope?.currentUserId) {
     qc.invalidateQueries({
       queryKey: threadMessagesQueryKey(scope.otherUserId, scope.currentUserId),

@@ -23,6 +23,11 @@ It answers:
 
 This is a rebuild and hardening artifact, not a substitute for reading function code.
 
+### Current-state addendum (2026-04-14)
+
+- **`match-call-room-cleanup`:** `verify_jwt = false`; auth via `Authorization: Bearer CRON_SECRET` (same as other cron drainers). Deletes Daily.co rooms for **terminal** `match_calls` rows older than ~2 minutes (best-effort if client `delete_room` missed). Env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `CRON_SECRET`. Optional schedule: `20260414190000_schedule_match_call_room_cleanup_cron.sql` (pg_cron + pg_net).
+- **`daily-room` (`create_match_call`):** After inserting `match_calls`, invokes **`send-notification`** with category **`match_call`** (OneSignal + deep link to `/chat/:callerId`). Requires deployed **`send-notification`** changes for `match_call` routing and quiet-hours bypass.
+
 ### Current-state addendum (2026-04-13)
 
 This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead:

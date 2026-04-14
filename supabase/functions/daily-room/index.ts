@@ -445,6 +445,38 @@ serve(async (req) => {
         throw callError;
       }
 
+      try {
+        const { data: callerProfile } = await serviceClient
+          .from("profiles")
+          .select("name")
+          .eq("id", user.id)
+          .maybeSingle();
+        const callerName = (callerProfile?.name as string | undefined)?.trim() || "Your match";
+        const bodyText =
+          callTypeValue === "voice"
+            ? `${callerName} is calling you`
+            : `${callerName} is video calling you`;
+        await serviceClient.functions.invoke("send-notification", {
+          headers: { Authorization: `Bearer ${serviceRoleKey}` },
+          body: {
+            user_id: calleeId,
+            category: "match_call",
+            title: "Incoming call",
+            body: bodyText,
+            data: {
+              match_id: matchId,
+              sender_id: user.id,
+              other_user_id: user.id,
+              call_id: call.id,
+              call_type: callTypeValue,
+              url: `/chat/${user.id}`,
+            },
+          },
+        });
+      } catch (notifyError) {
+        console.error("create_match_call send-notification error:", notifyError);
+      }
+
       return new Response(
         JSON.stringify({
           call_id: call.id,

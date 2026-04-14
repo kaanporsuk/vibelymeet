@@ -5,10 +5,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
-import { uploadVoiceToBunny } from "@/services/voiceUploadService";
-import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
-import { uploadImageToBunny } from "@/services/imageUploadService";
-import { getImageUrl } from "@/utils/imageUrl";
 import {
   Send,
   Film,
@@ -58,7 +54,10 @@ import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useTypingBroadcast } from "@/hooks/useTypingBroadcast";
 import { useMessageReactions } from "@/hooks/useMessageReactions";
-import { useMessages, useSendMessage, usePublishVibeClip, usePublishVoiceMessage } from "@/hooks/useMessages";
+import { useMessages } from "@/hooks/useMessages";
+import { useWebChatOutbox } from "@/contexts/WebChatOutboxContext";
+import { putOutboxBlob, getOutboxBlob } from "@/lib/webChatOutbox/blobIdb";
+import { webOutboxItemsToRows, type OutboxPreviewMap } from "@/lib/webChatOutbox/toChatMessages";
 import { setMessageReaction } from "@/lib/messageReactions";
 import { reactionPairFromRows, type ReactionPair, type MessageReactionRow } from "../../shared/chat/messageReactionModel";
 import { webGamePayloadFromSessionView, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
@@ -117,6 +116,10 @@ interface ChatMessage {
   sortAtMs?: number;
   /** Matches structured_payload.client_request_id on the server row after send */
   clientRequestId?: string;
+  /** Durable web outbox row id for retry */
+  outboxItemId?: string;
+  /** Secondary line under timestamp (queued / offline / uploading) */
+  statusSubtext?: string;
 }
 
 /** Merge server rows with optimistic locals: drop locals once server echoes the same client_request_id; sort by send time */
@@ -231,14 +234,12 @@ const Chat = () => {
   const queryClient = useQueryClient();
   
   const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
-  const { mutate: sendMessage } = useSendMessage();
-  const publishVibeClip = usePublishVibeClip();
-  const publishVoiceMessage = usePublishVoiceMessage();
+  const webOutbox = useWebChatOutbox();
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
   );
 
-  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [outboxPreviews, setOutboxPreviews] = useState<OutboxPreviewMap>({});
   const [newMessage, setNewMessage] = useState("");
   const [localTyping, setLocalTyping] = useState(false);
   const [showDateSuggestion, setShowDateSuggestion] = useState(false);
@@ -317,7 +318,7 @@ const Chat = () => {
         });
       });
     }, 400);
-  }, [chatData?.matchId, chatData?.messages?.length, currentUserId, id, queryClient, user?.id]);
+  }, [chatData?.matchId, currentUserId, id, queryClient, user?.id]);
 
   useEffect(() => {
     scheduleMarkWebThreadRead();
@@ -407,6 +408,53 @@ const Chat = () => {
     [],
   );
 
+  const outboxMatchItems = webOutbox.itemsForMatch(chatData?.matchId ?? "");
+
+  useEffect(() => {
+    let cancelled = false;
+    const collectUrls = (m: OutboxPreviewMap) => {
+      const out: string[] = [];
+      for (const v of Object.values(m)) {
+        if (v?.image) out.push(v.image);
+        if (v?.audio) out.push(v.audio);
+        if (v?.video) out.push(v.video);
+      }
+      return out;
+    };
+    void (async () => {
+      const next: OutboxPreviewMap = {};
+      for (const it of outboxMatchItems) {
+        const p = it.payload;
+        if (p.kind === "image") {
+          const b = await getOutboxBlob(p.blobKey);
+          if (b && !cancelled) next[it.id] = { ...next[it.id], image: URL.createObjectURL(b) };
+        } else if (p.kind === "voice") {
+          const b = await getOutboxBlob(p.blobKey);
+          if (b && !cancelled) next[it.id] = { ...next[it.id], audio: URL.createObjectURL(b) };
+        } else if (p.kind === "video") {
+          const b = await getOutboxBlob(p.blobKey);
+          if (b && !cancelled) next[it.id] = { ...next[it.id], video: URL.createObjectURL(b) };
+        }
+      }
+      if (cancelled) {
+        collectUrls(next).forEach((u) => URL.revokeObjectURL(u));
+        return;
+      }
+      setOutboxPreviews((prev) => {
+        collectUrls(prev).forEach((u) => URL.revokeObjectURL(u));
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [outboxMatchItems]);
+
+  useEffect(() => {
+    const ids = new Set((chatData?.messages ?? []).map((m) => m.id));
+    webOutbox.reconcileWithServerIds(ids);
+  }, [chatData?.messages, webOutbox]);
+
   const messages: ChatMessage[] = useMemo(() => {
     const statusFromServer = (sender: "me" | "them", readAt?: string | null): MessageStatusType =>
       sender === "me" ? (readAt ? "read" : "delivered") : "delivered";
@@ -462,8 +510,9 @@ const Chat = () => {
         sortAtMs,
       };
     });
-    return mergeServerAndLocalChatMessages(realMsgs, localMessages);
-  }, [chatData?.messages, localMessages, reactionByMessageId]);
+    const outboxRows = webOutboxItemsToRows(outboxMatchItems, outboxPreviews) as ChatMessage[];
+    return mergeServerAndLocalChatMessages(realMsgs, outboxRows);
+  }, [chatData?.messages, outboxMatchItems, outboxPreviews, reactionByMessageId]);
 
   const displayMessages = useMemo(() => {
     return dedupeLatestByRefId(messages, {
@@ -472,6 +521,26 @@ const Chat = () => {
       getId: (m) => m.id,
     });
   }, [messages]);
+
+  const outboxClipStateRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    for (const it of webOutbox.items) {
+      if (it.payload.kind !== "video") continue;
+      const prev = outboxClipStateRef.current.get(it.id);
+      if (prev === "sending" && it.state === "awaiting_hydration") {
+        trackVibeClipEvent("clip_send_succeeded", {
+          duration_bucket: durationBucketFromSeconds(
+            typeof it.payload.durationSeconds === "number" ? it.payload.durationSeconds : 0,
+          ),
+          has_poster: false,
+          thread_bucket: threadBucketFromCount(chatData?.messages?.length ?? 0),
+          is_sender: true,
+        });
+        toast.success(VIBE_CLIP_TOAST_SENT);
+      }
+      outboxClipStateRef.current.set(it.id, it.state);
+    }
+  }, [webOutbox.items, chatData?.messages?.length]);
 
   const chatPhotoLightboxItems = useMemo(() => {
     const out: { id: string; url: string }[] = [];
@@ -488,10 +557,9 @@ const Chat = () => {
     if (!showDateComposer || dateComposerLaunchSource !== "vibe_clip") return;
     trackVibeClipEvent("clip_date_flow_opened", {
       launched_from: "clip_context",
-      thread_bucket: threadBucketFromCount(displayMessages.length),
+      thread_bucket: threadBucketFromCount(chatData?.messages?.length ?? 0),
     });
-    // Intentionally omit displayMessages.length: avoid duplicate events if thread updates while composer stays open.
-  }, [showDateComposer, dateComposerLaunchSource]);
+  }, [showDateComposer, dateComposerLaunchSource, chatData?.messages?.length]);
 
   const suggestionById = useMemo(() => {
     const map = new Map<string, DateSuggestionWithRelations>();
@@ -854,10 +922,10 @@ const Chat = () => {
   );
 
   const sendTextMessage = useCallback(
-    (opts?: { tempId?: string; text?: string }) => {
+    (opts?: { text?: string }) => {
       const text = (opts?.text ?? newMessage).trim();
       if (!text) return;
-      if (!chatData?.matchId) {
+      if (!chatData?.matchId || !id) {
         toast.error("No active conversation found");
         return;
       }
@@ -865,69 +933,18 @@ const Chat = () => {
         toast.error("No active conversation found");
         return;
       }
-      const createdAtMs = Date.now();
-      const clientRequestId = crypto.randomUUID();
-      const tempId = opts?.tempId ?? `temp-${createdAtMs}`;
-      const optimisticKind = inferChatMediaRenderKind({ content: text });
-      const tempMsg: ChatMessage = {
-        id: tempId,
-        text,
-        sender: "me",
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        type: optimisticKind === "image" ? "image" : "text",
-        status: "sending",
-        sortAtMs: createdAtMs,
-        clientRequestId,
-      };
-      if (!opts?.tempId) {
-        setLocalMessages((prev) => [...prev, tempMsg]);
-      } else {
-        setLocalMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? {
-                  ...m,
-                  status: "sending",
-                  sendError: undefined,
-                  clientRequestId,
-                  sortAtMs: createdAtMs,
-                }
-              : m,
-          ),
-        );
+      const oid = webOutbox.enqueue({
+        matchId: chatData.matchId,
+        otherUserId: id,
+        userId: currentUserId,
+        payload: { kind: "text", text },
+        invalidateScope: threadInvalidateScope,
+      });
+      if (oid && typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(8);
       }
-      sendMessage(
-        {
-          matchId: chatData.matchId,
-          content: text,
-          clientRequestId,
-          invalidateScope: threadInvalidateScope,
-        },
-        {
-          onSuccess: (data) => {
-            if (typeof navigator !== "undefined" && navigator.vibrate) {
-              navigator.vibrate(12);
-            }
-            const row = data as { structured_payload?: Record<string, unknown> } | null | undefined;
-            const srvCid = clientRequestIdFromStructured(row?.structured_payload ?? null);
-            setLocalMessages((prev) =>
-              prev.filter((m) => m.id !== tempId && (!srvCid || m.clientRequestId !== srvCid)),
-            );
-          },
-          onError: () => {
-            setLocalMessages((prev) =>
-              prev.map((m) =>
-                m.id === tempId
-                  ? { ...m, status: "sent" as MessageStatusType, sendError: "Couldn't send · Tap to retry" }
-                  : m,
-              ),
-            );
-            toast.error("Failed to send message");
-          },
-        },
-      );
     },
-    [chatData?.matchId, newMessage, sendMessage, threadInvalidateScope],
+    [chatData?.matchId, currentUserId, id, newMessage, threadInvalidateScope, webOutbox],
   );
 
   const handlePhotoFileChange = useCallback(
@@ -939,92 +956,40 @@ const Chat = () => {
         toast.error("Please choose an image file");
         return;
       }
-      if (!chatData?.matchId || !user?.id) {
+      if (!chatData?.matchId || !user?.id || !id) {
         toast.error("Cannot send photo right now");
         return;
       }
-      if (!navigator.onLine) {
-        toast.error("You're offline — try again when connected");
-        return;
-      }
-
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        toast.error("Sign in required");
-        return;
-      }
-
       if (!threadInvalidateScope) {
         toast.error("Cannot send photo right now");
         return;
       }
-      const createdAtMs = Date.now();
-      const clientRequestId = crypto.randomUUID();
-      const tempId = `temp-img-${createdAtMs}`;
       setSendingPhoto(true);
       try {
-        const { path } = await uploadImageToBunny(file, session.access_token, "chat", chatData.matchId);
-        const publicUrl = getImageUrl(path, { quality: 88 });
-        const content = formatChatImageMessageContent(publicUrl);
-        const tempMsg: ChatMessage = {
-          id: tempId,
-          text: content,
-          sender: "me",
-          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          type: "image",
-          status: "sending",
-          sortAtMs: createdAtMs,
-          clientRequestId,
-        };
-        setLocalMessages((prev) => [...prev, tempMsg]);
-        sendMessage(
-          {
-            matchId: chatData.matchId,
-            content,
-            clientRequestId,
-            invalidateScope: threadInvalidateScope,
-          },
-          {
-            onSuccess: (data) => {
-              if (typeof navigator !== "undefined" && navigator.vibrate) {
-                navigator.vibrate(12);
-              }
-              const row = data as { structured_payload?: Record<string, unknown> } | null | undefined;
-              const srvCid = clientRequestIdFromStructured(row?.structured_payload ?? null);
-              setLocalMessages((prev) =>
-                prev.filter((m) => m.id !== tempId && (!srvCid || m.clientRequestId !== srvCid)),
-              );
-            },
-            onError: () => {
-              setLocalMessages((prev) =>
-                prev.map((m) =>
-                  m.id === tempId
-                    ? { ...m, status: "sent" as MessageStatusType, sendError: "Couldn't send · Tap to retry" }
-                    : m,
-                ),
-              );
-              toast.error("Failed to send photo");
-            },
-            onSettled: () => {
-              setSendingPhoto(false);
-            },
-          },
-        );
+        const blobKey = crypto.randomUUID();
+        await putOutboxBlob(blobKey, file);
+        webOutbox.enqueue({
+          matchId: chatData.matchId,
+          otherUserId: id,
+          userId: currentUserId,
+          payload: { kind: "image", blobKey, mimeType: file.type || "image/jpeg" },
+          invalidateScope: threadInvalidateScope,
+        });
+        if (typeof navigator !== "undefined" && navigator.vibrate) {
+          navigator.vibrate(8);
+        }
       } catch (err) {
-        console.error("Photo upload error:", err);
-        toast.error(err instanceof Error ? err.message : "Photo upload failed");
+        console.error("Photo queue error:", err);
+        toast.error(err instanceof Error ? err.message : "Couldn't add photo to send queue");
+      } finally {
         setSendingPhoto(false);
       }
     },
-    [chatData?.matchId, user?.id, sendMessage, threadInvalidateScope]
+    [chatData?.matchId, currentUserId, id, threadInvalidateScope, user?.id, webOutbox],
   );
 
   const handleSend = () => {
     if (!newMessage.trim()) return;
-    if (!navigator.onLine) {
-      toast.error("You're offline — message will send when you reconnect");
-      return;
-    }
     stickToBottomRef.current = true;
     setNewMessage("");
     setLocalTyping(false);
@@ -1132,42 +1097,35 @@ const Chat = () => {
   const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
     setIsRecording(false);
 
-    if (!chatData?.matchId || !user?.id) {
+    if (!chatData?.matchId || !user?.id || !id) {
+      toast.error("Cannot send voice message right now");
+      return;
+    }
+    if (!threadInvalidateScope) {
       toast.error("Cannot send voice message right now");
       return;
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-
-      const audioUrl = await uploadVoiceToBunny(
-        audioBlob,
-        session.access_token,
-        chatData.matchId
-      );
-
-      if (!threadInvalidateScope) {
-        toast.error("Cannot send voice message right now");
-        return;
-      }
-      await publishVoiceMessage.mutateAsync({
+      const blobKey = crypto.randomUUID();
+      await putOutboxBlob(blobKey, audioBlob);
+      webOutbox.enqueue({
         matchId: chatData.matchId,
-        audioUrl,
-        durationSeconds: duration,
-        clientRequestId: crypto.randomUUID(),
+        otherUserId: id,
+        userId: currentUserId,
+        payload: { kind: "voice", blobKey, durationSeconds: Math.max(1, duration) },
         invalidateScope: threadInvalidateScope,
       });
     } catch (err) {
-      console.error("Voice message error:", err);
-      toast.error("Failed to send voice message");
+      console.error("Voice message queue error:", err);
+      toast.error("Failed to queue voice message");
     }
   };
 
   const handleVideoRecordingComplete = async (videoBlob: Blob, duration: number) => {
     setIsRecordingVideo(false);
 
-    if (!chatData?.matchId || !user?.id) {
+    if (!chatData?.matchId || !user?.id || !id) {
       toast.error("Cannot send Vibe Clip right now");
       return;
     }
@@ -1175,10 +1133,12 @@ const Chat = () => {
     const durationBucket = durationBucketFromSeconds(duration);
     const threadBucket = threadBucketFromCount(displayMessages.length);
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+    if (!threadInvalidateScope) {
+      toast.error("Cannot send Vibe Clip right now");
+      return;
+    }
 
+    try {
       trackVibeClipEvent("clip_send_attempted", {
         capture_source: "web_recorder",
         duration_bucket: durationBucket,
@@ -1187,53 +1147,26 @@ const Chat = () => {
         is_sender: true,
       });
 
-      const uploaded = await uploadChatVideoToBunny(
-        videoBlob,
-        session.access_token,
-        chatData.matchId
-      );
-
-      const clientRequestId = crypto.randomUUID();
-
-      if (!threadInvalidateScope) {
-        toast.error("Cannot send Vibe Clip right now");
-        return;
-      }
-      publishVibeClip.mutate(
-        {
-          matchId: chatData.matchId,
-          videoUrl: uploaded.videoUrl,
-          durationMs: Math.round(duration * 1000),
-          clientRequestId,
-          thumbnailUrl: uploaded.thumbnailUrl,
-          aspectRatio: uploaded.aspectRatio,
-          invalidateScope: threadInvalidateScope,
+      const blobKey = crypto.randomUUID();
+      await putOutboxBlob(blobKey, videoBlob);
+      webOutbox.enqueue({
+        matchId: chatData.matchId,
+        otherUserId: id,
+        userId: currentUserId,
+        payload: {
+          kind: "video",
+          blobKey,
+          durationSeconds: Math.max(0.5, duration),
+          mimeType: videoBlob.type || "video/mp4",
+          aspectRatio: null,
         },
-        {
-          onSuccess: () => {
-            trackVibeClipEvent("clip_send_succeeded", {
-              duration_bucket: durationBucket,
-              has_poster: !!uploaded.thumbnailUrl,
-              thread_bucket: threadBucket,
-              is_sender: true,
-            });
-            toast.success(VIBE_CLIP_TOAST_SENT);
-          },
-          onError: (err) => {
-            console.error("Vibe Clip publish error:", err);
-            Sentry.captureException(err, { tags: { funnel: "vibe_clip_publish" } });
-            trackVibeClipEvent("clip_send_failed", {
-              failure_class: classifySendFailureMessage(err instanceof Error ? err.message : "publish"),
-            });
-            toast.error(VIBE_CLIP_TOAST_SEND_FAIL);
-          },
-        },
-      );
+        invalidateScope: threadInvalidateScope,
+      });
     } catch (err) {
-      console.error("Vibe Clip upload error:", err);
-      Sentry.captureException(err, { tags: { funnel: "vibe_clip_upload" } });
+      console.error("Vibe Clip queue error:", err);
+      Sentry.captureException(err, { tags: { funnel: "vibe_clip_queue" } });
       trackVibeClipEvent("clip_send_failed", {
-        failure_class: classifySendFailureMessage(err instanceof Error ? err.message : "upload"),
+        failure_class: classifySendFailureMessage(err instanceof Error ? err.message : "queue"),
       });
       toast.error(VIBE_CLIP_TOAST_UPLOAD_FAIL);
     }
@@ -1320,11 +1253,12 @@ const Chat = () => {
             </p>
             <button
               onClick={() => {
-                if (!chatData?.matchId || !threadInvalidateScope) return;
-                sendMessage({
+                if (!chatData?.matchId || !threadInvalidateScope || !id) return;
+                webOutbox.enqueue({
                   matchId: chatData.matchId,
-                  content: "👋",
-                  clientRequestId: crypto.randomUUID(),
+                  otherUserId: id,
+                  userId: currentUserId,
+                  payload: { kind: "text", text: "👋" },
                   invalidateScope: threadInvalidateScope,
                 });
               }}
@@ -1523,12 +1457,18 @@ const Chat = () => {
                       aria-label="View photo full screen"
                       onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
                     >
-                      <img
-                        src={parseChatImageMessageContent(groupedMessage.text) || ""}
-                        alt="Shared image"
-                        className="w-52 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
-                        loading="lazy"
-                      />
+                      {parseChatImageMessageContent(groupedMessage.text)?.trim() ? (
+                        <img
+                          src={parseChatImageMessageContent(groupedMessage.text) || ""}
+                          alt="Shared image"
+                          className="w-52 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-52 h-32 rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
+                          Preparing photo…
+                        </div>
+                      )}
                     </button>
                     {groupedMessage.isLastInGroup && (
                       <div
@@ -1542,9 +1482,9 @@ const Chat = () => {
                             <button
                               type="button"
                               onClick={() => {
-                                const failed = localMessages.find((m) => m.id === groupedMessage.id);
-                                if (!failed) return;
-                                sendTextMessage({ tempId: failed.id, text: failed.text });
+                                if (groupedMessage.outboxItemId) {
+                                  webOutbox.retry(groupedMessage.outboxItemId);
+                                }
                               }}
                               className="text-[10px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
                             >
@@ -1555,11 +1495,16 @@ const Chat = () => {
                             </span>
                           </>
                         ) : (
-                          <MessageStatus
-                            status={groupedMessage.status || "delivered"}
-                            time={groupedMessage.time}
-                            isMyMessage={groupedMessage.sender === "me"}
-                          />
+                          <>
+                            {groupedMessage.sender === "me" && groupedMessage.statusSubtext ? (
+                              <span className="text-[10px] text-muted-foreground">{groupedMessage.statusSubtext}</span>
+                            ) : null}
+                            <MessageStatus
+                              status={groupedMessage.status || "delivered"}
+                              time={groupedMessage.time}
+                              isMyMessage={groupedMessage.sender === "me"}
+                            />
+                          </>
                         )}
                       </div>
                     )}
@@ -1606,9 +1551,9 @@ const Chat = () => {
                   avatarUrl={otherUser.avatar_url}
                   onReaction={handleReaction}
                   onRetryFailedSend={(mid) => {
-                    const failed = localMessages.find((m) => m.id === mid);
-                    if (!failed) return;
-                    sendTextMessage({ tempId: failed.id, text: failed.text });
+                    if (mid.startsWith("outbox-")) {
+                      webOutbox.retry(mid.slice("outbox-".length));
+                    }
                   }}
                 />
               ) : null;
