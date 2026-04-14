@@ -690,4 +690,18 @@ export async function deductCredit(userId: string, creditType: 'extra_time' | 'e
   return !error && data === true;
 }
 
+/** Atomic credit spend + server budget for date phase (parity with web VideoDate). */
+export async function spendVideoDateCreditExtension(
+  sessionId: string,
+  creditType: 'extra_time' | 'extended_vibe'
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('spend_video_date_credit_extension', {
+    p_session_id: sessionId,
+    p_credit_type: creditType,
+  });
+  if (error) return false;
+  const row = data as { success?: boolean } | null;
+  return row?.success === true;
+}
+
 export { HANDSHAKE_SECONDS, DATE_SECONDS };

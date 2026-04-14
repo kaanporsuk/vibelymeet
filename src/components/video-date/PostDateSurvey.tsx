@@ -15,6 +15,10 @@ import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
+import {
+  mapPostDateSafetyCategoryToReasonId,
+  submitUserReportRpc,
+} from "@clientShared/safety/submitUserReportRpc";
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -234,38 +238,32 @@ export const PostDateSurvey = ({
   );
 
   const handleReport = useCallback(
-    async (reason: string, details: string) => {
+    async (reason: string, details: string, alsoBlock: boolean) => {
       if (!user?.id) return;
 
-      try {
-        await supabase.from("user_reports").insert({
-          reporter_id: user.id,
-          reported_id: partnerId,
-          reason,
-          details: details || null,
-        });
-        toast.success("Report submitted. We'll review it promptly.");
-      } catch (err) {
-        console.error("Error submitting report:", err);
-        toast.error("Failed to submit report.");
+      const mapped = mapPostDateSafetyCategoryToReasonId(reason);
+      const result = await submitUserReportRpc(supabase, {
+        reportedId: partnerId,
+        reason: mapped,
+        details: details || null,
+        alsoBlock,
+      });
+      if (!result.ok) {
+        if ("error" in result && result.error === "rate_limited") {
+          toast.error("Too many reports in a short time. Try again later.");
+        } else {
+          toast.error("Failed to submit report.");
+        }
+        return;
       }
+      toast.success(
+        alsoBlock
+          ? "Report submitted and user blocked. We'll review it promptly."
+          : "Report submitted. We'll review it promptly."
+      );
     },
     [user?.id, partnerId]
   );
-
-  const handleBlock = useCallback(async () => {
-    if (!user?.id) return;
-
-    try {
-      await supabase.from("blocked_users").insert({
-        blocker_id: user.id,
-        blocked_id: partnerId,
-      });
-      toast.success("User blocked.");
-    } catch (err) {
-      console.error("Error blocking user:", err);
-    }
-  }, [user?.id, partnerId]);
 
   const handleReportFromVerdict = useCallback(() => {
     setStep("safety");
@@ -359,11 +357,9 @@ export const PostDateSurvey = ({
               {step === "safety" && (
                 <SafetyScreen
                   key="safety"
-                  partnerId={partnerId}
                   onComplete={handleSafety}
                   onSkip={finishSurvey}
                   onReport={handleReport}
-                  onBlock={handleBlock}
                 />
               )}
             </AnimatePresence>

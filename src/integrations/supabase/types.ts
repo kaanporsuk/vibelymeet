@@ -3324,6 +3324,7 @@ export type Database = {
         Row: {
           daily_room_name: string | null
           daily_room_url: string | null
+          date_extra_seconds: number
           date_started_at: string | null
           duration_seconds: number | null
           ended_at: string | null
@@ -3354,6 +3355,7 @@ export type Database = {
         Insert: {
           daily_room_name?: string | null
           daily_room_url?: string | null
+          date_extra_seconds?: number
           date_started_at?: string | null
           duration_seconds?: number | null
           ended_at?: string | null
@@ -3384,6 +3386,7 @@ export type Database = {
         Update: {
           daily_room_name?: string | null
           daily_room_url?: string | null
+          date_extra_seconds?: number
           date_started_at?: string | null
           duration_seconds?: number | null
           ended_at?: string | null
@@ -4501,6 +4504,19 @@ export type Database = {
       }
       submit_post_date_verdict: {
         Args: { p_liked: boolean; p_session_id: string }
+        Returns: Json
+      }
+      spend_video_date_credit_extension: {
+        Args: { p_credit_type: string; p_session_id: string }
+        Returns: Json
+      }
+      submit_user_report: {
+        Args: {
+          p_also_block?: boolean
+          p_details?: string | null
+          p_reason: string
+          p_reported_id: string
+        }
         Returns: Json
       }
       sync_chat_message_media: { Args: { p_message_id: string }; Returns: Json }

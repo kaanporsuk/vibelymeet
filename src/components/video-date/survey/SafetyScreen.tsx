@@ -10,11 +10,10 @@ interface SafetyData {
 }
 
 interface SafetyScreenProps {
-  partnerId: string;
   onComplete: (data: SafetyData) => void;
   onSkip: () => void;
-  onReport: (reason: string, details: string) => void;
-  onBlock: () => void;
+  /** Server-owned report path; `alsoBlock` is applied atomically when supported. */
+  onReport: (reason: string, details: string, alsoBlock: boolean) => void | Promise<void>;
 }
 
 const ACCURACY_OPTIONS = [
@@ -32,11 +31,9 @@ const REPORT_CATEGORIES = [
 ];
 
 export const SafetyScreen = ({
-  partnerId,
   onComplete,
   onSkip,
   onReport,
-  onBlock,
 }: SafetyScreenProps) => {
   const [photoAccurate, setPhotoAccurate] = useState<string | null>(null);
   const [honest, setHonest] = useState<string | null>(null);
@@ -57,10 +54,9 @@ export const SafetyScreen = ({
     });
   };
 
-  const handleReport = () => {
+  const handleReport = async () => {
     if (reportCategory) {
-      onReport(reportCategory, reportDetails);
-      if (wantsBlock) onBlock();
+      await onReport(reportCategory, reportDetails, wantsBlock);
       setSubmitted(true);
     }
   };
