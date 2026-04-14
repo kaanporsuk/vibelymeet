@@ -18,9 +18,11 @@ import { VibeCheckButton } from "@/components/video-date/VibeCheckButton";
 import { MutualVibeToast } from "@/components/video-date/MutualVibeToast";
 import { KeepTheVibe } from "@/components/video-date/KeepTheVibe";
 import { ReconnectionOverlay } from "@/components/video-date/ReconnectionOverlay";
+import { InCallSafetyModal } from "@/components/video-date/InCallSafetyModal";
 import { useVideoCall } from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
+import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
@@ -78,6 +80,7 @@ const VideoDate = () => {
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
+  const [showInCallSafety, setShowInCallSafety] = useState(false);
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
   const [eventId, setEventId] = useState<string | undefined>(undefined);
@@ -111,6 +114,7 @@ const VideoDate = () => {
     toggleMute,
     toggleVideo,
     getRoomName,
+    networkTier,
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
@@ -124,6 +128,11 @@ const VideoDate = () => {
       reconnection.startGraceWindow();
     },
   });
+
+  const { dupBlocked, takeOver } = useVideoDateDupTabGuard(
+    id,
+    videoDateAccess === "allowed" && !showFeedback && phase !== "ended",
+  );
 
   const reconnection = useReconnection({
     sessionId: videoDateAccess === "allowed" ? id : undefined,
@@ -385,6 +394,7 @@ const VideoDate = () => {
     if (!id) return;
     if (videoDateAccess !== "allowed" || !timingReady || handshakeStartFailed) return;
     if (phase === "ended") return;
+    if (dupBlocked) return;
     if (callStarted) return;
 
     setCallStarted(true);
@@ -402,6 +412,7 @@ const VideoDate = () => {
     callStarted,
     startCall,
     getRoomName,
+    dupBlocked,
   ]);
 
   // Subscribe to phase changes via Realtime
@@ -663,6 +674,27 @@ const VideoDate = () => {
     handleCallEnd();
   }, [endCall, handleCallEnd]);
 
+  /** After in-call "End & report" succeeds (report RPC already sent). */
+  const handleEndAfterInCallReport = useCallback(async () => {
+    await endCall();
+    await handleCallEnd();
+  }, [endCall, handleCallEnd]);
+
+  const dupLeaseNavigateRef = useRef(false);
+  useEffect(() => {
+    if (!dupBlocked || !callStarted) return;
+    if (dupLeaseNavigateRef.current) return;
+    dupLeaseNavigateRef.current = true;
+    void (async () => {
+      toast.info("This date continued in another tab — closing here.", { duration: 3500 });
+      await endCall();
+      setCallStarted(false);
+      navigate(
+        eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events",
+      );
+    })();
+  }, [dupBlocked, callStarted, endCall, navigate, eventId]);
+
   const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
 
@@ -742,6 +774,32 @@ const VideoDate = () => {
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col overflow-hidden">
+      {dupBlocked && !callStarted && videoDateAccess === "allowed" && !showFeedback && (
+        <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-background/95 p-6 text-center">
+          <p className="text-lg font-display font-semibold text-foreground max-w-sm">
+            This date is already open in another window
+          </p>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Continue here only if you closed the other tab, or you may disconnect the call there.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+            <Button type="button" className="w-full" onClick={() => takeOver()}>
+              Continue here
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() =>
+                navigate(eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events")
+              }
+            >
+              Back
+            </Button>
+          </div>
+        </div>
+      )}
+
       <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
 
       {/* ─── Top HUD ─── */}
@@ -787,15 +845,24 @@ const VideoDate = () => {
               )}
             </p>
             {isConnected && (
-              <div className="flex items-center gap-1">
-                <motion.div
-                  className="w-1.5 h-1.5 rounded-full bg-green-500"
-                  animate={{ opacity: [1, 0.5, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-                <span className="text-[10px] text-green-500">
-                  {phase === "handshake" ? "Handshake" : "Live"}
-                </span>
+              <div className="flex flex-col items-start gap-0.5">
+                <div className="flex items-center gap-1">
+                  <motion.div
+                    className="w-1.5 h-1.5 rounded-full bg-green-500"
+                    animate={{ opacity: [1, 0.5, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  />
+                  <span className="text-[10px] text-green-500">
+                    {phase === "handshake" ? "Handshake" : "Live"}
+                  </span>
+                </div>
+                {networkTier !== "good" && (
+                  <span
+                    className={`text-[10px] ${networkTier === "poor" ? "text-destructive" : "text-amber-500"}`}
+                  >
+                    {networkTier === "poor" ? "Poor connection" : "Fair connection"}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -936,6 +1003,11 @@ const VideoDate = () => {
           onToggleVideo={toggleVideo}
           onLeave={handleLeave}
           onViewProfile={() => setShowProfileSheet(true)}
+          onSafety={
+            isConnected && !showFeedback && partnerId
+              ? () => setShowInCallSafety(true)
+              : undefined
+          }
         />
       </div>
 
@@ -944,6 +1016,13 @@ const VideoDate = () => {
         isOpen={showProfileSheet}
         onClose={() => setShowProfileSheet(false)}
         partner={partner}
+      />
+
+      <InCallSafetyModal
+        open={showInCallSafety}
+        onOpenChange={setShowInCallSafety}
+        reportedUserId={partnerId || null}
+        onEndAfterReport={handleEndAfterInCallReport}
       />
 
       {/* ─── Post-Date Survey ─── */}

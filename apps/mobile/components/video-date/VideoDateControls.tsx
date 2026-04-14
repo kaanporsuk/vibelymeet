@@ -15,6 +15,8 @@ type Props = {
   onToggleVideo: () => void;
   onLeave: () => void;
   onViewProfile: () => void;
+  /** In-call safety report (`submit_user_report`). Omit when not in active call. */
+  onSafety?: () => void;
   /** During date: opens credits or highlights in-call add-time controls. Omit during handshake to reserve layout. */
   onAddTime?: () => void;
   /** Shapes accessibility label when onAddTime is set (credits vs get-credits path). */
@@ -28,6 +30,7 @@ export function VideoDateControls({
   onToggleVideo,
   onLeave,
   onViewProfile,
+  onSafety,
   onAddTime,
   hasCredits,
 }: Props) {
@@ -40,18 +43,34 @@ export function VideoDateControls({
 
   return (
     <View style={[styles.bar, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
-      <Pressable
-        onPress={onViewProfile}
-        style={({ pressed }) => [
-          styles.iconBtn,
-          { width: btnSize, height: btnSize, backgroundColor: theme.muted },
-          pressed && styles.pressed,
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel="View profile"
-      >
-        <Text style={styles.iconLabel}>👤</Text>
-      </Pressable>
+      <View style={styles.leftGroup}>
+        <Pressable
+          onPress={onViewProfile}
+          style={({ pressed }) => [
+            styles.iconBtn,
+            { width: btnSize, height: btnSize, backgroundColor: theme.muted },
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="View profile"
+        >
+          <Text style={styles.iconLabel}>👤</Text>
+        </Pressable>
+        {onSafety ? (
+          <Pressable
+            onPress={onSafety}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { width: btnSize, height: btnSize, backgroundColor: theme.muted },
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Safety and report"
+          >
+            <Text style={styles.iconLabel}>🛡️</Text>
+          </Pressable>
+        ) : null}
+      </View>
 
       <View style={styles.centerGroup}>
         <Pressable
@@ -110,6 +129,11 @@ export function VideoDateControls({
 }
 
 const styles = StyleSheet.create({
+  leftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',

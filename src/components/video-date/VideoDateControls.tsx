@@ -6,7 +6,7 @@ import {
   VideoOff,
   PhoneOff,
   User,
-  Clock,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -17,6 +17,8 @@ interface VideoDateControlsProps {
   onToggleVideo: () => void;
   onLeave: () => void;
   onViewProfile: () => void;
+  /** In-call safety report (canonical `submit_user_report`); omit when not in active call. */
+  onSafety?: () => void;
 }
 
 export const VideoDateControls = ({
@@ -26,6 +28,7 @@ export const VideoDateControls = ({
   onToggleVideo,
   onLeave,
   onViewProfile,
+  onSafety,
 }: VideoDateControlsProps) => {
   const controlBtn =
     "h-14 w-14 rounded-full transition-all duration-200";
@@ -104,20 +107,23 @@ export const VideoDateControls = ({
         </motion.div>
       </div>
 
-      {/* Right: Add Time (premium) */}
-      <motion.div whileTap={{ scale: 0.95 }} className="relative">
-        <Button
-          variant="secondary"
-          size="icon"
-          disabled
-          className={`${controlBtn} bg-secondary/30 border border-border/30 opacity-40 cursor-not-allowed`}
-        >
-          <Clock className="w-5 h-5" />
-        </Button>
-        <div className="absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full bg-gradient-to-r from-primary to-accent text-[7px] font-bold text-primary-foreground">
-          PRO
-        </div>
-      </motion.div>
+      {/* Right: in-call safety */}
+      {onSafety ? (
+        <motion.div whileTap={{ scale: 0.9 }}>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className={`${controlBtn} bg-secondary/60 border border-border/50 hover:bg-secondary`}
+            onClick={onSafety}
+            aria-label="Safety and report"
+          >
+            <Shield className="w-5 h-5 text-primary" />
+          </Button>
+        </motion.div>
+      ) : (
+        <div className={`${controlBtn}`} aria-hidden />
+      )}
     </motion.div>
   );
 };

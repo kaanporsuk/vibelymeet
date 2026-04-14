@@ -51,8 +51,9 @@ Maps major mechanics to **file-level** evidence. **Baseline** = `_cursor_context
 |----------|----------|-------|--------------|
 | `video_date_transition` | Stream 2A migration after frozen zip | Reconnect grace migration | `20260409100000_video_date_reconnect_grace_queue_sync.sql` (supersedes parts of earlier) |
 | Daily token policy | — | Phase 2 audit “tightened gate” | `supabase/functions/daily-room/index.ts` `canIssueVideoDateRoomToken` |
-| Web page | — | — | `src/pages/VideoDate.tsx` (`enter_handshake`, `vibe`, `complete_handshake`, `end`, beforeunload fetch) |
-| Reconnect | — | — | `src/hooks/useReconnection.ts` (`sync_reconnect`, `mark_reconnect_*`) |
+| Web page | — | — | `src/pages/VideoDate.tsx` (`enter_handshake`, `vibe`, `complete_handshake`, `end`, beforeunload fetch); in-call safety modal → `submit_user_report` (`InCallSafetyModal.tsx`); duplicate-tab soft guard `useVideoDateDupTabGuard.ts` (localStorage lease, no backend writes) |
+| Native date | — | — | `apps/mobile/app/date/[id].tsx` (AppState resync + `sync_reconnect` on foreground/background); `InCallSafetySheet.tsx` → same RPC |
+| Reconnect | — | — | `src/hooks/useReconnection.ts` (`sync_reconnect`, `mark_reconnect_*`); native grace seconds from `reconnect_grace_ends_at` in `apps/mobile/app/date/[id].tsx` |
 
 ---
 

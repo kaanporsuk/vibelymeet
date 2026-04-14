@@ -1,5 +1,5 @@
 /**
- * Shown when partner disconnects. 60s grace countdown; timer pauses.
+ * Shown when partner disconnects. Countdown is **server-owned** (`reconnect_grace_ends_at` via `sync_reconnect`); timer pauses.
  */
 
 import React from 'react';
