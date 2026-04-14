@@ -946,7 +946,7 @@ const VideoDate = () => {
       </div>
 
       {/* ─── Self-View PIP ─── */}
-      {isConnected && (
+      {isConnected && !showFeedback && (
         <SelfViewPIP
           stream={localStream}
           isVideoOff={isVideoOff}
