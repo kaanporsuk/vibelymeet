@@ -32,6 +32,8 @@ Frontend-only closure for two low-blast-radius issues identified during the dele
 | `src/pages/VideoDate.tsx` | `SelfViewPIP` condition: `isConnected` → `isConnected && !showFeedback` |
 | `docs/branch-deltas/selfview-pip-followups-closure-2026-04-14.md` | This closure note |
 | `docs/active-doc-map.md` | Evidence table entry (discoverability beside video-date audit chain) |
+| `docs/audits/selfview-pip-followups-audit-2026-04-14.md` | Dated audit / fix plan (provenance) |
+| `docs/audits/selfview-pip-drag-snap-investigation-2026-04-14.md` | Snap vs DraggablePIP investigation (snap not implemented here) |
 
 ---
 
@@ -45,3 +47,12 @@ Frontend-only closure for two low-blast-radius issues identified during the dele
 ## Deploy / infra
 
 **No Supabase cloud deploy required** — web-only React changes; no migrations, Edge Functions, or RLS changes.
+
+---
+
+## Related audit notes (same initiative)
+
+| File | Contents |
+|------|----------|
+| `docs/audits/selfview-pip-followups-audit-2026-04-14.md` | Pre-fix audit / fix plan for the two issues above |
+| `docs/audits/selfview-pip-drag-snap-investigation-2026-04-14.md` | DraggablePIP vs `SelfViewPIP`; snap polish explicitly out of scope for this closure |
