@@ -17,6 +17,7 @@ import {
   Animated,
   Dimensions,
   AccessibilityInfo,
+  AppState,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -58,6 +59,7 @@ import { KeepTheVibe } from '@/components/video-date/KeepTheVibe';
 import { ReconnectionOverlay } from '@/components/video-date/ReconnectionOverlay';
 import { MutualVibeToast } from '@/components/video-date/MutualVibeToast';
 import { PostDateSurvey } from '@/components/video-date/PostDateSurvey';
+import { InCallSafetySheet } from '@/components/video-date/InCallSafetySheet';
 import { supabase } from '@/lib/supabase';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
@@ -68,6 +70,14 @@ import { avatarUrl } from '@/lib/imageUrl';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
+
+function networkTierFromDailyEvent(ev: { threshold?: string; quality?: number } | undefined): 'good' | 'fair' | 'poor' {
+  const q = typeof ev?.quality === 'number' ? ev.quality : 100;
+  const th = ev?.threshold;
+  if (th === 'low' || q < 30) return 'poor';
+  if (q < 70) return 'fair';
+  return 'good';
+}
 
 function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
   switch (code) {
@@ -142,10 +152,15 @@ export default function VideoDateScreen() {
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
 
-  const { session, partner: basicPartner, phase, timeLeft: serverTimeLeft, loading: sessionLoading, error: sessionError } = useVideoDateSession(
-    sessionId ?? null,
-    user?.id ?? null
-  );
+  const {
+    session,
+    partner: basicPartner,
+    phase,
+    timeLeft: serverTimeLeft,
+    loading: sessionLoading,
+    error: sessionError,
+    refetch: refetchVideoSession,
+  } = useVideoDateSession(sessionId ?? null, user?.id ?? null);
 
   const [localTimeLeft, setLocalTimeLeft] = useState<number | null>(null);
   const [fullPartner, setFullPartner] = useState<PartnerProfileData | null>(null);
@@ -166,6 +181,8 @@ export default function VideoDateScreen() {
   const [reconnectionGrace, setReconnectionGrace] = useState(0);
   const [isPartnerDisconnected, setIsPartnerDisconnected] = useState(false);
   const [isTimerPaused, setIsTimerPaused] = useState(false);
+  const [showInCallSafety, setShowInCallSafety] = useState(false);
+  const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
 
   const callRef = useRef<ReturnType<typeof Daily.createCallObject> | null>(null);
   const roomNameRef = useRef<string | null>(null);
@@ -389,6 +406,7 @@ export default function VideoDateScreen() {
     setIsVideoOff(false);
     setAwaitingFirstConnect(false);
     setFirstConnectTimedOut(false);
+    setNetQualityTier('good');
   }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog]);
 
   const handleCallEnd = useCallback(async () => {
@@ -404,6 +422,31 @@ export default function VideoDateScreen() {
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
   }, [handleCallEnd]);
+
+  const handleEndAfterInCallReport = useCallback(async () => {
+    await handleCallEnd();
+  }, [handleCallEnd]);
+
+  /** Foreground: resync DB session + reconnect truth; background: poll sync only (no new backend semantics). */
+  useEffect(() => {
+    if (!sessionId) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        void refetchVideoSession();
+        void syncVideoDateReconnect(sessionId).then((r) => {
+          if (r?.ended && hadConnectedOnceRef.current && !reconnectEndedHandledRef.current) {
+            reconnectEndedHandledRef.current = true;
+            void handleCallEndRef.current?.();
+          }
+        });
+        return;
+      }
+      if (next === 'background' || next === 'inactive') {
+        void syncVideoDateReconnect(sessionId);
+      }
+    });
+    return () => sub.remove();
+  }, [sessionId, refetchVideoSession]);
 
   useEffect(() => {
     if (!sessionId || phase === 'ended') return;
@@ -725,6 +768,14 @@ export default function VideoDateScreen() {
       });
 
       try {
+        call.on('network-quality-change', (ev: unknown) => {
+          setNetQualityTier(networkTierFromDailyEvent(ev as { threshold?: string; quality?: number }));
+        });
+      } catch {
+        /* SDK may omit this event on some builds */
+      }
+
+      try {
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Joining call', level: 'info', data: { sessionId } });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
         if (cancelled) return;
@@ -1024,6 +1075,16 @@ export default function VideoDateScreen() {
       <View style={styles.topBar}>
         <Pressable onPress={() => setShowProfileSheet(true)} style={styles.partnerPill}>
           <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName}</Text>
+          {netQualityTier !== 'good' && isConnected ? (
+            <Text
+              style={[
+                styles.netHint,
+                { color: netQualityTier === 'poor' ? theme.danger : '#f59e0b' },
+              ]}
+            >
+              {netQualityTier === 'poor' ? 'Poor connection' : 'Fair connection'}
+            </Text>
+          ) : null}
         </Pressable>
           {preConnectWaiting ? (
             <View style={styles.waitingTimerPill}>
@@ -1103,10 +1164,22 @@ export default function VideoDateScreen() {
           onToggleVideo={toggleVideo}
           onLeave={handleEndDateFromControls}
           onViewProfile={() => setShowProfileSheet(true)}
+          onSafety={
+            isConnected && partnerId && !showFeedback
+              ? () => setShowInCallSafety(true)
+              : undefined
+          }
           onAddTime={phase === 'date' ? handleAddTimeShortcut : undefined}
           hasCredits={credits.extraTime > 0 || credits.extendedVibe > 0}
         />
       </View>
+
+      <InCallSafetySheet
+        visible={showInCallSafety}
+        onClose={() => setShowInCallSafety(false)}
+        reportedUserId={partnerId || null}
+        onEndAfterReport={handleEndAfterInCallReport}
+      />
 
       {fullPartner && partnerId ? (
         <PartnerProfileSheet
@@ -1211,6 +1284,7 @@ const styles = StyleSheet.create({
   initialBtnPressed: { opacity: 0.85 },
   partnerPill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.4)' },
   partnerName: { fontSize: 16, fontWeight: '600' },
+  netHint: { fontSize: 11, marginTop: 2, fontWeight: '600' },
   handshakeBottomStack: {
     position: 'absolute',
     left: 16,

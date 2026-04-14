@@ -11,6 +11,17 @@ interface UseVideoCallOptions {
   onPartnerLeft?: () => void;
 }
 
+/** Daily `network-quality-change` — surfaced as lightweight HUD, not toasts. */
+export type VideoCallNetworkTier = "good" | "fair" | "poor";
+
+function tierFromNetworkQualityEvent(event: { threshold?: string; quality?: number } | undefined): VideoCallNetworkTier {
+  const q = typeof event?.quality === "number" ? event.quality : 100;
+  const th = event?.threshold;
+  if (th === "low" || q < 30) return "poor";
+  if (q < 70) return "fair";
+  return "good";
+}
+
 export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -18,6 +29,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [networkTier, setNetworkTier] = useState<VideoCallNetworkTier>("good");
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -139,10 +151,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
         });
 
-        callObject.on("network-quality-change", (event: any) => {
-          if (event?.threshold === "low" || event?.quality < 30) {
-            toast.warning("Weak connection — try moving closer to WiFi 📶", { duration: 3000, id: "network-quality" });
-          }
+        callObject.on("network-quality-change", (event: { threshold?: string; quality?: number }) => {
+          setNetworkTier(tierFromNetworkQualityEvent(event));
         });
 
         await callObject.join({ url: roomData.room_url, token: roomData.token });
@@ -199,6 +209,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
     setIsConnected(false);
     setIsConnecting(false);
+    setNetworkTier("good");
     optionsRef.current?.onCallEnded?.();
   }, []);
 
@@ -238,6 +249,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     isMuted,
     isVideoOff,
     hasPermission,
+    networkTier,
     localVideoRef,
     remoteVideoRef,
     localStream,
