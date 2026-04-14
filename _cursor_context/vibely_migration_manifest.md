@@ -194,6 +194,23 @@ Branch: `phase3/event-loop-read-model`.
 - **Permissions:** `REVOKE` from `PUBLIC` / `anon` / `authenticated`; `GRANT SELECT` to **`service_role`** only (same posture as base table).
 - **Explicitly out of scope:** retention/archival, admin UI, Edge Functions, product API changes.
 
+### Video Dates P0/P1 closure (2026-04-28)
+
+Branch: `fix/video-date-p0-p1-closure`.
+
+- **Migration:** `20260428120000_video_date_p0_p1_closure.sql`
+  - **`expire_stale_video_date_phases()`** — ends stale **handshake** (60s product window + 30s buffer) and **date** (300s + 60s buffer) using `video_sessions.handshake_started_at` / `date_started_at`; skips rows with an **active** reconnect-grace deadline (`reconnect_grace_ends_at > now()`).
+  - **`expire_stale_video_sessions()`** — adds **`both_ready`** gate expiry (excluding sessions already in `handshake`/`date`), calls `expire_stale_video_date_phases()`, extends observability `detail` with `both_ready_expired`, `handshake_timeout`, `date_timeout`.
+  - **`ready_gate_transition`** — on transition to **`both_ready`**, sets `ready_gate_expires_at = now() + 30 seconds` (fresh navigation window; idempotent terminal short-circuit unchanged).
+  - **`video_date_transition` (`end`, `beforeunload`)** — departing actor → `offline`; partner → `in_survey` (no longer double-offline).
+  - **`update_participant_status`** — allowlist only: `browsing`, `idle`, `in_ready_gate`, `in_survey`, `offline` (invalid values no-op).
+  - **`submit_user_report`** — `SECURITY DEFINER` RPC: canonical reasons, trimmed details, **20 reports / hour** cap, optional `blocked_users` insert with `ON CONFLICT DO NOTHING`; `GRANT EXECUTE` to `authenticated`.
+
+- **Migration:** `20260428120100_video_date_credit_extension_budget.sql` (same branch; apply **after** `20260428120000_*`)
+  - **`video_sessions.date_extra_seconds`** — default `0`; accumulates **+120s** per `extra_time` credit and **+300s** per `extended_vibe` credit spent in-session.
+  - **`spend_video_date_credit_extension(p_session_id, p_credit_type)`** — `SECURITY DEFINER`; requires caller in session, `state = date`; atomically deducts one credit from `user_credits` and increments `date_extra_seconds`; `GRANT EXECUTE` to `authenticated`.
+  - **`expire_stale_video_date_phases()`** — **replaced**: date-phase expiry predicate is `date_started_at + (300 + date_extra_seconds + 60) seconds` (reconnect-grace skip unchanged). Supersedes the fixed **360s** date window from `20260428120000_*` for date rows once this migration runs.
+
 #### Operator SQL pack (service role / SQL editor)
 
 ```sql

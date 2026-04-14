@@ -95,11 +95,7 @@ const VideoDate = () => {
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
   const canonicalRoomNameRef = useRef<string | null>(null);
 
-  const {
-    credits,
-    useExtraTime: spendExtraTimeCredit,
-    useExtendedVibe: spendExtendedVibeCredit,
-  } = useCredits();
+  const { credits, refetch: refetchCredits } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
 
   const {
@@ -619,18 +615,23 @@ const VideoDate = () => {
 
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
-      const success =
-        type === "extra_time"
-          ? await spendExtraTimeCredit()
-          : await spendExtendedVibeCredit();
-      if (success) {
-        Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
-        trackEvent('credit_used', { type, minutes });
-        setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+      if (!id) return false;
+      const { data, error } = await supabase.rpc("spend_video_date_credit_extension", {
+        p_session_id: id,
+        p_credit_type: type,
+      });
+      const row = data as { success?: boolean; error?: string } | null;
+      if (error || !row?.success) {
+        if (error) captureSupabaseError("spend_video_date_credit_extension", error);
+        return false;
       }
-      return success;
+      Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
+      trackEvent("credit_used", { type, minutes });
+      setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+      void refetchCredits();
+      return true;
     },
-    [spendExtraTimeCredit, spendExtendedVibeCredit]
+    [id, refetchCredits]
   );
 
   // End call: update session, show survey

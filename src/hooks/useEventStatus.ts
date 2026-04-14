@@ -2,14 +2,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations/supabase/client";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 
-export type ParticipantStatus =
+/** Values the client may write via `update_participant_status` (server-owned statuses are excluded). */
+export type ClientWritableParticipantStatus =
   | "browsing"
   | "in_ready_gate"
-  | "in_handshake"
-  | "in_date"
   | "in_survey"
   | "offline"
   | "idle";
+
+/** Includes server-written queue_status values surfaced in UI / reads. */
+export type ParticipantStatus =
+  | ClientWritableParticipantStatus
+  | "in_handshake"
+  | "in_date";
 
 interface UseEventStatusOptions {
   eventId: string | undefined;
@@ -28,7 +33,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
   }, [session?.access_token]);
 
   const setStatus = useCallback(
-    async (status: ParticipantStatus) => {
+    async (status: ClientWritableParticipantStatus) => {
       if (!eventId || !user?.id) return;
       setCurrentStatus(status);
 

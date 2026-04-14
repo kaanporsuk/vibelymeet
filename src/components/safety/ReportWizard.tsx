@@ -22,6 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { formatDistanceToNow } from "date-fns";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
+import { submitUserReportRpc } from "../../../shared/safety/submitUserReportRpc";
 
 export interface ReportPreSelectedUser {
   id: string;
@@ -136,31 +137,14 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
         throw new Error("Missing required data");
       }
 
-      const { error: reportError } = await supabase
-        .from("user_reports")
-        .insert({
-          reporter_id: user.id,
-          reported_id: selectedUser.id,
-          reason: selectedReason,
-          details: details || null,
-          also_blocked: alsoBlock,
-        });
-
-      if (reportError) throw reportError;
-
-      // If "Also block" is checked, insert into blocked_users
-      if (alsoBlock) {
-        const { error: blockError } = await supabase
-          .from("blocked_users")
-          .insert({
-            blocker_id: user.id,
-            blocked_id: selectedUser.id,
-            reason: `Reported: ${selectedReason}`,
-          });
-        // Ignore duplicate key errors
-        if (blockError && !blockError.message.includes("duplicate")) {
-          console.error("Block error:", blockError);
-        }
+      const reportResult = await submitUserReportRpc(supabase, {
+        reportedId: selectedUser.id,
+        reason: selectedReason,
+        details: details || null,
+        alsoBlock,
+      });
+      if (!reportResult.ok) {
+        throw new Error("error" in reportResult ? reportResult.error : "unknown");
       }
 
       setStep("success");

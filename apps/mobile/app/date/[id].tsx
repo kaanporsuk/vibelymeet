@@ -43,7 +43,7 @@ import {
   getOrSeedVibeQuestions,
   submitVerdictAndCheckMutual,
   fetchUserCredits,
-  deductCredit,
+  spendVideoDateCreditExtension,
   HANDSHAKE_SECONDS,
   DATE_SECONDS,
   type PartnerProfileData,
@@ -502,7 +502,7 @@ export default function VideoDateScreen() {
       setExtendBanner(null);
       let ok = false;
       try {
-        ok = await deductCredit(user.id, type);
+        ok = sessionId ? await spendVideoDateCreditExtension(sessionId, type) : false;
         if (ok) {
           if (sessionId) {
             trackEvent('video_date_extended', { session_id: sessionId });
