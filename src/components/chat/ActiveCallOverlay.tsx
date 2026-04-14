@@ -142,14 +142,12 @@ export const ActiveCallOverlay = ({
       </div>
 
       {/* Local PIP */}
-      {containerRef.current && (
-        <SelfViewPIP
-          stream={localStream || null}
-          isVideoOff={isVideoOff}
-          isMuted={isMuted}
-          containerRef={containerRef as React.RefObject<HTMLDivElement>}
-        />
-      )}
+      <SelfViewPIP
+        stream={localStream || null}
+        isVideoOff={isVideoOff}
+        isMuted={isMuted}
+        containerRef={containerRef as React.RefObject<HTMLDivElement>}
+      />
 
       {/* Controls */}
       <div className="absolute bottom-8 left-0 right-0 flex items-center justify-center gap-5 z-10">

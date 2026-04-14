@@ -28,6 +28,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Last-mile closure (E2E + orphan triage + deduct_credit review)** | `docs/audits/e2e-minimal-layer-2026-04-14.md`, `docs/audits/orphan-triage-2026-04-14.md`, `docs/audits/deduct-credit-security-review-2026-04-14.md` |
 | **`deduct_credit` auth closure (caller map + migration)** | `docs/audits/deduct-credit-caller-map-2026-04-14.md`, `docs/branch-deltas/deduct-credit-security-closure-2026-04-14.md`, migration `20260429100000_deduct_credit_auth_bind.sql` |
 | **Deleted video-date components (reverse audit, PR #399)** | `docs/audits/deleted-files-reverse-audit-2026-04-14.md`, `docs/audits/deleted-files-restore-matrix-2026-04-14.md` |
+| **SelfViewPIP follow-ups (match-call PIP mount + feedback takeover)** | `docs/branch-deltas/selfview-pip-followups-closure-2026-04-14.md` — background: deleted-file reverse audit row above (`docs/audits/deleted-files-reverse-audit-2026-04-14.md`) |
 | Launch blocker status, build ids, pass/fail updates | `docs/native-final-blocker-matrix.md` |
 | Browser/runtime proof results | `docs/browser-auth-runtime-proof-results.md` |
 | Post-audit ops checklist (Supabase vs Vercel vs manual QA) | `docs/post-audit-operational-verification-checklist.md` |
