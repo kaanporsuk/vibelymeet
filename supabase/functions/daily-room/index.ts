@@ -291,7 +291,7 @@ serve(async (req) => {
           start_video_off: false,
           start_audio_off: false,
           exp: Math.floor(Date.now() / 1000) + 7200,
-          eject_at_room_exp: false,
+          eject_at_room_exp: true,
         });
 
         await supabase
