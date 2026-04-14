@@ -122,7 +122,8 @@ Paste and run after merging; adjust project id if needed.
  *    supabase functions deploy delete-account
  *
  * 5) Regenerate types:
- *    npx supabase gen types typescript --project-id schdyxcunwcvddlcshwd --schema public > src/integrations/supabase/types.ts
+ *    npm run regen:supabase-types
+ *    (equivalent: npx supabase gen types typescript --project-id schdyxcunwcvddlcshwd --schema public, with header; see scripts/regen-supabase-types.sh)
  *
  * 6) Smoke queries:
  *    SELECT subscription_tier FROM profiles LIMIT 5;
