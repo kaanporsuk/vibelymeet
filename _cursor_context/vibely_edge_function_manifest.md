@@ -30,10 +30,8 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead:
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **46** deployable functions as of 2026-04-14 — see §2):
 
-- Current repo inventory: **45 deployable Edge Functions** plus `_shared`.
-- `supabase/config.toml` now explicitly configures all 45 deployable functions.
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
   - `upload-image`
@@ -71,20 +69,20 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 ## 2. Inventory summary
 
-> Current repo addendum (2026-04-13): the repo now has **45 deployable Edge Functions** plus `_shared`. Sprint 4 adds `admin-media-lifecycle-controls` for admin-only retention controls and worker-readiness preview while leaving cron disabled until a separate operator decision.
+### Current repo (authoritative)
 
-### Deployable directories (historical baseline)
+| Item | Count |
+|------|------:|
+| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **46** |
+| `[functions.<name>]` entries in `supabase/config.toml` | **46** |
 
-There are **34 deployable Edge Functions** plus one shared helper directory:
+The `_shared` directory is shared Deno helpers only — **not** a deployable function slug.
 
-- deployable functions: **34**
-- shared helper directory: `_shared`
+For a machine-readable list, see `_cursor_context/vibely_machine_readable_inventory.json` (regenerate if drift is suspected).
 
-### Config coverage (historical baseline)
+### Historical baseline (frozen golden; superseded)
 
-`supabase/config.toml` explicitly configures **all 34** functions. No config gaps remain.
-
-For exact current repo inventory, use the 2026-04-12 addendum above plus `_cursor_context/vibely_machine_readable_inventory.json`.
+The original golden export documented **34** deployable functions; subsequent notes sometimes said **45** while the repo grew. **Neither matches the current tree.** Use **46** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
 
 ### Gateway JWT posture from config (post-hardening)
 
