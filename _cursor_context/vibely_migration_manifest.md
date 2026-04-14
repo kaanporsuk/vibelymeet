@@ -575,6 +575,9 @@ Each entry below records the migration file and its main observed purpose.
 ### 2026-02-25
 - `20260225005439_95fb24d3-70de-4f1c-8fdb-f01a759633cb.sql` — creates `match_calls` and Daily room tracking fields.
 
+### 2026-04-14
+- `20260414171000_chat_call_contract_hardening.sql` — removes direct authenticated `messages` insert/update and `match_calls` insert/update policies so chat publishing must flow through `send-message`, match-call creation must flow through `daily-room`, and match-call lifecycle changes must flow through `match_call_transition`; this is the policy-side closure for the chat-call hardening pass.
+
 ### 2026-02-27
 - `20260227000205_ad0f5696-2016-4bd4-aca1-4c9691c95735.sql` — adds phone verification columns to `profiles`.
 - `20260227044110_ad1f69ae-6d15-4e01-8df7-a027994190a6.sql` — adds `profiles.referred_by`.

@@ -8,23 +8,33 @@ interface IncomingCallOverlayProps {
   incomingCall: IncomingCallData;
   onAnswer: () => void;
   onDecline: () => void;
+  onTimeout: () => void;
 }
 
-export const IncomingCallOverlay = ({ incomingCall, onAnswer, onDecline }: IncomingCallOverlayProps) => {
+export const IncomingCallOverlay = ({
+  incomingCall,
+  onAnswer,
+  onDecline,
+  onTimeout,
+}: IncomingCallOverlayProps) => {
   const [autoTimeout, setAutoTimeout] = useState(30);
+
+  useEffect(() => {
+    setAutoTimeout(30);
+  }, [incomingCall.callId]);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setAutoTimeout((p) => {
         if (p <= 1) {
-          onDecline();
+          onTimeout();
           return 0;
         }
         return p - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [onDecline]);
+  }, [onTimeout]);
 
   return (
     <motion.div

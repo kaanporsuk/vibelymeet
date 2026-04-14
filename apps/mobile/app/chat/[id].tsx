@@ -73,8 +73,6 @@ import { ScavengerStartSheet } from '@/components/chat/games/ScavengerStartSheet
 import { TwoTruthsStartSheet } from '@/components/chat/games/TwoTruthsStartSheet';
 import { WouldRatherStartSheet } from '@/components/chat/games/WouldRatherStartSheet';
 import { GamesPickerSheet, type GamesPickerGameId } from '@/components/chat/games/GamesPickerSheet';
-import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
-import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMatchCall } from '@/lib/useMatchCall';
@@ -929,25 +927,20 @@ export default function ChatThreadScreen() {
   }, [scheduleMarkThreadRead]);
 
   const {
-    isRinging,
-    isInCall,
-    callType,
-    callDuration,
-    incomingCall,
-    isMuted,
-    isVideoOff,
-    localParticipant,
-    remoteParticipant,
-    getTrack,
     startCall,
-    acceptCall,
-    declineCall,
-    endCall,
-    toggleMute,
-    toggleVideo,
   } = useMatchCall({
     matchId: data?.matchId ?? matchRowEarly?.matchId ?? null,
     currentUserId: user?.id ?? null,
+    partnerUserId: otherUserId ?? null,
+    partnerName: data?.otherUser?.name ?? matchRowEarly?.name ?? 'Chat',
+    partnerAvatarUri:
+      data?.otherUser?.photos?.[0]
+        ? avatarUrl(data.otherUser.photos[0])
+        : data?.otherUser?.avatar_url
+          ? avatarUrl(data.otherUser.avatar_url)
+          : matchRowEarly?.image
+            ? avatarUrl(matchRowEarly.image)
+            : null,
   });
 
   const isOffline = useIsOffline();
@@ -2041,33 +2034,6 @@ export default function ChatThreadScreen() {
               }
             : null
         }
-      />
-
-      {incomingCall && (
-        <IncomingCallOverlay
-          incomingCall={incomingCall}
-          callerAvatarUri={incomingCall.callerId === otherUserId ? otherAvatarUri : null}
-          onAnswer={acceptCall}
-          onDecline={declineCall}
-        />
-      )}
-
-      <ActiveCallOverlay
-        visible={isRinging || isInCall}
-        isRinging={isRinging}
-        isInCall={isInCall}
-        callType={callType}
-        isMuted={isMuted}
-        isVideoOff={isVideoOff}
-        callDuration={callDuration}
-        partnerName={otherName}
-        partnerAvatarUri={otherAvatarUri}
-        localParticipant={localParticipant}
-        remoteParticipant={remoteParticipant}
-        getTrack={getTrack}
-        onToggleMute={toggleMute}
-        onToggleVideo={toggleVideo}
-        onEndCall={endCall}
       />
 
       {matchForActions && (

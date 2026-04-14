@@ -120,6 +120,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const body = await req.json();
     const { action, sessionId, matchId, callType, callId } = body;
@@ -138,6 +139,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
     const {
       data: { user },
@@ -424,7 +426,7 @@ serve(async (req) => {
       const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
       const callerToken = await createMeetingToken(roomName, user.id, 7200);
 
-      const { data: call, error: callError } = await supabase
+      const { data: call, error: callError } = await serviceClient
         .from("match_calls")
         .insert({
           match_id: matchId,
@@ -438,7 +440,10 @@ serve(async (req) => {
         .select()
         .single();
 
-      if (callError) throw callError;
+      if (callError) {
+        await deleteDailyRoom(roomName);
+        throw callError;
+      }
 
       return new Response(
         JSON.stringify({
@@ -493,13 +498,22 @@ serve(async (req) => {
       });
 
       if (!transition?.ok) {
-        // Non-fatal: token issued but activation failed (race with missed/declined).
-        // Log and return token anyway — client will see status mismatch via realtime and clean up.
         console.log(JSON.stringify({
           event: "answer_match_call_transition_failed",
           call_id: call.id,
           transition_code: transition?.code,
         }));
+        return new Response(
+          JSON.stringify({
+            error: "Call is no longer ringing",
+            code: transition?.code || "CALL_NOT_RINGING",
+            status: transition?.status ?? call.status,
+          }),
+          {
+            status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
       }
 
       return new Response(
