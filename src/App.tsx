@@ -62,6 +62,7 @@ import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
 import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletionBanner";
 import { MatchCallProvider } from "@/hooks/useMatchCall";
+import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -104,6 +105,7 @@ const SentryFallback = ({ resetError }: { resetError: () => void }) => (
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+      <WebChatOutboxProvider>
       <SessionHydrationProvider>
       <NotificationProvider>
         <TooltipProvider>
@@ -118,6 +120,7 @@ const App = () => (
           >
             <BrowserRouter>
               <MatchCallProvider>
+                <WebChatOutboxRunner />
                 <WebPasswordRecoveryHandler />
                 <PostHogPageTracker />
                 <SessionRouteHydration />
@@ -176,6 +179,7 @@ const App = () => (
         </TooltipProvider>
       </NotificationProvider>
       </SessionHydrationProvider>
+      </WebChatOutboxProvider>
     </AuthProvider>
     <SpeedInsights />
     <Analytics />
