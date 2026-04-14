@@ -215,7 +215,10 @@ export function NotificationDeepLinkHandler() {
         if (
           chatPeerProfileId &&
           path === `/chat/${chatPeerProfileId}` &&
-          (cat === 'messages' || cat === 'new_match' || isDateSuggestionCat)
+          (cat === 'messages' ||
+            cat === 'new_match' ||
+            cat === 'match_call' ||
+            isDateSuggestionCat)
         ) {
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'foreground_suppressed_same_thread', {
             category: cat ?? null,
