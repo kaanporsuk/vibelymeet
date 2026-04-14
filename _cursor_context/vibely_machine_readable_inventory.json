@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-13",
+  "generated_at": "2026-04-14",
   "artifact_type": "machine_readable_inventory",
   "project": {
     "name": "Vibely",
@@ -68,10 +68,30 @@
         "Phase 3c (2026-04-25): prune_event_loop_observability_events() + batched DELETE retention; migration 20260425120000_event_loop_observability_retention_prune.sql; schedule via pg_cron per deploy doc."
       ],
       "repo_inventory_counts": {
-        "edge_functions_deployable": 45,
+        "edge_functions_deployable": 46,
         "edge_function_shared_dirs": 1,
-        "migrations": 262,
-        "live_public_tables_after_sprint3": 48
+        "migrations": 269,
+        "live_public_tables_after_sprint3": 48,
+        "pages_src_root_ts_tsx": 33,
+        "pages_src_all_tsx_recursive": 55,
+        "components_tsx": 267,
+        "hooks_ts_tsx": 57,
+        "services_ts_tsx": 7,
+        "public_folder_files": 24,
+        "linked_db_public_tables": 67,
+        "linked_db_public_views": 11,
+        "linked_db_public_functions": 127,
+        "linked_db_public_enum_groups": 4
+      },
+      "mechanical_trust_closure_2026_04_14": {
+        "types_regenerated_from_project_id": "schdyxcunwcvddlcshwd",
+        "types_regen_script": "scripts/regen-supabase-types.sh",
+        "surface_audit_script": "scripts/surface-inventory-audit.mjs",
+        "evidence_docs": [
+          "docs/audits/mechanical-trust-closure-2026-04-14.md",
+          "docs/audits/supabase-types-regen-summary-2026-04-14.md",
+          "docs/audits/surface-inventory-candidates-2026-04-14.md"
+        ]
       },
       "live_sprint3_migrations": [
         "20260417100000_media_lifecycle_foundation.sql",

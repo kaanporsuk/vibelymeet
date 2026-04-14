@@ -1,3 +1,10 @@
+/**
+ * Supabase `public` schema types — generated from the linked project.
+ *
+ * Regenerate:
+ *   ./scripts/regen-supabase-types.sh
+ */
+
 export type Json =
   | string
   | number
@@ -11,31 +18,6 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
-  }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
   }
   public: {
     Tables: {
@@ -2000,6 +1982,96 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_outbox: {
+        Row: {
+          attempt_count: number
+          body: string | null
+          bypass_preferences: boolean
+          category: string
+          completed_at: string | null
+          created_at: string
+          data: Json
+          event_reminder_queue_id: string | null
+          id: string
+          idempotency_key: string
+          image_url: string | null
+          last_error: string | null
+          next_attempt_at: string
+          onesignal_notification_id: string | null
+          outcome: string | null
+          source: string
+          status: string
+          suppressed_reason: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+          waitlist_promotion_queue_id: string | null
+        }
+        Insert: {
+          attempt_count?: number
+          body?: string | null
+          bypass_preferences?: boolean
+          category: string
+          completed_at?: string | null
+          created_at?: string
+          data?: Json
+          event_reminder_queue_id?: string | null
+          id?: string
+          idempotency_key: string
+          image_url?: string | null
+          last_error?: string | null
+          next_attempt_at?: string
+          onesignal_notification_id?: string | null
+          outcome?: string | null
+          source: string
+          status?: string
+          suppressed_reason?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id: string
+          waitlist_promotion_queue_id?: string | null
+        }
+        Update: {
+          attempt_count?: number
+          body?: string | null
+          bypass_preferences?: boolean
+          category?: string
+          completed_at?: string | null
+          created_at?: string
+          data?: Json
+          event_reminder_queue_id?: string | null
+          id?: string
+          idempotency_key?: string
+          image_url?: string | null
+          last_error?: string | null
+          next_attempt_at?: string
+          onesignal_notification_id?: string | null
+          outcome?: string | null
+          source?: string
+          status?: string
+          suppressed_reason?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+          waitlist_promotion_queue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_outbox_event_reminder_queue_id_fkey"
+            columns: ["event_reminder_queue_id"]
+            isOneToOne: false
+            referencedRelation: "event_reminder_queue"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notification_outbox_waitlist_promotion_queue_id_fkey"
+            columns: ["waitlist_promotion_queue_id"]
+            isOneToOne: false
+            referencedRelation: "waitlist_promotion_notify_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notification_preferences: {
         Row: {
           created_at: string | null
@@ -3443,6 +3515,7 @@ export type Database = {
           created_at: string
           event_id: string
           id: string
+          outbox_enqueued_at: string | null
           processed_at: string | null
           user_id: string
         }
@@ -3450,6 +3523,7 @@ export type Database = {
           created_at?: string
           event_id: string
           id?: string
+          outbox_enqueued_at?: string | null
           processed_at?: string | null
           user_id: string
         }
@@ -3457,6 +3531,7 @@ export type Database = {
           created_at?: string
           event_id?: string
           id?: string
+          outbox_enqueued_at?: string | null
           processed_at?: string | null
           user_id?: string
         }
@@ -3543,7 +3618,7 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      },
+      }
       v_event_loop_drain_events: {
         Row: {
           actor_id: string | null
@@ -3559,30 +3634,30 @@ export type Database = {
           session_id: string | null
         }
         Insert: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
           detail_found?: never
           detail_queued?: never
-          event_id?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
-          reason_code?: never
-          session_id?: never
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
         }
         Update: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
           detail_found?: never
           detail_queued?: never
-          event_id?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
-          reason_code?: never
-          session_id?: never
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
         }
         Relationships: []
       }
@@ -3598,28 +3673,6 @@ export type Database = {
           p95_latency_ms: number | null
           reason_code: string | null
         }
-        Insert: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          n?: never
-          n_found_true?: never
-          n_queued_wait?: never
-          outcome?: never
-          p50_latency_ms?: never
-          p95_latency_ms?: never
-          reason_code?: never
-        }
-        Update: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          n?: never
-          n_found_true?: never
-          n_queued_wait?: never
-          outcome?: never
-          p50_latency_ms?: never
-          p95_latency_ms?: never
-          reason_code?: never
-        }
         Relationships: []
       }
       v_event_loop_expire_activity_hourly: {
@@ -3634,28 +3687,6 @@ export type Database = {
           sum_snooze_wake: number | null
           sum_total_mutations: number | null
         }
-        Insert: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          invoke_count?: never
-          outcome?: never
-          sum_hygiene_orphans?: never
-          sum_queued_ttl_expired?: never
-          sum_ready_gate_expired?: never
-          sum_snooze_wake?: never
-          sum_total_mutations?: never
-        }
-        Update: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          invoke_count?: never
-          outcome?: never
-          sum_hygiene_orphans?: never
-          sum_queued_ttl_expired?: never
-          sum_ready_gate_expired?: never
-          sum_snooze_wake?: never
-          sum_total_mutations?: never
-        }
         Relationships: []
       }
       v_event_loop_expire_events: {
@@ -3667,34 +3698,34 @@ export type Database = {
           latency_ms: number | null
           outcome: string | null
           queued_ttl_expired: number | null
-          reason_code: string | null
           ready_gate_expired: number | null
+          reason_code: string | null
           snooze_wake: number | null
           total_mutations: number | null
         }
         Insert: {
-          created_at?: never
-          detail?: never
+          created_at?: string | null
+          detail?: Json | null
           hygiene_orphans?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
           queued_ttl_expired?: never
-          reason_code?: never
           ready_gate_expired?: never
+          reason_code?: string | null
           snooze_wake?: never
           total_mutations?: never
         }
         Update: {
-          created_at?: never
-          detail?: never
+          created_at?: string | null
+          detail?: Json | null
           hygiene_orphans?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
           queued_ttl_expired?: never
-          reason_code?: never
           ready_gate_expired?: never
+          reason_code?: string | null
           snooze_wake?: never
           total_mutations?: never
         }
@@ -3708,20 +3739,6 @@ export type Database = {
           outcome: string | null
           reason_code: string | null
         }
-        Insert: {
-          bucket_utc?: never
-          n?: never
-          operation?: never
-          outcome?: never
-          reason_code?: never
-        }
-        Update: {
-          bucket_utc?: never
-          n?: never
-          operation?: never
-          outcome?: never
-          reason_code?: never
-        }
         Relationships: []
       }
       v_event_loop_latency_by_operation_outcome_hourly: {
@@ -3733,24 +3750,6 @@ export type Database = {
           outcome: string | null
           p50_latency_ms: number | null
           p95_latency_ms: number | null
-        }
-        Insert: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          n?: never
-          operation?: never
-          outcome?: never
-          p50_latency_ms?: never
-          p95_latency_ms?: never
-        }
-        Update: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          n?: never
-          operation?: never
-          outcome?: never
-          p50_latency_ms?: never
-          p95_latency_ms?: never
         }
         Relationships: []
       }
@@ -3770,32 +3769,32 @@ export type Database = {
           session_id: string | null
         }
         Insert: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
-          event_id?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
           promotion?: never
           promotion_promoted?: never
           promotion_reason?: never
-          reason_code?: never
-          session_id?: never
+          reason_code?: string | null
+          session_id?: string | null
         }
         Update: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
-          event_id?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
           promotion?: never
           promotion_promoted?: never
           promotion_reason?: never
-          reason_code?: never
-          session_id?: never
+          reason_code?: string | null
+          session_id?: string | null
         }
         Relationships: []
       }
@@ -3813,28 +3812,28 @@ export type Database = {
           session_id: string | null
         }
         Insert: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
           detail_step?: never
-          event_id?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
-          reason_code?: never
-          session_id?: never
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
         }
         Update: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
           detail_step?: never
-          event_id?: never
-          id?: never
-          latency_ms?: never
-          outcome?: never
-          reason_code?: never
-          session_id?: never
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
         }
         Relationships: []
       }
@@ -3847,24 +3846,6 @@ export type Database = {
           p50_latency_ms: number | null
           p95_latency_ms: number | null
           reason_code: string | null
-        }
-        Insert: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          n?: never
-          outcome?: never
-          p50_latency_ms?: never
-          p95_latency_ms?: never
-          reason_code?: never
-        }
-        Update: {
-          avg_latency_ms?: never
-          bucket_utc?: never
-          n?: never
-          outcome?: never
-          p50_latency_ms?: never
-          p95_latency_ms?: never
-          reason_code?: never
         }
         Relationships: []
       }
@@ -3884,31 +3865,31 @@ export type Database = {
           swipe_type: string | null
         }
         Insert: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
-          event_id?: never
-          id?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
           immediate?: never
-          latency_ms?: never
+          latency_ms?: number | null
           mutual?: never
-          outcome?: never
-          reason_code?: never
-          session_id?: never
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
           swipe_type?: never
         }
         Update: {
-          actor_id?: never
-          created_at?: never
-          detail?: never
-          event_id?: never
-          id?: never
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
           immediate?: never
-          latency_ms?: never
+          latency_ms?: number | null
           mutual?: never
-          outcome?: never
-          reason_code?: never
-          session_id?: never
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
           swipe_type?: never
         }
         Relationships: []
@@ -4076,6 +4057,39 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_notification_outbox_batch: {
+        Args: { p_limit: number }
+        Returns: {
+          attempt_count: number
+          body: string | null
+          bypass_preferences: boolean
+          category: string
+          completed_at: string | null
+          created_at: string
+          data: Json
+          event_reminder_queue_id: string | null
+          id: string
+          idempotency_key: string
+          image_url: string | null
+          last_error: string | null
+          next_attempt_at: string
+          onesignal_notification_id: string | null
+          outcome: string | null
+          source: string
+          status: string
+          suppressed_reason: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+          waitlist_promotion_queue_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "notification_outbox"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       clear_expired_pauses: { Args: never; Returns: number }
       clear_profile_vibe_video: {
         Args: {
@@ -4198,6 +4212,7 @@ export type Database = {
         Returns: string
       }
       expire_stale_match_calls: { Args: never; Returns: number }
+      expire_stale_video_date_phases: { Args: never; Returns: Json }
       expire_stale_video_sessions: { Args: never; Returns: number }
       expire_video_date_reconnect_graces: { Args: never; Returns: number }
       extract_chat_image_path_from_content: {
@@ -4280,6 +4295,10 @@ export type Database = {
       get_event_visible_attendees: {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: string[]
+      }
+      get_media_worker_cron_status: {
+        Args: { p_job_name?: string; p_run_limit?: number }
+        Returns: Json
       }
       get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
       get_other_city_events: {
@@ -4424,9 +4443,29 @@ export type Database = {
         Args: { p_intent: string }
         Returns: string
       }
-      prune_event_loop_observability_events: {
-        Args: { p_batch_limit?: number; p_retention_days?: number }
-        Returns: Json
+      notification_outbox_complete_waitlist: {
+        Args: { p_completed_at: string; p_queue_id: string }
+        Returns: undefined
+      }
+      notification_outbox_enqueue: {
+        Args: {
+          p_body: string
+          p_bypass_preferences: boolean
+          p_category: string
+          p_data: Json
+          p_event_reminder_queue_id: string
+          p_idempotency_key: string
+          p_image_url: string
+          p_source: string
+          p_title: string
+          p_user_id: string
+          p_waitlist_promotion_queue_id: string
+        }
+        Returns: string
+      }
+      notification_outbox_reclaim_stale_minutes: {
+        Args: { p_stale_minutes: number }
+        Returns: number
       }
       promote_purgeable_assets: { Args: { p_limit?: number }; Returns: number }
       promote_ready_gate_if_eligible: {
@@ -4441,6 +4480,10 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
+      prune_event_loop_observability_events: {
+        Args: { p_batch_limit?: number; p_retention_days?: number }
+        Returns: Json
+      }
       publish_media_session: {
         Args: { p_caption?: string; p_session_id: string }
         Returns: Json
@@ -4452,6 +4495,19 @@ export type Database = {
       ready_gate_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
+      }
+      record_event_loop_observability: {
+        Args: {
+          p_actor_id: string
+          p_detail: Json
+          p_event_id: string
+          p_latency_ms: number
+          p_operation: string
+          p_outcome: string
+          p_reason_code: string
+          p_session_id: string
+        }
+        Returns: undefined
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
@@ -4469,6 +4525,10 @@ export type Database = {
         Returns: Json
       }
       replenish_monthly_credits: { Args: never; Returns: Json }
+      requeue_stale_media_delete_jobs: {
+        Args: { p_stale_minutes?: number }
+        Returns: number
+      }
       reset_tier_config_override: {
         Args: { p_capability_key: string; p_tier_id: string }
         Returns: undefined
@@ -4477,6 +4537,14 @@ export type Database = {
       restore_chat_match_participant: {
         Args: { p_match_id: string; p_user_id: string }
         Returns: Json
+      }
+      retry_failed_media_delete_jobs: {
+        Args: {
+          p_family?: string
+          p_limit?: number
+          p_reset_attempts?: boolean
+        }
+        Returns: number
       }
       save_onboarding_draft: {
         Args: {
@@ -4502,23 +4570,24 @@ export type Database = {
         }
         Returns: Json
       }
-      submit_post_date_verdict: {
-        Args: { p_liked: boolean; p_session_id: string }
-        Returns: Json
-      }
       spend_video_date_credit_extension: {
         Args: { p_credit_type: string; p_session_id: string }
+        Returns: Json
+      }
+      submit_post_date_verdict: {
+        Args: { p_liked: boolean; p_session_id: string }
         Returns: Json
       }
       submit_user_report: {
         Args: {
           p_also_block?: boolean
-          p_details?: string | null
+          p_details?: string
           p_reason: string
           p_reported_id: string
         }
         Returns: Json
       }
+      summarize_media_lifecycle_health: { Args: never; Returns: Json }
       sync_chat_message_media: { Args: { p_message_id: string }; Returns: Json }
       sync_profile_photo_media: {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
@@ -4702,9 +4771,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],

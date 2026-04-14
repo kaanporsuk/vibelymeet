@@ -1,6 +1,6 @@
 # Active doc map
 
-Date: 2026-04-11  
+Date: 2026-04-14  
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
@@ -22,6 +22,11 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Evidence type | Canonical file |
 |---|---|
 | **Branch delta (Video Dates P0/P1 closure)** | `docs/branch-deltas/fix-video-date-p0-p1-closure.md` |
+| **Full-system forensic closure audit + cleanup matrix (2026-04-14)** | `docs/audits/full-system-forensic-closure-audit-2026-04-14.md` and `docs/audits/full-system-cleanup-matrix-2026-04-14.md` |
+| **Branch delta (forensic audit pass)** | `docs/branch-deltas/audit-full-system-forensic-closure-and-cleanup.md` |
+| **Mechanical trust closure (types + inventory + surface audit)** | `docs/audits/mechanical-trust-closure-2026-04-14.md` |
+| **Last-mile closure (E2E + orphan triage + deduct_credit review)** | `docs/audits/e2e-minimal-layer-2026-04-14.md`, `docs/audits/orphan-triage-2026-04-14.md`, `docs/audits/deduct-credit-security-review-2026-04-14.md` |
+| **`deduct_credit` auth closure (caller map + migration)** | `docs/audits/deduct-credit-caller-map-2026-04-14.md`, `docs/branch-deltas/deduct-credit-security-closure-2026-04-14.md`, migration `20260429100000_deduct_credit_auth_bind.sql` |
 | Launch blocker status, build ids, pass/fail updates | `docs/native-final-blocker-matrix.md` |
 | Browser/runtime proof results | `docs/browser-auth-runtime-proof-results.md` |
 | Post-audit ops checklist (Supabase vs Vercel vs manual QA) | `docs/post-audit-operational-verification-checklist.md` |

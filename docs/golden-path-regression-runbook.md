@@ -2,9 +2,21 @@
 
 **Purpose:** Repeatable regression checklist for the hardened web baseline. Use after merges, before native planning, or when validating deploy readiness.
 
+**Last mechanical alignment note:** 2026-04-14 — `src/integrations/supabase/types.ts` regenerated from linked project; machine inventory recounted (see `docs/audits/mechanical-trust-closure-2026-04-14.md`).
+
 **Scope:** Golden-path flows only. Each step is PASS/failable with a concrete expected outcome.
 
 **Web route reference (from `src/App.tsx`):** Ready Gate `/ready/:id`, Video date `/date/:id`, Chat `/chat/:id` (here `id` is session id or match id as appropriate). Dashboard `/dashboard`, Events `/events`, Event lobby `/event/:eventId/lobby`, Matches `/matches`, Admin `/kaan/dashboard`.
+
+**Automation layer (static, repo-local):**
+
+| Script | What it does |
+|--------|----------------|
+| `scripts/run_golden_path_smoke.sh` | `typecheck:core` + production `build` |
+| `npm run typecheck` | Core + mobile + app TS (full monorepo) |
+| `npm run regen:supabase-types` | Refresh `src/integrations/supabase/types.ts` from linked DB |
+| `npm run audit:surfaces` | Static import-graph orphan report → `docs/audits/surface-inventory-candidates-2026-04-14.md` |
+| `npm run test:e2e` | Playwright: landing + `/auth` shell (`e2e/web-smoke.spec.ts`); see `docs/audits/e2e-minimal-layer-2026-04-14.md` |
 
 ---
 

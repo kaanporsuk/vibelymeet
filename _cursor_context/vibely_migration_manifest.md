@@ -19,11 +19,15 @@ It answers:
 
 This is especially important for Vibely because the migration chain is **not** purely schema DDL. It includes policy rewrites, storage changes, backfills, destructive cleanup, and test-data manipulation.
 
-### Current-state addendum (2026-04-13)
+### Current-state addendum (2026-04-13, updated 2026-04-14)
 
 The repo has moved well beyond the frozen/archive counts below.
 
-- Current repo migration count: **262** files under `supabase/migrations` after `20260425130000_event_loop_prune_revoke_client_roles.sql` (re-baseline this line when migrations are added).
+- Current repo migration count: **269** files under `supabase/migrations` after `20260429100000_deduct_credit_auth_bind.sql` (re-baseline this line when migrations are added).
+- Deployable Edge Functions: **46** (`supabase/functions/*/index.ts`); see `_cursor_context/vibely_machine_readable_inventory.json` → `repo_inventory_counts.edge_functions_deployable`.
+- **2026-04-14 (Video Dates P0/P1 + credit budget):** `20260428120000_video_date_p0_p1_closure.sql` and `20260428120100_video_date_credit_extension_budget.sql` — closure evidence: `docs/branch-deltas/fix-video-date-p0-p1-closure.md`; full-system audit: `docs/audits/full-system-forensic-closure-audit-2026-04-14.md`.
+- **2026-04-14 (mechanical trust):** `src/integrations/supabase/types.ts` regenerated from linked DB; inventory recount + surface audit script — `docs/audits/mechanical-trust-closure-2026-04-14.md`.
+- **2026-04-29 (deduct_credit auth bind):** `20260429100000_deduct_credit_auth_bind.sql` — `deduct_credit` requires `auth.uid() = p_user_id` unless `auth.role() = service_role`; evidence: `docs/audits/deduct-credit-caller-map-2026-04-14.md`.
 - Sprint 1 media lifecycle foundation landed as `20260417100000_media_lifecycle_foundation.sql`.
 - That migration adds the four `media_*` tables, five service-role media lifecycle RPCs, retention seed rows, and the queue/asset foundation without changing user-facing media flows yet.
 - Sprint 2 profile-media wiring landed as `20260417110000_media_lifecycle_profile_media_wiring.sql`.

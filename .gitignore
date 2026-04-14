@@ -38,3 +38,8 @@ apps/mobile/.env
 vibelymeet-rehearsal-artifact/
 .vercel
 .env*.local
+
+# Playwright (e2e/)
+/test-results/
+/playwright-report/
+blob-report/
