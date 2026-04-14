@@ -133,6 +133,10 @@ verify_jwt = false
 [functions.match-call-room-cleanup]
 verify_jwt = false
 
+# Terminal video_sessions Daily room purge (Bearer CRON_SECRET; see migration scheduling).
+[functions.video-date-room-cleanup]
+verify_jwt = false
+
 [functions.send-email]
 verify_jwt = false
 
