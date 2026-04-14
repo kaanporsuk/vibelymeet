@@ -804,7 +804,7 @@ id (uuid PK), user_id, email_key, sent_at
     → Screen 1 (mandatory): Did you vibe? → calls check_mutual_vibe_and_match RPC
     → Screen 2 (optional): Highlight tags
     → Screen 3 (optional): Safety/report
-    → If mutual vibe: persistent match created → MutualMatchCelebration
+    → If mutual vibe: persistent match created → PostDateSurvey celebration step (MatchSuccessModal; not the removed MutualMatchCelebration component)
 12. User returns to lobby (if event active) or goes to /matches
 13. Match appears in /matches tab → tap → /chat/:id → real-time messaging
 ```
