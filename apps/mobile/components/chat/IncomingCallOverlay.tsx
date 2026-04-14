@@ -17,11 +17,18 @@ type IncomingCallOverlayProps = {
   callerAvatarUri?: string | null;
   onAnswer: () => void;
   onDecline: () => void;
+  onTimeout: () => void;
 };
 
 const RING_DURATION = 2000;
 
-export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, onDecline }: IncomingCallOverlayProps) {
+export function IncomingCallOverlay({
+  incomingCall,
+  callerAvatarUri,
+  onAnswer,
+  onDecline,
+  onTimeout,
+}: IncomingCallOverlayProps) {
   const theme = Colors[useColorScheme()];
   const [countdown, setCountdown] = useState(30);
   const ringAnims = [useRef(new Animated.Value(1)).current, useRef(new Animated.Value(1)).current, useRef(new Animated.Value(1)).current];
@@ -29,6 +36,7 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
   const hasDeclinedRef = useRef(false);
 
   useEffect(() => {
+    setCountdown(30);
     hasDeclinedRef.current = false;
     intervalRef.current = setInterval(() => {
       setCountdown((p) => {
@@ -39,7 +47,7 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
               clearInterval(intervalRef.current);
               intervalRef.current = null;
             }
-            onDecline();
+            onTimeout();
           }
           return 0;
         }
@@ -52,7 +60,7 @@ export function IncomingCallOverlay({ incomingCall, callerAvatarUri, onAnswer, o
         intervalRef.current = null;
       }
     };
-  }, [onDecline]);
+  }, [incomingCall.callId, onTimeout]);
 
   useEffect(() => {
     const loops = ringAnims.map((anim, i) =>

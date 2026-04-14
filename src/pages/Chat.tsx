@@ -80,8 +80,6 @@ import {
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
-import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
-import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 import { format } from "date-fns";
 import { buildThreadPresentationRows } from "../../shared/chat/threadPresentation";
@@ -278,7 +276,12 @@ const Chat = () => {
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const matchCall = useMatchCall({
-    matchId: chatData?.matchId || "",
+    matchId: chatData?.matchId || null,
+    partnerUserId: chatData?.otherUser?.id ?? id ?? null,
+    partnerName: chatData?.otherUser?.name ?? "Your match",
+    partnerAvatar: chatData?.otherUser?.avatar_url
+      ? resolvePhotoUrl(chatData.otherUser.avatar_url)
+      : null,
     onCallEnded: () => {},
   });
 
@@ -1938,39 +1941,6 @@ const Chat = () => {
         }
         matchName={otherUser.name}
       />
-
-      {/* Incoming call overlay */}
-      <AnimatePresence>
-        {matchCall.incomingCall && (
-          <IncomingCallOverlay
-            incomingCall={matchCall.incomingCall}
-            onAnswer={matchCall.answerCall}
-            onDecline={matchCall.declineCall}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Active call overlay */}
-      <AnimatePresence>
-        {(matchCall.isInCall || matchCall.isRinging) && !matchCall.incomingCall && (
-          <ActiveCallOverlay
-            isRinging={matchCall.isRinging}
-            isInCall={matchCall.isInCall}
-            callType={matchCall.callType}
-            isMuted={matchCall.isMuted}
-            isVideoOff={matchCall.isVideoOff}
-            callDuration={matchCall.callDuration}
-            partnerName={otherUser.name}
-            partnerAvatar={otherUser.avatar_url}
-            localVideoRef={matchCall.localVideoRef}
-            remoteVideoRef={matchCall.remoteVideoRef}
-            onToggleMute={matchCall.toggleMute}
-            onToggleVideo={matchCall.toggleVideo}
-            onEndCall={matchCall.endCall}
-          />
-        )}
-      </AnimatePresence>
-
       <AnimatePresence>
         {photoLightboxInitialId && chatPhotoLightboxItems.length > 0 ? (
           <ChatPhotoLightbox

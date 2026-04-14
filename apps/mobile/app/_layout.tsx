@@ -48,6 +48,7 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
 import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
+import { MatchCallProvider } from '@/lib/useMatchCall';
 import { supabase } from '@/lib/supabase';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
 import { applyNativeReferralAttribution, captureNativeReferral } from '@/lib/referrals';
@@ -492,35 +493,37 @@ function RootLayoutNav() {
   const navContent = (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ChatOutboxProvider>
-        <SupabaseAutoRefreshAppStateBridge />
-        <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
-        <ReferralAttributionSync syncTick={referralSyncTick} />
-        <PushRegistration />
-        <NotificationRouteTracker />
-        <NativeSessionRouteHydration />
-        <NotificationDeepLinkHandler />
-        <NotificationPauseForeground />
-        <DeactivatedAccountReactivationPrompt />
-        <ActivityHeartbeat />
-        <RevenueCatUserSync />
-        <BadgeCountUpdater />
-        <EventsRealtimeUpdater />
-        <ChatOutboxRunner />
-        <View style={{ flex: 1 }}>
+        <MatchCallProvider>
+          <ChatOutboxProvider>
+          <SupabaseAutoRefreshAppStateBridge />
+          <AuthRedirectHandler onReferralCaptured={() => setReferralSyncTick((t) => t + 1)} />
+          <ReferralAttributionSync syncTick={referralSyncTick} />
+          <PushRegistration />
+          <NotificationRouteTracker />
+          <NativeSessionRouteHydration />
+          <NotificationDeepLinkHandler />
+          <NotificationPauseForeground />
+          <DeactivatedAccountReactivationPrompt />
+          <ActivityHeartbeat />
+          <RevenueCatUserSync />
+          <BadgeCountUpdater />
+          <EventsRealtimeUpdater />
+          <ChatOutboxRunner />
           <View style={{ flex: 1 }}>
-            {POSTHOG_ENABLED ? (
-              <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
-                <PostHogScreenTracker />
-                {gatedStack}
-              </PostHogProvider>
-            ) : (
-              gatedStack
-            )}
+            <View style={{ flex: 1 }}>
+              {POSTHOG_ENABLED ? (
+                <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
+                  <PostHogScreenTracker />
+                  {gatedStack}
+                </PostHogProvider>
+              ) : (
+                gatedStack
+              )}
+            </View>
+            <OfflineBanner />
           </View>
-          <OfflineBanner />
-        </View>
-        </ChatOutboxProvider>
+          </ChatOutboxProvider>
+        </MatchCallProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

@@ -298,18 +298,19 @@ Function request body:
 
 The function:
 - ensures the callee owns the ringing call
-- returns room/token info
+- issues a Daily token only while the row is still `ringing`
+- activates the call through backend `match_call_transition(action = 'answer')`
+- returns room/token info only when that backend transition succeeds
 
 The frontend then:
 - joins the room
-- updates `match_calls.status = "active"`
-- sets `started_at`
+- reconciles to backend-owned `active` state from realtime / function response
 
 ### Step 6 — Missed/declined/ended handling
 Observed frontend logic:
-- unanswered ring after 30 seconds → marks `status = "missed"`
-- explicit decline → marks `status = "declined"`
-- local end → marks `status = "ended"`, sets `ended_at`, `duration_seconds`
+- unanswered ring after 30 seconds → calls backend lifecycle transition `mark_missed`
+- explicit decline → calls backend lifecycle transition `decline`
+- local end / remote leave → calls backend lifecycle transition `end`
 - best-effort `delete_room` is invoked on end
 
 ---
@@ -336,7 +337,9 @@ Observed behavior:
 - starts caller ringing state immediately
 - auto-marks a call missed after ~30s if nobody joins
 - ends the call if the remote participant leaves
-- updates `match_calls` lifecycle state from the frontend
+- runs as a global app-level controller on web and native, not just inside the chat thread
+- listens to `match_calls` `INSERT` + `UPDATE` for both `caller_id` and `callee_id`
+- reconciles local UI from backend-owned `match_calls` lifecycle state instead of writing raw row updates
 - invokes `delete_room` on end
 
 ### Rebuild implication
@@ -517,4 +520,3 @@ To rebuild it correctly, you need more than the code:
 - confidence that best-effort teardown and unload cleanup are acceptable in practice
 
 This sheet is the provider-level control point for that reality.
-

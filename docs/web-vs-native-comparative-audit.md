@@ -80,7 +80,7 @@
 | useDailyDrop | src/hooks/useDailyDrop.ts | Yes | apps/mobile/lib/dailyDropApi.ts | useDailyDrop in both |
 | useEventAttendees | src/hooks/useEventAttendees.ts | **MISSING** | — | Web: event details attendees |
 | useDailyDropNotifications | src/hooks/useDailyDropNotifications.ts | **MISSING** | — | |
-| useMatchCall | src/hooks/useMatchCall.ts | **MISSING** | — | Web: incoming/active call overlay in chat |
+| useMatchCall | src/hooks/useMatchCall.tsx + app-level provider mount | apps/mobile/lib/useMatchCall.tsx + app-level provider mount | Both clients now use a global match-call controller with app-level overlays and realtime INSERT/UPDATE reconciliation. |
 | useMatchQueue | src/hooks/useMatchQueue.ts | **MISSING** | — | Web: lobby match queue |
 | useMatches | src/hooks/useMatches.ts | Yes | apps/mobile/lib/chatApi.ts | useMatches in chatApi |
 | useMessages | src/hooks/useMessages.ts | Yes | apps/mobile/lib/chatApi.ts | useMessages, useSendMessage |
@@ -182,10 +182,10 @@
 
 | Aspect | Web | Native | Gap |
 |--------|-----|--------|-----|
-| Hooks | useRealtimeMessages, useMessages, useSendMessage, usePublishVoiceMessage, useMatchCall, useUserProfile; DateProposal from useSchedule | useMessages, useSendMessage, useRealtimeMessages, useMatches, useUnmatch, useBlockUser, useArchiveMatch, useMuteMatch | Native: no useMatchCall. Voice + Vibe Clip: outbox + `invokePublishVoiceMessage` / `invokePublishVibeClip` (not legacy `useSendVoiceMessage` / direct insert). |
-| Components | MessageBubble, TypingIndicator, VideoDateCard, DateSuggestionChip, ChatHeader, VoiceRecorder, VideoMessageRecorder, VoiceMessageBubble, VideoMessageBubble, VibeSyncModal, DateProposalTicket, VibeArcadeMenu, GameBubbleRenderer, TwoTruthsCreator, WouldRatherCreator, etc., IncomingCallOverlay, ActiveCallOverlay | Inline VoiceMessageBubble, VideoView for chat video, MatchActionsSheet, ReportFlowModal, GlassHeaderBar | Native: no TypingIndicator, no VideoDateCard, no DateSuggestionChip, no VibeSyncModal, no DateProposalTicket, no VibeArcadeMenu / game creators, no IncomingCallOverlay, no ActiveCallOverlay |
+| Hooks | useRealtimeMessages, useMessages, useSendMessage, usePublishVoiceMessage, useMatchCall, useUserProfile; DateProposal from useSchedule | useMessages, useSendMessage, useRealtimeMessages, useMatches, useUnmatch, useBlockUser, useArchiveMatch, useMuteMatch, useMatchCall | Chat-call lifecycle is now global on both clients; native still differs on non-call chat surfaces like date suggestions and arcade. |
+| Components | MessageBubble, TypingIndicator, VideoDateCard, DateSuggestionChip, ChatHeader, VoiceRecorder, VideoMessageRecorder, VoiceMessageBubble, VideoMessageBubble, VibeSyncModal, DateProposalTicket, VibeArcadeMenu, GameBubbleRenderer, TwoTruthsCreator, WouldRatherCreator, etc., IncomingCallOverlay, ActiveCallOverlay | Inline VoiceMessageBubble, VideoView for chat video, MatchActionsSheet, ReportFlowModal, GlassHeaderBar, IncomingCallOverlay, ActiveCallOverlay | Native still lacks several non-call chat components, but in-chat voice/video call overlays now exist and are mounted globally instead of per-thread. |
 | Interactions | Send text/voice/video, date proposals, open VibeSync, open arcade games, accept/decline call, reaction | Send text/voice/video (image picker), match actions, report | Native: no in-chat video call UI; no date proposal/scheduling UI; no arcade; no call overlays |
-| Data | Realtime messages, call state (useMatchCall) | Realtime messages | Native: no call state subscription |
+| Data | Realtime messages, global match call state (`match_calls` INSERT/UPDATE) | Realtime messages, global match call state (`match_calls` INSERT/UPDATE) | Call-state subscription parity is now present on both clients; native remains stronger on outbox/offline message handling. |
 
 ### Profile (Web: Profile.tsx | Native: (tabs)/profile/index.tsx)
 
@@ -308,11 +308,11 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | VibeTagSelector | Chips in profile | PARTIAL |
 | admin/* | — | MISSING (no admin) |
 | arcade/* (VibeArcadeMenu, GameBubbleRenderer, games, creators) | — | MISSING |
-| chat/ActiveCallOverlay | — | MISSING |
+| chat/ActiveCallOverlay | src/components/chat/ActiveCallOverlay.tsx | apps/mobile/components/chat/ActiveCallOverlay.tsx |
 | chat/ChatHeader | GlassHeaderBar + header content | PARTIAL |
 | chat/DateSuggestionChip | — | MISSING |
 | chat/EmojiBar | — | MISSING |
-| chat/IncomingCallOverlay | — | MISSING |
+| chat/IncomingCallOverlay | src/components/chat/IncomingCallOverlay.tsx | apps/mobile/components/chat/IncomingCallOverlay.tsx |
 | chat/MessageBubble | Inline message rendering | PARTIAL |
 | chat/MessageStatus | — | MISSING |
 | chat/ParticleBurst | — | MISSING |

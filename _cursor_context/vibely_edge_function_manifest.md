@@ -307,13 +307,13 @@ The function exists in source but is not represented in `supabase/config.toml`.
 ## E. Events / matching / live sessions
 
 ### `daily-room`
-- **Purpose:** creates or resumes Daily rooms and meeting tokens for event/video-date call flows
+- **Purpose:** creates or resumes Daily rooms and meeting tokens for event/video-date plus in-chat 1:1 match-call flows
 - **Auth posture:** Class C — `verify_jwt = true`. Frontend unload cleanup uses `fetch(..., { keepalive: true })` with `Authorization: Bearer <session access_token>` (no sendBeacon).
-- **Frontend call sites:** `src/hooks/useMatchCall.ts`, `src/hooks/useVideoCall.ts`, `src/pages/VideoDate.tsx`
+- **Frontend call sites:** `src/hooks/useMatchCall.tsx`, `apps/mobile/lib/useMatchCall.tsx`, `src/hooks/useVideoCall.ts`, `src/pages/VideoDate.tsx`
 - **Primary tables touched:** `video_sessions`, `matches`, `match_calls`
 - **External services:** Daily.co
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DAILY_API_KEY`, `DAILY_DOMAIN`
-- **Rebuild notes:** defaults `DAILY_DOMAIN` to `vibelyapp.daily.co` if missing; VideoDate beforeunload cleanup must send JWT via fetch keepalive
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `DAILY_DOMAIN`
+- **Rebuild notes:** defaults `DAILY_DOMAIN` to `vibelyapp.daily.co` if missing; VideoDate beforeunload cleanup must send JWT via fetch keepalive; match-call creation now inserts `match_calls` via service role inside `daily-room`, and `answer_match_call` activates calls through backend `match_call_transition` before returning a usable token
 
 ### `vibe-notification`
 - **Purpose:** records and dispatches vibe-related notification events between users in event contexts

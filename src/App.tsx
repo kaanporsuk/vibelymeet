@@ -61,6 +61,7 @@ import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
 import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
 import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletionBanner";
+import { MatchCallProvider } from "@/hooks/useMatchCall";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -116,58 +117,60 @@ const App = () => (
             }}
           >
             <BrowserRouter>
-              <WebPasswordRecoveryHandler />
-              <PostHogPageTracker />
-              <SessionRouteHydration />
-              <WebOnBreakBanner />
-              <WebPendingDeletionBanner />
-              <AppContent />
-              <NotificationContainer />
-              <NotificationManager />
-              <PushPermissionPrompt />
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/entry-recovery" element={<ProtectedRoute><EntryRecovery /></ProtectedRoute>} />
-                <Route path="/invite" element={<InviteRedirect />} />
-                <Route path="/event/:eventId" element={<EventShortRedirect />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-                <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/home" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/events" element={<ProtectedRoute><Events /></ProtectedRoute>} />
-                <Route path="/events/:id" element={<ProtectedRoute><EventDetails /></ProtectedRoute>} />
-                <Route path="/event/:eventId/lobby" element={<ProtectedRoute><EventLobby /></ProtectedRoute>} />
-                <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
-                <Route path="/chat/:id" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
-                <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-                <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreview /></ProtectedRoute>} />
-                <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-                <Route path="/settings/referrals" element={<ProtectedRoute><Referrals /></ProtectedRoute>} />
-                <Route path="/settings/ticket/:id" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-                <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
-                <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyRedirect /></ProtectedRoute>} />
-                <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
-                <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
-                <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
-                <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
-                <Route path="/how-it-works" element={<HowItWorks />} />
-                <Route path="/privacy" element={<PrivacyPolicy />} />
-                <Route path="/terms" element={<TermsOfService />} />
-                <Route path="/delete-account" element={<DeleteAccountWeb />} />
-                <Route path="/community-guidelines" element={<CommunityGuidelines />} />
-                <Route path="/premium" element={<Premium />} />
-                <Route path="/subscription/success" element={<SubscriptionSuccess />} />
-                <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
-                <Route path="/event-payment/success" element={<ProtectedRoute><EventPaymentSuccess /></ProtectedRoute>} />
-                <Route path="/credits" element={<ProtectedRoute><Credits /></ProtectedRoute>} />
-                <Route path="/credits/success" element={<ProtectedRoute><CreditsSuccess /></ProtectedRoute>} />
-                <Route path="/user/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
-                {/* Admin Routes */}
-                <Route path="/kaan" element={<AdminLogin />} />
-                <Route path="/kaan/dashboard" element={<ProtectedRoute requireAdmin requireOnboarding={false}><AdminDashboard /></ProtectedRoute>} />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
+              <MatchCallProvider>
+                <WebPasswordRecoveryHandler />
+                <PostHogPageTracker />
+                <SessionRouteHydration />
+                <WebOnBreakBanner />
+                <WebPendingDeletionBanner />
+                <AppContent />
+                <NotificationContainer />
+                <NotificationManager />
+                <PushPermissionPrompt />
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="/auth" element={<Auth />} />
+                  <Route path="/entry-recovery" element={<ProtectedRoute><EntryRecovery /></ProtectedRoute>} />
+                  <Route path="/invite" element={<InviteRedirect />} />
+                  <Route path="/event/:eventId" element={<EventShortRedirect />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+                  <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/home" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                  <Route path="/events" element={<ProtectedRoute><Events /></ProtectedRoute>} />
+                  <Route path="/events/:id" element={<ProtectedRoute><EventDetails /></ProtectedRoute>} />
+                  <Route path="/event/:eventId/lobby" element={<ProtectedRoute><EventLobby /></ProtectedRoute>} />
+                  <Route path="/matches" element={<ProtectedRoute><Matches /></ProtectedRoute>} />
+                  <Route path="/chat/:id" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+                  <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+                  <Route path="/profile/preview" element={<ProtectedRoute><ProfilePreview /></ProtectedRoute>} />
+                  <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                  <Route path="/settings/referrals" element={<ProtectedRoute><Referrals /></ProtectedRoute>} />
+                  <Route path="/settings/ticket/:id" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+                  <Route path="/date/:id" element={<ProtectedRoute><VideoDate /></ProtectedRoute>} />
+                  <Route path="/ready/:readyId" element={<ProtectedRoute><ReadyRedirect /></ProtectedRoute>} />
+                  <Route path="/admin/create-event" element={<ProtectedRoute requireAdmin><AdminCreateEvent /></ProtectedRoute>} />
+                  <Route path="/match-celebration" element={<ProtectedRoute><MatchCelebration /></ProtectedRoute>} />
+                  <Route path="/vibe-studio" element={<ProtectedRoute><VibeStudio /></ProtectedRoute>} />
+                  <Route path="/schedule" element={<ProtectedRoute><Schedule /></ProtectedRoute>} />
+                  <Route path="/how-it-works" element={<HowItWorks />} />
+                  <Route path="/privacy" element={<PrivacyPolicy />} />
+                  <Route path="/terms" element={<TermsOfService />} />
+                  <Route path="/delete-account" element={<DeleteAccountWeb />} />
+                  <Route path="/community-guidelines" element={<CommunityGuidelines />} />
+                  <Route path="/premium" element={<Premium />} />
+                  <Route path="/subscription/success" element={<SubscriptionSuccess />} />
+                  <Route path="/subscription/cancel" element={<SubscriptionCancel />} />
+                  <Route path="/event-payment/success" element={<ProtectedRoute><EventPaymentSuccess /></ProtectedRoute>} />
+                  <Route path="/credits" element={<ProtectedRoute><Credits /></ProtectedRoute>} />
+                  <Route path="/credits/success" element={<ProtectedRoute><CreditsSuccess /></ProtectedRoute>} />
+                  <Route path="/user/:userId" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
+                  {/* Admin Routes */}
+                  <Route path="/kaan" element={<AdminLogin />} />
+                  <Route path="/kaan/dashboard" element={<ProtectedRoute requireAdmin requireOnboarding={false}><AdminDashboard /></ProtectedRoute>} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </MatchCallProvider>
             </BrowserRouter>
           </Sentry.ErrorBoundary>
         </TooltipProvider>

@@ -199,7 +199,7 @@
 - **Route:** `/chat/[id]` — **`id` = other user’s **profile** UUID**
 - **Header:** `GlassHeaderBar` — back, call buttons, menu (unmatch/block/report)
 - **Realtime:** `messages-{matchId}` INSERT/UPDATE; typing via `chatApi`
-- **IncomingCallOverlay / ActiveCallOverlay** — `useMatchCall` + channel `match-calls-{userId}-{matchId}`
+- **IncomingCallOverlay / ActiveCallOverlay** — app-level `MatchCallProvider` + global `match_calls` INSERT/UPDATE listeners for `caller_id` / `callee_id`
 - **Sheets:** `DateSuggestionSheet`, `ReactionPicker` on long-press
 - **Alerts:** Offline, voice permission, video from library, call errors, unmatch/block, “Coming soon” for camera photo
 - **Quick action:** Opens `https://vibelymeet.com/matches`

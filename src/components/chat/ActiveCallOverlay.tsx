@@ -14,8 +14,8 @@ interface ActiveCallOverlayProps {
   callDuration: number;
   partnerName: string;
   partnerAvatar?: string;
-  localVideoRef: React.RefObject<HTMLVideoElement>;
-  remoteVideoRef: React.RefObject<HTMLVideoElement>;
+  localVideoRef: React.RefObject<HTMLVideoElement | null>;
+  remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
   localStream?: MediaStream | null;
   onToggleMute: () => void;
   onToggleVideo: () => void;
@@ -130,7 +130,7 @@ export const ActiveCallOverlay = ({
     >
       {/* Remote video */}
       <video
-        ref={remoteVideoRef}
+        ref={remoteVideoRef as React.RefObject<HTMLVideoElement>}
         autoPlay
         playsInline
         className="absolute inset-0 w-full h-full object-cover"
