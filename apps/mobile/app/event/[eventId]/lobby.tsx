@@ -243,6 +243,9 @@ export default function EventLobbyScreen() {
     async (sessionId: string) => {
       if (lastOpenedSessionRef.current === sessionId) return;
       lastOpenedSessionRef.current = sessionId;
+      if (user?.id) {
+        void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
+      }
       setActiveSessionId(sessionId);
       setActiveSessionPartnerName(null);
       setActiveSessionPartnerImage(null);
@@ -266,7 +269,7 @@ export default function EventLobbyScreen() {
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
       }
     },
-    [user?.id]
+    [id, queryClient, user?.id]
   );
 
   const refreshQueueAndSuperVibe = useCallback(async () => {
@@ -332,8 +335,22 @@ export default function EventLobbyScreen() {
         async (payload) => {
           const newData = payload.new as Record<string, unknown>;
           if (newData.event_id !== id) return;
-          if (newData.queue_status === 'in_ready_gate' && newData.current_room_id) {
-            await openReadyGateWithSession(newData.current_room_id as string);
+          const queueStatus = newData.queue_status as string | undefined;
+          const currentRoomId = newData.current_room_id as string | null | undefined;
+          if (queueStatus === 'in_ready_gate' && currentRoomId) {
+            await openReadyGateWithSession(currentRoomId);
+            return;
+          }
+          if (queueStatus === 'in_ready_gate' || currentRoomId) {
+            const { data: latestReg } = await supabase
+              .from('event_registrations')
+              .select('queue_status, current_room_id')
+              .eq('event_id', id)
+              .eq('profile_id', user.id)
+              .maybeSingle();
+            if (latestReg?.queue_status === 'in_ready_gate' && latestReg.current_room_id) {
+              await openReadyGateWithSession(latestReg.current_room_id);
+            }
           }
         }
       )
@@ -373,7 +390,7 @@ export default function EventLobbyScreen() {
           refreshQueueAndSuperVibe();
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
-          if (newStatus === 'ready' && oldStatus === 'queued') {
+          if (newStatus === 'ready' && oldStatus !== 'ready') {
             await openReadyGateWithSession(session.id as string);
           }
         }

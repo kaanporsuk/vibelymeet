@@ -65,10 +65,10 @@ export function ConnectionOverlay({ isConnecting, onLeave }: Props) {
           </View>
         </View>
         <Text style={[styles.title, { color: theme.text }]}>
-          {isConnecting ? 'Connecting you...' : 'Waiting for partner'}
+          {isConnecting ? 'Joining your date...' : 'Waiting for your date...'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
-          {isConnecting ? 'Setting up your video date' : 'Your date will start as soon as they join'}
+          {isConnecting ? 'Setting up your video room' : 'Your date will start as soon as they join'}
         </Text>
         <Pressable
           onPress={onLeave}

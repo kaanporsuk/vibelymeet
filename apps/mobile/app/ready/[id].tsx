@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { Camera } from 'expo-camera';
 import { useAuth } from '@/context/AuthContext';
 import { useReadyGate } from '@/lib/readyGateApi';
 import { avatarUrl } from '@/lib/imageUrl';
@@ -49,11 +50,34 @@ export default function ReadyGateScreen() {
   const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [sessionLookupDone, setSessionLookupDone] = useState(false);
+  const [permissionsResolved, setPermissionsResolved] = useState(false);
+  const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
   const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+
+  const requestMediaPermissions = async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      ]);
+      const ok =
+        granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
+        granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
+      setHasMediaPermission(ok);
+      setPermissionsResolved(true);
+      return ok;
+    }
+    const cam = await Camera.requestCameraPermissionsAsync();
+    const mic = await Camera.requestMicrophonePermissionsAsync();
+    const ok = cam.status === 'granted' && mic.status === 'granted';
+    setHasMediaPermission(ok);
+    setPermissionsResolved(true);
+    return ok;
+  };
 
   useEffect(() => {
     if (sessionId && user?.id) return;
@@ -68,7 +92,22 @@ export default function ReadyGateScreen() {
   useEffect(() => {
     setSessionLookupDone(false);
     redirectExplainedRef.current = false;
+    setPermissionsResolved(false);
+    setHasMediaPermission(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id) return;
+    let cancelled = false;
+    void (async () => {
+      const ok = await requestMediaPermissions();
+      if (cancelled || ok) return;
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_permissions_denied', { session_id: sessionId });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -272,6 +311,29 @@ export default function ReadyGateScreen() {
     );
   }
 
+  if (permissionsResolved && hasMediaPermission === false) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.background }]}>
+        {dialogEl}
+        <Ionicons name="videocam-off-outline" size={34} color={theme.textSecondary} />
+        <Text style={[styles.transitioningTitle, { color: theme.text, marginTop: spacing.md }]}>Camera and mic required</Text>
+        <Text style={[styles.transitioningSub, { color: theme.textSecondary }]}>
+          Allow camera and microphone access to join this date.
+        </Text>
+        <VibelyButton label="Enable permissions" onPress={() => void requestMediaPermissions()} variant="primary" size="lg" />
+        <Pressable
+          onPress={() => {
+            if (eventId) router.replace(`/event/${eventId}/lobby` as const);
+            else router.replace('/(tabs)' as const);
+          }}
+          style={styles.ghostBtn}
+        >
+          <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Back to lobby</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
   if (transitioning) {
     return (
       <View style={[styles.transitioningWrap, { backgroundColor: theme.background }]}>
@@ -279,8 +341,7 @@ export default function ReadyGateScreen() {
         <View style={[styles.transitioningIconWrap, { backgroundColor: theme.tintSoft }]}>
           <Ionicons name="sparkles" size={40} color={theme.tint} />
         </View>
-        <Text style={[styles.transitioningTitle, { color: theme.text }]}>Connecting your vibe date...</Text>
-        <Text style={[styles.transitioningSub, { color: theme.textSecondary }]}>Get ready to shine ✨</Text>
+        <Text style={[styles.transitioningTitle, { color: theme.text }]}>Joining your date...</Text>
       </View>
     );
   }

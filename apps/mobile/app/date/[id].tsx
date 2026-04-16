@@ -29,8 +29,9 @@ import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import { useAuth } from '@/context/AuthContext';
 import {
   useVideoDateSession,
-  getDailyRoomToken,
-  enterHandshake,
+  getDailyRoomTokenWithTimeout,
+  enterHandshakeWithTimeout,
+  VideoDateRequestTimeoutError,
   type RoomTokenFailureCode,
   endVideoDate,
   deleteDailyRoom,
@@ -70,6 +71,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
+const PREJOIN_STEP_TIMEOUT_MS = 12000;
 
 function networkTierFromDailyEvent(ev: { threshold?: string; quality?: number } | undefined): 'good' | 'fair' | 'poor' {
   const q = typeof ev?.quality === 'number' ? ev.quality : 100;
@@ -106,6 +108,10 @@ function userMessageForHandshakeFailure(code?: string): string {
     return 'This date has already ended.';
   }
   return 'Could not start video. Please try again.';
+}
+
+function isReadyGateRace(code?: string): boolean {
+  return code === 'READY_GATE_NOT_READY';
 }
 
 function getTrack(
@@ -209,6 +215,7 @@ export default function VideoDateScreen() {
   const [joining, setJoining] = useState(false);
   const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
   const [firstConnectTimedOut, setFirstConnectTimedOut] = useState(false);
+  const [preJoinFailed, setPreJoinFailed] = useState(false);
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
 
   phaseRef.current = phase;
@@ -406,6 +413,7 @@ export default function VideoDateScreen() {
     setIsVideoOff(false);
     setAwaitingFirstConnect(false);
     setFirstConnectTimedOut(false);
+    setPreJoinFailed(false);
     setNetQualityTier('good');
   }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog]);
 
@@ -577,6 +585,12 @@ export default function VideoDateScreen() {
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
+      const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+      const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      if (camOk && micOk) {
+        setHasPermission(true);
+        return true;
+      }
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.CAMERA,
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -586,6 +600,12 @@ export default function VideoDateScreen() {
         granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
       setHasPermission(ok);
       return ok;
+    }
+    const camExisting = await Camera.getCameraPermissionsAsync();
+    const micExisting = await Camera.getMicrophonePermissionsAsync();
+    if (camExisting.status === 'granted' && micExisting.status === 'granted') {
+      setHasPermission(true);
+      return true;
     }
     const cam = await Camera.requestCameraPermissionsAsync();
     const mic = await Camera.requestMicrophonePermissionsAsync();
@@ -608,6 +628,7 @@ export default function VideoDateScreen() {
     }
     setAwaitingFirstConnect(false);
     setFirstConnectTimedOut(false);
+    setPreJoinFailed(false);
     setCallError(null);
     setRemoteParticipant(null);
     setIsConnected(false);
@@ -636,6 +657,7 @@ export default function VideoDateScreen() {
       setJoining(true);
       setCallError(null);
       setFirstConnectTimedOut(false);
+      setPreJoinFailed(false);
       setAwaitingFirstConnect(false);
       clearFirstConnectWatchdog();
 
@@ -649,7 +671,24 @@ export default function VideoDateScreen() {
         return;
       }
 
-      const tokenRes = await getDailyRoomToken(sessionId);
+      let tokenRes;
+      try {
+        tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+      } catch (error) {
+        if (!cancelled) {
+          const timedOut = error instanceof VideoDateRequestTimeoutError;
+          setPreJoinFailed(true);
+          setCallError(
+            timedOut
+              ? 'Still setting up your date. Please retry.'
+              : 'Could not start video. Please try again.'
+          );
+          setIsConnecting(false);
+        }
+        hasStartedJoinRef.current = false;
+        setJoining(false);
+        return;
+      }
       if (cancelled) {
         hasStartedJoinRef.current = false;
         setJoining(false);
@@ -684,7 +723,28 @@ export default function VideoDateScreen() {
 
       const tokenResult = tokenRes.data;
       if (!session.handshake_started_at) {
-        const hs = await enterHandshake(sessionId);
+        let hs;
+        try {
+          hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+          if (!hs.ok && isReadyGateRace(hs.code)) {
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            const timedOut = error instanceof VideoDateRequestTimeoutError;
+            setCallError(
+              timedOut
+                ? 'Still setting up your date. Please retry.'
+                : 'Could not start video. Please try again.'
+            );
+            setPreJoinFailed(true);
+            setIsConnecting(false);
+          }
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          return;
+        }
         if (cancelled) {
           hasStartedJoinRef.current = false;
           setJoining(false);
@@ -702,6 +762,7 @@ export default function VideoDateScreen() {
             extra: { sessionId, code: hs.code, message: hs.message },
           });
           setCallError(userMessageForHandshakeFailure(hs.code));
+          setPreJoinFailed(true);
           hasStartedJoinRef.current = false;
           setJoining(false);
           return;
@@ -800,6 +861,7 @@ export default function VideoDateScreen() {
         if (!cancelled) {
           Sentry.captureException(err, { extra: { sessionId } });
           setCallError('Failed to join. Please try again.');
+          setPreJoinFailed(true);
           clearFirstConnectWatchdog();
           setAwaitingFirstConnect(false);
           setIsConnecting(false);
@@ -930,7 +992,7 @@ export default function VideoDateScreen() {
     return (
       <View style={[styles.center, { backgroundColor: theme.background }]}>
         <ActivityIndicator size="large" color={theme.tint} />
-        <Text style={[styles.message, { color: theme.text }]}>Loading...</Text>
+        <Text style={[styles.message, { color: theme.text }]}>Joining your date...</Text>
       </View>
     );
   }
@@ -1039,8 +1101,33 @@ export default function VideoDateScreen() {
         )}
       </View>
 
-        {(isConnecting || awaitingFirstConnect) && (
+        {(isConnecting || awaitingFirstConnect) && !preJoinFailed && (
           <ConnectionOverlay isConnecting={isConnecting} onLeave={handleAbortConnection} />
+        )}
+
+        {preJoinFailed && !isConnected && (
+          <View style={styles.initialTimeoutWrap}>
+            <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Could not start your date</Text>
+              <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
+                {callError ?? 'Please retry, or head back to the lobby.'}
+              </Text>
+              <View style={styles.initialTimeoutActions}>
+                <Pressable
+                  onPress={() => void handleRetryInitialConnect()}
+                  style={({ pressed }) => [styles.initialRetryBtn, { backgroundColor: theme.tint }, pressed && styles.initialBtnPressed]}
+                >
+                  <Text style={styles.initialRetryText}>Retry</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void handleAbortConnection()}
+                  style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
+                >
+                  <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
         )}
 
         {firstConnectTimedOut && !isConnected && (

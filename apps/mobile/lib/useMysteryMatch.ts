@@ -17,32 +17,74 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
   const [isWaiting, setIsWaiting] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventIdRef = useRef(eventId);
+  const userIdRef = useRef<string | null>(null);
+
+  const stopWaitingLoop = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }, []);
+
+  const resetSearchAndWaiting = useCallback(() => {
+    setIsSearching(false);
+    setIsWaiting(false);
+    stopWaitingLoop();
+  }, [stopWaitingLoop]);
+
+  const startWaitingLoop = useCallback(() => {
+    if (intervalRef.current || !userIdRef.current || !eventIdRef.current || !enabled) return;
+    intervalRef.current = setInterval(async () => {
+      if (!eventIdRef.current || !userIdRef.current) {
+        stopWaitingLoop();
+        return;
+      }
+      try {
+        const { data: retryData, error: retryError } = await supabase.rpc('find_mystery_match', {
+          p_event_id: eventIdRef.current,
+          p_user_id: userIdRef.current,
+        });
+        if (retryError) {
+          if (__DEV__) console.warn('[useMysteryMatch] retry failed:', retryError.message);
+          resetSearchAndWaiting();
+          return;
+        }
+        const retryResult = retryData as { success?: boolean; session_id?: string; partner_id?: string } | null;
+        if (retryResult?.success && retryResult.session_id) {
+          onMatchFound?.(retryResult.session_id, retryResult.partner_id ?? '');
+          resetSearchAndWaiting();
+        }
+      } catch (err) {
+        if (__DEV__) console.warn('[useMysteryMatch] retry error:', err);
+        resetSearchAndWaiting();
+      }
+    }, 8000);
+  }, [enabled, onMatchFound, resetSearchAndWaiting, stopWaitingLoop]);
 
   useEffect(() => {
     eventIdRef.current = eventId;
-    if (!eventId && intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (!eventId) {
+      stopWaitingLoop();
       setIsWaiting(false);
     }
-  }, [eventId]);
+  }, [eventId, stopWaitingLoop]);
 
   useEffect(() => {
     if (!enabled) {
-      setIsWaiting(false);
-      setIsSearching(false);
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
+      resetSearchAndWaiting();
+      return;
     }
-  }, [enabled]);
+    if (isWaiting) {
+      startWaitingLoop();
+    }
+  }, [enabled, isWaiting, resetSearchAndWaiting, startWaitingLoop]);
 
   const findMysteryMatch = useCallback(async () => {
     if (!enabled) return;
     if (intervalRef.current || isWaiting) return;
     const { data: { user } } = await supabase.auth.getUser();
     if (!eventId || !user?.id) return;
+    userIdRef.current = user.id;
 
     setIsSearching(true);
 
@@ -65,47 +107,7 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
       } else {
         setIsSearching(false);
         setIsWaiting(true);
-        intervalRef.current = setInterval(async () => {
-          if (!eventIdRef.current) {
-            setIsWaiting(false);
-            if (intervalRef.current) {
-              clearInterval(intervalRef.current);
-              intervalRef.current = null;
-            }
-            return;
-          }
-          try {
-            const { data: retryData, error: retryError } = await supabase.rpc('find_mystery_match', {
-              p_event_id: eventIdRef.current!,
-              p_user_id: user.id,
-            });
-            if (retryError) {
-              if (__DEV__) console.warn('[useMysteryMatch] retry failed:', retryError.message);
-              setIsWaiting(false);
-              if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-              }
-              return;
-            }
-            const retryResult = retryData as { success?: boolean; session_id?: string; partner_id?: string } | null;
-            if (retryResult?.success && retryResult.session_id) {
-              onMatchFound?.(retryResult.session_id, retryResult.partner_id ?? '');
-              setIsWaiting(false);
-              if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-                intervalRef.current = null;
-              }
-            }
-          } catch (err) {
-            if (__DEV__) console.warn('[useMysteryMatch] retry error:', err);
-            setIsWaiting(false);
-            if (intervalRef.current) {
-              clearInterval(intervalRef.current);
-              intervalRef.current = null;
-            }
-          }
-        }, 30000);
+        startWaitingLoop();
       }
     } catch {
       setIsSearching(false);
@@ -113,18 +115,14 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
   }, [eventId, onMatchFound, isWaiting, enabled]);
 
   const cancelSearch = useCallback(() => {
-    setIsWaiting(false);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
+    resetSearchAndWaiting();
+  }, [resetSearchAndWaiting]);
 
   useEffect(() => {
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      stopWaitingLoop();
     };
-  }, []);
+  }, [stopWaitingLoop]);
 
   return { findMysteryMatch, cancelSearch, isSearching, isWaiting };
 }

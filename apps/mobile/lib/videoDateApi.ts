@@ -68,8 +68,37 @@ export type EnterHandshakeResult =
   | { ok: true }
   | { ok: false; code?: string; message?: string };
 
+export class VideoDateRequestTimeoutError extends Error {
+  constructor(public readonly operation: 'getDailyRoomToken' | 'enterHandshake') {
+    super(`${operation} timed out`);
+    this.name = 'VideoDateRequestTimeoutError';
+  }
+}
+
 const HANDSHAKE_SECONDS = 60;
 const DATE_SECONDS = 300;
+
+function withTimeout<T>(
+  operation: 'getDailyRoomToken' | 'enterHandshake',
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new VideoDateRequestTimeoutError(operation));
+    }, timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
 
 export function useVideoDateSession(
   sessionId: string | null | undefined,
@@ -275,6 +304,13 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
   return { ok: false, code: 'unknown', serverCode: 'NO_RESPONSE' };
 }
 
+export async function getDailyRoomTokenWithTimeout(
+  sessionId: string,
+  timeoutMs: number
+): Promise<GetDailyRoomTokenResult> {
+  return withTimeout('getDailyRoomToken', getDailyRoomToken(sessionId), timeoutMs);
+}
+
 /** Server-owned: enter handshake (start timer). Idempotent; surfaces RPC JSON errors. */
 export async function enterHandshake(sessionId: string): Promise<EnterHandshakeResult> {
   const { data, error } = await supabase.rpc('video_date_transition', {
@@ -296,6 +332,13 @@ export async function enterHandshake(sessionId: string): Promise<EnterHandshakeR
   }
 
   return { ok: true };
+}
+
+export async function enterHandshakeWithTimeout(
+  sessionId: string,
+  timeoutMs: number
+): Promise<EnterHandshakeResult> {
+  return withTimeout('enterHandshake', enterHandshake(sessionId), timeoutMs);
 }
 
 /** Poll server reconnect state (`sync_reconnect` path); applies lazy grace expiry on the server. */
