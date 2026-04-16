@@ -5,7 +5,7 @@
 
 import 'react-native-get-random-values';
 import * as Sentry from '@sentry/react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -73,6 +73,17 @@ import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dat
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
 const PREJOIN_STEP_TIMEOUT_MS = 12000;
+
+/** Post-join UX / instrumentation — single stage truth for Daily + peer presence (not server phase). */
+export type VideoDatePostJoinStage =
+  | 'initial_loading'
+  | 'joining_daily'
+  | 'waiting_for_peer'
+  | 'active_call'
+  | 'reconnecting'
+  | 'peer_missing_timeout'
+  | 'fatal_join_error'
+  | 'ended';
 
 function networkTierFromDailyEvent(ev: { threshold?: string; quality?: number } | undefined): 'good' | 'fair' | 'poor' {
   const q = typeof ev?.quality === 'number' ? ev.quality : 100;
@@ -226,8 +237,15 @@ export default function VideoDateScreen() {
   const roomNameRef = useRef<string | null>(null);
   const hasStartedJoinRef = useRef(false);
   const phaseRef = useRef(phase);
-  const hadConnectedOnceRef = useRef(false);
-  const prevIsConnectedRef = useRef(false);
+  /** True once we have ever observed a remote Daily participant (survives transient participant-left). */
+  const [partnerEverJoined, setPartnerEverJoined] = useState(false);
+  const prevLocalInDailyRef = useRef(false);
+  /** True after local `call.join` succeeds until leave/cleanup. */
+  const [localInDailyRoom, setLocalInDailyRoom] = useState(false);
+  /** Terminal: bounded wait elapsed + auto-retry exhausted without remote. */
+  const [peerMissingTerminal, setPeerMissingTerminal] = useState(false);
+  /** At most one automatic leave/rejoin when no remote (per mount + session). */
+  const noRemoteAutoRecoveryUsedRef = useRef(false);
   /** True after sync_reconnect reports ended (avoid calling handleCallEnd every poll tick). */
   const reconnectEndedHandledRef = useRef(false);
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
@@ -237,9 +255,9 @@ export default function VideoDateScreen() {
   const keepVibePulse = useRef(new Animated.Value(1)).current;
   /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
   const remotePromotionLoggedRef = useRef(false);
+  const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
 
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
   const [localParticipant, setLocalParticipant] = useState<DailyParticipant | null>(null);
   const [remoteParticipant, setRemoteParticipant] = useState<DailyParticipant | null>(null);
@@ -248,11 +266,24 @@ export default function VideoDateScreen() {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [joining, setJoining] = useState(false);
   const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
-  const [firstConnectTimedOut, setFirstConnectTimedOut] = useState(false);
   const [preJoinFailed, setPreJoinFailed] = useState(false);
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
 
   phaseRef.current = phase;
+
+  const hasRemotePartner = !!remoteParticipant;
+  const partnerEverJoinedRef = useRef(false);
+  useEffect(() => {
+    partnerEverJoinedRef.current = partnerEverJoined;
+  }, [partnerEverJoined]);
+
+  useEffect(() => {
+    setPartnerEverJoined(false);
+    setLocalInDailyRoom(false);
+    setPeerMissingTerminal(false);
+    noRemoteAutoRecoveryUsedRef.current = false;
+    lastLoggedPostJoinStageRef.current = null;
+  }, [sessionId]);
 
   // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (hydration-gated).
   useEffect(() => {
@@ -327,23 +358,79 @@ export default function VideoDateScreen() {
     };
   }, [sessionId, user?.id]);
 
+  /** Bounded wait for first remote peer; one automatic leave/rejoin; then peer_missing_timeout. */
   useEffect(() => {
-    if (!awaitingFirstConnect || isConnected || phase === 'ended' || !sessionId) {
+    if (
+      !localInDailyRoom ||
+      hasRemotePartner ||
+      phase === 'ended' ||
+      !sessionId ||
+      peerMissingTerminal ||
+      isPartnerDisconnected
+    ) {
+      clearFirstConnectWatchdog();
+      return;
+    }
+    if (!awaitingFirstConnect) {
       clearFirstConnectWatchdog();
       return;
     }
 
     clearFirstConnectWatchdog();
     firstConnectWatchdogRef.current = setTimeout(() => {
-      hasStartedJoinRef.current = false;
+      const call = callRef.current;
+      if (!call) return;
+      const participants = call.participants();
+      const remotes = participants
+        ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local)
+        : [];
+      if (remotes.length > 0) return;
+
+      if (!noRemoteAutoRecoveryUsedRef.current) {
+        noRemoteAutoRecoveryUsedRef.current = true;
+        videoDateDailyDiagnostic('no_remote_auto_recovery_start', {
+          session_id: sessionId,
+          room_name: roomNameRef.current ?? null,
+        });
+        void (async () => {
+          try {
+            await call.leave();
+            call.destroy();
+          } catch {
+            /* ignore */
+          }
+          callRef.current = null;
+          setLocalInDailyRoom(false);
+          setAwaitingFirstConnect(false);
+          setIsConnecting(false);
+          setRemoteParticipant(null);
+          hasStartedJoinRef.current = false;
+          setJoinAttemptNonce((n) => n + 1);
+          videoDateDailyDiagnostic('no_remote_auto_recovery_complete', {
+            session_id: sessionId,
+            result: 'rejoin_scheduled',
+          });
+        })();
+        return;
+      }
+      videoDateDailyDiagnostic('peer_missing_timeout', { session_id: sessionId, room_name: roomNameRef.current ?? null });
+      setPeerMissingTerminal(true);
       setAwaitingFirstConnect(false);
-      setFirstConnectTimedOut(true);
       setIsConnecting(false);
-      setCallError('Your date has not connected yet. You can retry now or go back to the lobby.');
+      setCallError('Your match has not joined this video room yet.');
     }, FIRST_CONNECT_TIMEOUT_MS);
 
     return () => clearFirstConnectWatchdog();
-  }, [awaitingFirstConnect, isConnected, phase, sessionId, clearFirstConnectWatchdog]);
+  }, [
+    awaitingFirstConnect,
+    hasRemotePartner,
+    localInDailyRoom,
+    phase,
+    sessionId,
+    peerMissingTerminal,
+    isPartnerDisconnected,
+    clearFirstConnectWatchdog,
+  ]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -365,10 +452,10 @@ export default function VideoDateScreen() {
   }, [clearFirstConnectWatchdog]);
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (!hasRemotePartner) return;
     const t = setTimeout(() => setShowIceBreaker(false), 30000);
     return () => clearTimeout(t);
-  }, [isConnected]);
+  }, [hasRemotePartner]);
 
   useEffect(() => {
     if (remoteParticipant && !remotePromotionLoggedRef.current) {
@@ -385,7 +472,7 @@ export default function VideoDateScreen() {
   }, [remoteParticipant, sessionId]);
 
   useEffect(() => {
-    if (!isConnected || phase !== 'handshake') return;
+    if (!hasRemotePartner || phase !== 'handshake') return;
     const start = 80;
     const duration = 10000;
     const startTime = Date.now();
@@ -399,7 +486,7 @@ export default function VideoDateScreen() {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, [isConnected, phase]);
+  }, [hasRemotePartner, phase]);
 
   const refreshCredits = useCallback(() => {
     if (!user?.id) return;
@@ -420,7 +507,7 @@ export default function VideoDateScreen() {
   useFocusEffect(
     useCallback(() => {
       const call = callRef.current;
-      if (!call || !isConnected) return;
+      if (!call || !localInDailyRoom) return;
       const participants = call.participants();
       const local = participants?.local;
       if (local) {
@@ -428,22 +515,25 @@ export default function VideoDateScreen() {
         applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
       }
       const remotes = participants ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local) : [];
-      if (remotes[0]) setRemoteParticipant(remotes[0] as DailyParticipant);
-    }, [isConnected])
+      if (remotes[0]) {
+        setRemoteParticipant(remotes[0] as DailyParticipant);
+        setPartnerEverJoined(true);
+      }
+    }, [localInDailyRoom])
   );
 
   useEffect(() => {
-    if (!sessionId || !isConnected || phase !== 'handshake') return;
+    if (!sessionId || !hasRemotePartner || phase !== 'handshake') return;
     if (handshakeAnalyticsRef.current) return;
     handshakeAnalyticsRef.current = true;
     trackEvent('video_date_started', { session_id: sessionId, phase: 'handshake' });
-  }, [sessionId, isConnected, phase]);
+  }, [sessionId, hasRemotePartner, phase]);
 
   const onPartnerLeftReconnect = useCallback(() => {
-    if (!hadConnectedOnceRef.current || !sessionId || phase === 'ended') return;
+    if (!partnerEverJoined || !sessionId || phase === 'ended') return;
     setIsPartnerDisconnected(true);
     void markReconnectPartnerAway(sessionId);
-  }, [sessionId, phase]);
+  }, [sessionId, phase, partnerEverJoined]);
 
   const leaveAndCleanup = useCallback(async () => {
     clearFirstConnectWatchdog();
@@ -465,12 +555,14 @@ export default function VideoDateScreen() {
     if (sessionId) await endVideoDate(sessionId);
     setLocalParticipant(null);
     setRemoteParticipant(null);
-    setIsConnected(false);
+    setLocalInDailyRoom(false);
+    setPartnerEverJoined(false);
+    setPeerMissingTerminal(false);
+    noRemoteAutoRecoveryUsedRef.current = false;
     setIsConnecting(false);
     setIsMuted(false);
     setIsVideoOff(false);
     setAwaitingFirstConnect(false);
-    setFirstConnectTimedOut(false);
     setPreJoinFailed(false);
     setNetQualityTier('good');
   }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog]);
@@ -517,7 +609,7 @@ export default function VideoDateScreen() {
             });
           });
         void syncVideoDateReconnect(sessionId).then((r) => {
-          if (r?.ended && hadConnectedOnceRef.current && !reconnectEndedHandledRef.current) {
+          if (r?.ended && partnerEverJoinedRef.current && !reconnectEndedHandledRef.current) {
             reconnectEndedHandledRef.current = true;
             void handleCallEndRef.current?.();
           }
@@ -539,7 +631,7 @@ export default function VideoDateScreen() {
       if (cancelled || !r) return;
       if (r.ended) {
         // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
-        if (!reconnectEndedHandledRef.current && hadConnectedOnceRef.current) {
+        if (!reconnectEndedHandledRef.current && partnerEverJoinedRef.current) {
           reconnectEndedHandledRef.current = true;
           void handleCallEndRef.current?.();
         }
@@ -570,17 +662,14 @@ export default function VideoDateScreen() {
   }, [sessionId, phase]);
 
   useEffect(() => {
-    const prev = prevIsConnectedRef.current;
-    prevIsConnectedRef.current = isConnected;
-    if (!isConnected) return;
-    if (!hadConnectedOnceRef.current) {
-      hadConnectedOnceRef.current = true;
-      return;
-    }
+    const prev = prevLocalInDailyRef.current;
+    prevLocalInDailyRef.current = localInDailyRoom;
+    if (!localInDailyRoom) return;
+    if (!partnerEverJoined) return;
     if (!prev && sessionId && phase !== 'ended') {
       void markReconnectReturn(sessionId);
     }
-  }, [isConnected, sessionId, phase]);
+  }, [localInDailyRoom, partnerEverJoined, sessionId, phase]);
 
   /** In-call / post-connect: end date, cleanup Daily, show PostDateSurvey (navigation from survey only). */
   const handleEndDateFromControls = useCallback(async () => {
@@ -702,11 +791,13 @@ export default function VideoDateScreen() {
       callRef.current = null;
     }
     setAwaitingFirstConnect(false);
-    setFirstConnectTimedOut(false);
+    setPeerMissingTerminal(false);
     setPreJoinFailed(false);
     setCallError(null);
     setRemoteParticipant(null);
-    setIsConnected(false);
+    setLocalInDailyRoom(false);
+    setPartnerEverJoined(false);
+    noRemoteAutoRecoveryUsedRef.current = false;
     setIsConnecting(false);
     setJoining(false);
     hasStartedJoinRef.current = false;
@@ -731,7 +822,6 @@ export default function VideoDateScreen() {
     const run = async () => {
       setJoining(true);
       setCallError(null);
-      setFirstConnectTimedOut(false);
       setPreJoinFailed(false);
       setAwaitingFirstConnect(false);
       clearFirstConnectWatchdog();
@@ -894,10 +984,14 @@ export default function VideoDateScreen() {
         });
         if (p && !isLocal) {
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
+          videoDateDailyDiagnostic('first_remote_observed', {
+            session_id: sessionId,
+            room_name: tokenResult.room_name,
+            source: 'participant_joined',
+          });
           clearFirstConnectWatchdog();
           setAwaitingFirstConnect(false);
-          setFirstConnectTimedOut(false);
-          setIsConnected(true);
+          setPartnerEverJoined(true);
           setIsConnecting(false);
           setRemoteParticipant(p);
         }
@@ -916,6 +1010,7 @@ export default function VideoDateScreen() {
           setLocalParticipant(p);
           applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
         } else {
+          setPartnerEverJoined(true);
           setRemoteParticipant(p);
         }
       });
@@ -930,7 +1025,6 @@ export default function VideoDateScreen() {
             participant_id: dailyParticipantId(p) ?? 'unknown',
           });
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
-          setIsConnected(false);
           setRemoteParticipant(null);
           onPartnerLeftReconnect();
         }
@@ -939,7 +1033,7 @@ export default function VideoDateScreen() {
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (left-meeting)', level: 'info' });
         clearFirstConnectWatchdog();
         setAwaitingFirstConnect(false);
-        setIsConnected(false);
+        setLocalInDailyRoom(false);
         setIsConnecting(false);
       });
       call.on('error', (event: unknown) => {
@@ -957,7 +1051,7 @@ export default function VideoDateScreen() {
         clearFirstConnectWatchdog();
         setAwaitingFirstConnect(false);
         setIsConnecting(false);
-        setIsConnected(false);
+        setLocalInDailyRoom(false);
       });
 
       try {
@@ -989,6 +1083,7 @@ export default function VideoDateScreen() {
           participant_keys_count: allIds,
           remote_count: remotes.length,
         });
+        setLocalInDailyRoom(true);
         const local = participants?.local;
         if (local) {
           setLocalParticipant(local);
@@ -998,9 +1093,13 @@ export default function VideoDateScreen() {
         if (remotes.length > 0) {
           clearFirstConnectWatchdog();
           setAwaitingFirstConnect(false);
-          setFirstConnectTimedOut(false);
-          setIsConnected(true);
+          setPartnerEverJoined(true);
           setRemoteParticipant(remotes[0] as DailyParticipant);
+          videoDateDailyDiagnostic('first_remote_observed', {
+            session_id: sessionId,
+            room_name: tokenResult.room_name,
+            source: 'post_join_snapshot',
+          });
           videoDateDailyDiagnostic('remote_participant_promoted_from_post_join_snapshot', {
             session_id: sessionId,
             room_name: tokenResult.room_name,
@@ -1057,7 +1156,7 @@ export default function VideoDateScreen() {
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
   useEffect(() => {
     if (phase !== 'ended' || !sessionId) return;
-    if (!hadConnectedOnceRef.current) return;
+    if (!partnerEverJoinedRef.current) return;
     setShowFeedback(true);
     if (callRef.current) {
       void leaveAndCleanup();
@@ -1068,7 +1167,7 @@ export default function VideoDateScreen() {
     if (
       localTimeLeft === null ||
       showFeedback ||
-      !isConnected ||
+      !hasRemotePartner ||
       phase === 'ended' ||
       isTimerPaused
     )
@@ -1093,7 +1192,7 @@ export default function VideoDateScreen() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [localTimeLeft !== null, showFeedback, isConnected, phase, isTimerPaused, sessionId, eventId, leaveAndCleanup, handleCallEnd]);
+  }, [localTimeLeft !== null, showFeedback, hasRemotePartner, phase, isTimerPaused, sessionId, eventId, leaveAndCleanup, handleCallEnd]);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current;
@@ -1114,9 +1213,92 @@ export default function VideoDateScreen() {
 
   const totalTime = phase === 'handshake' ? HANDSHAKE_SECONDS : DATE_SECONDS;
   const displayTimeLeft = localTimeLeft ?? totalTime;
-  const preConnectWaiting = !hadConnectedOnceRef.current && (isConnecting || awaitingFirstConnect || firstConnectTimedOut);
+
+  const postJoinStage: VideoDatePostJoinStage = useMemo(() => {
+    if (sessionLoading || !sessionId) return 'initial_loading';
+    if (phase === 'ended') return 'ended';
+    if (peerMissingTerminal) return 'peer_missing_timeout';
+    if (preJoinFailed && !localInDailyRoom) return 'fatal_join_error';
+    if (joining || isConnecting) return 'joining_daily';
+    if (localInDailyRoom && partnerEverJoined && isPartnerDisconnected && !hasRemotePartner) return 'reconnecting';
+    if (localInDailyRoom && hasRemotePartner) return 'active_call';
+    if (
+      localInDailyRoom &&
+      !hasRemotePartner &&
+      !partnerEverJoined &&
+      !peerMissingTerminal &&
+      !isPartnerDisconnected
+    )
+      return 'waiting_for_peer';
+    return 'joining_daily';
+  }, [
+    sessionLoading,
+    sessionId,
+    phase,
+    peerMissingTerminal,
+    preJoinFailed,
+    localInDailyRoom,
+    joining,
+    isConnecting,
+    partnerEverJoined,
+    isPartnerDisconnected,
+    hasRemotePartner,
+  ]);
+
+  useEffect(() => {
+    const prev = lastLoggedPostJoinStageRef.current;
+    if (prev === postJoinStage) return;
+    videoDateDailyDiagnostic('post_join_stage_transition', {
+      session_id: sessionId ?? '',
+      from: prev ?? 'none',
+      to: postJoinStage,
+    });
+    if (postJoinStage === 'active_call') {
+      videoDateDailyDiagnostic('active_call_entered', {
+        session_id: sessionId ?? '',
+        room_name: roomNameRef.current ?? null,
+      });
+    }
+    if (postJoinStage === 'reconnecting') {
+      videoDateDailyDiagnostic('reconnecting_entered', { session_id: sessionId ?? '' });
+    }
+    if (prev === 'reconnecting' && postJoinStage === 'active_call') {
+      videoDateDailyDiagnostic('reconnecting_exited', { session_id: sessionId ?? '' });
+    }
+    lastLoggedPostJoinStageRef.current = postJoinStage;
+  }, [postJoinStage, sessionId]);
+
+  const showTopBarWaitingPill =
+    joining ||
+    isConnecting ||
+    (localInDailyRoom &&
+      !hasRemotePartner &&
+      !partnerEverJoined &&
+      !peerMissingTerminal &&
+      !isPartnerDisconnected);
+
+  const showJoiningOverlay = (joining || isConnecting) && !preJoinFailed && !peerMissingTerminal;
+  const showPeerWaitOverlay =
+    localInDailyRoom &&
+    !hasRemotePartner &&
+    !partnerEverJoined &&
+    !peerMissingTerminal &&
+    !isPartnerDisconnected &&
+    !joining &&
+    !isConnecting;
+
+  const showHandshakeChrome = phase === 'handshake' && hasRemotePartner && !peerMissingTerminal;
+  const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
+
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
   const handshakeBottomOffset = insets.bottom + 96;
+
+  const handlePeerMissingKeepWaiting = useCallback(() => {
+    setPeerMissingTerminal(false);
+    setCallError(null);
+    setAwaitingFirstConnect(true);
+    videoDateDailyDiagnostic('peer_missing_keep_waiting', { session_id: sessionId ?? '' });
+  }, [sessionId]);
 
   const handleSurveySubmit = useCallback(
     (liked: boolean) =>
@@ -1181,7 +1363,7 @@ export default function VideoDateScreen() {
     );
   }
 
-  if (phase === 'ended' && !isConnecting && !isConnected) {
+  if (phase === 'ended' && !isConnecting && !localInDailyRoom) {
     return (
       <View style={[styles.center, { backgroundColor: theme.background }]}>
         <Text style={[styles.message, { color: theme.text }]}>Date ended</Text>
@@ -1228,7 +1410,11 @@ export default function VideoDateScreen() {
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.placeholderRemote, { backgroundColor: theme.muted }]}>
             <Text style={[styles.placeholderText, { color: theme.mutedForeground }]}>
-              {isConnecting ? 'Waiting for your date...' : `${partnerName} will appear here`}
+              {showPeerWaitOverlay || showJoiningOverlay
+                ? '…'
+                : peerMissingTerminal
+                  ? '—'
+                  : `${partnerName} will appear here`}
             </Text>
           </View>
         )}
@@ -1257,11 +1443,14 @@ export default function VideoDateScreen() {
         )}
       </View>
 
-        {(isConnecting || awaitingFirstConnect) && !preJoinFailed && (
-          <ConnectionOverlay isConnecting={isConnecting} onLeave={handleAbortConnection} />
+        {showJoiningOverlay && (
+          <ConnectionOverlay mode="joining" onLeave={handleAbortConnection} />
+        )}
+        {showPeerWaitOverlay && (
+          <ConnectionOverlay mode="waiting_peer" onLeave={handleAbortConnection} />
         )}
 
-        {preJoinFailed && !isConnected && (
+        {preJoinFailed && !localInDailyRoom && (
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Could not start your date</Text>
@@ -1286,17 +1475,26 @@ export default function VideoDateScreen() {
           </View>
         )}
 
-        {firstConnectTimedOut && !isConnected && (
+        {peerMissingTerminal && (
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Still waiting for {partnerName}</Text>
-              <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>They have not connected yet. Try reconnecting or head back to the lobby.</Text>
+              <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Your match has not joined yet</Text>
+              <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
+                We could not connect them to this video room in time. Try once more, keep waiting, or go back to the
+                lobby.
+              </Text>
               <View style={styles.initialTimeoutActions}>
                 <Pressable
                   onPress={() => void handleRetryInitialConnect()}
                   style={({ pressed }) => [styles.initialRetryBtn, { backgroundColor: theme.tint }, pressed && styles.initialBtnPressed]}
                 >
-                  <Text style={styles.initialRetryText}>Retry connection</Text>
+                  <Text style={styles.initialRetryText}>Retry join once</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void handlePeerMissingKeepWaiting()}
+                  style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
+                >
+                  <Text style={[styles.initialBackText, { color: theme.text }]}>Keep waiting</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => void handleAbortConnection()}
@@ -1309,7 +1507,7 @@ export default function VideoDateScreen() {
           </View>
         )}
 
-      {isPartnerDisconnected && (
+      {isPartnerDisconnected && partnerEverJoined && (
         <ReconnectionOverlay isVisible partnerName={partnerName} graceTimeLeft={reconnectionGrace} />
       )}
 
@@ -1318,7 +1516,7 @@ export default function VideoDateScreen() {
       <View style={styles.topBar}>
         <Pressable onPress={() => setShowProfileSheet(true)} style={styles.partnerPill}>
           <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName}</Text>
-          {netQualityTier !== 'good' && isConnected ? (
+          {netQualityTier !== 'good' && hasRemotePartner ? (
             <Text
               style={[
                 styles.netHint,
@@ -1329,16 +1527,18 @@ export default function VideoDateScreen() {
             </Text>
           ) : null}
         </Pressable>
-          {preConnectWaiting ? (
+          {showTopBarWaitingPill ? (
             <View style={styles.waitingTimerPill}>
-              <Text style={[styles.waitingTimerText, { color: theme.text }]}>Waiting to connect...</Text>
+              <Text style={[styles.waitingTimerText, { color: theme.text }]}>
+                {joining || isConnecting ? 'Connecting…' : 'Waiting for your match…'}
+              </Text>
             </View>
-          ) : (
+          ) : hasRemotePartner ? (
             <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
-          )}
+          ) : null}
       </View>
 
-      {phase === 'handshake' && (
+      {showHandshakeChrome && (
         <View style={[styles.handshakeBottomStack, { bottom: handshakeBottomOffset }]}> 
           {showIceBreaker && currentQuestion ? (
             <IceBreakerCard
@@ -1351,7 +1551,7 @@ export default function VideoDateScreen() {
         </View>
       )}
 
-      {phase === 'date' && (
+      {showDatePhaseChrome && (
         <Animated.View
           style={[styles.keepTheVibeWrap, { transform: [{ scale: keepVibePulse }] }]}
           accessibilityLiveRegion="polite"
@@ -1408,7 +1608,7 @@ export default function VideoDateScreen() {
           onLeave={handleEndDateFromControls}
           onViewProfile={() => setShowProfileSheet(true)}
           onSafety={
-            isConnected && partnerId && !showFeedback
+            hasRemotePartner && partnerId && !showFeedback
               ? () => setShowInCallSafety(true)
               : undefined
           }

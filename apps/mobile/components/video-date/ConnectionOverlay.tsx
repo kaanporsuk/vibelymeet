@@ -9,12 +9,19 @@ import Colors from '@/constants/Colors';
 import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 
+/** `joining` = token/handshake/Daily connect; `waiting_peer` = local in room, peer not yet observed. */
+export type ConnectionOverlayMode = 'joining' | 'waiting_peer';
+
 type Props = {
-  isConnecting: boolean;
+  /** @deprecated Prefer `mode` — when set, overrides `isConnecting` mapping. */
+  isConnecting?: boolean;
+  mode?: ConnectionOverlayMode;
   onLeave: () => void;
 };
 
-export function ConnectionOverlay({ isConnecting, onLeave }: Props) {
+export function ConnectionOverlay({ isConnecting, mode, onLeave }: Props) {
+  const resolvedMode: ConnectionOverlayMode =
+    mode ?? (isConnecting ? 'joining' : 'waiting_peer');
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const ring1 = useRef(new Animated.Value(1)).current;
@@ -65,10 +72,12 @@ export function ConnectionOverlay({ isConnecting, onLeave }: Props) {
           </View>
         </View>
         <Text style={[styles.title, { color: theme.text }]}>
-          {isConnecting ? 'Joining your date...' : 'Waiting for your date...'}
+          {resolvedMode === 'joining' ? 'Joining your date...' : 'Waiting for your match...'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
-          {isConnecting ? 'Setting up your video room' : 'Your date will start as soon as they join'}
+          {resolvedMode === 'joining'
+            ? 'Setting up your video room'
+            : 'Your date timer starts once they join the same room.'}
         </Text>
         <Pressable
           onPress={onLeave}
