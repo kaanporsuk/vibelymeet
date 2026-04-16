@@ -3,7 +3,7 @@
  * Uses same contracts as web: daily-room Edge Function, video_date_transition RPC.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 
@@ -109,12 +109,35 @@ export function useVideoDateSession(
   const [phase, setPhase] = useState<'handshake' | 'date' | 'ended'>('handshake');
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  /** True during post-mount refetches; does not drive full-screen loading in date UI. */
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** After first completed fetch for `sessionId:userId`, further refetches use `isRefreshing` only. */
+  const lastCompletedSessionKeyRef = useRef<string | null>(null);
 
   const fetchSession = useCallback(async () => {
     if (!sessionId || !userId) return;
-    setLoading(true);
+    const sessionKey = `${sessionId}:${userId}`;
+    const isInitialLoad = lastCompletedSessionKeyRef.current !== sessionKey;
+
     setError(null);
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+      Sentry.addBreadcrumb({
+        category: 'video-date-session',
+        message: 'session_refetch_start',
+        level: 'info',
+        data: {
+          session_id: sessionId,
+          /** Previously fetchSession set loading=true here, blanking the date screen — retained for diagnostics only. */
+          would_have_toggled_full_screen_loading: true,
+        },
+      });
+    }
+
+    let outcome: 'ok' | 'not_found' | 'forbidden' | 'ended' = 'ok';
     try {
       const { data: row, error: e } = await supabase
         .from('video_sessions')
@@ -125,6 +148,7 @@ export function useVideoDateSession(
         .maybeSingle();
 
       if (e || !row) {
+        outcome = 'not_found';
         setError(e?.message ?? 'Session not found');
         setSession(null);
         setPartner(null);
@@ -135,6 +159,7 @@ export function useVideoDateSession(
 
       const isParticipant = userId === s.participant_1_id || userId === s.participant_2_id;
       if (!isParticipant) {
+        outcome = 'forbidden';
         setError("You don't have access to this date.");
         setSession(null);
         setPartner(null);
@@ -144,9 +169,9 @@ export function useVideoDateSession(
       setSession(s);
 
       if (s.ended_at || (s.state === 'ended' || s.phase === 'ended')) {
+        outcome = 'ended';
         setPhase('ended');
         setTimeLeft(0);
-        setLoading(false);
         return;
       }
 
@@ -177,6 +202,18 @@ export function useVideoDateSession(
       }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
+      lastCompletedSessionKeyRef.current = sessionKey;
+      Sentry.addBreadcrumb({
+        category: 'video-date-session',
+        message: 'session_fetch_complete',
+        level: 'info',
+        data: {
+          session_id: sessionId,
+          mode: isInitialLoad ? 'initial' : 'refresh',
+          outcome,
+        },
+      });
     }
   }, [sessionId, userId]);
 
@@ -217,7 +254,7 @@ export function useVideoDateSession(
     };
   }, [sessionId]);
 
-  return { session, partner, phase, timeLeft, loading, error, refetch: fetchSession };
+  return { session, partner, phase, timeLeft, loading, isRefreshing, error, refetch: fetchSession };
 }
 
 function mapHttpStatusAndServerCode(

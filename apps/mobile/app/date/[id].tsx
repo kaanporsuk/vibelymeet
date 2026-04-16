@@ -152,6 +152,37 @@ function applyLocalMediaUiFromParticipant(p: DailyParticipant, setters: {
   if (aState !== undefined) setters.setIsMuted(aState === 'off');
 }
 
+function dailyParticipantId(p: DailyParticipant | undefined): string | undefined {
+  if (!p) return undefined;
+  const u = p as unknown as { user_id?: string; userId?: string; session_id?: string };
+  return u.user_id ?? u.userId ?? u.session_id;
+}
+
+function videoDateDailyDiagnostic(
+  message: string,
+  data: Record<string, string | number | boolean | null | undefined>
+) {
+  Sentry.addBreadcrumb({
+    category: 'video-date-daily',
+    message,
+    level: 'info',
+    data: data as Record<string, unknown>,
+  });
+}
+
+/** Same keys as {@link videoDateDailyDiagnostic}; use where room name is only on refs (e.g. AppState). */
+function videoDateSessionDiagnostic(
+  message: string,
+  data: Record<string, string | number | boolean | null | undefined>
+) {
+  Sentry.addBreadcrumb({
+    category: 'video-date-session',
+    message,
+    level: 'info',
+    data: data as Record<string, unknown>,
+  });
+}
+
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
@@ -204,6 +235,8 @@ export default function VideoDateScreen() {
   const videoDateEndedRef = useRef(false);
   const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keepVibePulse = useRef(new Animated.Value(1)).current;
+  /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
+  const remotePromotionLoggedRef = useRef(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -338,6 +371,20 @@ export default function VideoDateScreen() {
   }, [isConnected]);
 
   useEffect(() => {
+    if (remoteParticipant && !remotePromotionLoggedRef.current) {
+      remotePromotionLoggedRef.current = true;
+      videoDateDailyDiagnostic('remote_participant_promoted_into_ui', {
+        session_id: sessionId ?? '',
+        room_name: roomNameRef.current ?? null,
+        participant_id: dailyParticipantId(remoteParticipant) ?? 'unknown',
+      });
+    }
+    if (!remoteParticipant) {
+      remotePromotionLoggedRef.current = false;
+    }
+  }, [remoteParticipant, sessionId]);
+
+  useEffect(() => {
     if (!isConnected || phase !== 'handshake') return;
     const start = 80;
     const duration = 10000;
@@ -451,7 +498,24 @@ export default function VideoDateScreen() {
     if (!sessionId) return;
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
-        void refetchVideoSession();
+        videoDateSessionDiagnostic('app_foreground_refetch_start', {
+          session_id: sessionId,
+          room_name: roomNameRef.current ?? null,
+        });
+        void refetchVideoSession()
+          .then(() => {
+            videoDateSessionDiagnostic('app_foreground_refetch_end', {
+              session_id: sessionId,
+              room_name: roomNameRef.current ?? null,
+            });
+          })
+          .catch(() => {
+            videoDateSessionDiagnostic('app_foreground_refetch_end', {
+              session_id: sessionId,
+              room_name: roomNameRef.current ?? null,
+              error: 1,
+            });
+          });
         void syncVideoDateReconnect(sessionId).then((r) => {
           if (r?.ended && hadConnectedOnceRef.current && !reconnectEndedHandledRef.current) {
             reconnectEndedHandledRef.current = true;
@@ -684,10 +748,15 @@ export default function VideoDateScreen() {
 
       let tokenRes;
       try {
+        videoDateDailyDiagnostic('token_fetch_start', { session_id: sessionId });
         tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
       } catch (error) {
+        const timedOut = error instanceof VideoDateRequestTimeoutError;
+        videoDateDailyDiagnostic('token_fetch_failure', {
+          session_id: sessionId,
+          reason: timedOut ? 'timeout' : 'exception',
+        });
         if (!cancelled) {
-          const timedOut = error instanceof VideoDateRequestTimeoutError;
           setPreJoinFailed(true);
           setCallError(
             timedOut
@@ -706,6 +775,12 @@ export default function VideoDateScreen() {
         return;
       }
       if (!tokenRes.ok) {
+        videoDateDailyDiagnostic('token_fetch_failure', {
+          session_id: sessionId,
+          code: String(tokenRes.code),
+          http_status: tokenRes.httpStatus ?? null,
+          server_code: tokenRes.serverCode != null ? String(tokenRes.serverCode) : null,
+        });
         Sentry.addBreadcrumb({
           category: 'video-date',
           message: 'create_date_room failed',
@@ -733,17 +808,28 @@ export default function VideoDateScreen() {
       }
 
       const tokenResult = tokenRes.data;
+      videoDateDailyDiagnostic('token_fetch_success', {
+        session_id: sessionId,
+        room_name: tokenResult.room_name,
+      });
+
       if (!session.handshake_started_at) {
         let hs;
         try {
+          videoDateDailyDiagnostic('enter_handshake_start', { session_id: sessionId, room_name: tokenResult.room_name });
           hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
           if (!hs.ok && isReadyGateRace(hs.code)) {
             await new Promise((resolve) => setTimeout(resolve, 700));
             hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
           }
         } catch (error) {
+          const timedOut = error instanceof VideoDateRequestTimeoutError;
+          videoDateDailyDiagnostic('enter_handshake_failure', {
+            session_id: sessionId,
+            room_name: tokenResult.room_name,
+            reason: timedOut ? 'timeout' : 'exception',
+          });
           if (!cancelled) {
-            const timedOut = error instanceof VideoDateRequestTimeoutError;
             setCallError(
               timedOut
                 ? 'Still setting up your date. Please retry.'
@@ -762,6 +848,11 @@ export default function VideoDateScreen() {
           return;
         }
         if (!hs.ok) {
+          videoDateDailyDiagnostic('enter_handshake_failure', {
+            session_id: sessionId,
+            room_name: tokenResult.room_name,
+            code: hs.code != null ? String(hs.code) : 'unknown',
+          });
           Sentry.addBreadcrumb({
             category: 'video-date',
             message: 'enter_handshake failed',
@@ -778,6 +869,13 @@ export default function VideoDateScreen() {
           setJoining(false);
           return;
         }
+        videoDateDailyDiagnostic('enter_handshake_success', { session_id: sessionId, room_name: tokenResult.room_name });
+      } else {
+        videoDateDailyDiagnostic('enter_handshake_skipped', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+          note: 'handshake_already_started',
+        });
       }
 
       const call = Daily.createCallObject();
@@ -786,20 +884,35 @@ export default function VideoDateScreen() {
       setIsConnecting(true);
 
       call.on('participant-joined', (event: { participant?: DailyParticipant }) => {
-        if (event?.participant && !(event.participant as unknown as { local?: boolean }).local) {
+        const p = event?.participant;
+        const isLocal = !!(p && (p as unknown as { local?: boolean }).local);
+        videoDateDailyDiagnostic('daily_participant_joined', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+          kind: isLocal ? 'local' : 'remote',
+          participant_id: p ? dailyParticipantId(p) ?? 'unknown' : 'none',
+        });
+        if (p && !isLocal) {
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
           clearFirstConnectWatchdog();
           setAwaitingFirstConnect(false);
           setFirstConnectTimedOut(false);
           setIsConnected(true);
           setIsConnecting(false);
-          setRemoteParticipant(event.participant);
+          setRemoteParticipant(p);
         }
       });
       call.on('participant-updated', (event: { participant?: DailyParticipant }) => {
         if (!event?.participant) return;
         const p = event.participant;
-        if ((p as unknown as { local?: boolean }).local) {
+        const isLocal = !!(p as unknown as { local?: boolean }).local;
+        videoDateDailyDiagnostic('daily_participant_updated', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+          kind: isLocal ? 'local' : 'remote',
+          participant_id: dailyParticipantId(p) ?? 'unknown',
+        });
+        if (isLocal) {
           setLocalParticipant(p);
           applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
         } else {
@@ -807,7 +920,15 @@ export default function VideoDateScreen() {
         }
       });
       call.on('participant-left', (event: { participant?: DailyParticipant }) => {
-        if (event?.participant && !(event.participant as unknown as { local?: boolean }).local) {
+        const p = event?.participant;
+        const isLocal = !!(p && (p as unknown as { local?: boolean }).local);
+        if (p && !isLocal) {
+          videoDateDailyDiagnostic('daily_participant_left', {
+            session_id: sessionId,
+            room_name: tokenResult.room_name,
+            kind: 'remote',
+            participant_id: dailyParticipantId(p) ?? 'unknown',
+          });
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
           setIsConnected(false);
           setRemoteParticipant(null);
@@ -848,27 +969,51 @@ export default function VideoDateScreen() {
       }
 
       try {
+        videoDateDailyDiagnostic('daily_call_join_start', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+        });
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Joining call', level: 'info', data: { sessionId } });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
         if (cancelled) return;
         const participants = call.participants();
+        const allIds = participants
+          ? Object.keys(participants).length
+          : 0;
+        const remotes = participants
+          ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local)
+          : [];
+        videoDateDailyDiagnostic('daily_call_join_success', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+          participant_keys_count: allIds,
+          remote_count: remotes.length,
+        });
         const local = participants?.local;
         if (local) {
           setLocalParticipant(local);
           applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
         }
         setIsConnecting(false);
-        const remotes = participants ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local) : [];
         if (remotes.length > 0) {
           clearFirstConnectWatchdog();
           setAwaitingFirstConnect(false);
           setFirstConnectTimedOut(false);
           setIsConnected(true);
           setRemoteParticipant(remotes[0] as DailyParticipant);
+          videoDateDailyDiagnostic('remote_participant_promoted_from_post_join_snapshot', {
+            session_id: sessionId,
+            room_name: tokenResult.room_name,
+            participant_id: dailyParticipantId(remotes[0] as DailyParticipant) ?? 'unknown',
+          });
         } else {
           setAwaitingFirstConnect(true);
         }
       } catch (err) {
+        videoDateDailyDiagnostic('daily_call_join_failure', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+        });
         if (!cancelled) {
           Sentry.captureException(err, { extra: { sessionId } });
           setCallError('Failed to join. Please try again.');
