@@ -3,9 +3,10 @@
  * No visual redesign — behavior and state machine parity only.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Modal, Image, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Modal, Image, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import { Camera } from 'expo-camera';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
@@ -49,6 +50,29 @@ export function ReadyGateOverlay({
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
+  const [permissionsResolved, setPermissionsResolved] = useState(false);
+  const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
+
+  const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+      ]);
+      const ok =
+        granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
+        granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
+      setHasMediaPermission(ok);
+      setPermissionsResolved(true);
+      return ok;
+    }
+    const cam = await Camera.requestCameraPermissionsAsync();
+    const mic = await Camera.requestMicrophonePermissionsAsync();
+    const ok = cam.status === 'granted' && mic.status === 'granted';
+    setHasMediaPermission(ok);
+    setPermissionsResolved(true);
+    return ok;
+  }, []);
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
@@ -100,7 +124,23 @@ export function ReadyGateOverlay({
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
     setMarkingReady(false);
+    setPermissionsResolved(false);
+    setHasMediaPermission(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const ok = await requestMediaPermissions();
+      if (cancelled) return;
+      if (!ok) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_permissions_denied', { eventId });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [requestMediaPermissions, eventId]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
@@ -171,13 +211,37 @@ export function ReadyGateOverlay({
   return (
     <Modal visible transparent animationType="fade" onRequestClose={handleSkip}>
       <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.8)' }]} pointerEvents="auto">
-        {isTransitioning || isBothReady ? (
+        {permissionsResolved && hasMediaPermission === false ? (
+          <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
+            <Ionicons name="videocam-off-outline" size={34} color={theme.textSecondary} />
+            <Text style={[styles.title, { color: theme.text, marginTop: spacing.md }]}>Camera and mic required</Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+              Allow camera and microphone access to join this date.
+            </Text>
+            <VibelyButton
+              label="Enable permissions"
+              onPress={() => {
+                void requestMediaPermissions();
+              }}
+              variant="primary"
+              size="lg"
+              style={styles.readyBtn}
+            />
+            <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
+              <Text style={[styles.skipText, { color: theme.textSecondary }]}>Back to lobby</Text>
+            </Pressable>
+          </Card>
+        ) : !permissionsResolved ? (
+          <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
+            <ActivityIndicator size="large" color={theme.tint} />
+            <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>Preparing your date...</Text>
+          </Card>
+        ) : isTransitioning || isBothReady ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <ActivityIndicator size="large" color={theme.tint} />
             <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>
-              Connecting your vibe date...
+              Joining your date...
             </Text>
-            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>Get ready to shine ✨</Text>
           </Card>
         ) : (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
