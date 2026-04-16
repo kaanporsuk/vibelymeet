@@ -15,6 +15,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { markDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
@@ -214,6 +215,7 @@ export default function ReadyGateScreen() {
       if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
       transitionTimeoutRef.current = setTimeout(() => {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', { session_id: sessionId });
+        if (sessionId) markDateEntryTransition(String(sessionId));
         router.replace(`/date/${sessionId}`);
       }, 1500);
     }
