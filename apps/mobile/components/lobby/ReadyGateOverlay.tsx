@@ -18,6 +18,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
+import { markDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -79,6 +80,7 @@ export function ReadyGateOverlay({
     closedRef.current = true;
     setIsTransitioning(true);
     rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId });
+    markDateEntryTransition(sessionId);
     // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
     setTimeout(() => {
       onNavigateToDate(sessionId);

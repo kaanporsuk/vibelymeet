@@ -68,6 +68,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { avatarUrl } from '@/lib/imageUrl';
+import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -247,7 +248,17 @@ export default function VideoDateScreen() {
         .maybeSingle();
       if (cancelled) return;
       if (reg?.queue_status === 'in_ready_gate') {
+        // Prevent `/date/:id` → `/ready/:id` bounce during intentional date entry
+        // while registrations still briefly show `in_ready_gate` after `both_ready`.
+        if (isDateEntryTransitionActive(sessionId)) return;
         router.replace(`/ready/${sessionId}` as const);
+        return;
+      }
+      // Only clear when we can positively confirm we're no longer in Ready Gate.
+      // If the reg lookup is temporarily missing/mismatched, rely on TTL to avoid
+      // re-enabling the bounce prematurely.
+      if (reg?.queue_status && reg.queue_status !== 'in_ready_gate') {
+        clearDateEntryTransition(sessionId);
       }
     })();
     return () => {
