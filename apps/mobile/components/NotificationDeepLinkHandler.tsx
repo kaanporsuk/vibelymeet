@@ -11,6 +11,7 @@ import { OneSignal, NotificationWillDisplayEvent } from 'react-native-onesignal'
 import type { EntryStateResponse } from '@shared/entryState';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import {
@@ -104,6 +105,12 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     .maybeSingle();
 
   if (reg?.queue_status === 'in_ready_gate') {
+    // Respect the date-entry latch: during the narrow `both_ready` → `in_handshake`
+    // window, registrations can still read `in_ready_gate` even though the client
+    // has already begun entering /date. Preserve /date for this same sid.
+    if (isDateEntryTransitionActive(sid)) {
+      return href;
+    }
     return `/ready/${sid}`;
   }
 

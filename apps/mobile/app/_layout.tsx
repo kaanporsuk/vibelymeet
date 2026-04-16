@@ -35,6 +35,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { PushRegistration } from '@/components/PushRegistration';
 import { NotificationDeepLinkHandler, NotificationRouteTracker } from '@/components/NotificationDeepLinkHandler';
 import { NativeSessionRouteHydration } from '@/components/NativeSessionRouteHydration';
+import { NativeActiveSessionAutoRouter } from '@/components/NativeActiveSessionAutoRouter';
 import { NotificationPauseForeground } from '@/components/NotificationPauseForeground';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
@@ -501,6 +502,7 @@ function RootLayoutNav() {
           <PushRegistration />
           <NotificationRouteTracker />
           <NativeSessionRouteHydration />
+          <NativeActiveSessionAutoRouter />
           <NotificationDeepLinkHandler />
           <NotificationPauseForeground />
           <DeactivatedAccountReactivationPrompt />

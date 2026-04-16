@@ -276,6 +276,11 @@ export default function VideoDateScreen() {
   useEffect(() => {
     partnerEverJoinedRef.current = partnerEverJoined;
   }, [partnerEverJoined]);
+  /** Mirrors `isPartnerDisconnected` for Daily event handlers captured in closures. */
+  const isPartnerDisconnectedRef = useRef(false);
+  useEffect(() => {
+    isPartnerDisconnectedRef.current = isPartnerDisconnected;
+  }, [isPartnerDisconnected]);
 
   useEffect(() => {
     setPartnerEverJoined(false);
@@ -991,9 +996,16 @@ export default function VideoDateScreen() {
           });
           clearFirstConnectWatchdog();
           setAwaitingFirstConnect(false);
+          const wasReconnecting = partnerEverJoinedRef.current && isPartnerDisconnectedRef.current;
           setPartnerEverJoined(true);
           setIsConnecting(false);
           setRemoteParticipant(p);
+          if (wasReconnecting) {
+            setIsPartnerDisconnected(false);
+            setIsTimerPaused(false);
+            setReconnectionGrace(0);
+            if (sessionId) void markReconnectReturn(sessionId);
+          }
         }
       });
       call.on('participant-updated', (event: { participant?: DailyParticipant }) => {
@@ -1010,8 +1022,15 @@ export default function VideoDateScreen() {
           setLocalParticipant(p);
           applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
         } else {
+          const wasReconnecting = partnerEverJoinedRef.current && isPartnerDisconnectedRef.current;
           setPartnerEverJoined(true);
           setRemoteParticipant(p);
+          if (wasReconnecting) {
+            setIsPartnerDisconnected(false);
+            setIsTimerPaused(false);
+            setReconnectionGrace(0);
+            if (sessionId) void markReconnectReturn(sessionId);
+          }
         }
       });
       call.on('participant-left', (event: { participant?: DailyParticipant }) => {
