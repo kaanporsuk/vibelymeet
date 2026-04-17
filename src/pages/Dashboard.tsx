@@ -34,7 +34,7 @@ import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
-import { differenceInSeconds, differenceInMinutes, differenceInHours, format, startOfDay } from "date-fns";
+import { differenceInSeconds, differenceInMinutes, differenceInHours, format } from "date-fns";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 function isToday(date: Date): boolean {
@@ -245,10 +245,11 @@ const Dashboard = () => {
     });
   }, [visibleEventsRaw]);
 
-  const upcomingEvents = useMemo(() => {
-    const start = startOfDay(new Date());
-    return events.filter((e) => e.status !== "cancelled" && e.eventDate.getTime() >= start.getTime());
-  }, [events]);
+  /** Matches `get_visible_events` discover/home window (server-filtered); no day-boundary cutoff. */
+  const upcomingEvents = useMemo(
+    () => events.filter((e) => e.status !== "cancelled"),
+    [events],
+  );
 
   const eventSectionTitle = useMemo(() => {
     if (upcomingEvents.some((e) => isToday(e.eventDate))) return "Tonight";
@@ -850,6 +851,11 @@ const Dashboard = () => {
                     <h3 className="font-display font-semibold text-base text-foreground line-clamp-1">{event.title}</h3>
                     <p className="text-[13px] text-muted-foreground">
                       {format(event.eventDate, "EEE, MMM d")} · {format(event.eventDate, "h:mm a")}
+                      {event.status === "ended" && (
+                        <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-amber-400/90">
+                          Ended
+                        </span>
+                      )}
                     </p>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Users className="w-3.5 h-3.5" />

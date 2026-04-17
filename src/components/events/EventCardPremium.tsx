@@ -62,7 +62,10 @@ export const EventCardPremium = ({
   language,
 }: EventCardPremiumProps) => {
   const isLive = status === "live";
-  const expired = eventDateRaw ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes }) : false;
+  const pastScheduledEnd = eventDateRaw
+    ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes })
+    : false;
+  const showEnded = status === "ended" || pastScheduledEnd;
   const navigate = useNavigate();
   const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
 
@@ -97,13 +100,13 @@ export const EventCardPremium = ({
           alt={title}
           className={cn(
             "w-full h-full object-cover transition-transform duration-500 group-hover:scale-110",
-            expired && "grayscale-[40%] brightness-75"
+            showEnded && "grayscale-[40%] brightness-75"
           )}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
         
         {/* Event Ended badge */}
-        {expired && (
+        {showEnded && (
           <div
             className="absolute top-3 left-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-background/55 border border-border/20 backdrop-blur-md text-muted-foreground"
             style={{ letterSpacing: '0.04em' }}
@@ -216,7 +219,7 @@ export const EventCardPremium = ({
         </div>
 
         {/* CTA — expired vs normal */}
-        {expired ? (
+        {showEnded ? (
           <div className="space-y-2 text-center">
             <p className="text-xs font-medium text-muted-foreground/60">
               This vibe has passed — but more are waiting

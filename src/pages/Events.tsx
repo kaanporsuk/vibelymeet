@@ -313,6 +313,14 @@ const Events = () => {
 
   const extraFilterCount = (selectedLanguage ? 1 : 0) + (locationMode === 'city' && selectedCity ? 1 : 0) + (!upcomingOnly ? 1 : 0);
 
+  /** live → upcoming → ended (for featured ordering; server already enforces discover grace + no cancelled). */
+  const discoverFeaturedRank = (status: string) => {
+    if (status === "live") return 0;
+    if (status === "upcoming") return 1;
+    if (status === "ended") return 2;
+    return 3;
+  };
+
   // Map to the shape EventCardPremium / EventsRail expect
   const mappedEvents = useMemo(() =>
     events.map(e => ({
@@ -337,6 +345,14 @@ const Events = () => {
       latitude: e.latitude,
       longitude: e.longitude,
     })), [events]);
+
+  /** Default discover rails/hero: optional strict “upcoming only” hides ended (including grace). */
+  const mappedForDefaultDiscover = useMemo(() => {
+    if (!upcomingOnly) return mappedEvents;
+    return mappedEvents.filter(
+      (e) => e.status !== "ended" && e.status !== "cancelled"
+    );
+  }, [mappedEvents, upcomingOnly]);
 
   // Filtered
   const filteredEvents = useMemo(() => {
@@ -403,12 +419,24 @@ const Events = () => {
 
   const isFiltering = searchQuery || activeFilters.length > 0 || selectedLanguage || (locationMode === 'city' && selectedCity) || !upcomingOnly;
 
-  // Group for discovery
-  const liveEvents = mappedEvents.filter(e => e.status === 'live');
-  const nearYou = mappedEvents.filter(e => e.status !== 'live' && e.scope === 'local');
-  const globalEvents = mappedEvents.filter(e => e.status !== 'live' && (e.scope === 'global' || !e.scope));
-  const regionalEvents = mappedEvents.filter(e => e.status !== 'live' && e.scope === 'regional');
-  const featuredEvent = [...liveEvents, ...nearYou, ...globalEvents][0] || null;
+  // Group for discovery (canonical server-visible list, respecting upcoming-only on default)
+  const liveEvents = mappedForDefaultDiscover.filter((e) => e.status === "live");
+  const nearYou = mappedForDefaultDiscover.filter(
+    (e) => e.status !== "live" && e.scope === "local"
+  );
+  const globalEvents = mappedForDefaultDiscover.filter(
+    (e) => e.status !== "live" && (e.scope === "global" || !e.scope)
+  );
+  const regionalEvents = mappedForDefaultDiscover.filter(
+    (e) => e.status !== "live" && e.scope === "regional"
+  );
+  const featuredEvent =
+    [...mappedForDefaultDiscover].sort((a, b) => {
+      const ra = discoverFeaturedRank(a.status);
+      const rb = discoverFeaturedRank(b.status);
+      if (ra !== rb) return ra - rb;
+      return a.eventDate.getTime() - b.eventDate.getTime();
+    })[0] ?? null;
 
   return (
     <div className="min-h-screen bg-background pb-[100px]">
@@ -495,7 +523,9 @@ const Events = () => {
                 <FeaturedEventCard id={featuredEvent.id} title={featuredEvent.title}
                   description={featuredEvent.description} image={featuredEvent.image}
                   eventDate={featuredEvent.eventDate} attendees={featuredEvent.attendees}
-                  tags={featuredEvent.tags} language={(featuredEvent as any).language} />
+                  tags={featuredEvent.tags} status={featuredEvent.status}
+                  durationMinutes={featuredEvent.duration_minutes}
+                  language={(featuredEvent as any).language} />
               </div>
             )}
 
