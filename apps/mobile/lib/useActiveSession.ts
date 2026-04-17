@@ -171,6 +171,16 @@ export function useActiveSession(
     };
   }, [userId, check]);
 
+  // Fallback reconciliation: if a realtime event is missed while the app stays foregrounded,
+  // periodically re-check server truth so lobby/deck UI cannot mask an active session indefinitely.
+  useEffect(() => {
+    if (!userId) return;
+    const intervalId = setInterval(() => {
+      void check();
+    }, 8000);
+    return () => clearInterval(intervalId);
+  }, [userId, check]);
+
   return useMemo(
     () => ({ activeSession, hydrated, refetch: check }),
     [activeSession, hydrated, check]
