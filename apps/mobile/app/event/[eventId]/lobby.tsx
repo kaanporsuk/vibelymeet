@@ -57,6 +57,8 @@ import {
   isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
 
+const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
+
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
   const duration = duration_minutes ?? 60;
@@ -391,8 +393,18 @@ export default function EventLobbyScreen() {
           refreshQueueAndSuperVibe();
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
-          if (newStatus === 'ready' && oldStatus !== 'ready') {
+          const becameReadyGateActive =
+            READY_GATE_ACTIVE_STATUSES.has(newStatus) &&
+            (!oldStatus || !READY_GATE_ACTIVE_STATUSES.has(oldStatus));
+          if (becameReadyGateActive) {
             await openReadyGateWithSession(session.id as string);
+            return;
+          }
+          // If this participant's session has already moved into active video phases,
+          // route out of lobby even if ready-gate transitions were missed.
+          const phase = session.state as string | undefined;
+          if (phase === 'handshake' || phase === 'date') {
+            router.replace(`/date/${session.id as string}` as const);
           }
         }
       )
@@ -405,8 +417,14 @@ export default function EventLobbyScreen() {
           if (!isParticipant) return;
           void refetchDeck();
           refreshQueueAndSuperVibe();
-          if ((session.ready_gate_status as string) === 'ready') {
+          const status = session.ready_gate_status as string;
+          if (READY_GATE_ACTIVE_STATUSES.has(status)) {
             await openReadyGateWithSession(session.id as string);
+            return;
+          }
+          const phase = session.state as string | undefined;
+          if (phase === 'handshake' || phase === 'date') {
+            router.replace(`/date/${session.id as string}` as const);
           }
         }
       )
