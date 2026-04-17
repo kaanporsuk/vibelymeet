@@ -193,23 +193,67 @@ serve(async (req) => {
         }
         // No email: legacy `new_match` template implied persistent chat + /matches — incorrect for session stage.
       } else if (result.result === "match_queued" && sessionId) {
-        await serviceClient.functions.invoke("send-notification", {
-          body: {
-            user_id: target_id,
+        const queuedPayload = sessionStageNotificationData(eventIdStr, sessionId);
+        const queuedBody = {
+          category: "ready_gate" as const,
+          data: queuedPayload,
+        };
+        try {
+          await serviceClient.functions.invoke("send-notification", {
+            body: {
+              user_id: target_id,
+              ...queuedBody,
+              title: "Your video date is ready 📹",
+              body: "Someone mutual-vibed with you — open the event lobby to join the ready gate.",
+            },
+          });
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: String(target_id),
             category: "ready_gate",
-            title: "Your video date is ready 📹",
-            body: "Someone mutual-vibed with you — open the event lobby to join the ready gate.",
-            data: sessionStageNotificationData(eventIdStr, sessionId),
-          },
-        });
-        logLifecycle({
-          event_id: eventIdStr,
-          session_id: sessionId,
-          user_id: String(target_id),
-          category: "ready_gate",
-          result: "notify_sent",
-          error_reason: null,
-        });
+            result: "notify_sent",
+            error_reason: null,
+          });
+        } catch (e) {
+          console.error("swipe-actions match_queued notify target:", e);
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: String(target_id),
+            category: "ready_gate",
+            result: "notify_error",
+            error_reason: e instanceof Error ? e.message : String(e),
+          });
+        }
+        try {
+          await serviceClient.functions.invoke("send-notification", {
+            body: {
+              user_id: actorId,
+              ...queuedBody,
+              title: "Stay in the lobby 💚",
+              body: "You’re matched — we’ll open Ready Gate when you’re both free in this event.",
+            },
+          });
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: actorId,
+            category: "ready_gate",
+            result: "notify_sent",
+            error_reason: null,
+          });
+        } catch (e) {
+          console.error("swipe-actions match_queued notify actor:", e);
+          logLifecycle({
+            event_id: eventIdStr,
+            session_id: sessionId,
+            user_id: actorId,
+            category: "ready_gate",
+            result: "notify_error",
+            error_reason: e instanceof Error ? e.message : String(e),
+          });
+        }
       } else if (
         result.result === "super_vibe_sent" ||
         result.result === "vibe_recorded"
