@@ -16,7 +16,6 @@ import {
 import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { startOfDay } from 'date-fns';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import Colors from '@/constants/Colors';
@@ -265,10 +264,11 @@ export default function DashboardScreen() {
     return nextEventPhase.msUntilStart / 36e5;
   }, [nextEventPhase]);
 
-  const upcomingEvents = useMemo(() => {
-    const start = startOfDay(new Date());
-    return events.filter((e) => e.status !== 'cancelled' && e.eventDate.getTime() >= start.getTime());
-  }, [events]);
+  /** Canonical discover/home list from `get_visible_events` (server-filtered); no day-boundary cutoff. */
+  const upcomingEvents = useMemo(
+    () => events.filter((e) => e.status !== 'cancelled'),
+    [events],
+  );
 
   const eventSectionTitle = useMemo(() => {
     if (upcomingEvents.some((e) => isToday(e.eventDate))) return 'Tonight';
@@ -951,6 +951,9 @@ export default function DashboardScreen() {
                       </Text>
                       <Text style={[styles.eventHorizDate, { color: theme.mutedForeground }]}>
                         {event.date} · {event.time}
+                        {event.status === 'ended' ? (
+                          <Text style={{ color: '#fbbf24', fontWeight: '700', fontSize: 10 }}> · ENDED</Text>
+                        ) : null}
                       </Text>
                       <View style={styles.discoverAttendeesRow}>
                         <Ionicons name="people-outline" size={14} color={theme.mutedForeground} />

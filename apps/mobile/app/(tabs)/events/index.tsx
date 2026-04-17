@@ -60,6 +60,13 @@ const TIME_FILTERS = [
   { key: 'upcoming', label: 'Upcoming' },
 ] as const;
 
+/** Featured hero: live → upcoming → ended (grace), aligned with web Discover. */
+function discoverFeaturedRank(status: string): number {
+  if (status === 'live') return 0;
+  if (status === 'upcoming') return 1;
+  if (status === 'ended') return 2;
+  return 3;
+}
 
 function isTonight(ed: Date, now: Date): boolean {
   return ed.toDateString() === now.toDateString();
@@ -203,7 +210,9 @@ function FeaturedEventCard({
   attendees?: EventAttendee[];
   attendeePreview?: EventAttendeePreviewPayload;
 }) {
+  const router = useRouter();
   const { timeLeft, isLive, expired } = useFeaturedCountdown(event);
+  const showEnded = expired || event.status === 'ended';
   const goingCount =
     attendeePreview?.success === true ? attendeePreview.total_other_confirmed : event.attendees;
   const avatarUrls = (attendees ?? []).slice(0, 2).map((a) => a.avatar_url ?? a.photos?.[0]).filter(Boolean) as string[];
@@ -219,13 +228,13 @@ function FeaturedEventCard({
     >
       <Image
         source={{ uri: eventCoverUrl(event.image) }}
-        style={featuredStyles.image}
+        style={[featuredStyles.image, showEnded && { opacity: 0.88 }]}
         resizeMode="cover"
       />
       <View style={featuredStyles.gradientOverlay} />
       <View style={featuredStyles.content}>
         <View style={featuredStyles.badges}>
-          {expired ? (
+          {showEnded ? (
             <View style={[featuredStyles.endedBadge, { backgroundColor: withAlpha(theme.surface, 0.8), borderColor: theme.border }]}>
               <View style={[featuredStyles.liveDot, { backgroundColor: theme.textSecondary }]} />
               <Text style={[featuredStyles.endedText, { color: theme.textSecondary }]}>Event Ended</Text>
@@ -242,7 +251,7 @@ function FeaturedEventCard({
             </View>
           )}
         </View>
-        {!isLive && !expired && (
+        {!isLive && !showEnded && (
           <View style={[featuredStyles.countdown, { backgroundColor: withAlpha(theme.background, 0.4), borderColor: 'rgba(255,255,255,0.1)' }]}>
             <Ionicons name="time-outline" size={16} color={theme.neonCyan} />
             <Text style={[featuredStyles.countdownText, { color: theme.text }]}>
@@ -279,38 +288,58 @@ function FeaturedEventCard({
             {event.description}
           </Text>
         ) : null}
-        <View style={featuredStyles.footer}>
-          <View style={featuredStyles.attendees}>
-            <View style={featuredStyles.avatarStack}>
-              {avatarUrls.length > 0
-                ? avatarUrls.map((uri, i) => (
-                    <Image key={i} source={{ uri: avatarUrl(uri) }} style={[featuredStyles.avatar, { borderColor: theme.background }]} />
-                  ))
-                : [1, 2, 3].map((i) => (
-                    <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.background }]} />
-                  ))}
+        <View style={showEnded ? featuredStyles.footerEndedColumn : featuredStyles.footer}>
+          {showEnded ? (
+            <View style={featuredStyles.footerEnded}>
+              <Text style={[featuredStyles.footerEndedHint, { color: theme.textSecondary }]}>
+                This vibe has passed — but more are waiting
+              </Text>
+              <Pressable
+                onPress={() => router.push('/(tabs)/events' as const)}
+                style={({ pressed }) => [
+                  featuredStyles.cta,
+                  { backgroundColor: theme.tint, opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <Text style={featuredStyles.ctaLabel}>✦ Discover Upcoming Events</Text>
+                <Ionicons name="arrow-forward" size={16} color="#fff" />
+              </Pressable>
             </View>
-            <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
-              +{goingCount} going
-            </Text>
-          </View>
-          <View
-            style={[
-              featuredStyles.cta,
-              {
-                backgroundColor: isConfirmedSeat
-                  ? theme.neonCyan
-                  : isWaitlistedSeat
-                    ? '#d97706'
-                    : theme.accent,
-              },
-            ]}
-          >
-            <Text style={featuredStyles.ctaLabel}>
-              {isConfirmedSeat ? 'View Ticket' : isWaitlistedSeat ? 'On waitlist' : 'Get Tickets'}
-            </Text>
-            <Ionicons name="arrow-forward" size={16} color="#fff" />
-          </View>
+          ) : (
+            <>
+              <View style={featuredStyles.attendees}>
+                <View style={featuredStyles.avatarStack}>
+                  {avatarUrls.length > 0
+                    ? avatarUrls.map((uri, i) => (
+                        <Image key={i} source={{ uri: avatarUrl(uri) }} style={[featuredStyles.avatar, { borderColor: theme.background }]} />
+                      ))
+                    : [1, 2, 3].map((i) => (
+                        <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.background }]} />
+                      ))}
+                </View>
+                <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
+                  +{goingCount} going
+                </Text>
+              </View>
+              <View
+                style={[
+                  featuredStyles.cta,
+                  {
+                    backgroundColor: isConfirmedSeat
+                      ? theme.neonCyan
+                      : isWaitlistedSeat
+                        ? '#d97706'
+                        : theme.accent,
+                  },
+                ]}
+              >
+                <Text style={featuredStyles.ctaLabel}>
+                  {isConfirmedSeat ? 'View Ticket' : isWaitlistedSeat ? 'On waitlist' : 'Get Tickets'}
+                </Text>
+                <Ionicons name="arrow-forward" size={16} color="#fff" />
+              </View>
+            </>
+          )}
         </View>
       </View>
     </Pressable>
@@ -410,6 +439,9 @@ const featuredStyles = StyleSheet.create({
   metaDate: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
   desc: { fontSize: 15, marginBottom: spacing.md, lineHeight: 20 },
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  footerEndedColumn: { width: '100%', marginTop: 8, gap: spacing.sm, alignItems: 'stretch' },
+  footerEnded: { width: '100%', gap: spacing.sm },
+  footerEndedHint: { fontSize: 12, textAlign: 'center' },
   attendees: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatarStack: { flexDirection: 'row' },
   avatar: {
@@ -462,6 +494,11 @@ function EventRailCard({
           <View style={railCardStyles.liveBadge}>
             <View style={railCardStyles.liveDot} />
             <Text style={railCardStyles.liveText}>Live</Text>
+          </View>
+        )}
+        {!isLive && event.status === 'ended' && (
+          <View style={[railCardStyles.endedBadge, { backgroundColor: withAlpha(theme.surface, 0.85), borderColor: theme.border }]}>
+            <Text style={[railCardStyles.endedText, { color: theme.textSecondary }]}>Ended</Text>
           </View>
         )}
         {event.tags.length > 0 && (
@@ -537,6 +574,16 @@ const railCardStyles = StyleSheet.create({
   },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#fff' },
   liveText: { color: '#fff', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  endedBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  endedText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   tags: {
     position: 'absolute',
     bottom: 12,
@@ -840,13 +887,24 @@ export default function EventsListScreen() {
   const sheetFilterCount = countActiveFilters(filters);
   const totalActiveCount = sheetFilterCount + (timeFilter ? 1 : 0);
   const isFiltering = searchQuery.length > 0 || timeFilter !== null || sheetFilterCount > 0;
+
+  /** Default hero/rails: optional strict upcoming-only (hides ended, including grace), matching web. */
+  const eventsForDefaultLayout = useMemo(() => {
+    if (!filters.upcomingOnly) return events;
+    const now = new Date();
+    return events.filter((e) => {
+      const eventEnd = new Date(e.eventDate.getTime() + (e.duration_minutes ?? 60) * 60 * 1000);
+      return eventEnd > now;
+    });
+  }, [events, filters.upcomingOnly]);
+
   const liveEvents = useMemo(
-    () => events.filter((e) => e.status !== 'cancelled' && e.status === 'live'),
-    [events],
+    () => eventsForDefaultLayout.filter((e) => e.status !== 'cancelled' && e.status === 'live'),
+    [eventsForDefaultLayout],
   );
   const upcomingEvents = useMemo(
-    () => events.filter((e) => e.status !== 'cancelled' && e.status !== 'live'),
-    [events],
+    () => eventsForDefaultLayout.filter((e) => e.status !== 'cancelled' && e.status !== 'live'),
+    [eventsForDefaultLayout],
   );
 
   const filteredEvents = useMemo(() => {
@@ -900,14 +958,19 @@ export default function EventsListScreen() {
 
     return list;
   }, [events, searchQuery, timeFilter, filters]);
-  const discoverUpcomingEvents = useMemo(() => {
-    const now = new Date();
-    return upcomingEvents.filter((e) => {
-      const end = new Date(e.eventDate.getTime() + e.duration_minutes * 60 * 1000);
-      return end > now;
+
+  const discoverUpcomingEvents = upcomingEvents;
+
+  const featuredEvent = useMemo(() => {
+    if (!eventsForDefaultLayout.length) return null;
+    const sorted = [...eventsForDefaultLayout].sort((a, b) => {
+      const ra = discoverFeaturedRank(a.status);
+      const rb = discoverFeaturedRank(b.status);
+      if (ra !== rb) return ra - rb;
+      return a.eventDate.getTime() - b.eventDate.getTime();
     });
-  }, [upcomingEvents]);
-  const featuredEvent = liveEvents[0] ?? upcomingEvents[0] ?? null;
+    return sorted[0] ?? null;
+  }, [eventsForDefaultLayout]);
   const { data: isRegisteredForFeatured } = useIsRegisteredForEvent(featuredEvent?.id, user?.id);
   const { data: featuredAttendees = [], preview: featuredAttendeePreview } = useEventAttendees(featuredEvent?.id);
 

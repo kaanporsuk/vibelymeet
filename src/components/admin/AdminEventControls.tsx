@@ -83,9 +83,10 @@ const AdminEventControls = ({
 
   const endEvent = useMutation({
     mutationFn: async () => {
+      const endedAt = new Date().toISOString();
       const { error } = await supabase
         .from("events")
-        .update({ status: "ended" })
+        .update({ status: "ended", ended_at: endedAt })
         .eq("id", eventId);
       if (error) throw error;
 
@@ -100,6 +101,7 @@ const AdminEventControls = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
+      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
       toast.success(`"${eventTitle}" has been ended`);
       setIsEnding(false);
     },

@@ -43,7 +43,12 @@ export const FeaturedEventCard = ({
     attendeePreview?.success === true ? attendeePreview.total_other_confirmed : attendees;
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
-  const expired = isEventExpired({ event_date: eventDate.toISOString(), duration_minutes: durationMinutes });
+  const pastScheduledEnd = isEventExpired({
+    event_date: eventDate.toISOString(),
+    duration_minutes: durationMinutes,
+  });
+  /** Server `ended` includes grace window; early admin end may set ended before scheduled end. */
+  const showEnded = status === "ended" || pastScheduledEnd;
 
   const isConfirmedSeat = admission.confirmedEventIds.includes(id);
   const isWaitlistedSeat = admission.waitlistedEventIds.includes(id);
@@ -104,7 +109,7 @@ export const FeaturedEventCard = ({
         <img
           src={eventCoverHeroUrl(image)}
           alt={title}
-          className={cn("w-full h-full object-cover", expired && "grayscale-[40%] brightness-75")}
+          className={cn("w-full h-full object-cover", showEnded && "grayscale-[40%] brightness-75")}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent" />
@@ -113,7 +118,7 @@ export const FeaturedEventCard = ({
       {/* Content */}
       <div className="relative h-full flex flex-col justify-end p-6 md:p-8">
         {/* Featured Badge, LIVE Badge, or Ended Badge */}
-        {expired ? (
+        {showEnded ? (
           <div
             className="absolute top-6 left-6 flex items-center gap-2 px-4 py-2 rounded-full bg-background/55 border border-border/20 backdrop-blur-md text-muted-foreground"
             style={{ letterSpacing: '0.04em' }}
@@ -148,7 +153,7 @@ export const FeaturedEventCard = ({
         )}
 
         {/* Countdown Timer - Only show if not live */}
-        {!isLive && (
+        {!isLive && !showEnded && (
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -264,7 +269,7 @@ export const FeaturedEventCard = ({
           </div>
 
           {/* Primary Action Button - Context-aware */}
-          {expired ? (
+          {showEnded ? (
             <div className="flex flex-col items-center gap-2">
               <p className="text-sm text-muted-foreground/60 font-medium">
                 This vibe has passed — but more are waiting
