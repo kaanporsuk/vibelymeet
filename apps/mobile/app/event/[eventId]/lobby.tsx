@@ -59,6 +59,9 @@ import {
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
 
+/** Bounded interval for queued-session promotion (`drain_match_queue` + server `promote_ready_gate_if_eligible`). */
+const QUEUED_CONVERGENCE_DRAIN_INTERVAL_MS = 10_000;
+
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
   const duration = duration_minutes ?? 60;
@@ -176,9 +179,48 @@ export default function EventLobbyScreen() {
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
-  const { activeSession: scopedSession, hydrated: sessionHydrated } = useActiveSession(user?.id, {
+  const {
+    activeSession: scopedSession,
+    hydrated: sessionHydrated,
+    refetch: refetchActiveSession,
+  } = useActiveSession(user?.id, {
     eventId: id,
   });
+
+  const sameEventActiveSession = useMemo(() => {
+    if (!sessionHydrated || !id || !scopedSession || scopedSession.eventId !== id) return null;
+    return scopedSession;
+  }, [sessionHydrated, id, scopedSession]);
+
+  /** Full-screen yield: server truth says handshake/date — do not show deck-empty underneath. */
+  const yieldingToVideoDateUi = useMemo(
+    () => Boolean(sameEventActiveSession?.kind === 'video'),
+    [sameEventActiveSession]
+  );
+
+  /** Brief yield while hydrating Ready Gate overlay (`activeSessionId` catches up to `useActiveSession`). */
+  const yieldingToReadyGateUi = useMemo(
+    () =>
+      Boolean(
+        sameEventActiveSession?.kind === 'ready_gate' &&
+          activeSessionId !== sameEventActiveSession.sessionId
+      ),
+    [sameEventActiveSession, activeSessionId]
+  );
+
+  /**
+   * Queued match exists but we are not yet in ready/date route — replace plain deck-empty with sync messaging.
+   */
+  const showQueuedConvergenceEmptyUi = useMemo(
+    () =>
+      Boolean(
+        queuedMatchCount > 0 &&
+          !activeSessionId &&
+          !yieldingToVideoDateUi &&
+          !yieldingToReadyGateUi
+      ),
+    [queuedMatchCount, activeSessionId, yieldingToVideoDateUi, yieldingToReadyGateUi]
+  );
 
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
 
@@ -283,7 +325,8 @@ export default function EventLobbyScreen() {
     ]);
     setQueuedMatchCount(count);
     setSuperVibeRemaining(remaining);
-  }, [id, user?.id]);
+    void refetchActiveSession();
+  }, [id, user?.id, refetchActiveSession]);
 
   useEffect(() => {
     if (!id || !user?.id || !isLobbyFocused || appState !== 'active') return;
@@ -292,14 +335,52 @@ export default function EventLobbyScreen() {
 
   useEffect(() => {
     if (!sessionHydrated || !id) return;
-    if (scopedSession?.eventId === id && scopedSession.kind === 'video') {
-      router.replace(`/date/${scopedSession.sessionId}` as const);
+    if (sameEventActiveSession?.kind === 'video') {
+      router.replace(`/date/${sameEventActiveSession.sessionId}` as const);
       return;
     }
-    if (scopedSession?.eventId === id && scopedSession.kind === 'ready_gate') {
-      void openReadyGateWithSession(scopedSession.sessionId);
+    if (sameEventActiveSession?.kind === 'ready_gate') {
+      void openReadyGateWithSession(sameEventActiveSession.sessionId);
     }
-  }, [sessionHydrated, id, scopedSession, openReadyGateWithSession]);
+  }, [sessionHydrated, id, sameEventActiveSession, openReadyGateWithSession]);
+
+  /**
+   * Queued mutual match: promotion may lag realtime. Re-run `drain_match_queue` on a bounded interval
+   * while the user still has a queued session row and is not already in an active gate/date route.
+   */
+  useEffect(() => {
+    if (!id || !user?.id) return;
+    if (!isLobbyFocused || appState !== 'active') return;
+    if (queuedMatchCount <= 0) return;
+    if (activeSessionId) return;
+    if (sameEventActiveSession?.kind === 'video') return;
+
+    const run = async () => {
+      const result = await drainMatchQueue(id, user.id);
+      const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
+      if (result?.found && sessionId) {
+        await openReadyGateWithSession(sessionId);
+      }
+      await refreshQueueAndSuperVibe();
+    };
+
+    void run();
+    const intervalId = setInterval(() => {
+      void run();
+    }, QUEUED_CONVERGENCE_DRAIN_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [
+    id,
+    user?.id,
+    isLobbyFocused,
+    appState,
+    queuedMatchCount,
+    activeSessionId,
+    sameEventActiveSession?.kind,
+    openReadyGateWithSession,
+    refreshQueueAndSuperVibe,
+  ]);
 
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -340,17 +421,36 @@ export default function EventLobbyScreen() {
           if (newData.event_id !== id) return;
           const queueStatus = newData.queue_status as string | undefined;
           const currentRoomId = newData.current_room_id as string | null | undefined;
+          if (
+            (queueStatus === 'in_handshake' || queueStatus === 'in_date') &&
+            currentRoomId
+          ) {
+            router.replace(`/date/${currentRoomId}` as const);
+            return;
+          }
           if (queueStatus === 'in_ready_gate' && currentRoomId) {
             await openReadyGateWithSession(currentRoomId);
             return;
           }
-          if (queueStatus === 'in_ready_gate' || currentRoomId) {
+          if (
+            queueStatus === 'in_ready_gate' ||
+            queueStatus === 'in_handshake' ||
+            queueStatus === 'in_date' ||
+            currentRoomId
+          ) {
             const { data: latestReg } = await supabase
               .from('event_registrations')
               .select('queue_status, current_room_id')
               .eq('event_id', id)
               .eq('profile_id', user.id)
               .maybeSingle();
+            if (
+              (latestReg?.queue_status === 'in_handshake' || latestReg?.queue_status === 'in_date') &&
+              latestReg.current_room_id
+            ) {
+              router.replace(`/date/${latestReg.current_room_id}` as const);
+              return;
+            }
             if (latestReg?.queue_status === 'in_ready_gate' && latestReg.current_room_id) {
               await openReadyGateWithSession(latestReg.current_room_id);
             }
@@ -390,7 +490,8 @@ export default function EventLobbyScreen() {
             });
           }
           void refetchDeck();
-          refreshQueueAndSuperVibe();
+          void refreshQueueAndSuperVibe();
+          void refetchActiveSession();
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
           const becameReadyGateActive =
@@ -416,15 +517,26 @@ export default function EventLobbyScreen() {
           const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
           if (!isParticipant) return;
           void refetchDeck();
-          refreshQueueAndSuperVibe();
+          void refreshQueueAndSuperVibe();
+          void refetchActiveSession();
           const status = session.ready_gate_status as string;
+          const sid = session.id as string;
+          if (status === 'queued') {
+            const drainResult = await drainMatchQueue(id, user.id);
+            const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);
+            if (drainResult?.found && promotedId) {
+              await openReadyGateWithSession(promotedId);
+            }
+            await refreshQueueAndSuperVibe();
+            return;
+          }
           if (READY_GATE_ACTIVE_STATUSES.has(status)) {
-            await openReadyGateWithSession(session.id as string);
+            await openReadyGateWithSession(sid);
             return;
           }
           const phase = session.state as string | undefined;
           if (phase === 'handshake' || phase === 'date') {
-            router.replace(`/date/${session.id as string}` as const);
+            router.replace(`/date/${sid}` as const);
           }
         }
       )
@@ -432,7 +544,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck, show]);
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchActiveSession, refetchDeck, show]);
 
   const timeRemaining = useCountdown(eventEndTime);
 
@@ -944,7 +1056,18 @@ export default function EventLobbyScreen() {
           </View>
         ) : (
           <>
-        {deckError && !hasCards ? (
+        {yieldingToVideoDateUi || yieldingToReadyGateUi ? (
+          <View style={styles.convergenceYieldWrap}>
+            <LoadingState
+              title={yieldingToVideoDateUi ? 'Joining your date…' : 'Opening Ready Gate…'}
+              message={
+                yieldingToVideoDateUi
+                  ? 'Taking you to your video date.'
+                  : 'Syncing with your match — almost there.'
+              }
+            />
+          </View>
+        ) : deckError && !hasCards ? (
           <>
             {discoverSectionIntro}
             <View style={styles.centeredInner}>
@@ -991,6 +1114,28 @@ export default function EventLobbyScreen() {
                   >
                     <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>I'll check later</Text>
                   </Pressable>
+                </>
+              ) : showQueuedConvergenceEmptyUi ? (
+                <>
+                  <View
+                    style={[
+                      styles.emptyIconWrap,
+                      { backgroundColor: withAlpha(theme.neonPink, 0.16) },
+                    ]}
+                  >
+                    <Ionicons name="sparkles" size={40} color={theme.neonPink} />
+                  </View>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>Your match is syncing</Text>
+                  <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
+                    We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in
+                    automatically.
+                  </Text>
+                  <View style={styles.emptyCheckingRow}>
+                    <Ionicons name="sync" size={14} color={theme.tint} />
+                    <Text style={[styles.emptySubline, { color: theme.tint }]}>
+                      Looking for your video date…
+                    </Text>
+                  </View>
                 </>
               ) : (
                 <>
@@ -1431,6 +1576,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   body: { flex: 1, padding: spacing.lg },
+  /** Active-session truth (handshake/date/ready gate) — dominant over deck UI. */
+  convergenceYieldWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    minHeight: 280,
+  },
   sectionIntro: { marginBottom: spacing.md, alignItems: 'center' },
   sectionKicker: { fontSize: 10, fontWeight: '700', letterSpacing: 2.4, textTransform: 'uppercase' },
   sectionTitle: { fontSize: 14, fontWeight: '600', marginTop: 4, textAlign: 'center', paddingHorizontal: spacing.md },
