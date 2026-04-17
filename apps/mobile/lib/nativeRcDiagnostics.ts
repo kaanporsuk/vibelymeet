@@ -16,6 +16,8 @@ export const RC_CATEGORY = {
   onboardingFinalize: 'rc.onboarding.finalize',
   readyGate: 'rc.ready_gate',
   lobbyDateEntry: 'rc.lobby.date_entry',
+  /** `/date` mount → Daily join — single-flight pipeline (control plane). */
+  videoDateEntry: 'rc.video_date.entry',
 } as const;
 
 export function rcBreadcrumb(

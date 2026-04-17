@@ -46,7 +46,7 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
-import { markDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
+import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import {
   videoSessionIdFromSwipePayload,
@@ -1264,7 +1264,7 @@ export default function EventLobbyScreen() {
           partnerImageUri={activeSessionPartnerImage}
           onNavigateToDate={(sessionIdToOpen) => {
             rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'navigate_to_video_date', { event_id: id, session_id: sessionIdToOpen });
-            markDateEntryTransition(sessionIdToOpen);
+            markVideoDateEntryPipelineStarted(sessionIdToOpen);
             lastOpenedSessionRef.current = null;
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
