@@ -378,6 +378,38 @@ export async function enterHandshakeWithTimeout(
   return withTimeout('enterHandshake', enterHandshake(sessionId), timeoutMs);
 }
 
+/** Minimal `video_sessions` row for native route guards (stale ER vs backend truth). */
+export type VideoSessionDateEntryTruth = {
+  ended_at: string | null;
+  event_id: string | null;
+  handshake_started_at: string | null;
+  state: string | null;
+  phase: string | null;
+};
+
+export async function fetchVideoSessionDateEntryTruth(
+  sessionId: string
+): Promise<VideoSessionDateEntryTruth | null> {
+  const { data, error } = await supabase
+    .from('video_sessions')
+    .select('ended_at, event_id, handshake_started_at, state, phase')
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as VideoSessionDateEntryTruth;
+}
+
+/** True when the session has entered handshake/date on the server (do not bounce to `/ready` from stale `in_ready_gate`). */
+export function videoSessionIndicatesHandshakeOrDate(
+  vs: Pick<VideoSessionDateEntryTruth, 'handshake_started_at' | 'state' | 'phase'> | null
+): boolean {
+  if (!vs) return false;
+  if (vs.handshake_started_at) return true;
+  const s = vs.state ?? '';
+  const p = vs.phase ?? '';
+  return s === 'handshake' || s === 'date' || p === 'handshake' || p === 'date';
+}
+
 /** Poll server reconnect state (`sync_reconnect` path); applies lazy grace expiry on the server. */
 export async function syncVideoDateReconnect(sessionId: string): Promise<SyncReconnectPayload | null> {
   const { data, error } = await supabase.rpc('video_date_transition', {

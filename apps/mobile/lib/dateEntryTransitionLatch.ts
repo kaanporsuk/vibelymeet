@@ -5,6 +5,10 @@
  * This is intentionally tiny (module-level Map + TTL), not a global state system.
  */
 const DEFAULT_TTL_MS = 25_000;
+
+/** Covers full native prejoin: enter_handshake → token → Daily join (lobby closure pack used 25s; too short). */
+export const VIDEO_DATE_ENTRY_PIPELINE_TTL_MS = 180_000;
+
 const latch = new Map<string, number>(); // sessionId -> expiresAtMs
 
 function nowMs(): number {
@@ -40,5 +44,10 @@ export function isDateEntryTransitionActive(sessionId: string): boolean {
 export function clearDateEntryTransition(sessionId: string) {
   if (!sessionId) return;
   latch.delete(sessionId);
+}
+
+/** Call when `/date/[id]` mounts so hydration cannot bounce to `/ready` during stale `in_ready_gate` ER rows. */
+export function markVideoDateEntryPipelineStarted(sessionId: string) {
+  markDateEntryTransition(sessionId, VIDEO_DATE_ENTRY_PIPELINE_TTL_MS);
 }
 

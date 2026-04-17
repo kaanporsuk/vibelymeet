@@ -5,7 +5,7 @@
 
 import 'react-native-get-random-values';
 import * as Sentry from '@sentry/react-native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -48,6 +48,8 @@ import {
   spendVideoDateCreditExtension,
   HANDSHAKE_SECONDS,
   DATE_SECONDS,
+  fetchVideoSessionDateEntryTruth,
+  videoSessionIndicatesHandshakeOrDate,
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
@@ -68,7 +70,12 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { avatarUrl } from '@/lib/imageUrl';
-import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
+import {
+  clearDateEntryTransition,
+  isDateEntryTransitionActive,
+  markVideoDateEntryPipelineStarted,
+} from '@/lib/dateEntryTransitionLatch';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -285,23 +292,39 @@ export default function VideoDateScreen() {
     lastLoggedPostJoinStageRef.current = null;
   }, [sessionId]);
 
-  // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (hydration-gated).
+  /** Latch + RC before paint so hydration cannot bounce `/date` → `/ready` during stale `in_ready_gate`. */
+  useLayoutEffect(() => {
+    if (!sessionId) return;
+    markVideoDateEntryPipelineStarted(sessionId);
+    rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_started', {
+      session_id: sessionId,
+      user_id: user?.id ?? null,
+    });
+  }, [sessionId, user?.id]);
+
+  // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (backend truth first).
   useEffect(() => {
     if (!sessionId || !user?.id) return;
     let cancelled = false;
     void (async () => {
-      const { data: vs } = await supabase
-        .from('video_sessions')
-        .select('ended_at, event_id')
-        .eq('id', sessionId)
-        .maybeSingle();
+      const vs = await fetchVideoSessionDateEntryTruth(sessionId);
       if (cancelled) return;
-      if (vs?.ended_at != null) {
+      if (!vs) return;
+      if (vs.ended_at != null) {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
+          session_id: sessionId,
+          user_id: user.id,
+          reason: 'session_ended',
+          event_id: vs.event_id,
+        });
         if (vs.event_id) {
           router.replace(`/event/${vs.event_id}/lobby` as const);
         } else {
           router.replace('/(tabs)' as const);
         }
+        return;
+      }
+      if (videoSessionIndicatesHandshakeOrDate(vs)) {
         return;
       }
       const { data: reg } = await supabase
@@ -312,15 +335,18 @@ export default function VideoDateScreen() {
         .maybeSingle();
       if (cancelled) return;
       if (reg?.queue_status === 'in_ready_gate') {
-        // Prevent `/date/:id` → `/ready/:id` bounce during intentional date entry
-        // while registrations still briefly show `in_ready_gate` after `both_ready`.
         if (isDateEntryTransitionActive(sessionId)) return;
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
+          session_id: sessionId,
+          user_id: user.id,
+          queue_status: reg.queue_status,
+          vs_state: vs.state,
+          vs_phase: vs.phase,
+          handshake_started_at: Boolean(vs.handshake_started_at),
+        });
         router.replace(`/ready/${sessionId}` as const);
         return;
       }
-      // Only clear when we can positively confirm we're no longer in Ready Gate.
-      // If the reg lookup is temporarily missing/mismatched, rely on TTL to avoid
-      // re-enabling the bounce prematurely.
       if (reg?.queue_status && reg.queue_status !== 'in_ready_gate') {
         clearDateEntryTransition(sessionId);
       }
@@ -836,14 +862,156 @@ export default function VideoDateScreen() {
         return;
       }
 
+      const truth0 = await fetchVideoSessionDateEntryTruth(sessionId);
+      if (cancelled) {
+        hasStartedJoinRef.current = false;
+        setJoining(false);
+        return;
+      }
+      if (!truth0) {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          reason: 'session_row_missing',
+        });
+        setCallError("We couldn't open this date. Go back and try again.");
+        hasStartedJoinRef.current = false;
+        setJoining(false);
+        return;
+      }
+      if (truth0.ended_at) {
+        if (truth0.event_id) {
+          router.replace(`/event/${truth0.event_id}/lobby` as const);
+        } else {
+          router.replace('/(tabs)' as const);
+        }
+        hasStartedJoinRef.current = false;
+        setJoining(false);
+        return;
+      }
+
+      const handshakeAlready =
+        !!truth0.handshake_started_at || videoSessionIndicatesHandshakeOrDate(truth0);
+
+      if (!handshakeAlready) {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_start', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          event_id: truth0.event_id,
+          vs_state: truth0.state,
+          vs_phase: truth0.phase,
+        });
+        let hs;
+        try {
+          videoDateDailyDiagnostic('enter_handshake_start', { session_id: sessionId });
+          hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+          if (!hs.ok && isReadyGateRace(hs.code)) {
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+          }
+        } catch (error) {
+          const timedOut = error instanceof VideoDateRequestTimeoutError;
+          videoDateDailyDiagnostic('enter_handshake_failure', {
+            session_id: sessionId,
+            reason: timedOut ? 'timeout' : 'exception',
+          });
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
+            session_id: sessionId,
+            user_id: user?.id ?? null,
+            reason: timedOut ? 'timeout' : 'exception',
+          });
+          if (!cancelled) {
+            setCallError(
+              timedOut
+                ? 'Still setting up your date. Please retry.'
+                : 'Could not start video. Please try again.'
+            );
+            setPreJoinFailed(true);
+            setIsConnecting(false);
+          }
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          return;
+        }
+        if (cancelled) {
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          return;
+        }
+        if (!hs.ok) {
+          videoDateDailyDiagnostic('enter_handshake_failure', {
+            session_id: sessionId,
+            code: hs.code != null ? String(hs.code) : 'unknown',
+          });
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
+            session_id: sessionId,
+            user_id: user?.id ?? null,
+            code: hs.code != null ? String(hs.code) : 'unknown',
+          });
+          Sentry.addBreadcrumb({
+            category: 'video-date',
+            message: 'enter_handshake failed',
+            level: 'error',
+            data: { sessionId, code: hs.code, message: hs.message },
+          });
+          Sentry.captureMessage('video_date_enter_handshake_failed', {
+            level: 'warning',
+            extra: { sessionId, code: hs.code, message: hs.message },
+          });
+          setCallError(userMessageForHandshakeFailure(hs.code));
+          setPreJoinFailed(true);
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          return;
+        }
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_ok', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          event_id: truth0.event_id,
+          vs_state: truth0.state,
+          vs_phase: truth0.phase,
+        });
+        videoDateDailyDiagnostic('enter_handshake_success', { session_id: sessionId });
+      } else {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_skipped', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          event_id: truth0.event_id,
+          reason: 'handshake_already_started',
+        });
+        videoDateDailyDiagnostic('enter_handshake_skipped', {
+          session_id: sessionId,
+          note: 'handshake_already_started',
+        });
+      }
+
+      await refetchVideoSession();
+      if (cancelled) {
+        hasStartedJoinRef.current = false;
+        setJoining(false);
+        return;
+      }
+
       let tokenRes;
       try {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_start', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          event_id: truth0.event_id,
+          vs_state: truth0.state,
+          vs_phase: truth0.phase,
+        });
         videoDateDailyDiagnostic('token_fetch_start', { session_id: sessionId });
         tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
       } catch (error) {
         const timedOut = error instanceof VideoDateRequestTimeoutError;
         videoDateDailyDiagnostic('token_fetch_failure', {
           session_id: sessionId,
+          reason: timedOut ? 'timeout' : 'exception',
+        });
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_fail', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
           reason: timedOut ? 'timeout' : 'exception',
         });
         if (!cancelled) {
@@ -870,6 +1038,11 @@ export default function VideoDateScreen() {
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
           server_code: tokenRes.serverCode != null ? String(tokenRes.serverCode) : null,
+        });
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_fail', {
+          session_id: sessionId,
+          code: String(tokenRes.code),
+          http_status: tokenRes.httpStatus ?? null,
         });
         Sentry.addBreadcrumb({
           category: 'video-date',
@@ -898,75 +1071,15 @@ export default function VideoDateScreen() {
       }
 
       const tokenResult = tokenRes.data;
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_ok', {
+        session_id: sessionId,
+        user_id: user?.id ?? null,
+        room_name: tokenResult.room_name,
+      });
       videoDateDailyDiagnostic('token_fetch_success', {
         session_id: sessionId,
         room_name: tokenResult.room_name,
       });
-
-      if (!session.handshake_started_at) {
-        let hs;
-        try {
-          videoDateDailyDiagnostic('enter_handshake_start', { session_id: sessionId, room_name: tokenResult.room_name });
-          hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
-          if (!hs.ok && isReadyGateRace(hs.code)) {
-            await new Promise((resolve) => setTimeout(resolve, 700));
-            hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
-          }
-        } catch (error) {
-          const timedOut = error instanceof VideoDateRequestTimeoutError;
-          videoDateDailyDiagnostic('enter_handshake_failure', {
-            session_id: sessionId,
-            room_name: tokenResult.room_name,
-            reason: timedOut ? 'timeout' : 'exception',
-          });
-          if (!cancelled) {
-            setCallError(
-              timedOut
-                ? 'Still setting up your date. Please retry.'
-                : 'Could not start video. Please try again.'
-            );
-            setPreJoinFailed(true);
-            setIsConnecting(false);
-          }
-          hasStartedJoinRef.current = false;
-          setJoining(false);
-          return;
-        }
-        if (cancelled) {
-          hasStartedJoinRef.current = false;
-          setJoining(false);
-          return;
-        }
-        if (!hs.ok) {
-          videoDateDailyDiagnostic('enter_handshake_failure', {
-            session_id: sessionId,
-            room_name: tokenResult.room_name,
-            code: hs.code != null ? String(hs.code) : 'unknown',
-          });
-          Sentry.addBreadcrumb({
-            category: 'video-date',
-            message: 'enter_handshake failed',
-            level: 'error',
-            data: { sessionId, code: hs.code, message: hs.message },
-          });
-          Sentry.captureMessage('video_date_enter_handshake_failed', {
-            level: 'warning',
-            extra: { sessionId, code: hs.code, message: hs.message },
-          });
-          setCallError(userMessageForHandshakeFailure(hs.code));
-          setPreJoinFailed(true);
-          hasStartedJoinRef.current = false;
-          setJoining(false);
-          return;
-        }
-        videoDateDailyDiagnostic('enter_handshake_success', { session_id: sessionId, room_name: tokenResult.room_name });
-      } else {
-        videoDateDailyDiagnostic('enter_handshake_skipped', {
-          session_id: sessionId,
-          room_name: tokenResult.room_name,
-          note: 'handshake_already_started',
-        });
-      }
 
       const call = Daily.createCallObject();
       callRef.current = call;
@@ -984,6 +1097,12 @@ export default function VideoDateScreen() {
         });
         if (p && !isLocal) {
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'remote_participant_joined', {
+            session_id: sessionId,
+            user_id: user?.id ?? null,
+            participant_id: dailyParticipantId(p) ?? 'unknown',
+            room_name: tokenResult.room_name,
+          });
           videoDateDailyDiagnostic('first_remote_observed', {
             session_id: sessionId,
             room_name: tokenResult.room_name,
@@ -1063,6 +1182,11 @@ export default function VideoDateScreen() {
       }
 
       try {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_start', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          room_name: tokenResult.room_name,
+        });
         videoDateDailyDiagnostic('daily_call_join_start', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
@@ -1070,6 +1194,11 @@ export default function VideoDateScreen() {
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Joining call', level: 'info', data: { sessionId } });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
         if (cancelled) return;
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_ok', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          room_name: tokenResult.room_name,
+        });
         const participants = call.participants();
         const allIds = participants
           ? Object.keys(participants).length
@@ -1113,6 +1242,11 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           room_name: tokenResult.room_name,
         });
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_fail', {
+          session_id: sessionId,
+          user_id: user?.id ?? null,
+          room_name: tokenResult.room_name,
+        });
         if (!cancelled) {
           Sentry.captureException(err, { extra: { sessionId } });
           setCallError('Failed to join. Please try again.');
@@ -1147,6 +1281,7 @@ export default function VideoDateScreen() {
     requestPermissions,
     clearFirstConnectWatchdog,
     onPartnerLeftReconnect,
+    refetchVideoSession,
   ]);
 
   useEffect(() => {
