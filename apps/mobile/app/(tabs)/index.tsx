@@ -207,6 +207,10 @@ export default function DashboardScreen() {
   const handleDateJoinReminder = useCallback(
     async (reminder: DateReminder) => {
       if (activeSession?.sessionId) {
+        if (activeSession.kind === 'syncing') {
+          router.push(`/event/${activeSession.eventId}/lobby` as const);
+          return;
+        }
         if (activeSession.kind === 'ready_gate') {
           router.push(`/ready/${activeSession.sessionId}` as const);
         } else {
@@ -405,6 +409,7 @@ export default function DashboardScreen() {
 
   const handleEndActiveSession = useCallback(async () => {
     if (!activeSession || !user?.id) return;
+    if (activeSession.kind === 'syncing') return;
     if (activeSession.kind === 'ready_gate') {
       await supabase.rpc('ready_gate_transition', {
         p_session_id: activeSession.sessionId,
@@ -736,7 +741,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {sessionHydrated && activeSession && (
+      {sessionHydrated && activeSession && activeSession.kind !== 'syncing' && (
         <View style={[styles.rejoinBannerWrap, { paddingTop: insets.top + 4 }]}>
           <ActiveCallBanner
             sessionId={activeSession.sessionId}

@@ -149,6 +149,10 @@ export default function ScheduleScreen() {
   const handleJoinDate = useCallback(
     async (reminder: DateReminder) => {
       if (activeSession?.sessionId) {
+        if (activeSession.kind === 'syncing') {
+          router.push(`/event/${activeSession.eventId}/lobby` as const);
+          return;
+        }
         if (activeSession.kind === 'ready_gate') {
           router.push(`/ready/${activeSession.sessionId}` as const);
         } else {

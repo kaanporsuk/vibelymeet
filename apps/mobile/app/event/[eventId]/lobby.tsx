@@ -209,17 +209,23 @@ export default function EventLobbyScreen() {
   );
 
   /**
-   * Queued match exists but we are not yet in ready/date route — replace plain deck-empty with sync messaging.
+   * Queued match (or native `syncing` session) — replace plain deck-empty with sync messaging.
    */
-  const showQueuedConvergenceEmptyUi = useMemo(
+  const showQueuedStyleConvergenceUi = useMemo(
     () =>
       Boolean(
-        queuedMatchCount > 0 &&
+        (queuedMatchCount > 0 || sameEventActiveSession?.kind === 'syncing') &&
           !activeSessionId &&
           !yieldingToVideoDateUi &&
           !yieldingToReadyGateUi
       ),
-    [queuedMatchCount, activeSessionId, yieldingToVideoDateUi, yieldingToReadyGateUi]
+    [
+      queuedMatchCount,
+      sameEventActiveSession?.kind,
+      activeSessionId,
+      yieldingToVideoDateUi,
+      yieldingToReadyGateUi,
+    ]
   );
 
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
@@ -351,7 +357,7 @@ export default function EventLobbyScreen() {
   useEffect(() => {
     if (!id || !user?.id) return;
     if (!isLobbyFocused || appState !== 'active') return;
-    if (queuedMatchCount <= 0) return;
+    if (queuedMatchCount <= 0 && sameEventActiveSession?.kind !== 'syncing') return;
     if (activeSessionId) return;
     if (sameEventActiveSession?.kind === 'video') return;
 
@@ -946,7 +952,7 @@ export default function EventLobbyScreen() {
                 <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
                 <Text style={[styles.liveTextStrong, { color: '#86efac' }]}>Live now</Text>
               </View>
-              {queuedMatchCount > 0 && !activeSessionId ? (
+              {(queuedMatchCount > 0 || sameEventActiveSession?.kind === 'syncing') && !activeSessionId ? (
                 <View
                   style={[styles.queuedBadge, { backgroundColor: withAlpha(theme.neonPink, 0.14), borderColor: withAlpha(theme.neonPink, 0.35) }]}
                   accessibilityLabel={
@@ -1093,6 +1099,33 @@ export default function EventLobbyScreen() {
             </View>
           </View>
           </>
+        ) : showQueuedStyleConvergenceUi ? (
+          <View style={styles.emptyStateVerticalCenter}>
+            {discoverSectionIntro}
+            <Card variant="glass" style={[styles.emptyCard, { borderColor: theme.glassBorder }]}>
+              <>
+                <View
+                  style={[
+                    styles.emptyIconWrap,
+                    { backgroundColor: withAlpha(theme.neonPink, 0.16) },
+                  ]}
+                >
+                  <Ionicons name="sparkles" size={40} color={theme.neonPink} />
+                </View>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>Your match is syncing</Text>
+                <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
+                  We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in
+                  automatically.
+                </Text>
+                <View style={styles.emptyCheckingRow}>
+                  <Ionicons name="sync" size={14} color={theme.tint} />
+                  <Text style={[styles.emptySubline, { color: theme.tint }]}>
+                    Looking for your video date…
+                  </Text>
+                </View>
+              </>
+            </Card>
+          </View>
         ) : !hasCards || isEmpty ? (
           <View style={styles.emptyStateVerticalCenter}>
             {discoverSectionIntro}
@@ -1114,28 +1147,6 @@ export default function EventLobbyScreen() {
                   >
                     <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>I'll check later</Text>
                   </Pressable>
-                </>
-              ) : showQueuedConvergenceEmptyUi ? (
-                <>
-                  <View
-                    style={[
-                      styles.emptyIconWrap,
-                      { backgroundColor: withAlpha(theme.neonPink, 0.16) },
-                    ]}
-                  >
-                    <Ionicons name="sparkles" size={40} color={theme.neonPink} />
-                  </View>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>Your match is syncing</Text>
-                  <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in
-                    automatically.
-                  </Text>
-                  <View style={styles.emptyCheckingRow}>
-                    <Ionicons name="sync" size={14} color={theme.tint} />
-                    <Text style={[styles.emptySubline, { color: theme.tint }]}>
-                      Looking for your video date…
-                    </Text>
-                  </View>
                 </>
               ) : (
                 <>
