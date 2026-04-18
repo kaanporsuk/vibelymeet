@@ -53,6 +53,27 @@ The change is architectural rather than cosmetic: call state is now owned by app
 
 Lint still reports the repo’s pre-existing warning backlog; this change set did not leave new lint errors behind.
 
+## Wave 2 backend + notification policy (2026-04-18)
+
+### `daily-room` — `create_match_call`
+- Loads `matches.archived_at`; rejects **archived** threads (`ARCHIVED_MATCH`).
+- Rejects if another `match_calls` row exists for the same `match_id` in **`ringing` or `active`** (`DUPLICATE_ACTIVE_CALL`, 409).
+- Rejects if either direction exists in **`blocked_users`** (`USERS_BLOCKED`).
+- Loads both **`profiles`** for caller and callee; rejects **`is_suspended`** (`PARTICIPANT_SUSPENDED`) or effective **pause** (`is_paused`/`paused_until` or `account_paused`/`account_paused_until`) (`PARTICIPANT_PAUSED`), aligned with `send-notification` pause semantics.
+- **Not** gated on `match_notification_mutes` (per-match notification mute is push-only; in-app Realtime ringing remains intentional).
+- Structured logs: `create_match_call_rejected` (with `code`), `create_match_call_ok`.
+
+### `daily-room` — `answer_match_call`
+- Order: **`match_call_transition('answer')` first**, then Daily token. Avoids returning a callee token while the row is still `ringing`.
+- If token creation fails after a successful answer transition, best-effort **`end`** RPC + `TOKEN_ISSUE_FAILED` (503); logs `answer_match_call_token_failed_after_transition` and rollback outcome.
+
+### Push — `match_call` category
+- **`notification_preferences.notify_match_calls`** (migration `20260418200000_notify_match_calls_preference.sql`): seeded from `notify_messages` for existing rows so behavior is unchanged at rollout.
+- **`send-notification`**: `match_call` maps to **`notify_match_calls`** (not `notify_messages`).
+- **Web + native** settings: new toggle “Match calls” under Connections.
+
+---
+
 ## Wave 1 client follow-up (2026-04-18, branch `fix/wave1-chat-call-hardening`)
 
 - **Web incoming overlay:** one-shot auto-miss after 30s (no repeated `onTimeout`); countdown interval depends only on `incomingCall.callId`; stable timeout handler via `onTimeout={markIncomingCallMissed}`.

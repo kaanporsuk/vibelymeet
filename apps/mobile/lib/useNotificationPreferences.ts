@@ -6,13 +6,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
 const SELECT_COLUMNS =
-  'push_enabled, paused_until, notify_new_match, notify_messages, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled';
+  'push_enabled, paused_until, notify_new_match, notify_messages, notify_match_calls, notify_someone_vibed_you, notify_ready_gate, notify_event_live, notify_event_reminder, notify_date_reminder, notify_daily_drop, notify_recommendations, notify_product_updates, notify_credits_subscription, sound_enabled, quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, message_bundle_enabled';
 
 export type NotificationPrefs = {
   push_enabled: boolean;
   paused_until: string | null;
   notify_new_match: boolean;
   notify_messages: boolean;
+  notify_match_calls: boolean;
   notify_someone_vibed_you: boolean;
   notify_ready_gate: boolean;
   notify_event_live: boolean;
@@ -35,6 +36,7 @@ export const NOTIFICATION_PREFS_DEFAULTS: NotificationPrefs = {
   paused_until: null,
   notify_new_match: true,
   notify_messages: true,
+  notify_match_calls: true,
   notify_someone_vibed_you: true,
   notify_ready_gate: true,
   notify_event_live: true,
@@ -60,6 +62,10 @@ function mergeRow(row: Record<string, unknown> | null): NotificationPrefs {
     paused_until: (row.paused_until as string) ?? null,
     notify_new_match: b('notify_new_match', true),
     notify_messages: b('notify_messages', true),
+    notify_match_calls:
+      row.notify_match_calls !== null && row.notify_match_calls !== undefined
+        ? Boolean(row.notify_match_calls)
+        : b('notify_messages', true),
     notify_someone_vibed_you: b('notify_someone_vibed_you', true),
     notify_ready_gate: b('notify_ready_gate', true),
     notify_event_live: b('notify_event_live', true),

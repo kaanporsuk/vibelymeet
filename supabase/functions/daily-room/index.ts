@@ -111,6 +111,129 @@ async function deleteDailyRoom(roomName: string): Promise<void> {
   }
 }
 
+type MatchCallProfileGate = {
+  id: string;
+  is_suspended: boolean | null;
+  account_paused: boolean | null;
+  account_paused_until: string | null;
+  is_paused: boolean | null;
+  paused_until: string | null;
+};
+
+function profileIsEffectivelyPaused(p: MatchCallProfileGate | null | undefined): boolean {
+  if (!p) return true;
+  const legacyPaused =
+    p.is_paused === true &&
+    (p.paused_until == null || new Date(p.paused_until) > new Date());
+  const accountPaused =
+    p.account_paused === true &&
+    (p.account_paused_until == null || new Date(p.account_paused_until) > new Date());
+  return legacyPaused || accountPaused;
+}
+
+function profileIsSuspended(p: MatchCallProfileGate | null | undefined): boolean {
+  return p?.is_suspended === true;
+}
+
+/** Server-owned gates for chat match calls (aligns with product: no calls on archived/blocked/suspended/paused; one active/ringing row per match). */
+async function assertCreateMatchCallAllowed(params: {
+  serviceClient: ReturnType<typeof createClient>;
+  matchId: string;
+  callerId: string;
+  calleeId: string;
+  archivedAt: string | null;
+}): Promise<
+  | { ok: true }
+  | { ok: false; status: number; code: string; message: string }
+> {
+  const { serviceClient, matchId, callerId, calleeId, archivedAt } = params;
+
+  if (archivedAt != null) {
+    return {
+      ok: false,
+      status: 403,
+      code: "ARCHIVED_MATCH",
+      message: "Archived match cannot start a call",
+    };
+  }
+
+  const { data: dup } = await serviceClient
+    .from("match_calls")
+    .select("id")
+    .eq("match_id", matchId)
+    .in("status", ["ringing", "active"])
+    .limit(1)
+    .maybeSingle();
+
+  if (dup?.id) {
+    return {
+      ok: false,
+      status: 409,
+      code: "DUPLICATE_ACTIVE_CALL",
+      message: "A call is already in progress for this match",
+    };
+  }
+
+  const { data: blockA } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", callerId)
+    .eq("blocked_id", calleeId)
+    .maybeSingle();
+
+  const { data: blockB } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", calleeId)
+    .eq("blocked_id", callerId)
+    .maybeSingle();
+
+  if (blockA || blockB) {
+    return {
+      ok: false,
+      status: 403,
+      code: "USERS_BLOCKED",
+      message: "Cannot call this user",
+    };
+  }
+
+  const { data: profiles, error: profErr } = await serviceClient
+    .from("profiles")
+    .select("id, is_suspended, account_paused, account_paused_until, is_paused, paused_until")
+    .in("id", [callerId, calleeId]);
+
+  if (profErr || !profiles || profiles.length < 2) {
+    return {
+      ok: false,
+      status: 403,
+      code: "PROFILE_UNAVAILABLE",
+      message: "Participant profiles unavailable",
+    };
+  }
+
+  for (const row of profiles) {
+    const p = row as MatchCallProfileGate;
+    if (profileIsSuspended(p)) {
+      return {
+        ok: false,
+        status: 403,
+        code: "PARTICIPANT_SUSPENDED",
+        message: "Account restricted",
+      };
+    }
+    if (profileIsEffectivelyPaused(p)) {
+      return {
+        ok: false,
+        status: 403,
+        code: "PARTICIPANT_PAUSED",
+        message: "Account paused",
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response("ok", { headers: corsHeaders });
@@ -387,7 +510,7 @@ serve(async (req) => {
     if (action === "create_match_call") {
       const { data: match } = await supabase
         .from("matches")
-        .select("id, profile_id_1, profile_id_2")
+        .select("id, profile_id_1, profile_id_2, archived_at")
         .eq("id", matchId)
         .maybeSingle();
 
@@ -395,6 +518,14 @@ serve(async (req) => {
         !match ||
         (match.profile_id_1 !== user.id && match.profile_id_2 !== user.id)
       ) {
+        console.log(
+          JSON.stringify({
+            event: "create_match_call_rejected",
+            code: "ACCESS_DENIED",
+            match_id: matchId,
+            caller_id: user.id,
+          }),
+        );
         return new Response(
           JSON.stringify({ error: "Access denied", code: "ACCESS_DENIED" }),
           {
@@ -408,6 +539,34 @@ serve(async (req) => {
         match.profile_id_1 === user.id
           ? match.profile_id_2
           : match.profile_id_1;
+
+      const gate = await assertCreateMatchCallAllowed({
+        serviceClient,
+        matchId,
+        callerId: user.id,
+        calleeId,
+        archivedAt: match.archived_at,
+      });
+
+      if (!gate.ok) {
+        console.log(
+          JSON.stringify({
+            event: "create_match_call_rejected",
+            code: gate.code,
+            match_id: matchId,
+            caller_id: user.id,
+            callee_id: calleeId,
+          }),
+        );
+        return new Response(
+          JSON.stringify({ error: gate.message, code: gate.code }),
+          {
+            status: gate.status,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
       const roomName = `call-${matchId
         .replace(/-/g, "")
         .substring(0, 20)}-${Date.now().toString(36)}`;
@@ -444,6 +603,17 @@ serve(async (req) => {
         await deleteDailyRoom(roomName);
         throw callError;
       }
+
+      console.log(
+        JSON.stringify({
+          event: "create_match_call_ok",
+          call_id: call.id,
+          match_id: matchId,
+          caller_id: user.id,
+          callee_id: calleeId,
+          call_type: callTypeValue,
+        }),
+      );
 
       try {
         const { data: callerProfile } = await serviceClient
@@ -511,6 +681,14 @@ serve(async (req) => {
       }
 
       if (call.status !== "ringing") {
+        console.log(
+          JSON.stringify({
+            event: "answer_match_call_rejected",
+            code: "CALL_NOT_RINGING",
+            call_id: call.id,
+            status: call.status,
+          }),
+        );
         return new Response(
           JSON.stringify({ error: "Call is no longer ringing", code: "CALL_NOT_RINGING", status: call.status }),
           {
@@ -520,21 +698,20 @@ serve(async (req) => {
         );
       }
 
-      // Issue token before activating: if token creation fails, call stays ringing (no false active).
-      const token = await createMeetingToken(call.daily_room_name, user.id, 7200);
-
-      // Activate via backend RPC — sets started_at = now() server-side with row locking.
+      // Activate first (row lock + single source of truth), then issue token — avoids returning a usable token while DB is still "ringing".
       const { data: transition } = await supabase.rpc("match_call_transition", {
         p_call_id: call.id,
         p_action: "answer",
       });
 
       if (!transition?.ok) {
-        console.log(JSON.stringify({
-          event: "answer_match_call_transition_failed",
-          call_id: call.id,
-          transition_code: transition?.code,
-        }));
+        console.log(
+          JSON.stringify({
+            event: "answer_match_call_transition_failed",
+            call_id: call.id,
+            transition_code: transition?.code,
+          }),
+        );
         return new Response(
           JSON.stringify({
             error: "Call is no longer ringing",
@@ -543,6 +720,51 @@ serve(async (req) => {
           }),
           {
             status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      let token: string;
+      try {
+        token = await createMeetingToken(call.daily_room_name, user.id, 7200);
+      } catch (tokenErr) {
+        const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        console.error(
+          JSON.stringify({
+            event: "answer_match_call_token_failed_after_transition",
+            call_id: call.id,
+            detail,
+          }),
+        );
+        try {
+          const { data: rollback } = await supabase.rpc("match_call_transition", {
+            p_call_id: call.id,
+            p_action: "end",
+          });
+          console.log(
+            JSON.stringify({
+              event: "answer_match_call_token_rollback_end",
+              call_id: call.id,
+              rollback_ok: rollback?.ok === true,
+            }),
+          );
+        } catch (rollbackErr) {
+          console.error(
+            JSON.stringify({
+              event: "answer_match_call_token_rollback_failed",
+              call_id: call.id,
+              detail: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+            }),
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            error: "Call service temporarily unavailable",
+            code: "TOKEN_ISSUE_FAILED",
+          }),
+          {
+            status: 503,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           }
         );

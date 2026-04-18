@@ -4,6 +4,7 @@ import {
   Bell,
   Heart,
   MessageSquare,
+  Phone,
   Sparkles,
   Video,
   Calendar,
@@ -301,6 +302,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
           <div className="space-y-2">
             <ToggleRow icon={Heart} label="New Match" description="When you and someone both vibe" prefKey="notify_new_match" iconColor="text-pink-500" />
             <ToggleRow icon={MessageSquare} label="Messages" description="New messages from matches" prefKey="notify_messages" iconColor="text-blue-500" />
+            <ToggleRow icon={Phone} label="Match calls" description="Incoming voice and video calls from matches" prefKey="notify_match_calls" iconColor="text-emerald-500" />
             <ToggleRow icon={Sparkles} label="Someone Vibed You" description="When someone swipes vibe on you" prefKey="notify_someone_vibed_you" iconColor="text-purple-500" />
             <ToggleRow icon={Video} label="Ready Gate" description="Video date invitations" prefKey="notify_ready_gate" iconColor="text-green-500" />
           </div>

@@ -8,7 +8,7 @@
 
 ## Preconditions (block release if missing)
 
-- [ ] Two test accounts, **active match**, both with **push enabled** and `notify_messages` **on** (match_call maps here).
+- [ ] Two test accounts, **active match**, both with **push enabled**; for incoming **call** pushes test `notify_match_calls` (separate from `notify_messages` after Wave 2).
 - [ ] **Deployed:** `send-message`, `daily-room`, `send-notification` (with `match_call` support), `match-call-room-cleanup` (optional cron path per rollout notes).
 - [ ] **OneSignal:** Web + iOS/Android player IDs present for both users on the target environment.
 - [ ] **Daily:** `DAILY_API_KEY` / domain valid for the project under test.
@@ -48,6 +48,9 @@
 - [ ] **Web incoming 30s timeout:** fires **once** (no repeated `mark_missed`); countdown does not reset on unrelated chat re-renders.
 - [ ] **Callee answer failure** (revoked token / network): row moves to `missed` (not stuck `ringing`); local overlay clears.
 - [ ] **Tab close / refresh mid-call:** best-effort terminal transition (web `pagehide`/`beforeunload` + cleanup; native background + unmount).
+- [ ] **Blocked / archived / duplicate call:** `create_match_call` returns documented `code` (403/409); no Daily room leak on rejected create.
+- [ ] **Answer ordering:** callee never gets a token without DB `active` (or receives 503 + ended row if token issuance fails after answer).
+- [ ] **Notification prefs:** turning off **Messages** but leaving **Match calls** on still delivers `match_call` push; inverse works.
 
 ---
 
