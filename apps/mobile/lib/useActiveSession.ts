@@ -129,7 +129,9 @@ export function useActiveSession(
         .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
         .is('ended_at', null)
         .eq('ready_gate_status', 'queued')
-        .order('started_at', { ascending: true })
+        // Newest-first + id tie-break: deterministic if multiple queued rows exist; server promote remains FIFO on oldest.
+        .order('started_at', { ascending: false, nullsFirst: false })
+        .order('id', { ascending: false })
         .limit(1)
         .maybeSingle();
 
