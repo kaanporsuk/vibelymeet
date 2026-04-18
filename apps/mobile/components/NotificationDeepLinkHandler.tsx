@@ -12,6 +12,7 @@ import type { EntryStateResponse } from '@shared/entryState';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { useAuth } from '@/context/AuthContext';
+import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
 import {
   clearPendingNotificationDeepLink,
@@ -72,9 +73,13 @@ function resolveNotificationHref(
   return base;
 }
 
+const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
+
 /**
  * If payload targets /date/:id, align with backend truth:
- * ended session → event lobby (or home); still in_ready_gate → /ready/:id; otherwise keep /date.
+ * ended session → event lobby (or home); still in_ready_gate → /ready/:id;
+ * queued session + registration still browsing/idle → stamp foreground, drain, re-check, then /ready, /date, or lobby;
+ * otherwise keep /date.
  */
 async function reconcileHrefWithRegistration(href: string, userId: string): Promise<string> {
   const m = href.match(/^\/date\/([^/?#]+)/);
@@ -83,7 +88,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
 
   const { data: vs } = await supabase
     .from('video_sessions')
-    .select('event_id, ended_at')
+    .select('event_id, ended_at, ready_gate_status, participant_1_id, participant_2_id')
     .eq('id', sid)
     .maybeSingle();
 
@@ -96,15 +101,68 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
 
   if (!vs.event_id) return href;
 
-  const { data: reg } = await supabase
-    .from('event_registrations')
-    .select('queue_status')
-    .eq('profile_id', userId)
-    .eq('event_id', vs.event_id)
-    .maybeSingle();
+  const p1 = vs.participant_1_id as string | null | undefined;
+  const p2 = vs.participant_2_id as string | null | undefined;
+  const isParticipant = userId === p1 || userId === p2;
+  if (!isParticipant) return href;
+
+  const fetchReg = async () => {
+    const { data: reg } = await supabase
+      .from('event_registrations')
+      .select('queue_status, current_room_id')
+      .eq('profile_id', userId)
+      .eq('event_id', vs.event_id)
+      .maybeSingle();
+    return reg;
+  };
+
+  let reg = await fetchReg();
 
   if (reg?.queue_status === 'in_ready_gate') {
     return `/ready/${sid}`;
+  }
+
+  const needsQueuedRescue =
+    vs.ready_gate_status === 'queued' &&
+    reg != null &&
+    LOBBY_IDLE_STATUSES.has(String(reg.queue_status));
+
+  if (needsQueuedRescue) {
+    rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_start', {
+      session_id: sid,
+      event_id: String(vs.event_id),
+    });
+    try {
+      await supabase.rpc('mark_lobby_foreground', { p_event_id: vs.event_id as string });
+    } catch {
+      /* best-effort — drain still runs */
+    }
+    await drainMatchQueue(vs.event_id as string, userId);
+    reg = await fetchReg();
+
+    const { data: vsAfter } = await supabase
+      .from('video_sessions')
+      .select('ready_gate_status')
+      .eq('id', sid)
+      .maybeSingle();
+
+    if (reg?.queue_status === 'in_ready_gate') {
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_ready', { session_id: sid });
+      return `/ready/${sid}`;
+    }
+    const qs = reg?.queue_status;
+    const room = reg?.current_room_id as string | null | undefined;
+    if ((qs === 'in_handshake' || qs === 'in_date') && room === sid) {
+      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_date', { session_id: sid });
+      return `/date/${sid}`;
+    }
+
+    rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_fallback_lobby', {
+      session_id: sid,
+      queue_status: qs ?? null,
+      ready_gate_status_after: vsAfter?.ready_gate_status ?? null,
+    });
+    return `/event/${vs.event_id}/lobby`;
   }
 
   return href;
