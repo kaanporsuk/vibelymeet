@@ -76,6 +76,7 @@ import {
   isDateEntryTransitionActive,
   markVideoDateEntryPipelineStarted,
 } from '@/lib/dateEntryTransitionLatch';
+import { eventLobbyHref, readyGateHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -327,9 +328,9 @@ export default function VideoDateScreen() {
           event_id: vs.event_id,
         });
         if (vs.event_id) {
-          router.replace(`/event/${vs.event_id}/lobby` as const);
+          router.replace(eventLobbyHref(vs.event_id as string));
         } else {
-          router.replace('/(tabs)' as const);
+          router.replace(tabsRootHref());
         }
         return;
       }
@@ -353,7 +354,7 @@ export default function VideoDateScreen() {
           vs_phase: vs.phase,
           handshake_started_at: Boolean(vs.handshake_started_at),
         });
-        router.replace(`/ready/${sessionId}` as const);
+        router.replace(readyGateHref(sessionId));
         return;
       }
       if (reg?.queue_status && reg.queue_status !== 'in_ready_gate') {
@@ -714,7 +715,7 @@ export default function VideoDateScreen() {
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
   const handleAbortConnection = useCallback(async () => {
     await leaveAndCleanup();
-    if (eventId) router.replace(`/event/${eventId}/lobby` as const);
+    if (eventId) router.replace(eventLobbyHref(eventId));
     else router.replace('/(tabs)/events');
   }, [leaveAndCleanup, eventId]);
 
@@ -890,9 +891,9 @@ export default function VideoDateScreen() {
       }
       if (truth0.ended_at) {
         if (truth0.event_id) {
-          router.replace(`/event/${truth0.event_id}/lobby` as const);
+          router.replace(eventLobbyHref(truth0.event_id as string));
         } else {
-          router.replace('/(tabs)' as const);
+          router.replace(tabsRootHref());
         }
         hasStartedJoinRef.current = false;
         setJoining(false);
@@ -1478,7 +1479,7 @@ export default function VideoDateScreen() {
   );
 
   const handleSurveyMutualMatch = useCallback(() => {
-    if (eventId) router.replace(`/event/${eventId}/lobby`);
+    if (eventId) router.replace(eventLobbyHref(eventId));
     else router.replace('/(tabs)/matches');
   }, [eventId]);
 
@@ -1493,7 +1494,7 @@ export default function VideoDateScreen() {
 
   const handleSurveyDone = useCallback(() => {
     if (eventId && user?.id) updateParticipantStatus(eventId, 'browsing');
-    if (eventId) router.replace(`/event/${eventId}/lobby`);
+    if (eventId) router.replace(eventLobbyHref(eventId));
     else router.replace('/(tabs)/events');
   }, [eventId, user?.id]);
 
@@ -1540,7 +1541,7 @@ export default function VideoDateScreen() {
         <Text style={[styles.message, { color: theme.text }]}>Date ended</Text>
         <Pressable
           style={[styles.button, { backgroundColor: theme.tint }]}
-          onPress={() => (eventId ? router.replace(`/event/${eventId}/lobby`) : router.replace('/(tabs)/events'))}
+          onPress={() => (eventId ? router.replace(eventLobbyHref(eventId)) : router.replace('/(tabs)/events'))}
         >
           <Text style={styles.buttonText}>Continue</Text>
         </Pressable>

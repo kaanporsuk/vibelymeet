@@ -37,6 +37,7 @@ import { useOtherCityEvents, type OtherCityEvent } from '@/lib/useOtherCityEvent
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl, getImageUrl } from '@/lib/imageUrl';
+import { hrefForActiveSession } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
@@ -206,16 +207,8 @@ export default function DashboardScreen() {
 
   const handleDateJoinReminder = useCallback(
     async (reminder: DateReminder) => {
-      if (activeSession?.sessionId) {
-        if (activeSession.kind === 'syncing') {
-          router.push(`/event/${activeSession.eventId}/lobby` as const);
-          return;
-        }
-        if (activeSession.kind === 'ready_gate') {
-          router.push(`/ready/${activeSession.sessionId}` as const);
-        } else {
-          router.push(`/date/${activeSession.sessionId}` as const);
-        }
+      if (activeSession) {
+        router.push(hrefForActiveSession(activeSession));
         return;
       }
       if (reminder.partnerUserId) {
@@ -747,11 +740,7 @@ export default function DashboardScreen() {
             sessionId={activeSession.sessionId}
             partnerName={activeSession.partnerName}
             mode={activeSession.kind === 'ready_gate' ? 'ready_gate' : 'video'}
-            onRejoin={() =>
-              activeSession.kind === 'ready_gate'
-                ? router.push(`/ready/${activeSession.sessionId}` as const)
-                : router.push(`/date/${activeSession.sessionId}` as const)
-            }
+            onRejoin={() => router.push(hrefForActiveSession(activeSession))}
             onEnd={handleEndActiveSession}
           />
         </View>
