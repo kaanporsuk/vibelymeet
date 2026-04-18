@@ -3409,9 +3409,11 @@ export type Database = {
           id: string
           participant_1_away_at: string | null
           participant_1_id: string
+          participant_1_joined_at: string | null
           participant_1_liked: boolean | null
           participant_2_away_at: string | null
           participant_2_id: string
+          participant_2_joined_at: string | null
           participant_2_liked: boolean | null
           phase: string
           queued_expires_at: string | null
@@ -3440,9 +3442,11 @@ export type Database = {
           id?: string
           participant_1_away_at?: string | null
           participant_1_id: string
+          participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
           participant_2_away_at?: string | null
           participant_2_id: string
+          participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
           phase?: string
           queued_expires_at?: string | null
@@ -3471,9 +3475,11 @@ export type Database = {
           id?: string
           participant_1_away_at?: string | null
           participant_1_id?: string
+          participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
           participant_2_away_at?: string | null
           participant_2_id?: string
+          participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
           phase?: string
           queued_expires_at?: string | null
@@ -4429,6 +4435,10 @@ export type Database = {
       mark_support_reply_read: {
         Args: { p_reply_id: string }
         Returns: undefined
+      }
+      mark_video_date_daily_joined: {
+        Args: { p_session_id: string }
+        Returns: Json
       }
       match_call_transition: {
         Args: { p_action: string; p_call_id: string }

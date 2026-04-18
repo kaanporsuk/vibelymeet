@@ -50,6 +50,7 @@ import {
   DATE_SECONDS,
   fetchVideoSessionDateEntryTruth,
   videoSessionIndicatesHandshakeOrDate,
+  markVideoDateDailyJoined,
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
@@ -279,6 +280,14 @@ export default function VideoDateScreen() {
   phaseRef.current = phase;
 
   const hasRemotePartner = !!remoteParticipant;
+  /** Remote participant's first Daily join stamp (null = they have not opened/joined this date yet). */
+  const peerServerJoinedAt = useMemo(() => {
+    if (!session || !user?.id) return null;
+    return user.id === session.participant_1_id
+      ? session.participant_2_joined_at ?? null
+      : session.participant_1_joined_at ?? null;
+  }, [session, user?.id]);
+
   const partnerEverJoinedRef = useRef(false);
   useEffect(() => {
     partnerEverJoinedRef.current = partnerEverJoined;
@@ -1213,6 +1222,9 @@ export default function VideoDateScreen() {
           remote_count: remotes.length,
         });
         setLocalInDailyRoom(true);
+        void markVideoDateDailyJoined(sessionId).then((ok) => {
+          if (ok) void refetchVideoSession();
+        });
         const local = participants?.local;
         if (local) {
           setLocalParticipant(local);
@@ -1282,6 +1294,7 @@ export default function VideoDateScreen() {
     clearFirstConnectWatchdog,
     onPartnerLeftReconnect,
     refetchVideoSession,
+    markVideoDateDailyJoined,
   ]);
 
   useEffect(() => {
@@ -1348,6 +1361,29 @@ export default function VideoDateScreen() {
 
   const totalTime = phase === 'handshake' ? HANDSHAKE_SECONDS : DATE_SECONDS;
   const displayTimeLeft = localTimeLeft ?? totalTime;
+
+  /** Local user is in Daily but server has no join stamp for the peer yet — distinct from reconnect / ambiguous absence. */
+  const peerNotOpenedVideoDateYet = useMemo(
+    () =>
+      !!session &&
+      !sessionLoading &&
+      localInDailyRoom &&
+      !hasRemotePartner &&
+      !partnerEverJoined &&
+      !peerMissingTerminal &&
+      !isPartnerDisconnected &&
+      peerServerJoinedAt == null,
+    [
+      session,
+      sessionLoading,
+      localInDailyRoom,
+      hasRemotePartner,
+      partnerEverJoined,
+      peerMissingTerminal,
+      isPartnerDisconnected,
+      peerServerJoinedAt,
+    ]
+  );
 
   const postJoinStage: VideoDatePostJoinStage = useMemo(() => {
     if (sessionLoading || !sessionId) return 'initial_loading';
@@ -1549,7 +1585,9 @@ export default function VideoDateScreen() {
                 ? '…'
                 : peerMissingTerminal
                   ? '—'
-                  : `${partnerName} will appear here`}
+                  : peerNotOpenedVideoDateYet
+                    ? `${partnerName} hasn't joined this screen yet`
+                    : `${partnerName} will appear here`}
             </Text>
           </View>
         )}
@@ -1582,7 +1620,16 @@ export default function VideoDateScreen() {
           <ConnectionOverlay mode="joining" onLeave={handleAbortConnection} />
         )}
         {showPeerWaitOverlay && (
-          <ConnectionOverlay mode="waiting_peer" onLeave={handleAbortConnection} />
+          <ConnectionOverlay
+            mode="waiting_peer"
+            onLeave={handleAbortConnection}
+            waitingPeerTitle={peerNotOpenedVideoDateYet ? "They haven't opened the date yet" : undefined}
+            waitingPeerSubtitle={
+              peerNotOpenedVideoDateYet
+                ? 'Hang tight — your timer starts once they open this date on their phone.'
+                : undefined
+            }
+          />
         )}
 
         {preJoinFailed && !localInDailyRoom && (
@@ -1665,7 +1712,11 @@ export default function VideoDateScreen() {
           {showTopBarWaitingPill ? (
             <View style={styles.waitingTimerPill}>
               <Text style={[styles.waitingTimerText, { color: theme.text }]}>
-                {joining || isConnecting ? 'Connecting…' : 'Waiting for your match…'}
+                {joining || isConnecting
+                  ? 'Connecting…'
+                  : peerNotOpenedVideoDateYet
+                    ? "They haven't opened the date yet"
+                    : 'Waiting for your match…'}
               </Text>
             </View>
           ) : hasRemotePartner ? (

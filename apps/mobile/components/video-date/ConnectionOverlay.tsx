@@ -17,9 +17,19 @@ type Props = {
   isConnecting?: boolean;
   mode?: ConnectionOverlayMode;
   onLeave: () => void;
+  /** When `waiting_peer`, optional title if server shows the peer has not joined Daily yet (vs generic wait). */
+  waitingPeerTitle?: string;
+  /** When `waiting_peer`, optional subtitle (e.g. reconnect vs not-in-app — caller decides). */
+  waitingPeerSubtitle?: string;
 };
 
-export function ConnectionOverlay({ isConnecting, mode, onLeave }: Props) {
+export function ConnectionOverlay({
+  isConnecting,
+  mode,
+  onLeave,
+  waitingPeerTitle,
+  waitingPeerSubtitle,
+}: Props) {
   const resolvedMode: ConnectionOverlayMode =
     mode ?? (isConnecting ? 'joining' : 'waiting_peer');
   const colorScheme = useColorScheme();
@@ -72,12 +82,14 @@ export function ConnectionOverlay({ isConnecting, mode, onLeave }: Props) {
           </View>
         </View>
         <Text style={[styles.title, { color: theme.text }]}>
-          {resolvedMode === 'joining' ? 'Joining your date...' : 'Waiting for your match...'}
+          {resolvedMode === 'joining'
+            ? 'Joining your date...'
+            : waitingPeerTitle ?? 'Waiting for your match...'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
           {resolvedMode === 'joining'
             ? 'Setting up your video room'
-            : 'Your date timer starts once they join the same room.'}
+            : waitingPeerSubtitle ?? 'Your date timer starts once they join the same room.'}
         </Text>
         <Pressable
           onPress={onLeave}
