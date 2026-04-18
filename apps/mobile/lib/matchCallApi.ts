@@ -19,6 +19,24 @@ export type AnswerMatchCallResult = {
   token: string;
 };
 
+export type JoinMatchCallResult = AnswerMatchCallResult;
+
+export type MatchCallTransitionAction =
+  | 'answer'
+  | 'decline'
+  | 'end'
+  | 'mark_missed'
+  | 'heartbeat'
+  | 'joined'
+  | 'join_failed';
+
+export type MatchCallTransitionResult = {
+  ok?: boolean;
+  code?: string;
+  status?: string;
+  idempotent?: boolean;
+};
+
 type InvokeFail = { ok: false; code?: string; message?: string };
 type InvokeOk<T> = { ok: true; data: T };
 
@@ -77,6 +95,47 @@ export async function answerMatchCall(callId: string): Promise<InvokeOk<AnswerMa
   };
 }
 
+export async function joinMatchCall(callId: string): Promise<InvokeOk<JoinMatchCallResult> | InvokeFail> {
+  const { data, error } = await supabase.functions.invoke('daily-room', {
+    body: { action: 'join_match_call', callId },
+  });
+  if (!error && data && typeof data === 'object' && 'token' in data && (data as { token?: string }).token) {
+    const d = data as JoinMatchCallResult;
+    return {
+      ok: true,
+      data: {
+        call_id: d.call_id,
+        room_name: d.room_name,
+        room_url: d.room_url,
+        token: d.token,
+      },
+    };
+  }
+  return {
+    ok: false,
+    code: parseMatchCallEdgeCode(data),
+    message: readInvokeErrorMessage(data),
+  };
+}
+
+export async function transitionMatchCall(
+  callId: string,
+  action: MatchCallTransitionAction,
+): Promise<MatchCallTransitionResult> {
+  const { data, error } = await supabase.rpc('match_call_transition', {
+    p_call_id: callId,
+    p_action: action,
+  });
+  if (error) {
+    throw new Error(`Failed to transition call: ${error.message}`);
+  }
+  const result = (data ?? null) as MatchCallTransitionResult | null;
+  if (result?.ok === false) {
+    throw new Error(`Match call transition rejected: ${result.code ?? 'unknown'}`);
+  }
+  return result ?? { ok: true };
+}
+
 /**
  * Backend-owned lifecycle transition via match_call_transition RPC.
  * Maps legacy action names to RPC action strings.
@@ -98,18 +157,7 @@ export async function updateMatchCallStatus(
     if (__DEV__) console.warn('[matchCallApi] updateMatchCallStatus: unknown status', status);
     return;
   }
-  const { data, error } = await supabase.rpc('match_call_transition', {
-    p_call_id: callId,
-    p_action: action,
-  });
-  if (error) {
-    if (__DEV__) console.warn('[matchCallApi] match_call_transition failed:', error.message);
-    throw new Error(`Failed to transition call: ${error.message}`);
-  }
-  const result = data as { ok?: boolean; code?: string } | null;
-  if (result && result.ok === false && __DEV__) {
-    console.warn('[matchCallApi] match_call_transition rejected:', result.code);
-  }
+  await transitionMatchCall(callId, action as MatchCallTransitionAction);
 }
 
 export async function deleteMatchCallRoom(roomName: string): Promise<void> {

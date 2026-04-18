@@ -65,7 +65,7 @@ Lint still reports the repo’s pre-existing warning backlog; this change set di
 
 ### `daily-room` — `answer_match_call`
 - Order: **`match_call_transition('answer')` first**, then Daily token. Avoids returning a callee token while the row is still `ringing`.
-- If token creation fails after a successful answer transition, best-effort **`end`** RPC + `TOKEN_ISSUE_FAILED` (503); logs `answer_match_call_token_failed_after_transition` and rollback outcome.
+- If token creation fails after a successful answer transition, best-effort **`join_failed`** RPC + `TOKEN_ISSUE_FAILED` (503); logs `answer_match_call_token_failed_after_transition` and rollback outcome.
 
 ### Push — `match_call` category
 - **`notification_preferences.notify_match_calls`** (migration `20260418200000_notify_match_calls_preference.sql`): seeded from `notify_messages` for existing rows so behavior is unchanged at rollout.
@@ -132,3 +132,32 @@ No Edge Function or migration changes in this wave.
 - No automated E2E/device/browser proof was added in this pass; cross-platform caller/callee validation is still a manual smoke-test requirement.
 - Global incoming handling is now app-scoped, but there is still no dedicated push-ringing path for a fully backgrounded app/browser.
 - Room deletion remains best-effort client cleanup via `daily-room delete_room`; there is still no server-side Daily teardown worker tied directly to terminal `match_calls` transitions.
+
+---
+
+## Wave 5 — backend-owned active-call hardening (2026-04-19)
+
+### Database / RPC
+- Migration `20260419120000_match_call_lifecycle_hardening.sql` adds participant lifecycle metadata to `match_calls`: `caller_joined_at`, `callee_joined_at`, `caller_last_seen_at`, `callee_last_seen_at`, `ended_reason`, and `provider_deleted_at`.
+- `match_call_transition` now also supports `heartbeat`, `joined`, and `join_failed` while preserving the existing `answer`, `decline`, `end`, and `mark_missed` actions.
+- `expire_stale_match_calls` now expires both stale `ringing` calls and stale `active` calls. Active calls end when both participant heartbeat timestamps are older than the conservative 5-minute server grace window.
+
+### `daily-room`
+- Adds `join_match_call` for authenticated participants to rejoin an `active` match call with a fresh Daily token.
+- `create_match_call` now deletes the newly-created Daily room if caller token creation fails before the DB row can be returned.
+
+### Clients
+- Web and native send `joined` after a successful Daily join and heartbeat every ~15s while the call is live.
+- Startup reconciliation now fetches latest open calls (`ringing` or `active`) for caller/callee; active rows use `join_match_call` instead of relying on stale tokens.
+- Daily `participant-left` now starts a reconnect grace timer instead of immediately ending the call.
+- Post-answer Daily join failure uses `join_failed` instead of invalidly marking an already-active call as `missed`.
+- RPC `{ ok: false }` is treated as a transition failure instead of a silent success.
+- Web video calls now pass a real local `MediaStream` to the self-view PIP.
+
+### Room cleanup
+- `match-call-room-cleanup` filters out rows with `provider_deleted_at` and stamps that field after a cleanup attempt, avoiding repeated Daily delete attempts for the same terminal row.
+
+## Remaining Risks After Wave 5
+- Cross-platform media/reconnect behavior still needs real browser/device smoke validation.
+- Push notifications still open the relevant chat; they do not provide answer/decline actions directly from the notification.
+- Call history/event bubbles are still not projected into chat messages; that should remain a separate product pass after lifecycle stability is verified.
