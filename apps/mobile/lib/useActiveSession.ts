@@ -3,6 +3,8 @@
  * - Video rejoin: in_handshake / in_date with a live video_sessions row → /date/[id]
  * - Ready Gate: in_ready_gate → /ready/[id] (native) or lobby overlay (event screen)
  * - Queued mutual: browsing + live queued session row → `syncing` (lobby convergence; drain promotes)
+ *
+ * In-app routes for `ActiveSession` kinds: `activeSessionRoutes.ts` (`hrefForActiveSession`, path builders).
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';

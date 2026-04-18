@@ -1,6 +1,6 @@
 /**
  * Active session banner (home): live date or Ready Gate reminder.
- * `mode="video"` → primary action goes to `/date/[sessionId]`; `mode="ready_gate"` → `/ready/[sessionId]`.
+ * Rejoin targets come from `hrefForActiveSession` in `activeSessionRoutes` (parent passes `onRejoin`).
  * End: forfeit (ready gate) or end video date + clear registration — see parent handlers.
  */
 import React, { useEffect, useRef } from 'react';

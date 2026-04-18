@@ -43,6 +43,7 @@ import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOf
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
+import { videoDateHref } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
@@ -342,7 +343,7 @@ export default function EventLobbyScreen() {
   useEffect(() => {
     if (!sessionHydrated || !id) return;
     if (sameEventActiveSession?.kind === 'video') {
-      router.replace(`/date/${sameEventActiveSession.sessionId}` as const);
+      router.replace(videoDateHref(sameEventActiveSession.sessionId));
       return;
     }
     if (sameEventActiveSession?.kind === 'ready_gate') {
@@ -431,7 +432,7 @@ export default function EventLobbyScreen() {
             (queueStatus === 'in_handshake' || queueStatus === 'in_date') &&
             currentRoomId
           ) {
-            router.replace(`/date/${currentRoomId}` as const);
+            router.replace(videoDateHref(currentRoomId));
             return;
           }
           if (queueStatus === 'in_ready_gate' && currentRoomId) {
@@ -454,7 +455,7 @@ export default function EventLobbyScreen() {
               (latestReg?.queue_status === 'in_handshake' || latestReg?.queue_status === 'in_date') &&
               latestReg.current_room_id
             ) {
-              router.replace(`/date/${latestReg.current_room_id}` as const);
+              router.replace(videoDateHref(latestReg.current_room_id));
               return;
             }
             if (latestReg?.queue_status === 'in_ready_gate' && latestReg.current_room_id) {
@@ -511,7 +512,7 @@ export default function EventLobbyScreen() {
           // route out of lobby even if ready-gate transitions were missed.
           const phase = session.state as string | undefined;
           if (phase === 'handshake' || phase === 'date') {
-            router.replace(`/date/${session.id as string}` as const);
+            router.replace(videoDateHref(session.id as string));
           }
         }
       )
@@ -542,7 +543,7 @@ export default function EventLobbyScreen() {
           }
           const phase = session.state as string | undefined;
           if (phase === 'handshake' || phase === 'date') {
-            router.replace(`/date/${sid}` as const);
+            router.replace(videoDateHref(sid));
           }
         }
       )
@@ -1280,7 +1281,7 @@ export default function EventLobbyScreen() {
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
             setActiveSessionPartnerImage(null);
-            router.push(`/date/${sessionIdToOpen}` as const);
+            router.push(videoDateHref(sessionIdToOpen));
           }}
           onClose={() => {
             lastOpenedSessionRef.current = null;

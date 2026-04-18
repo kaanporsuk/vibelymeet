@@ -15,6 +15,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { eventLobbyHref, tabsRootHref, videoDateHref } from '@/lib/activeSessionRoutes';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
@@ -119,7 +120,7 @@ export default function ReadyGateScreen() {
         title: 'Link unavailable',
         message: READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
         variant: 'info',
-        primaryAction: { label: 'Continue', onPress: () => router.replace('/(tabs)' as const) },
+        primaryAction: { label: 'Continue', onPress: () => router.replace(tabsRootHref()) },
       });
     };
     const explainStaleToLobby = (eventIdForLobby: string) => {
@@ -131,7 +132,7 @@ export default function ReadyGateScreen() {
         variant: 'info',
         primaryAction: {
           label: 'Continue',
-          onPress: () => router.replace(`/event/${eventIdForLobby}/lobby` as const),
+          onPress: () => router.replace(eventLobbyHref(eventIdForLobby)),
         },
       });
     };
@@ -222,7 +223,7 @@ export default function ReadyGateScreen() {
       transitionTimeoutRef.current = setTimeout(() => {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', { session_id: sessionId });
         if (sessionId) markVideoDateEntryPipelineStarted(String(sessionId));
-        router.replace(`/date/${sessionId}`);
+        router.replace(videoDateHref(String(sessionId)));
       }, 1500);
     }
   }, [isBothReady, sessionId]);
@@ -239,8 +240,8 @@ export default function ReadyGateScreen() {
         session_id: sessionId ?? null,
         event_id: eventId,
       });
-      if (eventId) router.replace(`/event/${eventId}/lobby`);
-      else if (sessionLookupDone) router.replace('/(tabs)');
+      if (eventId) router.replace(eventLobbyHref(eventId));
+      else if (sessionLookupDone) router.replace(tabsRootHref());
     }
   }, [isForfeited, eventId, sessionLookupDone, sessionId]);
 
@@ -303,7 +304,7 @@ export default function ReadyGateScreen() {
           title="Invalid session"
           message="This ready gate link may have expired or isn't valid."
           actionLabel="Go back"
-          onActionPress={() => router.replace('/(tabs)')}
+          onActionPress={() => router.replace(tabsRootHref())}
         />
       </View>
     );
@@ -331,8 +332,8 @@ export default function ReadyGateScreen() {
         <VibelyButton label="Enable permissions" onPress={() => void requestMediaPermissions()} variant="primary" size="lg" />
         <Pressable
           onPress={() => {
-            if (eventId) router.replace(`/event/${eventId}/lobby` as const);
-            else router.replace('/(tabs)' as const);
+            if (eventId) router.replace(eventLobbyHref(eventId));
+            else router.replace(tabsRootHref());
           }}
           style={styles.ghostBtn}
         >

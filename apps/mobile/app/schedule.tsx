@@ -16,6 +16,7 @@ import { useSchedule, SCHEDULE_QUERY_KEY, type ScheduleTimeBucket } from '@/lib/
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
+import { hrefForActiveSession } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { useScheduleHub } from '@/lib/useScheduleHub';
@@ -148,16 +149,8 @@ export default function ScheduleScreen() {
 
   const handleJoinDate = useCallback(
     async (reminder: DateReminder) => {
-      if (activeSession?.sessionId) {
-        if (activeSession.kind === 'syncing') {
-          router.push(`/event/${activeSession.eventId}/lobby` as const);
-          return;
-        }
-        if (activeSession.kind === 'ready_gate') {
-          router.push(`/ready/${activeSession.sessionId}` as const);
-        } else {
-          router.push(`/date/${activeSession.sessionId}` as const);
-        }
+      if (activeSession) {
+        router.push(hrefForActiveSession(activeSession));
         return;
       }
       if (reminder.partnerUserId) {

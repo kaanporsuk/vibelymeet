@@ -12,6 +12,12 @@ import type { EntryStateResponse } from '@shared/entryState';
 import { notificationRouteRef } from '@/lib/notificationRouteRef';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { useAuth } from '@/context/AuthContext';
+import {
+  eventLobbyHref,
+  readyGateHref,
+  tabsRootHref,
+  videoDateHref,
+} from '@/lib/activeSessionRoutes';
 import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
 import {
@@ -81,9 +87,9 @@ const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
  * queued session + registration still browsing/idle → stamp foreground, drain, re-check, then /ready, /date, or lobby;
  * otherwise keep /date.
  */
-async function reconcileHrefWithRegistration(href: string, userId: string): Promise<string> {
+async function reconcileHrefWithRegistration(href: string, userId: string): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
-  if (!m) return href;
+  if (!m) return href as Href;
   const sid = m[1];
 
   const { data: vs } = await supabase
@@ -92,19 +98,19 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     .eq('id', sid)
     .maybeSingle();
 
-  if (!vs) return href;
+  if (!vs) return href as Href;
 
   if (vs.ended_at != null) {
-    if (vs.event_id) return `/event/${vs.event_id}/lobby`;
-    return '/(tabs)';
+    if (vs.event_id) return eventLobbyHref(vs.event_id as string);
+    return tabsRootHref();
   }
 
-  if (!vs.event_id) return href;
+  if (!vs.event_id) return href as Href;
 
   const p1 = vs.participant_1_id as string | null | undefined;
   const p2 = vs.participant_2_id as string | null | undefined;
   const isParticipant = userId === p1 || userId === p2;
-  if (!isParticipant) return href;
+  if (!isParticipant) return href as Href;
 
   const fetchReg = async () => {
     const { data: reg } = await supabase
@@ -119,7 +125,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
   let reg = await fetchReg();
 
   if (reg?.queue_status === 'in_ready_gate') {
-    return `/ready/${sid}`;
+    return readyGateHref(sid);
   }
 
   const needsQueuedRescue =
@@ -148,13 +154,13 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
 
     if (reg?.queue_status === 'in_ready_gate') {
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_ready', { session_id: sid });
-      return `/ready/${sid}`;
+      return readyGateHref(sid);
     }
     const qs = reg?.queue_status;
     const room = reg?.current_room_id as string | null | undefined;
     if ((qs === 'in_handshake' || qs === 'in_date') && room === sid) {
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_date', { session_id: sid });
-      return `/date/${sid}`;
+      return videoDateHref(sid);
     }
 
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_fallback_lobby', {
@@ -162,10 +168,10 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
       queue_status: qs ?? null,
       ready_gate_status_after: vsAfter?.ready_gate_status ?? null,
     });
-    return `/event/${vs.event_id}/lobby`;
+    return eventLobbyHref(vs.event_id as string);
   }
 
-  return href;
+  return href as Href;
 }
 
 /** Keeps notificationRouteRef in sync for foreground suppression. */
@@ -201,7 +207,7 @@ export function NotificationDeepLinkHandler() {
     const pending = takePendingNotificationDeepLinkPath();
     if (!pending) return;
     void (async () => {
-      const href = (await reconcileHrefWithRegistration(pending, user.id)) as Href;
+      const href = await reconcileHrefWithRegistration(pending, user.id);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_pending_navigate', {
         href: String(href),
       });
@@ -233,8 +239,8 @@ export function NotificationDeepLinkHandler() {
           router.push(ticketPath as Href);
           return;
         }
-        let href = resolveNotificationHref(additionalData, launchURL);
-        if (!href) {
+        const resolved = resolveNotificationHref(additionalData, launchURL);
+        if (!resolved) {
           if (additionalData && typeof additionalData === 'object') {
             rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_no_href', {
               has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
@@ -242,17 +248,17 @@ export function NotificationDeepLinkHandler() {
           }
           return;
         }
-        const pathStr = String(href);
+        const pathStr = String(resolved);
         if (!user?.id || !entryReady) {
           queueNotificationDeepLinkPath(pathStr);
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });
           return;
         }
-        href = (await reconcileHrefWithRegistration(pathStr, user.id)) as Href;
+        const nextHref = await reconcileHrefWithRegistration(pathStr, user.id);
         rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_navigate', {
-          href: String(href),
+          href: String(nextHref),
         });
-        router.push(href);
+        router.push(nextHref);
       })();
     };
 

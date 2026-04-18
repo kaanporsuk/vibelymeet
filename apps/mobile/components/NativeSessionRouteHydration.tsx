@@ -1,20 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { router, usePathname } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { readyGateHref } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { fetchVideoSessionDateEntryTruth, videoSessionIndicatesHandshakeOrDate } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 /**
- * Primary URL-level owner for `/date/[id]` when hydrated active session is **ready_gate**
- * for that session → `/ready/[id]`.
+ * Stack-level owner for `/date/[id]` when `useActiveSession` is **ready_gate** for that id →
+ * `readyGateHref` (see `activeSessionRoutes`). Date screen still applies server truth first.
  *
- * **Defense-in-depth:** `app/date/[id].tsx` still checks `ended_at` and `in_ready_gate` via
- * Supabase in an effect (before/without relying on hydration), covering cold-start races.
- *
- * **Ended sessions:** handled in the date screen effect (same queries as this file used to
- * duplicate) — single owner for ended redirect there.
+ * **Defense-in-depth:** `app/date/[id].tsx` checks `ended_at` and `in_ready_gate` via Supabase.
+ * **Ended sessions:** date screen owns terminal redirect to lobby/tabs.
  */
 export function NativeSessionRouteHydration() {
   const pathname = usePathname();
@@ -71,7 +69,7 @@ export function NativeSessionRouteHydration() {
         session_id: sid,
         source: 'native_session_route_hydration',
       });
-      router.replace(`/ready/${sid}` as const);
+      router.replace(readyGateHref(sid));
     })();
 
     return () => {
