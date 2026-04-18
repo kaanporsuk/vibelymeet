@@ -21,6 +21,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
+import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
@@ -346,11 +347,24 @@ const Events = () => {
       longitude: e.longitude,
     })), [events]);
 
-  /** Default discover rails/hero: optional strict “upcoming only” hides ended (including grace). */
-  const mappedForDefaultDiscover = useMemo(() => {
-    if (!upcomingOnly) return mappedEvents;
-    return mappedEvents.filter(
-      (e) => e.status !== "ended" && e.status !== "cancelled"
+  /**
+   * Default hero/rails: grace window (`get_visible_events`) when upcoming-only is off;
+   * strict `eventEnd > now` when upcoming-only is on.
+   */
+  const discoverLayoutEvents = useMemo(() => {
+    if (upcomingOnly) {
+      const now = new Date();
+      return mappedEvents.filter((e) => {
+        const eventEnd = new Date(e.eventDate.getTime() + (e.duration_minutes || 60) * 60 * 1000);
+        return eventEnd > now;
+      });
+    }
+    return mappedEvents.filter((e) =>
+      isWithinDiscoverHomeGraceWindow({
+        status: e.status,
+        eventDate: e.eventDate,
+        durationMinutes: e.duration_minutes,
+      })
     );
   }, [mappedEvents, upcomingOnly]);
 
@@ -419,19 +433,19 @@ const Events = () => {
 
   const isFiltering = searchQuery || activeFilters.length > 0 || selectedLanguage || (locationMode === 'city' && selectedCity) || !upcomingOnly;
 
-  // Group for discovery (canonical server-visible list, respecting upcoming-only on default)
-  const liveEvents = mappedForDefaultDiscover.filter((e) => e.status === "live");
-  const nearYou = mappedForDefaultDiscover.filter(
+  // Group for discovery (grace-aware list; upcoming-only tightens above)
+  const liveEvents = discoverLayoutEvents.filter((e) => e.status === "live");
+  const nearYou = discoverLayoutEvents.filter(
     (e) => e.status !== "live" && e.scope === "local"
   );
-  const globalEvents = mappedForDefaultDiscover.filter(
+  const globalEvents = discoverLayoutEvents.filter(
     (e) => e.status !== "live" && (e.scope === "global" || !e.scope)
   );
-  const regionalEvents = mappedForDefaultDiscover.filter(
+  const regionalEvents = discoverLayoutEvents.filter(
     (e) => e.status !== "live" && e.scope === "regional"
   );
   const featuredEvent =
-    [...mappedForDefaultDiscover].sort((a, b) => {
+    [...discoverLayoutEvents].sort((a, b) => {
       const ra = discoverFeaturedRank(a.status);
       const rb = discoverFeaturedRank(b.status);
       if (ra !== rb) return ra - rb;

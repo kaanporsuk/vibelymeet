@@ -44,6 +44,7 @@ import { useScheduleHub } from '@/lib/useScheduleHub';
 import { DateReminderCard, MiniDateCountdown } from '@/components/schedule/DateReminderCard';
 import { endVideoDate, updateParticipantStatus } from '@/lib/videoDateApi';
 import { supabase } from '@/lib/supabase';
+import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisibility';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
@@ -264,9 +265,16 @@ export default function DashboardScreen() {
     return nextEventPhase.msUntilStart / 36e5;
   }, [nextEventPhase]);
 
-  /** Canonical discover/home list from `get_visible_events` (server-filtered); no day-boundary cutoff. */
+  /** Home rail: same window as `get_visible_events` (effective end + 6h). */
   const upcomingEvents = useMemo(
-    () => events.filter((e) => e.status !== 'cancelled'),
+    () =>
+      events.filter((e) =>
+        isWithinDiscoverHomeGraceWindow({
+          status: e.status,
+          eventDate: e.eventDate,
+          durationMinutes: e.duration_minutes,
+        })
+      ),
     [events],
   );
 

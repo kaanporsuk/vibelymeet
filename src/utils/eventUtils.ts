@@ -36,9 +36,8 @@ export const isEventLive = (event: {
 };
 
 /**
- * True when the event should still appear in user-facing feeds.
- * Includes upcoming, live, and recently-ended events within the grace window.
- * Excludes cancelled/draft events.
+ * Strict before scheduled end — next registered, invite-style pickers, recommended rows.
+ * Discover/home surfaces use `get_visible_events` + `@clientShared/discoverEventVisibility` (grace window).
  */
 export const isEventVisible = (event: {
   event_date: string;
@@ -46,8 +45,5 @@ export const isEventVisible = (event: {
   status?: string | null;
 }): boolean => {
   if (event.status === 'cancelled' || event.status === 'draft') return false;
-  const graceEnd = new Date(
-    getEventEndTime(event).getTime() + GRACE_HOURS * 60 * 60 * 1000
-  );
-  return graceEnd > new Date();
+  return getEventEndTime(event) > new Date();
 };
