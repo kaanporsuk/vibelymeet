@@ -43,9 +43,10 @@ serve(async (req) => {
 
   const { data: rows, error } = await supabase
     .from("match_calls")
-    .select("id, daily_room_name, status, ended_at")
+    .select("id, daily_room_name, status, ended_at, provider_deleted_at")
     .in("status", ["missed", "declined", "ended"])
     .not("daily_room_name", "is", null)
+    .is("provider_deleted_at", null)
     .lte("ended_at", cutoffIso)
     .order("ended_at", { ascending: true })
     .limit(40);
@@ -63,6 +64,14 @@ serve(async (req) => {
     const name = row.daily_room_name as string | null;
     if (!name) continue;
     await deleteDailyRoom(name);
+    const { error: updateError } = await supabase
+      .from("match_calls")
+      .update({ provider_deleted_at: new Date().toISOString() })
+      .eq("id", row.id)
+      .is("provider_deleted_at", null);
+    if (updateError) {
+      console.error("match-call-room-cleanup stamp:", updateError);
+    }
     deleted++;
   }
 

@@ -632,9 +632,15 @@ Call records associated with a match.
 - `daily_room_url`
 - `started_at`
 - `ended_at`
+- `ended_reason`
 - `duration_seconds`
 - `status`
 - `created_at`
+- `caller_joined_at`
+- `callee_joined_at`
+- `caller_last_seen_at`
+- `callee_last_seen_at`
+- `provider_deleted_at`
 
 **Typed foreign keys**
 - `match_id` → `matches.id`

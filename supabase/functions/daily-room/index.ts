@@ -584,7 +584,32 @@ serve(async (req) => {
       });
 
       const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
-      const callerToken = await createMeetingToken(roomName, user.id, 7200);
+      let callerToken: string;
+      try {
+        callerToken = await createMeetingToken(roomName, user.id, 7200);
+      } catch (tokenErr) {
+        await deleteDailyRoom(roomName);
+        const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        console.error(
+          JSON.stringify({
+            event: "create_match_call_token_failed",
+            match_id: matchId,
+            caller_id: user.id,
+            room_name: roomName,
+            detail,
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Call service temporarily unavailable",
+            code: "TOKEN_ISSUE_FAILED",
+          }),
+          {
+            status: 503,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
 
       const { data: call, error: callError } = await serviceClient
         .from("match_calls")
@@ -699,9 +724,117 @@ serve(async (req) => {
       );
     }
 
+    // ── ACTION: join_match_call ──
+    if (action === "join_match_call") {
+      const targetCallId = callId || sessionId;
+      if (!targetCallId || typeof targetCallId !== "string") {
+        return new Response(
+          JSON.stringify({ error: "Missing call id", code: "MISSING_CALL_ID" }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      const { data: call } = await supabase
+        .from("match_calls")
+        .select("id, caller_id, callee_id, daily_room_name, daily_room_url, status, match_id")
+        .eq("id", targetCallId)
+        .maybeSingle();
+
+      if (
+        !call ||
+        (call.caller_id !== user.id && call.callee_id !== user.id)
+      ) {
+        console.log(
+          JSON.stringify({
+            event: "join_match_call_not_found",
+            call_id: targetCallId,
+            user_id: user.id,
+          }),
+        );
+        return new Response(
+          JSON.stringify({ error: "Call not found or access denied", code: "NOT_FOUND" }),
+          {
+            status: 404,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      if (call.status !== "active") {
+        console.log(
+          JSON.stringify({
+            event: "join_match_call_rejected",
+            code: "CALL_NOT_ACTIVE",
+            call_id: call.id,
+            status: call.status,
+            user_id: user.id,
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Call is not active",
+            code: "CALL_NOT_ACTIVE",
+            status: call.status,
+          }),
+          {
+            status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      let token: string;
+      try {
+        token = await createMeetingToken(call.daily_room_name, user.id, 7200);
+      } catch (tokenErr) {
+        const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        console.error(
+          JSON.stringify({
+            event: "join_match_call_token_failed",
+            call_id: call.id,
+            match_id: call.match_id,
+            user_id: user.id,
+            detail,
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Call service temporarily unavailable",
+            code: "TOKEN_ISSUE_FAILED",
+          }),
+          {
+            status: 503,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          call_id: call.id,
+          room_name: call.daily_room_name,
+          room_url: call.daily_room_url,
+          token,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── ACTION: answer_match_call ──
     if (action === "answer_match_call") {
       const targetCallId = callId || sessionId;
+      if (!targetCallId || typeof targetCallId !== "string") {
+        return new Response(
+          JSON.stringify({ error: "Missing call id", code: "MISSING_CALL_ID" }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
 
       // Fetch the call row first (read-only, callee-only guard)
       const { data: call } = await supabase
@@ -790,7 +923,7 @@ serve(async (req) => {
         try {
           const { data: rollback } = await supabase.rpc("match_call_transition", {
             p_call_id: call.id,
-            p_action: "end",
+            p_action: "join_failed",
           });
           console.log(
             JSON.stringify({

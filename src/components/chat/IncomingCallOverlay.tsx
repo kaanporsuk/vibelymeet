@@ -68,7 +68,13 @@ export const IncomingCallOverlay = ({
               style={{ width: 96, height: 96, top: -8, left: -8 }}
             />
           ))}
-          <ProfilePhoto name={incomingCall.callerName} size="lg" rounded="full" className="w-20 h-20" />
+          <ProfilePhoto
+            avatarUrl={incomingCall.callerAvatar ?? undefined}
+            name={incomingCall.callerName}
+            size="lg"
+            rounded="full"
+            className="w-20 h-20"
+          />
         </div>
 
         <div className="text-center space-y-1">

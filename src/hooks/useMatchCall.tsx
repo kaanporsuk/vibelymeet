@@ -27,10 +27,21 @@ import { logMatchCallDiag } from "@clientShared/chat/matchCallDiag";
 type MatchCallStatus = "ringing" | "active" | "ended" | "missed" | "declined";
 type MatchCallType = "voice" | "video";
 type MatchCallPhase = "idle" | "ringing" | "in_call";
-type MatchCallAction = "answer" | "decline" | "end" | "mark_missed";
+type MatchCallAction =
+  | "answer"
+  | "decline"
+  | "end"
+  | "mark_missed"
+  | "heartbeat"
+  | "joined"
+  | "join_failed";
+
+const MATCH_CALL_HEARTBEAT_MS = 15_000;
+const MATCH_CALL_REMOTE_RECONNECT_GRACE_MS = 30_000;
 
 type MatchCallCleanupOptions = {
   deleteRoomName?: string | null;
+  skipRoomDelete?: boolean;
   /** When true, `match_call_transition` was already applied (or DB row is already terminal). */
   skipServerTransition?: boolean;
 };
@@ -194,12 +205,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [activePartner, setActivePartner] = useState<PartnerSummary>(DEFAULT_PARTNER);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const callObjectRef = useRef<DailyCall | null>(null);
   const trackedCallIdRef = useRef<string | null>(null);
   const roomNameRef = useRef<string | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const remoteReconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const accessTokenRef = useRef<string | null>(null);
@@ -239,6 +253,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
+    setLocalStream(null);
   }, []);
 
   const attachTracks = useCallback(
@@ -250,6 +265,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
       videoEl.srcObject = stream;
+      if (isLocal) {
+        setLocalStream(stream);
+      }
     },
     [],
   );
@@ -324,11 +342,47 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     if (error) {
       throw error;
     }
-    return (data ?? null) as MatchCallTransitionResult | null;
+    const result = (data ?? null) as MatchCallTransitionResult | null;
+    if (result?.ok === false) {
+      throw new Error(`match_call_transition rejected: ${result.code ?? "unknown"}`);
+    }
+    return result;
+  }, []);
+
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  }, []);
+
+  const startHeartbeat = useCallback(() => {
+    if (heartbeatIntervalRef.current) return;
+
+    const beat = () => {
+      const callId = trackedCallIdRef.current;
+      if (!callId) return;
+      void transitionCall(callId, "heartbeat").catch((err) => {
+        logMatchCallDiag("heartbeat_failed", {
+          call_id: callId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    };
+
+    beat();
+    heartbeatIntervalRef.current = setInterval(beat, MATCH_CALL_HEARTBEAT_MS);
+  }, [transitionCall]);
+
+  const clearRemoteReconnectGrace = useCallback(() => {
+    if (remoteReconnectTimeoutRef.current) {
+      clearTimeout(remoteReconnectTimeoutRef.current);
+      remoteReconnectTimeoutRef.current = null;
+    }
   }, []);
 
   const cleanupLocalCall = useCallback(
-    async ({ deleteRoomName, skipServerTransition = false }: MatchCallCleanupOptions = {}) => {
+    async ({ deleteRoomName, skipRoomDelete = false, skipServerTransition = false }: MatchCallCleanupOptions = {}) => {
       const shouldAttemptAbnormalRpc =
         !skipServerTransition && !documentUnloadRpcIssuedRef.current && trackedCallIdRef.current;
 
@@ -360,6 +414,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       documentUnloadRpcIssuedRef.current = false;
 
       clearRingingTimeout();
+      clearRemoteReconnectGrace();
+      stopHeartbeat();
       stopDurationTimer();
 
       const callObject = callObjectRef.current;
@@ -390,16 +446,18 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       setIsMuted(false);
       setIsVideoOff(false);
 
-      if (roomName) {
+      if (roomName && !skipRoomDelete) {
         await deleteRoom(roomName);
       }
     },
     [
       callPhaseRef,
+      clearRemoteReconnectGrace,
       clearRingingTimeout,
       clearVideoElements,
       deleteRoom,
       incomingCallRef,
+      stopHeartbeat,
       stopDurationTimer,
       transitionCall,
     ],
@@ -425,8 +483,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callObject.on("participant-joined", (event) => {
         if (!event?.participant || event.participant.local) return;
         clearRingingTimeout();
+        clearRemoteReconnectGrace();
         setCallPhase("in_call");
         startDurationTimer();
+        startHeartbeat();
         attachTracks(event.participant, remoteVideoRef.current, false);
         toast.success(currentCallType === "voice" ? "Voice call connected" : "Video call connected");
       });
@@ -442,7 +502,13 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
       callObject.on("participant-left", (event) => {
         if (!event?.participant || event.participant.local) return;
-        void endCall();
+        clearRemoteReconnectGrace();
+        toast.info("Connection interrupted. Waiting for them to reconnect...");
+        remoteReconnectTimeoutRef.current = setTimeout(() => {
+          remoteReconnectTimeoutRef.current = null;
+          if (callPhaseRef.current !== "in_call" || !trackedCallIdRef.current) return;
+          void endCall();
+        }, MATCH_CALL_REMOTE_RECONNECT_GRACE_MS);
       });
 
       callObject.on("error", (event) => {
@@ -457,7 +523,16 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         setCallPhase("idle");
       });
     },
-    [attachTracks, clearRingingTimeout, endCall, startDurationTimer, stopDurationTimer],
+    [
+      attachTracks,
+      callPhaseRef,
+      clearRemoteReconnectGrace,
+      clearRingingTimeout,
+      endCall,
+      startHeartbeat,
+      startDurationTimer,
+      stopDurationTimer,
+    ],
   );
 
   const markIncomingCallMissed = useCallback(async () => {
@@ -493,33 +568,25 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     if (!pendingIncoming) return;
 
     let answeredRoomName: string | null = roomNameRef.current;
+    let receivedJoinToken = false;
     try {
       const { data, error } = await supabase.functions.invoke("daily-room", {
         body: { action: "answer_match_call", callId: pendingIncoming.callId },
       });
 
       const answerEdgeCode = parseMatchCallEdgeCode(data);
-      if (answerEdgeCode === MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED) {
+      if (error || !data?.token) {
         toast.error(
           messageForMatchCallEdgeCode(answerEdgeCode) ??
-            "Could not connect — please try again in a moment.",
+            (answerEdgeCode === MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED
+              ? "Could not connect — please try again in a moment."
+              : "Couldn't connect call"),
         );
         await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
         return;
       }
 
-      if (error || !data?.token) {
-        toast.error("Couldn't connect call");
-        const failedId = pendingIncoming.callId;
-        try {
-          await transitionCall(failedId, "mark_missed");
-        } catch {
-          // ignore
-        }
-        await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
-        return;
-      }
-
+      receivedJoinToken = true;
       answeredRoomName = data.room_name ?? roomNameRef.current;
       roomNameRef.current = answeredRoomName;
       trackedCallIdRef.current = pendingIncoming.callId;
@@ -540,20 +607,37 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       if (localParticipant) {
         attachTracks(localParticipant, localVideoRef.current, true);
       }
+      await transitionCall(pendingIncoming.callId, "joined").catch((err) => {
+        logMatchCallDiag("answer_joined_transition_failed", {
+          call_id: pendingIncoming.callId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+      startHeartbeat();
     } catch (error) {
       console.error("[MatchCall] Answer error:", error);
       toast.error("Couldn't connect call");
 
       const callId = pendingIncoming.callId;
-      try {
-        await transitionCall(callId, "mark_missed");
-      } catch {
-        // ignore
+      if (receivedJoinToken) {
+        try {
+          await transitionCall(callId, "join_failed");
+        } catch {
+          // ignore
+        }
       }
 
       await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
     }
-  }, [attachTracks, cleanupLocalCall, incomingCallRef, setupCallEvents, startDurationTimer, transitionCall]);
+  }, [
+    attachTracks,
+    cleanupLocalCall,
+    incomingCallRef,
+    setupCallEvents,
+    startDurationTimer,
+    startHeartbeat,
+    transitionCall,
+  ]);
 
   const startCall = useCallback(
     async ({ matchId, type, partnerUserId, partnerName, partnerAvatar }: StartCallParams) => {
@@ -586,20 +670,17 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
         const createEdgeCode = parseMatchCallEdgeCode(data);
         if (error || !data?.token) {
-          const duplicate = createEdgeCode === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL;
           toast.error(
-            duplicate
-              ? messageForMatchCallEdgeCode(createEdgeCode) ??
-                  "A call is already in progress for this chat."
-              : "Couldn't start call",
+            messageForMatchCallEdgeCode(createEdgeCode) ?? "Couldn't start call",
           );
           await cleanupLocalCall();
           return;
         }
 
-        createdCallId = data.call_id;
+        const callId = data.call_id as string;
+        createdCallId = callId;
         createdRoomName = data.room_name;
-        trackedCallIdRef.current = createdCallId;
+        trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
 
         const callObject = DailyIframe.createCallObject({
@@ -614,6 +695,13 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         if (localParticipant) {
           attachTracks(localParticipant, localVideoRef.current, true);
         }
+        await transitionCall(callId, "joined").catch((err) => {
+          logMatchCallDiag("start_joined_transition_failed", {
+            call_id: callId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
+        startHeartbeat();
 
         clearRingingTimeout();
         ringingTimeoutRef.current = setTimeout(() => {
@@ -635,7 +723,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
         if (createdCallId) {
           try {
-            await transitionCall(createdCallId, "end");
+            await transitionCall(createdCallId, "join_failed");
           } catch {
             // ignore
           }
@@ -651,6 +739,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       clearRingingTimeout,
       incomingCallRef,
       setupCallEvents,
+      startHeartbeat,
       transitionCall,
     ],
   );
@@ -714,12 +803,112 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     [clearRingingTimeout, fetchPartnerSummary, incomingCallRef, stopDurationTimer, transitionCall],
   );
 
+  const joinActiveCall = useCallback(
+    async (row: MatchCallRow) => {
+      if (!currentUserId) return;
+
+      trackedCallIdRef.current = row.id;
+      roomNameRef.current = row.daily_room_name ?? null;
+      const nextCallType = normalizeCallType(row.call_type);
+      setCallType(nextCallType);
+      setActiveMatchId(row.match_id);
+      setIncomingCall(null);
+      clearRingingTimeout();
+
+      const partnerId = row.caller_id === currentUserId ? row.callee_id : row.caller_id;
+      if (!activePartnerRef.current.userId) {
+        const partner = await fetchPartnerSummary(partnerId);
+        setActivePartner(partner);
+      }
+
+      if (callObjectRef.current) {
+        setCallPhase("in_call");
+        startDurationTimer(row.started_at);
+        startHeartbeat();
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke("daily-room", {
+          body: { action: "join_match_call", callId: row.id },
+        });
+        const joinEdgeCode = parseMatchCallEdgeCode(data);
+        if (error || !data?.token) {
+          toast.error(messageForMatchCallEdgeCode(joinEdgeCode) ?? "Couldn't rejoin call");
+          await cleanupLocalCall({
+            deleteRoomName: row.daily_room_name ?? roomNameRef.current,
+            skipRoomDelete: true,
+            skipServerTransition: true,
+          });
+          return;
+        }
+
+        const callObject = DailyIframe.createCallObject({
+          audioSource: true,
+          videoSource: nextCallType === "video",
+        });
+        callObjectRef.current = callObject;
+        setupCallEvents(callObject, nextCallType);
+        setCallPhase("in_call");
+        startDurationTimer(row.started_at);
+
+        await callObject.join({ url: data.room_url, token: data.token });
+        const localParticipant = callObject.participants().local;
+        if (localParticipant) {
+          attachTracks(localParticipant, localVideoRef.current, true);
+        }
+        await transitionCall(row.id, "joined").catch((err) => {
+          logMatchCallDiag("active_rejoin_joined_transition_failed", {
+            call_id: row.id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
+        startHeartbeat();
+      } catch (err) {
+        logMatchCallDiag("active_rejoin_failed", {
+          call_id: row.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        try {
+          await transitionCall(row.id, "join_failed");
+        } catch {
+          // ignore
+        }
+        await cleanupLocalCall({
+          deleteRoomName: row.daily_room_name ?? roomNameRef.current,
+          skipServerTransition: true,
+        });
+      }
+    },
+    [
+      activePartnerRef,
+      attachTracks,
+      cleanupLocalCall,
+      clearRingingTimeout,
+      currentUserId,
+      fetchPartnerSummary,
+      setupCallEvents,
+      startDurationTimer,
+      startHeartbeat,
+      transitionCall,
+    ],
+  );
+
   const reconcileCallRow = useCallback(
     async (row: MatchCallRow) => {
       if (!currentUserId) return;
 
       const trackedCallId = trackedCallIdRef.current;
       const isTrackedRow = trackedCallId === row.id || incomingCallRef.current?.callId === row.id;
+
+      if (
+        row.status === "active" &&
+        !isTrackedRow &&
+        (row.caller_id === currentUserId || row.callee_id === currentUserId)
+      ) {
+        await joinActiveCall(row);
+        return;
+      }
 
       if (row.status === "ringing" && row.callee_id === currentUserId) {
         await adoptIncomingCall(row);
@@ -762,11 +951,16 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           }
           break;
         case "active":
-          clearRingingTimeout();
-          setIncomingCall(null);
-          setActiveMatchId(row.match_id);
-          setCallPhase("in_call");
-          startDurationTimer(row.started_at);
+          if (!callObjectRef.current) {
+            await joinActiveCall(row);
+          } else {
+            clearRingingTimeout();
+            setIncomingCall(null);
+            setActiveMatchId(row.match_id);
+            setCallPhase("in_call");
+            startDurationTimer(row.started_at);
+            startHeartbeat();
+          }
           break;
         case "declined":
         case "missed":
@@ -786,7 +980,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       currentUserId,
       fetchPartnerSummary,
       incomingCallRef,
+      joinActiveCall,
       startDurationTimer,
+      startHeartbeat,
     ],
   );
 
@@ -854,27 +1050,27 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       const sel =
         "id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at";
 
-      const { data: calleeRing } = await supabase
+      const { data: calleeOpen } = await supabase
         .from("match_calls")
         .select(sel)
         .eq("callee_id", currentUserId)
-        .eq("status", "ringing")
+        .in("status", ["ringing", "active"])
         .order("created_at", { ascending: false })
         .limit(1);
 
       if (cancelled) return;
-      let row = calleeRing?.[0] as MatchCallRow | undefined;
+      let row = calleeOpen?.[0] as MatchCallRow | undefined;
 
       if (!row) {
-        const { data: callerRing } = await supabase
+        const { data: callerOpen } = await supabase
           .from("match_calls")
           .select(sel)
           .eq("caller_id", currentUserId)
-          .eq("status", "ringing")
+          .in("status", ["ringing", "active"])
           .order("created_at", { ascending: false })
           .limit(1);
         if (cancelled) return;
-        row = callerRing?.[0] as MatchCallRow | undefined;
+        row = callerOpen?.[0] as MatchCallRow | undefined;
       }
 
       if (row) {
@@ -964,6 +1160,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             partnerAvatar={activePartner.avatarUrl ?? undefined}
             localVideoRef={localVideoRef}
             remoteVideoRef={remoteVideoRef}
+            localStream={localStream}
             onToggleMute={toggleMute}
             onToggleVideo={toggleVideo}
             onEndCall={() => {

@@ -1448,43 +1448,61 @@ export type Database = {
       match_calls: {
         Row: {
           call_type: string
+          callee_joined_at: string | null
           callee_id: string
+          callee_last_seen_at: string | null
+          caller_joined_at: string | null
           caller_id: string
+          caller_last_seen_at: string | null
           created_at: string
           daily_room_name: string
           daily_room_url: string
           duration_seconds: number | null
           ended_at: string | null
+          ended_reason: string | null
           id: string
           match_id: string
+          provider_deleted_at: string | null
           started_at: string | null
           status: string
         }
         Insert: {
           call_type: string
+          callee_joined_at?: string | null
           callee_id: string
+          callee_last_seen_at?: string | null
+          caller_joined_at?: string | null
           caller_id: string
+          caller_last_seen_at?: string | null
           created_at?: string
           daily_room_name: string
           daily_room_url: string
           duration_seconds?: number | null
           ended_at?: string | null
+          ended_reason?: string | null
           id?: string
           match_id: string
+          provider_deleted_at?: string | null
           started_at?: string | null
           status?: string
         }
         Update: {
           call_type?: string
+          callee_joined_at?: string | null
           callee_id?: string
+          callee_last_seen_at?: string | null
+          caller_joined_at?: string | null
           caller_id?: string
+          caller_last_seen_at?: string | null
           created_at?: string
           daily_room_name?: string
           daily_room_url?: string
           duration_seconds?: number | null
           ended_at?: string | null
+          ended_reason?: string | null
           id?: string
           match_id?: string
+          provider_deleted_at?: string | null
           started_at?: string | null
           status?: string
         }

@@ -37,6 +37,7 @@ The repo has moved well beyond the frozen/archive counts below.
 - **2026-04-14 (chat/call launch closure branch):** `20260414190000_schedule_match_call_room_cleanup_cron.sql` — optional `pg_cron` + `pg_net` schedule for Edge `match-call-room-cleanup` (Bearer `CRON_SECRET`, same vault pattern as other HTTP crons). Applies only when extensions exist; no client contract change.
 - **2026-04-18 (match calls Wave 3):** `20260418210000_match_calls_one_open_per_match.sql` — preflight terminalizes legacy duplicate open rows per `match_id`, then partial unique index **`uniq_match_calls_match_id_open`** on `match_calls(match_id)` where `status IN ('ringing','active')`. Deploy before relying on `daily-room` **409** `DUPLICATE_ACTIVE_CALL` for insert races.
 - **2026-04-18 (match calls Wave 4):** `20260418220000_expire_stale_match_calls_log.sql` — same `expire_stale_match_calls` behavior; adds `RAISE LOG` when expiry count > 0 for Postgres log visibility.
+- **2026-04-19 (match calls Wave 5):** `20260419120000_match_call_lifecycle_hardening.sql` — adds match-call join/heartbeat/provider-cleanup metadata, extends `match_call_transition` with `heartbeat`, `joined`, and `join_failed`, and updates `expire_stale_match_calls` so stale `active` rows are ended server-side instead of blocking future calls indefinitely.
 
 ---
 
