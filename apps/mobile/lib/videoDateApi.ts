@@ -22,6 +22,9 @@ export type VideoDateSession = {
   reconnect_grace_ends_at?: string | null;
   participant_1_away_at?: string | null;
   participant_2_away_at?: string | null;
+  /** First successful Daily join for each participant (server RPC after `call.join`). */
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
 };
 
 export type SyncReconnectPayload = {
@@ -142,7 +145,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, handshake_started_at, date_started_at, daily_room_name, daily_room_url'
+          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, handshake_started_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -230,10 +233,22 @@ export function useVideoDateSession(
         { event: 'UPDATE', schema: 'public', table: 'video_sessions', filter: `id=eq.${sessionId}` },
         (payload) => {
           const row = payload.new as Record<string, unknown>;
+          setSession((prev) => {
+            if (!prev) return prev;
+            const next = { ...prev };
+            if (row.participant_1_joined_at !== undefined) {
+              next.participant_1_joined_at = row.participant_1_joined_at as string | null;
+            }
+            if (row.participant_2_joined_at !== undefined) {
+              next.participant_2_joined_at = row.participant_2_joined_at as string | null;
+            }
+            if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
+            if (row.state !== undefined) next.state = row.state as string;
+            return next;
+          });
           if (row.ended_at || row.state === 'ended' || row.phase === 'ended') {
             setPhase('ended');
             setTimeLeft(0);
-            setSession((prev) => (prev ? { ...prev, ended_at: row.ended_at as string | null, state: row.state as string } : null));
             return;
           }
           if (row.date_started_at) {
@@ -411,6 +426,19 @@ export function videoSessionIndicatesHandshakeOrDate(
 }
 
 /** Poll server reconnect state (`sync_reconnect` path); applies lazy grace expiry on the server. */
+/** Idempotent: stamp first Daily join for the current user on this session (after `call.join` succeeds). */
+export async function markVideoDateDailyJoined(sessionId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('mark_video_date_daily_joined', {
+    p_session_id: sessionId,
+  });
+  if (error) {
+    if (__DEV__) console.warn('[videoDate] markVideoDateDailyJoined:', error.message);
+    return false;
+  }
+  const ok = (data as { ok?: boolean } | null)?.ok === true;
+  return ok;
+}
+
 export async function syncVideoDateReconnect(sessionId: string): Promise<SyncReconnectPayload | null> {
   const { data, error } = await supabase.rpc('video_date_transition', {
     p_session_id: sessionId,
