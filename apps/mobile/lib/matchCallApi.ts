@@ -2,6 +2,7 @@
  * Match call API: create/answer Daily rooms via daily-room Edge Function, update match_calls.
  * Same contract as web (src/hooks/useMatchCall.ts, supabase/functions/daily-room).
  */
+import { parseMatchCallEdgeCode } from '@clientShared/chat/matchCallEdgeCodes';
 import { supabase } from '@/lib/supabase';
 
 export type CreateMatchCallResult = {
@@ -18,29 +19,61 @@ export type AnswerMatchCallResult = {
   token: string;
 };
 
-export async function createMatchCall(matchId: string, callType: 'voice' | 'video'): Promise<CreateMatchCallResult | null> {
+type InvokeFail = { ok: false; code?: string; message?: string };
+type InvokeOk<T> = { ok: true; data: T };
+
+function readInvokeErrorMessage(data: unknown): string | undefined {
+  if (data === null || typeof data !== 'object') return undefined;
+  const err = (data as { error?: unknown }).error;
+  return typeof err === 'string' ? err : undefined;
+}
+
+export async function createMatchCall(
+  matchId: string,
+  callType: 'voice' | 'video',
+): Promise<InvokeOk<CreateMatchCallResult> | InvokeFail> {
   const { data, error } = await supabase.functions.invoke('daily-room', {
     body: { action: 'create_match_call', matchId, callType },
   });
-  if (error || !data?.token) return null;
+  if (!error && data && typeof data === 'object' && 'token' in data && (data as { token?: string }).token) {
+    const d = data as CreateMatchCallResult;
+    return {
+      ok: true,
+      data: {
+        call_id: d.call_id,
+        room_name: d.room_name,
+        room_url: d.room_url,
+        token: d.token,
+      },
+    };
+  }
   return {
-    call_id: data.call_id,
-    room_name: data.room_name,
-    room_url: data.room_url,
-    token: data.token,
+    ok: false,
+    code: parseMatchCallEdgeCode(data),
+    message: readInvokeErrorMessage(data),
   };
 }
 
-export async function answerMatchCall(callId: string): Promise<AnswerMatchCallResult | null> {
+export async function answerMatchCall(callId: string): Promise<InvokeOk<AnswerMatchCallResult> | InvokeFail> {
   const { data, error } = await supabase.functions.invoke('daily-room', {
     body: { action: 'answer_match_call', callId },
   });
-  if (error || !data?.token) return null;
+  if (!error && data && typeof data === 'object' && 'token' in data && (data as { token?: string }).token) {
+    const d = data as AnswerMatchCallResult;
+    return {
+      ok: true,
+      data: {
+        call_id: d.call_id,
+        room_name: d.room_name,
+        room_url: d.room_url,
+        token: d.token,
+      },
+    };
+  }
   return {
-    call_id: data.call_id,
-    room_name: data.room_name,
-    room_url: data.room_url,
-    token: data.token,
+    ok: false,
+    code: parseMatchCallEdgeCode(data),
+    message: readInvokeErrorMessage(data),
   };
 }
 

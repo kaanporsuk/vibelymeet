@@ -17,10 +17,16 @@ import {
   type ReactNode,
 } from 'react';
 import Daily, { type DailyParticipant } from '@daily-co/react-native-daily-js';
+import { Alert, AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
 import { ActiveCallOverlay } from '@/components/chat/ActiveCallOverlay';
+import {
+  MATCH_CALL_EDGE_CODES,
+  messageForMatchCallEdgeCode,
+} from '@clientShared/chat/matchCallEdgeCodes';
+import { logMatchCallDiag } from '@clientShared/chat/matchCallDiag';
 import {
   createMatchCall,
   answerMatchCall,
@@ -102,6 +108,28 @@ type MatchCallContextValue = {
     kind: 'video' | 'audio'
   ) => import('@daily-co/react-native-webrtc').MediaStreamTrack | null;
 };
+
+type MatchCallTransitionAction = 'answer' | 'decline' | 'end' | 'mark_missed';
+
+type MatchCallCleanupOptions = {
+  deleteRoomName?: string | null;
+  /** When true, `match_call_transition` was already applied (or DB row is already terminal). */
+  skipServerTransition?: boolean;
+};
+
+function resolveAbnormalTransitionForTeardown(
+  callId: string,
+  incoming: { callId: string } | null,
+  phase: MatchCallPhase
+): MatchCallTransitionAction | null {
+  if (incoming?.callId === callId) {
+    return 'mark_missed';
+  }
+  if (phase === 'ringing' || phase === 'in_call') {
+    return 'end';
+  }
+  return null;
+}
 
 type MatchCallRealtimeChannel = {
   on: (
@@ -199,6 +227,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const roomNameRef = useRef<string | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** When true, a background/unload path already invoked `match_call_transition`; skip duplicate in `cleanupLocalCall`. */
+  const documentUnloadRpcIssuedRef = useRef(false);
 
   const callPhaseRef = useLatestRef(callPhase);
   const incomingCallRef = useLatestRef(incomingCall);
@@ -240,8 +270,48 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     } satisfies PartnerSummary;
   }, []);
 
+  const transitionRpc = useCallback(async (callId: string, action: MatchCallTransitionAction) => {
+    const { error } = await supabase.rpc('match_call_transition', {
+      p_call_id: callId,
+      p_action: action,
+    });
+    if (error) {
+      throw error;
+    }
+  }, []);
+
   const cleanupLocalCall = useCallback(
-    async ({ deleteRoomName }: { deleteRoomName?: string | null } = {}) => {
+    async ({ deleteRoomName, skipServerTransition = false }: MatchCallCleanupOptions = {}) => {
+      const shouldAttemptAbnormalRpc =
+        !skipServerTransition && !documentUnloadRpcIssuedRef.current && trackedCallIdRef.current;
+
+      if (shouldAttemptAbnormalRpc) {
+        const callId = trackedCallIdRef.current!;
+        const action = resolveAbnormalTransitionForTeardown(
+          callId,
+          incomingCallRef.current,
+          callPhaseRef.current
+        );
+        if (action) {
+          try {
+            await transitionRpc(callId, action);
+            logMatchCallDiag('abnormal_teardown_rpc_ok', {
+              call_id: callId,
+              action,
+              phase: callPhaseRef.current,
+            });
+          } catch (err) {
+            logMatchCallDiag('abnormal_teardown_rpc_failed', {
+              call_id: callId,
+              action,
+              phase: callPhaseRef.current,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+      documentUnloadRpcIssuedRef.current = false;
+
       clearRingingTimeout();
       stopDurationTimer();
 
@@ -277,7 +347,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         await deleteMatchCallRoom(roomName);
       }
     },
-    [clearRingingTimeout, stopDurationTimer],
+    [callPhaseRef, clearRingingTimeout, incomingCallRef, stopDurationTimer, transitionRpc],
   );
 
   const endCall = useCallback(async () => {
@@ -292,7 +362,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    await cleanupLocalCall({ deleteRoomName: roomName });
+    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
   }, [cleanupLocalCall]);
 
   const setupCallEvents = useCallback(
@@ -345,7 +415,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       // ignore
     }
 
-    await cleanupLocalCall({ deleteRoomName: roomName });
+    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
   }, [cleanupLocalCall, incomingCallRef]);
 
   const declineCall = useCallback(async () => {
@@ -359,7 +429,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       // ignore
     }
 
-    await cleanupLocalCall({ deleteRoomName: roomName });
+    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
   }, [cleanupLocalCall, incomingCallRef]);
 
   const acceptCall = useCallback(async () => {
@@ -369,9 +439,30 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     let answeredRoomName: string | null = roomNameRef.current;
     try {
       const result = await answerMatchCall(pendingIncoming.callId);
-      if (!result) return;
+      if (!result.ok) {
+        if (result.code === MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED) {
+          Alert.alert(
+            'Connection issue',
+            messageForMatchCallEdgeCode(result.code) ??
+              'Could not connect — please try again in a moment.',
+          );
+        } else {
+          Alert.alert(
+            "Couldn't connect call",
+            messageForMatchCallEdgeCode(result.code) ?? 'Please try again.',
+          );
+          try {
+            await updateMatchCallStatus(pendingIncoming.callId, 'missed');
+          } catch {
+            // ignore
+          }
+        }
+        await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
+        return;
+      }
 
-      answeredRoomName = result.room_name ?? roomNameRef.current;
+      const payload = result.data;
+      answeredRoomName = payload.room_name ?? roomNameRef.current;
       roomNameRef.current = answeredRoomName;
       trackedCallIdRef.current = pendingIncoming.callId;
       setCallType(pendingIncoming.callType);
@@ -386,7 +477,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callObjectRef.current = callObject;
       setupCallEvents(callObject);
 
-      await callObject.join({ url: result.room_url, token: result.token });
+      await callObject.join({ url: payload.room_url, token: payload.token });
       const local = callObject.participants()?.local;
       if (local) {
         setLocalParticipant(local);
@@ -394,12 +485,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
     } catch {
       try {
-        await updateMatchCallStatus(pendingIncoming.callId, 'ended');
+        await updateMatchCallStatus(pendingIncoming.callId, 'missed');
       } catch {
         // ignore
       }
 
-      await cleanupLocalCall({ deleteRoomName: answeredRoomName });
+      await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
     }
   }, [cleanupLocalCall, incomingCallRef, setupCallEvents, startDurationTimer]);
 
@@ -422,13 +513,20 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
       try {
         const result = await createMatchCall(matchId, type);
-        if (!result) {
+        if (!result.ok) {
+          const dup = result.code === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL;
+          Alert.alert(
+            dup ? 'Call in progress' : "Couldn't start call",
+            messageForMatchCallEdgeCode(result.code) ??
+              (dup ? 'A call is already in progress for this chat.' : 'Please try again.'),
+          );
           await cleanupLocalCall();
           return;
         }
 
-        createdCallId = result.call_id;
-        createdRoomName = result.room_name;
+        const payload = result.data;
+        createdCallId = payload.call_id;
+        createdRoomName = payload.room_name;
         trackedCallIdRef.current = createdCallId;
         roomNameRef.current = createdRoomName;
 
@@ -439,7 +537,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         callObjectRef.current = callObject;
         setupCallEvents(callObject);
 
-        await callObject.join({ url: result.room_url, token: result.token });
+        await callObject.join({ url: payload.room_url, token: payload.token });
         const local = callObject.participants()?.local;
         if (local) {
           setLocalParticipant(local);
@@ -456,7 +554,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             } catch {
               // ignore
             }
-            await cleanupLocalCall({ deleteRoomName: roomNameRef.current });
+            await cleanupLocalCall({ deleteRoomName: roomNameRef.current, skipServerTransition: true });
           })();
         }, 30000);
       } catch {
@@ -468,7 +566,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        await cleanupLocalCall({ deleteRoomName: createdRoomName });
+        await cleanupLocalCall({ deleteRoomName: createdRoomName, skipServerTransition: true });
       }
     },
     [callPhaseRef, cleanupLocalCall, clearRingingTimeout, incomingCallRef, setupCallEvents],
@@ -543,6 +641,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (row.status === 'ringing' && row.caller_id === currentUserId) {
+        trackedCallIdRef.current = row.id;
+        roomNameRef.current = row.daily_room_name ?? null;
+        setCallType(normalizeCallType(row.call_type));
+        setActiveMatchId(row.match_id);
+        setCallPhase('ringing');
+        if (!activePartnerRef.current.userId) {
+          const partner = await fetchPartnerSummary(row.callee_id);
+          setActivePartner(partner);
+        }
+        logMatchCallDiag('reconcile_outbound_ring_restore', {
+          call_id: row.id,
+          match_id: row.match_id,
+        });
+        return;
+      }
+
       if (!isTrackedRow) return;
 
       roomNameRef.current = row.daily_room_name ?? roomNameRef.current;
@@ -571,7 +686,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         case 'declined':
         case 'missed':
         case 'ended':
-          await cleanupLocalCall({ deleteRoomName: row.daily_room_name ?? roomNameRef.current });
+          await cleanupLocalCall({
+            deleteRoomName: row.daily_room_name ?? roomNameRef.current,
+            skipServerTransition: true,
+          });
           break;
       }
     },
@@ -648,18 +766,32 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       .subscribe();
 
     void (async () => {
-      const { data } = await supabase
+      const sel =
+        'id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at';
+
+      const { data: calleeRing } = await supabase
         .from('match_calls')
-        .select(
-          'id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at',
-        )
+        .select(sel)
         .eq('callee_id', currentUserId)
         .eq('status', 'ringing')
         .order('created_at', { ascending: false })
         .limit(1);
 
       if (cancelled) return;
-      const row = data?.[0] as MatchCallRow | undefined;
+      let row = calleeRing?.[0] as MatchCallRow | undefined;
+
+      if (!row) {
+        const { data: callerRing } = await supabase
+          .from('match_calls')
+          .select(sel)
+          .eq('caller_id', currentUserId)
+          .eq('status', 'ringing')
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (cancelled) return;
+        row = callerRing?.[0] as MatchCallRow | undefined;
+      }
+
       if (row) {
         await reconcileCallRow(row);
       }
@@ -670,6 +802,31 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       supabase.removeChannel(channel);
     };
   }, [cleanupLocalCall, currentUserId, reconcileCallRow]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next !== 'background') return;
+      if (documentUnloadRpcIssuedRef.current) return;
+      const callId = trackedCallIdRef.current;
+      if (!callId) return;
+      const action = resolveAbnormalTransitionForTeardown(
+        callId,
+        incomingCallRef.current,
+        callPhaseRef.current
+      );
+      if (!action) return;
+      documentUnloadRpcIssuedRef.current = true;
+      logMatchCallDiag('background_teardown_rpc', { call_id: callId, action });
+      void (async () => {
+        try {
+          await supabase.rpc('match_call_transition', { p_call_id: callId, p_action: action });
+        } catch {
+          // best-effort
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [callPhaseRef, incomingCallRef]);
 
   useEffect(() => {
     return () => {
@@ -732,9 +889,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           onDecline={() => {
             void declineCall();
           }}
-          onTimeout={() => {
-            void markIncomingCallMissed();
-          }}
+          onTimeout={markIncomingCallMissed}
         />
       ) : null}
 

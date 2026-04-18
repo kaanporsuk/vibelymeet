@@ -66,6 +66,15 @@ serve(async (req) => {
     deleted++;
   }
 
+  console.log(
+    JSON.stringify({
+      event: "match_call_room_cleanup_batch",
+      cutoff_iso: cutoffIso,
+      candidates: rows?.length ?? 0,
+      daily_delete_attempts: deleted,
+    }),
+  );
+
   return new Response(
     JSON.stringify({
       ok: true,

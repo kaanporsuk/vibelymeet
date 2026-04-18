@@ -8,6 +8,8 @@ export interface NotificationPreferences {
   paused_until: string | null;
   notify_new_match: boolean;
   notify_messages: boolean;
+  /** Incoming voice/video calls from matches (separate from DM push bucket). */
+  notify_match_calls: boolean;
   notify_someone_vibed_you: boolean;
   notify_ready_gate: boolean;
   notify_event_live: boolean;
@@ -32,6 +34,7 @@ const DEFAULTS: NotificationPreferences = {
   paused_until: null,
   notify_new_match: true,
   notify_messages: true,
+  notify_match_calls: true,
   notify_someone_vibed_you: true,
   notify_ready_gate: true,
   notify_event_live: true,
@@ -91,6 +94,7 @@ export function useNotificationPreferences() {
           paused_until: data.paused_until,
           notify_new_match: data.notify_new_match ?? true,
           notify_messages: data.notify_messages ?? true,
+          notify_match_calls: data.notify_match_calls ?? data.notify_messages ?? true,
           notify_someone_vibed_you: data.notify_someone_vibed_you ?? true,
           notify_ready_gate: data.notify_ready_gate ?? true,
           notify_event_live: data.notify_event_live ?? true,

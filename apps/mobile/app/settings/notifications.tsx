@@ -64,6 +64,13 @@ const NOTIFICATION_SECTIONS = [
         color: '#00B4D8',
       },
       {
+        key: 'notify_match_calls',
+        icon: 'call-outline' as const,
+        label: 'Match calls',
+        desc: 'Incoming voice and video calls',
+        color: '#10B981',
+      },
+      {
         key: 'notify_someone_vibed_you',
         icon: 'sparkles-outline' as const,
         label: 'Someone Vibed You',

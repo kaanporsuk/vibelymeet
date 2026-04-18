@@ -26,7 +26,7 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 ### Current-state addendum (2026-04-14)
 
 - **`match-call-room-cleanup`:** `verify_jwt = false`; auth via `Authorization: Bearer CRON_SECRET` (same as other cron drainers). Deletes Daily.co rooms for **terminal** `match_calls` rows older than ~2 minutes (best-effort if client `delete_room` missed). Env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `CRON_SECRET`. Optional schedule: `20260414190000_schedule_match_call_room_cleanup_cron.sql` (pg_cron + pg_net).
-- **`daily-room` (`create_match_call`):** After inserting `match_calls`, invokes **`send-notification`** with category **`match_call`** (OneSignal + deep link to `/chat/:callerId`). Requires deployed **`send-notification`** changes for `match_call` routing and quiet-hours bypass.
+- **`daily-room` (`create_match_call`):** After inserting `match_calls`, invokes **`send-notification`** with category **`match_call`** (OneSignal + deep link to `/chat/:callerId`). Per-bucket prefs: **`notify_match_calls`** (quiet hours still bypassed for `match_call`).
 
 ### Current-state addendum (2026-04-13)
 
@@ -316,7 +316,7 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Primary tables touched:** `video_sessions`, `matches`, `match_calls`
 - **External services:** Daily.co
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `DAILY_DOMAIN`
-- **Rebuild notes:** defaults `DAILY_DOMAIN` to `vibelyapp.daily.co` if missing; VideoDate beforeunload cleanup must send JWT via fetch keepalive; match-call creation now inserts `match_calls` via service role inside `daily-room`, and `answer_match_call` activates calls through backend `match_call_transition` before returning a usable token
+- **Rebuild notes:** defaults `DAILY_DOMAIN` to `vibelyapp.daily.co` if missing; VideoDate beforeunload cleanup must send JWT via fetch keepalive; `create_match_call` inserts `match_calls` via service role and enforces archived match, blocks, suspension/pause, and at most one `ringing`/`active` row per match (app precheck + DB partial unique index `uniq_match_calls_match_id_open`; insert **`23505`** → **409** `DUPLICATE_ACTIVE_CALL`, Daily room deleted); structured logs include `reject_layer` (`precheck` vs `db_unique`), `answer_match_call_not_found`, token-failure context, and `daily_room_unhandled_exception` on unexpected errors; `answer_match_call` runs `match_call_transition('answer')` before issuing a Daily token (rollback `end` + **503** `TOKEN_ISSUE_FAILED` if token issuance fails); `match_call` push prefs use `notification_preferences.notify_match_calls` via `send-notification`
 
 ### `vibe-notification`
 - **Purpose:** records and dispatches vibe-related notification events between users in event contexts

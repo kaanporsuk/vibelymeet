@@ -2084,6 +2084,7 @@ export type Database = {
           notify_date_reminder: boolean | null
           notify_event_live: boolean | null
           notify_event_reminder: boolean | null
+          notify_match_calls: boolean | null
           notify_messages: boolean | null
           notify_new_match: boolean | null
           notify_product_updates: boolean | null
@@ -2113,6 +2114,7 @@ export type Database = {
           notify_date_reminder?: boolean | null
           notify_event_live?: boolean | null
           notify_event_reminder?: boolean | null
+          notify_match_calls?: boolean | null
           notify_messages?: boolean | null
           notify_new_match?: boolean | null
           notify_product_updates?: boolean | null
@@ -2142,6 +2144,7 @@ export type Database = {
           notify_date_reminder?: boolean | null
           notify_event_live?: boolean | null
           notify_event_reminder?: boolean | null
+          notify_match_calls?: boolean | null
           notify_messages?: boolean | null
           notify_new_match?: boolean | null
           notify_product_updates?: boolean | null

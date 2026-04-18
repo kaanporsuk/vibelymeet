@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { Phone, PhoneOff, Video } from "lucide-react";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import type { IncomingCallData } from "@/hooks/useMatchCall";
@@ -18,23 +18,31 @@ export const IncomingCallOverlay = ({
   onTimeout,
 }: IncomingCallOverlayProps) => {
   const [autoTimeout, setAutoTimeout] = useState(30);
+  const onTimeoutRef = useRef(onTimeout);
+  const timeoutFiredRef = useRef(false);
+
+  onTimeoutRef.current = onTimeout;
 
   useEffect(() => {
     setAutoTimeout(30);
+    timeoutFiredRef.current = false;
   }, [incomingCall.callId]);
 
   useEffect(() => {
-    const timer = setInterval(() => {
+    const id = window.setInterval(() => {
       setAutoTimeout((p) => {
         if (p <= 1) {
-          onTimeout();
+          if (!timeoutFiredRef.current) {
+            timeoutFiredRef.current = true;
+            onTimeoutRef.current();
+          }
           return 0;
         }
         return p - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
-  }, [onTimeout]);
+    return () => clearInterval(id);
+  }, [incomingCall.callId]);
 
   return (
     <motion.div

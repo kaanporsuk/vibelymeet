@@ -47,7 +47,8 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   date_proposal_accepted: 'notify_messages',
   date_proposal_declined: 'notify_messages',
   messages: 'notify_messages',
-  match_call: 'notify_messages',
+  /** Incoming voice/video chat calls — separate bucket so users can silence DM pushes but keep call alerts (or vice versa). */
+  match_call: 'notify_match_calls',
   date_suggestion_proposed: 'notify_messages',
   date_suggestion_countered: 'notify_messages',
   date_suggestion_accepted: 'notify_messages',
