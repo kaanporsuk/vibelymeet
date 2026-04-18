@@ -34,6 +34,7 @@ import {
   parseChatImageMessageContent,
 } from "@/lib/chatMessageContent";
 import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
+import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
@@ -87,12 +88,6 @@ type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
-
-function clientRequestIdFromStructured(p: Record<string, unknown> | null | undefined): string | null {
-  if (!p || typeof p !== "object") return null;
-  const id = (p as { client_request_id?: unknown }).client_request_id;
-  return typeof id === "string" && id.length > 0 ? id : null;
-}
 
 interface ChatMessage {
   id: string;

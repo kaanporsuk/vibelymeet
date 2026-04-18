@@ -166,6 +166,8 @@ Verified in `src/App.tsx`:
 
 Only **two** Supabase storage buckets are live and in use: `chat-videos`, `proof-selfies`. Other bucket names (e.g. `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`) are legacy or migrated to Bunny; treat them as such for rebuild and migration.
 
+**Clarification (chat video):** new inline / Vibe Clip video **uploads** use the `upload-chat-video` Edge Function and **Bunny Storage** (see `vibely_bunny_provider_sheet.md` §4). A Supabase bucket named `chat-videos` must not be conflated with that Bunny object path prefix or the `messages.video_url` contract.
+
 ## 7. Database inventory from generated Supabase types
 
 ### Public tables
