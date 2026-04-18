@@ -45,6 +45,9 @@
 - [ ] **Cold start** from tap on push: lands in chat; call state consistent.
 - [ ] **Decline** / **miss** / **caller hangup before answer**: terminal state; no zombie UI.
 - [ ] **Remote leave** during active call: other side ends cleanly.
+- [ ] **Web incoming 30s timeout:** fires **once** (no repeated `mark_missed`); countdown does not reset on unrelated chat re-renders.
+- [ ] **Callee answer failure** (revoked token / network): row moves to `missed` (not stuck `ringing`); local overlay clears.
+- [ ] **Tab close / refresh mid-call:** best-effort terminal transition (web `pagehide`/`beforeunload` + cleanup; native background + unmount).
 
 ---
 

@@ -53,6 +53,17 @@ The change is architectural rather than cosmetic: call state is now owned by app
 
 Lint still reports the repo’s pre-existing warning backlog; this change set did not leave new lint errors behind.
 
+## Wave 1 client follow-up (2026-04-18, branch `fix/wave1-chat-call-hardening`)
+
+- **Web incoming overlay:** one-shot auto-miss after 30s (no repeated `onTimeout`); countdown interval depends only on `incomingCall.callId`; stable timeout handler via `onTimeout={markIncomingCallMissed}`.
+- **Callee answer failure:** web + native use `mark_missed` (RPC) instead of invalid `end` while the row is still `ringing`; early `answer_match_call` failure paths also mark missed and clean up.
+- **Teardown / `cleanupLocalCall`:** optional `skipServerTransition` when the RPC was already applied or the row is already terminal; otherwise best-effort `match_call_transition` from current phase (incoming → `mark_missed`, outgoing ring or active → `end`) before Daily leave/delete.
+- **Web:** `pagehide` / `beforeunload` post `match_call_transition` via `fetch` + `keepalive: true` (session token ref); coordinates with `documentUnloadRpcIssuedRef` to avoid duplicate RPC vs React cleanup.
+- **Native:** `AppState` → `background` fires the same RPC best-effort (async IIFE).
+- **Exports:** `apps/mobile/lib/supabase.ts` exports `SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY` for reuse (optional).
+
+No Edge Function or migration changes in this wave.
+
 ## Remaining Risks
 - No automated E2E/device/browser proof was added in this pass; cross-platform caller/callee validation is still a manual smoke-test requirement.
 - Global incoming handling is now app-scoped, but there is still no dedicated push-ringing path for a fully backgrounded app/browser.

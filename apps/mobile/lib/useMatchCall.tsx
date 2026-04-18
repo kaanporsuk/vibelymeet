@@ -17,6 +17,7 @@ import {
   type ReactNode,
 } from 'react';
 import Daily, { type DailyParticipant } from '@daily-co/react-native-daily-js';
+import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { IncomingCallOverlay } from '@/components/chat/IncomingCallOverlay';
@@ -102,6 +103,28 @@ type MatchCallContextValue = {
     kind: 'video' | 'audio'
   ) => import('@daily-co/react-native-webrtc').MediaStreamTrack | null;
 };
+
+type MatchCallTransitionAction = 'answer' | 'decline' | 'end' | 'mark_missed';
+
+type MatchCallCleanupOptions = {
+  deleteRoomName?: string | null;
+  /** When true, `match_call_transition` was already applied (or DB row is already terminal). */
+  skipServerTransition?: boolean;
+};
+
+function resolveAbnormalTransitionForTeardown(
+  callId: string,
+  incoming: { callId: string } | null,
+  phase: MatchCallPhase
+): MatchCallTransitionAction | null {
+  if (incoming?.callId === callId) {
+    return 'mark_missed';
+  }
+  if (phase === 'ringing' || phase === 'in_call') {
+    return 'end';
+  }
+  return null;
+}
 
 type MatchCallRealtimeChannel = {
   on: (
@@ -199,6 +222,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const roomNameRef = useRef<string | null>(null);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** When true, a background/unload path already invoked `match_call_transition`; skip duplicate in `cleanupLocalCall`. */
+  const documentUnloadRpcIssuedRef = useRef(false);
 
   const callPhaseRef = useLatestRef(callPhase);
   const incomingCallRef = useLatestRef(incomingCall);
@@ -240,8 +265,38 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     } satisfies PartnerSummary;
   }, []);
 
+  const transitionRpc = useCallback(async (callId: string, action: MatchCallTransitionAction) => {
+    const { error } = await supabase.rpc('match_call_transition', {
+      p_call_id: callId,
+      p_action: action,
+    });
+    if (error) {
+      throw error;
+    }
+  }, []);
+
   const cleanupLocalCall = useCallback(
-    async ({ deleteRoomName }: { deleteRoomName?: string | null } = {}) => {
+    async ({ deleteRoomName, skipServerTransition = false }: MatchCallCleanupOptions = {}) => {
+      const shouldAttemptAbnormalRpc =
+        !skipServerTransition && !documentUnloadRpcIssuedRef.current && trackedCallIdRef.current;
+
+      if (shouldAttemptAbnormalRpc) {
+        const callId = trackedCallIdRef.current!;
+        const action = resolveAbnormalTransitionForTeardown(
+          callId,
+          incomingCallRef.current,
+          callPhaseRef.current
+        );
+        if (action) {
+          try {
+            await transitionRpc(callId, action);
+          } catch {
+            // Best-effort; cron / peer may still reconcile.
+          }
+        }
+      }
+      documentUnloadRpcIssuedRef.current = false;
+
       clearRingingTimeout();
       stopDurationTimer();
 
@@ -277,7 +332,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         await deleteMatchCallRoom(roomName);
       }
     },
-    [clearRingingTimeout, stopDurationTimer],
+    [callPhaseRef, clearRingingTimeout, incomingCallRef, stopDurationTimer, transitionRpc],
   );
 
   const endCall = useCallback(async () => {
@@ -292,7 +347,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    await cleanupLocalCall({ deleteRoomName: roomName });
+    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
   }, [cleanupLocalCall]);
 
   const setupCallEvents = useCallback(
@@ -345,7 +400,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       // ignore
     }
 
-    await cleanupLocalCall({ deleteRoomName: roomName });
+    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
   }, [cleanupLocalCall, incomingCallRef]);
 
   const declineCall = useCallback(async () => {
@@ -359,7 +414,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       // ignore
     }
 
-    await cleanupLocalCall({ deleteRoomName: roomName });
+    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
   }, [cleanupLocalCall, incomingCallRef]);
 
   const acceptCall = useCallback(async () => {
@@ -369,7 +424,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     let answeredRoomName: string | null = roomNameRef.current;
     try {
       const result = await answerMatchCall(pendingIncoming.callId);
-      if (!result) return;
+      if (!result) {
+        try {
+          await updateMatchCallStatus(pendingIncoming.callId, 'missed');
+        } catch {
+          // ignore
+        }
+        await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
+        return;
+      }
 
       answeredRoomName = result.room_name ?? roomNameRef.current;
       roomNameRef.current = answeredRoomName;
@@ -394,12 +457,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
     } catch {
       try {
-        await updateMatchCallStatus(pendingIncoming.callId, 'ended');
+        await updateMatchCallStatus(pendingIncoming.callId, 'missed');
       } catch {
         // ignore
       }
 
-      await cleanupLocalCall({ deleteRoomName: answeredRoomName });
+      await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
     }
   }, [cleanupLocalCall, incomingCallRef, setupCallEvents, startDurationTimer]);
 
@@ -456,7 +519,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             } catch {
               // ignore
             }
-            await cleanupLocalCall({ deleteRoomName: roomNameRef.current });
+            await cleanupLocalCall({ deleteRoomName: roomNameRef.current, skipServerTransition: true });
           })();
         }, 30000);
       } catch {
@@ -468,7 +531,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        await cleanupLocalCall({ deleteRoomName: createdRoomName });
+        await cleanupLocalCall({ deleteRoomName: createdRoomName, skipServerTransition: true });
       }
     },
     [callPhaseRef, cleanupLocalCall, clearRingingTimeout, incomingCallRef, setupCallEvents],
@@ -571,7 +634,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         case 'declined':
         case 'missed':
         case 'ended':
-          await cleanupLocalCall({ deleteRoomName: row.daily_room_name ?? roomNameRef.current });
+          await cleanupLocalCall({
+            deleteRoomName: row.daily_room_name ?? roomNameRef.current,
+            skipServerTransition: true,
+          });
           break;
       }
     },
@@ -672,6 +738,30 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   }, [cleanupLocalCall, currentUserId, reconcileCallRow]);
 
   useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next !== 'background') return;
+      if (documentUnloadRpcIssuedRef.current) return;
+      const callId = trackedCallIdRef.current;
+      if (!callId) return;
+      const action = resolveAbnormalTransitionForTeardown(
+        callId,
+        incomingCallRef.current,
+        callPhaseRef.current
+      );
+      if (!action) return;
+      documentUnloadRpcIssuedRef.current = true;
+      void (async () => {
+        try {
+          await supabase.rpc('match_call_transition', { p_call_id: callId, p_action: action });
+        } catch {
+          // best-effort
+        }
+      })();
+    });
+    return () => sub.remove();
+  }, [callPhaseRef, incomingCallRef]);
+
+  useEffect(() => {
     return () => {
       void cleanupLocalCall();
     };
@@ -732,9 +822,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           onDecline={() => {
             void declineCall();
           }}
-          onTimeout={() => {
-            void markIncomingCallMissed();
-          }}
+          onTimeout={markIncomingCallMissed}
         />
       ) : null}
 
