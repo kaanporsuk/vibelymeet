@@ -441,6 +441,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       const result = await answerMatchCall(pendingIncoming.callId);
       if (!result.ok) {
         if (result.code === MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED) {
+          // Server already rolled the call back; don't double-transition.
           Alert.alert(
             'Connection issue',
             messageForMatchCallEdgeCode(result.code) ??
@@ -451,10 +452,13 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             "Couldn't connect call",
             messageForMatchCallEdgeCode(result.code) ?? 'Please try again.',
           );
-          try {
-            await updateMatchCallStatus(pendingIncoming.callId, 'missed');
-          } catch {
-            // ignore
+          // CALL_NOT_RINGING = already terminal elsewhere; skip the mark_missed race.
+          if (result.code !== MATCH_CALL_EDGE_CODES.CALL_NOT_RINGING) {
+            try {
+              await updateMatchCallStatus(pendingIncoming.callId, 'missed');
+            } catch {
+              // ignore
+            }
           }
         }
         await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
@@ -514,12 +518,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       try {
         const result = await createMatchCall(matchId, type);
         if (!result.ok) {
-          const dup = result.code === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL;
-          Alert.alert(
-            dup ? 'Call in progress' : "Couldn't start call",
-            messageForMatchCallEdgeCode(result.code) ??
-              (dup ? 'A call is already in progress for this chat.' : 'Please try again.'),
-          );
+          // Specific precheck reasons (archived/blocked/paused/suspended/duplicate) each have
+          // their own user-facing copy; unknown codes fall back to a generic message.
+          const friendly = messageForMatchCallEdgeCode(result.code);
+          const title =
+            result.code === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL
+              ? 'Call in progress'
+              : "Couldn't start call";
+          Alert.alert(title, friendly ?? 'Please try again.');
           await cleanupLocalCall();
           return;
         }

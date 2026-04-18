@@ -8,8 +8,32 @@ const corsHeaders = {
 };
 
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
-const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
+const DAILY_DOMAIN_ENV = Deno.env.get("DAILY_DOMAIN");
+const DAILY_DOMAIN = DAILY_DOMAIN_ENV || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
+
+// Observability: flag once if we're relying on the default domain fallback so ops can
+// detect a missing env var without silently drifting onto the wrong Daily tenant.
+if (!DAILY_DOMAIN_ENV) {
+  console.warn(
+    JSON.stringify({
+      event: "daily_domain_env_fallback",
+      fallback_domain: DAILY_DOMAIN,
+      detail: "DAILY_DOMAIN env var is not set; using hardcoded default. Set DAILY_DOMAIN explicitly in Edge Function config.",
+    }),
+  );
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROOM_NAME_RE = /^[a-zA-Z0-9_-]{1,128}$/;
+
+function isUuid(v: unknown): v is string {
+  return typeof v === "string" && UUID_RE.test(v);
+}
+
+function isRoomName(v: unknown): v is string {
+  return typeof v === "string" && ROOM_NAME_RE.test(v);
+}
 
 /** Server-owned: allow Daily token only for active handshake/date states or non-expired both_ready gate. */
 function canIssueVideoDateRoomToken(session: {
@@ -282,7 +306,7 @@ serve(async (req) => {
     // Requires auth. Caller must be a verified participant of the room (video_session or match_call).
     if (action === "delete_room") {
       const roomName = body.roomName;
-      if (!roomName || typeof roomName !== "string") {
+      if (!isRoomName(roomName)) {
         return new Response(
           JSON.stringify({ error: "Missing or invalid roomName", code: "MISSING_ROOM_NAME" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -508,6 +532,13 @@ serve(async (req) => {
 
     // ── ACTION: create_match_call ──
     if (action === "create_match_call") {
+      if (!isUuid(matchId)) {
+        return new Response(
+          JSON.stringify({ error: "Missing or invalid matchId", code: "MISSING_MATCH_ID" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       const { data: match } = await supabase
         .from("matches")
         .select("id, profile_id_1, profile_id_2, archived_at")
@@ -584,7 +615,33 @@ serve(async (req) => {
       });
 
       const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
-      const callerToken = await createMeetingToken(roomName, user.id, 7200);
+      let callerToken: string;
+      try {
+        callerToken = await createMeetingToken(roomName, user.id, 7200);
+      } catch (tokenErr) {
+        // Prevent orphan Daily room: no match_calls row has been inserted yet, so the
+        // `match-call-room-cleanup` worker cannot reach this room. Delete it now.
+        await deleteDailyRoom(roomName);
+        const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        console.error(
+          JSON.stringify({
+            event: "create_match_call_token_failed_pre_insert",
+            match_id: matchId,
+            caller_id: user.id,
+            detail,
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Call service temporarily unavailable",
+            code: "TOKEN_ISSUE_FAILED",
+          }),
+          {
+            status: 503,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
 
       const { data: call, error: callError } = await serviceClient
         .from("match_calls")
@@ -702,6 +759,12 @@ serve(async (req) => {
     // ── ACTION: answer_match_call ──
     if (action === "answer_match_call") {
       const targetCallId = callId || sessionId;
+      if (!isUuid(targetCallId)) {
+        return new Response(
+          JSON.stringify({ error: "Missing or invalid callId", code: "MISSING_CALL_ID" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
 
       // Fetch the call row first (read-only, callee-only guard)
       const { data: call } = await supabase

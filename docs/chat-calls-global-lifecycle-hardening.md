@@ -128,7 +128,43 @@ No Edge Function or migration changes in this wave.
 
 - **`docs/qa/chat-call-wave4-validation.md`** — scenario matrix + log grep table for humans and future sessions.
 
+## Wave 5 — edge contract robustness + UX code coverage (2026-04-18)
+
+### `daily-room` hardening
+- **Input validation** (defensive 400s instead of falling through to the top-level 503 catch):
+  - `create_match_call`: `MISSING_MATCH_ID` when `matchId` is not a UUID.
+  - `answer_match_call`: `MISSING_CALL_ID` when `callId`/`sessionId` is not a UUID.
+  - `delete_room`: `MISSING_ROOM_NAME` when `roomName` is missing or does not match `^[A-Za-z0-9_-]{1,128}$`.
+- **Orphan Daily room safety**: `create_match_call` now wraps the caller-token mint in try/catch. If token creation fails after the Daily room is created but before the `match_calls` insert, the room is `deleteDailyRoom`'d synchronously and the response is `503 TOKEN_ISSUE_FAILED`. Previously this path threw through the generic catch, leaving a Daily room orphaned until its 2h `exp` elapsed (no `match_calls` row = no cleanup-worker coverage). New structured log: `create_match_call_token_failed_pre_insert`.
+- **Env-fallback observability**: module-level `console.warn` with event `daily_domain_env_fallback` when `DAILY_DOMAIN` is unset and the function falls back to the hardcoded default tenant. Makes the silent drift risk detectable in Edge Function logs.
+
+### Shared edge codes (`shared/chat/matchCallEdgeCodes.ts`)
+- `MATCH_CALL_EDGE_CODES` extended from `{ DUPLICATE_ACTIVE_CALL, TOKEN_ISSUE_FAILED }` to cover every `daily-room` response code: `ARCHIVED_MATCH`, `USERS_BLOCKED`, `PARTICIPANT_SUSPENDED`, `PARTICIPANT_PAUSED`, `PROFILE_UNAVAILABLE`, `ACCESS_DENIED`, `CALL_NOT_RINGING`, `NOT_FOUND`, `MISSING_MATCH_ID`, `MISSING_CALL_ID`, `MISSING_ROOM_NAME`, `UNAUTHORIZED`, `DAILY_PROVIDER_ERROR`.
+- `MATCH_CALL_EDGE_MESSAGES` now includes friendly copy for `ARCHIVED_MATCH`, `USERS_BLOCKED`, `PARTICIPANT_SUSPENDED`, `PARTICIPANT_PAUSED`, `CALL_NOT_RINGING` (in addition to the pre-existing duplicate/token entries). Unknown codes still fall through to the caller's generic copy, so this is additive and safe.
+
+### Clients
+- **Web `useMatchCall` (`src/hooks/useMatchCall.tsx`)**:
+  - `startCall`: unconditionally prefers `messageForMatchCallEdgeCode(createEdgeCode)` over the generic "Couldn't start call" toast; previously only `DUPLICATE_ACTIVE_CALL` got specific copy.
+  - `answerCall`: on non-token answer failures, prefers the friendly message; also skips the client `mark_missed` RPC when the server already reports `CALL_NOT_RINGING` (the row is already terminal — avoids an expected-to-fail transition race).
+- **Native `useMatchCall` (`apps/mobile/lib/useMatchCall.tsx`)**: mirror of the web changes for `Alert.alert` surfaces.
+- **Native `matchCallApi.ts`**: removed the dead `active → answer` mapping from `updateMatchCallStatus`; answer is server-owned via `daily-room/answer_match_call`, so the native helper now only covers `ended | declined | missed`.
+
+### Files
+- `supabase/functions/daily-room/index.ts`
+- `shared/chat/matchCallEdgeCodes.ts`
+- `src/hooks/useMatchCall.tsx`
+- `apps/mobile/lib/useMatchCall.tsx`
+- `apps/mobile/lib/matchCallApi.ts`
+
+### Validation
+- `npm run typecheck:core` — clean.
+- `npx tsc --noEmit -p tsconfig.app.json` — clean.
+- `cd apps/mobile && npm run typecheck` — clean.
+- `npm run lint` — 0 errors (pre-existing warnings backlog unchanged).
+
+No migration changes, no RLS changes, no API contract breakage. All new behavior is additive defense + better UX copy; callers of `daily-room` continue to parse the same JSON shape.
+
 ## Remaining Risks
 - No automated E2E/device/browser proof was added in this pass; cross-platform caller/callee validation is still a manual smoke-test requirement.
 - Global incoming handling is now app-scoped, but there is still no dedicated push-ringing path for a fully backgrounded app/browser.
-- Room deletion remains best-effort client cleanup via `daily-room delete_room`; there is still no server-side Daily teardown worker tied directly to terminal `match_calls` transitions.
+- Room deletion remains best-effort client cleanup via `daily-room delete_room` backed by the `match-call-room-cleanup` cron (terminal rows only); truly orphaned Daily rooms with no matching `match_calls` row still rely on Daily's own 2h room `exp` — Wave 5 closes the main source of such orphans (token-failure after room create), leaving only extreme paths (unhandled exception between `createDailyRoom` and the try/catch) uncovered.

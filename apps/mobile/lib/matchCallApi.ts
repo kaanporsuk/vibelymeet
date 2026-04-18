@@ -79,16 +79,15 @@ export async function answerMatchCall(callId: string): Promise<InvokeOk<AnswerMa
 
 /**
  * Backend-owned lifecycle transition via match_call_transition RPC.
- * Maps legacy action names to RPC action strings.
+ * Only callee-initiated answers are exposed through `daily-room/answer_match_call`;
+ * this helper covers the remaining client-originated terminal transitions.
  * Duration and timestamps are derived server-side; client-supplied values ignored.
  */
 export async function updateMatchCallStatus(
   callId: string,
-  status: 'active' | 'ended' | 'declined' | 'missed',
-  _extra?: { ended_at?: string; started_at?: string; duration_seconds?: number }
+  status: 'ended' | 'declined' | 'missed',
 ): Promise<void> {
   const actionMap: Record<string, string> = {
-    active: 'answer',
     ended: 'end',
     declined: 'decline',
     missed: 'mark_missed',

@@ -114,6 +114,8 @@ Daily also powers 1:1 voice/video calls between matched users.
 If `DAILY_DOMAIN` is absent, the function falls back to:
 - `vibelyapp.daily.co`
 
+The fallback is logged on module init as a `daily_domain_env_fallback` warning event so operators can detect drift without sampling individual requests.
+
 ### Hardcoded API base
 The function calls the Daily REST API at:
 - `https://api.daily.co/v1`
@@ -393,10 +395,10 @@ The repo proves the code contracts, but not the provider-side setup.
 ## 13. Daily-specific rebuild risks
 
 ## Risk 1 — Fallback domain can hide misconfiguration
-If `DAILY_DOMAIN` is missing, the function silently falls back to:
+If `DAILY_DOMAIN` is missing, the function falls back to:
 - `vibelyapp.daily.co`
 
-That can be helpful, but it can also mask the fact that a new environment is pointing to the wrong or outdated Daily domain.
+That can be helpful, but it can also mask the fact that a new environment is pointing to the wrong or outdated Daily domain. The fallback now emits a `daily_domain_env_fallback` warning log at module init so operators can catch drift in observability without waiting for a misrouted call.
 
 ## Risk 2 — `delete_room` is intentionally unauthenticated
 This is required so browser unload cleanup can use `sendBeacon` without bearer auth.
@@ -409,6 +411,8 @@ Both `useVideoCall` and `useMatchCall` call `delete_room` as best effort.
 If room deletion fails:
 - the app can still appear to end the call locally
 - Daily rooms may remain until provider-side expiration or manual cleanup
+
+Token issuance during `create_match_call` is now wrapped so that any failure after room creation but before the `match_calls` insert deletes the just-created Daily room. This closes the last orphan-room path that the `match-call-room-cleanup` cron could not reclaim (that cron only processes terminal `match_calls` rows; failed-insert rooms never existed in the table).
 
 ## Risk 4 — Frontend and backend each own part of call correctness
 The function handles authorization, room creation, and token creation.

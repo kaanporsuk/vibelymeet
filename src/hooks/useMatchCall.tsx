@@ -500,6 +500,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
       const answerEdgeCode = parseMatchCallEdgeCode(data);
       if (answerEdgeCode === MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED) {
+        // Server already rolled the call back to `ended`; don't double-transition.
         toast.error(
           messageForMatchCallEdgeCode(answerEdgeCode) ??
             "Could not connect — please try again in a moment.",
@@ -509,12 +510,17 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
 
       if (error || !data?.token) {
-        toast.error("Couldn't connect call");
+        // Prefer a known reason (e.g. CALL_NOT_RINGING) before the generic fallback.
+        toast.error(messageForMatchCallEdgeCode(answerEdgeCode) ?? "Couldn't connect call");
         const failedId = pendingIncoming.callId;
-        try {
-          await transitionCall(failedId, "mark_missed");
-        } catch {
-          // ignore
+        // CALL_NOT_RINGING means the row already transitioned to a terminal state
+        // (decline/end/miss); avoid racing another mark_missed — realtime will reconcile.
+        if (answerEdgeCode !== MATCH_CALL_EDGE_CODES.CALL_NOT_RINGING) {
+          try {
+            await transitionCall(failedId, "mark_missed");
+          } catch {
+            // ignore
+          }
         }
         await cleanupLocalCall({ deleteRoomName: answeredRoomName, skipServerTransition: true });
         return;
@@ -586,12 +592,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
         const createEdgeCode = parseMatchCallEdgeCode(data);
         if (error || !data?.token) {
-          const duplicate = createEdgeCode === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL;
+          // Surface known reasons (archived match, blocked users, paused/suspended,
+          // duplicate active call) with specific copy so product semantics come through;
+          // unknown codes fall through to the generic toast.
           toast.error(
-            duplicate
-              ? messageForMatchCallEdgeCode(createEdgeCode) ??
-                  "A call is already in progress for this chat."
-              : "Couldn't start call",
+            messageForMatchCallEdgeCode(createEdgeCode) ?? "Couldn't start call",
           );
           await cleanupLocalCall();
           return;
