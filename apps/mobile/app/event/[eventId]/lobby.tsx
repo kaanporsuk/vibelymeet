@@ -62,6 +62,12 @@ const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both
 /** Bounded interval for queued-session promotion (`drain_match_queue` + server `promote_ready_gate_if_eligible`). */
 const QUEUED_CONVERGENCE_DRAIN_INTERVAL_MS = 10_000;
 
+/**
+ * If the in-lobby Ready Gate overlay stops making progress (realtime gaps, missed transitions),
+ * hand off to standalone `/ready/[id]`, which runs its own subscriptions + polling — reduces stuck-overlay risk.
+ */
+const READY_GATE_LOBBY_OVERLAY_STALL_FALLBACK_MS = 30_000;
+
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
   const duration = duration_minutes ?? 60;
@@ -227,6 +233,69 @@ export default function EventLobbyScreen() {
       yieldingToReadyGateUi,
     ]
   );
+
+  /** Latest server vs overlay session ids for stall-fallback timeout (avoids stale closures). */
+  const readyGateStallGuardRef = useRef({
+    serverKind: null as string | null,
+    serverSessionId: null as string | null,
+    overlaySessionId: null as string | null,
+  });
+  readyGateStallGuardRef.current = {
+    serverKind: sameEventActiveSession?.kind ?? null,
+    serverSessionId:
+      sameEventActiveSession?.kind === 'ready_gate' ? sameEventActiveSession.sessionId : null,
+    overlaySessionId: activeSessionId,
+  };
+
+  const readyGateStallFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Dedupes `router.replace` if the timeout callback were ever re-entered before unmount. */
+  const readyGateStallFallbackNavigatedSidRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    readyGateStallFallbackNavigatedSidRef.current = null;
+  }, [activeSessionId, sameEventActiveSession?.sessionId]);
+
+  useEffect(() => {
+    if (readyGateStallFallbackTimerRef.current != null) {
+      clearTimeout(readyGateStallFallbackTimerRef.current);
+      readyGateStallFallbackTimerRef.current = null;
+    }
+
+    if (
+      !sessionHydrated ||
+      sameEventActiveSession?.kind !== 'ready_gate' ||
+      !activeSessionId ||
+      activeSessionId !== sameEventActiveSession.sessionId
+    ) {
+      return;
+    }
+
+    const sid = activeSessionId;
+    readyGateStallFallbackTimerRef.current = setTimeout(() => {
+      readyGateStallFallbackTimerRef.current = null;
+      const g = readyGateStallGuardRef.current;
+      if (g.serverKind !== 'ready_gate' || g.serverSessionId !== sid || g.overlaySessionId !== sid) {
+        return;
+      }
+      if (readyGateStallFallbackNavigatedSidRef.current === sid) {
+        return;
+      }
+      readyGateStallFallbackNavigatedSidRef.current = sid;
+      router.replace(`/ready/${sid}` as const);
+    }, READY_GATE_LOBBY_OVERLAY_STALL_FALLBACK_MS);
+
+    return () => {
+      if (readyGateStallFallbackTimerRef.current != null) {
+        clearTimeout(readyGateStallFallbackTimerRef.current);
+        readyGateStallFallbackTimerRef.current = null;
+      }
+    };
+  }, [
+    sessionHydrated,
+    activeSessionId,
+    sameEventActiveSession?.kind,
+    sameEventActiveSession?.sessionId,
+  ]);
 
   useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
 
