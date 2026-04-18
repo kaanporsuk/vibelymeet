@@ -51,6 +51,7 @@ import EventFilterSheet, {
 } from '@/components/events/EventFilterSheet';
 import * as Location from 'expo-location';
 import { parseEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
+import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisibility';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const TIME_FILTERS = [
@@ -888,14 +889,22 @@ export default function EventsListScreen() {
   const totalActiveCount = sheetFilterCount + (timeFilter ? 1 : 0);
   const isFiltering = searchQuery.length > 0 || timeFilter !== null || sheetFilterCount > 0;
 
-  /** Default hero/rails: optional strict upcoming-only (hides ended, including grace), matching web. */
+  /** Default hero/rails: grace window when upcoming-only off; strict when on (matches web). */
   const eventsForDefaultLayout = useMemo(() => {
-    if (!filters.upcomingOnly) return events;
-    const now = new Date();
-    return events.filter((e) => {
-      const eventEnd = new Date(e.eventDate.getTime() + (e.duration_minutes ?? 60) * 60 * 1000);
-      return eventEnd > now;
-    });
+    if (filters.upcomingOnly) {
+      const now = new Date();
+      return events.filter((e) => {
+        const eventEnd = new Date(e.eventDate.getTime() + (e.duration_minutes ?? 60) * 60 * 1000);
+        return eventEnd > now;
+      });
+    }
+    return events.filter((e) =>
+      isWithinDiscoverHomeGraceWindow({
+        status: e.status,
+        eventDate: e.eventDate,
+        durationMinutes: e.duration_minutes,
+      })
+    );
   }, [events, filters.upcomingOnly]);
 
   const liveEvents = useMemo(

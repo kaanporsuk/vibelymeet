@@ -11,24 +11,20 @@ import {
   type EventDeckProfile as DeckProfile,
 } from '@shared/eventProfileAdapters';
 
-const GRACE_HOURS = 6;
-
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
   const duration = duration_minutes ?? 60;
   return new Date(start.getTime() + duration * 60 * 1000);
 }
 
+/** Invite / picker parity with web `isEventVisible`: strict before scheduled end (no discover grace). */
 function isEventVisible(event: {
   event_date: string;
   duration_minutes?: number | null;
   status?: string | null;
 }): boolean {
   if (event.status === 'cancelled' || event.status === 'draft') return false;
-  const graceEnd = new Date(
-    getEventEndTime(event.event_date, event.duration_minutes).getTime() + GRACE_HOURS * 60 * 60 * 1000
-  );
-  return graceEnd > new Date();
+  return getEventEndTime(event.event_date, event.duration_minutes) > new Date();
 }
 
 /** Web parity: "Sat, Mar 22" */

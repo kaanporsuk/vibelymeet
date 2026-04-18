@@ -35,6 +35,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { differenceInSeconds, differenceInMinutes, differenceInHours, format } from "date-fns";
+import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 function isToday(date: Date): boolean {
@@ -231,6 +232,7 @@ const Dashboard = () => {
   const events = useMemo(() => {
     return visibleEventsRaw.map((e) => {
       const eventDate = new Date(e.event_date);
+      const durationMinutes = e.duration_minutes ?? 60;
       return {
         id: e.id,
         title: e.title,
@@ -241,13 +243,21 @@ const Dashboard = () => {
         tags: e.tags,
         status: e.computed_status || e.status,
         eventDate,
+        duration_minutes: durationMinutes,
       };
     });
   }, [visibleEventsRaw]);
 
-  /** Matches `get_visible_events` discover/home window (server-filtered); no day-boundary cutoff. */
+  /** Home rail: same window as `get_visible_events` (effective end + 6h). */
   const upcomingEvents = useMemo(
-    () => events.filter((e) => e.status !== "cancelled"),
+    () =>
+      events.filter((e) =>
+        isWithinDiscoverHomeGraceWindow({
+          status: e.status,
+          eventDate: e.eventDate,
+          durationMinutes: e.duration_minutes,
+        })
+      ),
     [events],
   );
 
