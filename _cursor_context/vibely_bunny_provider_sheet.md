@@ -72,18 +72,17 @@ Used for:
 
 Bunny is not the entire media layer.
 
-### Chat video messages are **not** on Bunny
-The chat video flow in `src/pages/Chat.tsx` uploads directly to the Supabase storage bucket:
-- `chat-videos`
+### Chat inline / Vibe Clip video **is** on Bunny (not Supabase Storage upload)
+The canonical send path uses the Edge Function `upload-chat-video`, which uploads to **Bunny Storage** using object paths prefixed with `chat-videos/…`. The CDN URL returned is persisted in `messages.video_url` with `message_kind = 'vibe_clip'` (see `supabase/migrations/20260329100000_vibe_clip_message_kind.sql`).
 
-It then stores a Supabase `publicUrl` in `messages.video_url`.
+Do **not** confuse the **path prefix** `chat-videos/` on Bunny with a Supabase Storage bucket of the same name — the implementation in `supabase/functions/upload-chat-video/index.ts` targets Bunny.
 
 ### Why this matters
-Do not assume “all media = Bunny.”
+Do not assume “chat video = Supabase bucket.”
 
-For this frozen baseline:
-- **Bunny** = vibe videos, images, event covers, voice uploads
-- **Supabase storage** = chat video messages and some legacy/other storage paths
+For this baseline:
+- **Bunny** = profile vibe video (stream), images, event covers, voice, **inline chat / Vibe Clip video** (`upload-chat-video`)
+- **Supabase storage** = residual buckets (e.g. `proof-selfies`) and legacy paths; not the active inline chat video upload pipeline
 
 This split matters for rebuild, cleanup, CDN migration, and future native work.
 
@@ -96,12 +95,14 @@ This split matters for rebuild, cleanup, CDN migration, and future native work.
 - `video-webhook`
 - `delete-vibe-video`
 - `upload-image`
+- `upload-chat-video` (Bunny Storage; chat / Vibe Clip inline video)
 - `upload-event-cover`
 - `upload-voice`
 
 ## Frontend and service layer
 - `src/components/vibe-video/VibeStudioModal.tsx`
 - `src/services/imageUploadService.ts`
+- `src/services/chatVideoUploadService.ts`
 - `src/services/eventCoverUploadService.ts`
 - `src/services/voiceUploadService.ts`
 - `src/utils/imageUrl.ts`
@@ -425,8 +426,8 @@ A simplistic “move everything to Bunny” cleanup can break historical media r
 ## Risk 6 — Deletion is best-effort remotely but definitive locally
 `delete-vibe-video` clears DB state even if Bunny remote delete fails, which can leave orphaned media.
 
-## Risk 7 — Bunny does not cover all media
-Chat videos use Supabase storage, so any rebuild or refactor that assumes Bunny owns every media surface will mis-handle chat video behavior.
+## Risk 7 — Mis-identifying the chat video provider
+Inline chat / Vibe Clip video uploads go through **`upload-chat-video` → Bunny**. Rebuild or refactors that assume Supabase Storage for those sends will mis-handle behavior; verify the Edge Function and `messages.video_url` contract instead.
 
 ---
 
@@ -483,8 +484,8 @@ Verify:
 - chat voice upload returns CDN URL
 - stored URL is playable in app
 
-### Step 9 — Boundary test
-Verify separately that chat video messages still use Supabase `chat-videos` and are not accidentally routed through Bunny assumptions.
+### Step 9 — Chat / Vibe Clip video upload test
+Verify `upload-chat-video` stores under Bunny (`chat-videos/…` path prefix), `send-message` persists `message_kind = vibe_clip` + `video_url`, and playback uses the returned CDN URL.
 
 ---
 

@@ -97,14 +97,14 @@ It carries:
 - the frozen migration history is not clean schema-only history
 - generated types expose at least two objects not created in the preserved migration set: `feedback`, `premium_history`
 - all 28 functions are in `supabase/config.toml`; 21 JWT-at-gateway, 7 public-but-protected
-- live Supabase storage: only `chat-videos` and `proof-selfies`; others legacy/Bunny-migrated
+- live Supabase storage buckets (project inventory): historically documented as `chat-videos` and `proof-selfies` among others; **inline chat / Vibe Clip video uploads** in current app code use **`upload-chat-video` → Bunny Storage** (path prefix `chat-videos/…`), not a Supabase upload for that pipeline — see `vibely_bunny_provider_sheet.md` §4
 - required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus existing)
 
 ### Verification tasks during rebuild
 - confirm linked project ref is correct
 - confirm all required secrets exist (including hardening secrets above)
 - confirm all 28 Edge Functions are deployed with correct verify_jwt
-- confirm live buckets `chat-videos` and `proof-selfies` exist and behave correctly
+- confirm live buckets still match project policy (e.g. `proof-selfies`); separately confirm **`upload-chat-video`** Bunny secrets/CDN for chat video sends
 - run migration parity check before any remote migration operations:
   - `./scripts/check_migration_parity.sh`
 

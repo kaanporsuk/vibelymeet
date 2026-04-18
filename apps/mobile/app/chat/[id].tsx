@@ -90,6 +90,7 @@ import {
   type ChatThreadPhotoItem,
 } from '@/components/chat/ChatThreadMediaViewer';
 import { dedupeLatestByRefId } from '../../../../shared/chat/refDedupe';
+import { clientRequestIdFromStructured } from '../../../../shared/chat/clientRequestId';
 import { format } from 'date-fns';
 import {
   buildThreadPresentationRows,
@@ -329,6 +330,13 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
     status: 'sending',
     localMedia,
   };
+}
+
+/** Outbox `item.id` is the canonical `client_request_id` sent to `send-message` (matches web merge). */
+function outboxRowClientRequestId(m: ThreadMessage): string | null {
+  if (isLocalTextMessage(m)) return m.localText.outboxItemId ?? null;
+  if (isLocalMediaMessage(m)) return m.localMedia.outboxItemId ?? null;
+  return null;
 }
 
 function threadSortKey(m: ThreadMessage): number {
@@ -606,7 +614,17 @@ export default function ChatThreadScreen() {
 
   const threadMessages = useMemo<ThreadMessage[]>(() => {
     const server = data?.messages ?? [];
-    const merged = [...server, ...outboxThreadMessages];
+    const serverClientIds = new Set<string>();
+    for (const m of server) {
+      const cid = clientRequestIdFromStructured(m.structuredPayload ?? null);
+      if (cid) serverClientIds.add(cid);
+    }
+    const locals = outboxThreadMessages.filter((row) => {
+      const cid = outboxRowClientRequestId(row);
+      if (!cid) return true;
+      return !serverClientIds.has(cid);
+    });
+    const merged = [...server, ...locals];
     return merged.sort((a, b) => threadSortKey(a) - threadSortKey(b));
   }, [data?.messages, outboxThreadMessages]);
 
