@@ -553,6 +553,7 @@ serve(async (req) => {
           JSON.stringify({
             event: "create_match_call_rejected",
             code: gate.code,
+            reject_layer: "precheck",
             match_id: matchId,
             caller_id: user.id,
             callee_id: calleeId,
@@ -601,7 +602,47 @@ serve(async (req) => {
 
       if (callError) {
         await deleteDailyRoom(roomName);
-        throw callError;
+        const pgCode = (callError as { code?: string }).code;
+        if (pgCode === "23505") {
+          console.log(
+            JSON.stringify({
+              event: "create_match_call_duplicate_db",
+              reject_layer: "db_unique",
+              code: "DUPLICATE_ACTIVE_CALL",
+              match_id: matchId,
+              caller_id: user.id,
+            }),
+          );
+          return new Response(
+            JSON.stringify({
+              error: "A call is already in progress for this match",
+              code: "DUPLICATE_ACTIVE_CALL",
+            }),
+            {
+              status: 409,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          );
+        }
+        console.error(
+          JSON.stringify({
+            event: "create_match_call_insert_failed",
+            match_id: matchId,
+            caller_id: user.id,
+            pg_code: pgCode,
+            message: (callError as { message?: string }).message,
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            error: "Could not create call",
+            code: "INSERT_FAILED",
+          }),
+          {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
       }
 
       console.log(
@@ -665,12 +706,19 @@ serve(async (req) => {
       // Fetch the call row first (read-only, callee-only guard)
       const { data: call } = await supabase
         .from("match_calls")
-        .select("id, callee_id, daily_room_name, daily_room_url, status")
+        .select("id, callee_id, daily_room_name, daily_room_url, status, match_id")
         .eq("id", targetCallId)
         .eq("callee_id", user.id)
         .maybeSingle();
 
       if (!call) {
+        console.log(
+          JSON.stringify({
+            event: "answer_match_call_not_found",
+            call_id: targetCallId,
+            callee_id: user.id,
+          }),
+        );
         return new Response(
           JSON.stringify({ error: "Call not found or access denied", code: "NOT_FOUND" }),
           {
@@ -734,6 +782,8 @@ serve(async (req) => {
           JSON.stringify({
             event: "answer_match_call_token_failed_after_transition",
             call_id: call.id,
+            match_id: call.match_id,
+            callee_id: user.id,
             detail,
           }),
         );
@@ -786,7 +836,14 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("Daily room error:", error);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(
+      JSON.stringify({
+        event: "daily_room_unhandled_exception",
+        detail,
+        stack: error instanceof Error ? error.stack : undefined,
+      }),
+    );
     return new Response(
       JSON.stringify({
         error: "Video service temporarily unavailable",

@@ -49,7 +49,8 @@
 - [ ] **Callee answer failure** (revoked token / network): row moves to `missed` (not stuck `ringing`); local overlay clears.
 - [ ] **Tab close / refresh mid-call:** best-effort terminal transition (web `pagehide`/`beforeunload` + cleanup; native background + unmount).
 - [ ] **Blocked / archived / duplicate call:** `create_match_call` returns documented `code` (403/409); no Daily room leak on rejected create.
-- [ ] **Answer ordering:** callee never gets a token without DB `active` (or receives 503 + ended row if token issuance fails after answer).
+- [ ] **Answer ordering:** callee never gets a token without DB `active` (or receives 503 + `TOKEN_ISSUE_FAILED` + ended row if token issuance fails after answer); UI shows connection message, not “missed call” framing.
+- [ ] **Duplicate create race:** two near-simultaneous `create_match_call` attempts → DB/index or precheck blocks; response **409** `DUPLICATE_ACTIVE_CALL`; no extra Daily room left for the losing attempt.
 - [ ] **Notification prefs:** turning off **Messages** but leaving **Match calls** on still delivers `match_call` push; inverse works.
 
 ---
@@ -82,5 +83,6 @@ Stop and file an issue if you see any of:
 
 ## Reference (short)
 
+- **Wave 4 deep validation** (log filters + race/outbound-restore scenarios): `docs/qa/chat-call-wave4-validation.md`
 - Full Playwright E2E across web + two native builds is **out of scope** for this checklist; this is the **canonical manual** gate.
 - **Acceptable imperfections for launch:** browser/OS may not “ring” like a phone; PWA/iOS web push varies; cron cleanup requires pg_cron + pg_net + vault when using scheduled HTTP.
