@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
+import * as Sentry from "@sentry/react";
 import { useReadyGate } from "@/hooks/useReadyGate";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -24,6 +25,17 @@ const TERMINAL_READY_GATE_STATUSES = new Set(["forfeited", "expired"]);
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[ReadyGateOverlay] ${message}`, data ?? {});
+}
+
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
 }
 
 function videoSessionIndicatesActiveDate(row: { state?: unknown; phase?: unknown } | null): boolean {
@@ -53,6 +65,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       setIsTransitioning(true);
       markVideoDateEntryPipelineStarted(sessionId);
       readyGateDebug("success-path navigation to date", { sessionId, source });
+      vdbg("lobby_navigate_to_date", {
+        trigger: `ready_gate_overlay_${source}`,
+        sessionId,
+        eventId,
+        target: `/date/${sessionId}`,
+      });
       setTimeout(() => {
         navigate(`/date/${sessionId}`, { replace: true });
       }, 1200);

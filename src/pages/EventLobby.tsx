@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio } from "lucide-react";
+import * as Sentry from "@sentry/react";
 import { Button } from "@/components/ui/button";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -32,6 +33,34 @@ const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both
 function lobbyDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[EventLobby] ${message}`, data ?? {});
+}
+
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
+}
+
+function logVdbgSessionStage(message: string, sessionId: string, data?: Record<string, unknown>) {
+  vdbg(message, { sessionId, ...(data ?? {}) });
+  void supabase
+    .from("video_sessions")
+    .select("id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name")
+    .eq("id", sessionId)
+    .maybeSingle()
+    .then(({ data: row, error }) => {
+      vdbg(`${message}_stage`, {
+        sessionId,
+        ...(data ?? {}),
+        row: row ?? null,
+        error: error ? { code: error.code, message: error.message } : null,
+      });
+    });
 }
 
 function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "in_date" {
@@ -104,9 +133,15 @@ const EventLobby = () => {
     if (activeSessionIdRef.current !== sessionId) {
       lobbyDebug("activeSessionId set", { sessionId, source });
     }
+    logVdbgSessionStage("ready_gate_open", sessionId, {
+      trigger: source,
+      eventId,
+      activeSessionId: activeSessionIdRef.current,
+      dateNavigationSessionId: dateNavigationSessionIdRef.current,
+    });
     activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
-  }, []);
+  }, [eventId]);
 
   const clearReadyGateSession = useCallback((source: string) => {
     if (dateNavigationSessionIdRef.current) {
@@ -131,9 +166,14 @@ const EventLobby = () => {
       setDateNavigationSessionId(sessionId);
       markVideoDateEntryPipelineStarted(sessionId);
       lobbyDebug("ready-gate success path navigating to date", { sessionId, source });
+      logVdbgSessionStage("lobby_navigate_to_date", sessionId, {
+        trigger: source,
+        target: `/date/${sessionId}`,
+        eventId,
+      });
       navigate(`/date/${sessionId}`, { replace: true });
     },
-    [navigate]
+    [eventId, navigate]
   );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
@@ -301,6 +341,22 @@ const EventLobby = () => {
   // Backend-truth-first: scoped active session for this event (ready gate vs /date)
   useEffect(() => {
     if (!sessionHydrated || !eventId) return;
+    vdbg("lobby_mount_active_session", {
+      eventId,
+      hydrated: sessionHydrated,
+      activeSessionExists: Boolean(sameEventScopedSession),
+      activeSessionKind: sameEventScopedSession?.kind ?? null,
+      activeSessionId: sameEventScopedSession?.sessionId ?? null,
+      activeSessionQueueStatus: sameEventScopedSession?.queueStatus ?? null,
+      stickySessionId: activeSessionIdRef.current,
+    });
+    if (sameEventScopedSession?.sessionId) {
+      logVdbgSessionStage("lobby_mount_active_session_detail", sameEventScopedSession.sessionId, {
+        eventId,
+        activeSessionKind: sameEventScopedSession.kind,
+        activeSessionQueueStatus: sameEventScopedSession.queueStatus ?? null,
+      });
+    }
     lobbyDebug("active session hydration observed", {
       hydrated: sessionHydrated,
       eventId,
