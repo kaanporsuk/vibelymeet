@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
+import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -17,6 +18,18 @@ interface ReadyGateOverlayProps {
 }
 
 const GATE_TIMEOUT = 30;
+const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
+const TERMINAL_READY_GATE_STATUSES = new Set(["forfeited", "expired"]);
+
+function readyGateDebug(message: string, data?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+  console.log(`[ReadyGateOverlay] ${message}`, data ?? {});
+}
+
+function videoSessionIndicatesActiveDate(row: { state?: unknown; phase?: unknown } | null): boolean {
+  if (!row) return false;
+  return row.state === "handshake" || row.state === "date" || row.phase === "handshake" || row.phase === "date";
+}
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps) => {
   const navigate = useNavigate();
@@ -29,20 +42,34 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const closedRef = useRef(false);
+  const dateNavigationStartedRef = useRef(false);
   const invalidCloseToastRef = useRef(false);
 
+  const navigateToDate = useCallback(
+    (source: string) => {
+      if (dateNavigationStartedRef.current) return;
+      dateNavigationStartedRef.current = true;
+      closedRef.current = true;
+      setIsTransitioning(true);
+      markVideoDateEntryPipelineStarted(sessionId);
+      readyGateDebug("success-path navigation to date", { sessionId, source });
+      setTimeout(() => {
+        navigate(`/date/${sessionId}`, { replace: true });
+      }, 1200);
+    },
+    [navigate, sessionId]
+  );
+
   const handleBothReady = useCallback(() => {
-    if (closedRef.current) return;
-    setIsTransitioning(true);
-    setTimeout(() => {
-      navigate(`/date/${sessionId}`);
-    }, 1200);
-  }, [navigate, sessionId]);
+    if (closedRef.current && !dateNavigationStartedRef.current) return;
+    navigateToDate("both_ready");
+  }, [navigateToDate]);
 
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip") => {
-      if (closedRef.current) return;
+      if (closedRef.current || dateNavigationStartedRef.current) return;
       closedRef.current = true;
+      readyGateDebug("terminal ready-gate close", { sessionId, reason });
       setStatus("browsing");
       toast(
         reason === "timeout"
@@ -52,7 +79,21 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       );
       onClose();
     },
-    [setStatus, onClose]
+    [setStatus, onClose, sessionId]
+  );
+
+  const closeAsStale = useCallback(
+    (source: string, detail?: Record<string, unknown>) => {
+      if (closedRef.current || dateNavigationStartedRef.current) return;
+      closedRef.current = true;
+      readyGateDebug("stale ready-gate close", { sessionId, source, ...(detail ?? {}) });
+      if (!invalidCloseToastRef.current) {
+        invalidCloseToastRef.current = true;
+        toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
+      }
+      onClose();
+    },
+    [onClose, sessionId]
   );
 
   const {
@@ -69,40 +110,183 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
     onForfeited: handleForfeited,
   });
 
-  // Set status to in_ready_gate on mount
-  useEffect(() => {
-    setStatus("in_ready_gate");
-  }, [setStatus]);
+  const reconcileSession = useCallback(
+    async (source: string) => {
+      if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
 
+      const [{ data: reg, error: regError }, { data: vs, error: vsError }] = await Promise.all([
+        supabase
+          .from("event_registrations")
+          .select("queue_status, current_room_id")
+          .eq("event_id", eventId)
+          .eq("profile_id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("video_sessions")
+          .select("participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status")
+          .eq("id", sessionId)
+          .maybeSingle(),
+      ]);
+
+      if (dateNavigationStartedRef.current) return;
+
+      if (regError || vsError) {
+        readyGateDebug("session reconciliation deferred after query error", {
+          sessionId,
+          source,
+          regError: regError?.message,
+          vsError: vsError?.message,
+        });
+        return;
+      }
+
+      const sameRoom = reg?.current_room_id === sessionId;
+      const queueStatus = reg?.queue_status ?? null;
+      const readyGateStatus = (vs?.ready_gate_status as string | null | undefined) ?? null;
+      const isParticipant = vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
+
+      readyGateDebug("session reconciliation", {
+        sessionId,
+        source,
+        queueStatus,
+        sameRoom,
+        vsState: vs?.state ?? null,
+        vsPhase: vs?.phase ?? null,
+        readyGateStatus,
+        isParticipant,
+        ended: Boolean(vs?.ended_at),
+      });
+
+      if (!vs || vs.ended_at || (readyGateStatus && TERMINAL_READY_GATE_STATUSES.has(readyGateStatus))) {
+        closeAsStale(source, {
+          reason: !vs ? "session_missing" : vs.ended_at ? "session_ended" : readyGateStatus,
+        });
+        return;
+      }
+
+      if (!isParticipant) {
+        closeAsStale(source, { reason: "not_session_participant" });
+        return;
+      }
+
+      if ((sameRoom && ACTIVE_DATE_QUEUE_STATUSES.has(queueStatus ?? "")) || videoSessionIndicatesActiveDate(vs)) {
+        navigateToDate(source);
+        return;
+      }
+
+      if (!reg) {
+        closeAsStale(source, { reason: "registration_missing" });
+        return;
+      }
+
+      if (reg?.current_room_id && reg.current_room_id !== sessionId) {
+        closeAsStale(source, { reason: "different_current_room", currentRoomId: reg.current_room_id });
+        return;
+      }
+
+      if (queueStatus && queueStatus !== "in_ready_gate") {
+        closeAsStale(source, { reason: "registration_not_in_ready_gate", queueStatus });
+      }
+    },
+    [sessionId, eventId, user?.id, navigateToDate, closeAsStale]
+  );
+
+  // Set status to in_ready_gate only when that will not overwrite active date truth.
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
     let cancelled = false;
     void (async () => {
-      const [{ data: reg }, { data: vs }] = await Promise.all([
-        supabase
-          .from("event_registrations")
-          .select("queue_status")
-          .eq("event_id", eventId)
-          .eq("profile_id", user.id)
-          .maybeSingle(),
-        supabase.from("video_sessions").select("ended_at").eq("id", sessionId).maybeSingle(),
-      ]);
-      if (cancelled) return;
-      if (!vs || vs.ended_at != null || reg?.queue_status !== "in_ready_gate") {
-        if (!invalidCloseToastRef.current) {
-          invalidCloseToastRef.current = true;
-          toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
-        }
-        onClose();
+      const { data: reg } = await supabase
+        .from("event_registrations")
+        .select("queue_status, current_room_id")
+        .eq("event_id", eventId)
+        .eq("profile_id", user.id)
+        .maybeSingle();
+      if (cancelled || dateNavigationStartedRef.current) return;
+      if (reg?.current_room_id === sessionId && !ACTIVE_DATE_QUEUE_STATUSES.has(reg.queue_status ?? "")) {
+        void setStatus("in_ready_gate");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sessionId, eventId, user?.id, onClose]);
+  }, [sessionId, eventId, user?.id, setStatus]);
 
   useEffect(() => {
+    void reconcileSession("initial");
+  }, [reconcileSession]);
+
+  useEffect(() => {
+    if (!sessionId || !eventId || !user?.id) return;
+    const channel = supabase
+      .channel(`ready-gate-reconcile-${sessionId}-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "event_registrations",
+          filter: `profile_id=eq.${user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          if (row.event_id !== eventId) return;
+          const queueStatus = row.queue_status;
+          const currentRoomId = row.current_room_id;
+          if (currentRoomId === sessionId && ACTIVE_DATE_QUEUE_STATUSES.has(String(queueStatus))) {
+            readyGateDebug("same-session active date detected from registration realtime", {
+              sessionId,
+              queueStatus,
+            });
+            navigateToDate("registration_realtime");
+            return;
+          }
+          void reconcileSession("registration_realtime");
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "video_sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const row = payload.new as Record<string, unknown>;
+          if (videoSessionIndicatesActiveDate(row)) {
+            readyGateDebug("same-session active date detected from video session realtime", {
+              sessionId,
+              state: row.state,
+              phase: row.phase,
+            });
+            navigateToDate("video_session_realtime");
+            return;
+          }
+          void reconcileSession("video_session_realtime");
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId, eventId, user?.id, navigateToDate, reconcileSession]);
+
+  useEffect(() => {
+    if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
+    const intervalId = setInterval(() => {
+      void reconcileSession("poll");
+    }, 2000);
+    return () => clearInterval(intervalId);
+  }, [sessionId, eventId, user?.id, reconcileSession]);
+
+  useEffect(() => {
+    closedRef.current = false;
+    dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
+    setIsTransitioning(false);
+    setTimeLeft(GATE_TIMEOUT);
   }, [sessionId]);
 
   // Fetch partner photo + shared vibes
@@ -368,6 +552,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               {/* Skip */}
               <button
                 onClick={() => {
+                  if (dateNavigationStartedRef.current) return;
                   closedRef.current = true;
                   skip();
                   setStatus("browsing");
@@ -392,6 +577,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               </motion.div>
               <button
                 onClick={() => {
+                  if (dateNavigationStartedRef.current) return;
                   closedRef.current = true;
                   skip();
                   setStatus("browsing");

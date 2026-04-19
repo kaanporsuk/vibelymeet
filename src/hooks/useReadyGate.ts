@@ -45,6 +45,11 @@ function isTerminalReadyGateStatus(status: ReadyGateStatus): status is TerminalR
   return TERMINAL_READY_GATE_STATUS_VALUES.includes(status);
 }
 
+function readyGateDebug(message: string, data?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+  console.log(`[useReadyGate] ${message}`, data ?? {});
+}
+
 export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGateOptions) => {
   const { user } = useUserProfile();
   const [state, setState] = useState<ReadyGateState>({
@@ -73,6 +78,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
   const notifyTerminal = useCallback((status: TerminalReadyGateStatus) => {
     if (terminalHandledRef.current === status) return;
     terminalHandledRef.current = status;
+    readyGateDebug("terminal status notification", { sessionId, status });
     if (status === ReadyGateStatus.BothReady) {
       onBothReadyRef.current();
       return;
@@ -80,7 +86,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     if (status === ReadyGateStatus.Forfeited || status === ReadyGateStatus.Expired) {
       onForfeitedRef.current("timeout");
     }
-  }, []);
+  }, [sessionId]);
 
   const fetchSession = useCallback(async () => {
       if (!sessionId || !user?.id) return;

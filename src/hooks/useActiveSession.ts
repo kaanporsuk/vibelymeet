@@ -24,6 +24,7 @@ export function useActiveSession(
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const mounted = useRef(true);
+  const lastHydrationDebugKey = useRef<string | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -32,12 +33,32 @@ export function useActiveSession(
     };
   }, []);
 
+  const commitActiveSession = useCallback((next: ActiveSession | null, reason: string) => {
+    if (!mounted.current) return;
+    setActiveSession(next);
+    setHydrated(true);
+
+    if (import.meta.env.DEV) {
+      const key = next
+        ? `${next.kind}:${next.sessionId}:${next.eventId}:${next.queueStatus}:${reason}`
+        : `null:${reason}`;
+      if (lastHydrationDebugKey.current !== key) {
+        lastHydrationDebugKey.current = key;
+        console.log("[useActiveSession] hydration result", {
+          reason,
+          kind: next?.kind ?? null,
+          sessionId: next?.sessionId ?? null,
+          eventId: next?.eventId ?? null,
+          queueStatus: next?.queueStatus ?? null,
+          scopedEventId: eventFilter,
+        });
+      }
+    }
+  }, [eventFilter]);
+
   const check = useCallback(async () => {
     if (!userId) {
-      if (mounted.current) {
-        setActiveSession(null);
-        setHydrated(true);
-      }
+      commitActiveSession(null, "missing_user");
       return;
     }
 
@@ -50,28 +71,19 @@ export function useActiveSession(
 
     if (regError) {
       if (import.meta.env.DEV) console.warn("[useActiveSession] reg query failed:", regError.message);
-      if (mounted.current) {
-        setActiveSession(null);
-        setHydrated(true);
-      }
+      commitActiveSession(null, "reg_query_failed");
       return;
     }
 
     const reg = pickRegistrationForActiveSession(regs ?? []);
 
     if (!reg?.current_room_id) {
-      if (mounted.current) {
-        setActiveSession(null);
-        setHydrated(true);
-      }
+      commitActiveSession(null, "no_active_registration_room");
       return;
     }
 
     if (eventFilter && reg.event_id !== eventFilter) {
-      if (mounted.current) {
-        setActiveSession(null);
-        setHydrated(true);
-      }
+      commitActiveSession(null, "different_event");
       return;
     }
 
@@ -84,18 +96,12 @@ export function useActiveSession(
 
     if (sessionError) {
       if (import.meta.env.DEV) console.warn("[useActiveSession] session query failed:", sessionError.message);
-      if (mounted.current) {
-        setActiveSession(null);
-        setHydrated(true);
-      }
+      commitActiveSession(null, "session_query_failed");
       return;
     }
 
     if (!session) {
-      if (mounted.current) {
-        setActiveSession(null);
-        setHydrated(true);
-      }
+      commitActiveSession(null, "session_missing_or_ended");
       return;
     }
 
@@ -120,17 +126,14 @@ export function useActiveSession(
       partnerName,
     };
 
-    if (mounted.current) {
-      if (qs === "in_ready_gate") {
-        setActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" });
-      } else if (qs === "in_handshake" || qs === "in_date") {
-        setActiveSession({ kind: "video", ...base, queueStatus: qs });
-      } else {
-        setActiveSession(null);
-      }
-      setHydrated(true);
+    if (qs === "in_ready_gate") {
+      commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
+    } else if (qs === "in_handshake" || qs === "in_date") {
+      commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
+    } else {
+      commitActiveSession(null, "unsupported_registration_status");
     }
-  }, [userId, eventFilter]);
+  }, [userId, eventFilter, commitActiveSession]);
 
   useEffect(() => {
     void check();
@@ -166,6 +169,38 @@ export function useActiveSession(
     return () => {
       void supabase.removeChannel(channel);
     };
+  }, [userId, check]);
+
+  useEffect(() => {
+    if (!userId || !eventFilter) return;
+
+    const channel = supabase
+      .channel(`active-session-video-${userId}-${eventFilter}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "video_sessions",
+          filter: `event_id=eq.${eventFilter}`,
+        },
+        () => {
+          void check();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId, eventFilter, check]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const intervalId = setInterval(() => {
+      void check();
+    }, 8000);
+    return () => clearInterval(intervalId);
   }, [userId, check]);
 
   const stable = useMemo(
