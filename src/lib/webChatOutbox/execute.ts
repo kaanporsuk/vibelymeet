@@ -34,6 +34,22 @@ function getServerMessageId(row: unknown): string | null {
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
+function assertUsableChatImagePublicUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new WebOutboxExecuteError("Photo CDN is not configured. Try again later.");
+  }
+
+  const isHttp = parsed.protocol === "https:" || parsed.protocol === "http:";
+  const isPlaceholder = parsed.protocol === "data:" || parsed.hostname === "placehold.co";
+  const hasPhotoPath = parsed.pathname.includes("/photos/");
+  if (!isHttp || isPlaceholder || parsed.hostname === "undefined" || !hasPhotoPath) {
+    throw new WebOutboxExecuteError("Photo CDN is not configured. Try again later.");
+  }
+}
+
 async function invokeSendMessageEdge(params: {
   matchId: string;
   content: string;
@@ -141,6 +157,12 @@ export async function executeWebOutboxItem(
         const file = new File([blob], "chat.jpg", { type: payload.mimeType || blob.type || "image/jpeg" });
         const { path } = await uploadImageToBunny(file, session.access_token, "chat", matchId);
         publicUrl = getImageUrl(path, { quality: 88 });
+      }
+      try {
+        assertUsableChatImagePublicUrl(publicUrl);
+      } catch (e) {
+        uploadedPublicUrl = "";
+        throw e;
       }
       uploadedPublicUrl = publicUrl;
       const content = formatChatImageMessageContent(publicUrl);

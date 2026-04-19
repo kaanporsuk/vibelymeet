@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
@@ -174,9 +175,8 @@ serve(async (req) => {
       }
     }
 
-    const cdnHostname = Deno.env.get("BUNNY_CDN_HOSTNAME")!;
-    const videoUrl = `https://${cdnHostname}/${storagePath}`;
-    const thumbnailUrl = thumbnailPath ? `https://${cdnHostname}/${thumbnailPath}` : null;
+    const videoUrl = bunnyCdnUrl(storagePath);
+    const thumbnailUrl = thumbnailPath ? bunnyCdnUrl(thumbnailPath) : null;
     const aspectRatioNum = typeof aspectRatioRaw === "string" ? Number.parseFloat(aspectRatioRaw) : NaN;
     const aspectRatio =
       Number.isFinite(aspectRatioNum) && aspectRatioNum > 0 ? aspectRatioNum : null;

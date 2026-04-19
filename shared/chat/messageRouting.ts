@@ -86,12 +86,28 @@ export function extractVibeClipMeta(row: {
   };
 }
 
+export type ParseChatImageMessageOptions = {
+  /**
+   * Allow local preview URLs for optimistic UI only. Server rows and preview
+   * labels should keep the default strict http(s)-only behavior.
+   */
+  allowLocalPreviewUrls?: boolean;
+};
+
+function isLocalPreviewImageUrl(url: string): boolean {
+  return url.startsWith("blob:") || url.startsWith("file:") || url.startsWith("data:image/");
+}
+
 /** Returns image URL when this text should render as a photo bubble. */
-export function parseChatImageMessageContent(content: string): string | null {
+export function parseChatImageMessageContent(
+  content: string,
+  options?: ParseChatImageMessageOptions,
+): string | null {
   const t = content.trim();
   if (t.startsWith(CHAT_IMAGE_MESSAGE_PREFIX)) {
     const u = t.slice(CHAT_IMAGE_MESSAGE_PREFIX.length).trim();
     if (/^https?:\/\//i.test(u)) return u;
+    if (options?.allowLocalPreviewUrls && isLocalPreviewImageUrl(u)) return u;
     return null;
   }
   // Legacy / plain URL-only photo sends (Supabase storage or CDN)

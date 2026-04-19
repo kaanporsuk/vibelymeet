@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { bunnyCdnUrl } from "../_shared/bunny-media.ts";
 import { MEDIA_FAMILIES, PROVIDERS, registerMediaAsset } from "../_shared/media-lifecycle.ts";
 
 const corsHeaders = {
@@ -135,9 +136,8 @@ serve(async (req) => {
       );
     }
 
-    // Return both the path and the full CDN URL
-    const cdnHostname = Deno.env.get("BUNNY_CDN_HOSTNAME")!;
-    const audioUrl = `https://${cdnHostname}/${storagePath}`;
+    // Return both the path and the full CDN URL.
+    const audioUrl = bunnyCdnUrl(storagePath);
 
     try {
       const lifecycle = await registerMediaAsset(adminSupabase, {

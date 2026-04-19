@@ -1,4 +1,8 @@
-const BUNNY_CDN = `https://${import.meta.env.VITE_BUNNY_CDN_HOSTNAME}`;
+const BUNNY_CDN = (() => {
+  const raw = import.meta.env.VITE_BUNNY_CDN_HOSTNAME ?? "";
+  const host = raw.replace(/^["']|["']$/g, "").trim();
+  return host ? `https://${host}` : "";
+})();
 const BUNNY_CDN_PATH_PREFIX = (() => {
   const raw = import.meta.env.VITE_BUNNY_CDN_PATH_PREFIX ?? "";
   return raw.trim().replace(/^\/+|\/+$/g, "");
@@ -40,6 +44,7 @@ export function getImageUrl(
 
   // Bunny path — starts with "photos/" (new uploads)
   if (p.startsWith("photos/")) {
+    if (!BUNNY_CDN) return PLACEHOLDER;
     const params = new URLSearchParams();
     if (opts?.width) params.set("width", String(opts.width));
     if (opts?.height) params.set("height", String(opts.height));

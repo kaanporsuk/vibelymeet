@@ -33,6 +33,22 @@ function getServerMessageId(row: unknown): string | null {
   return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
+function assertUsableChatImagePublicUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new OutboxExecuteError('Photo CDN is not configured. Try again later.');
+  }
+
+  const isHttp = parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  const isPlaceholder = parsed.protocol === 'data:' || parsed.hostname === 'placehold.co';
+  const hasPhotoPath = parsed.pathname.includes('/photos/');
+  if (!isHttp || isPlaceholder || parsed.hostname === 'undefined' || !hasPhotoPath) {
+    throw new OutboxExecuteError('Photo CDN is not configured. Try again later.');
+  }
+}
+
 export async function executeOutboxItem(
   item: ChatOutboxItem,
   queryClient: QueryClient
@@ -55,6 +71,12 @@ export async function executeOutboxItem(
       let publicUrl = item.uploadedPublicUrl;
       if (!publicUrl) {
         publicUrl = await uploadChatImageMessage(payload.uri, payload.mimeType, matchId);
+      }
+      try {
+        assertUsableChatImagePublicUrl(publicUrl);
+      } catch (e) {
+        uploadedPublicUrl = '';
+        throw e;
       }
       uploadedPublicUrl = publicUrl;
       const row = await invokeSendMessageEdge({

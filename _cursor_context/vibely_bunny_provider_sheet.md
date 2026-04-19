@@ -77,6 +77,8 @@ The canonical send path uses the Edge Function `upload-chat-video`, which upload
 
 Do **not** confuse the **path prefix** `chat-videos/` on Bunny with a Supabase Storage bucket of the same name — the implementation in `supabase/functions/upload-chat-video/index.ts` targets Bunny.
 
+If `BUNNY_CDN_PATH_PREFIX` is configured, `upload-chat-video` returns `https://${BUNNY_CDN_HOSTNAME}/{prefix}/chat-videos/...`; the DB setting `app.bunny_cdn_path_prefix` must match so lifecycle cleanup stores provider paths as `chat-videos/...`.
+
 ### Why this matters
 Do not assume “chat video = Supabase bucket.”
 
@@ -124,6 +126,7 @@ This split matters for rebuild, cleanup, CDN migration, and future native work.
 ## Frontend variables
 - `VITE_BUNNY_STREAM_CDN_HOSTNAME`
 - `VITE_BUNNY_CDN_HOSTNAME`
+- `VITE_BUNNY_CDN_PATH_PREFIX` (optional; mirror to native `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX` when the pull zone needs a storage path prefix)
 
 ## Edge Function variables
 - `BUNNY_STREAM_LIBRARY_ID`
@@ -132,6 +135,7 @@ This split matters for rebuild, cleanup, CDN migration, and future native work.
 - `BUNNY_STORAGE_ZONE`
 - `BUNNY_STORAGE_API_KEY`
 - `BUNNY_CDN_HOSTNAME`
+- `BUNNY_CDN_PATH_PREFIX` (optional; must match database setting `app.bunny_cdn_path_prefix` for lifecycle sync)
 - `BUNNY_VIDEO_WEBHOOK_TOKEN` (required for `video-webhook`; URL query param; fail-closed if missing)
 
 ## Operator note
@@ -276,8 +280,10 @@ This can create orphaned remote media if Stream credentials or deletion calls ar
 
 ### URL resolution behavior
 Frontend helper `src/utils/imageUrl.ts` resolves Bunny image paths like:
-- if path starts with `photos/` → serve from `https://${VITE_BUNNY_CDN_HOSTNAME}/...`
+- if path starts with `photos/` → serve from `https://${VITE_BUNNY_CDN_HOSTNAME}/{optional-prefix}/...`
 - if path is a legacy Supabase storage path → serve from Supabase storage URL
+
+Chat image sends must not persist placeholder or `https://undefined/...` URLs. Web and native outbox executors validate the resolved `photos/` CDN URL before calling `send-message`.
 
 ### Important implication
 Image delivery is a **hybrid historical model**:
@@ -334,7 +340,9 @@ Event covers depend on:
    - or fallback `voice/{userId}/{timestamp}.{ext}`
 5. returns:
    - `path`
-   - `url = https://${BUNNY_CDN_HOSTNAME}/${storagePath}`
+   - `url = https://${BUNNY_CDN_HOSTNAME}/{optional-prefix}/${storagePath}`
+
+The URL is built through `supabase/functions/_shared/bunny-media.ts` so `BUNNY_CDN_PATH_PREFIX` is applied consistently with `upload-chat-video`.
 
 ### Important implication
 Voice-message persistence depends on Bunny Storage/CDN, but the metadata is then stored into the chat/message model separately.
@@ -441,8 +449,10 @@ Confirm presence and correctness of:
 - `BUNNY_STORAGE_ZONE`
 - `BUNNY_STORAGE_API_KEY`
 - `BUNNY_CDN_HOSTNAME`
+- `BUNNY_CDN_PATH_PREFIX` (optional; keep DB `app.bunny_cdn_path_prefix` in sync)
 - `VITE_BUNNY_STREAM_CDN_HOSTNAME`
 - `VITE_BUNNY_CDN_HOSTNAME`
+- `VITE_BUNNY_CDN_PATH_PREFIX` / `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX` (optional)
 
 ### Step 2 — Vibe-video create/upload test
 Verify:
@@ -525,4 +535,3 @@ To rebuild it correctly, you need more than the code:
 - preservation of the hybrid media model where Bunny and Supabase storage coexist
 
 This sheet is the provider-level control point for that reality.
-

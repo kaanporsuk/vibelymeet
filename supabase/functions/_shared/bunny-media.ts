@@ -31,6 +31,31 @@ function requireEnv(name: string): string {
   return v;
 }
 
+function optionalEnv(name: string): string {
+  return Deno.env.get(name)?.trim() ?? "";
+}
+
+/**
+ * Build a Bunny CDN URL for a Bunny Storage object path. Supports pull-zone
+ * setups where the storage zone is exposed under an extra CDN path prefix.
+ */
+export function bunnyCdnUrl(storagePath: string): string {
+  const host = requireEnv("BUNNY_CDN_HOSTNAME")
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^\/+|\/+$/g, "");
+  const prefix = optionalEnv("BUNNY_CDN_PATH_PREFIX").replace(/^\/+|\/+$/g, "");
+  const normalizedPath = storagePath.trim().replace(/^\/+/, "");
+
+  if (!host) throw new Error("[bunny-media] missing required env: BUNNY_CDN_HOSTNAME");
+  if (!normalizedPath || normalizedPath.includes("..")) {
+    throw new Error("[bunny-media] rejected invalid CDN storage path");
+  }
+
+  const pathPart = prefix ? `${prefix}/${normalizedPath}` : normalizedPath;
+  return `https://${host}/${pathPart}`;
+}
+
 // ─── Bunny Stream (vibe videos) ─────────────────────────────────────────────
 
 /**

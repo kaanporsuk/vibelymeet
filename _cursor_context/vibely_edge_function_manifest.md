@@ -302,8 +302,8 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Frontend call sites:** `src/services/voiceUploadService.ts`
 - **Primary tables touched:** `matches`, `media_assets`
 - **External services:** Bunny Storage / Bunny CDN
-- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`, `BUNNY_CDN_HOSTNAME`
-- **Rebuild notes:** Sprint 3 requires `conversation_id` / match membership and registers a `voice_message` asset before the later `send-message` publish step attaches participant-retention refs.
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `BUNNY_STORAGE_ZONE`, `BUNNY_STORAGE_API_KEY`, `BUNNY_CDN_HOSTNAME`, optional `BUNNY_CDN_PATH_PREFIX`
+- **Rebuild notes:** Sprint 3 requires `conversation_id` / match membership and registers a `voice_message` asset before the later `send-message` publish step attaches participant-retention refs. If `BUNNY_CDN_PATH_PREFIX` is set, database setting `app.bunny_cdn_path_prefix` must match for lifecycle URL normalization.
 
 ---
 
@@ -449,7 +449,7 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Primary tables touched:** `matches`, `messages`, `media_assets`, `media_references`, `chat_media_retention_states`, plus `notification_log` indirectly via `send-notification`
 - **External services:** OneSignal (indirectly via `send-notification`)
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** text path keeps short-window idempotency (same sender, match, content within 5s). Voice/Vibe Clip use `structured_payload.client_request_id` + partial unique index. Sprint 3 now calls `sync_chat_message_media` after insert for image/voice/vibe-clip rows and rolls the message back if lifecycle attachment fails.
+- **Rebuild notes:** text path keeps short-window idempotency (same sender, match, content within 5s). Voice/Vibe Clip use `structured_payload.client_request_id` + partial unique index. Sprint 3 now calls `sync_chat_message_media` after insert for image/voice/vibe-clip rows and rolls the message back if lifecycle attachment fails or a canonical voice/Vibe Clip/image-marker send syncs zero lifecycle assets. Canonical media URLs are validated before insert and return `invalid_media_url` if they do not point at the expected Bunny Storage path family.
 
 ### `swipe-actions` (Stream 2E)
 - **Purpose:** wraps the `handle_swipe` RPC and couples core swipe/match outcomes with server-owned notifications
@@ -537,6 +537,7 @@ Functions not directly invoked from the normal frontend but still operationally 
 - `upload-image`
 - `upload-event-cover`
 - `upload-voice`
+- `upload-chat-video`
 
 ### Daily.co
 - `daily-room`

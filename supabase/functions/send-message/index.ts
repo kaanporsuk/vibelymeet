@@ -39,17 +39,40 @@ function shouldSyncLifecycleForTextContent(trimmed: string): boolean {
     || (/^https?:\/\/\S+$/i.test(trimmed) && /\.(jpe?g|png|gif|webp)(\?|#|$)/i.test(trimmed));
 }
 
+function imageMarkerUrl(trimmed: string): string | null {
+  if (!trimmed.startsWith(CHAT_IMAGE_MESSAGE_PREFIX)) return null;
+  const url = trimmed.slice(CHAT_IMAGE_MESSAGE_PREFIX.length).trim();
+  return url || null;
+}
+
+function publicUrlHasStorageSegment(url: string, segment: "photos" | "voice" | "chat-videos"): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+  if (!parsed.hostname || parsed.hostname === "undefined" || parsed.hostname === "placehold.co") return false;
+  return parsed.pathname.includes(`/${segment}/`);
+}
+
 async function ensureMessageMediaOrRollback(
   serviceClient: ReturnType<typeof createClient>,
   messageId: string,
   label: string,
+  options?: { requireAssets?: boolean },
 ): Promise<boolean> {
   const syncResult = await syncChatMessageMedia(serviceClient, messageId);
-  if (syncResult.success) {
+  const assetsSynced = syncResult.assetsSynced ?? 0;
+  if (syncResult.success && (!options?.requireAssets || assetsSynced > 0)) {
     return true;
   }
 
-  console.error(`send-message ${label} media sync failed:`, syncResult.error);
+  console.error(
+    `send-message ${label} media sync failed:`,
+    syncResult.success ? `zero_assets_synced assets=${assetsSynced}` : syncResult.error,
+  );
   const { error: rollbackError } = await serviceClient
     .from("messages")
     .delete()
@@ -182,6 +205,16 @@ serve(async (req) => {
           : null;
       const posterSource = thumbnailUrl ? "uploaded_thumbnail" : "first_frame";
 
+      if (
+        !publicUrlHasStorageSegment(videoUrl, "chat-videos") ||
+        (thumbnailUrl && !publicUrlHasStorageSegment(thumbnailUrl, "chat-videos"))
+      ) {
+        return new Response(
+          JSON.stringify({ success: false, error: "invalid_media_url" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
       const clipPayload = {
         v: 2,
         kind: "vibe_clip",
@@ -250,7 +283,11 @@ serve(async (req) => {
         );
       }
 
-      if (!(await ensureMessageMediaOrRollback(serviceClient, insertedClip.id, "vibe_clip"))) {
+      if (
+        !(await ensureMessageMediaOrRollback(serviceClient, insertedClip.id, "vibe_clip", {
+          requireAssets: true,
+        }))
+      ) {
         return new Response(
           JSON.stringify({ success: false, error: "media_sync_failed" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -290,6 +327,12 @@ serve(async (req) => {
     // ── Voice message canonical publish path ──
     if (isVoice) {
       const audioUrl = (body.audio_url as string).trim();
+      if (!publicUrlHasStorageSegment(audioUrl, "voice")) {
+        return new Response(
+          JSON.stringify({ success: false, error: "invalid_media_url" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       const durationRaw = body.audio_duration_seconds;
       let durationSec = 1;
       if (typeof durationRaw === "number" && Number.isFinite(durationRaw)) {
@@ -359,7 +402,7 @@ serve(async (req) => {
         );
       }
 
-      if (!(await ensureMessageMediaOrRollback(serviceClient, insertedVoice.id, "voice"))) {
+      if (!(await ensureMessageMediaOrRollback(serviceClient, insertedVoice.id, "voice", { requireAssets: true }))) {
         return new Response(
           JSON.stringify({ success: false, error: "media_sync_failed" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -398,6 +441,13 @@ serve(async (req) => {
 
     // ── Standard text/image message path (unchanged) ──
     const trimmed = content!.trim();
+    const chatImageMarkerUrl = imageMarkerUrl(trimmed);
+    if (chatImageMarkerUrl && !publicUrlHasStorageSegment(chatImageMarkerUrl, "photos")) {
+      return new Response(
+        JSON.stringify({ success: false, error: "invalid_media_url" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // Durable idempotency: same client_request_id + match + sender → return existing row
     if (clientRequestId && isUuid(clientRequestId)) {
@@ -485,7 +535,9 @@ serve(async (req) => {
 
       if (
         shouldSyncLifecycleForTextContent(trimmed)
-        && !(await ensureMessageMediaOrRollback(serviceClient, inserted.id, "text_or_image"))
+        && !(await ensureMessageMediaOrRollback(serviceClient, inserted.id, "text_or_image", {
+          requireAssets: trimmed.startsWith(CHAT_IMAGE_MESSAGE_PREFIX),
+        }))
       ) {
         return new Response(
           JSON.stringify({ success: false, error: "media_sync_failed" }),
