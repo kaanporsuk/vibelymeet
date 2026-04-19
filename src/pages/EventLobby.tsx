@@ -21,10 +21,26 @@ import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
+import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
 import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
 } from "@shared/matching/videoSessionFlow";
+
+const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
+
+function lobbyDebug(message: string, data?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+  console.log(`[EventLobby] ${message}`, data ?? {});
+}
+
+function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "in_date" {
+  return status === "in_handshake" || status === "in_date";
+}
+
+function isActiveVideoPhase(row: Record<string, unknown>): boolean {
+  return row.state === "handshake" || row.state === "date" || row.phase === "handshake" || row.phase === "date";
+}
 
 const EventLobby = () => {
   const { eventId } = useParams<{ eventId: string }>();
@@ -54,11 +70,71 @@ const EventLobby = () => {
 
   // Ready Gate overlay state (server-backed; optimistic updates via refetch)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
   const {
     activeSession: scopedSession,
     hydrated: sessionHydrated,
     refetch: refetchScopedSession,
   } = useActiveSession(user?.id, { eventId });
+  const sameEventScopedSession = useMemo(() => {
+    if (!sessionHydrated || !eventId || !scopedSession || scopedSession.eventId !== eventId) {
+      return null;
+    }
+    return scopedSession;
+  }, [sessionHydrated, eventId, scopedSession]);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const activeServerSessionRef = useRef<string | null>(null);
+  const dateNavigationSessionIdRef = useRef<string | null>(null);
+  const lobbyEnteredEventRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    dateNavigationSessionIdRef.current = dateNavigationSessionId;
+  }, [dateNavigationSessionId]);
+
+  useEffect(() => {
+    activeServerSessionRef.current = sameEventScopedSession?.sessionId ?? activeSessionId ?? null;
+  }, [sameEventScopedSession?.sessionId, activeSessionId]);
+
+  const openReadyGateSession = useCallback((sessionId: string, source: string) => {
+    if (!sessionId || dateNavigationSessionIdRef.current) return;
+    if (activeSessionIdRef.current !== sessionId) {
+      lobbyDebug("activeSessionId set", { sessionId, source });
+    }
+    activeSessionIdRef.current = sessionId;
+    setActiveSessionId(sessionId);
+  }, []);
+
+  const clearReadyGateSession = useCallback((source: string) => {
+    if (dateNavigationSessionIdRef.current) {
+      lobbyDebug("activeSessionId clear suppressed during date navigation", {
+        sessionId: dateNavigationSessionIdRef.current,
+        source,
+      });
+      return;
+    }
+    if (activeSessionIdRef.current) {
+      lobbyDebug("activeSessionId cleared", { sessionId: activeSessionIdRef.current, source });
+    }
+    activeSessionIdRef.current = null;
+    setActiveSessionId(null);
+  }, []);
+
+  const navigateToDateSession = useCallback(
+    (sessionId: string, source: string) => {
+      if (!sessionId) return;
+      if (dateNavigationSessionIdRef.current === sessionId) return;
+      dateNavigationSessionIdRef.current = sessionId;
+      setDateNavigationSessionId(sessionId);
+      markVideoDateEntryPipelineStarted(sessionId);
+      lobbyDebug("ready-gate success path navigating to date", { sessionId, source });
+      navigate(`/date/${sessionId}`, { replace: true });
+    },
+    [navigate]
+  );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
   useEffect(() => {
@@ -84,6 +160,10 @@ const EventLobby = () => {
     setDeckNonce((n) => n + 1);
     deckEverLoadedRef.current = false;
     deckExhaustedFiredRef.current = false;
+    activeSessionIdRef.current = null;
+    dateNavigationSessionIdRef.current = null;
+    setActiveSessionId(null);
+    setDateNavigationSessionId(null);
   }, [eventId]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
@@ -153,15 +233,31 @@ const EventLobby = () => {
     })();
   }, [user?.id, eventId]);
 
-  // Set status to browsing on mount, offline on unmount
+  // Lobby presence only when no backend-owned active session is in flight.
   useEffect(() => {
-    if (eventId) trackEvent('lobby_entered', { event_id: eventId });
-    setStatus("browsing");
+    if (!eventId || lobbyEnteredEventRef.current === eventId) return;
+    lobbyEnteredEventRef.current = eventId;
+    trackEvent('lobby_entered', { event_id: eventId });
+  }, [eventId]);
+
+  useEffect(() => {
+    if (!eventId || !sessionHydrated) return;
+    if (dateNavigationSessionId || activeSessionId || sameEventScopedSession) return;
+    void setStatus("browsing");
+  }, [eventId, sessionHydrated, dateNavigationSessionId, activeSessionId, sameEventScopedSession, setStatus]);
+
+  useEffect(() => {
     return () => {
-      setStatus("offline");
+      if (dateNavigationSessionIdRef.current || activeServerSessionRef.current) {
+        lobbyDebug("lobby offline status suppressed during active convergence", {
+          dateNavigationSessionId: dateNavigationSessionIdRef.current,
+          activeServerSessionId: activeServerSessionRef.current,
+        });
+        return;
+      }
+      void setStatus("offline");
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setStatus]);
 
   // Canonical lobby foreground proof: stamp only while this lobby route is visible in the foreground.
   useEffect(() => {
@@ -205,16 +301,36 @@ const EventLobby = () => {
   // Backend-truth-first: scoped active session for this event (ready gate vs /date)
   useEffect(() => {
     if (!sessionHydrated || !eventId) return;
-    if (scopedSession?.eventId === eventId && scopedSession.kind === "video") {
-      navigate(`/date/${scopedSession.sessionId}`, { replace: true });
+    lobbyDebug("active session hydration observed", {
+      hydrated: sessionHydrated,
+      eventId,
+      kind: sameEventScopedSession?.kind ?? null,
+      sessionId: sameEventScopedSession?.sessionId ?? null,
+      queueStatus: sameEventScopedSession?.queueStatus ?? null,
+      stickySessionId: activeSessionIdRef.current,
+    });
+    if (sameEventScopedSession?.kind === "video") {
+      navigateToDateSession(sameEventScopedSession.sessionId, "active_session_hydration");
       return;
     }
-    if (scopedSession?.eventId === eventId && scopedSession.kind === "ready_gate") {
-      setActiveSessionId(scopedSession.sessionId);
+    if (sameEventScopedSession?.kind === "ready_gate") {
+      openReadyGateSession(sameEventScopedSession.sessionId, "active_session_hydration");
       return;
     }
-    setActiveSessionId(null);
-  }, [sessionHydrated, eventId, scopedSession, navigate]);
+    if (activeSessionIdRef.current) {
+      lobbyDebug("holding sticky ready gate through empty hydration result", {
+        sessionId: activeSessionIdRef.current,
+      });
+    }
+  }, [
+    sessionHydrated,
+    eventId,
+    sameEventScopedSession?.kind,
+    sameEventScopedSession?.sessionId,
+    sameEventScopedSession?.queueStatus,
+    navigateToDateSession,
+    openReadyGateSession,
+  ]);
 
   // Returning from video date / survey: fresh deck, no stale overlay.
   useEffect(() => {
@@ -222,10 +338,21 @@ const EventLobby = () => {
     if (!st?.lobbyRefresh || !eventId || !user?.id) return;
     seenProfileIds.current = new Set();
     setDeckNonce((n) => n + 1);
-    setActiveSessionId(null);
+    dateNavigationSessionIdRef.current = null;
+    setDateNavigationSessionId(null);
+    clearReadyGateSession("lobby_refresh");
     void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
     navigate(location.pathname + location.search, { replace: true, state: {} });
-  }, [location.state, location.pathname, location.search, eventId, user?.id, navigate, queryClient]);
+  }, [
+    location.state,
+    location.pathname,
+    location.search,
+    eventId,
+    user?.id,
+    navigate,
+    queryClient,
+    clearReadyGateSession,
+  ]);
 
   // FAILURE 1 FIX: Realtime subscription for own registration status changes
   // Uses profile_id filter for efficiency — only fires for THIS user's row
@@ -245,12 +372,32 @@ const EventLobby = () => {
           const newData = payload.new as Record<string, unknown>;
           if (newData.event_id !== eventId) return;
 
-          // Detect when we've been matched and moved to ready gate
-          if (
-            newData.queue_status === "in_ready_gate" &&
-            newData.current_room_id
-          ) {
-            console.log("[Lobby] Realtime: ready gate detected", newData.current_room_id);
+          const queueStatus = newData.queue_status;
+          const currentRoomId =
+            typeof newData.current_room_id === "string" ? newData.current_room_id : null;
+
+          if (isActiveDateQueueStatus(queueStatus) && currentRoomId) {
+            lobbyDebug("same-session active date detected from registration realtime", {
+              sessionId: currentRoomId,
+              queueStatus,
+            });
+            void refetchScopedSession();
+            navigateToDateSession(currentRoomId, "registration_realtime");
+            return;
+          }
+
+          if (queueStatus === "in_ready_gate" && currentRoomId) {
+            lobbyDebug("ready gate detected from registration realtime", { sessionId: currentRoomId });
+            openReadyGateSession(currentRoomId, "registration_realtime");
+            void refetchScopedSession();
+            return;
+          }
+
+          if (queueStatus === "in_ready_gate" || isActiveDateQueueStatus(queueStatus) || currentRoomId) {
+            lobbyDebug("ambiguous active registration realtime; refetching", {
+              queueStatus,
+              currentRoomId,
+            });
             void refetchScopedSession();
           }
         }
@@ -259,7 +406,79 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, refetchScopedSession]);
+  }, [user?.id, eventId, refetchScopedSession, navigateToDateSession, openReadyGateSession]);
+
+  useEffect(() => {
+    if (!user?.id || !eventId) return;
+    const channel = supabase
+      .channel(`lobby-video-${eventId}-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "video_sessions",
+          filter: `event_id=eq.${eventId}`,
+        },
+        (payload) => {
+          const session = payload.new as Record<string, unknown>;
+          const isParticipant =
+            session.participant_1_id === user.id || session.participant_2_id === user.id;
+          if (!isParticipant) return;
+          const sessionId = typeof session.id === "string" ? session.id : null;
+          if (!sessionId) return;
+
+          void refetchScopedSession();
+          if (isActiveVideoPhase(session)) {
+            lobbyDebug("same-session active date detected from video session realtime", {
+              sessionId,
+              state: session.state,
+              phase: session.phase,
+            });
+            navigateToDateSession(sessionId, "video_session_realtime");
+            return;
+          }
+
+          const status = session.ready_gate_status;
+          if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
+            openReadyGateSession(sessionId, "video_session_realtime");
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "video_sessions",
+          filter: `event_id=eq.${eventId}`,
+        },
+        (payload) => {
+          const session = payload.new as Record<string, unknown>;
+          const isParticipant =
+            session.participant_1_id === user.id || session.participant_2_id === user.id;
+          if (!isParticipant) return;
+          const sessionId = typeof session.id === "string" ? session.id : null;
+          if (!sessionId) return;
+
+          void refetchScopedSession();
+          if (isActiveVideoPhase(session)) {
+            navigateToDateSession(sessionId, "video_session_insert");
+            return;
+          }
+
+          const status = session.ready_gate_status;
+          if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
+            openReadyGateSession(sessionId, "video_session_insert");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, eventId, refetchScopedSession, navigateToDateSession, openReadyGateSession]);
 
   // Event countdown timer
   useEffect(() => {
@@ -433,6 +652,12 @@ const EventLobby = () => {
       const [m, s] = timeRemaining.split(":").map(Number);
       return m * 60 + s <= 300;
     })();
+  const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
+  const yieldingToReadyGateUi = Boolean(
+    sameEventScopedSession?.kind === "ready_gate" &&
+      activeSessionId !== sameEventScopedSession.sessionId
+  );
+  const suppressDeckUiForConvergence = yieldingToVideoDateUi || yieldingToReadyGateUi;
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden bg-zinc-950 text-foreground">
@@ -473,7 +698,7 @@ const EventLobby = () => {
                   </span>
                   Live now
                 </span>
-                {queuedCount > 0 && !activeSessionId && (
+                {queuedCount > 0 && !activeSessionId && !suppressDeckUiForConvergence && (
                   <span
                     className="inline-flex max-w-[min(200px,46vw)] truncate items-center gap-1 px-2 py-1 rounded-full bg-fuchsia-500/15 text-fuchsia-200 text-[10px] font-semibold border border-fuchsia-400/25"
                     title="Mutual matches are in the queue ahead of you. You will enter Ready Gate when promoted — not the same as being in Ready Gate right now."
@@ -502,7 +727,7 @@ const EventLobby = () => {
             </div>
           </div>
 
-          {!isEmpty && deckRemaining > 0 && (
+          {!suppressDeckUiForConvergence && !isEmpty && deckRemaining > 0 && (
             <div className="mt-3 space-y-1.5">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-wider font-semibold text-white/40">
                 <span className="flex items-center gap-1">
@@ -526,7 +751,19 @@ const EventLobby = () => {
 
       {/* Card Area */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-5 max-w-lg mx-auto w-full relative z-10">
-        {user?.isPaused ? (
+        {suppressDeckUiForConvergence ? (
+          <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
+            <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)] mb-5" />
+            <p className="text-lg font-display font-semibold text-white">
+              {yieldingToVideoDateUi ? "Joining your date..." : "Opening Ready Gate..."}
+            </p>
+            <p className="text-sm text-white/55 mt-2">
+              {yieldingToVideoDateUi
+                ? "Taking you to the same video session as your match."
+                : "Syncing with your match."}
+            </p>
+          </div>
+        ) : user?.isPaused ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
             <Moon className="w-16 h-16 text-amber-400/25 mb-4" strokeWidth={1.25} aria-hidden />
             <h2 className="text-xl font-display font-semibold text-white mb-2">{"You're on a break"}</h2>
@@ -628,7 +865,7 @@ const EventLobby = () => {
         )}
 
         {/* Action Buttons */}
-        {!isEmpty && currentProfile && (
+        {!suppressDeckUiForConvergence && !isEmpty && currentProfile && (
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -682,12 +919,12 @@ const EventLobby = () => {
 
       {/* Ready Gate Overlay */}
       <AnimatePresence>
-        {sessionHydrated && activeSessionId && eventId && (
+        {activeSessionId && eventId && !yieldingToVideoDateUi && (
           <ReadyGateOverlay
             sessionId={activeSessionId}
             eventId={eventId}
             onClose={() => {
-              setActiveSessionId(null);
+              clearReadyGateSession("ready_gate_overlay_close");
               setStatus("browsing");
               void refetchScopedSession();
               if (eventId && user?.id) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -30,6 +30,11 @@ import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
+import {
+  clearDateEntryTransition,
+  isDateEntryTransitionActive,
+  markVideoDateEntryPipelineStarted,
+} from "@/lib/dateEntryTransitionLatch";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -60,6 +65,24 @@ interface PartnerData {
 }
 
 type CallPhase = "handshake" | "date" | "ended";
+
+function videoDateDebug(message: string, data?: Record<string, unknown>) {
+  if (!import.meta.env.DEV) return;
+  console.log(`[VideoDate] ${message}`, data ?? {});
+}
+
+function videoSessionIndicatesHandshakeOrDate(
+  row: { state?: string | null; phase?: string | null; handshake_started_at?: string | null } | null
+): boolean {
+  return Boolean(
+    row &&
+      (row.state === "handshake" ||
+        row.state === "date" ||
+        row.phase === "handshake" ||
+        row.phase === "date" ||
+        row.handshake_started_at)
+  );
+}
 
 const VideoDate = () => {
   const navigate = useNavigate();
@@ -155,6 +178,12 @@ const VideoDate = () => {
     phaseRef.current = phase;
   }, [phase]);
 
+  useLayoutEffect(() => {
+    if (!id) return;
+    markVideoDateEntryPipelineStarted(id);
+    videoDateDebug("date-entry latch marked", { sessionId: id, userId: user?.id ?? null });
+  }, [id, user?.id]);
+
   // Resolve a photo path to a displayable URL (sync via public URL)
   const resolvePhoto = (path: string): string | null => {
     if (!path) return null;
@@ -182,7 +211,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, state, phase, handshake_started_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -202,6 +231,7 @@ const VideoDate = () => {
         }
 
         if (sessionRow.ended_at) {
+          clearDateEntryTransition(id);
           toast.info("This date has already ended.", { duration: 2800 });
           navigate(
             sessionRow.event_id
@@ -222,8 +252,28 @@ const VideoDate = () => {
         if (cancelled) return;
 
         if (reg?.queue_status === "in_ready_gate") {
-          navigate(`/event/${encodeURIComponent(sessionRow.event_id)}/lobby`, { replace: true });
-          return;
+          const allowEntry =
+            isDateEntryTransitionActive(id) || videoSessionIndicatesHandshakeOrDate(sessionRow);
+          if (!allowEntry) {
+            videoDateDebug("bouncing ready_gate session back to lobby", {
+              sessionId: id,
+              eventId: sessionRow.event_id,
+              queueStatus: reg.queue_status,
+              state: sessionRow.state,
+              phase: sessionRow.phase,
+            });
+            navigate(`/event/${encodeURIComponent(sessionRow.event_id)}/lobby`, { replace: true });
+            return;
+          }
+          videoDateDebug("allowing ready_gate registration through date-entry latch", {
+            sessionId: id,
+            eventId: sessionRow.event_id,
+            state: sessionRow.state,
+            phase: sessionRow.phase,
+            handshakeStarted: Boolean(sessionRow.handshake_started_at),
+          });
+        } else if (reg?.queue_status) {
+          clearDateEntryTransition(id);
         }
 
         if (sessionRow.daily_room_name) {
