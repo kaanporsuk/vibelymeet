@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import DailyIframe, { DailyCall, DailyParticipant } from "@daily-co/daily-js";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UseVideoCallOptions {
@@ -20,6 +21,17 @@ function tierFromNetworkQualityEvent(event: { threshold?: string; quality?: numb
   if (th === "low" || q < 30) return "poor";
   if (q < 70) return "fair";
   return "good";
+}
+
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
 }
 
 export const useVideoCall = (options?: UseVideoCallOptions) => {
@@ -85,10 +97,23 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           return false;
         }
 
+        const createRoomArgs = { action: "create_date_room", sessionId };
+        vdbg("daily_room_before", {
+          action: "create_date_room",
+          args: createRoomArgs,
+        });
         const { data: roomData, error: roomError } = await supabase.functions.invoke(
           "daily-room",
-          { body: { action: "create_date_room", sessionId } }
+          { body: createRoomArgs }
         );
+        vdbg("daily_room_after", {
+          action: "create_date_room",
+          ok: !roomError && Boolean(roomData?.token),
+          roomName: roomData?.room_name ?? null,
+          hasToken: Boolean(roomData?.token),
+          error: roomError ? { name: roomError.name, message: roomError.message } : null,
+          serverCode: (roomData as { code?: string } | null)?.code ?? null,
+        });
 
         if (roomError || !roomData?.token) {
           console.error("[Daily] Room creation failed:", roomError);
@@ -176,6 +201,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         return true;
       } catch (error) {
         console.error("[Daily] Failed to start call:", error);
+        vdbg("daily_room_after", {
+          action: "create_date_room",
+          ok: false,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
         toast.error("Video is temporarily unavailable. Please try again.");
         setIsConnecting(false);
         return false;
@@ -199,11 +229,31 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     setLocalStream(null);
 
     if (roomNameRef.current) {
+      const deleteRoomArgs = { action: "delete_room", roomName: roomNameRef.current };
+      vdbg("daily_room_before", {
+        action: "delete_room",
+        args: { ...deleteRoomArgs, roomName: roomNameRef.current },
+      });
       supabase.functions
         .invoke("daily-room", {
-          body: { action: "delete_room", roomName: roomNameRef.current },
+          body: deleteRoomArgs,
         })
-        .catch(() => {});
+        .then(({ error }) => {
+          vdbg("daily_room_after", {
+            action: "delete_room",
+            ok: !error,
+            roomName: deleteRoomArgs.roomName,
+            error: error ? { name: error.name, message: error.message } : null,
+          });
+        })
+        .catch((error) => {
+          vdbg("daily_room_after", {
+            action: "delete_room",
+            ok: false,
+            roomName: deleteRoomArgs.roomName,
+            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          });
+        });
       roomNameRef.current = null;
     }
 

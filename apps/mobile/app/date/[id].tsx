@@ -203,6 +203,21 @@ function videoDateSessionDiagnostic(
   });
 }
 
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: 'vdbg',
+    message,
+    level: 'info',
+    data: payload,
+  });
+}
+
+function vdbgRedirect(target: unknown, reason: string, data?: Record<string, unknown>) {
+  vdbg('date_redirect', { target, reason, ...(data ?? {}) });
+}
+
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
@@ -312,6 +327,30 @@ export default function VideoDateScreen() {
     });
   }, [sessionId, user?.id]);
 
+  useEffect(() => {
+    vdbg('date_mount', { sessionId: sessionId ?? null, userId: user?.id ?? null });
+    if (!sessionId || !user?.id) return;
+    const userId = user.id;
+    let cancelled = false;
+    void supabase
+      .from('video_sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        vdbg('date_mount_session_row', {
+          sessionId,
+          userId,
+          row: data ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, user?.id]);
+
   // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (backend truth first).
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -319,7 +358,11 @@ export default function VideoDateScreen() {
     void (async () => {
       const vs = await fetchVideoSessionDateEntryTruth(sessionId);
       if (cancelled) return;
-      if (!vs) return;
+      vdbg('date_entry_truth_row', { sessionId, userId: user.id, row: vs ?? null });
+      if (!vs) {
+        vdbg('date_guard_blocked', { sessionId, userId: user.id, reason: 'missing_session_truth_row' });
+        return;
+      }
       if (vs.ended_at != null) {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
           session_id: sessionId,
@@ -328,9 +371,22 @@ export default function VideoDateScreen() {
           event_id: vs.event_id,
         });
         if (vs.event_id) {
-          router.replace(eventLobbyHref(vs.event_id as string));
+          const target = eventLobbyHref(vs.event_id as string);
+          vdbgRedirect(target, 'session_ended_route_guard', {
+            sessionId,
+            userId: user.id,
+            eventId: vs.event_id,
+            endedAt: vs.ended_at,
+          });
+          router.replace(target);
         } else {
-          router.replace(tabsRootHref());
+          const target = tabsRootHref();
+          vdbgRedirect(target, 'session_ended_route_guard', {
+            sessionId,
+            userId: user.id,
+            endedAt: vs.ended_at,
+          });
+          router.replace(target);
         }
         return;
       }
@@ -345,6 +401,30 @@ export default function VideoDateScreen() {
         .maybeSingle();
       if (cancelled) return;
       if (reg?.queue_status === 'in_ready_gate') {
+        const rgStatus = vs.ready_gate_status ?? null;
+        const rgExpiresRaw = vs.ready_gate_expires_at ?? null;
+        const rgExpiresMs =
+          rgExpiresRaw == null
+            ? null
+            : typeof rgExpiresRaw === 'number'
+              ? rgExpiresRaw
+              : Date.parse(String(rgExpiresRaw));
+        const bothReady = rgStatus === 'both_ready';
+        const bothReadyValid =
+          bothReady && rgExpiresMs != null && Number.isFinite(rgExpiresMs) && rgExpiresMs > Date.now();
+        const readyGateBranch = bothReadyValid
+          ? 'both_ready_valid_staying'
+          : bothReady
+            ? 'both_ready_expired_redirecting'
+            : 'no_both_ready_redirecting';
+        vdbg('date_guard_ready_gate_branch', {
+          sessionId,
+          userId: user.id,
+          branch: readyGateBranch,
+          readyGateStatus: rgStatus,
+          readyGateExpiresAt: rgExpiresRaw,
+        });
+        if (bothReadyValid) return;
         if (isDateEntryTransitionActive(sessionId)) return;
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
           session_id: sessionId,
@@ -354,7 +434,17 @@ export default function VideoDateScreen() {
           vs_phase: vs.phase,
           handshake_started_at: Boolean(vs.handshake_started_at),
         });
-        router.replace(readyGateHref(sessionId));
+        const target = readyGateHref(sessionId);
+        vdbgRedirect(target, 'in_ready_gate_without_date_entry_latch_or_handshake', {
+          sessionId,
+          userId: user.id,
+          queueStatus: reg.queue_status,
+          state: vs.state,
+          phase: vs.phase,
+          handshakeStarted: Boolean(vs.handshake_started_at),
+          latchActive: isDateEntryTransitionActive(sessionId),
+        });
+        router.replace(target);
         return;
       }
       if (reg?.queue_status && reg.queue_status !== 'in_ready_gate') {
@@ -715,9 +805,16 @@ export default function VideoDateScreen() {
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
   const handleAbortConnection = useCallback(async () => {
     await leaveAndCleanup();
-    if (eventId) router.replace(eventLobbyHref(eventId));
-    else router.replace('/(tabs)/events');
-  }, [leaveAndCleanup, eventId]);
+    if (eventId) {
+      const target = eventLobbyHref(eventId);
+      vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null, eventId });
+      router.replace(target);
+    } else {
+      const target = '/(tabs)/events';
+      vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
+      router.replace(target);
+    }
+  }, [leaveAndCleanup, eventId, sessionId]);
 
   const handleUserVibe = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return false;
@@ -878,6 +975,7 @@ export default function VideoDateScreen() {
         setJoining(false);
         return;
       }
+      vdbg('date_prejoin_truth_row', { sessionId, userId: user.id, row: truth0 ?? null });
       if (!truth0) {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
           session_id: sessionId,
@@ -891,9 +989,22 @@ export default function VideoDateScreen() {
       }
       if (truth0.ended_at) {
         if (truth0.event_id) {
-          router.replace(eventLobbyHref(truth0.event_id as string));
+          const target = eventLobbyHref(truth0.event_id as string);
+          vdbgRedirect(target, 'session_ended_prejoin', {
+            sessionId,
+            userId: user.id,
+            eventId: truth0.event_id,
+            endedAt: truth0.ended_at,
+          });
+          router.replace(target);
         } else {
-          router.replace(tabsRootHref());
+          const target = tabsRootHref();
+          vdbgRedirect(target, 'session_ended_prejoin', {
+            sessionId,
+            userId: user.id,
+            endedAt: truth0.ended_at,
+          });
+          router.replace(target);
         }
         hasStartedJoinRef.current = false;
         setJoining(false);
@@ -1479,24 +1590,40 @@ export default function VideoDateScreen() {
   );
 
   const handleSurveyMutualMatch = useCallback(() => {
-    if (eventId) router.replace(eventLobbyHref(eventId));
-    else router.replace('/(tabs)/matches');
-  }, [eventId]);
+    if (eventId) {
+      const target = eventLobbyHref(eventId);
+      vdbgRedirect(target, 'survey_mutual_match', { sessionId: sessionId ?? null, eventId });
+      router.replace(target);
+    } else {
+      const target = '/(tabs)/matches';
+      vdbgRedirect(target, 'survey_mutual_match', { sessionId: sessionId ?? null });
+      router.replace(target);
+    }
+  }, [eventId, sessionId]);
 
   /** "Start Chatting" from celebration — go directly to the match chat when we have the id. */
   const handleSurveyStartChatting = useCallback((matchId?: string) => {
     if (matchId) {
-      router.replace(`/chat/${matchId}` as const);
+      const target = `/chat/${matchId}` as const;
+      vdbgRedirect(target, 'survey_start_chatting', { sessionId: sessionId ?? null, matchId });
+      router.replace(target);
     } else {
       handleSurveyMutualMatch();
     }
-  }, [handleSurveyMutualMatch]);
+  }, [handleSurveyMutualMatch, sessionId]);
 
   const handleSurveyDone = useCallback(() => {
     if (eventId && user?.id) updateParticipantStatus(eventId, 'browsing');
-    if (eventId) router.replace(eventLobbyHref(eventId));
-    else router.replace('/(tabs)/events');
-  }, [eventId, user?.id]);
+    if (eventId) {
+      const target = eventLobbyHref(eventId);
+      vdbgRedirect(target, 'survey_done', { sessionId: sessionId ?? null, eventId });
+      router.replace(target);
+    } else {
+      const target = '/(tabs)/events';
+      vdbgRedirect(target, 'survey_done', { sessionId: sessionId ?? null });
+      router.replace(target);
+    }
+  }, [eventId, sessionId, user?.id]);
 
   if (sessionLoading || !sessionId) {
     return (
@@ -1511,7 +1638,13 @@ export default function VideoDateScreen() {
     return (
       <View style={[styles.center, { backgroundColor: theme.background }]}>
         <Text style={[styles.error, { color: theme.danger }]}>{sessionError}</Text>
-        <Pressable style={[styles.button, { backgroundColor: theme.tint }]} onPress={() => router.back()}>
+        <Pressable
+          style={[styles.button, { backgroundColor: theme.tint }]}
+          onPress={() => {
+            vdbgRedirect('back', 'session_error_back_button', { sessionId: sessionId ?? null, error: sessionError });
+            router.back();
+          }}
+        >
           <Text style={styles.buttonText}>Go back</Text>
         </Pressable>
       </View>
@@ -1541,7 +1674,17 @@ export default function VideoDateScreen() {
         <Text style={[styles.message, { color: theme.text }]}>Date ended</Text>
         <Pressable
           style={[styles.button, { backgroundColor: theme.tint }]}
-          onPress={() => (eventId ? router.replace(eventLobbyHref(eventId)) : router.replace('/(tabs)/events'))}
+          onPress={() => {
+            if (eventId) {
+              const target = eventLobbyHref(eventId);
+              vdbgRedirect(target, 'ended_continue', { sessionId: sessionId ?? null, eventId });
+              router.replace(target);
+            } else {
+              const target = '/(tabs)/events';
+              vdbgRedirect(target, 'ended_continue', { sessionId: sessionId ?? null });
+              router.replace(target);
+            }
+          }}
         >
           <Text style={styles.buttonText}>Continue</Text>
         </Pressable>

@@ -81,6 +81,17 @@ export class VideoDateRequestTimeoutError extends Error {
 const HANDSHAKE_SECONDS = 60;
 const DATE_SECONDS = 300;
 
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: 'vdbg',
+    message,
+    level: 'info',
+    data: payload,
+  });
+}
+
 function withTimeout<T>(
   operation: 'getDailyRoomToken' | 'enterHandshake',
   promise: Promise<T>,
@@ -298,11 +309,19 @@ type DailyRoomResponseBody = {
 
 /** Get Daily room token via daily-room Edge Function (create_date_room). Same contract as web; returns classified errors. */
 export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoomTokenResult> {
+  const args = { action: 'create_date_room', sessionId };
+  vdbg('daily_room_before', { action: 'create_date_room', args });
   const { data, error, response } = await supabase.functions.invoke<DailyRoomResponseBody>('daily-room', {
-    body: { action: 'create_date_room', sessionId },
+    body: args,
   });
 
   if (!error && data?.token && data.room_name) {
+    vdbg('daily_room_after', {
+      action: 'create_date_room',
+      ok: true,
+      roomName: data.room_name,
+      hasToken: true,
+    });
     return {
       ok: true,
       data: {
@@ -314,6 +333,15 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
   }
 
   if (!error && data && !data.token) {
+    vdbg('daily_room_after', {
+      action: 'create_date_room',
+      ok: false,
+      roomName: data.room_name ?? null,
+      hasToken: false,
+      httpStatus: response?.status,
+      serverCode: data.code ?? 'MISSING_TOKEN',
+      message: data.error ?? null,
+    });
     return {
       ok: false,
       code: 'daily_provider',
@@ -326,9 +354,23 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
     const errName = error instanceof Error ? error.name : 'unknown';
 
     if (errName === 'FunctionsFetchError') {
+      vdbg('daily_room_after', {
+        action: 'create_date_room',
+        ok: false,
+        hasToken: false,
+        error: { name: errName, message: error.message },
+        serverCode: 'FETCH_FAILED',
+      });
       return { ok: false, code: 'network', serverCode: 'FETCH_FAILED' };
     }
     if (errName === 'FunctionsRelayError') {
+      vdbg('daily_room_after', {
+        action: 'create_date_room',
+        ok: false,
+        hasToken: false,
+        error: { name: errName, message: error.message },
+        serverCode: 'RELAY_ERROR',
+      });
       return { ok: false, code: 'network', serverCode: 'RELAY_ERROR' };
     }
 
@@ -342,6 +384,14 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
         /* non-JSON body */
       }
       const serverCode = body?.code;
+      vdbg('daily_room_after', {
+        action: 'create_date_room',
+        ok: false,
+        hasToken: false,
+        httpStatus: status,
+        serverCode: serverCode ?? body?.error ?? null,
+        error: { name: errName, message: error.message },
+      });
       return {
         ok: false,
         code: mapHttpStatusAndServerCode(status, serverCode),
@@ -350,9 +400,21 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
       };
     }
 
+    vdbg('daily_room_after', {
+      action: 'create_date_room',
+      ok: false,
+      hasToken: false,
+      error: { name: errName, message: error.message },
+    });
     return { ok: false, code: 'unknown', serverCode: errName };
   }
 
+  vdbg('daily_room_after', {
+    action: 'create_date_room',
+    ok: false,
+    hasToken: false,
+    serverCode: 'NO_RESPONSE',
+  });
   return { ok: false, code: 'unknown', serverCode: 'NO_RESPONSE' };
 }
 
@@ -365,9 +427,17 @@ export async function getDailyRoomTokenWithTimeout(
 
 /** Server-owned: enter handshake (start timer). Idempotent; surfaces RPC JSON errors. */
 export async function enterHandshake(sessionId: string): Promise<EnterHandshakeResult> {
-  const { data, error } = await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'enter_handshake',
+  };
+  vdbg('video_date_transition_before', { action: 'enter_handshake', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'enter_handshake',
+    ok: !error && (data as { success?: boolean } | null)?.success !== false,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
 
   if (error) {
@@ -400,6 +470,8 @@ export type VideoSessionDateEntryTruth = {
   handshake_started_at: string | null;
   state: string | null;
   phase: string | null;
+  ready_gate_status: string | null;
+  ready_gate_expires_at: string | number | null;
 };
 
 export async function fetchVideoSessionDateEntryTruth(
@@ -407,7 +479,7 @@ export async function fetchVideoSessionDateEntryTruth(
 ): Promise<VideoSessionDateEntryTruth | null> {
   const { data, error } = await supabase
     .from('video_sessions')
-    .select('ended_at, event_id, handshake_started_at, state, phase')
+    .select('ended_at, event_id, handshake_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
     .eq('id', sessionId)
     .maybeSingle();
   if (error || !data) return null;
@@ -440,9 +512,17 @@ export async function markVideoDateDailyJoined(sessionId: string): Promise<boole
 }
 
 export async function syncVideoDateReconnect(sessionId: string): Promise<SyncReconnectPayload | null> {
-  const { data, error } = await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'sync_reconnect',
+  };
+  vdbg('video_date_transition_before', { action: 'sync_reconnect', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'sync_reconnect',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
   if (error) return null;
   const p = data as {
@@ -460,25 +540,49 @@ export async function syncVideoDateReconnect(sessionId: string): Promise<SyncRec
 }
 
 export async function markReconnectPartnerAway(sessionId: string): Promise<void> {
-  await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'mark_reconnect_partner_away',
+  };
+  vdbg('video_date_transition_before', { action: 'mark_reconnect_partner_away', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'mark_reconnect_partner_away',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
 }
 
 export async function markReconnectReturn(sessionId: string): Promise<void> {
-  await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'mark_reconnect_return',
+  };
+  vdbg('video_date_transition_before', { action: 'mark_reconnect_return', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'mark_reconnect_return',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
 }
 
 /** Server-owned: end the date. Idempotent. */
 export async function endVideoDate(sessionId: string, reason?: string): Promise<boolean> {
-  const { error } = await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'end',
     p_reason: reason ?? 'ended_from_client',
+  };
+  vdbg('video_date_transition_before', { action: 'end', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'end',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
   return !error;
 }
@@ -486,28 +590,58 @@ export async function endVideoDate(sessionId: string, reason?: string): Promise<
 /** Tell backend to delete the Daily room (best-effort). Same as web. */
 export async function deleteDailyRoom(roomName: string): Promise<void> {
   try {
-    await supabase.functions.invoke('daily-room', {
-      body: { action: 'delete_room', roomName },
+    const args = { action: 'delete_room', roomName };
+    vdbg('daily_room_before', { action: 'delete_room', args });
+    const { error } = await supabase.functions.invoke('daily-room', {
+      body: args,
+    });
+    vdbg('daily_room_after', {
+      action: 'delete_room',
+      ok: !error,
+      roomName,
+      error: error ? { name: error.name, message: error.message } : null,
     });
   } catch {
+    vdbg('daily_room_after', {
+      action: 'delete_room',
+      ok: false,
+      roomName,
+      error: 'exception',
+    });
     // best-effort
   }
 }
 
 /** Record that current user "vibed" during handshake (participant_1_liked or participant_2_liked). Partner is never notified. */
 export async function recordVibe(sessionId: string): Promise<boolean> {
-  const { error } = await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'vibe',
+  };
+  vdbg('video_date_transition_before', { action: 'vibe', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'vibe',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
   return !error;
 }
 
 /** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else { state: 'ended' }. */
 export async function completeHandshake(sessionId: string): Promise<{ state: 'date' | 'ended' } | null> {
-  const { data, error } = await supabase.rpc('video_date_transition', {
+  const args = {
     p_session_id: sessionId,
     p_action: 'complete_handshake',
+  };
+  vdbg('video_date_transition_before', { action: 'complete_handshake', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'complete_handshake',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
   });
   if (error) return null;
   const state = (data as { state?: string } | null)?.state;

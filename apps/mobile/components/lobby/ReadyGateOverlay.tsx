@@ -7,6 +7,7 @@ import { View, Text, Pressable, StyleSheet, Modal, Image, ActivityIndicator, Per
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
+import * as Sentry from '@sentry/react-native';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
@@ -25,6 +26,17 @@ const STROKE = 4;
 const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
 const GATE_TIMEOUT_SEC = 30;
+
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: 'vdbg',
+    message,
+    level: 'info',
+    data: payload,
+  });
+}
 
 export type ReadyGateOverlayProps = {
   sessionId: string;
@@ -82,6 +94,11 @@ export function ReadyGateOverlay({
     rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', { event_id: eventId, session_id: sessionId });
     rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId });
     markVideoDateEntryPipelineStarted(sessionId);
+    vdbg('lobby_navigate_to_date', {
+      trigger: 'ready_gate_overlay_both_ready',
+      sessionId,
+      eventId,
+    });
     // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
     setTimeout(() => {
       onNavigateToDate(sessionId);

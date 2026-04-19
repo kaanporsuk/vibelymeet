@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import * as Sentry from "@sentry/react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
@@ -20,6 +21,17 @@ type SyncPayload = {
   ended_reason: string | null;
   partner_marked_away: boolean;
 };
+
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
+}
 
 export const useReconnection = ({
   sessionId,
@@ -47,9 +59,17 @@ export const useReconnection = ({
 
   const fetchSync = useCallback(async (): Promise<SyncPayload | null> => {
     if (!sessionId) return null;
-    const { data, error } = await supabase.rpc("video_date_transition", {
+    const args = {
       p_session_id: sessionId,
       p_action: "sync_reconnect",
+    };
+    vdbg("video_date_transition_before", { action: "sync_reconnect", args });
+    const { data, error } = await supabase.rpc("video_date_transition", args);
+    vdbg("video_date_transition_after", {
+      action: "sync_reconnect",
+      ok: !error,
+      payload: data ?? null,
+      error: error ? { code: error.code, message: error.message } : null,
     });
     if (error) return null;
     const p = data as {
@@ -141,10 +161,28 @@ export const useReconnection = ({
         });
         graceWindowStartedRef.current = false;
       }
-      void supabase.rpc("video_date_transition", {
+      const args = {
         p_session_id: sessionId,
         p_action: "mark_reconnect_return",
-      });
+      };
+      vdbg("video_date_transition_before", { action: "mark_reconnect_return", args });
+      void (async () => {
+        try {
+          const { data, error } = await supabase.rpc("video_date_transition", args);
+          vdbg("video_date_transition_after", {
+            action: "mark_reconnect_return",
+            ok: !error,
+            payload: data ?? null,
+            error: error ? { code: error.code, message: error.message } : null,
+          });
+        } catch (error) {
+          vdbg("video_date_transition_after", {
+            action: "mark_reconnect_return",
+            ok: false,
+            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          });
+        }
+      })();
       setInReconnectGraceUi(false);
       onReconnectedRef.current?.();
     }
@@ -161,10 +199,28 @@ export const useReconnection = ({
       phase,
     });
 
-    void supabase.rpc("video_date_transition", {
+    const args = {
       p_session_id: sessionId,
       p_action: "mark_reconnect_partner_away",
-    });
+    };
+    vdbg("video_date_transition_before", { action: "mark_reconnect_partner_away", args });
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc("video_date_transition", args);
+        vdbg("video_date_transition_after", {
+          action: "mark_reconnect_partner_away",
+          ok: !error,
+          payload: data ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+        });
+      } catch (error) {
+        vdbg("video_date_transition_after", {
+          action: "mark_reconnect_partner_away",
+          ok: false,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
+      }
+    })();
   }, [sessionId, phase]);
 
   const checkActiveSession = useCallback(async (): Promise<{

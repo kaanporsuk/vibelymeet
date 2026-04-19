@@ -71,6 +71,21 @@ function videoDateDebug(message: string, data?: Record<string, unknown>) {
   console.log(`[VideoDate] ${message}`, data ?? {});
 }
 
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
+}
+
+function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {
+  vdbg("date_redirect", { target, reason, ...(data ?? {}) });
+}
+
 function videoSessionIndicatesHandshakeOrDate(
   row: { state?: string | null; phase?: string | null; handshake_started_at?: string | null } | null
 ): boolean {
@@ -184,6 +199,30 @@ const VideoDate = () => {
     videoDateDebug("date-entry latch marked", { sessionId: id, userId: user?.id ?? null });
   }, [id, user?.id]);
 
+  useEffect(() => {
+    vdbg("date_mount", { sessionId: id ?? null, userId: user?.id ?? null });
+    if (!id || !user?.id) return;
+    const userId = user.id;
+    let cancelled = false;
+    void supabase
+      .from("video_sessions")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        vdbg("date_mount_session_row", {
+          sessionId: id,
+          userId,
+          row: data ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, user?.id]);
+
   // Resolve a photo path to a displayable URL (sync via public URL)
   const resolvePhoto = (path: string): string | null => {
     if (!path) return null;
@@ -211,13 +250,26 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, state, phase, handshake_started_at")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, state, phase, handshake_started_at, ready_gate_status, ready_gate_expires_at")
           .eq("id", id)
           .maybeSingle();
 
         if (cancelled) return;
 
+        vdbg("date_guard_session_row", {
+          sessionId: id,
+          userId: user.id,
+          row: sessionRow ?? null,
+          error: sessionErr ? { code: sessionErr.code, message: sessionErr.message } : null,
+        });
+
         if (sessionErr || !sessionRow) {
+          vdbg("date_guard_blocked", {
+            sessionId: id,
+            userId: user.id,
+            reason: "missing_session",
+            error: sessionErr ? { code: sessionErr.code, message: sessionErr.message } : null,
+          });
           setVideoDateAccess("not_found");
           return;
         }
@@ -225,6 +277,12 @@ const VideoDate = () => {
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
         if (!isParticipant) {
+          vdbg("date_guard_blocked", {
+            sessionId: id,
+            userId: user.id,
+            reason: "not_a_participant",
+            eventId: sessionRow.event_id,
+          });
           setDeniedEventId(sessionRow.event_id ?? undefined);
           setVideoDateAccess("denied");
           return;
@@ -233,12 +291,16 @@ const VideoDate = () => {
         if (sessionRow.ended_at) {
           clearDateEntryTransition(id);
           toast.info("This date has already ended.", { duration: 2800 });
-          navigate(
-            sessionRow.event_id
-              ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-              : "/home",
-            { replace: true }
-          );
+          const target = sessionRow.event_id
+            ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+            : "/home";
+          vdbgRedirect(target, "session_ended", {
+            sessionId: id,
+            userId: user.id,
+            eventId: sessionRow.event_id,
+            endedAt: sessionRow.ended_at,
+          });
+          navigate(target, { replace: true });
           return;
         }
 
@@ -252,8 +314,33 @@ const VideoDate = () => {
         if (cancelled) return;
 
         if (reg?.queue_status === "in_ready_gate") {
+          const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
+          const rgExpiresRaw = (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
+          const rgExpiresMs =
+            rgExpiresRaw == null
+              ? null
+              : typeof rgExpiresRaw === "number"
+                ? rgExpiresRaw
+                : Date.parse(String(rgExpiresRaw));
+          const bothReady = rgStatus === "both_ready";
+          const bothReadyValid =
+            bothReady && rgExpiresMs != null && Number.isFinite(rgExpiresMs) && rgExpiresMs > Date.now();
+          const readyGateBranch = bothReadyValid
+            ? "both_ready_valid_staying"
+            : bothReady
+              ? "both_ready_expired_redirecting"
+              : "no_both_ready_redirecting";
+          vdbg("date_guard_ready_gate_branch", {
+            sessionId: id,
+            userId: user.id,
+            branch: readyGateBranch,
+            readyGateStatus: rgStatus,
+            readyGateExpiresAt: rgExpiresRaw,
+          });
           const allowEntry =
-            isDateEntryTransitionActive(id) || videoSessionIndicatesHandshakeOrDate(sessionRow);
+            bothReadyValid ||
+            isDateEntryTransitionActive(id) ||
+            videoSessionIndicatesHandshakeOrDate(sessionRow);
           if (!allowEntry) {
             videoDateDebug("bouncing ready_gate session back to lobby", {
               sessionId: id,
@@ -262,7 +349,18 @@ const VideoDate = () => {
               state: sessionRow.state,
               phase: sessionRow.phase,
             });
-            navigate(`/event/${encodeURIComponent(sessionRow.event_id)}/lobby`, { replace: true });
+            const target = `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`;
+            vdbgRedirect(target, "in_ready_gate_without_date_entry_latch_or_handshake", {
+              sessionId: id,
+              userId: user.id,
+              eventId: sessionRow.event_id,
+              queueStatus: reg.queue_status,
+              state: sessionRow.state,
+              phase: sessionRow.phase,
+              handshakeStarted: Boolean(sessionRow.handshake_started_at),
+              latchActive: isDateEntryTransitionActive(id),
+            });
+            navigate(target, { replace: true });
             return;
           }
           videoDateDebug("allowing ready_gate registration through date-entry latch", {
@@ -337,6 +435,11 @@ const VideoDate = () => {
         }
       } catch (err) {
         console.error("Error loading video date session:", err);
+        vdbg("date_guard_exception", {
+          sessionId: id,
+          userId: user.id,
+          error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+        });
         if (!cancelled) {
           setVideoDateAccess("not_found");
         }
@@ -370,6 +473,11 @@ const VideoDate = () => {
       if (cancelled) return;
 
       if (error || !data) {
+        vdbg("date_timing_fetch_failed", {
+          sessionId: id,
+          error: error ? { code: error.code, message: error.message } : null,
+          hasData: Boolean(data),
+        });
         setHandshakeStartFailed(true);
         setHandshakeFailureCode(undefined);
         setTimeLeft(null);
@@ -380,6 +488,7 @@ const VideoDate = () => {
       const now = Date.now();
 
       if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
+        vdbg("date_timing_guard_ended", { sessionId: id, row: data });
         setPhase("ended");
         setTimeLeft(0);
         setTimingReady(true);
@@ -387,6 +496,7 @@ const VideoDate = () => {
       }
 
       if (((data.state as string) === "date" || data.phase === "date") && data.date_started_at) {
+        vdbg("date_timing_existing_date", { sessionId: id, row: data });
         const elapsed = (now - new Date(data.date_started_at).getTime()) / 1000;
         setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
         setPhase("date");
@@ -395,21 +505,32 @@ const VideoDate = () => {
       }
 
       if (data.handshake_started_at) {
+        vdbg("date_timing_existing_handshake", { sessionId: id, row: data });
         const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
         setTimeLeft(Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed)));
         setTimingReady(true);
         return;
       }
 
-      const { data: rpcData, error: rpcErr } = await supabase.rpc("video_date_transition", {
+      const enterHandshakeArgs = {
         p_session_id: id,
         p_action: "enter_handshake",
+      };
+      vdbg("video_date_transition_before", {
+        action: "enter_handshake",
+        args: enterHandshakeArgs,
       });
+      const { data: rpcData, error: rpcErr } = await supabase.rpc("video_date_transition", enterHandshakeArgs);
 
       if (cancelled) return;
 
       if (rpcErr) {
         console.error("enter_handshake RPC error:", rpcErr);
+        vdbg("video_date_transition_after", {
+          action: "enter_handshake",
+          ok: false,
+          error: { code: rpcErr.code, message: rpcErr.message },
+        });
         captureSupabaseError("video_date_enter_handshake", rpcErr);
         setHandshakeStartFailed(true);
         setHandshakeFailureCode(undefined);
@@ -419,6 +540,11 @@ const VideoDate = () => {
       }
 
       const payload = rpcData as { success?: boolean; code?: string } | null;
+      vdbg("video_date_transition_after", {
+        action: "enter_handshake",
+        ok: payload?.success !== false,
+        payload,
+      });
       if (payload && payload.success === false) {
         setHandshakeStartFailed(true);
         setHandshakeFailureCode(payload.code);
@@ -587,6 +713,12 @@ const VideoDate = () => {
 
       // Server-owned transition + status update (keepalive fetch with JWT)
       if (token && baseUrl) {
+        const transitionArgs = { p_session_id: id, p_action: "end", p_reason: "beforeunload" };
+        vdbg("video_date_transition_before", {
+          action: "end",
+          args: transitionArgs,
+          transport: "keepalive_fetch",
+        });
         fetch(`${baseUrl}/rest/v1/rpc/video_date_transition`, {
           method: "POST",
           headers: {
@@ -594,9 +726,25 @@ const VideoDate = () => {
             "Content-Type": "application/json",
             apikey: SUPABASE_PUBLISHABLE_KEY,
           },
-          body: JSON.stringify({ p_session_id: id, p_action: "end", p_reason: "beforeunload" }),
+          body: JSON.stringify(transitionArgs),
           keepalive: true,
-        }).catch(() => {});
+        })
+          .then((response) => {
+            vdbg("video_date_transition_after", {
+              action: "end",
+              ok: response.ok,
+              status: response.status,
+              transport: "keepalive_fetch",
+            });
+          })
+          .catch((error) => {
+            vdbg("video_date_transition_after", {
+              action: "end",
+              ok: false,
+              transport: "keepalive_fetch",
+              error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+            });
+          });
         // video_date_transition(end, beforeunload) sets queue_status = offline on server
       }
 
@@ -631,10 +779,23 @@ const VideoDate = () => {
   // Record user's vibe
   const handleUserVibe = useCallback(async () => {
     if (!id || !user?.id) return;
+    const args = { p_session_id: id, p_action: "vibe" };
+    vdbg("video_date_transition_before", { action: "vibe", args });
     try {
-      await supabase.rpc("video_date_transition", { p_session_id: id, p_action: "vibe" });
+      const { data, error } = await supabase.rpc("video_date_transition", args);
+      vdbg("video_date_transition_after", {
+        action: "vibe",
+        ok: !error,
+        payload: data ?? null,
+        error: error ? { code: error.code, message: error.message } : null,
+      });
     } catch (err) {
       console.error("Error recording vibe:", err);
+      vdbg("video_date_transition_after", {
+        action: "vibe",
+        ok: false,
+        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+      });
     }
   }, [id, user?.id, isParticipant1]);
 
@@ -644,10 +805,18 @@ const VideoDate = () => {
       handleCallEnd();
       return;
     }
+    const args = {
+      p_session_id: id,
+      p_action: "complete_handshake",
+    };
+    vdbg("video_date_transition_before", { action: "complete_handshake", args });
     try {
-      const { data: result } = await supabase.rpc("video_date_transition", {
-        p_session_id: id,
-        p_action: "complete_handshake",
+      const { data: result, error } = await supabase.rpc("video_date_transition", args);
+      vdbg("video_date_transition_after", {
+        action: "complete_handshake",
+        ok: !error,
+        payload: result ?? null,
+        error: error ? { code: error.code, message: error.message } : null,
       });
 
       if ((result as any)?.state === "date") {
@@ -659,6 +828,11 @@ const VideoDate = () => {
       }
     } catch (err) {
       console.error("Error checking mutual vibe:", err);
+      vdbg("video_date_transition_after", {
+        action: "complete_handshake",
+        ok: false,
+        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+      });
       handleCallEnd();
     }
   }, [id, endCall, setStatus]);
@@ -707,13 +881,27 @@ const VideoDate = () => {
     setShowFeedback(true);
 
     if (id) {
+      const args = {
+        p_session_id: id,
+        p_action: "end",
+        p_reason: "ended_from_client",
+      };
+      vdbg("video_date_transition_before", { action: "end", args });
       try {
-        await supabase.rpc("video_date_transition", {
-          p_session_id: id,
-          p_action: "end",
-          p_reason: "ended_from_client",
+        const { data, error } = await supabase.rpc("video_date_transition", args);
+        vdbg("video_date_transition_after", {
+          action: "end",
+          ok: !error,
+          payload: data ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
         });
-      } catch {}
+      } catch (error) {
+        vdbg("video_date_transition_after", {
+          action: "end",
+          ok: false,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
+      }
     }
     setStatus("in_survey");
   }, [id, setStatus, phase, timeLeft]);
@@ -739,9 +927,9 @@ const VideoDate = () => {
       toast.info("This date continued in another tab — closing here.", { duration: 3500 });
       await endCall();
       setCallStarted(false);
-      navigate(
-        eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events",
-      );
+      const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
+      vdbgRedirect(target, "duplicate_tab_lease_blocked", { sessionId: id ?? null, eventId: eventId ?? null });
+      navigate(target);
     })();
   }, [dupBlocked, callStarted, endCall, navigate, eventId]);
 
@@ -756,7 +944,13 @@ const VideoDate = () => {
         <p className="text-muted-foreground text-sm max-w-sm">
           This link may be invalid or the session no longer exists.
         </p>
-        <Button type="button" onClick={() => navigate("/events")}>
+        <Button
+          type="button"
+          onClick={() => {
+            vdbgRedirect("/events", "not_found_back_to_events", { sessionId: id ?? null });
+            navigate("/events");
+          }}
+        >
           Back to events
         </Button>
       </div>
@@ -790,11 +984,13 @@ const VideoDate = () => {
         </p>
         <Button
           type="button"
-          onClick={() =>
-            deniedEventId
-              ? navigate(`/event/${encodeURIComponent(deniedEventId)}/lobby`)
-              : navigate("/events")
-          }
+          onClick={() => {
+            const target = deniedEventId
+              ? `/event/${encodeURIComponent(deniedEventId)}/lobby`
+              : "/events";
+            vdbgRedirect(target, "denied_back", { sessionId: id ?? null, eventId: deniedEventId ?? null });
+            navigate(target);
+          }}
         >
           {deniedEventId ? "Back to event lobby" : "Back to events"}
         </Button>
@@ -810,11 +1006,17 @@ const VideoDate = () => {
         <p className="text-muted-foreground text-sm max-w-sm">{messageForHandshakeFailure(handshakeFailureCode)}</p>
         <Button
           type="button"
-          onClick={() =>
-            eventId
-              ? navigate(`/event/${encodeURIComponent(eventId)}/lobby`)
-              : navigate("/events")
-          }
+          onClick={() => {
+            const target = eventId
+              ? `/event/${encodeURIComponent(eventId)}/lobby`
+              : "/events";
+            vdbgRedirect(target, "handshake_start_failed_back", {
+              sessionId: id ?? null,
+              eventId: eventId ?? null,
+              code: handshakeFailureCode ?? null,
+            });
+            navigate(target);
+          }}
         >
           {eventId ? "Back to event lobby" : "Back to events"}
         </Button>
@@ -840,9 +1042,11 @@ const VideoDate = () => {
               type="button"
               variant="secondary"
               className="w-full"
-              onClick={() =>
-                navigate(eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events")
-              }
+              onClick={() => {
+                const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
+                vdbgRedirect(target, "duplicate_tab_back", { sessionId: id ?? null, eventId: eventId ?? null });
+                navigate(target);
+              }}
             >
               Back
             </Button>

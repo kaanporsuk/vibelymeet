@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 
 import { VerdictScreen } from "./survey/VerdictScreen";
 import { HighlightsScreen } from "./survey/HighlightsScreen";
@@ -19,6 +20,21 @@ import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,
 } from "@clientShared/safety/submitUserReportRpc";
+
+function vdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
+}
+
+function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {
+  vdbg("date_redirect", { target, reason, ...(data ?? {}) });
+}
 
 interface PostDateSurveyProps {
   isOpen: boolean;
@@ -97,12 +113,15 @@ export const PostDateSurvey = ({
     (videoSessionId: string, _queuePartnerId: string) => {
       toast("Your video date is ready — head to the lobby 💚", { duration: 2000 });
       if (eventId) {
-        navigate(buildEventLobbyPendingSessionUrl(eventId, videoSessionId));
+        const target = buildEventLobbyPendingSessionUrl(eventId, videoSessionId);
+        vdbgRedirect(target, "survey_queue_match_ready", { sessionId, eventId, pendingVideoSession: videoSessionId });
+        navigate(target);
       } else {
+        vdbgRedirect("/home", "survey_queue_match_ready", { sessionId, pendingVideoSession: videoSessionId });
         navigate("/home");
       }
     },
-    [navigate, eventId]
+    [navigate, eventId, sessionId]
   );
 
   useMatchQueue({
@@ -119,8 +138,11 @@ export const PostDateSurvey = ({
       setSurveyStatus("browsing");
       toast("Back in the mix! 💚", { duration: 2000 });
       if (eventId) {
-        navigate(`/event/${eventId}/lobby`, { state: { lobbyRefresh: true } });
+        const target = `/event/${eventId}/lobby`;
+        vdbgRedirect(target, "survey_finish", { sessionId, eventId, lobbyRefresh: true });
+        navigate(target, { state: { lobbyRefresh: true } });
       } else {
+        vdbgRedirect("/home", "survey_finish", { sessionId });
         navigate("/home");
       }
     } else {
