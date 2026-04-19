@@ -81,7 +81,11 @@ import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/netw
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
 import { supabase } from '@/lib/supabase';
-import { inferChatMediaRenderKind, parseChatImageMessageContent } from '@/lib/chatMessageContent';
+import {
+  formatChatImageMessageContent,
+  inferChatMediaRenderKind,
+  parseChatImageMessageContent,
+} from '@/lib/chatMessageContent';
 import { extractVibeClipMeta } from '../../../../shared/chat/messageRouting';
 import { VibeClipCard } from '@/components/chat/VibeClipCard';
 import {
@@ -243,6 +247,16 @@ function isLocalTextMessage(message: ThreadMessage): message is LocalTextChatMes
   return typeof message === 'object' && message !== null && 'localText' in message;
 }
 
+function threadMessageMediaKind(message: ThreadMessage) {
+  if (isLocalMediaMessage(message) && message.localMedia.payload.kind === 'image') return 'image';
+  return inferChatMediaRenderKind({
+    content: message.text,
+    audioUrl: message.audio_url,
+    videoUrl: message.video_url,
+    messageKind: message.messageKind,
+  });
+}
+
 function mapOutboxToLocalSendState(state: ChatOutboxQueueState): LocalTextSendState | LocalMediaSendState {
   if (state === 'failed') return 'failed';
   return 'sending';
@@ -323,7 +337,7 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
   }
   return {
     id,
-    text: 'Photo',
+    text: formatChatImageMessageContent(p.uri),
     sender: 'me',
     time,
     sortAtMs: item.createdAtMs,
@@ -687,12 +701,11 @@ export default function ChatThreadScreen() {
   const chatPhotoGalleryItems = useMemo((): ChatThreadPhotoItem[] => {
     const out: ChatThreadPhotoItem[] = [];
     for (const m of displayMessages) {
-      const kind = inferChatMediaRenderKind({
-        content: m.text,
-        audioUrl: m.audio_url,
-        videoUrl: m.video_url,
-        messageKind: m.messageKind,
-      });
+      if (isLocalMediaMessage(m) && m.localMedia.payload.kind === 'image') {
+        out.push({ id: m.id, uri: m.localMedia.payload.uri });
+        continue;
+      }
+      const kind = threadMessageMediaKind(m);
       if (kind !== 'image') continue;
       const u = parseChatImageMessageContent(m.text);
       if (u) out.push({ id: m.id, uri: u });
@@ -802,12 +815,7 @@ export default function ChatThreadScreen() {
   const lastClipOrVideoIndex = useMemo(() => {
     let last = -1;
     displayMessages.forEach((m, i) => {
-      const k = inferChatMediaRenderKind({
-        content: m.text,
-        audioUrl: m.audio_url,
-        videoUrl: m.video_url,
-        messageKind: m.messageKind,
-      });
+      const k = threadMessageMediaKind(m);
       if (k === 'vibe_clip' || k === 'video') last = i;
     });
     return last;
@@ -1537,12 +1545,7 @@ export default function ChatThreadScreen() {
         : null;
     const localMedia = isLocalMediaMessage(item) ? item.localMedia : null;
     const localText = isLocalTextMessage(item) ? item.localText : null;
-    const mediaKind = inferChatMediaRenderKind({
-      content: item.text,
-      audioUrl: item.audio_url,
-      videoUrl: item.video_url,
-      messageKind: item.messageKind,
-    });
+    const mediaKind = threadMessageMediaKind(item);
     const localSendState = localMedia?.state ?? localText?.state ?? null;
     const outboxPhase = localMedia?.outboxPhase ?? localText?.outboxPhase;
     const outboxItemId = localMedia?.outboxItemId ?? localText?.outboxItemId;
@@ -1805,29 +1808,10 @@ export default function ChatThreadScreen() {
     const isMe = msg.sender === 'me';
     const { prev, next } = bubbleMediaNeighbors(chatFlatRows, index);
     const isLastInGroup = !next || next.sender !== msg.sender;
-    const mediaKind = inferChatMediaRenderKind({
-      content: msg.text,
-      audioUrl: msg.audio_url,
-      videoUrl: msg.video_url,
-      messageKind: msg.messageKind,
-    });
+    const mediaKind = threadMessageMediaKind(msg);
     const isMediaBubble = mediaKind === 'video' || mediaKind === 'image' || mediaKind === 'vibe_clip';
-    const prevKind = prev
-      ? inferChatMediaRenderKind({
-          content: prev.text,
-          audioUrl: prev.audio_url,
-          videoUrl: prev.video_url,
-          messageKind: prev.messageKind,
-        })
-      : 'text';
-    const nextKind = next
-      ? inferChatMediaRenderKind({
-          content: next.text,
-          audioUrl: next.audio_url,
-          videoUrl: next.video_url,
-          messageKind: next.messageKind,
-        })
-      : 'text';
+    const prevKind = prev ? threadMessageMediaKind(prev) : 'text';
+    const nextKind = next ? threadMessageMediaKind(next) : 'text';
     const prevIsMedia = prevKind === 'video' || prevKind === 'image' || prevKind === 'vibe_clip';
     const nextIsMedia = nextKind === 'video' || nextKind === 'image' || nextKind === 'vibe_clip';
     const bubbleMarginBottom = isLastInGroup

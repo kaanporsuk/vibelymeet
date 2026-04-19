@@ -23,6 +23,10 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 
 **DB `message_kind`:** Voice rows use `message_kind = 'voice'` (requires migration `20260330100000_messages_message_kind_voice.sql`). Older voice rows may still be `message_kind = 'text'` with `audio_url` set; rendering uses `inferChatMediaRenderKind` (audio URL wins).
 
+**Media URL validation:** `send-message` rejects canonical media publishes with `invalid_media_url` when an image marker does not resolve under `/photos/`, a voice URL under `/voice/`, or a Vibe Clip URL / thumbnail under `/chat-videos/`. This keeps broken placeholders and wrong-provider URLs out of `messages`.
+
+**CDN path prefixes:** Bunny Storage delivery may include an optional CDN path prefix. Edge upload functions build voice / Vibe Clip URLs through `_shared/bunny-media.ts` using `BUNNY_CDN_PATH_PREFIX`; web/native image URL builders use `VITE_BUNNY_CDN_PATH_PREFIX` / `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX`. If a prefix is configured, the database setting `app.bunny_cdn_path_prefix` must match so `sync_chat_message_media` strips URLs back to provider paths before lifecycle attachment.
+
 ---
 
 ## 2. Legacy generic video (read-only compatibility)
@@ -77,9 +81,16 @@ All **new user-authored** chat media persistence goes through the **`send-messag
 ## 6. Deploy order (when shipping this sprint)
 
 1. Apply migration **`20260330100000_messages_message_kind_voice.sql`** (adds `'voice'` to `message_kind` check).
-2. Deploy **`send-message`** Edge Function (voice branch).
+2. Apply migration **`20260429132000_chat_media_cdn_path_prefix_normalize.sql`** when deploying prefix-aware media lifecycle normalization.
+3. Deploy **`upload-voice`**, **`upload-chat-video`**, and **`send-message`** Edge Functions together for prefix-aware URLs and strict media sync rollback.
 
 Deploying the function **before** the migration will cause voice inserts to fail with a constraint error until the migration runs.
+
+When `BUNNY_CDN_PATH_PREFIX` is non-empty, also run:
+
+```sql
+ALTER DATABASE postgres SET app.bunny_cdn_path_prefix = '<prefix>';
+```
 
 ---
 
@@ -102,7 +113,7 @@ Until Sprint 3 wires the reference-release logic into message/match/account dele
 
 | Area | Files |
 |------|--------|
-| Edge | `supabase/functions/send-message/index.ts` |
+| Edge | `supabase/functions/send-message/index.ts`, `supabase/functions/upload-voice/index.ts`, `supabase/functions/upload-chat-video/index.ts`, `supabase/functions/_shared/bunny-media.ts` |
 | Shared routing | `shared/chat/messageRouting.ts` (`voice` in DB kind; UI kind stays `text` via `toRenderableMessageKind`) |
 | Web | `src/hooks/useMessages.ts`, `src/pages/Chat.tsx` |
 | Native | `apps/mobile/lib/chatApi.ts`, `apps/mobile/lib/chatOutbox/execute.ts`, `apps/mobile/lib/chatMediaUpload.ts` (comment) |

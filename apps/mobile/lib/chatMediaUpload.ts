@@ -12,6 +12,22 @@ import { getImageUrl } from '@/lib/imageUrl';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
+function assertUsableChatImagePublicUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('Photo CDN is not configured. Try again later.');
+  }
+
+  const isHttp = parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  const isPlaceholder = parsed.protocol === 'data:' || parsed.hostname === 'placehold.co';
+  const hasPhotoPath = parsed.pathname.includes('/photos/');
+  if (!isHttp || isPlaceholder || parsed.hostname === 'undefined' || !hasPhotoPath) {
+    throw new Error('Photo CDN is not configured. Try again later.');
+  }
+}
+
 export async function uploadVoiceMessage(audioUri: string, matchId: string): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error('Not authenticated');
@@ -180,5 +196,7 @@ export async function uploadChatImageMessage(
   if (!res.ok || !data.success || !data.path) {
     throw new Error(data.error || `Upload failed with status ${res.status}`);
   }
-  return getImageUrl(data.path, { quality: 88 });
+  const publicUrl = getImageUrl(data.path, { quality: 88 });
+  assertUsableChatImagePublicUrl(publicUrl);
+  return publicUrl;
 }

@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
@@ -35,6 +35,7 @@ export function VoiceMessagePlayer({
 }: VoiceMessagePlayerProps) {
   const player = useAudioPlayer(uri);
   const status = useAudioPlayerStatus(player);
+  const [hasError, setHasError] = useState(false);
   const playing = status.playing;
   const positionRaw = status.currentTime ?? 0;
   const fromDb = durationSeconds != null && durationSeconds > 0 ? durationSeconds : 0;
@@ -57,13 +58,35 @@ export function VoiceMessagePlayer({
   const track = isMine ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.1)';
   const fill = isMine ? 'rgba(255,255,255,0.95)' : theme.tint;
   const sub = isMine ? 'rgba(255,255,255,0.75)' : theme.textSecondary;
+  const statusError = (status as { error?: unknown }).error;
+
+  useEffect(() => {
+    setHasError(false);
+  }, [uri]);
+
+  useEffect(() => {
+    if (statusError) setHasError(true);
+  }, [statusError]);
 
   const toggle = () => {
-    if (playing) player.pause();
-    else player.play();
+    try {
+      let result: unknown;
+      if (playing) {
+        result = player.pause();
+      } else {
+        setHasError(false);
+        result = player.play();
+      }
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        void (result as Promise<void>).catch(() => setHasError(true));
+      }
+    } catch {
+      setHasError(true);
+    }
   };
 
   const rightTimeLabel = (() => {
+    if (hasError) return 'Tap to retry';
     if (!playing) {
       if (totalDuration > 0) return formatVoiceDurationClock(totalDuration);
       return 'Voice message';
@@ -87,10 +110,12 @@ export function VoiceMessagePlayer({
       </Text>
       <Pressable
         onPress={toggle}
-        style={styles.row}
+        style={[styles.row, hasError ? styles.rowError : null]}
         accessibilityRole="button"
         accessibilityLabel={
-          totalDuration > 0
+          hasError
+            ? 'Retry voice message playback'
+            : totalDuration > 0
             ? `${playing ? 'Pause' : 'Play'} voice message, ${formatVoiceDurationClock(totalDuration)}`
             : `${playing ? 'Pause' : 'Play'} voice message`
         }
@@ -102,15 +127,15 @@ export function VoiceMessagePlayer({
             !isMine && { borderColor: 'rgba(236,72,153,0.35)', borderWidth: StyleSheet.hairlineWidth },
           ]}
         >
-          <Ionicons name={playing ? 'pause' : 'play'} size={20} color={fg} />
-          {status.isBuffering && playing ? (
+          <Ionicons name={hasError ? 'alert-circle-outline' : playing ? 'pause' : 'play'} size={20} color={fg} />
+          {status.isBuffering && playing && !hasError ? (
             <ActivityIndicator size="small" color={fg} style={styles.bufferSpinner} />
           ) : null}
         </View>
         <View style={styles.mid}>
           <View style={[styles.waveRow, { backgroundColor: track, borderColor: isMine ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.08)' }]}>
             {waveform.map((h, i) => {
-              const played = playheadIdx >= 0 && i <= playheadIdx;
+              const played = !hasError && playheadIdx >= 0 && i <= playheadIdx;
               const barH = 4 + h * 16;
               return (
                 <View
@@ -151,6 +176,7 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   row: { flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+  rowError: { opacity: 0.92 },
   playSide: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   playSideMine: {
     width: 34,

@@ -367,6 +367,8 @@ Edge Function runtime secrets must be set separately from frontend Vite variable
 ```env
 APP_URL=
 BUNNY_CDN_HOSTNAME=
+# Optional when the Bunny pull zone serves storage under an extra path prefix.
+BUNNY_CDN_PATH_PREFIX=
 BUNNY_STORAGE_API_KEY=
 BUNNY_STORAGE_ZONE=
 BUNNY_STREAM_API_KEY=
@@ -395,6 +397,12 @@ BUNNY_VIDEO_WEBHOOK_TOKEN=
 
 Prepare a dedicated secrets file that is **not committed**.
 
+If `BUNNY_CDN_PATH_PREFIX` is non-empty, apply the matching database setting after migrations so chat media lifecycle sync can strip CDN URLs back to provider paths:
+
+```sql
+ALTER DATABASE postgres SET app.bunny_cdn_path_prefix = '<prefix>';
+```
+
 Example:
 
 ```env
@@ -419,6 +427,7 @@ BUNNY_STREAM_CDN_HOSTNAME=...
 BUNNY_STORAGE_ZONE=...
 BUNNY_STORAGE_API_KEY=...
 BUNNY_CDN_HOSTNAME=cdn.vibelymeet.com
+# BUNNY_CDN_PATH_PREFIX=
 ONESIGNAL_APP_ID=...
 ONESIGNAL_REST_API_KEY=...
 PUSH_WEBHOOK_SECRET=...
@@ -477,6 +486,7 @@ Deploy all function directories except `_shared`:
 - `upload-event-cover`
 - `upload-image`
 - `upload-voice`
+- `upload-chat-video`
 - `verify-admin`
 - `vibe-notification`
 - `video-webhook`

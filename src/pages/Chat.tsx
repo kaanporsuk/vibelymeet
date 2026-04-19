@@ -541,7 +541,7 @@ const Chat = () => {
     const out: { id: string; url: string }[] = [];
     for (const m of displayMessages) {
       if (m.type !== "image") continue;
-      const url = parseChatImageMessageContent(m.text);
+      const url = parseChatImageMessageContent(m.text, { allowLocalPreviewUrls: true });
       if (!url) continue;
       out.push({ id: m.id, url });
     }
@@ -1452,9 +1452,9 @@ const Chat = () => {
                       aria-label="View photo full screen"
                       onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
                     >
-                      {parseChatImageMessageContent(groupedMessage.text)?.trim() ? (
+                      {parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true })?.trim() ? (
                         <img
-                          src={parseChatImageMessageContent(groupedMessage.text) || ""}
+                          src={parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true }) || ""}
                           alt="Shared image"
                           className="w-52 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
                           loading="lazy"
