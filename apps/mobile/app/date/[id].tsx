@@ -311,6 +311,12 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     setPartnerEverJoined(false);
+    vdbg('prejoin_state_localInDailyRoom', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'session_reset',
+    });
     setLocalInDailyRoom(false);
     setPeerMissingTerminal(false);
     noRemoteAutoRecoveryUsedRef.current = false;
@@ -526,11 +532,41 @@ export default function VideoDateScreen() {
             /* ignore */
           }
           callRef.current = null;
+          vdbg('prejoin_state_localInDailyRoom', {
+            value: false,
+            sessionId,
+            userId: user?.id ?? null,
+            step: 'no_remote_auto_recovery',
+          });
           setLocalInDailyRoom(false);
+          vdbg('prejoin_state_awaitingFirstConnect', {
+            value: false,
+            sessionId,
+            userId: user?.id ?? null,
+            step: 'no_remote_auto_recovery',
+          });
           setAwaitingFirstConnect(false);
+          vdbg('prejoin_state_isConnecting', {
+            value: false,
+            sessionId,
+            userId: user?.id ?? null,
+            step: 'no_remote_auto_recovery',
+          });
           setIsConnecting(false);
           setRemoteParticipant(null);
           hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', {
+            value: false,
+            sessionId,
+            userId: user?.id ?? null,
+            step: 'no_remote_auto_recovery',
+          });
+          vdbg('prejoin_state_joinAttemptNonce', {
+            value: 'increment',
+            sessionId,
+            userId: user?.id ?? null,
+            step: 'no_remote_auto_recovery',
+          });
           setJoinAttemptNonce((n) => n + 1);
           videoDateDailyDiagnostic('no_remote_auto_recovery_complete', {
             session_id: sessionId,
@@ -541,8 +577,26 @@ export default function VideoDateScreen() {
       }
       videoDateDailyDiagnostic('peer_missing_timeout', { session_id: sessionId, room_name: roomNameRef.current ?? null });
       setPeerMissingTerminal(true);
+      vdbg('prejoin_state_awaitingFirstConnect', {
+        value: false,
+        sessionId,
+        userId: user?.id ?? null,
+        step: 'peer_missing_timeout',
+      });
       setAwaitingFirstConnect(false);
+      vdbg('prejoin_state_isConnecting', {
+        value: false,
+        sessionId,
+        userId: user?.id ?? null,
+        step: 'peer_missing_timeout',
+      });
       setIsConnecting(false);
+      vdbg('prejoin_state_callError', {
+        value: 'Your match has not joined this video room yet.',
+        sessionId,
+        userId: user?.id ?? null,
+        step: 'peer_missing_timeout',
+      });
       setCallError('Your match has not joined this video room yet.');
     }, FIRST_CONNECT_TIMEOUT_MS);
 
@@ -681,14 +735,38 @@ export default function VideoDateScreen() {
     if (sessionId) await endVideoDate(sessionId);
     setLocalParticipant(null);
     setRemoteParticipant(null);
+    vdbg('prejoin_state_localInDailyRoom', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'leave_and_cleanup',
+    });
     setLocalInDailyRoom(false);
     setPartnerEverJoined(false);
     setPeerMissingTerminal(false);
     noRemoteAutoRecoveryUsedRef.current = false;
+    vdbg('prejoin_state_isConnecting', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'leave_and_cleanup',
+    });
     setIsConnecting(false);
     setIsMuted(false);
     setIsVideoOff(false);
+    vdbg('prejoin_state_awaitingFirstConnect', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'leave_and_cleanup',
+    });
     setAwaitingFirstConnect(false);
+    vdbg('prejoin_state_preJoinFailed', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'leave_and_cleanup',
+    });
     setPreJoinFailed(false);
     setNetQualityTier('good');
   }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog]);
@@ -884,30 +962,82 @@ export default function VideoDateScreen() {
     if (Platform.OS === 'android') {
       const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
       const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      vdbg('prejoin_step_prejoin_permissions_before', {
+        platform: 'android',
+        cameraGranted: camOk,
+        microphoneGranted: micOk,
+      });
       if (camOk && micOk) {
+        vdbg('prejoin_state_hasPermission', { value: true, source: 'android_existing_grants' });
         setHasPermission(true);
+        vdbg('prejoin_step_prejoin_permissions_after', {
+          platform: 'android',
+          cameraGranted: true,
+          microphoneGranted: true,
+          ok: true,
+          source: 'existing_grants',
+        });
         return true;
       }
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.CAMERA,
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
       ]);
+      const cameraGranted = granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED;
+      const microphoneGranted = granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
       const ok =
-        granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
-        granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
+        cameraGranted &&
+        microphoneGranted;
+      vdbg('prejoin_state_hasPermission', { value: ok, source: 'android_request' });
       setHasPermission(ok);
+      vdbg('prejoin_step_prejoin_permissions_after', {
+        platform: 'android',
+        cameraGranted,
+        microphoneGranted,
+        cameraResult: granted[PermissionsAndroid.PERMISSIONS.CAMERA],
+        microphoneResult: granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO],
+        ok,
+        source: 'request',
+      });
       return ok;
     }
     const camExisting = await Camera.getCameraPermissionsAsync();
     const micExisting = await Camera.getMicrophonePermissionsAsync();
+    vdbg('prejoin_step_prejoin_permissions_before', {
+      platform: Platform.OS,
+      cameraStatus: camExisting.status,
+      microphoneStatus: micExisting.status,
+      cameraGranted: camExisting.status === 'granted',
+      microphoneGranted: micExisting.status === 'granted',
+    });
     if (camExisting.status === 'granted' && micExisting.status === 'granted') {
+      vdbg('prejoin_state_hasPermission', { value: true, source: 'native_existing_grants' });
       setHasPermission(true);
+      vdbg('prejoin_step_prejoin_permissions_after', {
+        platform: Platform.OS,
+        cameraStatus: camExisting.status,
+        microphoneStatus: micExisting.status,
+        cameraGranted: true,
+        microphoneGranted: true,
+        ok: true,
+        source: 'existing_grants',
+      });
       return true;
     }
     const cam = await Camera.requestCameraPermissionsAsync();
     const mic = await Camera.requestMicrophonePermissionsAsync();
     const ok = cam.status === 'granted' && mic.status === 'granted';
+    vdbg('prejoin_state_hasPermission', { value: ok, source: 'native_request' });
     setHasPermission(ok);
+    vdbg('prejoin_step_prejoin_permissions_after', {
+      platform: Platform.OS,
+      cameraStatus: cam.status,
+      microphoneStatus: mic.status,
+      cameraGranted: cam.status === 'granted',
+      microphoneGranted: mic.status === 'granted',
+      ok,
+      source: 'request',
+    });
     return ok;
   }, []);
 
@@ -923,71 +1053,238 @@ export default function VideoDateScreen() {
       }
       callRef.current = null;
     }
+    vdbg('prejoin_state_awaitingFirstConnect', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setAwaitingFirstConnect(false);
     setPeerMissingTerminal(false);
+    vdbg('prejoin_state_preJoinFailed', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setPreJoinFailed(false);
+    vdbg('prejoin_state_callError', {
+      value: null,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setCallError(null);
     setRemoteParticipant(null);
+    vdbg('prejoin_state_localInDailyRoom', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setLocalInDailyRoom(false);
     setPartnerEverJoined(false);
     noRemoteAutoRecoveryUsedRef.current = false;
+    vdbg('prejoin_state_isConnecting', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setIsConnecting(false);
+    vdbg('prejoin_state_joining', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setJoining(false);
     hasStartedJoinRef.current = false;
+    vdbg('prejoin_state_hasStartedJoinRef', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
+    vdbg('prejoin_state_joinAttemptNonce', {
+      value: 'increment',
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'retry_initial_connect',
+    });
     setJoinAttemptNonce((n) => n + 1);
   }, [clearFirstConnectWatchdog]);
 
   useEffect(() => {
+    const userId = user?.id ?? null;
+    const initialGuard = {
+      hasSessionId: Boolean(sessionId),
+      hasUserId: Boolean(userId),
+      hasSession: Boolean(session),
+      sessionEnded: Boolean(session?.ended_at),
+      joining,
+      hasCall: Boolean(callRef.current),
+      hasStartedJoin: hasStartedJoinRef.current,
+      sessionError: sessionError ?? null,
+      phase,
+    };
+    vdbg('prejoin_step_prejoin_effect_fired', {
+      sessionId: sessionId ?? null,
+      userId,
+      ...initialGuard,
+    });
     if (
       !sessionId ||
       !user?.id ||
       !session ||
       session.ended_at ||
-      joining ||
+      (joining && hasStartedJoinRef.current) ||
       callRef.current ||
       hasStartedJoinRef.current
-    )
+    ) {
+      vdbg('prejoin_step_prejoin_truth_skipped_or_started', {
+        sessionId: sessionId ?? null,
+        userId,
+        started: false,
+        reason: 'initial_guard',
+        ...initialGuard,
+      });
       return;
-    if (sessionError || phase === 'ended') return;
+    }
+    if (sessionError || phase === 'ended') {
+      vdbg('prejoin_step_prejoin_truth_skipped_or_started', {
+        sessionId,
+        userId,
+        started: false,
+        reason: 'session_error_or_ended_phase',
+        sessionError: sessionError ?? null,
+        phase,
+      });
+      return;
+    }
 
     hasStartedJoinRef.current = true;
+    vdbg('prejoin_state_hasStartedJoinRef', { value: true, sessionId, userId: user.id });
     let cancelled = false;
+    let prejoinCompleted = false;
+    let currentStep = 'effect_started';
     const run = async () => {
+      currentStep = 'initial_state';
+      vdbg('prejoin_state_joining', { value: true, sessionId, userId: user.id, step: currentStep });
       setJoining(true);
+      vdbg('prejoin_state_callError', { value: null, sessionId, userId: user.id, step: currentStep });
       setCallError(null);
+      vdbg('prejoin_state_preJoinFailed', { value: false, sessionId, userId: user.id, step: currentStep });
       setPreJoinFailed(false);
+      vdbg('prejoin_state_awaitingFirstConnect', { value: false, sessionId, userId: user.id, step: currentStep });
       setAwaitingFirstConnect(false);
       clearFirstConnectWatchdog();
 
+      currentStep = 'permissions';
       const ok = await requestPermissions();
       if (!ok || cancelled) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: cancelled ? 'cancelled_after_permissions' : 'permissions_denied',
+          permissionsOk: ok,
+          cancelled,
+        });
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: cancelled ? 'cancelled_after_permissions' : 'permissions_denied',
+        });
         if (!ok && !cancelled) {
+          vdbg('prejoin_state_callError', {
+            value: 'Camera and microphone access are required for video dates.',
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+          });
           setCallError('Camera and microphone access are required for video dates.');
         }
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
+        prejoinCompleted = !cancelled;
         return;
       }
 
+      currentStep = 'truth_fetch';
+      vdbg('prejoin_step_prejoin_truth_skipped_or_started', {
+        sessionId,
+        userId: user.id,
+        started: true,
+        reason: null,
+      });
       const truth0 = await fetchVideoSessionDateEntryTruth(sessionId);
       if (cancelled) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'cancelled_after_truth_fetch',
+        });
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'cancelled_after_truth_fetch',
+        });
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
         return;
       }
       vdbg('date_prejoin_truth_row', { sessionId, userId: user.id, row: truth0 ?? null });
       if (!truth0) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'session_row_missing',
+        });
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'session_row_missing',
+        });
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
           session_id: sessionId,
           user_id: user?.id ?? null,
           reason: 'session_row_missing',
         });
+        vdbg('prejoin_state_callError', {
+          value: "We couldn't open this date. Go back and try again.",
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+        });
         setCallError("We couldn't open this date. Go back and try again.");
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
+        prejoinCompleted = true;
         return;
       }
       if (truth0.ended_at) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'session_ended_prejoin',
+          endedAt: truth0.ended_at,
+        });
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'session_ended_prejoin',
+          endedAt: truth0.ended_at,
+        });
         if (truth0.event_id) {
           const target = eventLobbyHref(truth0.event_id as string);
           vdbgRedirect(target, 'session_ended_prejoin', {
@@ -1007,12 +1304,28 @@ export default function VideoDateScreen() {
           router.replace(target);
         }
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
+        prejoinCompleted = true;
         return;
       }
 
-      const handshakeAlready =
-        !!truth0.handshake_started_at || videoSessionIndicatesHandshakeOrDate(truth0);
+      currentStep = 'handshake_guard';
+      const hasHandshakeStarted = !!truth0.handshake_started_at;
+      const indicatesHandshakeOrDate = videoSessionIndicatesHandshakeOrDate(truth0);
+      const handshakeAlready = hasHandshakeStarted || indicatesHandshakeOrDate;
+      vdbg('prejoin_step_prejoin_handshake_guard', {
+        sessionId,
+        userId: user.id,
+        hasHandshakeStarted,
+        indicatesHandshakeOrDate,
+        handshakeAlready,
+        willCallEnterHandshake: !handshakeAlready,
+        state: truth0.state,
+        phase: truth0.phase,
+        endedAt: truth0.ended_at ?? null,
+      });
 
       if (!handshakeAlready) {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_start', {
@@ -1024,14 +1337,63 @@ export default function VideoDateScreen() {
         });
         let hs;
         try {
+          currentStep = 'enter_handshake';
           videoDateDailyDiagnostic('enter_handshake_start', { session_id: sessionId });
+          vdbg('prejoin_step_prejoin_enter_handshake_before', {
+            sessionId,
+            userId: user.id,
+            attempt: 1,
+            timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
+          });
           hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+          vdbg('prejoin_step_prejoin_enter_handshake_after', {
+            sessionId,
+            userId: user.id,
+            attempt: 1,
+            ok: hs.ok,
+            code: hs.ok ? null : hs.code ?? null,
+            message: hs.ok ? null : hs.message ?? null,
+          });
           if (!hs.ok && isReadyGateRace(hs.code)) {
             await new Promise((resolve) => setTimeout(resolve, 700));
+            vdbg('prejoin_step_prejoin_enter_handshake_before', {
+              sessionId,
+              userId: user.id,
+              attempt: 2,
+              timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
+              retryDelayMs: 700,
+              previousCode: hs.code ?? null,
+            });
             hs = await enterHandshakeWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+            vdbg('prejoin_step_prejoin_enter_handshake_after', {
+              sessionId,
+              userId: user.id,
+              attempt: 2,
+              ok: hs.ok,
+              code: hs.ok ? null : hs.code ?? null,
+              message: hs.ok ? null : hs.message ?? null,
+            });
           }
         } catch (error) {
           const timedOut = error instanceof VideoDateRequestTimeoutError;
+          vdbg('prejoin_step_prejoin_enter_handshake_after', {
+            sessionId,
+            userId: user.id,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+            timedOut,
+          });
+          vdbg('prejoin_step_prejoin_error', {
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+            reason: timedOut ? 'enter_handshake_timeout' : 'enter_handshake_exception',
+          });
+          vdbg('prejoin_step_prejoin_daily_room_skipped', {
+            sessionId,
+            userId: user.id,
+            reason: timedOut ? 'enter_handshake_timeout' : 'enter_handshake_exception',
+          });
           videoDateDailyDiagnostic('enter_handshake_failure', {
             session_id: sessionId,
             reason: timedOut ? 'timeout' : 'exception',
@@ -1042,24 +1404,64 @@ export default function VideoDateScreen() {
             reason: timedOut ? 'timeout' : 'exception',
           });
           if (!cancelled) {
+            vdbg('prejoin_state_callError', {
+              value: timedOut
+                ? 'Still setting up your date. Please retry.'
+                : 'Could not start video. Please try again.',
+              sessionId,
+              userId: user.id,
+              step: currentStep,
+            });
             setCallError(
               timedOut
                 ? 'Still setting up your date. Please retry.'
                 : 'Could not start video. Please try again.'
             );
+            vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
             setPreJoinFailed(true);
+            vdbg('prejoin_state_isConnecting', { value: false, sessionId, userId: user.id, step: currentStep });
             setIsConnecting(false);
           }
           hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+          vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
           setJoining(false);
+          prejoinCompleted = !cancelled;
           return;
         }
         if (cancelled) {
+          vdbg('prejoin_step_prejoin_error', {
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+            reason: 'cancelled_after_enter_handshake',
+          });
+          vdbg('prejoin_step_prejoin_daily_room_skipped', {
+            sessionId,
+            userId: user.id,
+            reason: 'cancelled_after_enter_handshake',
+          });
           hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+          vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
           setJoining(false);
           return;
         }
         if (!hs.ok) {
+          vdbg('prejoin_step_prejoin_error', {
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+            reason: 'enter_handshake_not_ok',
+            code: hs.code ?? null,
+            message: hs.message ?? null,
+          });
+          vdbg('prejoin_step_prejoin_daily_room_skipped', {
+            sessionId,
+            userId: user.id,
+            reason: 'enter_handshake_not_ok',
+            code: hs.code ?? null,
+          });
           videoDateDailyDiagnostic('enter_handshake_failure', {
             session_id: sessionId,
             code: hs.code != null ? String(hs.code) : 'unknown',
@@ -1079,10 +1481,20 @@ export default function VideoDateScreen() {
             level: 'warning',
             extra: { sessionId, code: hs.code, message: hs.message },
           });
+          vdbg('prejoin_state_callError', {
+            value: userMessageForHandshakeFailure(hs.code),
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+          });
           setCallError(userMessageForHandshakeFailure(hs.code));
+          vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
           setPreJoinFailed(true);
           hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+          vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
           setJoining(false);
+          prejoinCompleted = true;
           return;
         }
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_ok', {
@@ -1104,17 +1516,53 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           note: 'handshake_already_started',
         });
+        vdbg('prejoin_step_prejoin_enter_handshake_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'handshake_already_started',
+          hasHandshakeStarted,
+          indicatesHandshakeOrDate,
+          state: truth0.state,
+          phase: truth0.phase,
+        });
       }
 
+      currentStep = 'refetch_video_session';
+      vdbg('prejoin_step_prejoin_refetch_before', { sessionId, userId: user.id });
       await refetchVideoSession();
+      vdbg('prejoin_step_prejoin_refetch_after', { sessionId, userId: user.id, ok: true });
       if (cancelled) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'cancelled_after_refetch',
+        });
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'cancelled_after_refetch',
+        });
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
         return;
       }
 
+      currentStep = 'daily_room_guard';
+      vdbg('prejoin_step_prejoin_daily_room_guard', {
+        sessionId,
+        userId: user.id,
+        cancelled,
+        hasSessionId: Boolean(sessionId),
+        hasTruthRow: Boolean(truth0),
+        timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
+        willCallDailyRoom: !cancelled,
+      });
       let tokenRes;
       try {
+        currentStep = 'daily_room';
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_start', {
           session_id: sessionId,
           user_id: user?.id ?? null,
@@ -1123,9 +1571,37 @@ export default function VideoDateScreen() {
           vs_phase: truth0.phase,
         });
         videoDateDailyDiagnostic('token_fetch_start', { session_id: sessionId });
+        vdbg('prejoin_step_prejoin_daily_room_before', {
+          sessionId,
+          userId: user.id,
+          timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
+        });
         tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+        vdbg('prejoin_step_prejoin_daily_room_after', {
+          sessionId,
+          userId: user.id,
+          ok: tokenRes.ok,
+          code: tokenRes.ok ? null : tokenRes.code ?? null,
+          httpStatus: tokenRes.ok ? null : tokenRes.httpStatus ?? null,
+          serverCode: tokenRes.ok ? null : tokenRes.serverCode ?? null,
+          roomName: tokenRes.ok ? tokenRes.data.room_name : null,
+          hasToken: tokenRes.ok ? Boolean(tokenRes.data.token) : false,
+        });
       } catch (error) {
         const timedOut = error instanceof VideoDateRequestTimeoutError;
+        vdbg('prejoin_step_prejoin_daily_room_after', {
+          sessionId,
+          userId: user.id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          timedOut,
+        });
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: timedOut ? 'daily_room_timeout' : 'daily_room_exception',
+        });
         videoDateDailyDiagnostic('token_fetch_failure', {
           session_id: sessionId,
           reason: timedOut ? 'timeout' : 'exception',
@@ -1136,24 +1612,59 @@ export default function VideoDateScreen() {
           reason: timedOut ? 'timeout' : 'exception',
         });
         if (!cancelled) {
+          vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
           setPreJoinFailed(true);
+          vdbg('prejoin_state_callError', {
+            value: timedOut
+              ? 'Still setting up your date. Please retry.'
+              : 'Could not start video. Please try again.',
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+          });
           setCallError(
             timedOut
               ? 'Still setting up your date. Please retry.'
               : 'Could not start video. Please try again.'
           );
+          vdbg('prejoin_state_isConnecting', { value: false, sessionId, userId: user.id, step: currentStep });
           setIsConnecting(false);
         }
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
+        prejoinCompleted = !cancelled;
         return;
       }
       if (cancelled) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'cancelled_after_daily_room',
+        });
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'cancelled_after_daily_room',
+        });
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
         return;
       }
       if (!tokenRes.ok) {
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'daily_room_not_ok',
+          code: tokenRes.code ?? null,
+          httpStatus: tokenRes.httpStatus ?? null,
+          serverCode: tokenRes.serverCode ?? null,
+        });
         videoDateDailyDiagnostic('token_fetch_failure', {
           session_id: sessionId,
           code: String(tokenRes.code),
@@ -1185,9 +1696,18 @@ export default function VideoDateScreen() {
             serverCode: tokenRes.serverCode,
           },
         });
+        vdbg('prejoin_state_callError', {
+          value: userMessageForTokenFailure(tokenRes.code),
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+        });
         setCallError(userMessageForTokenFailure(tokenRes.code));
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
+        prejoinCompleted = true;
         return;
       }
 
@@ -1205,6 +1725,13 @@ export default function VideoDateScreen() {
       const call = Daily.createCallObject();
       callRef.current = call;
       roomNameRef.current = tokenResult.room_name;
+      vdbg('prejoin_state_isConnecting', {
+        value: true,
+        sessionId,
+        userId: user.id,
+        step: 'daily_call_object_created',
+        roomName: tokenResult.room_name,
+      });
       setIsConnecting(true);
 
       call.on('participant-joined', (event: { participant?: DailyParticipant }) => {
@@ -1230,8 +1757,20 @@ export default function VideoDateScreen() {
             source: 'participant_joined',
           });
           clearFirstConnectWatchdog();
+          vdbg('prejoin_state_awaitingFirstConnect', {
+            value: false,
+            sessionId,
+            userId: user.id,
+            step: 'participant_joined',
+          });
           setAwaitingFirstConnect(false);
           setPartnerEverJoined(true);
+          vdbg('prejoin_state_isConnecting', {
+            value: false,
+            sessionId,
+            userId: user.id,
+            step: 'participant_joined',
+          });
           setIsConnecting(false);
           setRemoteParticipant(p);
         }
@@ -1272,8 +1811,26 @@ export default function VideoDateScreen() {
       call.on('left-meeting', () => {
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (left-meeting)', level: 'info' });
         clearFirstConnectWatchdog();
+        vdbg('prejoin_state_awaitingFirstConnect', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: 'left_meeting',
+        });
         setAwaitingFirstConnect(false);
+        vdbg('prejoin_state_localInDailyRoom', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: 'left_meeting',
+        });
         setLocalInDailyRoom(false);
+        vdbg('prejoin_state_isConnecting', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: 'left_meeting',
+        });
         setIsConnecting(false);
       });
       call.on('error', (event: unknown) => {
@@ -1287,10 +1844,34 @@ export default function VideoDateScreen() {
           level: 'error',
           data: { sessionId, errorMsg: msg },
         });
+        vdbg('prejoin_state_callError', {
+          value: 'Connection error. Please try again.',
+          sessionId,
+          userId: user.id,
+          step: 'daily_error_event',
+        });
         setCallError('Connection error. Please try again.');
         clearFirstConnectWatchdog();
+        vdbg('prejoin_state_awaitingFirstConnect', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: 'daily_error_event',
+        });
         setAwaitingFirstConnect(false);
+        vdbg('prejoin_state_isConnecting', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: 'daily_error_event',
+        });
         setIsConnecting(false);
+        vdbg('prejoin_state_localInDailyRoom', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: 'daily_error_event',
+        });
         setLocalInDailyRoom(false);
       });
 
@@ -1303,6 +1884,7 @@ export default function VideoDateScreen() {
       }
 
       try {
+        currentStep = 'daily_join';
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_start', {
           session_id: sessionId,
           user_id: user?.id ?? null,
@@ -1313,7 +1895,21 @@ export default function VideoDateScreen() {
           room_name: tokenResult.room_name,
         });
         Sentry.addBreadcrumb({ category: 'video-date', message: 'Joining call', level: 'info', data: { sessionId } });
+        vdbg('prejoin_step_prejoin_daily_join_before', {
+          sessionId,
+          userId: user.id,
+          roomName: tokenResult.room_name,
+          hasRoomUrl: Boolean(tokenResult.room_url),
+          hasToken: Boolean(tokenResult.token),
+        });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+        vdbg('prejoin_step_prejoin_daily_join_after', {
+          sessionId,
+          userId: user.id,
+          ok: true,
+          cancelled,
+          roomName: tokenResult.room_name,
+        });
         if (cancelled) return;
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_ok', {
           session_id: sessionId,
@@ -1333,6 +1929,13 @@ export default function VideoDateScreen() {
           participant_keys_count: allIds,
           remote_count: remotes.length,
         });
+        vdbg('prejoin_state_localInDailyRoom', {
+          value: true,
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          roomName: tokenResult.room_name,
+        });
         setLocalInDailyRoom(true);
         void markVideoDateDailyJoined(sessionId).then((ok) => {
           if (ok) void refetchVideoSession();
@@ -1342,9 +1945,23 @@ export default function VideoDateScreen() {
           setLocalParticipant(local);
           applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
         }
+        vdbg('prejoin_state_isConnecting', {
+          value: false,
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          roomName: tokenResult.room_name,
+        });
         setIsConnecting(false);
         if (remotes.length > 0) {
           clearFirstConnectWatchdog();
+          vdbg('prejoin_state_awaitingFirstConnect', {
+            value: false,
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+            remoteCount: remotes.length,
+          });
           setAwaitingFirstConnect(false);
           setPartnerEverJoined(true);
           setRemoteParticipant(remotes[0] as DailyParticipant);
@@ -1359,9 +1976,29 @@ export default function VideoDateScreen() {
             participant_id: dailyParticipantId(remotes[0] as DailyParticipant) ?? 'unknown',
           });
         } else {
+          vdbg('prejoin_state_awaitingFirstConnect', {
+            value: true,
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+            remoteCount: remotes.length,
+          });
           setAwaitingFirstConnect(true);
         }
       } catch (err) {
+        vdbg('prejoin_step_prejoin_daily_join_after', {
+          sessionId,
+          userId: user.id,
+          ok: false,
+          roomName: tokenResult.room_name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        vdbg('prejoin_step_prejoin_error', {
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+          reason: 'daily_join_exception',
+        });
         videoDateDailyDiagnostic('daily_call_join_failure', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
@@ -1373,23 +2010,51 @@ export default function VideoDateScreen() {
         });
         if (!cancelled) {
           Sentry.captureException(err, { extra: { sessionId } });
+          vdbg('prejoin_state_callError', {
+            value: 'Failed to join. Please try again.',
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+          });
           setCallError('Failed to join. Please try again.');
+          vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
           setPreJoinFailed(true);
           clearFirstConnectWatchdog();
+          vdbg('prejoin_state_awaitingFirstConnect', { value: false, sessionId, userId: user.id, step: currentStep });
           setAwaitingFirstConnect(false);
+          vdbg('prejoin_state_isConnecting', { value: false, sessionId, userId: user.id, step: currentStep });
           setIsConnecting(false);
           hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
         }
+        prejoinCompleted = !cancelled;
       }
 
+      vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
       setJoining(false);
+      prejoinCompleted = true;
     };
 
     run();
     return () => {
+      if (!prejoinCompleted) {
+        vdbg('prejoin_step_prejoin_effect_cleanup', {
+          sessionId,
+          userId: user?.id ?? null,
+          currentStep,
+          hasCall: Boolean(callRef.current),
+          hasStartedJoin: hasStartedJoinRef.current,
+        });
+      }
       cancelled = true;
       if (!callRef.current) {
         hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', {
+          value: false,
+          sessionId,
+          userId: user?.id ?? null,
+          step: 'cleanup_without_call',
+        });
       }
     };
   }, [
@@ -1578,7 +2243,19 @@ export default function VideoDateScreen() {
 
   const handlePeerMissingKeepWaiting = useCallback(() => {
     setPeerMissingTerminal(false);
+    vdbg('prejoin_state_callError', {
+      value: null,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'peer_missing_keep_waiting',
+    });
     setCallError(null);
+    vdbg('prejoin_state_awaitingFirstConnect', {
+      value: true,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'peer_missing_keep_waiting',
+    });
     setAwaitingFirstConnect(true);
     videoDateDailyDiagnostic('peer_missing_keep_waiting', { session_id: sessionId ?? '' });
   }, [sessionId]);
