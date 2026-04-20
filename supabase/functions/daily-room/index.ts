@@ -100,9 +100,27 @@ async function createDailyRoom(
   return { url: room.url, name: room.name };
 }
 
+async function getDailyRoomProviderState(roomName: string): Promise<{ exists: boolean; expired: boolean }> {
+  const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
+  });
+
+  if (res.status === 404) return { exists: false, expired: false };
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Daily room lookup failed ${res.status}: ${errText}`);
+  }
+
+  const room = (await res.json().catch(() => null)) as { config?: { exp?: number } } | null;
+  const exp = typeof room?.config?.exp === "number" ? room.config.exp : null;
+  const expired = exp != null && exp <= Math.floor(Date.now() / 1000);
+  return { exists: true, expired };
+}
+
 async function deleteDailyRoom(roomName: string): Promise<void> {
   try {
-    await fetch(`${DAILY_API_URL}/rooms/${roomName}`, {
+    await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
     });
@@ -295,7 +313,7 @@ serve(async (req) => {
       // Check video_sessions first
       const { data: vsRow } = await supabase
         .from("video_sessions")
-        .select("id, participant_1_id, participant_2_id")
+        .select("id, participant_1_id, participant_2_id, ended_at")
         .eq("daily_room_name", roomName)
         .maybeSingle();
 
@@ -328,6 +346,26 @@ serve(async (req) => {
         return new Response(
           JSON.stringify({ error: "Not authorized to delete this room", code: "FORBIDDEN" }),
           { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (roomType === "video_date") {
+        console.log(JSON.stringify({
+          event: "delete_room_skipped",
+          user_id: user.id,
+          room_name: roomName,
+          room_type: roomType,
+          reason: "video_date_room_cleanup_owned_by_cron",
+          session_id: vsRow?.id ?? null,
+          session_ended: Boolean(vsRow?.ended_at),
+        }));
+        return new Response(
+          JSON.stringify({
+            success: true,
+            skipped: true,
+            code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON",
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
@@ -404,6 +442,8 @@ serve(async (req) => {
         session.daily_room_name ||
         `date-${sessionId.replace(/-/g, "")}`;
       const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
+      let reusedRoom = Boolean(session.daily_room_name);
+      let providerRoomRecreated = false;
 
       if (!session.daily_room_name) {
         await createDailyRoom(roomName, {
@@ -421,12 +461,50 @@ serve(async (req) => {
           .from("video_sessions")
           .update({ daily_room_name: roomName, daily_room_url: roomUrl })
           .eq("id", sessionId);
+        reusedRoom = false;
+      } else {
+        const providerRoomState = await getDailyRoomProviderState(roomName);
+        if (!providerRoomState.exists || providerRoomState.expired) {
+          console.log(JSON.stringify({
+            event: "date_room_provider_unusable_recreate",
+            session_id: sessionId,
+            user_id: user.id,
+            room_name: roomName,
+            provider_exists: providerRoomState.exists,
+            provider_expired: providerRoomState.expired,
+          }));
+          if (providerRoomState.exists) {
+            await deleteDailyRoom(roomName);
+          }
+          await createDailyRoom(roomName, {
+            max_participants: 2,
+            enable_chat: false,
+            enable_screenshare: false,
+            enable_knocking: false,
+            start_video_off: false,
+            start_audio_off: false,
+            exp: Math.floor(Date.now() / 1000) + 7200,
+            eject_at_room_exp: true,
+          });
+          await supabase
+            .from("video_sessions")
+            .update({ daily_room_name: roomName, daily_room_url: roomUrl })
+            .eq("id", sessionId);
+          reusedRoom = false;
+          providerRoomRecreated = true;
+        }
       }
 
       const token = await createMeetingToken(roomName, user.id, 7200);
 
       return new Response(
-        JSON.stringify({ room_name: roomName, room_url: roomUrl, token }),
+        JSON.stringify({
+          room_name: roomName,
+          room_url: roomUrl,
+          token,
+          reused_room: reusedRoom,
+          provider_room_recreated: providerRoomRecreated,
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

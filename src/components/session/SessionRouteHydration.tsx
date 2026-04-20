@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import * as Sentry from "@sentry/react";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,6 +22,17 @@ function sessionIndicatesHandshakeOrDate(
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[SessionRouteHydration] ${message}`, data ?? {});
+}
+
+function routeHydrationVdbg(message: string, data?: Record<string, unknown>) {
+  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  console.log(`[VDBG] ${message}`, payload);
+  Sentry.addBreadcrumb({
+    category: "vdbg",
+    message,
+    level: "info",
+    data: payload,
+  });
 }
 
 /**
@@ -52,12 +64,7 @@ export function SessionRouteHydration() {
 
     if (activeSession?.sessionId !== sessionIdFromUrl || activeSession.kind !== "ready_gate") return;
 
-    if (isDateEntryTransitionActive(sessionIdFromUrl)) {
-      routeHydrationDebug("blocked ready_gate bounce during date-entry latch", {
-        sessionId: sessionIdFromUrl,
-      });
-      return;
-    }
+    const latchActiveAtStart = isDateEntryTransitionActive(sessionIdFromUrl);
 
     let cancelled = false;
     void (async () => {
@@ -69,10 +76,28 @@ export function SessionRouteHydration() {
 
       if (cancelled) return;
 
+      routeHydrationVdbg("route_hydration_date_guard", {
+        sessionId: sessionIdFromUrl,
+        userId: user.id,
+        eventId: activeSession.eventId,
+        activeSessionKind: activeSession.kind,
+        activeSessionQueueStatus: activeSession.queueStatus,
+        latchActive: latchActiveAtStart,
+        row: vs ?? null,
+        error: error ? { code: error.code, message: error.message } : null,
+      });
+
       if (error || !vs) {
         routeHydrationDebug("blocked ready_gate bounce; video session unavailable", {
           sessionId: sessionIdFromUrl,
           error: error?.message,
+        });
+        routeHydrationVdbg("route_hydration_ready_gate_bounce_blocked", {
+          sessionId: sessionIdFromUrl,
+          userId: user.id,
+          eventId: activeSession.eventId,
+          reason: "video_session_unavailable",
+          latchActive: latchActiveAtStart,
         });
         return;
       }
@@ -82,12 +107,47 @@ export function SessionRouteHydration() {
         routeHydrationDebug("blocked ready_gate bounce; video session ended", {
           sessionId: sessionIdFromUrl,
         });
+        routeHydrationVdbg("route_hydration_ready_gate_bounce_blocked", {
+          sessionId: sessionIdFromUrl,
+          userId: user.id,
+          eventId: activeSession.eventId,
+          reason: "video_session_ended",
+          endedAt: vs.ended_at,
+          latchActive: latchActiveAtStart,
+        });
         return;
       }
 
       if (sessionIndicatesHandshakeOrDate(vs)) {
         routeHydrationDebug("blocked ready_gate bounce; video session is date-capable", {
           sessionId: sessionIdFromUrl,
+          state: vs.state,
+          phase: vs.phase,
+          handshakeStarted: Boolean(vs.handshake_started_at),
+        });
+        routeHydrationVdbg("route_hydration_ready_gate_bounce_blocked", {
+          sessionId: sessionIdFromUrl,
+          userId: user.id,
+          eventId: activeSession.eventId,
+          reason: "video_session_handshake_or_date",
+          state: vs.state,
+          phase: vs.phase,
+          handshakeStarted: Boolean(vs.handshake_started_at),
+          latchActive: latchActiveAtStart,
+        });
+        return;
+      }
+
+      if (latchActiveAtStart || isDateEntryTransitionActive(sessionIdFromUrl)) {
+        routeHydrationDebug("blocked ready_gate bounce during date-entry latch", {
+          sessionId: sessionIdFromUrl,
+        });
+        routeHydrationVdbg("route_hydration_ready_gate_bounce_blocked", {
+          sessionId: sessionIdFromUrl,
+          userId: user.id,
+          eventId: activeSession.eventId,
+          reason: "date_entry_latch",
+          latchActive: true,
           state: vs.state,
           phase: vs.phase,
           handshakeStarted: Boolean(vs.handshake_started_at),
@@ -101,6 +161,16 @@ export function SessionRouteHydration() {
       routeHydrationDebug("redirecting date route back to ready gate lobby", {
         sessionId: sessionIdFromUrl,
         eventId: activeSession.eventId,
+      });
+      routeHydrationVdbg("route_hydration_ready_gate_bounce", {
+        sessionId: sessionIdFromUrl,
+        userId: user.id,
+        eventId: activeSession.eventId,
+        reason: "ready_gate_active_without_date_latch_or_handshake",
+        latchActive: false,
+        state: vs.state,
+        phase: vs.phase,
+        handshakeStarted: Boolean(vs.handshake_started_at),
       });
       navigate(`/event/${encodeURIComponent(activeSession.eventId)}/lobby`, { replace: true });
     })();
