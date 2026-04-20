@@ -34,7 +34,6 @@ import {
   VideoDateRequestTimeoutError,
   type RoomTokenFailureCode,
   endVideoDate,
-  deleteDailyRoom,
   recordVibe,
   completeHandshake,
   syncVideoDateReconnect,
@@ -311,6 +310,13 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     setPartnerEverJoined(false);
+    hasStartedJoinRef.current = false;
+    vdbg('prejoin_state_hasStartedJoinRef', {
+      value: false,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step: 'session_reset',
+    });
     vdbg('prejoin_state_localInDailyRoom', {
       value: false,
       sessionId: sessionId ?? null,
@@ -729,7 +735,15 @@ export default function VideoDateScreen() {
     }
     const roomName = roomNameRef.current;
     if (roomName) {
-      await deleteDailyRoom(roomName);
+      vdbg('daily_room_delete_skipped', {
+        action: 'delete_room',
+        caller: 'native.leaveAndCleanup',
+        reason: 'backend_cleanup_owns_video_date_rooms',
+        sessionId: sessionId ?? null,
+        userId: user?.id ?? null,
+        eventId: eventId || null,
+        roomName,
+      });
       roomNameRef.current = null;
     }
     if (sessionId) await endVideoDate(sessionId);
@@ -1117,6 +1131,7 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     const userId = user?.id ?? null;
+    const currentPhase = phaseRef.current;
     const initialGuard = {
       hasSessionId: Boolean(sessionId),
       hasUserId: Boolean(userId),
@@ -1126,7 +1141,7 @@ export default function VideoDateScreen() {
       hasCall: Boolean(callRef.current),
       hasStartedJoin: hasStartedJoinRef.current,
       sessionError: sessionError ?? null,
-      phase,
+      phase: currentPhase,
     };
     vdbg('prejoin_step_prejoin_effect_fired', {
       sessionId: sessionId ?? null,
@@ -1151,14 +1166,14 @@ export default function VideoDateScreen() {
       });
       return;
     }
-    if (sessionError || phase === 'ended') {
+    if (sessionError || currentPhase === 'ended') {
       vdbg('prejoin_step_prejoin_truth_skipped_or_started', {
         sessionId,
         userId,
         started: false,
         reason: 'session_error_or_ended_phase',
         sessionError: sessionError ?? null,
-        phase,
+        phase: currentPhase,
       });
       return;
     }
@@ -1532,19 +1547,19 @@ export default function VideoDateScreen() {
       await refetchVideoSession();
       vdbg('prejoin_step_prejoin_refetch_after', { sessionId, userId: user.id, ok: true });
       if (cancelled) {
-        vdbg('prejoin_step_prejoin_error', {
+        vdbg('prejoin_step_prejoin_cancelled', {
           sessionId,
           userId: user.id,
           step: currentStep,
-          reason: 'cancelled_after_refetch',
+          reason: 'effect_cancelled_post_refetch',
+          preserveStartedJoin: true,
         });
-        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+        vdbg('prejoin_step_prejoin_daily_room_cancelled', {
           sessionId,
           userId: user.id,
-          reason: 'cancelled_after_refetch',
+          reason: 'effect_cancelled_post_refetch',
+          preserveStartedJoin: true,
         });
-        hasStartedJoinRef.current = false;
-        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
         vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
         return;
@@ -2061,17 +2076,13 @@ export default function VideoDateScreen() {
     joinAttemptNonce,
     sessionId,
     user?.id,
-    eventId,
     session?.id,
     session?.ended_at,
-    session?.handshake_started_at,
     sessionError,
-    phase,
     requestPermissions,
     clearFirstConnectWatchdog,
     onPartnerLeftReconnect,
     refetchVideoSession,
-    markVideoDateDailyJoined,
   ]);
 
   useEffect(() => {

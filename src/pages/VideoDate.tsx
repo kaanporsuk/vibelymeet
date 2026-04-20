@@ -156,6 +156,7 @@ const VideoDate = () => {
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
+    eventId,
     onCallEnded: () => {
       Sentry.addBreadcrumb({ category: "video-date", message: "Call ended", level: "info" });
     },
@@ -276,6 +277,7 @@ const VideoDate = () => {
 
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
+        const sessionIsDateCapable = videoSessionIndicatesHandshakeOrDate(sessionRow);
         if (!isParticipant) {
           vdbg("date_guard_blocked", {
             sessionId: id,
@@ -313,9 +315,24 @@ const VideoDate = () => {
 
         if (cancelled) return;
 
-        if (reg?.queue_status === "in_ready_gate") {
+        if (reg?.queue_status === "in_ready_gate" && sessionIsDateCapable) {
+          vdbg("date_guard_ready_gate_stale_registration_ignored", {
+            sessionId: id,
+            userId: user.id,
+            eventId: sessionRow.event_id,
+            queueStatus: reg.queue_status,
+            state: sessionRow.state,
+            phase: sessionRow.phase,
+            handshakeStarted: Boolean(sessionRow.handshake_started_at),
+            latchActive: isDateEntryTransitionActive(id),
+            readyGateStatus: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+            readyGateExpiresAt:
+              (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null,
+          });
+        } else if (reg?.queue_status === "in_ready_gate") {
           const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
-          const rgExpiresRaw = (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
+          const rgExpiresRaw =
+            (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
           const rgExpiresMs =
             rgExpiresRaw == null
               ? null
@@ -333,14 +350,16 @@ const VideoDate = () => {
           vdbg("date_guard_ready_gate_branch", {
             sessionId: id,
             userId: user.id,
+            eventId: sessionRow.event_id,
             branch: readyGateBranch,
             readyGateStatus: rgStatus,
             readyGateExpiresAt: rgExpiresRaw,
+            latchActive: isDateEntryTransitionActive(id),
+            state: sessionRow.state,
+            phase: sessionRow.phase,
+            handshakeStarted: Boolean(sessionRow.handshake_started_at),
           });
-          const allowEntry =
-            bothReadyValid ||
-            isDateEntryTransitionActive(id) ||
-            videoSessionIndicatesHandshakeOrDate(sessionRow);
+          const allowEntry = bothReadyValid || isDateEntryTransitionActive(id);
           if (!allowEntry) {
             videoDateDebug("bouncing ready_gate session back to lobby", {
               sessionId: id,
@@ -371,7 +390,16 @@ const VideoDate = () => {
             handshakeStarted: Boolean(sessionRow.handshake_started_at),
           });
         } else if (reg?.queue_status) {
-          clearDateEntryTransition(id);
+          vdbg("date_guard_registration_status", {
+            sessionId: id,
+            userId: user.id,
+            eventId: sessionRow.event_id,
+            queueStatus: reg.queue_status,
+            state: sessionRow.state,
+            phase: sessionRow.phase,
+            handshakeStarted: Boolean(sessionRow.handshake_started_at),
+            latchActive: isDateEntryTransitionActive(id),
+          });
         }
 
         if (sessionRow.daily_room_name) {
@@ -575,9 +603,21 @@ const VideoDate = () => {
 
     setCallStarted(true);
     Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
-    startCall(id).then(() => {
+    startCall(id).then((ok) => {
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
+      if (ok) {
+        clearDateEntryTransition(id);
+        vdbg("date_entry_latch_cleared", {
+          sessionId: id,
+          userId: user?.id ?? null,
+          eventId: eventId ?? null,
+          reason: "daily_join_success",
+          roomName: name ?? null,
+        });
+      } else {
+        setCallStarted(false);
+      }
     });
   }, [
     id,
@@ -589,6 +629,8 @@ const VideoDate = () => {
     startCall,
     getRoomName,
     dupBlocked,
+    eventId,
+    user?.id,
   ]);
 
   // Subscribe to phase changes via Realtime
@@ -748,19 +790,18 @@ const VideoDate = () => {
         // video_date_transition(end, beforeunload) sets queue_status = offline on server
       }
 
-      // Best-effort Daily room cleanup using canonical stored room name (never reconstructed).
-      // canonicalRoomNameRef is populated from video_sessions.daily_room_name on session load.
+      // Provider room cleanup is owned by video-date-room-cleanup after the session is terminal.
+      // Do not delete here: the DB intentionally preserves daily_room_name until cleanup succeeds.
       const canonicalRoom = canonicalRoomNameRef.current;
       if (token && canonicalRoom) {
-        const dailyRoomUrl = `${baseUrl}/functions/v1/daily-room`;
-        fetch(dailyRoomUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action: "delete_room", roomName: canonicalRoom }),
-          keepalive: true,
+        vdbg("daily_room_delete_skipped", {
+          action: "delete_room",
+          caller: "VideoDate.beforeunload",
+          reason: "backend_cleanup_owns_video_date_rooms",
+          sessionId: id,
+          userId: user.id,
+          eventId: eventId ?? null,
+          roomName: canonicalRoom,
         });
       }
 
@@ -823,7 +864,7 @@ const VideoDate = () => {
         setShowMutualToast(true);
       } else {
         toast("Great meeting you! 👋", { duration: 2500 });
-        endCall();
+        await endCall("complete_handshake_not_mutual");
         handleCallEnd();
       }
     } catch (err) {
@@ -907,14 +948,14 @@ const VideoDate = () => {
   }, [id, setStatus, phase, timeLeft]);
 
   const handleLeave = useCallback(async () => {
-    endCall();
+    await endCall("user_leave_button");
     toast("You left the date — stay safe! 💚", { duration: 2000 });
     handleCallEnd();
   }, [endCall, handleCallEnd]);
 
   /** After in-call "End & report" succeeds (report RPC already sent). */
   const handleEndAfterInCallReport = useCallback(async () => {
-    await endCall();
+    await endCall("end_after_in_call_report");
     await handleCallEnd();
   }, [endCall, handleCallEnd]);
 
@@ -925,7 +966,7 @@ const VideoDate = () => {
     dupLeaseNavigateRef.current = true;
     void (async () => {
       toast.info("This date continued in another tab — closing here.", { duration: 3500 });
-      await endCall();
+      await endCall("duplicate_tab_lease_blocked");
       setCallStarted(false);
       const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
       vdbgRedirect(target, "duplicate_tab_lease_blocked", { sessionId: id ?? null, eventId: eventId ?? null });
