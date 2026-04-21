@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { initOneSignal, logoutOneSignal, bindOneSignalExternalUser, setOneSignalTags } from '@/lib/onesignal';
 import { syncNativePushDeliveryOnForeground } from '@/lib/nativePushForegroundSync';
+import { pushPermDevLog } from '@/lib/osPushPermission';
 
 /**
  * Initializes OneSignal. On login, only syncs player ID to the backend if the user
@@ -17,10 +18,40 @@ export function PushRegistration() {
   const { user, onboardingComplete } = useAuth();
   const { tierId, isLoading: entLoading } = useEntitlements();
   const { isPremium, isLoading: subLoading } = useBackendSubscription(user?.id);
+  const foregroundSyncInFlightRef = useRef(false);
+  const foregroundSyncUserIdRef = useRef<string | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     initOneSignal();
   }, []);
+
+  const runForegroundSync = useCallback(
+    (reason: string) => {
+      if (!user?.id) return;
+      if (foregroundSyncInFlightRef.current && foregroundSyncUserIdRef.current === user.id) {
+        if (__DEV__) {
+          pushPermDevLog('PushRegistration foreground sync skipped', {
+            userId: user.id,
+            reason,
+            skipReason: 'foreground_sync_ref_in_flight',
+          });
+        }
+        return;
+      }
+      foregroundSyncInFlightRef.current = true;
+      foregroundSyncUserIdRef.current = user.id;
+      syncNativePushDeliveryOnForeground(user.id, reason)
+        .catch(() => {})
+        .finally(() => {
+          if (foregroundSyncUserIdRef.current === user.id) {
+            foregroundSyncInFlightRef.current = false;
+            foregroundSyncUserIdRef.current = null;
+          }
+        });
+    },
+    [user?.id],
+  );
 
   useEffect(() => {
     if (!user?.id) {
@@ -28,6 +59,10 @@ export function PushRegistration() {
       return;
     }
     bindOneSignalExternalUser(user.id);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
     if (!entLoading && !subLoading) {
       setOneSignalTags({
         userId: user.id,
@@ -36,7 +71,6 @@ export function PushRegistration() {
         subscriptionTier: tierId,
       });
     }
-    syncNativePushDeliveryOnForeground(user.id).catch(() => {});
   }, [
     user?.id,
     onboardingComplete,
@@ -47,14 +81,20 @@ export function PushRegistration() {
   ]);
 
   useEffect(() => {
+    runForegroundSync('auth_user_ready');
+  }, [runForegroundSync]);
+
+  useEffect(() => {
     if (!user?.id) return;
     const onChange = (next: AppStateStatus) => {
-      if (next !== 'active') return;
-      syncNativePushDeliveryOnForeground(user.id).catch(() => {});
+      const prev = appStateRef.current;
+      appStateRef.current = next;
+      if (prev === next || next !== 'active') return;
+      runForegroundSync('appstate_active');
     };
     const sub = AppState.addEventListener('change', onChange);
     return () => sub.remove();
-  }, [user?.id]);
+  }, [user?.id, runForegroundSync]);
 
   return null;
 }
