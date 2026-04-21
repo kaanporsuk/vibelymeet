@@ -1759,6 +1759,9 @@ export default function VideoDateScreen() {
           participant_id: p ? dailyParticipantId(p) ?? 'unknown' : 'none',
         });
         if (p && !isLocal) {
+          if (__DEV__) {
+            vdbg('first_remote_participant_seen', { sessionId, userId: user.id, source: 'participant_joined' });
+          }
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
           rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'remote_participant_joined', {
             session_id: sessionId,
@@ -1952,9 +1955,25 @@ export default function VideoDateScreen() {
           roomName: tokenResult.room_name,
         });
         setLocalInDailyRoom(true);
-        void markVideoDateDailyJoined(sessionId).then((ok) => {
-          if (ok) void refetchVideoSession();
-        });
+        if (__DEV__) {
+          vdbg('mark_video_date_daily_joined_before', { sessionId, userId: user.id });
+        }
+        void markVideoDateDailyJoined(sessionId)
+          .then((ok) => {
+            if (__DEV__) {
+              vdbg('mark_video_date_daily_joined_after', { sessionId, userId: user.id, ok });
+            }
+            if (ok) void refetchVideoSession();
+          })
+          .catch((err) => {
+            if (__DEV__) {
+              vdbg('mark_video_date_daily_joined_error', {
+                sessionId,
+                userId: user.id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          });
         const local = participants?.local;
         if (local) {
           setLocalParticipant(local);
