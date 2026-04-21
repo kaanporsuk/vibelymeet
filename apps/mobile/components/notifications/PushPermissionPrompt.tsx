@@ -18,10 +18,12 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import {
   requestPushPermissionsAfterPrompt,
+  setDashboardPushOsPermissionRequestInFlight,
+  setDashboardPushPrepromptVisible,
   syncBackendAfterPushGrant,
   VIBELY_PUSH_PERMISSION_ASKED_KEY,
 } from '@/lib/requestPushPermissions';
-import { getOsPushPermissionState, pushPermDevLog } from '@/lib/osPushPermission';
+import { getStableOsPushPermissionState, pushPermDevLog, type OsPushPermissionState } from '@/lib/osPushPermission';
 import { NotificationDeniedRecoverySurface } from '@/components/notifications/NotificationDeniedRecovery';
 import { usePushPermission } from '@/lib/usePushPermission';
 
@@ -44,21 +46,54 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   const pulse = useRef(new Animated.Value(0.55)).current;
   const [enableBusy, setEnableBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>('preprompt');
-  const { refresh, openSettings, isGranted } = usePushPermission();
+  const { refresh, openSettings, isGranted, isDenied, osStatus, permissionStateHydrated } = usePushPermission();
   const grantedBaselineRef = useRef<boolean | null>(null);
+  const prepromptVisibleRef = useRef(false);
+  const osPermissionRequestInFlightRef = useRef(false);
 
   useEffect(() => {
+    prepromptVisibleRef.current = visible;
+    setDashboardPushPrepromptVisible(visible);
     if (!visible) {
       setEnableBusy(false);
       setPhase('preprompt');
       grantedBaselineRef.current = null;
     }
+    return () => {
+      if (visible) {
+        prepromptVisibleRef.current = false;
+        setDashboardPushPrepromptVisible(false);
+      }
+    };
   }, [visible]);
 
   useEffect(() => {
     if (!visible) return;
-    void refresh();
+    void refresh('push_prompt_visible');
   }, [visible, refresh]);
+
+  useEffect(() => {
+    if (!visible || !permissionStateHydrated || phase !== 'preprompt' || enableBusy) return;
+    if (!isGranted && !isDenied) return;
+    if (__DEV__) {
+      pushPermDevLog('preprompt_suppressed', {
+        reason: 'visible_but_os_state_terminal',
+        osStatus,
+      });
+    }
+    onClose();
+    onCompleted?.();
+  }, [
+    visible,
+    permissionStateHydrated,
+    phase,
+    enableBusy,
+    isGranted,
+    isDenied,
+    osStatus,
+    onClose,
+    onCompleted,
+  ]);
 
   /** After returning from OS Settings (or split-screen), reconcile to granted without a reload. */
   useEffect(() => {
@@ -92,6 +127,15 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   }, [visible, pulse]);
 
   const handleNotNow = async () => {
+    if (!prepromptVisibleRef.current) return;
+    if (osPermissionRequestInFlightRef.current) {
+      if (__DEV__) {
+        pushPermDevLog('preprompt_suppressed', {
+          reason: 'dismiss_while_os_request_in_flight',
+        });
+      }
+      return;
+    }
     if (__DEV__) pushPermDevLog('PushPermissionPrompt: Not now / cancel — dismiss, no OS request');
     await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'skipped');
     onClose();
@@ -99,7 +143,17 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
   };
 
   const handleEnable = async () => {
-    if (enableBusy) return;
+    if (!prepromptVisibleRef.current) return;
+    if (enableBusy || osPermissionRequestInFlightRef.current) {
+      if (__DEV__) {
+        pushPermDevLog('preprompt_suppressed', {
+          reason: enableBusy ? 'enable_busy' : 'os_permission_request_in_flight',
+        });
+      }
+      return;
+    }
+    osPermissionRequestInFlightRef.current = true;
+    setDashboardPushOsPermissionRequestInFlight(true);
     setEnableBusy(true);
     try {
       if (!userId) {
@@ -108,8 +162,21 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
         onCompleted?.();
         return;
       }
-      await refresh();
-      const os = await getOsPushPermissionState();
+      await refresh('push_prompt_enable_pressed');
+      let os: OsPushPermissionState;
+      try {
+        os = await getStableOsPushPermissionState('push_prompt_enable_before_request');
+      } catch (e) {
+        if (__DEV__) {
+          pushPermDevLog('prompt_suppressed', {
+            reason: 'permission_state_read_failed',
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
+        onClose();
+        onCompleted?.();
+        return;
+      }
       if (os === 'denied') {
         if (__DEV__) pushPermDevLog('PushPermissionPrompt: OS denied — passive recovery only, no requestPermission');
         await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
@@ -131,6 +198,8 @@ export function PushPermissionPrompt({ visible, onClose, userId, onCompleted }: 
       await requestPushPermissionsAfterPrompt(userId);
       onCompleted?.();
     } finally {
+      osPermissionRequestInFlightRef.current = false;
+      setDashboardPushOsPermissionRequestInFlight(false);
       setEnableBusy(false);
     }
   };

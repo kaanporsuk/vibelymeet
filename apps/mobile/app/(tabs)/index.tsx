@@ -50,7 +50,13 @@ import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
 import { PushPermissionPrompt } from '@/components/notifications/PushPermissionPrompt';
-import { shouldOfferDashboardPushPreprompt } from '@/lib/requestPushPermissions';
+import {
+  isDashboardPushOsPermissionRequestInFlight,
+  logDashboardPushPrepromptSuppressed,
+  setDashboardPushPrepromptVisible,
+  shouldOfferDashboardPushPreprompt,
+  shouldShowDashboardPushPreprompt,
+} from '@/lib/requestPushPermissions';
 import { syncNativePushDeliveryOnForeground } from '@/lib/nativePushForegroundSync';
 import { pushPermDevLog } from '@/lib/osPushPermission';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
@@ -133,9 +139,18 @@ export default function DashboardScreen() {
     clearDeletionStateError,
     clearCancelDeletionError,
   } = useDeletionRecovery(user?.id);
-  const { isGranted: pushGranted, refresh: refreshPushPermission } = usePushPermission();
+  const {
+    isGranted: pushGranted,
+    isDenied: pushDenied,
+    osStatus: pushOsStatus,
+    permissionStateHydrated: pushPermissionStateHydrated,
+    refresh: refreshPushPermission,
+  } = usePushPermission();
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const pushPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prepromptScheduledThisSessionRef = useRef(false);
+  const prepromptVisibleRef = useRef(false);
+  const osPermissionRequestInFlightRef = useRef(false);
   const pushGrantedBaselineRef = useRef<boolean | null>(null);
   const [showPhoneNudge, setShowPhoneNudge] = useState(false);
   const [phoneNudgeChecked, setPhoneNudgeChecked] = useState(false);
@@ -324,32 +339,109 @@ export default function DashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       if (__DEV__) pushPermDevLog('dashboard useFocusEffect: refreshPushPermission');
-      void refreshPushPermission();
+      void refreshPushPermission('dashboard_focus');
     }, [refreshPushPermission])
   );
 
   useEffect(() => {
-    if (!user?.id || onboardingComplete !== true) return;
-    pushPromptTimerRef.current = setTimeout(() => {
+    let cancelled = false;
+    if (pushPromptTimerRef.current) {
+      clearTimeout(pushPromptTimerRef.current);
       pushPromptTimerRef.current = null;
-      void (async () => {
-        try {
-          const offer = await shouldOfferDashboardPushPreprompt();
-          if (!offer) return;
-          if (__DEV__) pushPermDevLog('dashboard: scheduling push preprompt modal (undetermined, never dismissed)');
+    }
+
+    osPermissionRequestInFlightRef.current = isDashboardPushOsPermissionRequestInFlight();
+    const promptContext = {
+      permissionStateHydrated: pushPermissionStateHydrated,
+      osStatus: pushOsStatus,
+      promptVisible: prepromptVisibleRef.current || showPushPermissionPrompt,
+      osPermissionRequestInFlight: osPermissionRequestInFlightRef.current,
+    };
+
+    if (!user?.id) {
+      logDashboardPushPrepromptSuppressed('missing_user');
+      return;
+    }
+    if (onboardingComplete !== true) {
+      logDashboardPushPrepromptSuppressed('onboarding_incomplete_or_unknown', { onboardingComplete });
+      return;
+    }
+    if (!pushPermissionStateHydrated) {
+      logDashboardPushPrepromptSuppressed('permission_state_not_hydrated', { osStatus: pushOsStatus });
+      return;
+    }
+    if (pushGranted || pushDenied || pushOsStatus !== 'undetermined') {
+      logDashboardPushPrepromptSuppressed('hydrated_os_state_not_promptable', { osStatus: pushOsStatus });
+      return;
+    }
+    if (prepromptScheduledThisSessionRef.current) {
+      logDashboardPushPrepromptSuppressed('preprompt_scheduled_this_session');
+      return;
+    }
+    if (promptContext.promptVisible) {
+      logDashboardPushPrepromptSuppressed('preprompt_already_visible');
+      return;
+    }
+    if (promptContext.osPermissionRequestInFlight) {
+      logDashboardPushPrepromptSuppressed('os_permission_request_in_flight');
+      return;
+    }
+
+    prepromptScheduledThisSessionRef.current = true;
+    void (async () => {
+      const offer = await shouldOfferDashboardPushPreprompt(promptContext);
+      if (!offer || cancelled) return;
+      pushPromptTimerRef.current = setTimeout(() => {
+        pushPromptTimerRef.current = null;
+        void (async () => {
+          const decision = await shouldShowDashboardPushPreprompt({
+            ...promptContext,
+            promptVisible: prepromptVisibleRef.current || showPushPermissionPrompt,
+            osPermissionRequestInFlight:
+              osPermissionRequestInFlightRef.current || isDashboardPushOsPermissionRequestInFlight(),
+          });
+          if (cancelled) {
+            if (decision.offer) setDashboardPushPrepromptVisible(false);
+            return;
+          }
+          if (!decision.offer) {
+            logDashboardPushPrepromptSuppressed(decision.reason, { stage: 'show' });
+            return;
+          }
+          prepromptVisibleRef.current = true;
+          setDashboardPushPrepromptVisible(true);
           setShowPushPermissionPrompt(true);
-        } catch {
-          /* ignore */
-        }
-      })();
-    }, 1500);
+        })();
+      }, 1500);
+    })();
+
     return () => {
+      cancelled = true;
       if (pushPromptTimerRef.current) {
         clearTimeout(pushPromptTimerRef.current);
         pushPromptTimerRef.current = null;
       }
     };
-  }, [user?.id, onboardingComplete]);
+  }, [
+    user?.id,
+    onboardingComplete,
+    pushPermissionStateHydrated,
+    pushOsStatus,
+    pushGranted,
+    pushDenied,
+    showPushPermissionPrompt,
+  ]);
+
+  useEffect(() => {
+    prepromptVisibleRef.current = showPushPermissionPrompt;
+    setDashboardPushPrepromptVisible(showPushPermissionPrompt);
+    return () => {
+      if (showPushPermissionPrompt) {
+        prepromptVisibleRef.current = false;
+        setDashboardPushPrepromptVisible(false);
+      }
+    };
+  }, [showPushPermissionPrompt]);
 
   /** If preprompt is showing, cancel delayed timer so it cannot fire twice. */
   useEffect(() => {
@@ -373,7 +465,7 @@ export default function DashboardScreen() {
       void qc.invalidateQueries({ queryKey: ['notification-preferences'] });
       if (user?.id) {
         if (__DEV__) pushPermDevLog('dashboard: OS became granted — silent backend sync');
-        void syncNativePushDeliveryOnForeground(user.id);
+        void syncNativePushDeliveryOnForeground(user.id, 'dashboard_grant_transition');
       }
     }
     if (pushGranted) setShowPushPermissionPrompt(false);
@@ -811,7 +903,7 @@ export default function DashboardScreen() {
             onClose={() => setShowPushPermissionPrompt(false)}
             userId={user?.id}
             onCompleted={() => {
-              void refreshPushPermission();
+              void refreshPushPermission('dashboard_prompt_completed');
             }}
           />
 
