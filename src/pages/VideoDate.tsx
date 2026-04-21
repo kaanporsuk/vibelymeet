@@ -860,8 +860,12 @@ const VideoDate = () => {
         error: error ? { code: error.code, message: error.message } : null,
       });
 
-      if ((result as any)?.state === "date") {
+      const payload = result as any;
+      if (payload?.state === "date") {
         setShowMutualToast(true);
+      } else if (payload?.waiting_for_partner === true) {
+        // Partner has not tapped yet. Server started a grace window; hold position.
+        return;
       } else {
         toast("Great meeting you! 👋", { duration: 2500 });
         await endCall("complete_handshake_not_mutual");

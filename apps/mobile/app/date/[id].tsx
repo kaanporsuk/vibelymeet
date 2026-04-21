@@ -2134,6 +2134,9 @@ export default function VideoDateScreen() {
             completeHandshake(sessionId!).then((result) => {
               if (result?.state === 'date') {
                 setShowMutualToast(true);
+              } else if ((result as any)?.waiting_for_partner === true) {
+                // Hold: server grace window active, partner has not tapped.
+                return;
               } else {
                 leaveAndCleanup().then(handleCallEnd);
               }

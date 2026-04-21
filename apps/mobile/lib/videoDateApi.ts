@@ -71,6 +71,15 @@ export type EnterHandshakeResult =
   | { ok: true }
   | { ok: false; code?: string; message?: string };
 
+export type CompleteHandshakeResult = {
+  state: 'date' | 'ended' | 'handshake';
+  waiting_for_partner?: boolean;
+  grace_expires_at?: string;
+  seconds_remaining?: number;
+  already_ended?: boolean;
+  reason?: string;
+};
+
 export class VideoDateRequestTimeoutError extends Error {
   constructor(public readonly operation: 'getDailyRoomToken' | 'enterHandshake') {
     super(`${operation} timed out`);
@@ -629,8 +638,8 @@ export async function recordVibe(sessionId: string): Promise<boolean> {
   return !error;
 }
 
-/** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else { state: 'ended' }. */
-export async function completeHandshake(sessionId: string): Promise<{ state: 'date' | 'ended' } | null> {
+/** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
+export async function completeHandshake(sessionId: string): Promise<CompleteHandshakeResult | null> {
   const args = {
     p_session_id: sessionId,
     p_action: 'complete_handshake',
@@ -644,9 +653,16 @@ export async function completeHandshake(sessionId: string): Promise<{ state: 'da
     error: error ? { code: error.code, message: error.message } : null,
   });
   if (error) return null;
-  const state = (data as { state?: string } | null)?.state;
-  if (state === 'date') return { state: 'date' };
-  return { state: 'ended' };
+  const payload = data as Partial<CompleteHandshakeResult> | null;
+  const state = payload?.state;
+  return {
+    state: state === 'date' || state === 'handshake' || state === 'ended' ? state : 'ended',
+    waiting_for_partner: payload?.waiting_for_partner,
+    grace_expires_at: payload?.grace_expires_at,
+    seconds_remaining: payload?.seconds_remaining,
+    already_ended: payload?.already_ended,
+    reason: payload?.reason,
+  };
 }
 
 /** Update event registration queue_status (in_handshake, in_date, in_survey, browsing, offline). */
