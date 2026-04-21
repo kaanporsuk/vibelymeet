@@ -88,6 +88,19 @@ function vdbg(message: string, data?: Record<string, unknown>) {
   });
 }
 
+function buildStreamFromParticipant(
+  p: DailyParticipant | undefined,
+  opts: { includeAudio: boolean }
+): MediaStream | null {
+  const videoTrack = p?.tracks?.video?.persistentTrack;
+  const audioTrack = p?.tracks?.audio?.persistentTrack;
+  if (!videoTrack && !audioTrack) return null;
+  const stream = new MediaStream();
+  if (videoTrack) stream.addTrack(videoTrack);
+  if (opts.includeAudio && audioTrack) stream.addTrack(audioTrack);
+  return stream;
+}
+
 export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -108,19 +121,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     optionsRef.current = options;
   }, [options]);
 
-  const checkPermissions = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-      setHasPermission(true);
-      return true;
-    } catch {
-      setHasPermission(false);
-      toast.error("Camera and microphone access is required for video calls");
-      return false;
-    }
-  }, []);
-
   const attachTracks = useCallback(
     (participant: DailyParticipant | undefined, videoEl: HTMLVideoElement | null, isLocal: boolean) => {
       if (!videoEl || !participant?.tracks) return;
@@ -130,7 +130,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
       videoEl.srcObject = stream;
-      if (isLocal) setLocalStream(stream);
     },
     []
   );
@@ -188,6 +187,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       if (localVideoRef.current) localVideoRef.current.srcObject = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
       setLocalStream(null);
+      setHasPermission(null);
       setIsConnected(false);
       setIsConnecting(false);
       setNetworkTier("good");
@@ -208,6 +208,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       setIsConnecting(true);
       setIsConnected(false);
+      setHasPermission(null);
       firstRemoteObservedRef.current = false;
 
       try {
@@ -229,12 +230,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             reusedCallObject: false,
             reason: "fresh_call_object_required",
           });
-        }
-
-        const hasAccess = await checkPermissions();
-        if (!hasAccess) {
-          setIsConnecting(false);
-          return false;
         }
 
         const { data: truth, error: truthError } = await supabase
@@ -373,7 +368,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callObject.on("participant-updated", (event) => {
           if (!event?.participant) return;
           if (event.participant.local) {
-            attachTracks(event.participant, localVideoRef.current, true);
+            const localPreview = buildStreamFromParticipant(event.participant, { includeAudio: false });
+            setLocalStream(localPreview);
+            if (localVideoRef.current) {
+              attachTracks(event.participant, localVideoRef.current, true);
+            }
           } else {
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
@@ -437,6 +436,28 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setNetworkTier(tierFromNetworkQualityEvent(event));
         });
 
+        callObject.on("camera-error", (event: { errorMsg?: string; error?: unknown } | undefined) => {
+          vdbg("daily_camera_error", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            errorMsg: event?.errorMsg ?? null,
+            error: event?.error ?? null,
+          });
+          Sentry.captureMessage("daily_camera_error", { level: "error", extra: { event } });
+        });
+
+        callObject.on("track-stopped", (event: { participant?: DailyParticipant; track?: MediaStreamTrack } | undefined) => {
+          if (!event?.participant?.local) return;
+          vdbg("daily_local_track_stopped", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            trackKind: event?.track?.kind ?? null,
+            participantSessionId: event?.participant?.session_id ?? null,
+          });
+        });
+
         vdbg("daily_join_start", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -445,6 +466,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           hasToken: Boolean(roomData.token),
         });
         await callObject.join({ url: roomData.room_url, token: roomData.token });
+        setHasPermission(true);
         vdbg("daily_join_success", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -475,7 +497,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
-          attachTracks(localParticipant, localVideoRef.current, true);
+          const localPreview = buildStreamFromParticipant(localParticipant, { includeAudio: false });
+          setLocalStream(localPreview);
+          if (localVideoRef.current) {
+            attachTracks(localParticipant, localVideoRef.current, true);
+          }
         }
 
         const participants = callObject.participants();
@@ -509,12 +535,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
         });
         await cleanupCallObject("startCall", "start_failure");
+        setHasPermission(false);
         toast.error("Video is temporarily unavailable. Please try again.");
         setIsConnecting(false);
         return false;
       }
     },
-    [checkPermissions, attachTracks, cleanupCallObject]
+    [attachTracks, cleanupCallObject]
   );
 
   const endCall = useCallback(
@@ -578,7 +605,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     localVideoRef,
     remoteVideoRef,
     localStream,
-    checkPermissions,
     startCall,
     endCall,
     toggleMute,

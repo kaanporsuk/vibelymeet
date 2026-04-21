@@ -19,10 +19,19 @@ export const SelfViewPIP = ({
 }: SelfViewPIPProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Set stream on the video element whenever it changes
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const el = videoRef.current;
+    if (!el) return;
+    if (stream && el.srcObject !== stream) {
+      el.srcObject = stream;
+      const playPromise = el.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          /* autoplay may be blocked; muted is set so usually fine */
+        });
+      }
+    } else if (!stream && el.srcObject) {
+      el.srcObject = null;
     }
   }, [stream]);
 
