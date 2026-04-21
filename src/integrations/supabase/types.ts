@@ -3,6 +3,8 @@
  *
  * Regenerate:
  *   ./scripts/regen-supabase-types.sh
+ *
+ * Project id matches supabase/config.toml (linked).
  */
 
 export type Json =
@@ -1448,11 +1450,11 @@ export type Database = {
       match_calls: {
         Row: {
           call_type: string
-          callee_joined_at: string | null
           callee_id: string
+          callee_joined_at: string | null
           callee_last_seen_at: string | null
-          caller_joined_at: string | null
           caller_id: string
+          caller_joined_at: string | null
           caller_last_seen_at: string | null
           created_at: string
           daily_room_name: string
@@ -1468,11 +1470,11 @@ export type Database = {
         }
         Insert: {
           call_type: string
-          callee_joined_at?: string | null
           callee_id: string
+          callee_joined_at?: string | null
           callee_last_seen_at?: string | null
-          caller_joined_at?: string | null
           caller_id: string
+          caller_joined_at?: string | null
           caller_last_seen_at?: string | null
           created_at?: string
           daily_room_name: string
@@ -1488,11 +1490,11 @@ export type Database = {
         }
         Update: {
           call_type?: string
-          callee_joined_at?: string | null
           callee_id?: string
+          callee_joined_at?: string | null
           callee_last_seen_at?: string | null
-          caller_joined_at?: string | null
           caller_id?: string
+          caller_joined_at?: string | null
           caller_last_seen_at?: string | null
           created_at?: string
           daily_room_name?: string
@@ -2102,7 +2104,7 @@ export type Database = {
           notify_date_reminder: boolean | null
           notify_event_live: boolean | null
           notify_event_reminder: boolean | null
-          notify_match_calls: boolean | null
+          notify_match_calls: boolean
           notify_messages: boolean | null
           notify_new_match: boolean | null
           notify_product_updates: boolean | null
@@ -2132,7 +2134,7 @@ export type Database = {
           notify_date_reminder?: boolean | null
           notify_event_live?: boolean | null
           notify_event_reminder?: boolean | null
-          notify_match_calls?: boolean | null
+          notify_match_calls?: boolean
           notify_messages?: boolean | null
           notify_new_match?: boolean | null
           notify_product_updates?: boolean | null
@@ -2162,7 +2164,7 @@ export type Database = {
           notify_date_reminder?: boolean | null
           notify_event_live?: boolean | null
           notify_event_reminder?: boolean | null
-          notify_match_calls?: boolean | null
+          notify_match_calls?: boolean
           notify_messages?: boolean | null
           notify_new_match?: boolean | null
           notify_product_updates?: boolean | null
@@ -3423,6 +3425,7 @@ export type Database = {
           ended_at: string | null
           ended_reason: string | null
           event_id: string
+          handshake_grace_expires_at: string | null
           handshake_started_at: string | null
           id: string
           participant_1_away_at: string | null
@@ -3456,6 +3459,7 @@ export type Database = {
           ended_at?: string | null
           ended_reason?: string | null
           event_id: string
+          handshake_grace_expires_at?: string | null
           handshake_started_at?: string | null
           id?: string
           participant_1_away_at?: string | null
@@ -3489,6 +3493,7 @@ export type Database = {
           ended_at?: string | null
           ended_reason?: string | null
           event_id?: string
+          handshake_grace_expires_at?: string | null
           handshake_started_at?: string | null
           id?: string
           participant_1_away_at?: string | null
