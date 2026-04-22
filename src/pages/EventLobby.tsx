@@ -439,7 +439,6 @@ const EventLobby = () => {
               sessionId: currentRoomId,
               queueStatus,
             });
-            void refetchScopedSession();
             navigateToDateSession(currentRoomId, "registration_realtime");
             return;
           }
@@ -447,16 +446,14 @@ const EventLobby = () => {
           if (queueStatus === "in_ready_gate" && currentRoomId) {
             lobbyDebug("ready gate detected from registration realtime", { sessionId: currentRoomId });
             openReadyGateSession(currentRoomId, "registration_realtime");
-            void refetchScopedSession();
             return;
           }
 
           if (queueStatus === "in_ready_gate" || isActiveDateQueueStatus(queueStatus) || currentRoomId) {
-            lobbyDebug("ambiguous active registration realtime; refetching", {
+            lobbyDebug("ambiguous active registration realtime (useActiveSession reconciles)", {
               queueStatus,
               currentRoomId,
             });
-            void refetchScopedSession();
           }
         }
       )
@@ -464,7 +461,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, refetchScopedSession, navigateToDateSession, openReadyGateSession]);
+  }, [user?.id, eventId, navigateToDateSession, openReadyGateSession]);
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
@@ -486,7 +483,6 @@ const EventLobby = () => {
           const sessionId = typeof session.id === "string" ? session.id : null;
           if (!sessionId) return;
 
-          void refetchScopedSession();
           if (isActiveVideoPhase(session)) {
             lobbyDebug("same-session active date detected from video session realtime", {
               sessionId,
@@ -519,7 +515,6 @@ const EventLobby = () => {
           const sessionId = typeof session.id === "string" ? session.id : null;
           if (!sessionId) return;
 
-          void refetchScopedSession();
           if (isActiveVideoPhase(session)) {
             navigateToDateSession(sessionId, "video_session_insert");
             return;
@@ -536,7 +531,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, refetchScopedSession, navigateToDateSession, openReadyGateSession]);
+  }, [user?.id, eventId, navigateToDateSession, openReadyGateSession]);
 
   // Event countdown timer
   useEffect(() => {

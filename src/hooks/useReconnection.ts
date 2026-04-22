@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@clientShared/matching/videoDateDiagnostics";
+import { nextConvergenceDelayMs } from "@clientShared/matching/convergenceScheduling";
 
 export type VideoDatePhase = "handshake" | "date" | "ended";
 
@@ -98,11 +99,7 @@ export const useReconnection = ({
     syncTimerRef.current = null;
   }, []);
 
-  const nextSyncDelayMs = useCallback((elapsedMs: number) => {
-    if (elapsedMs < 5_000) return 1_000;
-    if (elapsedMs < 20_000) return 3_000;
-    return 7_000;
-  }, []);
+  const nextSyncDelayMs = useCallback((elapsedMs: number) => nextConvergenceDelayMs(elapsedMs), []);
 
   // Server-owned reconnect truth: event-driven immediate sync + bounded backoff while uncertain.
   useEffect(() => {

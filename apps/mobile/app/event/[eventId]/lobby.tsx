@@ -64,6 +64,7 @@ import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
+import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
@@ -635,12 +636,6 @@ export default function EventLobbyScreen() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const startedAt = Date.now();
 
-    const drainBackoffMs = (elapsedMs: number) => {
-      if (elapsedMs < 5_000) return 1_000;
-      if (elapsedMs < 20_000) return 3_000;
-      return 7_000;
-    };
-
     const tick = async () => {
       if (cancelled) return;
       const result = await drainMatchQueue(id, user.id);
@@ -651,7 +646,7 @@ export default function EventLobbyScreen() {
       await refreshQueueAndSuperVibe();
       if (cancelled) return;
       const elapsed = Date.now() - startedAt;
-      const delay = drainBackoffMs(elapsed);
+      const delay = nextConvergenceDelayMs(elapsed);
       timeoutId = setTimeout(() => {
         void tick();
       }, delay);
@@ -784,7 +779,6 @@ export default function EventLobbyScreen() {
           }
           void refetchDeck();
           void refreshQueueAndSuperVibe();
-          void refetchActiveSession();
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
           const becameReadyGateActive =
@@ -811,7 +805,6 @@ export default function EventLobbyScreen() {
           if (!isParticipant) return;
           void refetchDeck();
           void refreshQueueAndSuperVibe();
-          void refetchActiveSession();
           const status = session.ready_gate_status as string;
           const sid = session.id as string;
           if (status === 'queued') {
@@ -837,7 +830,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchActiveSession, refetchDeck, show, navigateToDateSession]);
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck, show, navigateToDateSession]);
 
   const timeRemaining = useCountdown(eventEndTime);
 

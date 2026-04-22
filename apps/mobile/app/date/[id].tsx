@@ -58,6 +58,7 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
+import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
@@ -1290,12 +1291,6 @@ export default function VideoDateScreen() {
     reconnectSyncTimerRef.current = null;
   }, []);
 
-  const reconnectSyncDelayMs = useCallback((elapsedMs: number) => {
-    if (elapsedMs < 5_000) return 1_000;
-    if (elapsedMs < 20_000) return 3_000;
-    return 7_000;
-  }, []);
-
   const handleEndAfterInCallReport = useCallback(async () => {
     await handleCallEnd('local_end');
   }, [handleCallEnd]);
@@ -1356,7 +1351,7 @@ export default function VideoDateScreen() {
       if (cancelled || phaseRef.current === 'ended') return;
       const startedAt = reconnectSyncWindowStartedAtRef.current ?? Date.now();
       reconnectSyncWindowStartedAtRef.current = startedAt;
-      const delayMs = reconnectSyncDelayMs(Math.max(0, Date.now() - startedAt));
+      const delayMs = nextConvergenceDelayMs(Math.max(0, Date.now() - startedAt));
       clearReconnectSyncTimer();
       vdbg('sync_reconnect_schedule', {
         sessionId,
@@ -1461,7 +1456,7 @@ export default function VideoDateScreen() {
       clearReconnectSyncTimer();
       requestReconnectSyncRef.current = () => {};
     };
-  }, [sessionId, phase, clearReconnectSyncTimer, reconnectSyncDelayMs]);
+  }, [sessionId, phase, clearReconnectSyncTimer]);
 
   useEffect(() => {
     reconnectSyncCountRef.current = 0;
