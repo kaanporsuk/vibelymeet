@@ -155,6 +155,7 @@ const VideoDate = () => {
   const canonicalRoomNameRef = useRef<string | null>(null);
   const hasEnteredDateFlowRef = useRef(false);
   const surveyOpenedRef = useRef(false);
+  const loggedJourneyRef = useRef<Set<string>>(new Set());
 
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
@@ -169,6 +170,22 @@ const VideoDate = () => {
     hasEnteredDateFlowRef.current = true;
   }, []);
 
+  const logJourney = useCallback(
+    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+      const key = dedupeKey ?? event;
+      if (loggedJourneyRef.current.has(key)) return;
+      loggedJourneyRef.current.add(key);
+      trackEvent(`video_date_journey_${event}`, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId,
+        ...(payload ?? {}),
+      });
+      vdbg(`journey_${event}`, { sessionId: id ?? null, eventId: eventId ?? null, ...(payload ?? {}) });
+    },
+    [id, eventId]
+  );
+
   const openPostDateSurvey = useCallback(
     (reason: string) => {
       if (surveyOpenedRef.current) return false;
@@ -179,9 +196,13 @@ const VideoDate = () => {
       setShowFeedback(true);
       setStatus("in_survey");
       vdbg("post_date_survey_opened", { sessionId: id ?? null, reason });
+      logJourney("survey_opened", { reason }, `survey_opened_${reason}`);
+      if (reason.includes("recovery") || reason === "session_load_terminal") {
+        logJourney("survey_recovered", { reason }, `survey_recovered_${reason}`);
+      }
       return true;
     },
-    [clearHandshakeGraceState, id, setStatus]
+    [clearHandshakeGraceState, id, setStatus, logJourney]
   );
 
   const {
@@ -268,13 +289,19 @@ const VideoDate = () => {
         Boolean((sessionRow as { date_started_at?: string | null } | null)?.date_started_at) &&
         !verdict;
       if (reg?.queue_status === "in_survey" || reconnectExpiredSurveyDue) {
+        logJourney("date_route_recovered", { source: "ended_phase_hydration_recovery" }, "date_route_recovered");
+        logJourney("survey_lost_prevented", {
+          source: "ended_phase_hydration_recovery",
+          queueStatus: reg?.queue_status ?? null,
+          reconnectExpiredSurveyDue,
+        });
         openPostDateSurvey("ended_phase_hydration_recovery");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, showFeedback, phase, openPostDateSurvey]);
+  }, [id, user?.id, showFeedback, phase, openPostDateSurvey, logJourney]);
 
   useLayoutEffect(() => {
     if (!id) return;
@@ -284,6 +311,7 @@ const VideoDate = () => {
 
   useEffect(() => {
     vdbg("date_mount", { sessionId: id ?? null, userId: user?.id ?? null });
+    logJourney("date_route_entered", { source: "mount" }, "date_route_entered");
     if (!id || !user?.id) return;
     const userId = user.id;
     let cancelled = false;
@@ -304,7 +332,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id]);
+  }, [id, user?.id, logJourney]);
 
   // Resolve a photo path to a displayable URL (sync via public URL)
   const resolvePhoto = (path: string): string | null => {
@@ -414,6 +442,10 @@ const VideoDate = () => {
               eventId: sessionRow.event_id,
               endedAt: sessionRow.ended_at,
             });
+            logJourney("date_route_bounced", {
+              reason: "session_ended",
+              target,
+            });
             navigate(target, { replace: true });
           }
           return;
@@ -482,6 +514,10 @@ const VideoDate = () => {
               phase: sessionRow.phase,
               handshakeStarted: Boolean(sessionRow.handshake_started_at),
               latchActive: isDateEntryTransitionActive(id),
+            });
+            logJourney("date_route_bounced", {
+              reason: "in_ready_gate_without_date_entry_latch_or_handshake",
+              target,
             });
             navigate(target, { replace: true });
             return;

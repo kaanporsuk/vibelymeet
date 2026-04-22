@@ -144,6 +144,22 @@ export function PostDateSurvey({
   const [safetySubmitted, setSafetySubmitted] = useState(false);
 
   const finishSurveyRef = useRef<() => Promise<void>>(async () => {});
+  const loggedJourneyRef = useRef<Set<string>>(new Set());
+
+  const logJourney = useCallback(
+    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+      const key = dedupeKey ?? event;
+      if (loggedJourneyRef.current.has(key)) return;
+      loggedJourneyRef.current.add(key);
+      trackEvent(`video_date_journey_${event}`, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        ...(payload ?? {}),
+      });
+    },
+    [sessionId, eventId]
+  );
 
   useEffect(() => {
     if (step !== 'celebration' || !userId || !partnerId) return;
@@ -176,6 +192,7 @@ export function PostDateSurvey({
   }, [step, userId, partnerId]);
 
   const finishSurvey = useCallback(async () => {
+    logJourney('survey_completed', { source: 'finish_survey' }, 'survey_completed');
     if (eventId) {
       const active = await isEventStillActive(eventId);
       if (active) {
@@ -188,7 +205,7 @@ export function PostDateSurvey({
       return;
     }
     onDone();
-  }, [eventId, onDone]);
+  }, [eventId, onDone, logJourney]);
 
   useEffect(() => {
     finishSurveyRef.current = finishSurvey;
@@ -208,7 +225,9 @@ export function PostDateSurvey({
         session_id: sessionId,
         verdict: liked ? 'vibe' : 'pass',
       });
+      logJourney('survey_completed', { source: 'verdict_submitted', verdict: liked ? 'vibe' : 'pass' }, 'survey_completed');
       if (result.mutual) {
+        logJourney('mutual_match_detected', { source: 'post_date_verdict' }, 'mutual_match_detected');
         setStep('celebration');
       } else {
         setStep('highlights');
@@ -296,6 +315,7 @@ export function PostDateSurvey({
         partnerImage={partnerImage}
         sharedVibes={celebrationData?.sharedVibes}
         onStartChatting={() => {
+          logJourney('chat_cta_pressed', { source: 'survey_celebration', other_profile_id: partnerId });
           if (onStartChatting) {
             onStartChatting(partnerId);
           } else {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -62,6 +62,23 @@ export const PostDateSurvey = ({
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
+  const loggedJourneyEventsRef = useRef<Set<string>>(new Set());
+
+  const logJourney = useCallback(
+    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+      const key = dedupeKey ?? event;
+      if (loggedJourneyEventsRef.current.has(key)) return;
+      loggedJourneyEventsRef.current.add(key);
+      trackEvent(`video_date_journey_${event}`, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        ...(payload ?? {}),
+      });
+      vdbg(`journey_${event}`, { sessionId, eventId: eventId ?? null, ...(payload ?? {}) });
+    },
+    [sessionId, eventId]
+  );
 
   // Data for the polished mutual-match celebration
   const [celebrationData, setCelebrationData] = useState<{
@@ -134,6 +151,7 @@ export const PostDateSurvey = ({
     const active = await checkEventActive();
 
     if (active) {
+      logJourney("survey_completed", { source: "finish_survey_active_event" }, "survey_completed");
       setStatus("browsing");
       setSurveyStatus("browsing");
       toast("Back in the mix! 💚", { duration: 2000 });
@@ -149,7 +167,7 @@ export const PostDateSurvey = ({
       setStatus("offline");
       setShowEventEnded(true);
     }
-  }, [navigate, eventId, setStatus, checkEventActive]);
+  }, [navigate, eventId, setStatus, checkEventActive, logJourney]);
 
   // Screen 1: Verdict (mandatory) — single backend path (RPC via Edge: persist + mutual match + server push when new match)
   const handleVerdict = useCallback(
@@ -183,8 +201,10 @@ export const PostDateSurvey = ({
         }
 
         trackEvent("post_date_survey_completed", { session_id: sessionId, verdict: liked ? "vibe" : "pass" });
+        logJourney("survey_completed", { source: "verdict_submitted", verdict: liked ? "vibe" : "pass" }, "survey_completed");
 
         if (result?.mutual) {
+          logJourney("mutual_match_detected", { source: "post_date_verdict" }, "mutual_match_detected");
           setStep("celebration");
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
@@ -199,7 +219,7 @@ export const PostDateSurvey = ({
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, isSubmitting]
+    [user?.id, sessionId, isSubmitting, logJourney]
   );
 
   // Screen 2: Highlights (optional)
@@ -304,7 +324,10 @@ export const PostDateSurvey = ({
       <MatchSuccessModal
         isOpen={true}
         onClose={() => setStep("highlights")}
-        onStartChatting={() => navigate(`/chat/${partnerId}`)}
+        onStartChatting={() => {
+          logJourney("chat_cta_pressed", { source: "survey_celebration", other_profile_id: partnerId });
+          navigate(`/chat/${partnerId}`);
+        }}
         matchData={celebrationData ? {
           name: partnerName,
           age: celebrationData.partnerAge,

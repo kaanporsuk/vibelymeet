@@ -294,6 +294,7 @@ export default function VideoDateScreen() {
   const remotePromotionLoggedRef = useRef(false);
   const lastLocalMountedTrackIdRef = useRef<string | null>(null);
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
+  const loggedJourneyRef = useRef<Set<string>>(new Set());
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
 
@@ -308,6 +309,22 @@ export default function VideoDateScreen() {
   const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
   const [preJoinFailed, setPreJoinFailed] = useState(false);
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
+
+  const logJourney = useCallback(
+    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+      const key = dedupeKey ?? event;
+      if (loggedJourneyRef.current.has(key)) return;
+      loggedJourneyRef.current.add(key);
+      trackEvent(`video_date_journey_${event}`, {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: eventId || null,
+        ...(payload ?? {}),
+      });
+      vdbg(`journey_${event}`, { sessionId: sessionId ?? null, eventId: eventId || null, ...(payload ?? {}) });
+    },
+    [sessionId, eventId]
+  );
 
   const releaseSharedCallIfOwned = useCallback(
     (call: DailyCallObject | null, reason: string) => {
@@ -561,6 +578,7 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     vdbg('date_mount', { sessionId: sessionId ?? null, userId: user?.id ?? null });
+    logJourney('date_route_entered', { source: 'mount' }, 'date_route_entered');
     if (!sessionId || !user?.id) return;
     const userId = user.id;
     let cancelled = false;
@@ -581,7 +599,7 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, logJourney]);
 
   // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (backend truth first).
   useEffect(() => {
@@ -616,6 +634,13 @@ export default function VideoDateScreen() {
           !verdict;
         if (reg?.queue_status === 'in_survey' || reconnectExpiredSurveyDue) {
           dateEstablishedRef.current = true;
+          logJourney('date_route_recovered', { source: 'ended_route_guard' }, 'date_route_recovered');
+          logJourney(
+            'survey_recovered',
+            { source: 'ended_route_guard', queue_status: reg?.queue_status ?? null, reconnectExpiredSurveyDue },
+            'survey_recovered_ended_route_guard'
+          );
+          logJourney('survey_lost_prevented', { source: 'ended_route_guard' }, 'survey_lost_prevented');
           setShowFeedback(true);
           return;
         }
@@ -633,6 +658,7 @@ export default function VideoDateScreen() {
             eventId: vs.event_id,
             endedAt: vs.ended_at,
           });
+          logJourney('date_route_bounced', { reason: 'session_ended_route_guard', target });
           router.replace(target);
         } else {
           const target = tabsRootHref();
@@ -641,6 +667,7 @@ export default function VideoDateScreen() {
             userId: user.id,
             endedAt: vs.ended_at,
           });
+          logJourney('date_route_bounced', { reason: 'session_ended_route_guard', target });
           router.replace(target);
         }
         return;
@@ -691,6 +718,10 @@ export default function VideoDateScreen() {
           phase: vs.phase,
           handshakeStarted: Boolean(vs.handshake_started_at),
           latchActive: isDateEntryTransitionActive(sessionId),
+        });
+        logJourney('date_route_bounced', {
+          reason: 'in_ready_gate_without_date_entry_latch_or_handshake',
+          target,
         });
         router.replace(target);
         return;
@@ -1207,6 +1238,7 @@ export default function VideoDateScreen() {
       data: { sessionId, source, dateWasEstablished },
     });
     if (dateWasEstablished) {
+      logJourney('survey_opened', { source }, `survey_opened_${source}`);
       setShowFeedback(true);
       if (source === 'server_end') {
         await cleanupForAbortWithoutServerEnd();
@@ -1217,7 +1249,7 @@ export default function VideoDateScreen() {
     }
     setShowFeedback(false);
     await cleanupForAbortWithoutServerEnd();
-  }, [cleanupForAbortWithoutServerEnd, cleanupForEstablishedDateEnd, sessionId]);
+  }, [cleanupForAbortWithoutServerEnd, cleanupForEstablishedDateEnd, sessionId, logJourney]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -2590,6 +2622,7 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     reconnectEndedHandledRef.current = false;
+    loggedJourneyRef.current.clear();
   }, [sessionId]);
 
   useEffect(() => {
@@ -2623,13 +2656,20 @@ export default function VideoDateScreen() {
         !verdict;
       if (reg?.queue_status === 'in_survey' || reconnectExpiredSurveyDue) {
         dateEstablishedRef.current = true;
+        logJourney('date_route_recovered', { source: 'terminal_session_recovery' }, 'date_route_recovered');
+        logJourney(
+          'survey_recovered',
+          { source: 'terminal_session_recovery', queue_status: reg?.queue_status ?? null, reconnectExpiredSurveyDue },
+          'survey_recovered_terminal_session_recovery'
+        );
+        logJourney('survey_lost_prevented', { source: 'terminal_session_recovery' }, 'survey_lost_prevented');
         setShowFeedback(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id, showFeedback, phase, session?.ended_at, session?.state, session?.phase]);
+  }, [sessionId, user?.id, showFeedback, phase, session?.ended_at, session?.state, session?.phase, logJourney]);
 
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
   useEffect(() => {

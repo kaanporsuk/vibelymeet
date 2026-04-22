@@ -11,6 +11,7 @@ import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
+import { trackEvent } from "@/lib/analytics";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -56,6 +57,23 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
   const invalidCloseToastRef = useRef(false);
+  const loggedJourneyRef = useRef<Set<string>>(new Set());
+
+  const logJourney = useCallback(
+    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+      const key = dedupeKey ?? event;
+      if (loggedJourneyRef.current.has(key)) return;
+      loggedJourneyRef.current.add(key);
+      trackEvent(`video_date_journey_${event}`, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        ...(payload ?? {}),
+      });
+      vdbg(`journey_${event}`, { sessionId, eventId, ...(payload ?? {}) });
+    },
+    [sessionId, eventId]
+  );
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -65,6 +83,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       setIsTransitioning(true);
       markVideoDateEntryPipelineStarted(sessionId);
       readyGateDebug("success-path navigation to date", { sessionId, source });
+      logJourney("ready_gate_both_ready_handoff_started", { source });
       vdbg("lobby_navigate_to_date", {
         trigger: `ready_gate_overlay_${source}`,
         sessionId,
@@ -88,6 +107,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       if (closedRef.current || dateNavigationStartedRef.current) return;
       closedRef.current = true;
       readyGateDebug("terminal ready-gate close", { sessionId, reason });
+      logJourney("ready_gate_forfeited", { reason }, `ready_gate_forfeited_${reason}`);
       setStatus("browsing");
       toast(
         reason === "timeout"
@@ -105,6 +125,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       if (closedRef.current || dateNavigationStartedRef.current) return;
       closedRef.current = true;
       readyGateDebug("stale ready-gate close", { sessionId, source, ...(detail ?? {}) });
+      logJourney("ready_gate_invalidated", { source, ...(detail ?? {}) });
       if (!invalidCloseToastRef.current) {
         invalidCloseToastRef.current = true;
         toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
@@ -303,8 +324,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
+    loggedJourneyRef.current.clear();
     setIsTransitioning(false);
     setTimeLeft(GATE_TIMEOUT);
+    logJourney("ready_gate_opened");
   }, [sessionId]);
 
   // Fetch partner photo + shared vibes
@@ -571,6 +594,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               <button
                 onClick={() => {
                   if (dateNavigationStartedRef.current) return;
+                  logJourney("ready_gate_dismissed", { reason: "skip_this_one" }, "ready_gate_dismissed");
                   closedRef.current = true;
                   skip();
                   setStatus("browsing");
@@ -596,6 +620,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               <button
                 onClick={() => {
                   if (dateNavigationStartedRef.current) return;
+                  logJourney("ready_gate_dismissed", { reason: "cancel_go_back" }, "ready_gate_dismissed");
                   closedRef.current = true;
                   skip();
                   setStatus("browsing");
