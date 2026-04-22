@@ -144,6 +144,43 @@ export function useVideoDateSession(
   /** After first completed fetch for `sessionId:userId`, further refetches use `isRefreshing` only. */
   const lastCompletedSessionKeyRef = useRef<string | null>(null);
 
+  type PhaseResolution = {
+    phase: 'handshake' | 'date' | 'ended';
+    timeLeft: number;
+  };
+
+  const resolvePhaseAndTime = useCallback(
+    (row: Pick<VideoDateSession, 'ended_at' | 'state' | 'phase' | 'date_started_at' | 'handshake_started_at'>): PhaseResolution => {
+      const state = row.state ?? null;
+      const phaseValue = row.phase ?? null;
+
+      if (row.ended_at || state === 'ended' || phaseValue === 'ended') {
+        return { phase: 'ended', timeLeft: 0 };
+      }
+
+      // Authoritative date evidence always wins over handshake fields.
+      if (state === 'date' || phaseValue === 'date' || !!row.date_started_at) {
+        if (row.date_started_at) {
+          const elapsed = (Date.now() - new Date(row.date_started_at).getTime()) / 1000;
+          return { phase: 'date', timeLeft: Math.max(0, Math.ceil(DATE_SECONDS - elapsed)) };
+        }
+        return { phase: 'date', timeLeft: DATE_SECONDS };
+      }
+
+      if (row.handshake_started_at || state === 'handshake' || phaseValue === 'handshake') {
+        if (row.handshake_started_at) {
+          const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
+          return { phase: 'handshake', timeLeft: Math.max(0, Math.ceil(HANDSHAKE_SECONDS - elapsed)) };
+        }
+        return { phase: 'handshake', timeLeft: HANDSHAKE_SECONDS };
+      }
+
+      // Ready/prejoin fallback.
+      return { phase: 'handshake', timeLeft: HANDSHAKE_SECONDS };
+    },
+    []
+  );
+
   const fetchSession = useCallback(async () => {
     if (!sessionId || !userId) return;
     const sessionKey = `${sessionId}:${userId}`;
@@ -215,20 +252,9 @@ export function useVideoDateSession(
         setPartner(profile as unknown as VideoDatePartner);
       }
 
-      const now = Date.now();
-      if ((s.state === 'date' || s.phase === 'date') && s.date_started_at) {
-        const elapsed = (now - new Date(s.date_started_at).getTime()) / 1000;
-        setTimeLeft(Math.max(0, Math.ceil(DATE_SECONDS - elapsed)));
-        setPhase('date');
-      } else if (s.handshake_started_at) {
-        const elapsed = (now - new Date(s.handshake_started_at).getTime()) / 1000;
-        setTimeLeft(Math.max(0, Math.ceil(HANDSHAKE_SECONDS - elapsed)));
-        setPhase('handshake');
-      } else {
-        setTimeLeft(HANDSHAKE_SECONDS);
-        setPhase('handshake');
-        // If no handshake_started_at yet, caller should invoke enter_handshake before joining Daily room
-      }
+      const resolved = resolvePhaseAndTime(s);
+      setPhase(resolved.phase);
+      setTimeLeft(resolved.timeLeft);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
@@ -244,7 +270,7 @@ export function useVideoDateSession(
         },
       });
     }
-  }, [sessionId, userId]);
+  }, [sessionId, userId, resolvePhaseAndTime]);
 
   useEffect(() => {
     fetchSession();
@@ -270,33 +296,24 @@ export function useVideoDateSession(
             }
             if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
             if (row.state !== undefined) next.state = row.state as string;
+            if (row.phase !== undefined) next.phase = row.phase as string;
+            if (row.date_started_at !== undefined) next.date_started_at = row.date_started_at as string | null;
+            if (row.handshake_started_at !== undefined) next.handshake_started_at = row.handshake_started_at as string | null;
             if (row.handshake_grace_expires_at !== undefined) {
               next.handshake_grace_expires_at = row.handshake_grace_expires_at as string | null;
             }
+            const resolved = resolvePhaseAndTime(next);
+            setPhase(resolved.phase);
+            setTimeLeft(resolved.timeLeft);
             return next;
           });
-          if (row.ended_at || row.state === 'ended' || row.phase === 'ended') {
-            setPhase('ended');
-            setTimeLeft(0);
-            return;
-          }
-          if (row.date_started_at) {
-            const elapsed = (Date.now() - new Date(row.date_started_at as string).getTime()) / 1000;
-            setTimeLeft(Math.max(0, Math.ceil(DATE_SECONDS - elapsed)));
-            setPhase('date');
-          }
-          if (row.handshake_started_at) {
-            const elapsed = (Date.now() - new Date(row.handshake_started_at as string).getTime()) / 1000;
-            setTimeLeft(Math.max(0, Math.ceil(HANDSHAKE_SECONDS - elapsed)));
-            setPhase('handshake');
-          }
         }
       )
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId]);
+  }, [sessionId, resolvePhaseAndTime]);
 
   return { session, partner, phase, timeLeft, loading, isRefreshing, error, refetch: fetchSession };
 }
