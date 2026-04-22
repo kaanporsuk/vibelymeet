@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  inferVideoQueueStatusFromSessionTruth,
   pickRegistrationForActiveSession,
+  videoSessionRowIndicatesHandshakeOrDate,
   type ActiveSessionBase,
 } from "@clientShared/matching/activeSession";
 
@@ -151,7 +153,7 @@ export function useActiveSession(
 
     const { data: session, error: sessionError } = await supabase
       .from("video_sessions")
-      .select("id, ended_at")
+      .select("id, ended_at, state, phase, handshake_started_at, date_started_at")
       .eq("id", reg.current_room_id)
       .maybeSingle();
 
@@ -193,7 +195,15 @@ export function useActiveSession(
     }
 
     if (qs === "in_ready_gate") {
-      commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
+      if (videoSessionRowIndicatesHandshakeOrDate(session)) {
+        const inferredQs = inferVideoQueueStatusFromSessionTruth(session);
+        commitActiveSession(
+          { kind: "video", ...base, queueStatus: inferredQs },
+          "ready_gate_stale_registration_session_truth"
+        );
+      } else {
+        commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
+      }
     } else if (qs === "in_handshake" || qs === "in_date" || qs === "in_survey") {
       commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
     } else {

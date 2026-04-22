@@ -38,6 +38,7 @@ The repo has moved well beyond the frozen/archive counts below.
 - **2026-04-18 (match calls Wave 3):** `20260418210000_match_calls_one_open_per_match.sql` — preflight terminalizes legacy duplicate open rows per `match_id`, then partial unique index **`uniq_match_calls_match_id_open`** on `match_calls(match_id)` where `status IN ('ringing','active')`. Deploy before relying on `daily-room` **409** `DUPLICATE_ACTIVE_CALL` for insert races.
 - **2026-04-18 (match calls Wave 4):** `20260418220000_expire_stale_match_calls_log.sql` — same `expire_stale_match_calls` behavior; adds `RAISE LOG` when expiry count > 0 for Postgres log visibility.
 - **2026-04-19 (match calls Wave 5):** `20260419120000_match_call_lifecycle_hardening.sql` — adds match-call join/heartbeat/provider-cleanup metadata, extends `match_call_transition` with `heartbeat`, `joined`, and `join_failed`, and updates `expire_stale_match_calls` so stale `active` rows are ended server-side instead of blocking future calls indefinitely.
+- **2026-04-23 (video date handshake grace + Daily join):** `20260430150000_video_date_handshake_grace_both_daily_joined.sql` — `video_date_transition('complete_handshake')` uses a 60s post-handshake-timer grace when both `participant_*_joined_at` are set (vs 15s otherwise); `expire_stale_video_date_phases` defers grace-based `handshake_grace_expired` cleanup briefly for the both-joined + one-sided-vibe case, capped at `handshake_started_at + 120s`.
 
 ---
 

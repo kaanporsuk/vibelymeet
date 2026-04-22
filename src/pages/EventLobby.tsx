@@ -185,6 +185,7 @@ const EventLobby = () => {
   const deckEverLoadedRef = useRef(false);
   const deckExhaustedFiredRef = useRef(false);
   const convergenceImpressionRef = useRef(false);
+  const superVibeCountDiagLoggedRef = useRef<string | null>(null);
 
   useEffect(() => {
     seenProfileIds.current = new Set();
@@ -248,20 +249,57 @@ const EventLobby = () => {
     })();
   }, [user?.id]);
 
-  // Super vibes left this event (same rule as handle_swipe: max 3 per event)
+  // Super vibes left this event (same rule as handle_swipe: max 3 per event). Non-fatal: lobby must mount if this fails.
   useEffect(() => {
     if (!user?.id || !eventId) return;
-    (async () => {
-      const { count, error } = await supabase
-        .from("event_swipes")
-        .select("*", { count: "exact", head: true })
-        .eq("event_id", eventId)
-        .eq("actor_id", user.id)
-        .eq("swipe_type", "super_vibe");
-      if (error) return;
-      const used = count ?? 0;
-      setSuperVibeRemaining(Math.max(0, 3 - used));
+    const diagKey = `${eventId}:${user.id}`;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { count, error } = await supabase
+          .from("event_swipes")
+          .select("*", { count: "exact", head: true })
+          .eq("event_id", eventId)
+          .eq("actor_id", user.id)
+          .eq("swipe_type", "super_vibe");
+        if (cancelled) return;
+        if (import.meta.env.DEV && superVibeCountDiagLoggedRef.current !== diagKey) {
+          superVibeCountDiagLoggedRef.current = diagKey;
+          if (error) {
+            lobbyDebug("super_vibe_count_load_failed", {
+              eventId,
+              userId: user.id,
+              sessionKind: sameEventScopedSession?.kind ?? null,
+              sessionId: sameEventScopedSession?.sessionId ?? null,
+              message: error.message,
+            });
+          } else {
+            lobbyDebug("super_vibe_count_load_ok", {
+              eventId,
+              userId: user.id,
+              used: count ?? 0,
+            });
+          }
+        }
+        if (error) return;
+        const used = count ?? 0;
+        setSuperVibeRemaining(Math.max(0, 3 - used));
+      } catch {
+        if (import.meta.env.DEV && superVibeCountDiagLoggedRef.current !== diagKey) {
+          superVibeCountDiagLoggedRef.current = diagKey;
+          lobbyDebug("super_vibe_count_load_failed", {
+            eventId,
+            userId: user.id,
+            sessionKind: sameEventScopedSession?.kind ?? null,
+            sessionId: sameEventScopedSession?.sessionId ?? null,
+            message: "exception",
+          });
+        }
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id, eventId]);
 
   // Lobby presence only when no backend-owned active session is in flight.
@@ -672,6 +710,28 @@ const EventLobby = () => {
     afterSuccessfulSwipe(targetId);
   }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
 
+  const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
+  const yieldingToReadyGateUi = Boolean(
+    sameEventScopedSession?.kind === "ready_gate" &&
+      activeSessionId !== sameEventScopedSession.sessionId
+  );
+  const suppressDeckUiForConvergence = yieldingToVideoDateUi || yieldingToReadyGateUi;
+
+  useEffect(() => {
+    if (!eventId) return;
+    if (!suppressDeckUiForConvergence) {
+      convergenceImpressionRef.current = false;
+      return;
+    }
+    if (convergenceImpressionRef.current) return;
+    convergenceImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
+      platform: "web",
+      event_id: eventId,
+      source_surface: yieldingToVideoDateUi ? "video_date" : "ready_gate",
+    });
+  }, [eventId, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
+
   // Loading state
   if (eventLoading || regLoading) {
     return (
@@ -694,27 +754,6 @@ const EventLobby = () => {
       const [m, s] = timeRemaining.split(":").map(Number);
       return m * 60 + s <= 300;
     })();
-  const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
-  const yieldingToReadyGateUi = Boolean(
-    sameEventScopedSession?.kind === "ready_gate" &&
-      activeSessionId !== sameEventScopedSession.sessionId
-  );
-  const suppressDeckUiForConvergence = yieldingToVideoDateUi || yieldingToReadyGateUi;
-
-  useEffect(() => {
-    if (!eventId) return;
-    if (!suppressDeckUiForConvergence) {
-      convergenceImpressionRef.current = false;
-      return;
-    }
-    if (convergenceImpressionRef.current) return;
-    convergenceImpressionRef.current = true;
-    trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
-      platform: "web",
-      event_id: eventId,
-      source_surface: yieldingToVideoDateUi ? "video_date" : "ready_gate",
-    });
-  }, [eventId, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
 
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden bg-zinc-950 text-foreground">
