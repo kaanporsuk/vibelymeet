@@ -13,9 +13,9 @@ How to read **`promote_ready_gate_if_eligible`**, **`drain_match_queue`**, and *
 |-----|-------------------|------------------|
 | **`promote_ready_gate_if_eligible`** (callable directly in theory; usually invoked internally) | `promote_ready_gate_if_eligible` | **Inner promotion engine** — one row per invocation with outcome/reason for the helper. |
 | **`drain_match_queue`** | `drain_match_queue`, then **`promote_ready_gate_if_eligible`** | **Drain** runs cleanup, then calls the helper, then writes a **second** row summarizing drain’s envelope (`found`, mapped outcome). |
-| **`mark_lobby_foreground`** | `mark_lobby_foreground` | Lobby heartbeat RPC; observability **`outcome` is typically `success`** when the RPC completes. Actual promotion result lives in **`detail.promotion`** (nested JSON from the same helper). |
+| **`mark_lobby_foreground`** | **`promote_ready_gate_if_eligible`** then **`mark_lobby_foreground`** | Same helper runs first (engine row), then the RPC logs **`mark_lobby_foreground`** with **`outcome` ≈ `success`** when the call completes. Nested **`detail.promotion`** echoes the helper JSON for convenience. |
 
-**Double-logging:** A single **`drain_match_queue`** HTTP/RPC call typically inserts **two** rows: first **`promote_ready_gate_if_eligible`** (engine), second **`drain_match_queue`** (wrapper). **`mark_lobby_foreground`** inserts **one** row for itself; that row’s nested **`detail.promotion`** reflects the helper result without a separate **`promote_*` row** for that call path.
+**Double-logging:** A **`drain_match_queue`** call inserts **two** rows: **`promote_ready_gate_if_eligible`** (engine) then **`drain_match_queue`** (wrapper). **`mark_lobby_foreground`** inserts **two** rows as well — **engine first**, **wrapper second** — because the helper always emits **`promote_*` telemetry** regardless of caller. Counting **`promote_ready_gate_if_eligible`** rows therefore includes both **drain-driven** and **mark_lobby-driven** attempts (**not** “drain volume × 2” alone).
 
 ---
 
@@ -222,3 +222,45 @@ ORDER BY n DESC;
 | **`v_event_loop_observability_metric_streams`** | All core operations plus **`metric_stream`** for dedupe-friendly filters. |
 
 Existing views remain unchanged; comments on hourly rollups clarify double-count context.
+
+---
+
+## Appendix C — Production re-check (linked project, normalized semantics)
+
+**Captured:** 2026-04-22 via `supabase db query --linked` against **MVP_Vibe**. **Window:** last **14 days** unless noted. Normalized views (`20260430123100_*`) were **not** deployed on the linked DB at query time — semantics used **inline** (`metric_stream` CASE + same CASE as **`v_event_loop_mark_lobby_promotion_normalized`**).
+
+### C.1 Row arithmetic (why `promote` ≫ `drain`)
+
+| Slice | Count | Notes |
+|-------|------:|-------|
+| **`drain_match_queue`** (wrapper only) | **108** | User-visible drain RPC attempts. |
+| **`promote_ready_gate_if_eligible`** (engine) | **308** | **Every** helper invocation, including those from **`mark_lobby_foreground`**. |
+| **`mark_lobby_foreground`** | **200** | Subset with **`reason_code`** echoing nested promotion (**154** `event_not_valid`, **46** `no_queued_session` in primary breakdown); other rows may exist with different echoes. |
+
+**Identity (approximate):** `count(promote_inner) ≈ count(drain_outer) + count(mark_lobby_calls_that_invoke_helper)` → **308 ≈ 108 + 200**. This explains why raw **`promote`** totals looked inflated versus **`drain`** — **not** a duplicate-logging bug, but **two schedulers** (drain + lobby foreground heartbeat) both calling the same helper.
+
+### C.2 Outcome mix (14d, by `metric_stream`)
+
+| Stream | Dominant rows |
+|--------|----------------|
+| **`drain_rpc_outer`** | **79** `blocked` / **`event_not_valid`**, **28** `no_op` / **`no_queued_session`**, **1** `error` / **`unauthorized`** |
+| **`promotion_engine_inner`** | **234** `blocked` / **`event_not_valid`**, **74** `no_op` / **`no_queued_session`** |
+| **`mark_lobby_rpc`** | **`outcome`** mostly **`success`** with **`reason_code`** = nested **`event_not_valid`** (**154**) or **`no_queued_session`** (**46**) — **always interpret nested promotion, not `outcome`** |
+
+### C.3 Success / anomaly check
+
+- **`drain_match_queue`** with **`outcome = success`:** **0** (14d).
+- **`promote_ready_gate_if_eligible`** with **`outcome = success`:** not fully re-queried in-session (circuit breaker); prior snapshots also showed **no** success in low–live-traffic windows.
+- **`mark_lobby`** with **`detail.promotion.promoted = true`:** **0** (14d).
+
+**Interpretation:** Low/zero **`success`** in this window reflects **sparse live queued promotion** + guards (**`event_not_valid`**, **`no_queued_session`**), **not** proof of a broken helper after normalization. Immediate matches remain on **`handle_swipe`** (`match_immediate`), outside this slice.
+
+### C.4 Concentrations
+
+- **`event_not_valid`** (**promote**, 14d): clustered **`event_id`s** (top **42**, **38**, **28**, … hits per event — expected product traffic concentration).
+- **`LEFT JOIN public.events`** on **`event_not_valid`**: **214** rows **`(no events row)`**, **20** **`upcoming`**, **`detail_step`** = **`event_share_lock`** — confirms **non-live / visibility** semantics; **full reconciliation** requires **SQL Editor / `postgres`** (management CLI role may not resolve all `event_id`s — see Appendix A).
+
+### C.5 Follow-ups (no code change required here)
+
+1. **Apply migration `20260430123100_*`** on production so operators can **`SELECT * FROM v_event_loop_observability_metric_streams`** instead of inline CASE.
+2. Re-run Appendix A **`LEFT JOIN`** as **`postgres`** if **`(no events row)`** share stays high — distinguishes **RLS/role** vs **deleted events** vs **bad ids**.
