@@ -63,6 +63,7 @@ import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
+import { eventLobbyHref } from '@/lib/activeSessionRoutes';
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
 
@@ -140,10 +141,11 @@ function useCountdown(endTime: Date | null): string {
 }
 
 export default function EventLobbyScreen() {
-  const { eventId, pendingVideoSession, pendingMatch } = useLocalSearchParams<{
+  const { eventId, pendingVideoSession, pendingMatch, postSurveyComplete } = useLocalSearchParams<{
     eventId: string;
     pendingVideoSession?: string;
     pendingMatch?: string;
+    postSurveyComplete?: string | string[];
   }>();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
@@ -193,6 +195,15 @@ export default function EventLobbyScreen() {
     setDeckNonce((n) => n + 1);
   }, [id]);
 
+  useEffect(() => {
+    const raw = Array.isArray(postSurveyComplete) ? postSurveyComplete[0] : postSurveyComplete;
+    if (raw !== '1' || !id) return;
+    setPostSurveyLobbyBanner(true);
+    router.replace(eventLobbyHref(id));
+    const tid = setTimeout(() => setPostSurveyLobbyBanner(false), 2000);
+    return () => clearTimeout(tid);
+  }, [id, postSurveyComplete]);
+
   const sortedProfiles = useMemo(() => {
     const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
     filtered.sort((a, b) => {
@@ -217,6 +228,8 @@ export default function EventLobbyScreen() {
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  /** Mirrors web `sonner` completion toast after post-date survey (non-blocking). */
+  const [postSurveyLobbyBanner, setPostSurveyLobbyBanner] = useState(false);
 
   const {
     activeSession: scopedSession,
@@ -898,7 +911,7 @@ export default function EventLobbyScreen() {
         case 'match':
           show({
             title: "It's a match!",
-            message: 'Opening Ready Gate…',
+            message: 'Opening Ready Gate...',
             variant: 'success',
             primaryAction: { label: 'OK', onPress: () => {} },
           });
@@ -975,7 +988,7 @@ export default function EventLobbyScreen() {
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
-          <LoadingState title="Loading lobby…" message="Getting the lobby ready…" />
+          <LoadingState title="Loading lobby..." message="Getting the lobby ready..." />
         </View>
         {dialog}
       </>
@@ -1383,14 +1396,14 @@ export default function EventLobbyScreen() {
                   <Ionicons name="sparkles" size={40} color={theme.neonPink} />
                 </View>
                 <Text style={[styles.emptyTitle, { color: theme.text }]}>Your match is syncing</Text>
-                <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                  We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in
-                  automatically.
-                </Text>
+                  <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
+                    We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in
+                    automatically.
+                  </Text>
                 <View style={styles.emptyCheckingRow}>
                   <Ionicons name="sync" size={14} color={theme.tint} />
                   <Text style={[styles.emptySubline, { color: theme.tint }]}>
-                    Looking for your video date…
+                    Looking for your video date...
                   </Text>
                 </View>
               </>
@@ -1405,7 +1418,7 @@ export default function EventLobbyScreen() {
                   <Text style={styles.emptyEmoji}>⏳</Text>
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>Hang tight!</Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    More people may join the room — we'll refresh your deck automatically.
+                    New people may join the event! We&apos;ll refresh your deck automatically.
                   </Text>
                   <View style={styles.emptyCheckingRow}>
                     <Ionicons name="sync" size={14} color={theme.tint} />
@@ -1415,7 +1428,7 @@ export default function EventLobbyScreen() {
                     style={({ pressed }) => [styles.emptySecondaryBtn, pressed && { opacity: 0.8 }]}
                     onPress={cancelSearch}
                   >
-                    <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>I'll check later</Text>
+                    <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>No thanks, I&apos;ll wait</Text>
                   </Pressable>
                 </>
               ) : (
@@ -1423,36 +1436,35 @@ export default function EventLobbyScreen() {
                   <View style={[styles.emptyIconWrap, { backgroundColor: theme.accentSoft }]}>
                     <Ionicons name="people-outline" size={40} color={theme.tint} />
                   </View>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>You've seen everyone for now</Text>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>You&apos;ve seen everyone for now</Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    More people may join the room — your deck refreshes every few seconds. Try Mystery Match or tap Refresh.
+                    More people may join the room — your deck refreshes every few seconds. Refresh any time. Mystery Match
+                    is an optional in-app shortcut for a random pairing while you wait (not available on web yet).
                   </Text>
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
-                    onPress={findMysteryMatch}
-                    disabled={isSearching}
-                  >
-                    {isSearching ? (
-                      <Text style={styles.emptyPrimaryLabel}>Finding match...</Text>
-                    ) : (
-                      <Text style={styles.emptyPrimaryLabel}>Try Mystery Match 🎲</Text>
-                    )}
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [styles.emptySecondaryBtn, pressed && { opacity: 0.8 }]}
                     onPress={() => {
                       cancelSearch();
                       refetchDeck();
                     }}
                   >
-                    <Text style={[styles.emptySecondaryLabel, { color: theme.textSecondary }]}>I'll wait</Text>
+                    <Text style={styles.emptyPrimaryLabel}>Refresh now</Text>
                   </Pressable>
                   <Pressable
-                    style={({ pressed }) => [styles.emptyRefreshBtn, { borderColor: theme.border }, pressed && { opacity: 0.8 }]}
-                    onPress={() => refetchDeck()}
+                    style={({ pressed }) => [
+                      styles.emptyMysteryBtn,
+                      { borderColor: theme.border, backgroundColor: withAlpha(theme.text, 0.04) },
+                      pressed && { opacity: 0.85 },
+                      isSearching && { opacity: 0.6 },
+                    ]}
+                    onPress={findMysteryMatch}
+                    disabled={isSearching}
                   >
-                    <Ionicons name="refresh" size={18} color={theme.textSecondary} />
-                    <Text style={[styles.emptyRefreshLabel, { color: theme.textSecondary }]}>Refresh</Text>
+                    {isSearching ? (
+                      <Text style={[styles.emptySecondaryLabel, { color: theme.text }]}>Finding match...</Text>
+                    ) : (
+                      <Text style={[styles.emptySecondaryLabel, { color: theme.text }]}>Mystery Match (optional)</Text>
+                    )}
                   </Pressable>
                 </>
               )}
@@ -1567,6 +1579,23 @@ export default function EventLobbyScreen() {
       <EventEndedModal isOpen={showEventEndedModal} />
       </View>
     </View>
+    {postSurveyLobbyBanner ? (
+      <View
+        pointerEvents="none"
+        style={[
+          styles.lobbySuccessToast,
+          {
+            bottom: insets.bottom + spacing.lg,
+            backgroundColor: theme.surface,
+            borderColor: withAlpha(theme.success, 0.4),
+          },
+        ]}
+      >
+        <Text style={[styles.lobbySuccessToastText, { color: theme.text }]}>
+          You&apos;re back in the lobby — keep browsing 💚
+        </Text>
+      </View>
+    ) : null}
     {dialog}
     </>
   );
@@ -1942,6 +1971,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   emptyRefreshLabel: { fontSize: 14, fontWeight: '500' },
+  emptyMysteryBtn: {
+    alignSelf: 'stretch',
+    paddingVertical: 12,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  lobbySuccessToast: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 100,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  lobbySuccessToastText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   deckContainer: {
     width: '100%',
     aspectRatio: 3 / 4,

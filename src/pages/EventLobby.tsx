@@ -864,7 +864,7 @@ const EventLobby = () => {
                 })();
               }}
             >
-              {endingBreak ? "Ending break…" : "End break & start discovering"}
+              {endingBreak ? "Ending break..." : "End break & start discovering"}
             </Button>
           </div>
         ) : deckError && deckEnabled && profiles.length === 0 && !deckLoading ? (

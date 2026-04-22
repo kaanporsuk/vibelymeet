@@ -81,7 +81,12 @@ import {
   isDateEntryTransitionActive,
   markVideoDateEntryPipelineStarted,
 } from '@/lib/dateEntryTransitionLatch';
-import { eventLobbyHref, readyGateHref, tabsRootHref } from '@/lib/activeSessionRoutes';
+import {
+  eventLobbyHref,
+  eventLobbyHrefPostSurveyComplete,
+  readyGateHref,
+  tabsRootHref,
+} from '@/lib/activeSessionRoutes';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import {
   getVideoDateJourneyEventName,
@@ -3037,7 +3042,7 @@ export default function VideoDateScreen() {
   const handleSurveyDone = useCallback(() => {
     if (eventId && user?.id) updateParticipantStatus(eventId, 'browsing');
     if (eventId) {
-      const target = eventLobbyHref(eventId);
+      const target = eventLobbyHrefPostSurveyComplete(eventId);
       vdbgRedirect(target, 'survey_done', { sessionId: sessionId ?? null, eventId });
       router.replace(target);
     } else {
@@ -3226,17 +3231,18 @@ export default function VideoDateScreen() {
         {peerMissingTerminal && (
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-              <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Your match has not joined yet</Text>
+              <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>
+                Your match has not joined this video room yet.
+              </Text>
               <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
-                We could not connect them to this video room in time. Try once more, keep waiting, or go back to the
-                lobby.
+                We could not connect them in time. You can try again, keep waiting here, or go back to the lobby.
               </Text>
               <View style={styles.initialTimeoutActions}>
                 <Pressable
                   onPress={() => void handleRetryInitialConnect()}
                   style={({ pressed }) => [styles.initialRetryBtn, { backgroundColor: theme.tint }, pressed && styles.initialBtnPressed]}
                 >
-                  <Text style={styles.initialRetryText}>Retry join once</Text>
+                  <Text style={styles.initialRetryText}>Try again</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => void handlePeerMissingKeepWaiting()}
@@ -3287,10 +3293,10 @@ export default function VideoDateScreen() {
             <View style={styles.waitingTimerPill}>
               <Text style={[styles.waitingTimerText, { color: theme.text }]}>
                 {joining || isConnecting
-                  ? 'Connecting…'
+                  ? 'Connecting...'
                   : peerNotOpenedVideoDateYet
                     ? "They haven't opened the date yet"
-                    : 'Waiting for partner…'}
+                    : 'Waiting for partner...'}
               </Text>
             </View>
           ) : showHandshakeGraceWait ? (
