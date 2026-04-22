@@ -1383,13 +1383,25 @@ export default function VideoDateScreen() {
       });
       try {
         const r = await syncVideoDateReconnect(sessionId);
-        if (cancelled || !r) {
+        if (cancelled) {
+          vdbg('sync_reconnect_result', {
+            sessionId,
+            phase: phaseRef.current,
+            reason,
+            mode,
+            outcome: 'cancelled',
+            resultKind: r ? 'cancelled_after_result' : 'cancelled_after_null_result',
+          });
+          return;
+        }
+        if (!r) {
           vdbg('sync_reconnect_result', {
             sessionId,
             phase: phaseRef.current,
             reason,
             mode,
             outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.RPC_ERROR,
+            resultKind: 'null_result',
           });
           scheduleBackoff('rpc_error');
           return;
