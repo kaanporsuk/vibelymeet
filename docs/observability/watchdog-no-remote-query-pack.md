@@ -1,5 +1,7 @@
 # Watchdog & no-remote / peer-missing — operator query pack
 
+For **threshold / cadence decisions** on queue drain and reconnect sync (not watchdog-specific), see [`evidence-led-queue-reconnect-tuning.md`](./evidence-led-queue-reconnect-tuning.md).
+
 **Scope:** Event lobby → ready gate → video date, with emphasis on first-remote presence, join timing, and native peer-missing UI.  
 **Out of scope for this file:** changing thresholds, RPC behavior, or product logic. All numbers (e.g. 25s) are **documented for triage only**; do not treat as approval to retune in code from this doc.
 
