@@ -292,6 +292,8 @@ export default function VideoDateScreen() {
   const phaseCueAnim = useRef(new Animated.Value(1)).current;
   /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
   const remotePromotionLoggedRef = useRef(false);
+  const lastLocalMountedTrackIdRef = useRef<string | null>(null);
+  const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
 
@@ -1014,6 +1016,37 @@ export default function VideoDateScreen() {
   }, [remoteParticipant, sessionId]);
 
   useEffect(() => {
+    const trackId = getTrack(localParticipant ?? undefined, 'video')?.id ?? null;
+    if (!trackId) {
+      lastLocalMountedTrackIdRef.current = null;
+      return;
+    }
+    if (lastLocalMountedTrackIdRef.current === trackId) return;
+    lastLocalMountedTrackIdRef.current = trackId;
+    videoDateDailyDiagnostic('local_track_mounted', {
+      session_id: sessionId ?? '',
+      room_name: roomNameRef.current ?? null,
+      track_id: trackId,
+    });
+  }, [localParticipant, sessionId]);
+
+  useEffect(() => {
+    const trackId = getTrack(remoteParticipant ?? undefined, 'video')?.id ?? null;
+    if (!trackId) {
+      lastRemoteMountedTrackIdRef.current = null;
+      return;
+    }
+    if (lastRemoteMountedTrackIdRef.current === trackId) return;
+    lastRemoteMountedTrackIdRef.current = trackId;
+    videoDateDailyDiagnostic('remote_track_mounted', {
+      session_id: sessionId ?? '',
+      room_name: roomNameRef.current ?? null,
+      participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
+      track_id: trackId,
+    });
+  }, [remoteParticipant, sessionId]);
+
+  useEffect(() => {
     if (!hasRemotePartner || phase !== 'handshake') return;
     const start = 80;
     const duration = 10000;
@@ -1295,10 +1328,25 @@ export default function VideoDateScreen() {
       try {
         const r = await syncVideoDateReconnect(sessionId);
         if (cancelled || !r) {
+          vdbg('sync_reconnect_result', {
+            sessionId,
+            phase: phaseRef.current,
+            reason,
+            mode,
+            outcome: 'rpc_error',
+          });
           scheduleBackoff('rpc_error');
           return;
         }
         if (r.ended) {
+          vdbg('sync_reconnect_result', {
+            sessionId,
+            phase: phaseRef.current,
+            reason,
+            mode,
+            outcome: 'ended',
+            endedReason: r.ended_reason ?? null,
+          });
           // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
           if (!reconnectEndedHandledRef.current && partnerEverJoinedRef.current) {
             reconnectEndedHandledRef.current = true;
@@ -1313,6 +1361,15 @@ export default function VideoDateScreen() {
         reconnectEndedHandledRef.current = false;
         const hasGrace = !!r.reconnect_grace_ends_at;
         const show = hasGrace && r.partner_marked_away;
+        vdbg('sync_reconnect_result', {
+          sessionId,
+          phase: phaseRef.current,
+          reason,
+          mode,
+          outcome: 'ok',
+          hasGrace,
+          partnerMarkedAway: r.partner_marked_away,
+        });
         setIsPartnerDisconnected(show);
         setIsTimerPaused(show);
         if (hasGrace && r.reconnect_grace_ends_at) {
