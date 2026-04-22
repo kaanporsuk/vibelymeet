@@ -20,6 +20,7 @@ import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
@@ -194,6 +195,7 @@ const EventLobby = () => {
   // Track whether the deck ever had profiles (to distinguish "initial empty" from "exhausted")
   const deckEverLoadedRef = useRef(false);
   const deckExhaustedFiredRef = useRef(false);
+  const convergenceImpressionRef = useRef(false);
 
   useEffect(() => {
     seenProfileIds.current = new Set();
@@ -715,6 +717,21 @@ const EventLobby = () => {
   );
   const suppressDeckUiForConvergence = yieldingToVideoDateUi || yieldingToReadyGateUi;
 
+  useEffect(() => {
+    if (!eventId) return;
+    if (!suppressDeckUiForConvergence) {
+      convergenceImpressionRef.current = false;
+      return;
+    }
+    if (convergenceImpressionRef.current) return;
+    convergenceImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
+      platform: "web",
+      event_id: eventId,
+      source_surface: yieldingToVideoDateUi ? "video_date" : "ready_gate",
+    });
+  }, [eventId, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
+
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden bg-zinc-950 text-foreground">
       <div
@@ -885,7 +902,7 @@ const EventLobby = () => {
         ) : deckLoading && sortedProfiles.length === 0 && !deckError ? (
           <CardSkeleton />
         ) : isEmpty ? (
-          <LobbyEmptyState onRefresh={refetchDeck} />
+          <LobbyEmptyState eventId={eventId} onRefresh={refetchDeck} />
         ) : (
           <div className="w-full space-y-3">
             <div className="text-center px-1">

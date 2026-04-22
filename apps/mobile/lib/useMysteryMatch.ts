@@ -4,6 +4,8 @@
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/analytics';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
 type UseMysteryMatchOptions = {
   eventId: string | undefined;
@@ -51,6 +53,13 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
         }
         const retryResult = retryData as { success?: boolean; session_id?: string; partner_id?: string } | null;
         if (retryResult?.success && retryResult.session_id) {
+          if (eventIdRef.current) {
+            trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
+              platform: 'native',
+              event_id: eventIdRef.current,
+              outcome: 'matched',
+            });
+          }
           onMatchFound?.(retryResult.session_id, retryResult.partner_id ?? '');
           resetSearchAndWaiting();
         }
@@ -95,6 +104,11 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
       });
 
       if (error) {
+        trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
+          platform: 'native',
+          event_id: eventId,
+          outcome: 'error',
+        });
         setIsSearching(false);
         return;
       }
@@ -102,21 +116,42 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
       const result = data as { success?: boolean; session_id?: string; partner_id?: string } | null;
 
       if (result?.success && result.session_id) {
+        trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
+          platform: 'native',
+          event_id: eventId,
+          outcome: 'matched',
+        });
         onMatchFound?.(result.session_id, result.partner_id ?? '');
         setIsSearching(false);
       } else {
+        trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
+          platform: 'native',
+          event_id: eventId,
+          outcome: 'waiting',
+        });
         setIsSearching(false);
         setIsWaiting(true);
         startWaitingLoop();
       }
     } catch {
+      trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_OUTCOME, {
+        platform: 'native',
+        event_id: eventId,
+        outcome: 'error',
+      });
       setIsSearching(false);
     }
   }, [eventId, onMatchFound, isWaiting, enabled]);
 
   const cancelSearch = useCallback(() => {
+    if (eventId) {
+      trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CANCEL, {
+        platform: 'native',
+        event_id: eventId,
+      });
+    }
     resetSearchAndWaiting();
-  }, [resetSearchAndWaiting]);
+  }, [eventId, resetSearchAndWaiting]);
 
   useEffect(() => {
     return () => {

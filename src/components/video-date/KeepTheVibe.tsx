@@ -1,37 +1,112 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Clock, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { VideoDateExtendOutcome } from "@clientShared/matching/videoDateExtensionSpend";
+import { trackEvent } from "@/lib/analytics";
+import {
+  LobbyPostDateEvents,
+  bucketCreditsRemaining,
+} from "@clientShared/analytics/lobbyToPostDateJourney";
 
 interface KeepTheVibeProps {
   extraTimeCredits: number;
   extendedVibeCredits: number;
   onExtend: (minutes: number, type: "extra_time" | "extended_vibe") => Promise<VideoDateExtendOutcome>;
+  analyticsSessionId: string | undefined;
+  analyticsEventId: string | undefined;
 }
 
 export const KeepTheVibe = ({
   extraTimeCredits,
   extendedVibeCredits,
   onExtend,
+  analyticsSessionId,
+  analyticsEventId,
 }: KeepTheVibeProps) => {
   const [isExtending, setIsExtending] = useState(false);
   const hasCredits = extraTimeCredits > 0 || extendedVibeCredits > 0;
+  const creditsSum = extraTimeCredits + extendedVibeCredits;
+  const creditsState = bucketCreditsRemaining(creditsSum);
+
+  const withCreditsImpRef = useRef(false);
+  const noCreditsImpRef = useRef(false);
+
+  useEffect(() => {
+    if (!analyticsSessionId) return;
+    if (hasCredits) {
+      if (withCreditsImpRef.current) return;
+      withCreditsImpRef.current = true;
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_CTA_IMPRESSION, {
+        platform: "web",
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        credits_state: creditsState,
+      });
+    } else {
+      if (noCreditsImpRef.current) return;
+      noCreditsImpRef.current = true;
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_NO_CREDITS_IMPRESSION, {
+        platform: "web",
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        credits_state: creditsState,
+      });
+    }
+  }, [analyticsEventId, analyticsSessionId, creditsState, hasCredits]);
+
+  useEffect(() => {
+    withCreditsImpRef.current = false;
+    noCreditsImpRef.current = false;
+  }, [analyticsSessionId]);
 
   const handleExtend = async (minutes: number, type: "extra_time" | "extended_vibe") => {
     if (isExtending) return;
     setIsExtending(true);
 
+    trackEvent(LobbyPostDateEvents.EXTEND_DATE_CTA_TAP, {
+      platform: "web",
+      session_id: analyticsSessionId,
+      event_id: analyticsEventId,
+      cta_name: type === "extra_time" ? "extra_time" : "extended_vibe",
+      credits_state: creditsState,
+    });
+
     const outcome = await onExtend(minutes, type);
     if (outcome.ok === true) {
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_SUCCESS, {
+        platform: "web",
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        credit_type: type,
+        minutes_added: outcome.minutesAdded ?? minutes,
+        credits_state: bucketCreditsRemaining(Math.max(0, creditsSum - 1)),
+      });
       toast.success(`${outcome.minutesAdded} extra minutes added!`, { duration: 2500 });
     } else if (outcome.ok === false) {
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_FAILURE, {
+        platform: "web",
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        reason: outcome.silent ? "silent" : "spend_failed",
+      });
       if (!outcome.silent && outcome.userMessage) {
         toast.error(outcome.userMessage);
       }
     }
 
     setIsExtending(false);
+  };
+
+  const handleGetCreditsTap = () => {
+    trackEvent(LobbyPostDateEvents.EXTEND_DATE_CTA_TAP, {
+      platform: "web",
+      session_id: analyticsSessionId,
+      event_id: analyticsEventId,
+      cta_name: "get_credits",
+      credits_state: creditsState,
+    });
+    window.open("/credits", "_blank");
   };
 
   return (
@@ -97,7 +172,7 @@ export const KeepTheVibe = ({
           </p>
           <motion.button
             whileTap={{ scale: 0.95 }}
-            onClick={() => window.open('/credits', '_blank')}
+            onClick={handleGetCreditsTap}
             aria-label="Get video date credits (opens in a new tab)"
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
           >

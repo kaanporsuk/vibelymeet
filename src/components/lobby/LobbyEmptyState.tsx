@@ -1,12 +1,41 @@
+import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, RefreshCw, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 
 interface LobbyEmptyStateProps {
+  eventId: string | undefined;
   onRefresh: () => void;
 }
 
-const LobbyEmptyState = ({ onRefresh }: LobbyEmptyStateProps) => {
+const LobbyEmptyState = ({ eventId, onRefresh }: LobbyEmptyStateProps) => {
+  const impressionRef = useRef(false);
+
+  useEffect(() => {
+    impressionRef.current = false;
+  }, [eventId]);
+
+  useEffect(() => {
+    if (!eventId || impressionRef.current) return;
+    impressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_IMPRESSION, {
+      platform: "web",
+      event_id: eventId,
+    });
+  }, [eventId]);
+
+  const handleRefresh = () => {
+    if (eventId) {
+      trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP, {
+        platform: "web",
+        event_id: eventId,
+      });
+    }
+    onRefresh();
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -48,7 +77,7 @@ const LobbyEmptyState = ({ onRefresh }: LobbyEmptyStateProps) => {
           <Button
             variant="outline"
             size="default"
-            onClick={onRefresh}
+            onClick={handleRefresh}
             className="gap-2 border-white/20 bg-white/[0.04] text-white hover:bg-white/[0.08] hover:text-white"
           >
             <RefreshCw className="w-4 h-4" />

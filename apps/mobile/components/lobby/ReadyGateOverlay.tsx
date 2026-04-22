@@ -21,10 +21,7 @@ import { supabase } from '@/lib/supabase';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { trackEvent } from '@/lib/analytics';
-import {
-  getVideoDateJourneyEventName,
-  type VideoDateJourneyEvent,
-} from '@clientShared/matching/videoDateDiagnostics';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -65,29 +62,17 @@ export function ReadyGateOverlay({
   const { show } = useVibelyDialog();
   const closedRef = useRef(false);
   const invalidSessionNotifiedRef = useRef(false);
-  const loggedJourneyRef = useRef<Set<string>>(new Set());
+  const rgImpressionRef = useRef(false);
+  const permissionBlockedRef = useRef(false);
+  const openingPartnerWaitRef = useRef(false);
+  const openingPermissionWaitRef = useRef(false);
+  const terminalTimeoutRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
-
-  const logJourney = useCallback(
-    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
-      const key = dedupeKey ?? event;
-      if (loggedJourneyRef.current.has(key)) return;
-      loggedJourneyRef.current.add(key);
-      trackEvent(getVideoDateJourneyEventName(event), {
-        platform: 'native',
-        session_id: sessionId,
-        event_id: eventId,
-        ...(payload ?? {}),
-      });
-      vdbg(`journey_${event}`, { sessionId, eventId, ...(payload ?? {}) });
-    },
-    [sessionId, eventId]
-  );
 
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
@@ -116,7 +101,12 @@ export function ReadyGateOverlay({
     setIsTransitioning(true);
     rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', { event_id: eventId, session_id: sessionId });
     rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId });
-    logJourney('ready_gate_both_ready_handoff_started', { source: 'both_ready' });
+    trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      source: 'both_ready',
+    });
     markVideoDateEntryPipelineStarted(sessionId);
     vdbg('lobby_navigate_to_date', {
       trigger: 'ready_gate_overlay_both_ready',
@@ -134,7 +124,15 @@ export function ReadyGateOverlay({
       if (closedRef.current) return;
       closedRef.current = true;
       rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeited', { reason: _reason, eventId });
-      logJourney('ready_gate_forfeited', { reason: _reason }, `ready_gate_forfeited_${_reason}`);
+      if (!terminalTimeoutRef.current) {
+        terminalTimeoutRef.current = true;
+        trackEvent(LobbyPostDateEvents.READY_GATE_TIMEOUT, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          reason: _reason,
+        });
+      }
       await updateParticipantStatus(eventId, 'browsing');
       show({
         title: _reason === 'timeout' ? "They weren't ready" : 'No worries',
@@ -144,7 +142,7 @@ export function ReadyGateOverlay({
       });
       onClose();
     },
-    [eventId, show, onClose, logJourney],
+    [eventId, show, onClose, sessionId],
   );
 
   const {
@@ -164,15 +162,26 @@ export function ReadyGateOverlay({
   useEffect(() => {
     closedRef.current = false;
     invalidSessionNotifiedRef.current = false;
-    loggedJourneyRef.current.clear();
+    rgImpressionRef.current = false;
+    permissionBlockedRef.current = false;
+    openingPartnerWaitRef.current = false;
+    openingPermissionWaitRef.current = false;
+    terminalTimeoutRef.current = false;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
     setMarkingReady(false);
     setRequestingSnooze(false);
     setPermissionsResolved(false);
     setHasMediaPermission(null);
-    logJourney('ready_gate_opened');
-  }, [sessionId]);
+    if (!rgImpressionRef.current) {
+      rgImpressionRef.current = true;
+      trackEvent(LobbyPostDateEvents.READY_GATE_IMPRESSION, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+      });
+    }
+  }, [sessionId, eventId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -181,6 +190,14 @@ export function ReadyGateOverlay({
       if (cancelled) return;
       if (!ok) {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_permissions_denied', { eventId });
+        if (!permissionBlockedRef.current) {
+          permissionBlockedRef.current = true;
+          trackEvent(LobbyPostDateEvents.READY_GATE_PERMISSION_BLOCKED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+          });
+        }
       }
     })();
     return () => {
@@ -191,6 +208,41 @@ export function ReadyGateOverlay({
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
   }, [iAmReady]);
+
+  useEffect(() => {
+    if (permissionsResolved) return;
+    if (openingPermissionWaitRef.current) return;
+    openingPermissionWaitRef.current = true;
+    trackEvent(LobbyPostDateEvents.READY_GATE_OPENING_WAIT_IMPRESSION, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      state: 'permissions_pending',
+    });
+  }, [eventId, permissionsResolved, sessionId]);
+
+  useEffect(() => {
+    if (!permissionsResolved || hasMediaPermission !== true || isTransitioning || isBothReady) return;
+    if (!iAmReady || partnerReady || snoozedByPartner) return;
+    if (openingPartnerWaitRef.current) return;
+    openingPartnerWaitRef.current = true;
+    trackEvent(LobbyPostDateEvents.READY_GATE_OPENING_WAIT_IMPRESSION, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      state: 'awaiting_partner',
+    });
+  }, [
+    eventId,
+    hasMediaPermission,
+    iAmReady,
+    isBothReady,
+    isTransitioning,
+    partnerReady,
+    permissionsResolved,
+    sessionId,
+    snoozedByPartner,
+  ]);
 
   useEffect(() => {
     void updateParticipantStatus(eventId, 'in_ready_gate');
@@ -210,9 +262,15 @@ export function ReadyGateOverlay({
       ]);
       if (cancelled) return;
       if (!vs || vs.ended_at != null || reg?.queue_status !== 'in_ready_gate') {
-        logJourney('ready_gate_invalidated', {
-          reason: !vs ? 'missing_session' : vs.ended_at != null ? 'session_ended' : 'registration_not_in_ready_gate',
-          queue_status: reg?.queue_status ?? null,
+        trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          reason: !vs
+            ? 'missing_session'
+            : vs.ended_at != null
+              ? 'session_ended'
+              : 'registration_not_in_ready_gate',
         });
         if (!invalidSessionNotifiedRef.current) {
           invalidSessionNotifiedRef.current = true;
@@ -229,7 +287,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, eventId, userId, onClose, show, logJourney]);
+  }, [sessionId, eventId, userId, onClose, show]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
@@ -250,7 +308,12 @@ export function ReadyGateOverlay({
   const dashOffset = CIRC * (1 - progress);
 
   const handleSkip = () => {
-    logJourney('ready_gate_dismissed', { reason: iAmReady ? 'cancel_go_back' : 'skip_this_one' }, 'ready_gate_dismissed');
+    trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      dismiss_variant: iAmReady ? 'cancel_go_back' : 'skip_this_one',
+    });
     closedRef.current = true;
     void forfeit();
     void updateParticipantStatus(eventId, 'browsing');
@@ -370,6 +433,11 @@ export function ReadyGateOverlay({
                   label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                   onPress={() => {
                     if (markingReady) return;
+                    trackEvent(LobbyPostDateEvents.READY_GATE_READY_TAP, {
+                      platform: 'native',
+                      session_id: sessionId,
+                      event_id: eventId,
+                    });
                     setMarkingReady(true);
                     void (async () => {
                       try {
@@ -395,6 +463,11 @@ export function ReadyGateOverlay({
                   <Pressable
                     onPress={() => {
                       if (requestingSnooze) return;
+                      trackEvent(LobbyPostDateEvents.READY_GATE_SNOOZE_TAP, {
+                        platform: 'native',
+                        session_id: sessionId,
+                        event_id: eventId,
+                      });
                       setRequestingSnooze(true);
                       void (async () => {
                         try {

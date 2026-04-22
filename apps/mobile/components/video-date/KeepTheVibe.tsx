@@ -2,12 +2,17 @@
  * +2 min / +5 min credit extension during DATE phase. Partner not notified.
  */
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import type { VideoDateExtendOutcome } from '@clientShared/matching/videoDateExtensionSpend';
+import { trackEvent } from '@/lib/analytics';
+import {
+  LobbyPostDateEvents,
+  bucketCreditsRemaining,
+} from '@clientShared/analytics/lobbyToPostDateJourney';
 
 type Props = {
   extraTimeCredits: number;
@@ -15,6 +20,8 @@ type Props = {
   onExtend: (minutes: number, type: 'extra_time' | 'extended_vibe') => Promise<VideoDateExtendOutcome>;
   isExtending?: boolean;
   onGetCredits?: () => void;
+  analyticsSessionId: string | undefined;
+  analyticsEventId: string | undefined;
 };
 
 export function KeepTheVibe({
@@ -23,14 +30,84 @@ export function KeepTheVibe({
   onExtend,
   isExtending = false,
   onGetCredits,
+  analyticsSessionId,
+  analyticsEventId,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const hasCredits = extraTimeCredits > 0 || extendedVibeCredits > 0;
+  const creditsSum = extraTimeCredits + extendedVibeCredits;
+  const creditsState = bucketCreditsRemaining(creditsSum);
+
+  const withCreditsImpRef = useRef(false);
+  const noCreditsImpRef = useRef(false);
+
+  useEffect(() => {
+    if (!analyticsSessionId) return;
+    if (hasCredits) {
+      if (withCreditsImpRef.current) return;
+      withCreditsImpRef.current = true;
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_CTA_IMPRESSION, {
+        platform: 'native',
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        credits_state: creditsState,
+      });
+    } else {
+      if (noCreditsImpRef.current) return;
+      noCreditsImpRef.current = true;
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_NO_CREDITS_IMPRESSION, {
+        platform: 'native',
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        credits_state: creditsState,
+      });
+    }
+  }, [analyticsEventId, analyticsSessionId, creditsState, hasCredits]);
+
+  useEffect(() => {
+    withCreditsImpRef.current = false;
+    noCreditsImpRef.current = false;
+  }, [analyticsSessionId]);
 
   const handleExtend = async (minutes: number, type: 'extra_time' | 'extended_vibe') => {
     if (isExtending) return;
-    await onExtend(minutes, type);
+    trackEvent(LobbyPostDateEvents.EXTEND_DATE_CTA_TAP, {
+      platform: 'native',
+      session_id: analyticsSessionId,
+      event_id: analyticsEventId,
+      cta_name: type === 'extra_time' ? 'extra_time' : 'extended_vibe',
+      credits_state: creditsState,
+    });
+    const outcome = await onExtend(minutes, type);
+    if (outcome.ok === true) {
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_SUCCESS, {
+        platform: 'native',
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        credit_type: type,
+        minutes_added: outcome.minutesAdded ?? minutes,
+        credits_state: bucketCreditsRemaining(Math.max(0, creditsSum - 1)),
+      });
+    } else if (outcome.ok === false && !outcome.silent) {
+      trackEvent(LobbyPostDateEvents.EXTEND_DATE_FAILURE, {
+        platform: 'native',
+        session_id: analyticsSessionId,
+        event_id: analyticsEventId,
+        reason: 'spend_failed',
+      });
+    }
+  };
+
+  const handleGetCredits = () => {
+    trackEvent(LobbyPostDateEvents.EXTEND_DATE_CTA_TAP, {
+      platform: 'native',
+      session_id: analyticsSessionId,
+      event_id: analyticsEventId,
+      cta_name: 'get_credits',
+      credits_state: creditsState,
+    });
+    onGetCredits?.();
   };
 
   if (!hasCredits) {
@@ -38,7 +115,7 @@ export function KeepTheVibe({
       <View style={styles.wrap}>
         {onGetCredits ? (
           <Pressable
-            onPress={onGetCredits}
+            onPress={handleGetCredits}
             style={({ pressed }) => [
               styles.getCreditsPill,
               { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder },

@@ -19,6 +19,7 @@ import { typography, spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
 import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
@@ -149,6 +150,33 @@ export function PostDateSurvey({
 
   const finishSurveyRef = useRef<() => Promise<void>>(async () => {});
   const loggedJourneyRef = useRef<Set<string>>(new Set());
+  const shellImpressionRef = useRef(false);
+  const verdictImpressionRef = useRef(false);
+
+  useEffect(() => {
+    shellImpressionRef.current = false;
+    verdictImpressionRef.current = false;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || shellImpressionRef.current) return;
+    shellImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_IMPRESSION, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+    });
+  }, [eventId, sessionId]);
+
+  useEffect(() => {
+    if (step !== 'verdict' || !sessionId || verdictImpressionRef.current) return;
+    verdictImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.KEEP_THE_VIBE_IMPRESSION, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+    });
+  }, [eventId, sessionId, step]);
 
   const logJourney = useCallback(
     (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
@@ -197,6 +225,12 @@ export function PostDateSurvey({
 
   const finishSurvey = useCallback(async () => {
     logJourney('survey_completed', { source: 'finish_survey' }, 'survey_completed');
+    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      destination: eventId ? 'lobby' : 'home',
+    });
     if (eventId) {
       const active = await isEventStillActive(eventId);
       if (active) {
@@ -209,7 +243,7 @@ export function PostDateSurvey({
       return;
     }
     onDone();
-  }, [eventId, onDone, logJourney]);
+  }, [eventId, onDone, logJourney, sessionId]);
 
   useEffect(() => {
     finishSurveyRef.current = finishSurvey;
@@ -219,19 +253,31 @@ export function PostDateSurvey({
     if (submitting) return;
     setSubmitting(true);
     setVerdictError(null);
+    trackEvent(liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+    });
     try {
       const result = await onSubmitVerdict(liked);
       if (!result.ok) {
         setVerdictError(verdictFailureUserMessage(result));
         return;
       }
-      trackEvent('post_date_survey_completed', {
+      trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
+        platform: 'native',
         session_id: sessionId,
+        event_id: eventId,
         verdict: liked ? 'vibe' : 'pass',
       });
       logJourney('survey_completed', { source: 'verdict_submitted', verdict: liked ? 'vibe' : 'pass' }, 'survey_completed');
+      trackEvent(LobbyPostDateEvents.MUTUAL_VIBE_OUTCOME, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        outcome: result.mutual ? 'mutual' : 'not_mutual',
+      });
       if (result.mutual) {
-        logJourney('mutual_match_detected', { source: 'post_date_verdict' }, 'mutual_match_detected');
         setStep('celebration');
       } else {
         setStep('highlights');
@@ -388,7 +434,17 @@ export function PostDateSurvey({
         <Pressable style={[styles.primaryBtn, { backgroundColor: theme.tint }]} onPress={() => void handleHighlightsSubmit()}>
           <Text style={styles.primaryBtnText}>Continue</Text>
         </Pressable>
-        <Pressable onPress={() => setStep('safety')}>
+        <Pressable
+          onPress={() => {
+            trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              step: 'highlights',
+            });
+            setStep('safety');
+          }}
+        >
           <Text style={[styles.skip, { color: theme.mutedForeground }]}>Skip</Text>
         </Pressable>
       </ScrollView>
@@ -515,7 +571,17 @@ export function PostDateSurvey({
         <Pressable style={[styles.primaryBtn, { backgroundColor: theme.tint }]} onPress={() => void handleSafetyComplete()}>
           <Text style={styles.primaryBtnText}>Done — back to the event 💚</Text>
         </Pressable>
-        <Pressable onPress={() => void finishSurveyRef.current()}>
+        <Pressable
+          onPress={() => {
+            trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              step: 'safety',
+            });
+            void finishSurveyRef.current();
+          }}
+        >
           <Text style={[styles.skip, { color: theme.mutedForeground }]}>Skip</Text>
         </Pressable>
       </ScrollView>
