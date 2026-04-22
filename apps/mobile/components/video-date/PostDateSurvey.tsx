@@ -24,6 +24,10 @@ import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
 import { supabase } from '@/lib/supabase';
 import {
+  getVideoDateJourneyEventName,
+  type VideoDateJourneyEvent,
+} from '@shared/matching/videoDateDiagnostics';
+import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,
 } from '../../../../shared/safety/submitUserReportRpc';
@@ -147,11 +151,11 @@ export function PostDateSurvey({
   const loggedJourneyRef = useRef<Set<string>>(new Set());
 
   const logJourney = useCallback(
-    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
       const key = dedupeKey ?? event;
       if (loggedJourneyRef.current.has(key)) return;
       loggedJourneyRef.current.add(key);
-      trackEvent(`video_date_journey_${event}`, {
+      trackEvent(getVideoDateJourneyEventName(event), {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,

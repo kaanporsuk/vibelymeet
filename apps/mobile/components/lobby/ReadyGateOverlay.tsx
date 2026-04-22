@@ -21,6 +21,10 @@ import { supabase } from '@/lib/supabase';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { trackEvent } from '@/lib/analytics';
+import {
+  getVideoDateJourneyEventName,
+  type VideoDateJourneyEvent,
+} from '@shared/matching/videoDateDiagnostics';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -70,11 +74,11 @@ export function ReadyGateOverlay({
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
 
   const logJourney = useCallback(
-    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
       const key = dedupeKey ?? event;
       if (loggedJourneyRef.current.has(key)) return;
       loggedJourneyRef.current.add(key);
-      trackEvent(`video_date_journey_${event}`, {
+      trackEvent(getVideoDateJourneyEventName(event), {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,

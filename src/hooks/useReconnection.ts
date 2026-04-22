@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@shared/matching/videoDateDiagnostics";
 
 export type VideoDatePhase = "handshake" | "date" | "ended";
 
@@ -166,7 +167,7 @@ export const useReconnection = ({
             phase,
             reason,
             mode,
-            outcome: "rpc_error",
+            outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.RPC_ERROR,
           });
           scheduleBackoff("rpc_error");
           return;
@@ -178,7 +179,7 @@ export const useReconnection = ({
             phase,
             reason,
             mode,
-            outcome: "ended",
+            outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.ENDED,
             endedReason: r.ended_reason ?? null,
           });
           if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
@@ -208,7 +209,7 @@ export const useReconnection = ({
           phase,
           reason,
           mode,
-          outcome: "ok",
+          outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.OK,
           hasGrace,
           partnerMarkedAway: r.partner_marked_away,
         });
