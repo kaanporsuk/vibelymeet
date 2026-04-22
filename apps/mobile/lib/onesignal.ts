@@ -171,30 +171,81 @@ export type OneSignalTagsInput = {
   signupDate?: string | null; // YYYY-MM-DD or ISO string (we take date part)
 };
 
+// Keep OneSignal segmentation tags intentionally small and durable.
+const DURABLE_SEGMENTATION_TAG_KEYS = [
+  'onboarding_complete',
+  'has_photos',
+  'is_premium',
+  'subscription_tier',
+] as const;
+
+// Legacy/high-churn keys to delete before writes (two-step apply to avoid per-user limit failures).
+const OBSOLETE_OR_EPHEMERAL_TAG_KEYS = [
+  'user_id',
+  'city',
+  'signup_date',
+] as const;
+
+function looksLikeTagLimitError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /tag.*limit|limit.*tag|too many tags|too_many_tags|tags per user/i.test(msg);
+}
+
+function oneSignalTagWriteWarn(stage: string, error: unknown, extra?: Record<string, unknown>): void {
+  const payload = {
+    stage,
+    overLimit: looksLikeTagLimitError(error),
+    error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+    ...(extra ?? {}),
+  };
+  if (__DEV__) {
+    console.warn('[Vibely][onesignal-tags]', payload);
+    return;
+  }
+  console.warn('[Vibely] OneSignal tag write failed:', payload);
+}
+
+async function removeOneSignalTags(keys: readonly string[]): Promise<void> {
+  if (!keys.length) return;
+  const userAny = OneSignal.User as unknown as {
+    removeTags?: (tagKeys: string[]) => Promise<void> | void;
+    removeTag?: (tagKey: string) => Promise<void> | void;
+  };
+  try {
+    if (typeof userAny.removeTags === 'function') {
+      await userAny.removeTags([...keys]);
+      return;
+    }
+    if (typeof userAny.removeTag === 'function') {
+      await Promise.all(keys.map((k) => userAny.removeTag?.(k)));
+    }
+  } catch (error) {
+    oneSignalTagWriteWarn('remove_obsolete_tags', error, { keys });
+  }
+}
+
 /**
  * Set OneSignal user tags for segmentation (e.g. Incomplete Profile, Inactive 3 Days).
  * Call after login and whenever profile changes. All values are stringified for OneSignal.
  */
-export function setOneSignalTags(input: OneSignalTagsInput): void {
+export async function setOneSignalTags(input: OneSignalTagsInput): Promise<void> {
   if (!APP_ID) return;
   try {
-    const signupDate =
-      input.signupDate != null
-        ? (input.signupDate.includes('T') ? input.signupDate.split('T')[0] : input.signupDate)
-        : '';
     const tier =
       (input.subscriptionTier ?? '').toString().trim().toLowerCase() || 'free';
-    const tags: Record<string, string> = {
-      user_id: input.userId,
+    const tags: Record<(typeof DURABLE_SEGMENTATION_TAG_KEYS)[number], string> = {
       onboarding_complete: input.onboardingComplete === true ? 'true' : 'false',
       has_photos: input.hasPhotos === true ? 'true' : 'false',
       is_premium: input.isPremium === true ? 'true' : 'false',
       subscription_tier: tier,
-      city: (input.city ?? '').toString().trim(),
-      signup_date: signupDate,
     };
-    OneSignal.User.addTags(tags);
+    // OneSignal docs: when user is at/over tag limit, delete first then add in a second request.
+    await removeOneSignalTags(OBSOLETE_OR_EPHEMERAL_TAG_KEYS);
+    await OneSignal.User.addTags(tags);
   } catch (e) {
-    if (__DEV__) console.warn('[Vibely] setOneSignalTags error:', e);
+    oneSignalTagWriteWarn('add_durable_tags', e, {
+      durableKeys: DURABLE_SEGMENTATION_TAG_KEYS,
+      obsoleteKeys: OBSOLETE_OR_EPHEMERAL_TAG_KEYS,
+    });
   }
 }

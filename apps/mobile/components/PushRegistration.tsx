@@ -64,7 +64,7 @@ export function PushRegistration() {
   useEffect(() => {
     if (!user?.id) return;
     if (!entLoading && !subLoading) {
-      setOneSignalTags({
+      void setOneSignalTags({
         userId: user.id,
         onboardingComplete: onboardingComplete === true,
         isPremium,
