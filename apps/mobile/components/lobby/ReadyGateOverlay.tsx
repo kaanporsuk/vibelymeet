@@ -154,7 +154,7 @@ export function ReadyGateOverlay({
       );
       onClose();
     },
-    [eventId, show, onClose, sessionId],
+    [eventId, onClose, sessionId, onLobbyUserMessage],
   );
 
   const {
@@ -294,7 +294,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, eventId, userId, onClose, show]);
+  }, [sessionId, eventId, userId, onClose, onLobbyUserMessage]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
