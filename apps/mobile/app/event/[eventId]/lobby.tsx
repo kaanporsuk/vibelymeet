@@ -10,7 +10,7 @@ import {
   type AppStateStatus,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,11 +44,15 @@ import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOf
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
-import { videoDateHref } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
+import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
+import {
+  fetchVideoSessionDateEntryTruth,
+  videoSessionIndicatesHandshakeOrDate,
+} from '@/lib/videoDateApi';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
@@ -145,6 +149,7 @@ export default function EventLobbyScreen() {
     pendingMatch?: string;
   }>();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
@@ -223,6 +228,111 @@ export default function EventLobbyScreen() {
   } = useActiveSession(user?.id, {
     eventId: id,
   });
+
+  const navigateToDateSession = useCallback(
+    (sessionIdToOpen: string, trigger: string, mode: 'replace' | 'push' = 'replace') => {
+      void (async () => {
+        const [vs, regRes] = await Promise.all([
+          fetchVideoSessionDateEntryTruth(sessionIdToOpen),
+          user?.id
+            ? supabase
+                .from('event_registrations')
+                .select('queue_status, current_room_id')
+                .eq('event_id', id)
+                .eq('profile_id', user.id)
+                .eq('current_room_id', sessionIdToOpen)
+                .maybeSingle()
+            : Promise.resolve({ data: null as { queue_status?: string | null; current_room_id?: string | null } | null }),
+        ]);
+        const reg = regRes.data;
+        const startable = videoSessionIndicatesHandshakeOrDate(vs);
+        const rgStatus = vs?.ready_gate_status ?? null;
+        const rgExpiresRaw = vs?.ready_gate_expires_at ?? null;
+        const rgExpiresMs =
+          rgExpiresRaw == null
+            ? null
+            : typeof rgExpiresRaw === 'number'
+              ? rgExpiresRaw
+              : Date.parse(String(rgExpiresRaw));
+        const readyGateEligible =
+          rgStatus === 'ready' ||
+          rgStatus === 'ready_a' ||
+          rgStatus === 'ready_b' ||
+          rgStatus === 'snoozed' ||
+          (rgStatus === 'both_ready' &&
+            rgExpiresMs != null &&
+            Number.isFinite(rgExpiresMs) &&
+            rgExpiresMs > Date.now());
+        const decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' = startable
+          ? 'navigate_date'
+          : readyGateEligible
+            ? 'navigate_ready'
+            : 'stay_lobby';
+        const reason = startable ? null : 'video_truth_not_startable';
+
+        rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
+          session_id: sessionIdToOpen,
+          event_id: id,
+          decision,
+          reason,
+          queue_status: reg?.queue_status ?? null,
+          current_room_id: reg?.current_room_id ?? null,
+          vs_state: vs?.state ?? null,
+          vs_phase: vs?.phase ?? null,
+          handshake_started_at: Boolean(vs?.handshake_started_at),
+          ready_gate_status: rgStatus,
+          ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+        });
+        vdbg('lobby_date_route_decision', {
+          trigger,
+          eventId: id,
+          sessionId: sessionIdToOpen,
+          decision,
+          reason,
+          queueStatus: reg?.queue_status ?? null,
+          currentRoomId: reg?.current_room_id ?? null,
+          vsState: vs?.state ?? null,
+          vsPhase: vs?.phase ?? null,
+          handshakeStartedAt: vs?.handshake_started_at ?? null,
+          readyGateStatus: rgStatus,
+          readyGateExpiresAt: rgExpiresRaw,
+        });
+
+        if (decision === 'navigate_ready') {
+          router.replace(`/ready/${sessionIdToOpen}` as const);
+          return;
+        }
+        if (decision === 'stay_lobby') {
+          void refetchActiveSession();
+          return;
+        }
+
+        navigateToDateSessionGuarded({
+          sessionId: sessionIdToOpen,
+          pathname,
+          mode,
+          onSuppressed: ({ reason: suppressReason, target }) => {
+            vdbg('lobby_navigate_to_date_suppressed', {
+              trigger,
+              eventId: id,
+              target,
+              sessionId: sessionIdToOpen,
+              reason: suppressReason,
+            });
+          },
+          onNavigate: ({ target, mode: resolvedMode }) => {
+            logVdbgSessionStage('lobby_navigate_to_date', sessionIdToOpen, {
+              trigger,
+              eventId: id,
+              target,
+              mode: resolvedMode,
+            });
+          },
+        });
+      })();
+    },
+    [id, pathname, refetchActiveSession, user?.id]
+  );
 
   const sameEventActiveSession = useMemo(() => {
     if (!sessionHydrated || !id || !scopedSession || scopedSession.eventId !== id) return null;
@@ -476,19 +586,13 @@ export default function EventLobbyScreen() {
       });
     }
     if (sameEventActiveSession?.kind === 'video') {
-      const target = videoDateHref(sameEventActiveSession.sessionId);
-      logVdbgSessionStage('lobby_navigate_to_date', sameEventActiveSession.sessionId, {
-        trigger: 'active_session_hydration',
-        eventId: id,
-        target,
-      });
-      router.replace(target);
+      navigateToDateSession(sameEventActiveSession.sessionId, 'active_session_hydration', 'replace');
       return;
     }
     if (sameEventActiveSession?.kind === 'ready_gate') {
       void openReadyGateWithSession(sameEventActiveSession.sessionId, 'active_session_hydration');
     }
-  }, [sessionHydrated, id, sameEventActiveSession, openReadyGateWithSession]);
+  }, [sessionHydrated, id, sameEventActiveSession, openReadyGateWithSession, navigateToDateSession]);
 
   /**
    * Queued mutual match: promotion may lag realtime. Re-run `drain_match_queue` on a bounded interval
@@ -571,14 +675,7 @@ export default function EventLobbyScreen() {
             (queueStatus === 'in_handshake' || queueStatus === 'in_date') &&
             currentRoomId
           ) {
-            const target = videoDateHref(currentRoomId);
-            logVdbgSessionStage('lobby_navigate_to_date', currentRoomId, {
-              trigger: 'registration_realtime',
-              eventId: id,
-              queueStatus,
-              target,
-            });
-            router.replace(target);
+            navigateToDateSession(currentRoomId, 'registration_realtime', 'replace');
             return;
           }
           if (queueStatus === 'in_ready_gate' && currentRoomId) {
@@ -601,14 +698,7 @@ export default function EventLobbyScreen() {
               (latestReg?.queue_status === 'in_handshake' || latestReg?.queue_status === 'in_date') &&
               latestReg.current_room_id
             ) {
-              const target = videoDateHref(latestReg.current_room_id);
-              logVdbgSessionStage('lobby_navigate_to_date', latestReg.current_room_id, {
-                trigger: 'registration_realtime_refetch',
-                eventId: id,
-                queueStatus: latestReg.queue_status,
-                target,
-              });
-              router.replace(target);
+              navigateToDateSession(latestReg.current_room_id, 'registration_realtime_refetch', 'replace');
               return;
             }
             if (latestReg?.queue_status === 'in_ready_gate' && latestReg.current_room_id) {
@@ -621,7 +711,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession]);
+  }, [id, user?.id, openReadyGateWithSession, navigateToDateSession]);
 
   useEffect(() => {
     if (!user?.id || !id) return;
@@ -665,14 +755,7 @@ export default function EventLobbyScreen() {
           // route out of lobby even if ready-gate transitions were missed.
           const phase = session.state as string | undefined;
           if (phase === 'handshake' || phase === 'date') {
-            const target = videoDateHref(session.id as string);
-            logVdbgSessionStage('lobby_navigate_to_date', session.id as string, {
-              trigger: 'video_session_update',
-              eventId: id,
-              state: phase,
-              target,
-            });
-            router.replace(target);
+            navigateToDateSession(session.id as string, 'video_session_update', 'replace');
           }
         }
       )
@@ -703,14 +786,7 @@ export default function EventLobbyScreen() {
           }
           const phase = session.state as string | undefined;
           if (phase === 'handshake' || phase === 'date') {
-            const target = videoDateHref(sid);
-            logVdbgSessionStage('lobby_navigate_to_date', sid, {
-              trigger: 'video_session_insert',
-              eventId: id,
-              state: phase,
-              target,
-            });
-            router.replace(target);
+            navigateToDateSession(sid, 'video_session_insert', 'replace');
           }
         }
       )
@@ -718,7 +794,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchActiveSession, refetchDeck, show]);
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchActiveSession, refetchDeck, show, navigateToDateSession]);
 
   const timeRemaining = useCountdown(eventEndTime);
 
@@ -1459,13 +1535,7 @@ export default function EventLobbyScreen() {
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
             setActiveSessionPartnerImage(null);
-            const target = videoDateHref(sessionIdToOpen);
-            logVdbgSessionStage('lobby_navigate_to_date', sessionIdToOpen, {
-              trigger: 'ready_gate_overlay',
-              eventId: id,
-              target,
-            });
-            router.push(target);
+            navigateToDateSession(sessionIdToOpen, 'ready_gate_overlay', 'replace');
           }}
           onClose={() => {
             lastOpenedSessionRef.current = null;

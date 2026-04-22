@@ -81,6 +81,9 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
 const PREJOIN_STEP_TIMEOUT_MS = 12000;
+type DailyCallObject = ReturnType<typeof Daily.createCallObject>;
+type SharedDailyCallEntry = { sessionId: string; call: DailyCallObject; roomName: string | null };
+let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
 
 /** Post-join UX / instrumentation — single stage truth for Daily + peer presence (not server phase). */
 export type VideoDatePostJoinStage =
@@ -292,6 +295,183 @@ export default function VideoDateScreen() {
   const [preJoinFailed, setPreJoinFailed] = useState(false);
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
 
+  const releaseSharedCallIfOwned = useCallback(
+    (call: DailyCallObject | null, reason: string) => {
+      if (!call) return;
+      if (sharedDailyCallEntry?.call !== call) return;
+      vdbg('daily_call_singleton_release', {
+        reason,
+        sessionId: sharedDailyCallEntry.sessionId,
+        roomName: sharedDailyCallEntry.roomName,
+      });
+      sharedDailyCallEntry = null;
+    },
+    []
+  );
+  const clearFirstConnectWatchdog = useCallback(() => {
+    if (firstConnectWatchdogRef.current) {
+      clearTimeout(firstConnectWatchdogRef.current);
+      firstConnectWatchdogRef.current = null;
+    }
+  }, []);
+  const boundCallRef = useRef<DailyCallObject | null>(null);
+  const boundHandlersRef = useRef<{
+    onParticipantJoined: (event: { participant?: DailyParticipant }) => void;
+    onParticipantUpdated: (event: { participant?: DailyParticipant }) => void;
+    onParticipantLeft: (event: { participant?: DailyParticipant }) => void;
+    onLeftMeeting: () => void;
+    onError: (event: unknown) => void;
+    onNetworkQualityChange?: (event: unknown) => void;
+  } | null>(null);
+
+  const detachCallListeners = useCallback((reason: string) => {
+    const call = boundCallRef.current;
+    const handlers = boundHandlersRef.current;
+    if (!call || !handlers) return;
+    const callAny = call as unknown as { off?: (event: string, handler: (...args: unknown[]) => void) => void };
+    callAny.off?.('participant-joined', handlers.onParticipantJoined as (...args: unknown[]) => void);
+    callAny.off?.('participant-updated', handlers.onParticipantUpdated as (...args: unknown[]) => void);
+    callAny.off?.('participant-left', handlers.onParticipantLeft as (...args: unknown[]) => void);
+    callAny.off?.('left-meeting', handlers.onLeftMeeting as (...args: unknown[]) => void);
+    callAny.off?.('error', handlers.onError as (...args: unknown[]) => void);
+    if (handlers.onNetworkQualityChange) {
+      callAny.off?.('network-quality-change', handlers.onNetworkQualityChange as (...args: unknown[]) => void);
+    }
+    vdbg('daily_call_listeners_detached', {
+      reason,
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+    });
+    boundCallRef.current = null;
+    boundHandlersRef.current = null;
+  }, [sessionId, user?.id]);
+
+  const bindCallListeners = useCallback(
+    (call: DailyCallObject, roomName: string | null) => {
+      detachCallListeners('rebind');
+      const onParticipantJoined = (event: { participant?: DailyParticipant }) => {
+        const p = event?.participant;
+        const isLocal = !!(p && (p as unknown as { local?: boolean }).local);
+        videoDateDailyDiagnostic('daily_participant_joined', {
+          session_id: sessionId ?? '',
+          room_name: roomName,
+          kind: isLocal ? 'local' : 'remote',
+          participant_id: p ? dailyParticipantId(p) ?? 'unknown' : 'none',
+        });
+        if (p && !isLocal) {
+          if (__DEV__) vdbg('first_remote_participant_seen', { sessionId: sessionId ?? null, userId: user?.id ?? null, source: 'participant_joined' });
+          Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'remote_participant_joined', {
+            session_id: sessionId ?? null,
+            user_id: user?.id ?? null,
+            participant_id: dailyParticipantId(p) ?? 'unknown',
+            room_name: roomName,
+          });
+          videoDateDailyDiagnostic('first_remote_observed', {
+            session_id: sessionId ?? '',
+            room_name: roomName,
+            source: 'participant_joined',
+          });
+          clearFirstConnectWatchdog();
+          setAwaitingFirstConnect(false);
+          setPartnerEverJoined(true);
+          setIsConnecting(false);
+          setRemoteParticipant(p);
+        }
+      };
+      const onParticipantUpdated = (event: { participant?: DailyParticipant }) => {
+        if (!event?.participant) return;
+        const p = event.participant;
+        const isLocal = !!(p as unknown as { local?: boolean }).local;
+        videoDateDailyDiagnostic('daily_participant_updated', {
+          session_id: sessionId ?? '',
+          room_name: roomName,
+          kind: isLocal ? 'local' : 'remote',
+          participant_id: dailyParticipantId(p) ?? 'unknown',
+        });
+        if (isLocal) {
+          setLocalParticipant(p);
+          applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
+        } else {
+          setPartnerEverJoined(true);
+          setRemoteParticipant(p);
+        }
+      };
+      const onParticipantLeft = (event: { participant?: DailyParticipant }) => {
+        const p = event?.participant;
+        const isLocal = !!(p && (p as unknown as { local?: boolean }).local);
+        if (p && !isLocal) {
+          videoDateDailyDiagnostic('daily_participant_left', {
+            session_id: sessionId ?? '',
+            room_name: roomName,
+            kind: 'remote',
+            participant_id: dailyParticipantId(p) ?? 'unknown',
+          });
+          Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
+          setRemoteParticipant(null);
+          if (!partnerEverJoinedRef.current || !sessionId || phaseRef.current === 'ended') return;
+          setIsPartnerDisconnected(true);
+          void markReconnectPartnerAway(sessionId);
+        }
+      };
+      const onLeftMeeting = () => {
+        Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (left-meeting)', level: 'info' });
+        clearFirstConnectWatchdog();
+        setAwaitingFirstConnect(false);
+        setLocalInDailyRoom(false);
+        setIsConnecting(false);
+        releaseSharedCallIfOwned(call, 'left_meeting');
+      };
+      const onError = (event: unknown) => {
+        const msg =
+          event && typeof event === 'object' && 'errorMsg' in event
+            ? String((event as { errorMsg?: unknown }).errorMsg)
+            : undefined;
+        Sentry.addBreadcrumb({
+          category: 'video-date',
+          message: 'Daily call error',
+          level: 'error',
+          data: { sessionId, errorMsg: msg },
+        });
+        setCallError('Connection error. Please try again.');
+        clearFirstConnectWatchdog();
+        setAwaitingFirstConnect(false);
+        setIsConnecting(false);
+        setLocalInDailyRoom(false);
+        releaseSharedCallIfOwned(call, 'daily_error_event');
+      };
+      const onNetworkQualityChange = (ev: unknown) => {
+        setNetQualityTier(networkTierFromDailyEvent(ev as { threshold?: string; quality?: number }));
+      };
+
+      call.on('participant-joined', onParticipantJoined);
+      call.on('participant-updated', onParticipantUpdated);
+      call.on('participant-left', onParticipantLeft);
+      call.on('left-meeting', onLeftMeeting);
+      call.on('error', onError);
+      try {
+        call.on('network-quality-change', onNetworkQualityChange);
+      } catch {
+        /* SDK may omit this event on some builds */
+      }
+      boundCallRef.current = call;
+      boundHandlersRef.current = {
+        onParticipantJoined,
+        onParticipantUpdated,
+        onParticipantLeft,
+        onLeftMeeting,
+        onError,
+        onNetworkQualityChange,
+      };
+      vdbg('daily_call_listeners_bound', {
+        sessionId: sessionId ?? null,
+        userId: user?.id ?? null,
+        roomName,
+      });
+    },
+    [clearFirstConnectWatchdog, detachCallListeners, releaseSharedCallIfOwned, sessionId, user?.id]
+  );
+
   phaseRef.current = phase;
 
   const hasRemotePartner = !!remoteParticipant;
@@ -468,12 +648,103 @@ export default function VideoDateScreen() {
     };
   }, [sessionId, user?.id]);
 
-  const clearFirstConnectWatchdog = useCallback(() => {
-    if (firstConnectWatchdogRef.current) {
-      clearTimeout(firstConnectWatchdogRef.current);
-      firstConnectWatchdogRef.current = null;
-    }
-  }, []);
+  const recoverFromNotStartableDateTruth = useCallback(
+    async (source: 'enter_handshake' | 'create_date_room') => {
+      if (!sessionId || !user?.id) return false;
+      const [vs, regRes] = await Promise.all([
+        fetchVideoSessionDateEntryTruth(sessionId),
+        supabase
+          .from('event_registrations')
+          .select('queue_status, current_room_id')
+          .eq('profile_id', user.id)
+          .eq('current_room_id', sessionId)
+          .maybeSingle(),
+      ]);
+      const reg = regRes.data;
+      const startable = videoSessionIndicatesHandshakeOrDate(vs);
+      const rgStatus = vs?.ready_gate_status ?? null;
+      const rgExpiresRaw = vs?.ready_gate_expires_at ?? null;
+      const rgExpiresMs =
+        rgExpiresRaw == null
+          ? null
+          : typeof rgExpiresRaw === 'number'
+            ? rgExpiresRaw
+            : Date.parse(String(rgExpiresRaw));
+      const readyGateEligible =
+        rgStatus === 'ready' ||
+        rgStatus === 'ready_a' ||
+        rgStatus === 'ready_b' ||
+        rgStatus === 'snoozed' ||
+        (rgStatus === 'both_ready' &&
+          rgExpiresMs != null &&
+          Number.isFinite(rgExpiresMs) &&
+          rgExpiresMs > Date.now());
+      const decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' = startable
+        ? 'navigate_date'
+        : readyGateEligible
+          ? 'navigate_ready'
+          : 'stay_lobby';
+      const reason = startable ? null : 'video_truth_not_startable';
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
+        session_id: sessionId,
+        user_id: user.id,
+        decision,
+        reason,
+        source,
+        queue_status: reg?.queue_status ?? null,
+        current_room_id: reg?.current_room_id ?? null,
+        vs_state: vs?.state ?? null,
+        vs_phase: vs?.phase ?? null,
+        handshake_started_at: Boolean(vs?.handshake_started_at),
+        ready_gate_status: rgStatus,
+        ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+      });
+      vdbg('date_route_decision', {
+        sessionId,
+        userId: user.id,
+        source,
+        decision,
+        reason,
+        queueStatus: reg?.queue_status ?? null,
+        currentRoomId: reg?.current_room_id ?? null,
+        vsState: vs?.state ?? null,
+        vsPhase: vs?.phase ?? null,
+        handshakeStartedAt: vs?.handshake_started_at ?? null,
+        readyGateStatus: rgStatus,
+        readyGateExpiresAt: rgExpiresRaw,
+      });
+      if (decision === 'navigate_ready') {
+        const target = readyGateHref(sessionId);
+        vdbgRedirect(target, 'ready_gate_not_ready_recover_to_ready', { source, sessionId, userId: user.id });
+        router.replace(target);
+        return true;
+      }
+      if (decision === 'stay_lobby') {
+        const fallbackEventId = vs?.event_id ?? eventId;
+        if (fallbackEventId) {
+          const target = eventLobbyHref(fallbackEventId as string);
+          vdbgRedirect(target, 'ready_gate_not_ready_recover_to_lobby', {
+            source,
+            sessionId,
+            userId: user.id,
+            eventId: fallbackEventId,
+          });
+          router.replace(target);
+        } else {
+          const target = tabsRootHref();
+          vdbgRedirect(target, 'ready_gate_not_ready_recover_to_tabs', {
+            source,
+            sessionId,
+            userId: user.id,
+          });
+          router.replace(target);
+        }
+        return true;
+      }
+      return false;
+    },
+    [eventId, sessionId, user?.id]
+  );
 
   useEffect(() => {
     setLocalTimeLeft(serverTimeLeft);
@@ -537,6 +808,8 @@ export default function VideoDateScreen() {
           } catch {
             /* ignore */
           }
+          detachCallListeners('no_remote_auto_recovery');
+          releaseSharedCallIfOwned(call, 'no_remote_auto_recovery');
           callRef.current = null;
           vdbg('prejoin_state_localInDailyRoom', {
             value: false,
@@ -616,6 +889,8 @@ export default function VideoDateScreen() {
     peerMissingTerminal,
     isPartnerDisconnected,
     clearFirstConnectWatchdog,
+    releaseSharedCallIfOwned,
+    detachCallListeners,
   ]);
 
   useEffect(() => {
@@ -725,12 +1000,14 @@ export default function VideoDateScreen() {
     clearFirstConnectWatchdog();
     const call = callRef.current;
     if (call) {
+      detachCallListeners('leave_and_cleanup');
       try {
         await call.leave();
         call.destroy();
       } catch (_error) {
         void _error;
       }
+      releaseSharedCallIfOwned(call, 'leave_and_cleanup');
       callRef.current = null;
     }
     const roomName = roomNameRef.current;
@@ -783,7 +1060,7 @@ export default function VideoDateScreen() {
     });
     setPreJoinFailed(false);
     setNetQualityTier('good');
-  }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog]);
+  }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog, releaseSharedCallIfOwned, detachCallListeners]);
 
   const handleCallEnd = useCallback(async () => {
     if (sessionId && !videoDateEndedRef.current) {
@@ -1059,12 +1336,14 @@ export default function VideoDateScreen() {
     clearFirstConnectWatchdog();
     const call = callRef.current;
     if (call) {
+      detachCallListeners('retry_initial_connect');
       try {
         await call.leave();
         call.destroy();
       } catch (_error) {
         void _error;
       }
+      releaseSharedCallIfOwned(call, 'retry_initial_connect');
       callRef.current = null;
     }
     vdbg('prejoin_state_awaitingFirstConnect', {
@@ -1127,7 +1406,7 @@ export default function VideoDateScreen() {
       step: 'retry_initial_connect',
     });
     setJoinAttemptNonce((n) => n + 1);
-  }, [clearFirstConnectWatchdog]);
+  }, [clearFirstConnectWatchdog, releaseSharedCallIfOwned, detachCallListeners]);
 
   useEffect(() => {
     const userId = user?.id ?? null;
@@ -1194,6 +1473,48 @@ export default function VideoDateScreen() {
       vdbg('prejoin_state_awaitingFirstConnect', { value: false, sessionId, userId: user.id, step: currentStep });
       setAwaitingFirstConnect(false);
       clearFirstConnectWatchdog();
+      const sharedCall = sharedDailyCallEntry;
+      if (sharedCall && sharedCall.sessionId === sessionId) {
+        const reusedCall = sharedCall.call;
+        let participants: ReturnType<DailyCallObject['participants']> | null = null;
+        try {
+          participants = reusedCall.participants();
+        } catch {
+          releaseSharedCallIfOwned(reusedCall, 'reuse_probe_failed');
+          participants = null;
+        }
+        const local = participants?.local ?? null;
+        if (!participants || !local) {
+          releaseSharedCallIfOwned(reusedCall, 'reuse_probe_not_joined');
+        } else {
+          callRef.current = reusedCall;
+          roomNameRef.current = sharedCall.roomName;
+          bindCallListeners(reusedCall, sharedCall.roomName);
+          const remotes = Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local);
+          vdbg('daily_call_singleton_reuse_same_session', {
+            sessionId,
+            userId: user.id,
+            roomName: sharedCall.roomName,
+            remoteCount: remotes.length,
+            hasLocalParticipant: true,
+          });
+          setLocalInDailyRoom(true);
+          setLocalParticipant(local as DailyParticipant | null);
+          applyLocalMediaUiFromParticipant(local as DailyParticipant, { setIsVideoOff, setIsMuted });
+          if (remotes.length > 0) {
+            setRemoteParticipant(remotes[0] as DailyParticipant);
+            setPartnerEverJoined(true);
+            setAwaitingFirstConnect(false);
+          } else {
+            setRemoteParticipant(null);
+            setAwaitingFirstConnect(true);
+          }
+          setIsConnecting(false);
+          setJoining(false);
+          prejoinCompleted = true;
+          return;
+        }
+      }
 
       currentStep = 'permissions';
       const ok = await requestPermissions();
@@ -1329,7 +1650,7 @@ export default function VideoDateScreen() {
       currentStep = 'handshake_guard';
       const hasHandshakeStarted = !!truth0.handshake_started_at;
       const indicatesHandshakeOrDate = videoSessionIndicatesHandshakeOrDate(truth0);
-      const handshakeAlready = hasHandshakeStarted || indicatesHandshakeOrDate;
+      const handshakeAlready = hasHandshakeStarted;
       vdbg('prejoin_step_prejoin_handshake_guard', {
         sessionId,
         userId: user.id,
@@ -1337,6 +1658,7 @@ export default function VideoDateScreen() {
         indicatesHandshakeOrDate,
         handshakeAlready,
         willCallEnterHandshake: !handshakeAlready,
+        skipReason: handshakeAlready ? 'canonical_handshake_started_at' : 'not_started',
         state: truth0.state,
         phase: truth0.phase,
         endedAt: truth0.ended_at ?? null,
@@ -1463,6 +1785,17 @@ export default function VideoDateScreen() {
           return;
         }
         if (!hs.ok) {
+          if (isReadyGateRace(hs.code)) {
+            const redirected = await recoverFromNotStartableDateTruth('enter_handshake');
+            if (redirected) {
+              hasStartedJoinRef.current = false;
+              vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+              vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+              setJoining(false);
+              prejoinCompleted = true;
+              return;
+            }
+          }
           vdbg('prejoin_step_prejoin_error', {
             sessionId,
             userId: user.id,
@@ -1671,6 +2004,17 @@ export default function VideoDateScreen() {
         return;
       }
       if (!tokenRes.ok) {
+        if (tokenRes.code === 'ready_gate_required') {
+          const redirected = await recoverFromNotStartableDateTruth('create_date_room');
+          if (redirected) {
+            hasStartedJoinRef.current = false;
+            vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+            vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+            setJoining(false);
+            prejoinCompleted = true;
+            return;
+          }
+        }
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
           userId: user.id,
@@ -1737,7 +2081,36 @@ export default function VideoDateScreen() {
         room_name: tokenResult.room_name,
       });
 
+      if (sharedDailyCallEntry && sharedDailyCallEntry.sessionId !== sessionId) {
+        vdbg('daily_call_singleton_destroy_previous_session', {
+          previousSessionId: sharedDailyCallEntry.sessionId,
+          nextSessionId: sessionId,
+          roomName: sharedDailyCallEntry.roomName,
+        });
+        try {
+          await sharedDailyCallEntry.call.leave();
+        } catch {
+          /* best effort */
+        }
+        try {
+          sharedDailyCallEntry.call.destroy();
+        } catch {
+          /* best effort */
+        }
+        sharedDailyCallEntry = null;
+      }
+
       const call = Daily.createCallObject();
+      sharedDailyCallEntry = {
+        sessionId,
+        call,
+        roomName: tokenResult.room_name,
+      };
+      vdbg('daily_call_singleton_create', {
+        sessionId,
+        userId: user.id,
+        roomName: tokenResult.room_name,
+      });
       callRef.current = call;
       roomNameRef.current = tokenResult.room_name;
       vdbg('prejoin_state_isConnecting', {
@@ -1749,157 +2122,7 @@ export default function VideoDateScreen() {
       });
       setIsConnecting(true);
 
-      call.on('participant-joined', (event: { participant?: DailyParticipant }) => {
-        const p = event?.participant;
-        const isLocal = !!(p && (p as unknown as { local?: boolean }).local);
-        videoDateDailyDiagnostic('daily_participant_joined', {
-          session_id: sessionId,
-          room_name: tokenResult.room_name,
-          kind: isLocal ? 'local' : 'remote',
-          participant_id: p ? dailyParticipantId(p) ?? 'unknown' : 'none',
-        });
-        if (p && !isLocal) {
-          if (__DEV__) {
-            vdbg('first_remote_participant_seen', { sessionId, userId: user.id, source: 'participant_joined' });
-          }
-          Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
-          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'remote_participant_joined', {
-            session_id: sessionId,
-            user_id: user?.id ?? null,
-            participant_id: dailyParticipantId(p) ?? 'unknown',
-            room_name: tokenResult.room_name,
-          });
-          videoDateDailyDiagnostic('first_remote_observed', {
-            session_id: sessionId,
-            room_name: tokenResult.room_name,
-            source: 'participant_joined',
-          });
-          clearFirstConnectWatchdog();
-          vdbg('prejoin_state_awaitingFirstConnect', {
-            value: false,
-            sessionId,
-            userId: user.id,
-            step: 'participant_joined',
-          });
-          setAwaitingFirstConnect(false);
-          setPartnerEverJoined(true);
-          vdbg('prejoin_state_isConnecting', {
-            value: false,
-            sessionId,
-            userId: user.id,
-            step: 'participant_joined',
-          });
-          setIsConnecting(false);
-          setRemoteParticipant(p);
-        }
-      });
-      call.on('participant-updated', (event: { participant?: DailyParticipant }) => {
-        if (!event?.participant) return;
-        const p = event.participant;
-        const isLocal = !!(p as unknown as { local?: boolean }).local;
-        videoDateDailyDiagnostic('daily_participant_updated', {
-          session_id: sessionId,
-          room_name: tokenResult.room_name,
-          kind: isLocal ? 'local' : 'remote',
-          participant_id: dailyParticipantId(p) ?? 'unknown',
-        });
-        if (isLocal) {
-          setLocalParticipant(p);
-          applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
-        } else {
-          setPartnerEverJoined(true);
-          setRemoteParticipant(p);
-        }
-      });
-      call.on('participant-left', (event: { participant?: DailyParticipant }) => {
-        const p = event?.participant;
-        const isLocal = !!(p && (p as unknown as { local?: boolean }).local);
-        if (p && !isLocal) {
-          videoDateDailyDiagnostic('daily_participant_left', {
-            session_id: sessionId,
-            room_name: tokenResult.room_name,
-            kind: 'remote',
-            participant_id: dailyParticipantId(p) ?? 'unknown',
-          });
-          Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
-          setRemoteParticipant(null);
-          onPartnerLeftReconnect();
-        }
-      });
-      call.on('left-meeting', () => {
-        Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (left-meeting)', level: 'info' });
-        clearFirstConnectWatchdog();
-        vdbg('prejoin_state_awaitingFirstConnect', {
-          value: false,
-          sessionId,
-          userId: user.id,
-          step: 'left_meeting',
-        });
-        setAwaitingFirstConnect(false);
-        vdbg('prejoin_state_localInDailyRoom', {
-          value: false,
-          sessionId,
-          userId: user.id,
-          step: 'left_meeting',
-        });
-        setLocalInDailyRoom(false);
-        vdbg('prejoin_state_isConnecting', {
-          value: false,
-          sessionId,
-          userId: user.id,
-          step: 'left_meeting',
-        });
-        setIsConnecting(false);
-      });
-      call.on('error', (event: unknown) => {
-        const msg =
-          event && typeof event === 'object' && 'errorMsg' in event
-            ? String((event as { errorMsg?: unknown }).errorMsg)
-            : undefined;
-        Sentry.addBreadcrumb({
-          category: 'video-date',
-          message: 'Daily call error',
-          level: 'error',
-          data: { sessionId, errorMsg: msg },
-        });
-        vdbg('prejoin_state_callError', {
-          value: 'Connection error. Please try again.',
-          sessionId,
-          userId: user.id,
-          step: 'daily_error_event',
-        });
-        setCallError('Connection error. Please try again.');
-        clearFirstConnectWatchdog();
-        vdbg('prejoin_state_awaitingFirstConnect', {
-          value: false,
-          sessionId,
-          userId: user.id,
-          step: 'daily_error_event',
-        });
-        setAwaitingFirstConnect(false);
-        vdbg('prejoin_state_isConnecting', {
-          value: false,
-          sessionId,
-          userId: user.id,
-          step: 'daily_error_event',
-        });
-        setIsConnecting(false);
-        vdbg('prejoin_state_localInDailyRoom', {
-          value: false,
-          sessionId,
-          userId: user.id,
-          step: 'daily_error_event',
-        });
-        setLocalInDailyRoom(false);
-      });
-
-      try {
-        call.on('network-quality-change', (ev: unknown) => {
-          setNetQualityTier(networkTierFromDailyEvent(ev as { threshold?: string; quality?: number }));
-        });
-      } catch {
-        /* SDK may omit this event on some builds */
-      }
+      bindCallListeners(call, tokenResult.room_name);
 
       try {
         currentStep = 'daily_join';
@@ -2071,6 +2294,7 @@ export default function VideoDateScreen() {
 
     run();
     return () => {
+      detachCallListeners('prejoin_effect_cleanup');
       if (!prejoinCompleted) {
         vdbg('prejoin_step_prejoin_effect_cleanup', {
           sessionId,
@@ -2100,8 +2324,11 @@ export default function VideoDateScreen() {
     sessionError,
     requestPermissions,
     clearFirstConnectWatchdog,
-    onPartnerLeftReconnect,
+    bindCallListeners,
+    releaseSharedCallIfOwned,
+    detachCallListeners,
     refetchVideoSession,
+    recoverFromNotStartableDateTruth,
   ]);
 
   useEffect(() => {

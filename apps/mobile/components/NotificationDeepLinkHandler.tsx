@@ -21,6 +21,10 @@ import {
 import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
 import {
+  fetchVideoSessionDateEntryTruth,
+  videoSessionIndicatesHandshakeOrDate,
+} from '@/lib/videoDateApi';
+import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
   takePendingNotificationDeepLinkPath,
@@ -124,8 +128,52 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
 
   let reg = await fetchReg();
 
-  if (reg?.queue_status === 'in_ready_gate') {
-    return readyGateHref(sid);
+  const truth = await fetchVideoSessionDateEntryTruth(sid);
+  const startable = videoSessionIndicatesHandshakeOrDate(truth);
+  const rgStatus = truth?.ready_gate_status ?? null;
+  const rgExpiresRaw = truth?.ready_gate_expires_at ?? null;
+  const rgExpiresMs =
+    rgExpiresRaw == null
+      ? null
+      : typeof rgExpiresRaw === 'number'
+        ? rgExpiresRaw
+        : Date.parse(String(rgExpiresRaw));
+  const readyGateEligible =
+    rgStatus === 'ready' ||
+    rgStatus === 'ready_a' ||
+    rgStatus === 'ready_b' ||
+    rgStatus === 'snoozed' ||
+    (rgStatus === 'both_ready' &&
+      rgExpiresMs != null &&
+      Number.isFinite(rgExpiresMs) &&
+      rgExpiresMs > Date.now());
+
+  const emitDecision = (
+    decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby',
+    reason: string | null
+  ) => {
+    rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_decision', {
+      session_id: sid,
+      event_id: String(vs.event_id),
+      decision,
+      reason,
+      queue_status: reg?.queue_status ?? null,
+      current_room_id: reg?.current_room_id ?? null,
+      vs_state: truth?.state ?? null,
+      vs_phase: truth?.phase ?? null,
+      handshake_started_at: Boolean(truth?.handshake_started_at),
+      ready_gate_status: rgStatus,
+      ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+    });
+  };
+
+  if (!startable) {
+    if (readyGateEligible || reg?.queue_status === 'in_ready_gate') {
+      emitDecision('navigate_ready', 'video_truth_not_startable');
+      return readyGateHref(sid);
+    }
+    emitDecision('stay_lobby', 'video_truth_not_startable');
+    return eventLobbyHref(vs.event_id as string);
   }
 
   const needsQueuedRescue =
@@ -159,6 +207,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     const qs = reg?.queue_status;
     const room = reg?.current_room_id as string | null | undefined;
     if ((qs === 'in_handshake' || qs === 'in_date') && room === sid) {
+      emitDecision('navigate_date', null);
       rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_date', { session_id: sid });
       return videoDateHref(sid);
     }
@@ -171,6 +220,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     return eventLobbyHref(vs.event_id as string);
   }
 
+  emitDecision('navigate_date', null);
   return href as Href;
 }
 
