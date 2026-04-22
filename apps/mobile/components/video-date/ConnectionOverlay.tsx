@@ -83,13 +83,13 @@ export function ConnectionOverlay({
         </View>
         <Text style={[styles.title, { color: theme.text }]}>
           {resolvedMode === 'joining'
-            ? 'Joining your date...'
-            : waitingPeerTitle ?? 'Waiting for your match...'}
+            ? 'Connecting...'
+            : waitingPeerTitle ?? 'Waiting for partner'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
           {resolvedMode === 'joining'
-            ? 'Setting up your video room'
-            : waitingPeerSubtitle ?? 'Your date timer starts once they join the same room.'}
+            ? 'Setting up your video date'
+            : waitingPeerSubtitle ?? 'Your date will start as soon as they join'}
         </Text>
         <Pressable
           onPress={onLeave}

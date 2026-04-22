@@ -18,6 +18,7 @@ import {
   Dimensions,
   AccessibilityInfo,
   AppState,
+  Easing,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -285,6 +286,9 @@ export default function VideoDateScreen() {
   const videoDateEndedRef = useRef(false);
   const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keepVibePulse = useRef(new Animated.Value(1)).current;
+  const topChromeAnim = useRef(new Animated.Value(1)).current;
+  const controlsAnim = useRef(new Animated.Value(1)).current;
+  const phaseCueAnim = useRef(new Animated.Value(1)).current;
   /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
   const remotePromotionLoggedRef = useRef(false);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
@@ -2741,9 +2745,36 @@ export default function VideoDateScreen() {
     !peerMissingTerminal &&
     handshakeGraceSecondsRemaining === null;
   const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
+  const phaseCueLabel = phase === 'handshake' ? 'HANDSHAKE' : phase === 'date' ? 'DATE LIVE' : null;
 
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
   const handshakeBottomOffset = insets.bottom + 96;
+
+  useEffect(() => {
+    topChromeAnim.setValue(0.92);
+    controlsAnim.setValue(0.94);
+    phaseCueAnim.setValue(0.9);
+    Animated.parallel([
+      Animated.timing(topChromeAnim, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(controlsAnim, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(phaseCueAnim, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [phase, postJoinStage, topChromeAnim, controlsAnim, phaseCueAnim]);
 
   const handlePeerMissingKeepWaiting = useCallback(() => {
     setPeerMissingTerminal(false);
@@ -3020,7 +3051,15 @@ export default function VideoDateScreen() {
 
       {showMutualToast && <MutualVibeToast onComplete={handleMutualToastComplete} />}
 
-      <View style={styles.topBar}>
+      <Animated.View
+        style={[
+          styles.topBar,
+          {
+            opacity: topChromeAnim,
+            transform: [{ translateY: topChromeAnim.interpolate({ inputRange: [0.92, 1], outputRange: [-8, 0] }) }],
+          },
+        ]}
+      >
         <Pressable onPress={() => setShowProfileSheet(true)} style={styles.partnerPill}>
           <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName}</Text>
           {netQualityTier !== 'good' && hasRemotePartner ? (
@@ -3041,7 +3080,7 @@ export default function VideoDateScreen() {
                   ? 'Connecting…'
                   : peerNotOpenedVideoDateYet
                     ? "They haven't opened the date yet"
-                    : 'Waiting for your match…'}
+                    : 'Waiting for partner…'}
               </Text>
             </View>
           ) : showHandshakeGraceWait ? (
@@ -3053,7 +3092,24 @@ export default function VideoDateScreen() {
           ) : hasRemotePartner ? (
             <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
           ) : null}
-      </View>
+      </Animated.View>
+
+      {phaseCueLabel && hasRemotePartner ? (
+        <Animated.View
+          style={[
+            styles.phaseCuePill,
+            {
+              opacity: phaseCueAnim,
+              transform: [
+                { translateY: phaseCueAnim.interpolate({ inputRange: [0.9, 1], outputRange: [-6, 0] }) },
+                { scale: phaseCueAnim },
+              ],
+            },
+          ]}
+        >
+          <Text style={styles.phaseCueText}>{phaseCueLabel}</Text>
+        </Animated.View>
+      ) : null}
 
       {showHandshakeChrome && (
         <View style={[styles.handshakeBottomStack, { bottom: handshakeBottomOffset }]}> 
@@ -3116,7 +3172,15 @@ export default function VideoDateScreen() {
         </View>
       ) : null}
 
-      <View style={styles.controlsBar}>
+      <Animated.View
+        style={[
+          styles.controlsBar,
+          {
+            opacity: controlsAnim,
+            transform: [{ translateY: controlsAnim.interpolate({ inputRange: [0.94, 1], outputRange: [10, 0] }) }],
+          },
+        ]}
+      >
         <VideoDateControls
           isMuted={isMuted}
           isVideoOff={isVideoOff}
@@ -3132,7 +3196,7 @@ export default function VideoDateScreen() {
           onAddTime={phase === 'date' ? handleAddTimeShortcut : undefined}
           hasCredits={credits.extraTime > 0 || credits.extendedVibe > 0}
         />
-      </View>
+      </Animated.View>
 
       <InCallSafetySheet
         visible={showInCallSafety}
@@ -3212,6 +3276,18 @@ const styles = StyleSheet.create({
   },
   waitingTimerPill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.4)' },
   waitingTimerText: { fontSize: 12, fontWeight: '600' },
+  phaseCuePill: {
+    position: 'absolute',
+    top: 92,
+    right: 16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  phaseCueText: { color: '#fff', fontSize: 10, letterSpacing: 0.4, fontWeight: '700' },
   initialTimeoutWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
