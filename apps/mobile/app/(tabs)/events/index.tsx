@@ -17,6 +17,7 @@ import {
   Dimensions,
   Alert,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getLanguageLabel } from '@/lib/eventLanguages';
@@ -214,9 +215,16 @@ function FeaturedEventCard({
   const router = useRouter();
   const { timeLeft, isLive, expired } = useFeaturedCountdown(event);
   const showEnded = expired || event.status === 'ended';
+  const [imageFailed, setImageFailed] = useState(false);
+  const coverUri = eventCoverUrl(event.image);
   const goingCount =
     attendeePreview?.success === true ? attendeePreview.total_other_confirmed : event.attendees;
   const avatarUrls = (attendees ?? []).slice(0, 2).map((a) => a.avatar_url ?? a.photos?.[0]).filter(Boolean) as string[];
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [coverUri]);
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -227,12 +235,42 @@ function FeaturedEventCard({
       ]}
       onPress={onPress}
     >
-      <Image
-        source={{ uri: eventCoverUrl(event.image) }}
-        style={[featuredStyles.image, showEnded && { opacity: 0.88 }]}
-        resizeMode="cover"
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(84,46,255,0.32)', 'rgba(236,72,153,0.2)', 'rgba(6,182,212,0.14)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={featuredStyles.brandBackdrop}
       />
-      <View style={featuredStyles.gradientOverlay} />
+      {!imageFailed && (
+        <Image
+          source={{ uri: coverUri }}
+          style={[featuredStyles.image, showEnded && { opacity: 0.88 }]}
+          resizeMode="cover"
+          onError={() => setImageFailed(true)}
+        />
+      )}
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(10,12,24,0.06)', 'rgba(10,12,24,0.26)', 'rgba(10,12,24,0.45)']}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={featuredStyles.washOverlay}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(2,4,12,0.38)', 'rgba(2,4,12,0.12)', 'rgba(2,4,12,0)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 0.32 }}
+        style={featuredStyles.topVignette}
+      />
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(2,4,12,0)', 'rgba(2,4,12,0.14)', 'rgba(2,4,12,0.46)', 'rgba(2,4,12,0.78)']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={featuredStyles.bottomScrim}
+      />
       <View style={featuredStyles.content}>
         <View style={featuredStyles.badges}>
           {showEnded ? (
@@ -362,15 +400,17 @@ const featuredStyles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  gradientOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: '78%',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderBottomLeftRadius: radius['3xl'],
-    borderBottomRightRadius: radius['3xl'],
+  brandBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  washOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  topVignette: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bottomScrim: {
+    ...StyleSheet.absoluteFillObject,
   },
   content: {
     flex: 1,
