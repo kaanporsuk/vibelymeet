@@ -49,6 +49,8 @@ Cross-check **`peer_missing_terminal_watchdog_fire`** in Sentry — if absent, t
 
 ### Evidence that would justify future threshold/cadence tuning
 
+Structured measurement checklist (queue drain, reconnect backoff, dashboards): **[`docs/observability/evidence-led-queue-reconnect-tuning.md`](./observability/evidence-led-queue-reconnect-tuning.md)**.
+
 Document **before** proposing code changes:
 
 - Histogram of **`daily_no_remote_watchdog_timeout` → recovery** vs **terminal** rates per platform.
