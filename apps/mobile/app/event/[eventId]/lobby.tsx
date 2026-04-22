@@ -189,6 +189,12 @@ export default function EventLobbyScreen() {
 
   const seenProfileIdsRef = useRef<Set<string>>(new Set());
   const [deckNonce, setDeckNonce] = useState(0);
+  /** Mirrors web `sonner` completion toast after post-date survey (non-blocking). */
+  const [postSurveyLobbyBanner, setPostSurveyLobbyBanner] = useState(false);
+  /** Ready Gate forfeit / stale messages — matches web `toast` instead of blocking modal. */
+  const [readyGateLobbyToast, setReadyGateLobbyToast] = useState<{ text: string; variant: 'info' | 'success' } | null>(
+    null,
+  );
 
   useEffect(() => {
     seenProfileIdsRef.current = new Set();
@@ -203,6 +209,16 @@ export default function EventLobbyScreen() {
     const tid = setTimeout(() => setPostSurveyLobbyBanner(false), 2000);
     return () => clearTimeout(tid);
   }, [id, postSurveyComplete]);
+
+  useEffect(() => {
+    if (!readyGateLobbyToast) return;
+    const tid = setTimeout(() => setReadyGateLobbyToast(null), 2800);
+    return () => clearTimeout(tid);
+  }, [readyGateLobbyToast]);
+
+  const onReadyGateLobbyMessage = useCallback((text: string, variant?: 'info' | 'success') => {
+    setReadyGateLobbyToast({ text, variant: variant ?? 'info' });
+  }, []);
 
   const sortedProfiles = useMemo(() => {
     const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
@@ -228,8 +244,6 @@ export default function EventLobbyScreen() {
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
-  /** Mirrors web `sonner` completion toast after post-date survey (non-blocking). */
-  const [postSurveyLobbyBanner, setPostSurveyLobbyBanner] = useState(false);
 
   const {
     activeSession: scopedSession,
@@ -1573,6 +1587,7 @@ export default function EventLobbyScreen() {
               void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
             }
           }}
+          onLobbyUserMessage={onReadyGateLobbyMessage}
         />
       ) : null}
 
@@ -1585,7 +1600,8 @@ export default function EventLobbyScreen() {
         style={[
           styles.lobbySuccessToast,
           {
-            bottom: insets.bottom + spacing.lg,
+            bottom:
+              insets.bottom + spacing.lg + (readyGateLobbyToast ? 56 : 0),
             backgroundColor: theme.surface,
             borderColor: withAlpha(theme.success, 0.4),
           },
@@ -1594,6 +1610,24 @@ export default function EventLobbyScreen() {
         <Text style={[styles.lobbySuccessToastText, { color: theme.text }]}>
           You&apos;re back in the lobby — keep browsing 💚
         </Text>
+      </View>
+    ) : null}
+    {readyGateLobbyToast ? (
+      <View
+        pointerEvents="none"
+        style={[
+          styles.lobbyTransientToast,
+          {
+            bottom: insets.bottom + spacing.lg,
+            backgroundColor: theme.surface,
+            borderColor:
+              readyGateLobbyToast.variant === 'success'
+                ? withAlpha(theme.success, 0.4)
+                : withAlpha('#f59e0b', 0.45),
+          },
+        ]}
+      >
+        <Text style={[styles.lobbyTransientToastText, { color: theme.text }]}>{readyGateLobbyToast.text}</Text>
       </View>
     ) : null}
     {dialog}
@@ -1997,6 +2031,27 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   lobbySuccessToastText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  lobbyTransientToast: {
+    position: 'absolute',
+    left: spacing.lg,
+    right: spacing.lg,
+    zIndex: 101,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 7,
+  },
+  lobbyTransientToastText: {
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
