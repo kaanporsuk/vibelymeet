@@ -15,7 +15,7 @@ import { trackEvent } from "@/lib/analytics";
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
-} from "@shared/matching/videoDateDiagnostics";
+} from "@clientShared/matching/videoDateDiagnostics";
 
 interface ReadyGateOverlayProps {
   sessionId: string;

@@ -87,7 +87,7 @@ import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
   VIDEO_DATE_RECONNECT_SYNC_OUTCOMES,
-} from '@shared/matching/videoDateDiagnostics';
+} from '@clientShared/matching/videoDateDiagnostics';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
