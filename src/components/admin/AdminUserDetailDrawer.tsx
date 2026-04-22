@@ -38,6 +38,7 @@ import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
 import { getImageUrl, fullScreenUrl, avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import AdminGrantCreditsModal from "./AdminGrantCreditsModal";
+import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import AdminPremiumModal from "./AdminPremiumModal";
 import { Crown } from "lucide-react";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
@@ -295,7 +296,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               {/* Profile Header */}
               <div className="flex items-start gap-4">
                 <Avatar className="h-24 w-24 border-4 border-border">
-                  <AvatarImage src={avatarPreset(profile.avatar_url) || avatarPreset(profile.photos?.[0])} />
+                  <AvatarImage
+                    src={avatarPreset(
+                      resolvePrimaryProfilePhotoPath({
+                        photos: profile.photos,
+                        avatar_url: profile.avatar_url,
+                      }),
+                    )}
+                  />
                   <AvatarFallback className="bg-primary/20 text-primary text-2xl">
                     {profile.name?.[0]?.toUpperCase() || 'U'}
                   </AvatarFallback>
@@ -556,7 +564,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={drop.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10">
-                            <AvatarImage src={avatarPreset(partner?.avatar_url) || avatarPreset(partner?.photos?.[0])} />
+                            <AvatarImage
+                              src={avatarPreset(
+                                resolvePrimaryProfilePhotoPath({
+                                  photos: partner?.photos,
+                                  avatar_url: partner?.avatar_url,
+                                }),
+                              )}
+                            />
                             <AvatarFallback>{partner?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
@@ -600,7 +615,14 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       return (
                         <div key={match.id} className="glass-card p-3 rounded-xl flex items-center gap-3">
                           <Avatar className="h-10 w-10 border-2 border-pink-500/30">
-                            <AvatarImage src={avatarPreset(otherUser?.avatar_url) || avatarPreset(otherUser?.photos?.[0])} />
+                            <AvatarImage
+                              src={avatarPreset(
+                                resolvePrimaryProfilePhotoPath({
+                                  photos: otherUser?.photos,
+                                  avatar_url: otherUser?.avatar_url,
+                                }),
+                              )}
+                            />
                             <AvatarFallback>{otherUser?.name?.[0] || '?'}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">

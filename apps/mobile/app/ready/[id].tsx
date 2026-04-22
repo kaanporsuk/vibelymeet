@@ -17,6 +17,7 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref, videoDateHref } from '@/lib/activeSessionRoutes';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
+import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
@@ -200,7 +201,10 @@ export default function ReadyGateScreen() {
           .eq('id', partnerId)
           .maybeSingle();
         if (profile) {
-          const photo = (profile.photos as string[])?.[0] ?? profile.avatar_url ?? null;
+          const photo = resolvePrimaryProfilePhotoPath({
+            photos: (profile as { photos?: unknown } | null)?.photos,
+            avatar_url: (profile as { avatar_url?: unknown } | null)?.avatar_url,
+          });
           setPartnerAvatar(photo);
         }
       } finally {

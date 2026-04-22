@@ -112,6 +112,7 @@ import {
   VIBE_CLIP_PERM_LIBRARY_MESSAGE,
   VIBE_CLIP_PERM_LIBRARY_TITLE,
 } from '../../../../shared/chat/vibeClipCaptureCopy';
+import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { VibeClipSendOptionsSheet } from '@/components/chat/VibeClipSendOptionsSheet';
 import { trackVibeClipEvent } from '@/lib/vibeClipAnalytics';
 import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
@@ -959,14 +960,15 @@ export default function ChatThreadScreen() {
     currentUserId: user?.id ?? null,
     partnerUserId: otherUserId ?? null,
     partnerName: data?.otherUser?.name ?? matchRowEarly?.name ?? 'Chat',
-    partnerAvatarUri:
-      data?.otherUser?.photos?.[0]
-        ? avatarUrl(data.otherUser.photos[0])
-        : data?.otherUser?.avatar_url
-          ? avatarUrl(data.otherUser.avatar_url)
-          : matchRowEarly?.image
-            ? avatarUrl(matchRowEarly.image)
-            : null,
+    partnerAvatarUri: (() => {
+      const primaryPhotoPath = resolvePrimaryProfilePhotoPath({
+        photos: data?.otherUser?.photos,
+        avatar_url: data?.otherUser?.avatar_url,
+      });
+      if (primaryPhotoPath) return avatarUrl(primaryPhotoPath);
+      if (matchRowEarly?.image) return avatarUrl(matchRowEarly.image);
+      return null;
+    })(),
   });
 
   const isOffline = useIsOffline();
@@ -1512,9 +1514,13 @@ export default function ChatThreadScreen() {
 
   const otherUser = data?.otherUser ?? null;
   const otherAvatarUri = otherUser
-    ? (otherUser.photos?.[0] ?? otherUser.avatar_url)
-      ? avatarUrl(otherUser.photos?.[0] ?? otherUser.avatar_url ?? null)
-      : null
+    ? (() => {
+        const primaryPhotoPath = resolvePrimaryProfilePhotoPath({
+          photos: otherUser.photos,
+          avatar_url: otherUser.avatar_url,
+        });
+        return primaryPhotoPath ? avatarUrl(primaryPhotoPath) : null;
+      })()
     : otherUserId
       ? matchRowEarly?.image
         ? avatarUrl(matchRowEarly.image)

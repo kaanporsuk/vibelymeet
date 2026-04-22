@@ -9,6 +9,7 @@ import {
   compatibilityPercent,
   type MatchScoreInput,
 } from "@/utils/matchSortScore";
+import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import type { ConversationPreview } from "../../shared/chat/conversationListPreview";
 import {
   conversationPreviewSearchText,
@@ -257,12 +258,12 @@ export const useMatches = () => {
         const isArchived =
           match.archived_by === userId && match.archived_at !== null;
 
-        // Use first photo or avatar, resolve via Bunny CDN helper
+        // Canonical precedence: first valid photos[] entry, then avatar_url.
         const photoArr = profile?.photos ?? undefined;
-        const rawImage =
-          (photoArr && photoArr.length > 0 ? photoArr[0] : null) ||
-          profile?.avatar_url ||
-          "";
+        const rawImage = resolvePrimaryProfilePhotoPath({
+          photos: photoArr,
+          avatar_url: profile?.avatar_url,
+        });
         const image = avatarPreset(rawImage);
 
         // Resolve all photos via CDN helper
@@ -356,7 +357,7 @@ export const useDashboardMatches = () => {
 
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, name, avatar_url")
+        .select("id, name, avatar_url, photos")
         .in("id", otherProfileIds);
 
       return matches.map((match) => {
@@ -369,7 +370,10 @@ export const useDashboardMatches = () => {
         const isNew =
           Date.now() - matchedAt.getTime() < 24 * 60 * 60 * 1000;
 
-        const rawImage = profile?.avatar_url || "";
+        const rawImage = resolvePrimaryProfilePhotoPath({
+          photos: (profile as { photos?: unknown } | undefined)?.photos,
+          avatar_url: profile?.avatar_url,
+        });
         const image = avatarPreset(rawImage);
 
         return {

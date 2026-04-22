@@ -12,6 +12,7 @@ import {
 } from '@/lib/dailyDropSchedule';
 import { VibeTag } from '@/components/VibeTag';
 import { VibeVideoThumbnail } from '@/components/vibe-video/VibeVideoThumbnail';
+import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 
 function formatTimeRemaining(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -297,7 +298,10 @@ function CountdownBadge({ seconds }: { seconds: number }) {
 function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: string[] }) {
   if (!partner) return null;
 
-  const photo = partner.avatar_url || partner.photos?.[0];
+  const photo = resolvePrimaryProfilePhotoPath({
+    photos: partner.photos,
+    avatar_url: partner.avatar_url,
+  });
 
   return (
     <div className="glass-card overflow-hidden rounded-2xl">

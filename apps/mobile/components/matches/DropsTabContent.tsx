@@ -28,6 +28,7 @@ import {
   DAILY_DROP_REPLY_MAX_LENGTH,
 } from '@/lib/dailyDropSchedule';
 import { useVibelyDialog, type VibelyDialogShowConfig } from '@/components/VibelyDialog';
+import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 
 const OPENER_MAX_LENGTH = 140;
 
@@ -199,7 +200,10 @@ function DropsTabContentBody({ userId, showDialog }: BodyProps) {
 
   // Unopened — tap to reveal
   if (!iHaveViewed) {
-    const partnerPhoto = partner?.avatar_url ?? partner?.photos?.[0];
+    const partnerPhoto = resolvePrimaryProfilePhotoPath({
+      photos: partner?.photos,
+      avatar_url: partner?.avatar_url,
+    });
     return (
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <Pressable onPress={() => markViewed()} style={({ pressed }) => [pressed && { opacity: 0.95 }]}>
@@ -363,7 +367,10 @@ function PartnerCard({
   theme: (typeof Colors)['dark'];
 }) {
   if (!partner) return null;
-  const photo = partner.avatar_url ?? partner.photos?.[0];
+  const photo = resolvePrimaryProfilePhotoPath({
+    photos: partner.photos,
+    avatar_url: partner.avatar_url,
+  });
   const photoUri = photo ? avatarUrl(photo) : null;
 
   return (

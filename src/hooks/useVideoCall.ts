@@ -474,18 +474,32 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setNetworkTier(tierFromNetworkQualityEvent(event));
         });
 
-        callObject.on("camera-error", (event: { errorMsg?: string; error?: unknown } | undefined) => {
+        callObject.on("camera-error", (event) => {
+          const rawErrorMsg =
+            event && typeof event === "object" && "errorMsg" in event
+              ? (event as { errorMsg?: unknown }).errorMsg
+              : undefined;
+          const errorMsg =
+            typeof rawErrorMsg === "string"
+              ? rawErrorMsg
+              : rawErrorMsg && typeof rawErrorMsg === "object" && "errorMsg" in rawErrorMsg
+                ? String((rawErrorMsg as { errorMsg?: unknown }).errorMsg ?? "")
+                : undefined;
+          const rawError =
+            event && typeof event === "object" && "error" in event
+              ? (event as { error?: unknown }).error
+              : undefined;
           vdbg("daily_camera_error", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
             userId,
-            errorMsg: event?.errorMsg ?? null,
-            error: event?.error ?? null,
+            errorMsg: errorMsg ?? null,
+            error: rawError ?? null,
           });
           Sentry.captureMessage("daily_camera_error", { level: "error", extra: { event } });
         });
 
-        callObject.on("track-stopped", (event: { participant?: DailyParticipant; track?: MediaStreamTrack } | undefined) => {
+        callObject.on("track-stopped", (event) => {
           if (!event?.participant?.local) return;
           vdbg("daily_local_track_stopped", {
             sessionId,
