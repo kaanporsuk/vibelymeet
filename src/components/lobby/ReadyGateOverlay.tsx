@@ -54,6 +54,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const [sharedVibes, setSharedVibes] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
@@ -322,11 +323,16 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   }, [sessionId, eventId, user?.id, reconcileSession]);
 
   useEffect(() => {
+    if (iAmReady) setMarkingReady(false);
+  }, [iAmReady]);
+
+  useEffect(() => {
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
     loggedJourneyRef.current.clear();
     setIsTransitioning(false);
+    setMarkingReady(false);
     setRequestingSnooze(false);
     setTimeLeft(GATE_TIMEOUT);
     logJourney("ready_gate_opened");
@@ -445,9 +451,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                 <Sparkles className="w-12 h-12 text-primary mx-auto" />
               </motion.div>
               <p className="text-lg font-display font-semibold text-foreground">
-                Connecting your vibe date...
+                Joining your date...
               </p>
-              <p className="text-sm text-muted-foreground">Get ready to shine ✨</p>
+              <p className="text-sm text-muted-foreground">This should only take a moment.</p>
             </div>
           </motion.div>
         )}
@@ -473,7 +479,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               Ready to vibe?
             </h2>
             <p className="text-sm text-muted-foreground">
-              You matched with {partnerName || "someone"}!
+              You matched with {partnerName || "someone"}.
             </p>
           </div>
 
@@ -551,7 +557,18 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               <div className="flex justify-center">
                 <motion.button
                   whileTap={{ scale: 0.92 }}
-                  onClick={markReady}
+                  onClick={() => {
+                    if (markingReady || requestingSnooze) return;
+                    setMarkingReady(true);
+                    void (async () => {
+                      try {
+                        await markReady();
+                      } finally {
+                        setMarkingReady(false);
+                      }
+                    })();
+                  }}
+                  disabled={markingReady || requestingSnooze}
                   className="relative"
                 >
                   <svg
@@ -584,18 +601,21 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                   </svg>
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
                     <span className="text-sm font-display font-bold text-primary-foreground text-center leading-tight">
-                      I'm
+                      {markingReady ? "Marking" : "I'm"}
                       <br />
-                      Ready ✨
+                      {markingReady ? "Ready..." : "Ready ✨"}
                     </span>
                   </div>
                 </motion.button>
               </div>
+              <p className="text-center text-xs text-muted-foreground">
+                Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
+              </p>
 
               <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => {
-                    if (requestingSnooze) return;
+                    if (requestingSnooze || markingReady) return;
                     setRequestingSnooze(true);
                     void (async () => {
                       try {
@@ -605,21 +625,23 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                       }
                     })();
                   }}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={requestingSnooze || markingReady}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
-                  {requestingSnooze ? "Snoozing..." : "Snooze - give me 2 min"}
+                  {requestingSnooze ? "Snoozing..." : "Snooze — give me 2 min"}
                 </button>
                 <span className="text-muted-foreground/70">·</span>
                 <button
                   onClick={() => {
-                    if (dateNavigationStartedRef.current) return;
+                    if (dateNavigationStartedRef.current || markingReady || requestingSnooze) return;
                     logJourney("ready_gate_dismissed", { reason: "skip_this_one" }, "ready_gate_dismissed");
                     closedRef.current = true;
                     skip();
                     setStatus("browsing");
                     onClose();
                   }}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={markingReady || requestingSnooze}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   Step away
                 </button>
@@ -634,21 +656,22 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               >
                 <Check className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium text-foreground">
-                  Waiting for {partnerName}...
+                  You're ready. Waiting for {partnerName}...
                 </span>
               </motion.div>
               <button
                 onClick={() => {
-                  if (dateNavigationStartedRef.current) return;
+                  if (dateNavigationStartedRef.current || requestingSnooze || markingReady) return;
                   logJourney("ready_gate_dismissed", { reason: "cancel_go_back" }, "ready_gate_dismissed");
                   closedRef.current = true;
                   skip();
                   setStatus("browsing");
                   onClose();
                 }}
-                className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
+                disabled={requestingSnooze || markingReady}
+                className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
-                Cancel & step away
+                Step away
               </button>
             </div>
           )}

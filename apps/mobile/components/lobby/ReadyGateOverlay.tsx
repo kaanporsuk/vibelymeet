@@ -284,7 +284,7 @@ export function ReadyGateOverlay({
         ) : !permissionsResolved ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <ActivityIndicator size="large" color={theme.tint} />
-            <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>Preparing your date...</Text>
+            <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>Opening Ready Gate...</Text>
           </Card>
         ) : isTransitioning || isBothReady ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
@@ -326,7 +326,7 @@ export function ReadyGateOverlay({
 
             <Text style={[styles.title, { color: theme.text }]}>Ready to vibe?</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              You matched with {displayName}!
+              You matched with {displayName}.
             </Text>
 
             {partnerReady && !iAmReady ? (
@@ -382,8 +382,11 @@ export function ReadyGateOverlay({
                   variant="primary"
                   size="lg"
                   style={styles.readyBtn}
-                  disabled={markingReady}
+                  disabled={markingReady || requestingSnooze}
                 />
+                <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+                  Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
+                </Text>
                 <View style={styles.secondaryRow}>
                   <Pressable
                     onPress={() => {
@@ -397,14 +400,27 @@ export function ReadyGateOverlay({
                         }
                       })();
                     }}
-                    style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}
+                    disabled={requestingSnooze || markingReady}
+                    style={({ pressed }) => [
+                      styles.skipWrap,
+                      (requestingSnooze || markingReady) && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
                   >
                     <Text style={[styles.skipText, { color: theme.textSecondary }]}>
-                      {requestingSnooze ? 'Snoozing...' : 'Snooze - give me 2 min'}
+                      {requestingSnooze ? 'Snoozing...' : 'Snooze — give me 2 min'}
                     </Text>
                   </Pressable>
                   <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
-                  <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
+                  <Pressable
+                    onPress={handleSkip}
+                    disabled={requestingSnooze || markingReady}
+                    style={({ pressed }) => [
+                      styles.skipWrap,
+                      (requestingSnooze || markingReady) && { opacity: 0.5 },
+                      pressed && { opacity: 0.8 },
+                    ]}
+                  >
                     <Text style={[styles.skipText, { color: theme.textSecondary }]}>Step away</Text>
                   </Pressable>
                 </View>
@@ -414,11 +430,19 @@ export function ReadyGateOverlay({
                 <View style={[styles.waitingPill, { borderColor: withAlpha(theme.tint, 0.35), backgroundColor: theme.tintSoft }]}>
                   <Ionicons name="checkmark-circle" size={18} color={theme.tint} />
                   <Text style={[styles.waitingPillText, { color: theme.text }]}>
-                    Waiting for {displayName}...
+                    You're ready. Waiting for {displayName}...
                   </Text>
                 </View>
-                <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
-                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>Cancel & step away</Text>
+                <Pressable
+                  onPress={handleSkip}
+                  disabled={requestingSnooze || markingReady}
+                  style={({ pressed }) => [
+                    styles.skipWrap,
+                    (requestingSnooze || markingReady) && { opacity: 0.5 },
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>Step away</Text>
                 </Pressable>
               </>
             )}
@@ -491,6 +515,11 @@ const styles = StyleSheet.create({
   readyBtn: {
     alignSelf: 'stretch',
     marginBottom: spacing.lg,
+  },
+  helperText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   skipWrap: {
     paddingVertical: spacing.sm,
