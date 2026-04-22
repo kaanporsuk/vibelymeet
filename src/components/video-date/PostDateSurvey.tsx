@@ -15,6 +15,7 @@ import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
 import {
   getVideoDateJourneyEventName,
@@ -67,6 +68,35 @@ export const PostDateSurvey = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
   const loggedJourneyEventsRef = useRef<Set<string>>(new Set());
+  const surveyShellImpressionRef = useRef(false);
+  const verdictStepImpressionRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen || !sessionId) return;
+    if (surveyShellImpressionRef.current) return;
+    surveyShellImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_IMPRESSION, {
+      platform: "web",
+      session_id: sessionId,
+      event_id: eventId,
+    });
+  }, [isOpen, sessionId, eventId]);
+
+  useEffect(() => {
+    if (!isOpen || step !== "verdict" || !sessionId) return;
+    if (verdictStepImpressionRef.current) return;
+    verdictStepImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.KEEP_THE_VIBE_IMPRESSION, {
+      platform: "web",
+      session_id: sessionId,
+      event_id: eventId,
+    });
+  }, [eventId, isOpen, sessionId, step]);
+
+  useEffect(() => {
+    surveyShellImpressionRef.current = false;
+    verdictStepImpressionRef.current = false;
+  }, [sessionId]);
 
   const logJourney = useCallback(
     (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
@@ -156,6 +186,12 @@ export const PostDateSurvey = ({
 
     if (active) {
       logJourney("survey_completed", { source: "finish_survey_active_event" }, "survey_completed");
+      trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        destination: "lobby",
+      });
       setStatus("browsing");
       setSurveyStatus("browsing");
       toast("You're back in the lobby — keep browsing 💚", { duration: 2000 });
@@ -164,20 +200,41 @@ export const PostDateSurvey = ({
         vdbgRedirect(target, "survey_finish", { sessionId, eventId, lobbyRefresh: true });
         navigate(target, { state: { lobbyRefresh: true } });
       } else {
+        trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          destination: "home",
+        });
         vdbgRedirect("/home", "survey_finish", { sessionId });
         navigate("/home");
       }
     } else {
+      trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        destination: "offline",
+      });
       setStatus("offline");
       setShowEventEnded(true);
     }
-  }, [navigate, eventId, setStatus, checkEventActive, logJourney]);
+  }, [navigate, eventId, sessionId, setStatus, checkEventActive, logJourney]);
 
   // Screen 1: Verdict (mandatory) — single backend path (RPC via Edge: persist + mutual match + server push when new match)
   const handleVerdict = useCallback(
     async (liked: boolean) => {
       if (!user?.id || isSubmitting) return;
       setIsSubmitting(true);
+
+      trackEvent(
+        liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
+        {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+        }
+      );
 
       try {
         const { data, error } = await supabase.functions.invoke("post-date-verdict", {
@@ -204,11 +261,22 @@ export const PostDateSurvey = ({
           return;
         }
 
-        trackEvent("post_date_survey_completed", { session_id: sessionId, verdict: liked ? "vibe" : "pass" });
+        trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          verdict: liked ? "vibe" : "pass",
+        });
         logJourney("survey_completed", { source: "verdict_submitted", verdict: liked ? "vibe" : "pass" }, "survey_completed");
 
+        trackEvent(LobbyPostDateEvents.MUTUAL_VIBE_OUTCOME, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          outcome: result?.mutual ? "mutual" : "not_mutual",
+        });
+
         if (result?.mutual) {
-          logJourney("mutual_match_detected", { source: "post_date_verdict" }, "mutual_match_detected");
           setStep("celebration");
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
@@ -223,7 +291,7 @@ export const PostDateSurvey = ({
         setIsSubmitting(false);
       }
     },
-    [user?.id, sessionId, isSubmitting, logJourney]
+    [user?.id, sessionId, eventId, isSubmitting, logJourney]
   );
 
   // Screen 2: Highlights (optional)
@@ -399,7 +467,15 @@ export const PostDateSurvey = ({
                 <HighlightsScreen
                   key="highlights"
                   onComplete={handleHighlights}
-                  onSkip={() => setStep("safety")}
+                  onSkip={() => {
+                    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+                      platform: "web",
+                      session_id: sessionId,
+                      event_id: eventId,
+                      step: "highlights",
+                    });
+                    setStep("safety");
+                  }}
                 />
               )}
 
@@ -407,7 +483,15 @@ export const PostDateSurvey = ({
                 <SafetyScreen
                   key="safety"
                   onComplete={handleSafety}
-                  onSkip={finishSurvey}
+                  onSkip={() => {
+                    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+                      platform: "web",
+                      session_id: sessionId,
+                      event_id: eventId,
+                      step: "safety",
+                    });
+                    void finishSurvey();
+                  }}
                   onReport={handleReport}
                 />
               )}

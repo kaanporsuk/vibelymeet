@@ -29,6 +29,7 @@ import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "@/integrations
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { Button } from "@/components/ui/button";
 import {
   clearDateEntryTransition,
@@ -174,6 +175,8 @@ const VideoDate = () => {
   const surveyOpenedRef = useRef(false);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const extensionSpendInFlightRef = useRef(false);
+  const videoJoinCycleRef = useRef(0);
+  const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
 
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
@@ -277,6 +280,11 @@ const VideoDate = () => {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    videoJoinCycleRef.current = 0;
+    videoJoinOutcomeByCycleRef.current = new Set();
+  }, [id]);
 
   useEffect(() => {
     if (!id || !user?.id || showFeedback || phase !== "ended") return;
@@ -799,10 +807,36 @@ const VideoDate = () => {
     if (callStarted) return;
 
     setCallStarted(true);
+    videoJoinCycleRef.current += 1;
+    const joinCycle = videoJoinCycleRef.current;
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_JOIN_ATTEMPT, {
+      platform: "web",
+      session_id: id,
+      event_id: eventId,
+      is_retry: joinCycle > 1,
+    });
     Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
     startCall(id).then((ok) => {
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
+      if (!videoJoinOutcomeByCycleRef.current.has(joinCycle)) {
+        videoJoinOutcomeByCycleRef.current.add(joinCycle);
+        trackEvent(
+          ok ? LobbyPostDateEvents.VIDEO_DATE_JOIN_SUCCESS : LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE,
+          ok
+            ? {
+                platform: "web",
+                session_id: id,
+                event_id: eventId,
+              }
+            : {
+                platform: "web",
+                session_id: id,
+                event_id: eventId,
+                reason: "daily_join_failed",
+              }
+        );
+      }
       if (ok) {
         markDateFlowEntered();
         clearDateEntryTransition(id);
@@ -1240,7 +1274,6 @@ const VideoDate = () => {
           setDateExtraSeconds(Math.max(0, Math.floor(parsed.dateExtraSeconds)));
         }
         Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
-        trackEvent("credit_used", { type, minutes });
         setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
         void refetchCredits();
         return { ok: true, minutesAdded: minutes };
@@ -1577,6 +1610,8 @@ const VideoDate = () => {
             extraTimeCredits={credits.extraTime}
             extendedVibeCredits={credits.extendedVibe}
             onExtend={handleExtend}
+            analyticsSessionId={id}
+            analyticsEventId={eventId}
           />
         )}
       </motion.div>

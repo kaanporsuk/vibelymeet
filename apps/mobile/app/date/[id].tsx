@@ -74,6 +74,7 @@ import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { avatarUrl } from '@/lib/imageUrl';
 import {
@@ -315,6 +316,7 @@ export default function VideoDateScreen() {
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
+  const peerMissingTerminalImpressionRef = useRef(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
@@ -1484,7 +1486,15 @@ export default function VideoDateScreen() {
   }, [handleCallEnd]);
 
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
-  const handleAbortConnection = useCallback(async () => {
+  const handleAbortConnection = useCallback(
+    async (opts?: { source?: 'peer_missing' }) => {
+    if (opts?.source === 'peer_missing' && sessionId) {
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+      });
+    }
     await cleanupForAbortWithoutServerEnd();
     if (eventId) {
       const target = eventLobbyHref(eventId);
@@ -1495,7 +1505,9 @@ export default function VideoDateScreen() {
       vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
       router.replace(target);
     }
-  }, [cleanupForAbortWithoutServerEnd, eventId, sessionId]);
+  },
+    [cleanupForAbortWithoutServerEnd, eventId, sessionId]
+  );
 
   const handleUserVibe = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return false;
@@ -1549,7 +1561,6 @@ export default function VideoDateScreen() {
         void fetchUserCredits(user.id).then(setCredits);
         if (result.ok) {
           trackEvent('video_date_extended', { session_id: sessionId });
-          trackEvent('credit_used', { type, minutes });
           setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
           void refetchVideoSession();
           setExtendBanner({ kind: 'success', minutes });
@@ -1656,6 +1667,13 @@ export default function VideoDateScreen() {
   }, []);
 
   const handleRetryInitialConnect = useCallback(async () => {
+    if (peerMissingTerminal && sessionId) {
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_RETRY_TAP, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+      });
+    }
     clearFirstConnectWatchdog();
     const call = callRef.current;
     if (call) {
@@ -1729,7 +1747,14 @@ export default function VideoDateScreen() {
       step: 'retry_initial_connect',
     });
     setJoinAttemptNonce((n) => n + 1);
-  }, [clearFirstConnectWatchdog, releaseSharedCallIfOwned, detachCallListeners]);
+  }, [
+    clearFirstConnectWatchdog,
+    detachCallListeners,
+    eventId,
+    peerMissingTerminal,
+    releaseSharedCallIfOwned,
+    sessionId,
+  ]);
 
   useEffect(() => {
     const userId = user?.id ?? null;
@@ -3001,6 +3026,13 @@ export default function VideoDateScreen() {
   }, [phase, postJoinStage, topChromeAnim, controlsAnim, phaseCueAnim]);
 
   const handlePeerMissingKeepWaiting = useCallback(() => {
+    if (sessionId) {
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+      });
+    }
     setPeerMissingTerminal(false);
     vdbg('prejoin_state_callError', {
       value: null,
@@ -3017,7 +3049,22 @@ export default function VideoDateScreen() {
     });
     setAwaitingFirstConnect(true);
     videoDateDailyDiagnostic('peer_missing_keep_waiting', { session_id: sessionId ?? '' });
+  }, [eventId, sessionId]);
+
+  useEffect(() => {
+    peerMissingTerminalImpressionRef.current = false;
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!peerMissingTerminal || !sessionId) return;
+    if (peerMissingTerminalImpressionRef.current) return;
+    peerMissingTerminalImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+    });
+  }, [eventId, peerMissingTerminal, sessionId]);
 
   const handleSurveySubmit = useCallback(
     (liked: boolean) =>
@@ -3260,7 +3307,7 @@ export default function VideoDateScreen() {
                   <Text style={[styles.initialBackText, { color: theme.text }]}>Keep waiting</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => void handleAbortConnection()}
+                  onPress={() => void handleAbortConnection({ source: 'peer_missing' })}
                   style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
                 >
                   <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
@@ -3360,6 +3407,8 @@ export default function VideoDateScreen() {
             onExtend={handleExtend}
             isExtending={isExtending}
             onGetCredits={() => router.push('/settings/credits')}
+            analyticsSessionId={sessionId}
+            analyticsEventId={eventId}
           />
         </Animated.View>
       )}

@@ -40,6 +40,7 @@ import { useIsOffline } from '@/lib/useNetworkStatus';
 import { useMysteryMatch } from '@/lib/useMysteryMatch';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1107,6 +1108,64 @@ export default function EventLobbyScreen() {
   const hasCards = sortedProfiles.length > 0;
   const isEmpty = !hasCards || !current;
 
+  const convergenceImpressionRef = useRef(false);
+  const emptyStateImpressionRef = useRef(false);
+  const mysteryCtaImpressionRef = useRef(false);
+
+  const showConvergenceYieldUi = yieldingToVideoDateUi || yieldingToReadyGateUi;
+  const baseEmptyEligible =
+    deckQueryEnabled &&
+    !deckLoading &&
+    !deckError &&
+    !showConvergenceYieldUi &&
+    !showQueuedStyleConvergenceUi;
+
+  useEffect(() => {
+    if (!id || !showConvergenceYieldUi) {
+      convergenceImpressionRef.current = false;
+      return;
+    }
+    if (convergenceImpressionRef.current) return;
+    convergenceImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
+      platform: 'native',
+      event_id: id,
+      source_surface: yieldingToVideoDateUi ? 'video_date' : 'ready_gate',
+    });
+  }, [id, showConvergenceYieldUi, yieldingToVideoDateUi]);
+
+  useEffect(() => {
+    if (!id || !baseEmptyEligible || !isEmpty) {
+      emptyStateImpressionRef.current = false;
+      return;
+    }
+    if (emptyStateImpressionRef.current) return;
+    emptyStateImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_IMPRESSION, {
+      platform: 'native',
+      event_id: id,
+    });
+  }, [baseEmptyEligible, id, isEmpty]);
+
+  useEffect(() => {
+    const mysteryVisible =
+      Boolean(id) &&
+      baseEmptyEligible &&
+      isEmpty &&
+      mysteryMatchEnabled &&
+      !isWaiting;
+    if (!mysteryVisible) {
+      mysteryCtaImpressionRef.current = false;
+      return;
+    }
+    if (mysteryCtaImpressionRef.current) return;
+    mysteryCtaImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_IMPRESSION, {
+      platform: 'native',
+      event_id: id,
+    });
+  }, [baseEmptyEligible, id, isEmpty, isWaiting, mysteryMatchEnabled]);
+
   const discoverSectionIntro = (
     <View style={styles.sectionIntro}>
       <Text style={[styles.sectionKicker, { color: theme.textSecondary }]}>Discover</Text>
@@ -1458,6 +1517,12 @@ export default function EventLobbyScreen() {
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
                     onPress={() => {
+                      if (id) {
+                        trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_REFRESH_TAP, {
+                          platform: 'native',
+                          event_id: id,
+                        });
+                      }
                       cancelSearch();
                       refetchDeck();
                     }}
@@ -1471,7 +1536,15 @@ export default function EventLobbyScreen() {
                       pressed && { opacity: 0.85 },
                       isSearching && { opacity: 0.6 },
                     ]}
-                    onPress={findMysteryMatch}
+                    onPress={() => {
+                      if (id) {
+                        trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_TAP, {
+                          platform: 'native',
+                          event_id: id,
+                        });
+                      }
+                      void findMysteryMatch();
+                    }}
                     disabled={isSearching}
                   >
                     {isSearching ? (

@@ -12,10 +12,7 @@ import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
 import { trackEvent } from "@/lib/analytics";
-import {
-  getVideoDateJourneyEventName,
-  type VideoDateJourneyEvent,
-} from "@clientShared/matching/videoDateDiagnostics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -63,23 +60,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
   const invalidCloseToastRef = useRef(false);
-  const loggedJourneyRef = useRef<Set<string>>(new Set());
-
-  const logJourney = useCallback(
-    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
-      const key = dedupeKey ?? event;
-      if (loggedJourneyRef.current.has(key)) return;
-      loggedJourneyRef.current.add(key);
-      trackEvent(getVideoDateJourneyEventName(event), {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        ...(payload ?? {}),
-      });
-      vdbg(`journey_${event}`, { sessionId, eventId, ...(payload ?? {}) });
-    },
-    [sessionId, eventId]
-  );
+  const readyGateImpressionRef = useRef(false);
+  const openingWaitImpressionRef = useRef(false);
+  const terminalOutcomeRef = useRef(false);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -89,7 +72,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       setIsTransitioning(true);
       markVideoDateEntryPipelineStarted(sessionId);
       readyGateDebug("success-path navigation to date", { sessionId, source });
-      logJourney("ready_gate_both_ready_handoff_started", { source });
+      trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
       vdbg("lobby_navigate_to_date", {
         trigger: `ready_gate_overlay_${source}`,
         sessionId,
@@ -100,7 +88,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
         navigate(`/date/${sessionId}`, { replace: true });
       }, 1200);
     },
-    [navigate, sessionId]
+    [navigate, sessionId, eventId]
   );
 
   const handleBothReady = useCallback(() => {
@@ -113,14 +101,22 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       if (closedRef.current || dateNavigationStartedRef.current) return;
       closedRef.current = true;
       readyGateDebug("terminal ready-gate close", { sessionId, reason });
-      logJourney("ready_gate_forfeited", { reason }, `ready_gate_forfeited_${reason}`);
+      if (!terminalOutcomeRef.current) {
+        terminalOutcomeRef.current = true;
+        trackEvent(LobbyPostDateEvents.READY_GATE_TIMEOUT, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          reason,
+        });
+      }
       setStatus("browsing");
       toast(reason === "timeout" ? "They weren't ready. Back to browsing — your deck is waiting." : "No worries — back to browsing 💚", {
         duration: 2500,
       });
       onClose();
     },
-    [setStatus, onClose, sessionId]
+    [setStatus, onClose, sessionId, eventId]
   );
 
   const closeAsStale = useCallback(
@@ -128,14 +124,19 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       if (closedRef.current || dateNavigationStartedRef.current) return;
       closedRef.current = true;
       readyGateDebug("stale ready-gate close", { sessionId, source, ...(detail ?? {}) });
-      logJourney("ready_gate_invalidated", { source, ...(detail ?? {}) });
+      trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        reason: String((detail as { reason?: unknown } | undefined)?.reason ?? source),
+      });
       if (!invalidCloseToastRef.current) {
         invalidCloseToastRef.current = true;
         toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
       }
       onClose();
     },
-    [onClose, sessionId]
+    [onClose, sessionId, eventId]
   );
 
   const {
@@ -335,13 +336,33 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
-    loggedJourneyRef.current.clear();
+    readyGateImpressionRef.current = false;
+    openingWaitImpressionRef.current = false;
+    terminalOutcomeRef.current = false;
     setIsTransitioning(false);
     setMarkingReady(false);
     setRequestingSnooze(false);
     setTimeLeft(GATE_TIMEOUT);
-    logJourney("ready_gate_opened");
-  }, [sessionId]);
+    if (!readyGateImpressionRef.current) {
+      readyGateImpressionRef.current = true;
+      trackEvent(LobbyPostDateEvents.READY_GATE_IMPRESSION, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+      });
+    }
+  }, [sessionId, eventId]);
+
+  useEffect(() => {
+    if (isTransitioning || !iAmReady || partnerReady || snoozedByPartner) return;
+    if (openingWaitImpressionRef.current) return;
+    openingWaitImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.READY_GATE_OPENING_WAIT_IMPRESSION, {
+      platform: "web",
+      session_id: sessionId,
+      event_id: eventId,
+    });
+  }, [eventId, iAmReady, isTransitioning, partnerReady, sessionId, snoozedByPartner]);
 
   // Fetch partner photo + shared vibes
   useEffect(() => {
@@ -564,6 +585,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                   whileTap={{ scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze) return;
+                    trackEvent(LobbyPostDateEvents.READY_GATE_READY_TAP, {
+                      platform: "web",
+                      session_id: sessionId,
+                      event_id: eventId,
+                    });
                     setMarkingReady(true);
                     void (async () => {
                       try {
@@ -619,6 +645,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                 <button
                   onClick={() => {
                     if (requestingSnooze || markingReady) return;
+                    trackEvent(LobbyPostDateEvents.READY_GATE_SNOOZE_TAP, {
+                      platform: "web",
+                      session_id: sessionId,
+                      event_id: eventId,
+                    });
                     setRequestingSnooze(true);
                     void (async () => {
                       try {
@@ -637,7 +668,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                 <button
                   onClick={() => {
                     if (dateNavigationStartedRef.current || markingReady || requestingSnooze) return;
-                    logJourney("ready_gate_dismissed", { reason: "skip_this_one" }, "ready_gate_dismissed");
+                    trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+                      platform: "web",
+                      session_id: sessionId,
+                      event_id: eventId,
+                      dismiss_variant: "skip_this_one",
+                    });
                     closedRef.current = true;
                     skip();
                     setStatus("browsing");
@@ -665,7 +701,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
               <button
                 onClick={() => {
                   if (dateNavigationStartedRef.current || requestingSnooze || markingReady) return;
-                  logJourney("ready_gate_dismissed", { reason: "cancel_go_back" }, "ready_gate_dismissed");
+                  trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+                    platform: "web",
+                    session_id: sessionId,
+                    event_id: eventId,
+                    dismiss_variant: "cancel_go_back",
+                  });
                   closedRef.current = true;
                   skip();
                   setStatus("browsing");
