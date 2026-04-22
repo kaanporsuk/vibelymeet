@@ -35,6 +35,10 @@ import {
   isDateEntryTransitionActive,
   markVideoDateEntryPipelineStarted,
 } from "@/lib/dateEntryTransitionLatch";
+import {
+  getVideoDateJourneyEventName,
+  type VideoDateJourneyEvent,
+} from "@shared/matching/videoDateDiagnostics";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -171,11 +175,11 @@ const VideoDate = () => {
   }, []);
 
   const logJourney = useCallback(
-    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
       const key = dedupeKey ?? event;
       if (loggedJourneyRef.current.has(key)) return;
       loggedJourneyRef.current.add(key);
-      trackEvent(`video_date_journey_${event}`, {
+      trackEvent(getVideoDateJourneyEventName(event), {
         platform: "web",
         session_id: id,
         event_id: eventId,

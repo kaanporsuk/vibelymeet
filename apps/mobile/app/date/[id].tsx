@@ -78,6 +78,11 @@ import {
 } from '@/lib/dateEntryTransitionLatch';
 import { eventLobbyHref, readyGateHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import {
+  getVideoDateJourneyEventName,
+  type VideoDateJourneyEvent,
+  VIDEO_DATE_RECONNECT_SYNC_OUTCOMES,
+} from '@shared/matching/videoDateDiagnostics';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -311,11 +316,11 @@ export default function VideoDateScreen() {
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
 
   const logJourney = useCallback(
-    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
       const key = dedupeKey ?? event;
       if (loggedJourneyRef.current.has(key)) return;
       loggedJourneyRef.current.add(key);
-      trackEvent(`video_date_journey_${event}`, {
+      trackEvent(getVideoDateJourneyEventName(event), {
         platform: 'native',
         session_id: sessionId ?? null,
         event_id: eventId || null,
@@ -1365,7 +1370,7 @@ export default function VideoDateScreen() {
             phase: phaseRef.current,
             reason,
             mode,
-            outcome: 'rpc_error',
+            outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.RPC_ERROR,
           });
           scheduleBackoff('rpc_error');
           return;
@@ -1376,7 +1381,7 @@ export default function VideoDateScreen() {
             phase: phaseRef.current,
             reason,
             mode,
-            outcome: 'ended',
+            outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.ENDED,
             endedReason: r.ended_reason ?? null,
           });
           // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
@@ -1398,7 +1403,7 @@ export default function VideoDateScreen() {
           phase: phaseRef.current,
           reason,
           mode,
-          outcome: 'ok',
+          outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.OK,
           hasGrace,
           partnerMarkedAway: r.partner_marked_away,
         });

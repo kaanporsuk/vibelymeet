@@ -17,6 +17,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
 import {
+  getVideoDateJourneyEventName,
+  type VideoDateJourneyEvent,
+} from "@shared/matching/videoDateDiagnostics";
+import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,
 } from "@clientShared/safety/submitUserReportRpc";
@@ -65,11 +69,11 @@ export const PostDateSurvey = ({
   const loggedJourneyEventsRef = useRef<Set<string>>(new Set());
 
   const logJourney = useCallback(
-    (event: string, payload?: Record<string, unknown>, dedupeKey?: string) => {
+    (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
       const key = dedupeKey ?? event;
       if (loggedJourneyEventsRef.current.has(key)) return;
       loggedJourneyEventsRef.current.add(key);
-      trackEvent(`video_date_journey_${event}`, {
+      trackEvent(getVideoDateJourneyEventName(event), {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,

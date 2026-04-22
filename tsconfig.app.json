@@ -20,6 +20,9 @@
       "@/*": [
         "./src/*"
       ],
+      "@shared/matching/videoDateDiagnostics": [
+        "./shared/matching/videoDateDiagnostics.ts"
+      ],
       "@shared/*": [
         "./supabase/functions/_shared/*"
       ],
