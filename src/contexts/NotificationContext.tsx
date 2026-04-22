@@ -11,6 +11,7 @@ export interface BaseNotification {
 
 export interface MatchNotification extends BaseNotification {
   type: 'match';
+  /** `matches.id` (conversation is keyed by thread partner profile id in `/chat/:id`). */
   matchId: string;
   matchName: string;
   matchAvatar: string;

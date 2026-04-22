@@ -5,17 +5,38 @@ import MessageNotificationCard from './MessageNotificationCard';
 import EventNotificationCard from './EventNotificationCard';
 import DateProposalNotificationCard from './DateProposalNotificationCard';
 import { useNavigate } from 'react-router-dom';
+import { useCallback } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useUserProfile } from '@/contexts/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 
 const NotificationContainer = () => {
   const { notifications, dismissNotification } = useNotifications();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
+  const { user } = useUserProfile();
 
-  const handleMatchTap = (matchId: string) => {
-    // In a real app, this would open the profile drawer
-    navigate(`/chat/${matchId}`);
-  };
+  /**
+   * `/chat/:id` is the other user's profile id (see `useMessages`). Match tap payloads carry `matches.id`;
+   * resolve partner id before navigating. If `matchId` is already a profile id (legacy caller), lookup misses and we navigate as-is.
+   */
+  const handleMatchTap = useCallback(
+    async (matchRowOrLegacyProfileId: string) => {
+      if (!user?.id) return;
+      const { data: row } = await supabase
+        .from("matches")
+        .select("profile_id_1, profile_id_2")
+        .eq("id", matchRowOrLegacyProfileId)
+        .maybeSingle();
+      if (row) {
+        const otherProfileId = row.profile_id_1 === user.id ? row.profile_id_2 : row.profile_id_1;
+        navigate(`/chat/${otherProfileId}`);
+        return;
+      }
+      navigate(`/chat/${matchRowOrLegacyProfileId}`);
+    },
+    [navigate, user?.id]
+  );
 
   const handleMessageTap = (senderId: string) => {
     navigate(`/chat/${senderId}`);
@@ -29,7 +50,7 @@ const NotificationContainer = () => {
             key={notification.id}
             notification={notification}
             onDismiss={() => dismissNotification(notification.id)}
-            onTap={() => handleMatchTap(notification.matchId)}
+            onTap={() => void handleMatchTap(notification.matchId)}
             index={index}
           />
         );
