@@ -126,6 +126,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastLocalStreamRef = useRef<MediaStream | null>(null);
   const lastRemoteTrackIdsRef = useRef<string>("");
   const lastRemoteStreamRef = useRef<MediaStream | null>(null);
+  const lastLocalMountedTrackKeyRef = useRef<string>("");
+  const lastRemoteMountedTrackKeyRef = useRef<string>("");
 
   useEffect(() => {
     optionsRef.current = options;
@@ -140,6 +142,35 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
       videoEl.srcObject = stream;
+    },
+    []
+  );
+
+  const logTrackMounted = useCallback(
+    (
+      source: string,
+      opts: { isLocal: boolean; participant: DailyParticipant | undefined; roomName: string | null }
+    ) => {
+      const videoTrackId = opts.participant?.tracks?.video?.persistentTrack?.id ?? "";
+      const audioTrackId = opts.isLocal
+        ? ""
+        : (opts.participant?.tracks?.audio?.persistentTrack?.id ?? "");
+      const mountedKey = `${videoTrackId}|${audioTrackId}`;
+      if (!mountedKey || mountedKey === "|") return;
+
+      const mountedRef = opts.isLocal ? lastLocalMountedTrackKeyRef : lastRemoteMountedTrackKeyRef;
+      if (mountedRef.current === mountedKey) return;
+      mountedRef.current = mountedKey;
+
+      vdbg(opts.isLocal ? "daily_local_track_mounted" : "daily_remote_track_mounted", {
+        sessionId: optionsRef.current?.roomId ?? null,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: optionsRef.current?.userId ?? null,
+        roomName: opts.roomName,
+        source,
+        videoTrackId: videoTrackId || null,
+        audioTrackId: audioTrackId || null,
+      });
     },
     []
   );
@@ -206,6 +237,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       lastLocalStreamRef.current = null;
       lastRemoteTrackIdsRef.current = "";
       lastRemoteStreamRef.current = null;
+      lastLocalMountedTrackKeyRef.current = "";
+      lastRemoteMountedTrackKeyRef.current = "";
     },
     []
   );
@@ -397,6 +430,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
             if (localVideoRef.current) {
               attachTracks(event.participant, localVideoRef.current, true);
+              logTrackMounted("participant_updated", {
+                isLocal: true,
+                participant: event.participant,
+                roomName: roomData.room_name ?? null,
+              });
             }
           } else {
             if (!firstRemoteObservedRef.current) {
@@ -414,6 +452,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               lastRemoteTrackIdsRef.current = remoteKey;
               if (remoteVideoRef.current) {
                 attachTracks(event.participant, remoteVideoRef.current, false);
+                logTrackMounted("participant_updated", {
+                  isLocal: false,
+                  participant: event.participant,
+                  roomName: roomData.room_name ?? null,
+                });
               }
               lastRemoteStreamRef.current = null;
               vdbg("daily_remote_tracks_changed", {
@@ -564,6 +607,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
           if (localVideoRef.current) {
             attachTracks(localParticipant, localVideoRef.current, true);
+            logTrackMounted("post_join_snapshot", {
+              isLocal: true,
+              participant: localParticipant,
+              roomName: roomData.room_name ?? null,
+            });
           }
         }
 
@@ -585,6 +633,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           toast.success("Connected! Your video date is live 🎉");
           optionsRef.current?.onPartnerJoined?.();
           attachTracks(remoteParticipants[0], remoteVideoRef.current, false);
+          logTrackMounted("post_join_snapshot", {
+            isLocal: false,
+            participant: remoteParticipants[0],
+            roomName: roomData.room_name ?? null,
+          });
         }
 
         return true;

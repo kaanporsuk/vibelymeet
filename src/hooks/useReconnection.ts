@@ -161,11 +161,26 @@ export const useReconnection = ({
         const r = await fetchSync();
         if (cancelled) return;
         if (!r) {
+          vdbg("sync_reconnect_result", {
+            sessionId,
+            phase,
+            reason,
+            mode,
+            outcome: "rpc_error",
+          });
           scheduleBackoff("rpc_error");
           return;
         }
 
         if (r.ended) {
+          vdbg("sync_reconnect_result", {
+            sessionId,
+            phase,
+            reason,
+            mode,
+            outcome: "ended",
+            endedReason: r.ended_reason ?? null,
+          });
           if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
             graceExpiredFiredRef.current = true;
             if (graceWindowStartedRef.current) {
@@ -188,6 +203,15 @@ export const useReconnection = ({
         const hasGrace = !!r.reconnect_grace_ends_at;
         const show = hasGrace && r.partner_marked_away;
         setInReconnectGraceUi(show);
+        vdbg("sync_reconnect_result", {
+          sessionId,
+          phase,
+          reason,
+          mode,
+          outcome: "ok",
+          hasGrace,
+          partnerMarkedAway: r.partner_marked_away,
+        });
 
         if (hasGrace && r.reconnect_grace_ends_at) {
           const sec = Math.max(
