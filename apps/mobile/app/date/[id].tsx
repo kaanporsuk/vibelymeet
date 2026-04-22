@@ -400,6 +400,15 @@ export default function VideoDateScreen() {
 
   const bindCallListeners = useCallback(
     (call: DailyCallObject, roomName: string | null) => {
+      if (boundCallRef.current === call && boundHandlersRef.current) {
+        vdbg('daily_call_listeners_bind_skipped', {
+          reason: 'already_bound',
+          sessionId: sessionId ?? null,
+          userId: user?.id ?? null,
+          roomName,
+        });
+        return;
+      }
       detachCallListeners('rebind');
       const onParticipantJoined = (event: { participant?: DailyParticipant }) => {
         const p = event?.participant;
@@ -1791,6 +1800,17 @@ export default function VideoDateScreen() {
       callRef.current ||
       hasStartedJoinRef.current
     ) {
+      const existingCall = callRef.current;
+      if (
+        existingCall &&
+        sessionId &&
+        user?.id &&
+        session &&
+        !session.ended_at &&
+        (boundCallRef.current !== existingCall || !boundHandlersRef.current)
+      ) {
+        bindCallListeners(existingCall, roomNameRef.current);
+      }
       vdbg('prejoin_step_prejoin_truth_skipped_or_started', {
         sessionId: sessionId ?? null,
         userId,
@@ -2649,7 +2669,17 @@ export default function VideoDateScreen() {
 
     run();
     return () => {
-      detachCallListeners('prejoin_effect_cleanup');
+      if (callRef.current) {
+        vdbg('daily_call_listeners_preserved', {
+          reason: 'prejoin_effect_cleanup_live_call',
+          sessionId,
+          userId: user?.id ?? null,
+          hasBoundCall: Boolean(boundCallRef.current),
+          sameCall: boundCallRef.current === callRef.current,
+        });
+      } else {
+        detachCallListeners('prejoin_effect_cleanup');
+      }
       if (!prejoinCompleted) {
         vdbg('prejoin_step_prejoin_effect_cleanup', {
           sessionId,
