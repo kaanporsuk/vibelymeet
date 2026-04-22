@@ -26,6 +26,11 @@ export function eventLobbyHref(eventId: string): Href {
   return `/event/${eventId}/lobby` as Href;
 }
 
+/** After post-date survey: lets the lobby show the same lightweight success cue as web (then strip the flag). */
+export function eventLobbyHrefPostSurveyComplete(eventId: string): Href {
+  return `/event/${eventId}/lobby?postSurveyComplete=1` as Href;
+}
+
 export function readyGateHref(sessionId: string): Href {
   return `/ready/${sessionId}` as Href;
 }

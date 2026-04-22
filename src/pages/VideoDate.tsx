@@ -1376,7 +1376,7 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-        <p className="text-sm text-muted-foreground">Loading your date…</p>
+        <p className="text-sm text-muted-foreground">Loading your date...</p>
       </div>
     );
   }
