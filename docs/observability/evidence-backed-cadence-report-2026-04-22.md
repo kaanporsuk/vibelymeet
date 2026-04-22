@@ -2,6 +2,8 @@
 
 **Captured:** 2026-04-22 (automated queries via `supabase db query --linked` against linked production project **MVP_Vibe**).
 
+**Dashboard note:** When interpreting totals here (promote vs drain vs hourly rollups), apply **[`event-loop-dashboard-normalization.md`](./event-loop-dashboard-normalization.md)** so counts are not double-counted or misread.
+
 **Limits:** PostHog and Sentry aggregates were **not** exported in this run (`POSTHOG_*` / `SENTRY_AUTH_TOKEN` unavailable in CI/local shell). Rows marked **—** must be filled from dashboard exports using `docs/observability/evidence-led-queue-reconnect-tuning.md`.
 
 ---

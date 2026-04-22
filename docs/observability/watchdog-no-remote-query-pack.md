@@ -116,6 +116,14 @@ If properties differ (`session_id` vs `session_id` nested), normalize in your wa
 
 **Access:** Table is **not** exposed to `anon`/`authenticated`. Use **service role** or dashboard SQL. See `docs/supabase-cloud-deploy.md`.
 
+### 4.0 Promotion vs drain vs mark_lobby (do not double-count)
+
+**Before** aggregating `operation` totals or mixing hourly rollup views, read **[`event-loop-dashboard-normalization.md`](./event-loop-dashboard-normalization.md)**:
+
+- **`drain_match_queue`** logs **two** rows per attempt (inner **`promote_ready_gate_if_eligible`** + outer drain envelope).
+- **`mark_lobby_foreground`** logs **`outcome ≈ success`** for the RPC wrapper; real promotion state is **`detail.promotion`** or **`v_event_loop_mark_lobby_promotion_normalized`**.
+- Prefer **`reason_code`** (and **`detail.step`**) over **`outcome`** alone for **`blocked`** rows.
+
 ### 4.1 Rows for one session (correlate promotion vs client pain)
 
 ```sql
