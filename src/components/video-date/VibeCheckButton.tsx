@@ -108,27 +108,28 @@ export const VibeCheckButton = ({ timeLeft, onVibe, disabled }: VibeCheckButtonP
                   : "text-muted-foreground"
               }`}
             />
-            <span
-              className={`text-sm font-display font-semibold transition-colors duration-700 ${
-                isProminent ? "text-primary-foreground" : "text-muted-foreground"
-              }`}
-            >
-              Vibed ✓
-            </span>
-          </motion.button>
-        )}
-      </AnimatePresence>
+              <span
+                className={`text-sm font-display font-semibold transition-colors duration-700 ${
+                  isProminent ? "text-primary-foreground" : "text-muted-foreground"
+                }`}
+              >
+                Tap Vibe
+              </span>
+            </motion.button>
+          )}
+        </AnimatePresence>
 
-      {/* Subtle hint text */}
-      {!hasVibed && (
-        <motion.p
-          className="text-[10px] text-muted-foreground/60"
-          animate={isProminent ? { opacity: [0.6, 1, 0.6] } : {}}
-          transition={isProminent ? { duration: 2, repeat: Infinity } : {}}
-        >
-          {isProminent ? "Tap if you're feeling the vibe!" : "Feeling it?"}
-        </motion.p>
-      )}
+      <motion.p
+        className="max-w-[220px] text-center text-[10px] leading-snug text-muted-foreground/70"
+        animate={!hasVibed && isProminent ? { opacity: [0.65, 1, 0.65] } : {}}
+        transition={!hasVibed && isProminent ? { duration: 2, repeat: Infinity } : {}}
+      >
+        {hasVibed
+          ? "Waiting for them to tap Vibe too."
+          : isProminent
+            ? "Last chance: you both need to tap Vibe to keep going."
+            : "Both of you need to tap Vibe to continue to the full date."}
+      </motion.p>
     </div>
   );
 };

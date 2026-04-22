@@ -258,6 +258,8 @@ export default function VideoDateScreen() {
   const [isTimerPaused, setIsTimerPaused] = useState(false);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
+  const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
+  const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
 
   const callRef = useRef<ReturnType<typeof Daily.createCallObject> | null>(null);
   const roomNameRef = useRef<string | null>(null);
@@ -282,6 +284,7 @@ export default function VideoDateScreen() {
   /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
   const remotePromotionLoggedRef = useRef(false);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
+  const handshakeGraceRetryTriggeredRef = useRef(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
@@ -474,6 +477,12 @@ export default function VideoDateScreen() {
 
   phaseRef.current = phase;
 
+  const clearHandshakeGraceState = useCallback(() => {
+    setHandshakeGraceExpiresAt(null);
+    setHandshakeGraceSecondsRemaining(null);
+    handshakeGraceRetryTriggeredRef.current = false;
+  }, []);
+
   const hasRemotePartner = !!remoteParticipant;
   /** Remote participant's first Daily join stamp (null = they have not opened/joined this date yet). */
   const peerServerJoinedAt = useMemo(() => {
@@ -505,9 +514,10 @@ export default function VideoDateScreen() {
     });
     setLocalInDailyRoom(false);
     setPeerMissingTerminal(false);
+    clearHandshakeGraceState();
     noRemoteAutoRecoveryUsedRef.current = false;
     lastLoggedPostJoinStageRef.current = null;
-  }, [sessionId]);
+  }, [sessionId, clearHandshakeGraceState]);
 
   /** Latch + RC before paint so hydration cannot bounce `/date` → `/ready` during stale `in_ready_gate`. */
   useLayoutEffect(() => {
@@ -751,6 +761,32 @@ export default function VideoDateScreen() {
   }, [serverTimeLeft]);
 
   useEffect(() => {
+    if (phase !== 'handshake') {
+      clearHandshakeGraceState();
+      return;
+    }
+    // Refresh/reconnect resilience: rebuild grace countdown from canonical session expiry.
+    const graceExpiresAtRaw = session?.handshake_grace_expires_at ?? null;
+    if (!graceExpiresAtRaw) {
+      if ((localTimeLeft ?? 0) > 0) {
+        clearHandshakeGraceState();
+      }
+      return;
+    }
+    if ((localTimeLeft ?? 0) > 0) {
+      clearHandshakeGraceState();
+      return;
+    }
+    const graceRemaining = Math.max(0, Math.ceil((new Date(graceExpiresAtRaw).getTime() - Date.now()) / 1000));
+    if (graceRemaining > 0) {
+      setHandshakeGraceExpiresAt(graceExpiresAtRaw);
+      setHandshakeGraceSecondsRemaining(graceRemaining);
+    } else {
+      clearHandshakeGraceState();
+    }
+  }, [phase, session?.handshake_grace_expires_at, localTimeLeft, clearHandshakeGraceState]);
+
+  useEffect(() => {
     if (!sessionId || !user?.id) return;
     let cancelled = false;
     fetchPartnerProfile(sessionId, user.id, (path) => avatarUrl(path, 'avatar')).then((res) => {
@@ -909,8 +945,9 @@ export default function VideoDateScreen() {
   useEffect(() => {
     return () => {
       clearFirstConnectWatchdog();
+      clearHandshakeGraceState();
     };
-  }, [clearFirstConnectWatchdog]);
+  }, [clearFirstConnectWatchdog, clearHandshakeGraceState]);
 
   useEffect(() => {
     if (!hasRemotePartner) return;
@@ -997,6 +1034,7 @@ export default function VideoDateScreen() {
   }, [sessionId, phase, partnerEverJoined]);
 
   const leaveAndCleanup = useCallback(async () => {
+    clearHandshakeGraceState();
     clearFirstConnectWatchdog();
     const call = callRef.current;
     if (call) {
@@ -1060,7 +1098,15 @@ export default function VideoDateScreen() {
     });
     setPreJoinFailed(false);
     setNetQualityTier('good');
-  }, [sessionId, eventId, user?.id, clearFirstConnectWatchdog, releaseSharedCallIfOwned, detachCallListeners]);
+  }, [
+    sessionId,
+    eventId,
+    user?.id,
+    clearFirstConnectWatchdog,
+    releaseSharedCallIfOwned,
+    detachCallListeners,
+    clearHandshakeGraceState,
+  ]);
 
   const handleCallEnd = useCallback(async () => {
     if (sessionId && !videoDateEndedRef.current) {
@@ -1187,13 +1233,17 @@ export default function VideoDateScreen() {
 
   const handleUserVibe = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return false;
-    return await recordVibe(sessionId);
-  }, [sessionId]);
+    return await recordVibe(sessionId, {
+      actorUserId: user?.id ?? null,
+      phase: phaseRef.current,
+    });
+  }, [sessionId, user?.id]);
 
   const handleMutualToastComplete = useCallback(() => {
+    clearHandshakeGraceState();
     setShowMutualToast(false);
     setLocalTimeLeft(DATE_SECONDS);
-  }, []);
+  }, [clearHandshakeGraceState]);
 
   const focusKeepTheVibeAddTime = useCallback(() => {
     void AccessibilityInfo.announceForAccessibility(
@@ -2338,20 +2388,30 @@ export default function VideoDateScreen() {
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
   useEffect(() => {
     if (phase !== 'ended' || !sessionId) return;
+    clearHandshakeGraceState();
     if (!partnerEverJoinedRef.current) return;
     setShowFeedback(true);
     if (callRef.current) {
       void leaveAndCleanup();
     }
-  }, [phase, sessionId, leaveAndCleanup]);
+  }, [phase, sessionId, leaveAndCleanup, clearHandshakeGraceState]);
+
+  useEffect(() => {
+    if (phase === 'date') {
+      clearHandshakeGraceState();
+    }
+  }, [phase, clearHandshakeGraceState]);
 
   useEffect(() => {
     if (
       localTimeLeft === null ||
+      localTimeLeft <= 0 ||
       showFeedback ||
       !hasRemotePartner ||
       phase === 'ended' ||
-      isTimerPaused
+      isTimerPaused ||
+      // Pause base handshake timer while grace mode owns the countdown.
+      (phase === 'handshake' && handshakeGraceSecondsRemaining !== null)
     )
       return;
     const interval = setInterval(() => {
@@ -2359,12 +2419,29 @@ export default function VideoDateScreen() {
         if (prev === null || prev <= 1) {
           if (phaseRef.current === 'handshake') {
             completeHandshake(sessionId!).then((result) => {
+              if (phaseRef.current !== 'handshake') return;
               if (result?.state === 'date') {
+                clearHandshakeGraceState();
                 setShowMutualToast(true);
-              } else if ((result as any)?.waiting_for_partner === true) {
-                // Hold: server grace window active, partner has not tapped.
+              } else if (result?.waiting_for_partner === true) {
+                const graceExpiresAt =
+                  typeof result.grace_expires_at === 'string'
+                    ? result.grace_expires_at
+                    : null;
+                const serverSeconds =
+                  typeof result.seconds_remaining === 'number' &&
+                  Number.isFinite(result.seconds_remaining)
+                    ? Math.max(0, Math.ceil(result.seconds_remaining))
+                    : null;
+                const derivedSeconds =
+                  graceExpiresAt !== null
+                    ? Math.max(0, Math.ceil((new Date(graceExpiresAt).getTime() - Date.now()) / 1000))
+                    : null;
+                setHandshakeGraceExpiresAt(graceExpiresAt);
+                setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
                 return;
               } else {
+                clearHandshakeGraceState();
                 leaveAndCleanup().then(handleCallEnd);
               }
             });
@@ -2377,7 +2454,76 @@ export default function VideoDateScreen() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [localTimeLeft !== null, showFeedback, hasRemotePartner, phase, isTimerPaused, sessionId, eventId, leaveAndCleanup, handleCallEnd]);
+  }, [
+    localTimeLeft !== null,
+    localTimeLeft,
+    showFeedback,
+    hasRemotePartner,
+    phase,
+    isTimerPaused,
+    sessionId,
+    eventId,
+    leaveAndCleanup,
+    handleCallEnd,
+    handshakeGraceSecondsRemaining,
+    clearHandshakeGraceState,
+  ]);
+
+  useEffect(() => {
+    if (
+      !sessionId ||
+      phase !== 'handshake' ||
+      showFeedback ||
+      handshakeGraceSecondsRemaining === null ||
+      handshakeGraceRetryTriggeredRef.current
+    ) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const derivedFromExpiry = handshakeGraceExpiresAt
+        ? Math.max(0, Math.ceil((new Date(handshakeGraceExpiresAt).getTime() - Date.now()) / 1000))
+        : null;
+      const nextValue =
+        derivedFromExpiry !== null
+          ? derivedFromExpiry
+          : Math.max(0, (handshakeGraceSecondsRemaining ?? 0) - 1);
+
+      setHandshakeGraceSecondsRemaining(nextValue);
+
+      if (nextValue <= 0 && !handshakeGraceRetryTriggeredRef.current) {
+        if (phaseRef.current !== 'handshake') {
+          clearHandshakeGraceState();
+          return;
+        }
+        // One-shot guard prevents repeated force-retries in grace expiry race windows.
+        handshakeGraceRetryTriggeredRef.current = true;
+        void completeHandshake(sessionId).then((result) => {
+          if (phaseRef.current !== 'handshake') return;
+          if (result?.state === 'date') {
+            clearHandshakeGraceState();
+            setShowMutualToast(true);
+            return;
+          }
+          if (result?.state === 'ended' || result?.already_ended) {
+            clearHandshakeGraceState();
+            void leaveAndCleanup().then(handleCallEnd);
+          }
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [
+    sessionId,
+    phase,
+    showFeedback,
+    handshakeGraceExpiresAt,
+    handshakeGraceSecondsRemaining,
+    leaveAndCleanup,
+    handleCallEnd,
+    clearHandshakeGraceState,
+  ]);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current;
@@ -2484,6 +2630,11 @@ export default function VideoDateScreen() {
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
+  const showHandshakeGraceWait =
+    phase === 'handshake' &&
+    hasRemotePartner &&
+    !peerMissingTerminal &&
+    handshakeGraceSecondsRemaining !== null;
 
   const showJoiningOverlay = (joining || isConnecting) && !preJoinFailed && !peerMissingTerminal;
   const showPeerWaitOverlay =
@@ -2495,7 +2646,11 @@ export default function VideoDateScreen() {
     !joining &&
     !isConnecting;
 
-  const showHandshakeChrome = phase === 'handshake' && hasRemotePartner && !peerMissingTerminal;
+  const showHandshakeChrome =
+    phase === 'handshake' &&
+    hasRemotePartner &&
+    !peerMissingTerminal &&
+    handshakeGraceSecondsRemaining === null;
   const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
 
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
@@ -2798,6 +2953,12 @@ export default function VideoDateScreen() {
                   : peerNotOpenedVideoDateYet
                     ? "They haven't opened the date yet"
                     : 'Waiting for your match…'}
+              </Text>
+            </View>
+          ) : showHandshakeGraceWait ? (
+            <View style={styles.waitingTimerPill}>
+              <Text style={[styles.waitingTimerText, { color: theme.text }]}>
+                Waiting for your partner... {handshakeGraceSecondsRemaining}s
               </Text>
             </View>
           ) : hasRemotePartner ? (
