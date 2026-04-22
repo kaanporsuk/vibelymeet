@@ -276,6 +276,10 @@ export default function VideoDateScreen() {
   const noRemoteAutoRecoveryUsedRef = useRef(false);
   /** True after sync_reconnect reports ended (avoid calling handleCallEnd every poll tick). */
   const reconnectEndedHandledRef = useRef(false);
+  const reconnectSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectSyncCountRef = useRef(0);
+  const reconnectSyncWindowStartedAtRef = useRef<number | null>(null);
+  const requestReconnectSyncRef = useRef<(reason: string) => void>(() => {});
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
@@ -380,6 +384,7 @@ export default function VideoDateScreen() {
           setPartnerEverJoined(true);
           setIsConnecting(false);
           setRemoteParticipant(p);
+          requestReconnectSyncRef.current('daily_participant_joined');
         }
       };
       const onParticipantUpdated = (event: { participant?: DailyParticipant }) => {
@@ -415,6 +420,7 @@ export default function VideoDateScreen() {
           if (!partnerEverJoinedRef.current || !sessionId || phaseRef.current === 'ended') return;
           setIsPartnerDisconnected(true);
           void markReconnectPartnerAway(sessionId);
+          requestReconnectSyncRef.current('daily_participant_left');
         }
       };
       const onLeftMeeting = () => {
@@ -1031,6 +1037,7 @@ export default function VideoDateScreen() {
     if (!partnerEverJoined || !sessionId || phase === 'ended') return;
     setIsPartnerDisconnected(true);
     void markReconnectPartnerAway(sessionId);
+    requestReconnectSyncRef.current('partner_marked_away');
   }, [sessionId, phase, partnerEverJoined]);
 
   const leaveAndCleanup = useCallback(async () => {
@@ -1122,11 +1129,23 @@ export default function VideoDateScreen() {
     handleCallEndRef.current = handleCallEnd;
   }, [handleCallEnd]);
 
+  const clearReconnectSyncTimer = useCallback(() => {
+    if (!reconnectSyncTimerRef.current) return;
+    clearTimeout(reconnectSyncTimerRef.current);
+    reconnectSyncTimerRef.current = null;
+  }, []);
+
+  const reconnectSyncDelayMs = useCallback((elapsedMs: number) => {
+    if (elapsedMs < 5_000) return 1_000;
+    if (elapsedMs < 20_000) return 3_000;
+    return 7_000;
+  }, []);
+
   const handleEndAfterInCallReport = useCallback(async () => {
     await handleCallEnd();
   }, [handleCallEnd]);
 
-  /** Foreground: resync DB session + reconnect truth; background: poll sync only (no new backend semantics). */
+  /** Foreground/background: trigger immediate reconnect syncs on app lifecycle transitions. */
   useEffect(() => {
     if (!sessionId) return;
     const sub = AppState.addEventListener('change', (next) => {
@@ -1149,16 +1168,11 @@ export default function VideoDateScreen() {
               error: 1,
             });
           });
-        void syncVideoDateReconnect(sessionId).then((r) => {
-          if (r?.ended && partnerEverJoinedRef.current && !reconnectEndedHandledRef.current) {
-            reconnectEndedHandledRef.current = true;
-            void handleCallEndRef.current?.();
-          }
-        });
+        requestReconnectSyncRef.current('app_foreground');
         return;
       }
       if (next === 'background' || next === 'inactive') {
-        void syncVideoDateReconnect(sessionId);
+        requestReconnectSyncRef.current('app_background');
       }
     });
     return () => sub.remove();
@@ -1167,40 +1181,114 @@ export default function VideoDateScreen() {
   useEffect(() => {
     if (!sessionId || phase === 'ended') return;
     let cancelled = false;
-    const tick = async () => {
-      const r = await syncVideoDateReconnect(sessionId);
-      if (cancelled || !r) return;
-      if (r.ended) {
-        // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
-        if (!reconnectEndedHandledRef.current && partnerEverJoinedRef.current) {
-          reconnectEndedHandledRef.current = true;
-          void handleCallEndRef.current?.();
-        }
-        setIsPartnerDisconnected(false);
-        setIsTimerPaused(false);
-        setReconnectionGrace(0);
+    let inFlight = false;
+
+    const stopLoop = (reason: string) => {
+      clearReconnectSyncTimer();
+      if (reconnectSyncWindowStartedAtRef.current !== null) {
+        vdbg('sync_reconnect_loop_stop', {
+          sessionId,
+          phase: phaseRef.current,
+          reason,
+          totalSyncCount: reconnectSyncCountRef.current,
+          elapsedMs: Date.now() - reconnectSyncWindowStartedAtRef.current,
+        });
+      }
+      reconnectSyncWindowStartedAtRef.current = null;
+    };
+
+    const scheduleBackoff = (reason: string) => {
+      if (cancelled || phaseRef.current === 'ended') return;
+      const startedAt = reconnectSyncWindowStartedAtRef.current ?? Date.now();
+      reconnectSyncWindowStartedAtRef.current = startedAt;
+      const delayMs = reconnectSyncDelayMs(Math.max(0, Date.now() - startedAt));
+      clearReconnectSyncTimer();
+      vdbg('sync_reconnect_schedule', {
+        sessionId,
+        phase: phaseRef.current,
+        reason,
+        mode: 'backoff',
+        delayMs,
+        totalSyncCount: reconnectSyncCountRef.current,
+      });
+      reconnectSyncTimerRef.current = setTimeout(() => {
+        void runSync(reason, 'backoff');
+      }, delayMs);
+    };
+
+    const runSync = async (reason: string, mode: 'immediate' | 'backoff') => {
+      if (cancelled || !sessionId || phaseRef.current === 'ended') return;
+      if (inFlight) {
+        vdbg('sync_reconnect_skip', { sessionId, phase: phaseRef.current, reason, mode, skip: 'in_flight' });
         return;
       }
-      reconnectEndedHandledRef.current = false;
-      const hasGrace = !!r.reconnect_grace_ends_at;
-      const show = hasGrace && r.partner_marked_away;
-      setIsPartnerDisconnected(show);
-      setIsTimerPaused(show);
-      if (hasGrace && r.reconnect_grace_ends_at) {
-        setReconnectionGrace(
-          Math.max(0, Math.ceil((new Date(r.reconnect_grace_ends_at).getTime() - Date.now()) / 1000)),
-        );
-      } else {
+      inFlight = true;
+      reconnectSyncCountRef.current += 1;
+      vdbg('sync_reconnect_fire', {
+        sessionId,
+        phase: phaseRef.current,
+        reason,
+        mode,
+        totalSyncCount: reconnectSyncCountRef.current,
+      });
+      try {
+        const r = await syncVideoDateReconnect(sessionId);
+        if (cancelled || !r) {
+          scheduleBackoff('rpc_error');
+          return;
+        }
+        if (r.ended) {
+          // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
+          if (!reconnectEndedHandledRef.current && partnerEverJoinedRef.current) {
+            reconnectEndedHandledRef.current = true;
+            void handleCallEndRef.current?.();
+          }
+          setIsPartnerDisconnected(false);
+          setIsTimerPaused(false);
+          setReconnectionGrace(0);
+          stopLoop('session_ended');
+          return;
+        }
+        reconnectEndedHandledRef.current = false;
+        const hasGrace = !!r.reconnect_grace_ends_at;
+        const show = hasGrace && r.partner_marked_away;
+        setIsPartnerDisconnected(show);
+        setIsTimerPaused(show);
+        if (hasGrace && r.reconnect_grace_ends_at) {
+          setReconnectionGrace(
+            Math.max(0, Math.ceil((new Date(r.reconnect_grace_ends_at).getTime() - Date.now()) / 1000)),
+          );
+          scheduleBackoff(show ? 'reconnect_grace_active' : 'grace_active_partner_not_marked_away');
+          return;
+        }
         setReconnectionGrace(0);
+        stopLoop('truth_stable_no_grace');
+      } finally {
+        inFlight = false;
       }
     };
-    void tick();
-    const iv = setInterval(() => void tick(), 1000);
+
+    requestReconnectSyncRef.current = (reason: string) => {
+      if (cancelled || !sessionId || phaseRef.current === 'ended') return;
+      if (reconnectSyncWindowStartedAtRef.current === null) {
+        reconnectSyncWindowStartedAtRef.current = Date.now();
+      }
+      void runSync(reason, 'immediate');
+    };
+
+    requestReconnectSyncRef.current('mount_or_phase_change');
     return () => {
       cancelled = true;
-      clearInterval(iv);
+      clearReconnectSyncTimer();
+      requestReconnectSyncRef.current = () => {};
     };
-  }, [sessionId, phase]);
+  }, [sessionId, phase, clearReconnectSyncTimer, reconnectSyncDelayMs]);
+
+  useEffect(() => {
+    reconnectSyncCountRef.current = 0;
+    reconnectSyncWindowStartedAtRef.current = null;
+    clearReconnectSyncTimer();
+  }, [sessionId, clearReconnectSyncTimer]);
 
   useEffect(() => {
     const prev = prevLocalInDailyRef.current;
@@ -1209,6 +1297,7 @@ export default function VideoDateScreen() {
     if (!partnerEverJoined) return;
     if (!prev && sessionId && phase !== 'ended') {
       void markReconnectReturn(sessionId);
+      requestReconnectSyncRef.current('daily_local_reconnected');
     }
   }, [localInDailyRoom, partnerEverJoined, sessionId, phase]);
 
