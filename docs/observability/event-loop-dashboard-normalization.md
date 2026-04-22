@@ -227,7 +227,11 @@ Existing views remain unchanged; comments on hourly rollups clarify double-count
 
 ## Appendix C — Production re-check (linked project, normalized semantics)
 
-**Captured:** 2026-04-22 via `supabase db query --linked` against **MVP_Vibe**. **Window:** last **14 days** unless noted. Normalized views (`20260430123100_*`) were **not** deployed on the linked DB at query time — semantics used **inline** (`metric_stream` CASE + same CASE as **`v_event_loop_mark_lobby_promotion_normalized`**).
+**Captured:** 2026-04-22 via `supabase db query --linked` against **MVP_Vibe**. **Window:** last **14 days** unless noted.
+
+**Deploy status (2026-04-22 closure):** Migration **`20260430123100_event_loop_operator_normalized_read_models.sql`** has been applied to the linked project (`supabase db push --linked`). Operators should prefer **`v_event_loop_observability_metric_streams`** and **`v_event_loop_mark_lobby_promotion_normalized`** over re-deriving **`metric_stream`** inline.
+
+Earlier snapshot note (pre-push): normalized views were absent — semantics could be reproduced **inline** (`metric_stream` CASE + same CASE as **`v_event_loop_mark_lobby_promotion_normalized`**).
 
 ### C.1 Row arithmetic (why `promote` ≫ `drain`)
 
@@ -260,7 +264,7 @@ Existing views remain unchanged; comments on hourly rollups clarify double-count
 - **`event_not_valid`** (**promote**, 14d): clustered **`event_id`s** (top **42**, **38**, **28**, … hits per event — expected product traffic concentration).
 - **`LEFT JOIN public.events`** on **`event_not_valid`**: **214** rows **`(no events row)`**, **20** **`upcoming`**, **`detail_step`** = **`event_share_lock`** — confirms **non-live / visibility** semantics; **full reconciliation** requires **SQL Editor / `postgres`** (management CLI role may not resolve all `event_id`s — see Appendix A).
 
-### C.5 Follow-ups (no code change required here)
+### C.5 Follow-ups
 
-1. **Apply migration `20260430123100_*`** on production so operators can **`SELECT * FROM v_event_loop_observability_metric_streams`** instead of inline CASE.
+1. ~~**Apply migration `20260430123100_*`** on production~~ **Done** for linked **MVP_Vibe** (`supabase db push --linked`, 2026-04-22). Other Supabase projects: apply the same migration in each environment’s deploy pipeline.
 2. Re-run Appendix A **`LEFT JOIN`** as **`postgres`** if **`(no events row)`** share stays high — distinguishes **RLS/role** vs **deleted events** vs **bad ids**.

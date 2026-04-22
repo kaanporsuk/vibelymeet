@@ -37,7 +37,6 @@ _None._
 - `src/components/SuperLikeButton.tsx`
 - `src/components/VibeScore.tsx`
 - `src/components/events/AttendeeCard.tsx`
-- `src/components/events/EmptyDeckFallback.tsx`
 - `src/components/events/MiniProfileModal.tsx`
 - `src/components/safety/EmergencyResources.tsx`
 - `src/components/safety/PauseAccountFlow.tsx`

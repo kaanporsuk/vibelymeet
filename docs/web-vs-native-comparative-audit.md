@@ -328,7 +328,7 @@ Product-specific web components in `src/components/` (excluding `ui/`) vs native
 | events/ActiveCallBanner | ActiveCallBanner | EXISTS |
 | events/AttendeeCard | — | MISSING |
 | events/CancelBookingModal | — | MISSING |
-| events/EmptyDeckFallback | — | MISSING |
+| events/EmptyDeckFallback *(removed)* | — | **RETIRED** — event lobby empty deck is **`LobbyEmptyState`** (`EventLobby`); orphan file deleted 2026-04-22 |
 | events/EventCardPremium | — | MISSING |
 | events/EventEndedModal | — | MISSING |
 | events/EventsFilterBar | Filter chips | PARTIAL |
