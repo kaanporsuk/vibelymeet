@@ -54,6 +54,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
   const [sharedVibes, setSharedVibes] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [requestingSnooze, setRequestingSnooze] = useState(false);
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
   const invalidCloseToastRef = useRef(false);
@@ -326,6 +327,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
     invalidCloseToastRef.current = false;
     loggedJourneyRef.current.clear();
     setIsTransitioning(false);
+    setRequestingSnooze(false);
     setTimeLeft(GATE_TIMEOUT);
     logJourney("ready_gate_opened");
   }, [sessionId]);
@@ -590,20 +592,38 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                 </motion.button>
               </div>
 
-              {/* Skip */}
-              <button
-                onClick={() => {
-                  if (dateNavigationStartedRef.current) return;
-                  logJourney("ready_gate_dismissed", { reason: "skip_this_one" }, "ready_gate_dismissed");
-                  closedRef.current = true;
-                  skip();
-                  setStatus("browsing");
-                  onClose();
-                }}
-                className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Skip this one
-              </button>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={() => {
+                    if (requestingSnooze) return;
+                    setRequestingSnooze(true);
+                    void (async () => {
+                      try {
+                        await snooze();
+                      } finally {
+                        setRequestingSnooze(false);
+                      }
+                    })();
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {requestingSnooze ? "Snoozing..." : "Snooze - give me 2 min"}
+                </button>
+                <span className="text-muted-foreground/70">·</span>
+                <button
+                  onClick={() => {
+                    if (dateNavigationStartedRef.current) return;
+                    logJourney("ready_gate_dismissed", { reason: "skip_this_one" }, "ready_gate_dismissed");
+                    closedRef.current = true;
+                    skip();
+                    setStatus("browsing");
+                    onClose();
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Step away
+                </button>
+              </div>
             </div>
           ) : (
             <div className="text-center space-y-3">
@@ -628,7 +648,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                 }}
                 className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Cancel & go back
+                Cancel & step away
               </button>
             </div>
           )}

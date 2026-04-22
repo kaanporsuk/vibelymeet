@@ -65,6 +65,7 @@ export function ReadyGateOverlay({
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
+  const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
 
@@ -151,6 +152,7 @@ export function ReadyGateOverlay({
     partnerName,
     snoozedByPartner,
     markReady,
+    snooze,
     forfeit,
     isBothReady,
   } = useReadyGate(sessionId, userId, {
@@ -165,6 +167,7 @@ export function ReadyGateOverlay({
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
     setMarkingReady(false);
+    setRequestingSnooze(false);
     setPermissionsResolved(false);
     setHasMediaPermission(null);
     logJourney('ready_gate_opened');
@@ -381,9 +384,30 @@ export function ReadyGateOverlay({
                   style={styles.readyBtn}
                   disabled={markingReady}
                 />
-                <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
-                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>Skip this one</Text>
-                </Pressable>
+                <View style={styles.secondaryRow}>
+                  <Pressable
+                    onPress={() => {
+                      if (requestingSnooze) return;
+                      setRequestingSnooze(true);
+                      void (async () => {
+                        try {
+                          await snooze();
+                        } finally {
+                          setRequestingSnooze(false);
+                        }
+                      })();
+                    }}
+                    style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}
+                  >
+                    <Text style={[styles.skipText, { color: theme.textSecondary }]}>
+                      {requestingSnooze ? 'Snoozing...' : 'Snooze - give me 2 min'}
+                    </Text>
+                  </Pressable>
+                  <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
+                  <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
+                    <Text style={[styles.skipText, { color: theme.textSecondary }]}>Step away</Text>
+                  </Pressable>
+                </View>
               </>
             ) : (
               <>
@@ -394,7 +418,7 @@ export function ReadyGateOverlay({
                   </Text>
                 </View>
                 <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
-                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>Cancel & go back</Text>
+                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>Cancel & step away</Text>
                 </Pressable>
               </>
             )}
@@ -472,9 +496,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
   },
+  secondaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   skipText: {
     fontSize: 13,
   },
+  dot: { fontSize: 14 },
   waitingPill: {
     flexDirection: 'row',
     alignItems: 'center',
