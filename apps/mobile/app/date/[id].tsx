@@ -2813,11 +2813,11 @@ export default function VideoDateScreen() {
     }
   }, [eventId, sessionId]);
 
-  /** "Start Chatting" from celebration — go directly to the match chat when we have the id. */
-  const handleSurveyStartChatting = useCallback((matchId?: string) => {
-    if (matchId) {
-      const target = `/chat/${matchId}` as const;
-      vdbgRedirect(target, 'survey_start_chatting', { sessionId: sessionId ?? null, matchId });
+  /** "Start Chatting" from celebration — chat route is keyed by partner profile id. */
+  const handleSurveyStartChatting = useCallback((otherProfileId?: string) => {
+    if (otherProfileId) {
+      const target = `/chat/${otherProfileId}` as const;
+      vdbgRedirect(target, 'survey_start_chatting', { sessionId: sessionId ?? null, otherProfileId });
       router.replace(target);
     } else {
       handleSurveyMutualMatch();

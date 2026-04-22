@@ -304,7 +304,7 @@ export const PostDateSurvey = ({
       <MatchSuccessModal
         isOpen={true}
         onClose={() => setStep("highlights")}
-        onStartChatting={() => navigate("/chat")}
+        onStartChatting={() => navigate(`/chat/${partnerId}`)}
         matchData={celebrationData ? {
           name: partnerName,
           age: celebrationData.partnerAge,
