@@ -281,9 +281,10 @@ export default function VideoDateScreen() {
   const reconnectSyncCountRef = useRef(0);
   const reconnectSyncWindowStartedAtRef = useRef<number | null>(null);
   const requestReconnectSyncRef = useRef<(reason: string) => void>(() => {});
-  const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
+  const handleCallEndRef = useRef<((source?: 'local_end' | 'server_end') => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
+  const dateEstablishedRef = useRef(false);
   const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const keepVibePulse = useRef(new Animated.Value(1)).current;
   const topChromeAnim = useRef(new Animated.Value(1)).current;
@@ -487,6 +488,22 @@ export default function VideoDateScreen() {
 
   phaseRef.current = phase;
 
+  useEffect(() => {
+    if (!sessionId) {
+      dateEstablishedRef.current = false;
+      return;
+    }
+    if (
+      phase === 'date' ||
+      session?.state === 'date' ||
+      session?.phase === 'date' ||
+      !!session?.date_started_at ||
+      (localInDailyRoom && partnerEverJoined)
+    ) {
+      dateEstablishedRef.current = true;
+    }
+  }, [sessionId, phase, session?.state, session?.phase, session?.date_started_at, localInDailyRoom, partnerEverJoined]);
+
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
     setHandshakeGraceSecondsRemaining(null);
@@ -510,6 +527,7 @@ export default function VideoDateScreen() {
   useEffect(() => {
     setPartnerEverJoined(false);
     hasStartedJoinRef.current = false;
+    dateEstablishedRef.current = false;
     vdbg('prejoin_state_hasStartedJoinRef', {
       value: false,
       sessionId: sessionId ?? null,
@@ -1044,7 +1062,7 @@ export default function VideoDateScreen() {
     requestReconnectSyncRef.current('partner_marked_away');
   }, [sessionId, phase, partnerEverJoined]);
 
-  const leaveAndCleanup = useCallback(async () => {
+  const cleanupDailyAndLocalState = useCallback(async () => {
     clearHandshakeGraceState();
     clearFirstConnectWatchdog();
     const call = callRef.current;
@@ -1072,7 +1090,6 @@ export default function VideoDateScreen() {
       });
       roomNameRef.current = null;
     }
-    if (sessionId) await endVideoDate(sessionId);
     setLocalParticipant(null);
     setRemoteParticipant(null);
     vdbg('prejoin_state_localInDailyRoom', {
@@ -1119,15 +1136,39 @@ export default function VideoDateScreen() {
     clearHandshakeGraceState,
   ]);
 
-  const handleCallEnd = useCallback(async () => {
+  const cleanupForAbortWithoutServerEnd = useCallback(async () => {
+    await cleanupDailyAndLocalState();
+  }, [cleanupDailyAndLocalState]);
+
+  const cleanupForEstablishedDateEnd = useCallback(async () => {
+    await cleanupDailyAndLocalState();
+    if (sessionId) await endVideoDate(sessionId);
+  }, [cleanupDailyAndLocalState, sessionId]);
+
+  const handleCallEnd = useCallback(async (source: 'local_end' | 'server_end' = 'local_end') => {
+    const dateWasEstablished = dateEstablishedRef.current;
     if (sessionId && !videoDateEndedRef.current) {
       videoDateEndedRef.current = true;
       trackEvent('video_date_ended', { session_id: sessionId });
     }
-    Sentry.addBreadcrumb({ category: 'video-date', message: 'Call ended (user)', level: 'info', data: { sessionId } });
-    setShowFeedback(true);
-    await leaveAndCleanup();
-  }, [leaveAndCleanup, eventId, user?.id, sessionId]);
+    Sentry.addBreadcrumb({
+      category: 'video-date',
+      message: 'Call ended (user)',
+      level: 'info',
+      data: { sessionId, source, dateWasEstablished },
+    });
+    if (dateWasEstablished) {
+      setShowFeedback(true);
+      if (source === 'server_end') {
+        await cleanupForAbortWithoutServerEnd();
+      } else {
+        await cleanupForEstablishedDateEnd();
+      }
+      return;
+    }
+    setShowFeedback(false);
+    await cleanupForAbortWithoutServerEnd();
+  }, [cleanupForAbortWithoutServerEnd, cleanupForEstablishedDateEnd, sessionId]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -1146,7 +1187,7 @@ export default function VideoDateScreen() {
   }, []);
 
   const handleEndAfterInCallReport = useCallback(async () => {
-    await handleCallEnd();
+    await handleCallEnd('local_end');
   }, [handleCallEnd]);
 
   /** Foreground/background: trigger immediate reconnect syncs on app lifecycle transitions. */
@@ -1245,7 +1286,7 @@ export default function VideoDateScreen() {
           // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
           if (!reconnectEndedHandledRef.current && partnerEverJoinedRef.current) {
             reconnectEndedHandledRef.current = true;
-            void handleCallEndRef.current?.();
+            void handleCallEndRef.current?.('server_end');
           }
           setIsPartnerDisconnected(false);
           setIsTimerPaused(false);
@@ -1307,12 +1348,12 @@ export default function VideoDateScreen() {
 
   /** In-call / post-connect: end date, cleanup Daily, show PostDateSurvey (navigation from survey only). */
   const handleEndDateFromControls = useCallback(async () => {
-    await handleCallEnd();
+    await handleCallEnd('local_end');
   }, [handleCallEnd]);
 
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
   const handleAbortConnection = useCallback(async () => {
-    await leaveAndCleanup();
+    await cleanupForAbortWithoutServerEnd();
     if (eventId) {
       const target = eventLobbyHref(eventId);
       vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null, eventId });
@@ -1322,7 +1363,7 @@ export default function VideoDateScreen() {
       vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
       router.replace(target);
     }
-  }, [leaveAndCleanup, eventId, sessionId]);
+  }, [cleanupForAbortWithoutServerEnd, eventId, sessionId]);
 
   const handleUserVibe = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return false;
@@ -2482,12 +2523,9 @@ export default function VideoDateScreen() {
   useEffect(() => {
     if (phase !== 'ended' || !sessionId) return;
     clearHandshakeGraceState();
-    if (!partnerEverJoinedRef.current) return;
-    setShowFeedback(true);
-    if (callRef.current) {
-      void leaveAndCleanup();
-    }
-  }, [phase, sessionId, leaveAndCleanup, clearHandshakeGraceState]);
+    if (!dateEstablishedRef.current) return;
+    void handleCallEnd('server_end');
+  }, [phase, sessionId, handleCallEnd, clearHandshakeGraceState]);
 
   useEffect(() => {
     if (phase === 'date') {
@@ -2535,11 +2573,11 @@ export default function VideoDateScreen() {
                 return;
               } else {
                 clearHandshakeGraceState();
-                leaveAndCleanup().then(handleCallEnd);
+                handleCallEnd('local_end');
               }
             });
           } else {
-            handleCallEnd();
+            handleCallEnd('local_end');
           }
           return 0;
         }
@@ -2555,8 +2593,6 @@ export default function VideoDateScreen() {
     phase,
     isTimerPaused,
     sessionId,
-    eventId,
-    leaveAndCleanup,
     handleCallEnd,
     handshakeGraceSecondsRemaining,
     clearHandshakeGraceState,
@@ -2600,7 +2636,7 @@ export default function VideoDateScreen() {
           }
           if (result?.state === 'ended' || result?.already_ended) {
             clearHandshakeGraceState();
-            void leaveAndCleanup().then(handleCallEnd);
+            void handleCallEnd('server_end');
           }
         });
       }
@@ -2613,7 +2649,6 @@ export default function VideoDateScreen() {
     showFeedback,
     handshakeGraceExpiresAt,
     handshakeGraceSecondsRemaining,
-    leaveAndCleanup,
     handleCallEnd,
     clearHandshakeGraceState,
   ]);
