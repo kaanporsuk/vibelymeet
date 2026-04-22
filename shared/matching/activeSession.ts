@@ -11,17 +11,19 @@ export type ActiveSessionBase = {
   sessionId: string;
   eventId: string;
   partnerName?: string | null;
-  queueStatus: "in_handshake" | "in_date" | "in_ready_gate";
+  queueStatus: "in_handshake" | "in_date" | "in_survey" | "in_ready_gate";
 };
 
-/** Prefer in-date / handshake over ready gate when multiple rows exist (stale data guard). */
+/** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
 export function pickRegistrationForActiveSession<
   T extends { queue_status: string | null; current_room_id: string | null; event_id: string },
 >(regs: T[]): T | null {
   const list = regs ?? [];
   const withRoom = list.filter((r) => r.current_room_id);
   const video =
-    withRoom.find((r) => r.queue_status === "in_handshake" || r.queue_status === "in_date") ?? null;
+    withRoom.find(
+      (r) => r.queue_status === "in_handshake" || r.queue_status === "in_date" || r.queue_status === "in_survey"
+    ) ?? null;
   if (video) return video;
   return withRoom.find((r) => r.queue_status === "in_ready_gate") ?? null;
 }

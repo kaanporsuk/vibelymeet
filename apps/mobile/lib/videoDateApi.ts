@@ -15,6 +15,7 @@ export type VideoDateSession = {
   state?: string;
   phase?: string;
   ended_at: string | null;
+  ended_reason?: string | null;
   handshake_started_at: string | null;
   date_started_at: string | null;
   daily_room_name: string | null;
@@ -208,7 +209,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, handshake_started_at, handshake_grace_expires_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
+          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -295,6 +296,7 @@ export function useVideoDateSession(
               next.participant_2_joined_at = row.participant_2_joined_at as string | null;
             }
             if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
+            if (row.ended_reason !== undefined) next.ended_reason = row.ended_reason as string | null;
             if (row.state !== undefined) next.state = row.state as string;
             if (row.phase !== undefined) next.phase = row.phase as string;
             if (row.date_started_at !== undefined) next.date_started_at = row.date_started_at as string | null;
@@ -501,8 +503,10 @@ export async function enterHandshakeWithTimeout(
 /** Minimal `video_sessions` row for native route guards (stale ER vs backend truth). */
 export type VideoSessionDateEntryTruth = {
   ended_at: string | null;
+  ended_reason?: string | null;
   event_id: string | null;
   handshake_started_at: string | null;
+  date_started_at?: string | null;
   state: string | null;
   phase: string | null;
   ready_gate_status: string | null;
@@ -514,7 +518,7 @@ export async function fetchVideoSessionDateEntryTruth(
 ): Promise<VideoSessionDateEntryTruth | null> {
   const { data, error } = await supabase
     .from('video_sessions')
-    .select('ended_at, event_id, handshake_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
+    .select('ended_at, ended_reason, event_id, handshake_started_at, date_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
     .eq('id', sessionId)
     .maybeSingle();
   if (error || !data) return null;

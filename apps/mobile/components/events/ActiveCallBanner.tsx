@@ -18,7 +18,7 @@ type ActiveCallBannerProps = {
   /** video = in_handshake / in_date; ready_gate = still on Ready Gate */
   mode?: 'video' | 'ready_gate';
   onRejoin: () => void;
-  onEnd: () => void;
+  onEnd?: () => void;
 };
 
 export function ActiveCallBanner({
@@ -67,17 +67,19 @@ export function ActiveCallBanner({
             </View>
           </View>
           <View style={styles.actions}>
-            <Pressable
-              onPress={onEnd}
-              style={({ pressed }) => [
-                styles.endBtn,
-                { backgroundColor: withAlpha(theme.danger, 0.125) },
-                pressed && { opacity: 0.8 },
-              ]}
-              accessibilityLabel="End date"
-            >
-              <Ionicons name="close" size={18} color={theme.danger} />
-            </Pressable>
+            {onEnd ? (
+              <Pressable
+                onPress={onEnd}
+                style={({ pressed }) => [
+                  styles.endBtn,
+                  { backgroundColor: withAlpha(theme.danger, 0.125) },
+                  pressed && { opacity: 0.8 },
+                ]}
+                accessibilityLabel="End date"
+              >
+                <Ionicons name="close" size={18} color={theme.danger} />
+              </Pressable>
+            ) : null}
             <VibelyButton
               label={mode === 'ready_gate' ? 'Continue' : 'Rejoin'}
               onPress={onRejoin}

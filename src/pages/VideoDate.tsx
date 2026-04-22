@@ -239,6 +239,43 @@ const VideoDate = () => {
     phaseRef.current = phase;
   }, [phase]);
 
+  useEffect(() => {
+    if (!id || !user?.id || showFeedback || phase !== "ended") return;
+    let cancelled = false;
+    void (async () => {
+      const [{ data: reg }, { data: sessionRow }, { data: verdict }] = await Promise.all([
+        supabase
+          .from("event_registrations")
+          .select("queue_status")
+          .eq("profile_id", user.id)
+          .eq("current_room_id", id)
+          .maybeSingle(),
+        supabase
+          .from("video_sessions")
+          .select("ended_reason, date_started_at")
+          .eq("id", id)
+          .maybeSingle(),
+        supabase
+          .from("date_feedback")
+          .select("id")
+          .eq("session_id", id)
+          .eq("user_id", user.id)
+          .maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const reconnectExpiredSurveyDue =
+        ((sessionRow as { ended_reason?: string | null } | null)?.ended_reason === "reconnect_grace_expired") &&
+        Boolean((sessionRow as { date_started_at?: string | null } | null)?.date_started_at) &&
+        !verdict;
+      if (reg?.queue_status === "in_survey" || reconnectExpiredSurveyDue) {
+        openPostDateSurvey("ended_phase_hydration_recovery");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, user?.id, showFeedback, phase, openPostDateSurvey]);
+
   useLayoutEffect(() => {
     if (!id) return;
     markVideoDateEntryPipelineStarted(id);
@@ -296,7 +333,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -335,9 +372,31 @@ const VideoDate = () => {
           return;
         }
 
+        const { data: reg } = await supabase
+          .from("event_registrations")
+          .select("queue_status")
+          .eq("event_id", sessionRow.event_id)
+          .eq("profile_id", user.id)
+          .maybeSingle();
+
+        if (cancelled) return;
+
         if (videoSessionIndicatesTerminalEnd(sessionRow)) {
+          const { data: verdict } = await supabase
+            .from("date_feedback")
+            .select("id")
+            .eq("session_id", id)
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (cancelled) return;
           const shouldOpenSurvey =
             hasEnteredDateFlowRef.current ||
+            reg?.queue_status === "in_survey" ||
+            (
+              (sessionRow as { ended_reason?: string | null }).ended_reason === "reconnect_grace_expired" &&
+              Boolean(sessionRow.date_started_at) &&
+              !verdict
+            ) ||
             sessionRow.state === "date" ||
             sessionRow.phase === "date" ||
             Boolean(sessionRow.date_started_at);
@@ -359,15 +418,6 @@ const VideoDate = () => {
           }
           return;
         }
-
-        const { data: reg } = await supabase
-          .from("event_registrations")
-          .select("queue_status")
-          .eq("event_id", sessionRow.event_id)
-          .eq("profile_id", user.id)
-          .maybeSingle();
-
-        if (cancelled) return;
 
         if (reg?.queue_status === "in_ready_gate" && sessionIsDateCapable) {
           vdbg("date_guard_ready_gate_stale_registration_ignored", {

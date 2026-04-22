@@ -509,7 +509,7 @@ const Dashboard = () => {
                     ? navigate(`/event/${activeSession.eventId}/lobby`)
                     : navigate(`/date/${activeSession.sessionId}`)
                 }
-                onEnd={async () => {
+                onEnd={activeSession.kind === "video" && activeSession.queueStatus === "in_survey" ? undefined : async () => {
                   if (activeSession.kind === "ready_gate") {
                     await supabase.rpc("ready_gate_transition", {
                       p_session_id: activeSession.sessionId,
@@ -570,7 +570,9 @@ const Dashboard = () => {
                   if (
                     activeSession &&
                     activeSession.kind === "video" &&
-                    (activeSession.queueStatus === "in_handshake" || activeSession.queueStatus === "in_date")
+                    (activeSession.queueStatus === "in_handshake" ||
+                      activeSession.queueStatus === "in_date" ||
+                      activeSession.queueStatus === "in_survey")
                   ) {
                     navigate(`/date/${activeSession.sessionId}`);
                     return;
