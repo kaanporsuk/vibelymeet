@@ -48,10 +48,40 @@ import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'events_attended';
 type SortDirection = 'asc' | 'desc';
+type GenderBucket = 'all' | 'man' | 'woman' | 'non-binary' | 'other';
+
+const MAN_GENDER_VALUES = ['man', 'male'] as const;
+const WOMAN_GENDER_VALUES = ['woman', 'female'] as const;
+const NON_BINARY_GENDER_VALUES = ['non-binary', 'non_binary'] as const;
+
+const getGenderBucket = (gender?: string | null): Exclude<GenderBucket, 'all'> => {
+  const value = gender?.trim().toLowerCase();
+  if (!value) return 'other';
+  if (MAN_GENDER_VALUES.includes(value as (typeof MAN_GENDER_VALUES)[number])) return 'man';
+  if (WOMAN_GENDER_VALUES.includes(value as (typeof WOMAN_GENDER_VALUES)[number])) return 'woman';
+  if (NON_BINARY_GENDER_VALUES.includes(value as (typeof NON_BINARY_GENDER_VALUES)[number])) return 'non-binary';
+  return 'other';
+};
+
+const getGenderBadgeLabel = (gender?: string | null): string => {
+  const bucket = getGenderBucket(gender);
+  if (bucket === 'man') return 'Man';
+  if (bucket === 'woman') return 'Woman';
+  if (bucket === 'non-binary') return 'Non-binary';
+  return 'Other';
+};
+
+const getGenderBadgeClassName = (gender?: string | null): string => {
+  const bucket = getGenderBucket(gender);
+  if (bucket === 'man') return 'bg-blue-500/10 text-blue-400 border-blue-500/30';
+  if (bucket === 'woman') return 'bg-pink-500/10 text-pink-400 border-pink-500/30';
+  if (bucket === 'non-binary') return 'bg-purple-500/10 text-purple-400 border-purple-500/30';
+  return 'bg-slate-500/10 text-slate-300 border-slate-500/30';
+};
 
 const AdminUsersPanel = () => {
   const [searchQuery, setSearchQuery] = useState("");
-  const [genderFilter, setGenderFilter] = useState<string>("all");
+  const [genderFilter, setGenderFilter] = useState<GenderBucket>("all");
   const [verificationFilter, setVerificationFilter] = useState<string>("all");
   const [lookingForFilter, setLookingForFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>('created_at');
@@ -88,8 +118,12 @@ const AdminUsersPanel = () => {
         `)
         .order(sortField, { ascending: sortDirection === 'asc' });
 
-      if (genderFilter !== 'all') {
-        query = query.eq('gender', genderFilter);
+      if (genderFilter === 'man') {
+        query = query.in('gender', [...MAN_GENDER_VALUES]);
+      } else if (genderFilter === 'woman') {
+        query = query.in('gender', [...WOMAN_GENDER_VALUES]);
+      } else if (genderFilter === 'non-binary') {
+        query = query.in('gender', [...NON_BINARY_GENDER_VALUES]);
       }
 
       if (verificationFilter === 'verified') {
@@ -113,7 +147,12 @@ const AdminUsersPanel = () => {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data || [];
+      const rows = data || [];
+      if (genderFilter === 'other') {
+        // Keep this bucket local to avoid stacking multiple PostgREST `or(...)` clauses.
+        return rows.filter((row) => getGenderBucket(row.gender) === 'other');
+      }
+      return rows;
     },
   });
 
@@ -195,16 +234,19 @@ const AdminUsersPanel = () => {
                 className="pl-11 bg-secondary/50"
               />
             </div>
-            <Select value={genderFilter} onValueChange={setGenderFilter}>
+            <Select
+              value={genderFilter}
+              onValueChange={(value) => setGenderFilter(value as GenderBucket)}
+            >
               <SelectTrigger className="w-full md:w-[150px] bg-secondary/50">
                 <SelectValue placeholder="Gender" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Genders</SelectItem>
-                <SelectItem value="male">Male</SelectItem>
-                <SelectItem value="female">Female</SelectItem>
-                <SelectItem value="non_binary">Non-Binary</SelectItem>
-                <SelectItem value="prefer_not_to_say">Other</SelectItem>
+                <SelectItem value="man">Man</SelectItem>
+                <SelectItem value="woman">Woman</SelectItem>
+                <SelectItem value="non-binary">Non-binary</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
               </SelectContent>
             </Select>
             <Select value={verificationFilter} onValueChange={setVerificationFilter}>
@@ -366,15 +408,9 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <Badge 
                         variant="outline" 
-                        className={
-                          user.gender === 'male' 
-                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' 
-                            : user.gender === 'female'
-                            ? 'bg-pink-500/10 text-pink-400 border-pink-500/30'
-                            : 'bg-purple-500/10 text-purple-400 border-purple-500/30'
-                        }
+                        className={getGenderBadgeClassName(user.gender)}
                       >
-                        {user.gender}
+                        {getGenderBadgeLabel(user.gender)}
                       </Badge>
                     </TableCell>
                     <TableCell>{user.age}</TableCell>
