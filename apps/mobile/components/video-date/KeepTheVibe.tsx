@@ -7,11 +7,12 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import type { VideoDateExtendOutcome } from '@clientShared/matching/videoDateExtensionSpend';
 
 type Props = {
   extraTimeCredits: number;
   extendedVibeCredits: number;
-  onExtend: (minutes: number, type: 'extra_time' | 'extended_vibe') => Promise<boolean>;
+  onExtend: (minutes: number, type: 'extra_time' | 'extended_vibe') => Promise<VideoDateExtendOutcome>;
   isExtending?: boolean;
   onGetCredits?: () => void;
 };

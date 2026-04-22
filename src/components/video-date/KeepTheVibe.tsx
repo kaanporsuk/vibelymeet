@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Clock, Sparkles } from "lucide-react";
+import { Clock, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import type { VideoDateExtendOutcome } from "@clientShared/matching/videoDateExtensionSpend";
 
 interface KeepTheVibeProps {
   extraTimeCredits: number;
   extendedVibeCredits: number;
-  onExtend: (minutes: number, type: "extra_time" | "extended_vibe") => Promise<boolean>;
+  onExtend: (minutes: number, type: "extra_time" | "extended_vibe") => Promise<VideoDateExtendOutcome>;
 }
 
 export const KeepTheVibe = ({
@@ -21,11 +22,13 @@ export const KeepTheVibe = ({
     if (isExtending) return;
     setIsExtending(true);
 
-    const success = await onExtend(minutes, type);
-    if (success) {
-      toast.success(`${minutes} extra minutes added! 🎉`, { duration: 2500 });
-    } else {
-      toast.error("Failed to extend. Try again.");
+    const outcome = await onExtend(minutes, type);
+    if (outcome.ok === true) {
+      toast.success(`${outcome.minutesAdded} extra minutes added!`, { duration: 2500 });
+    } else if (outcome.ok === false) {
+      if (!outcome.silent && outcome.userMessage) {
+        toast.error(outcome.userMessage);
+      }
     }
 
     setIsExtending(false);
@@ -52,7 +55,11 @@ export const KeepTheVibe = ({
                 aria-label={`Add 2 minutes with Extra Time credit, ${extraTimeCredits} remaining`}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
-                <Clock className="w-3 h-3 text-primary" />
+                {isExtending ? (
+                  <Loader2 className="w-3 h-3 text-primary animate-spin" aria-hidden />
+                ) : (
+                  <Clock className="w-3 h-3 text-primary" />
+                )}
                 +2 min
                 <span className="text-muted-foreground">({extraTimeCredits})</span>
               </motion.button>
@@ -71,7 +78,11 @@ export const KeepTheVibe = ({
                 onClick={() => handleExtend(5, "extended_vibe")}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-white/10 text-xs font-medium text-foreground hover:bg-card/90 transition-colors disabled:opacity-50"
               >
-                <Sparkles className="w-3 h-3 text-accent" />
+                {isExtending ? (
+                  <Loader2 className="w-3 h-3 text-accent animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="w-3 h-3 text-accent" />
+                )}
                 +5 min
                 <span className="text-muted-foreground">({extendedVibeCredits})</span>
               </motion.button>
@@ -91,9 +102,9 @@ export const KeepTheVibe = ({
             className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-card/70 backdrop-blur-md border border-primary/30 text-xs font-medium text-foreground hover:bg-card/90 transition-colors"
           >
             <Sparkles className="w-3 h-3 text-primary" />
-            ⚡ Get Credits
+            Get Credits
           </motion.button>
-          <span className="text-[9px] text-muted-foreground text-center">Opens in new tab — date continues</span>
+          <span className="text-[9px] text-muted-foreground text-center">Opens in a new tab — your date continues</span>
         </div>
       )}
     </motion.div>
