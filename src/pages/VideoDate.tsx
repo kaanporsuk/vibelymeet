@@ -39,6 +39,11 @@ import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
 } from "@shared/matching/videoDateDiagnostics";
+import {
+  parseSpendVideoDateCreditExtensionPayload,
+  userMessageForExtensionSpendFailure,
+  type VideoDateExtendOutcome,
+} from "@clientShared/matching/videoDateExtensionSpend";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -160,6 +165,7 @@ const VideoDate = () => {
   const hasEnteredDateFlowRef = useRef(false);
   const surveyOpenedRef = useRef(false);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
+  const extensionSpendInFlightRef = useRef(false);
 
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
@@ -1184,22 +1190,37 @@ const VideoDate = () => {
   }, [id, clearHandshakeGraceState, markDateFlowEntered]);
 
   const handleExtend = useCallback(
-    async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
-      if (!id) return false;
-      const { data, error } = await supabase.rpc("spend_video_date_credit_extension", {
-        p_session_id: id,
-        p_credit_type: type,
-      });
-      const row = data as { success?: boolean; error?: string } | null;
-      if (error || !row?.success) {
-        if (error) captureSupabaseError("spend_video_date_credit_extension", error);
-        return false;
+    async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<VideoDateExtendOutcome> => {
+      if (extensionSpendInFlightRef.current) {
+        return { ok: false, userMessage: "", silent: true };
       }
-      Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
-      trackEvent("credit_used", { type, minutes });
-      setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
-      void refetchCredits();
-      return true;
+      if (!id) {
+        return { ok: false, userMessage: userMessageForExtensionSpendFailure("session_not_found") };
+      }
+      extensionSpendInFlightRef.current = true;
+      try {
+        const { data, error } = await supabase.rpc("spend_video_date_credit_extension", {
+          p_session_id: id,
+          p_credit_type: type,
+        });
+        if (error) {
+          captureSupabaseError("spend_video_date_credit_extension", error);
+          void refetchCredits();
+          return { ok: false, userMessage: userMessageForExtensionSpendFailure("rpc_transport") };
+        }
+        const parsed = parseSpendVideoDateCreditExtensionPayload(data);
+        if (parsed.success === false) {
+          void refetchCredits();
+          return { ok: false, userMessage: userMessageForExtensionSpendFailure(parsed.error) };
+        }
+        Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
+        trackEvent("credit_used", { type, minutes });
+        setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+        void refetchCredits();
+        return { ok: true, minutesAdded: minutes };
+      } finally {
+        extensionSpendInFlightRef.current = false;
+      }
     },
     [id, refetchCredits]
   );

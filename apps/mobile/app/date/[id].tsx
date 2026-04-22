@@ -53,6 +53,10 @@ import {
   markVideoDateDailyJoined,
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
+import {
+  userMessageForExtensionSpendFailure,
+  type VideoDateExtendOutcome,
+} from '@clientShared/matching/videoDateExtensionSpend';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
@@ -255,7 +259,9 @@ export default function VideoDateScreen() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [showMutualToast, setShowMutualToast] = useState(false);
   /** Ephemeral feedback after +2 / +5 min credit (web: sonner toasts). */
-  const [extendBanner, setExtendBanner] = useState<{ kind: 'success' | 'error'; minutes?: number } | null>(null);
+  const [extendBanner, setExtendBanner] = useState<
+    { kind: 'success'; minutes: number } | { kind: 'error'; message: string } | null
+  >(null);
   const [blurIntensity, setBlurIntensity] = useState(80);
   const [credits, setCredits] = useState({ extraTime: 0, extendedVibe: 0 });
   const [isExtending, setIsExtending] = useState(false);
@@ -271,6 +277,7 @@ export default function VideoDateScreen() {
   const roomNameRef = useRef<string | null>(null);
   const hasStartedJoinRef = useRef(false);
   const phaseRef = useRef(phase);
+  const extensionSpendInFlightRef = useRef(false);
   /** True once we have ever observed a remote Daily participant (survives transient participant-left). */
   const [partnerEverJoined, setPartnerEverJoined] = useState(false);
   const prevLocalInDailyRef = useRef(false);
@@ -1507,32 +1514,38 @@ export default function VideoDateScreen() {
   }, [credits.extraTime, credits.extendedVibe, focusKeepTheVibeAddTime]);
 
   const handleExtend = useCallback(
-    async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<boolean> => {
-      if (!user?.id) return false;
+    async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<VideoDateExtendOutcome> => {
+      if (!user?.id) {
+        return { ok: false, userMessage: userMessageForExtensionSpendFailure('unauthorized') };
+      }
+      if (extensionSpendInFlightRef.current) {
+        return { ok: false, userMessage: '', silent: true };
+      }
+      extensionSpendInFlightRef.current = true;
       setIsExtending(true);
       setExtendBanner(null);
-      let ok = false;
       try {
-        ok = sessionId ? await spendVideoDateCreditExtension(sessionId, type) : false;
-        if (ok) {
-          if (sessionId) {
-            trackEvent('video_date_extended', { session_id: sessionId });
-            trackEvent('credit_used', { type, minutes });
-          }
-          setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
-          setCredits((c) =>
-            type === 'extra_time'
-              ? { ...c, extraTime: Math.max(0, c.extraTime - 1) }
-              : { ...c, extendedVibe: Math.max(0, c.extendedVibe - 1) }
-          );
-          setExtendBanner({ kind: 'success', minutes });
-        } else {
-          setExtendBanner({ kind: 'error' });
+        if (!sessionId) {
+          const msg = userMessageForExtensionSpendFailure('session_not_found');
+          setExtendBanner({ kind: 'error', message: msg });
+          return { ok: false, userMessage: msg };
         }
+        const result = await spendVideoDateCreditExtension(sessionId, type);
+        void fetchUserCredits(user.id).then(setCredits);
+        if (result.ok) {
+          trackEvent('video_date_extended', { session_id: sessionId });
+          trackEvent('credit_used', { type, minutes });
+          setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+          setExtendBanner({ kind: 'success', minutes });
+          return { ok: true, minutesAdded: minutes };
+        }
+        const msg = userMessageForExtensionSpendFailure(result.error);
+        setExtendBanner({ kind: 'error', message: msg });
+        return { ok: false, userMessage: msg };
       } finally {
+        extensionSpendInFlightRef.current = false;
         setIsExtending(false);
       }
-      return ok;
     },
     [user?.id, sessionId]
   );
@@ -3358,9 +3371,7 @@ export default function VideoDateScreen() {
           ]}
           accessibilityLiveRegion="assertive"
         >
-          <Text style={[styles.extendBannerText, { color: theme.text }]}>
-            Couldn't add time. Try again.
-          </Text>
+          <Text style={[styles.extendBannerText, { color: theme.text }]}>{extendBanner.message}</Text>
         </View>
       ) : null}
 

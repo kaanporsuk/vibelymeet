@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
+import { parseSpendVideoDateCreditExtensionPayload } from '@clientShared/matching/videoDateExtensionSpend';
 
 export type VideoDateSession = {
   id: string;
@@ -1019,18 +1020,27 @@ export async function deductCredit(userId: string, creditType: 'extra_time' | 'e
   return !error && data === true;
 }
 
+export type SpendVideoDateCreditExtensionResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 /** Atomic credit spend + server budget for date phase (parity with web VideoDate). */
 export async function spendVideoDateCreditExtension(
   sessionId: string,
   creditType: 'extra_time' | 'extended_vibe'
-): Promise<boolean> {
+): Promise<SpendVideoDateCreditExtensionResult> {
   const { data, error } = await supabase.rpc('spend_video_date_credit_extension', {
     p_session_id: sessionId,
     p_credit_type: creditType,
   });
-  if (error) return false;
-  const row = data as { success?: boolean } | null;
-  return row?.success === true;
+  if (error) {
+    return { ok: false, error: 'rpc_transport' };
+  }
+  const parsed = parseSpendVideoDateCreditExtensionPayload(data);
+  if (parsed.success) {
+    return { ok: true };
+  }
+  return { ok: false, error: parsed.error };
 }
 
 export { HANDSHAKE_SECONDS, DATE_SECONDS };
