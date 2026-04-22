@@ -53,6 +53,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
+import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -120,7 +121,12 @@ const AdminReportsPanel = () => {
 
       const profileMap: Record<string, any> = {};
       for (const p of data || []) {
-        const resolvedAvatar = avatarPreset(p.avatar_url || p.photos?.[0]);
+        const resolvedAvatar = avatarPreset(
+          resolvePrimaryProfilePhotoPath({
+            photos: p.photos,
+            avatar_url: p.avatar_url,
+          }),
+        );
         profileMap[p.id] = { ...p, avatarUrl: resolvedAvatar };
       }
       return profileMap;

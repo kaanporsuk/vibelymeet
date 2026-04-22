@@ -4,6 +4,7 @@ import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
+import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 
 export type { ThreadInvalidateScope };
 
@@ -100,7 +101,15 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
 
       return {
         matchId: match.id,
-        otherUser,
+        otherUser: otherUser
+          ? {
+              ...otherUser,
+              avatar_url: resolvePrimaryProfilePhotoPath({
+                photos: otherUser.photos,
+                avatar_url: otherUser.avatar_url,
+              }),
+            }
+          : null,
         messages: collapsedRows.map((row) => {
           return {
             id: row.id,

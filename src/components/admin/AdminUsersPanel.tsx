@@ -45,6 +45,7 @@ import { format } from "date-fns";
 import { getRelationshipIntentAliases, getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
+import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'events_attended';
 type SortDirection = 'asc' | 'desc';
@@ -161,7 +162,10 @@ const AdminUsersPanel = () => {
     if (!users?.length) return;
     const resolved: Record<string, string> = {};
     for (const user of users) {
-      const raw = user.avatar_url || user.photos?.[0];
+      const raw = resolvePrimaryProfilePhotoPath({
+        photos: user.photos,
+        avatar_url: user.avatar_url,
+      });
       if (raw) resolved[user.id] = avatarPreset(raw);
     }
     setRefreshedAvatars(resolved);
@@ -375,7 +379,17 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10 border-2 border-border">
-                          <AvatarImage src={refreshedAvatars[user.id] || avatarPreset(user.avatar_url) || avatarPreset(user.photos?.[0])} />
+                          <AvatarImage
+                            src={
+                              refreshedAvatars[user.id] ||
+                              avatarPreset(
+                                resolvePrimaryProfilePhotoPath({
+                                  photos: user.photos,
+                                  avatar_url: user.avatar_url,
+                                }),
+                              )
+                            }
+                          />
                           <AvatarFallback className="bg-primary/20 text-primary">
                             {user.name?.[0]?.toUpperCase() || 'U'}
                           </AvatarFallback>

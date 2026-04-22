@@ -66,6 +66,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 import { deriveEventPhase, getCountdownParts } from '@/lib/eventPhase';
+import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -541,7 +542,10 @@ export default function DashboardScreen() {
 
   const subline = getSubline();
 
-  const avatarUri = profile?.avatar_url ?? profile?.photos?.[0] ?? null;
+  const avatarUri = resolvePrimaryProfilePhotoPath({
+    photos: profile?.photos,
+    avatar_url: profile?.avatar_url,
+  });
 
   function HeroBanner() {
     if (loading && !nextEvent) {

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from '@tansta
 import { useEffect, useCallback, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { avatarUrl } from '@/lib/imageUrl';
+import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
 import {
@@ -203,7 +204,10 @@ export function useMatches(userId: string | null | undefined) {
         const otherId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
         const profile = profiles.find((p) => p.id === otherId);
         const lastMsg = lastMessages[match.id];
-        const photo = profile?.photos?.[0] || profile?.avatar_url || '';
+        const photo = resolvePrimaryProfilePhotoPath({
+          photos: profile?.photos,
+          avatar_url: profile?.avatar_url,
+        });
         const matchedAt = match.matched_at ? new Date(match.matched_at).getTime() : 0;
         const isNew = Date.now() - matchedAt < ONE_DAY_MS;
         const eventId = (match as { event_id?: string | null }).event_id;
@@ -325,7 +329,10 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
             id: otherRow.id,
             name: otherRow.name ?? 'Unknown',
             age: otherRow.age ?? 0,
-            avatar_url: otherRow.avatar_url ?? null,
+            avatar_url: resolvePrimaryProfilePhotoPath({
+              photos: otherRow.photos,
+              avatar_url: otherRow.avatar_url,
+            }),
             photos: otherRow.photos ?? null,
             last_seen_at: otherRow.last_seen_at ?? null,
           }

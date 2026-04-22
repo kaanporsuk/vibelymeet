@@ -4,7 +4,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { resolvePhotoUrl } from "@/lib/photoUtils";
 import {
   Send,
   Film,
@@ -83,6 +82,8 @@ import { useMatchCall } from "@/hooks/useMatchCall";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 import { format } from "date-fns";
 import { buildThreadPresentationRows } from "../../shared/chat/threadPresentation";
+import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
+import { avatarUrl, getImageUrl } from "@/utils/imageUrl";
 
 type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
@@ -275,9 +276,13 @@ const Chat = () => {
     matchId: chatData?.matchId || null,
     partnerUserId: chatData?.otherUser?.id ?? id ?? null,
     partnerName: chatData?.otherUser?.name ?? "Your match",
-    partnerAvatar: chatData?.otherUser?.avatar_url
-      ? resolvePhotoUrl(chatData.otherUser.avatar_url)
-      : null,
+    partnerAvatar: (() => {
+      const primaryPath = resolvePrimaryProfilePhotoPath({
+        photos: chatData?.otherUser?.photos,
+        avatar_url: chatData?.otherUser?.avatar_url,
+      });
+      return primaryPath ? avatarUrl(primaryPath) : null;
+    })(),
     onCallEnded: () => {},
   });
 
@@ -354,7 +359,11 @@ const Chat = () => {
       const now = new Date();
       const diffMinutes = lastSeenAt ? (now.getTime() - lastSeenAt.getTime()) / 60000 : Infinity;
 
-      const resolvedAvatar = resolvePhotoUrl(ou.photos?.[0]) || resolvePhotoUrl(ou.avatar_url) || "/placeholder.svg";
+      const primaryPhotoPath = resolvePrimaryProfilePhotoPath({
+        photos: ou.photos,
+        avatar_url: ou.avatar_url,
+      });
+      const resolvedAvatar = primaryPhotoPath ? avatarUrl(primaryPhotoPath) : "/placeholder.svg";
 
       return {
         id: ou.id,
@@ -362,7 +371,7 @@ const Chat = () => {
         age: ou.age || 0,
         avatar_url: resolvedAvatar,
         photos: Array.isArray(ou.photos)
-          ? ou.photos.map((p) => resolvePhotoUrl(typeof p === "string" ? p : "")).filter(Boolean) as string[]
+          ? ou.photos.map((p) => getImageUrl(typeof p === "string" ? p : "")).filter(Boolean) as string[]
           : [],
         vibes: [] as string[],
         isOnline: diffMinutes <= 5,
@@ -1231,7 +1240,7 @@ const Chat = () => {
           >
             {otherUser.avatar_url && (
               <img
-                src={resolvePhotoUrl(otherUser.avatar_url) || ''}
+                src={otherUser.avatar_url || ''}
                 alt={otherUser.name}
                 className="w-16 h-16 rounded-full object-cover mb-3 border-2 border-primary/30"
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}

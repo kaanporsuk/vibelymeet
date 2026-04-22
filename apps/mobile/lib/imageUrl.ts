@@ -33,15 +33,34 @@ export type PhotoTraceLabel = 'avatar' | 'profile_photo' | 'event_image';
 
 const tracedLabels = __DEV__ ? new Set<PhotoTraceLabel>() : null;
 
+function normalizeImagePath(path: string | null | undefined): string | null {
+  if (typeof path !== 'string') return null;
+  let out = path.trim();
+  if (!out) return null;
+
+  while (
+    out.length >= 2 &&
+    ((out.startsWith('"') && out.endsWith('"')) ||
+      (out.startsWith("'") && out.endsWith("'")))
+  ) {
+    out = out.slice(1, -1).trim();
+  }
+  if (!out) return null;
+
+  if (out.startsWith('//')) return `https:${out}`;
+  if (out.startsWith('/')) out = out.replace(/^\/+/, '');
+  return out || null;
+}
+
 export function getImageUrl(
   path: string | null | undefined,
   opts?: { width?: number; height?: number; quality?: number; crop?: 'center' | 'top' | 'bottom' },
   traceLabel?: PhotoTraceLabel
 ): string {
-  if (!path || path.trim() === '') {
+  const p = normalizeImagePath(path);
+  if (!p) {
     return PLACEHOLDER;
   }
-  const p = path.trim();
   if (p.includes('supabase.co') || p.includes('supabase.in')) return p;
   if (p.startsWith('http://') || p.startsWith('https://') || p.startsWith('data:')) return p;
   if (p.startsWith('photos/')) {

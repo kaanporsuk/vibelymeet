@@ -25,6 +25,7 @@ import {
   formatCountdownToNextDailyDropBatchUtc,
 } from '@/lib/dailyDropSchedule';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 
 const OPENER_MAX = 140;
 
@@ -226,12 +227,18 @@ export default function DailyDropScreen() {
     );
   }
 
-  const photo = partner?.photos?.[0] ?? partner?.avatar_url ?? '';
+  const photo = resolvePrimaryProfilePhotoPath({
+    photos: partner?.photos,
+    avatar_url: partner?.avatar_url,
+  }) ?? '';
   const timerMins = Math.floor(timeRemaining / 60);
   const timerSecs = timeRemaining % 60;
 
   if (showReveal) {
-    const partnerPhoto = partner?.avatar_url ?? partner?.photos?.[0];
+    const partnerPhoto = resolvePrimaryProfilePhotoPath({
+      photos: partner?.photos,
+      avatar_url: partner?.avatar_url,
+    });
     return (
       <>
         <View style={[styles.container, { backgroundColor: theme.background }]}>

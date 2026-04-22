@@ -50,6 +50,7 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
+import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
@@ -431,7 +432,10 @@ export default function EventLobbyScreen() {
       if (profile) {
         setActiveSessionPartnerName((profile as { name?: string }).name ?? null);
         const p = profile as { avatar_url?: string; photos?: string[] };
-        const img = p.avatar_url ?? p.photos?.[0];
+        const img = resolvePrimaryProfilePhotoPath({
+          photos: p.photos,
+          avatar_url: p.avatar_url,
+        });
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
       }
     },
@@ -1059,7 +1063,10 @@ export default function EventLobbyScreen() {
         });
         setActiveSessionId(videoSessionId);
         setActiveSessionPartnerName(current?.name ?? null);
-        const img = current?.avatar_url ?? current?.photos?.[0];
+        const img = resolvePrimaryProfilePhotoPath({
+          photos: current?.photos,
+          avatar_url: current?.avatar_url,
+        });
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
         refetchDeck();
       }
@@ -1503,7 +1510,10 @@ function LobbyProfileCard({
     })();
   }, [profile.id, isBehind]);
 
-  const photo = profile.avatar_url ?? profile.photos?.[0];
+  const photo = resolvePrimaryProfilePhotoPath({
+    photos: profile.photos,
+    avatar_url: profile.avatar_url,
+  });
   const uri = photo ? deckCardUrl(photo) : '';
   const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
   const sharedCount = profile.shared_vibe_count;

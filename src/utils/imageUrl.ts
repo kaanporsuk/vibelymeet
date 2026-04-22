@@ -19,13 +19,37 @@ interface ImageUrlOptions {
   crop?: "center" | "top" | "bottom" | "left" | "right";
 }
 
+function normalizeImagePath(path: string | null | undefined): string | null {
+  if (typeof path !== "string") return null;
+  let out = path.trim();
+  if (!out) return null;
+
+  while (
+    out.length >= 2 &&
+    ((out.startsWith('"') && out.endsWith('"')) ||
+      (out.startsWith("'") && out.endsWith("'")))
+  ) {
+    out = out.slice(1, -1).trim();
+  }
+  if (!out) return null;
+
+  // Protocol-relative URLs should be treated as already resolved URLs.
+  if (out.startsWith("//")) return `https:${out}`;
+
+  // Tolerate leading slash variants like "/photos/..." or "/bucket/path.jpg".
+  if (out.startsWith("/")) {
+    out = out.replace(/^\/+/, "");
+  }
+
+  return out || null;
+}
+
 export function getImageUrl(
   path: string | null | undefined,
   opts?: ImageUrlOptions
 ): string {
-  if (!path || path.trim() === "") return PLACEHOLDER;
-
-  const p = path.trim();
+  const p = normalizeImagePath(path);
+  if (!p) return PLACEHOLDER;
 
   // Already a full Supabase URL (signed or public) — serve directly
   if (p.includes("supabase.co") || p.includes("supabase.in")) {
