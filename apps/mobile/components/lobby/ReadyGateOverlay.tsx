@@ -138,10 +138,7 @@ export function ReadyGateOverlay({
       await updateParticipantStatus(eventId, 'browsing');
       show({
         title: _reason === 'timeout' ? "They weren't ready" : 'No worries',
-        message:
-          _reason === 'timeout'
-            ? 'Back to browsing — your deck is waiting.'
-            : 'Back to browsing 💚',
+        message: _reason === 'timeout' ? 'Back to browsing — your deck is waiting.' : 'Back to browsing 💚',
         variant: 'info',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
@@ -295,6 +292,9 @@ export function ReadyGateOverlay({
             <ActivityIndicator size="large" color={theme.tint} />
             <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>
               Joining your date...
+            </Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary, marginTop: spacing.sm, marginBottom: 0 }]}>
+              This should only take a moment.
             </Text>
           </Card>
         ) : (

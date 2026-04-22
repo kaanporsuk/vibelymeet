@@ -816,7 +816,7 @@ const EventLobby = () => {
             <p className="text-sm text-white/55 mt-2">
               {yieldingToVideoDateUi
                 ? "Taking you to the same video session as your match."
-                : "Syncing with your match."}
+                : "Syncing with your match. Almost there."}
             </p>
           </div>
         ) : user?.isPaused ? (
@@ -871,7 +871,7 @@ const EventLobby = () => {
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full gap-4">
             <p className="text-lg font-display font-semibold text-white">Couldn&apos;t load deck</p>
             <p className="text-sm text-white/55">
-              Check your connection and try again. People in the room couldn&apos;t be loaded.
+              We couldn&apos;t load people in this room. Check your connection and tap Retry.
             </p>
             <Button
               type="button"

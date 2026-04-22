@@ -115,12 +115,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       readyGateDebug("terminal ready-gate close", { sessionId, reason });
       logJourney("ready_gate_forfeited", { reason }, `ready_gate_forfeited_${reason}`);
       setStatus("browsing");
-      toast(
-        reason === "timeout"
-          ? "They weren't ready — back to browsing!"
-          : "No worries! Back to browsing 💚",
-        { duration: 2500 }
-      );
+      toast(reason === "timeout" ? "They weren't ready. Back to browsing — your deck is waiting." : "No worries — back to browsing 💚", {
+        duration: 2500,
+      });
       onClose();
     },
     [setStatus, onClose, sessionId]
@@ -604,10 +601,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
                     />
                   </svg>
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
-                    <span className="text-sm font-display font-bold text-primary-foreground text-center leading-tight">
-                      {markingReady ? "Marking" : "I'm"}
-                      <br />
-                      {markingReady ? "Ready..." : "Ready ✨"}
+                    <span className="text-sm font-display font-bold text-primary-foreground text-center leading-tight px-1">
+                      {markingReady ? "Marking ready..." : "I'm Ready ✨"}
                     </span>
                   </div>
                 </motion.button>
