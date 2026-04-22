@@ -61,9 +61,9 @@ Web does **not** emit `rc.*` breadcrumbs (React web stack); filter **`vdbg`** or
 
 ---
 
-## 3) PostHog — canonical journey events (PR #465+)
+## 3) PostHog — canonical journey events (PR #465 on `main`)
 
-When the **lobby → post-date analytics** PR is merged, use these names (exact strings) for funnels and breakdowns:
+Use these names (exact strings) for funnels and breakdowns:
 
 **Join funnel**
 
@@ -83,7 +83,7 @@ When the **lobby → post-date analytics** PR is merged, use these names (exact 
 - `ready_gate_timeout`
 - `ready_gate_stale_close`
 - `ready_gate_not_now_tap`
-- (full set: see `shared/analytics/lobbyToPostDateJourney.ts` on branches that include PR #465)
+- (full set: see `docs/analytics-lobby-to-post-date-journey.md` and `shared/analytics/lobbyToPostDateJourney.ts`)
 
 **HogQL-style patterns (adjust project schema / property names to match your PostHog setup):**
 
