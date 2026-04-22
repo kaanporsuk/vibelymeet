@@ -58,7 +58,7 @@ const NotificationContainer = () => {
             key={notification.id}
             notification={notification}
             onDismiss={() => dismissNotification(notification.id)}
-            onTap={() => navigate('/chat')}
+            onTap={() => navigate('/schedule')}
             index={index}
           />
         );
