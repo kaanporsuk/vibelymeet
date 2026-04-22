@@ -101,6 +101,12 @@ function buildStreamFromParticipant(
   return stream;
 }
 
+function getTrackIdsKey(p: DailyParticipant | undefined, includeAudio: boolean): string {
+  const videoId = p?.tracks?.video?.persistentTrack?.id ?? "";
+  const audioId = includeAudio ? (p?.tracks?.audio?.persistentTrack?.id ?? "") : "";
+  return `${videoId}|${audioId}`;
+}
+
 export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -116,6 +122,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const roomNameRef = useRef<string | null>(null);
   const optionsRef = useRef(options);
   const firstRemoteObservedRef = useRef(false);
+  const lastLocalTrackIdsRef = useRef<string>("");
+  const lastLocalStreamRef = useRef<MediaStream | null>(null);
+  const lastRemoteTrackIdsRef = useRef<string>("");
+  const lastRemoteStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -192,6 +202,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnecting(false);
       setNetworkTier("good");
       firstRemoteObservedRef.current = false;
+      lastLocalTrackIdsRef.current = "";
+      lastLocalStreamRef.current = null;
+      lastRemoteTrackIdsRef.current = "";
+      lastRemoteStreamRef.current = null;
     },
     []
   );
@@ -368,8 +382,19 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callObject.on("participant-updated", (event) => {
           if (!event?.participant) return;
           if (event.participant.local) {
-            const localPreview = buildStreamFromParticipant(event.participant, { includeAudio: false });
-            setLocalStream(localPreview);
+            const localKey = getTrackIdsKey(event.participant, false);
+            if (localKey !== lastLocalTrackIdsRef.current) {
+              const newStream = buildStreamFromParticipant(event.participant, { includeAudio: false });
+              lastLocalTrackIdsRef.current = localKey;
+              lastLocalStreamRef.current = newStream;
+              setLocalStream(newStream);
+              vdbg("daily_local_tracks_changed", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                key: localKey,
+              });
+            }
             if (localVideoRef.current) {
               attachTracks(event.participant, localVideoRef.current, true);
             }
@@ -384,7 +409,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 source: "participant_updated",
               });
             }
-            attachTracks(event.participant, remoteVideoRef.current, false);
+            const remoteKey = getTrackIdsKey(event.participant, true);
+            if (remoteKey !== lastRemoteTrackIdsRef.current) {
+              lastRemoteTrackIdsRef.current = remoteKey;
+              if (remoteVideoRef.current) {
+                attachTracks(event.participant, remoteVideoRef.current, false);
+              }
+              lastRemoteStreamRef.current = null;
+              vdbg("daily_remote_tracks_changed", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                key: remoteKey,
+              });
+            }
           }
         });
 
@@ -497,8 +535,19 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
-          const localPreview = buildStreamFromParticipant(localParticipant, { includeAudio: false });
-          setLocalStream(localPreview);
+          const localKey = getTrackIdsKey(localParticipant, false);
+          if (localKey !== lastLocalTrackIdsRef.current) {
+            const newStream = buildStreamFromParticipant(localParticipant, { includeAudio: false });
+            lastLocalTrackIdsRef.current = localKey;
+            lastLocalStreamRef.current = newStream;
+            setLocalStream(newStream);
+            vdbg("daily_local_tracks_changed", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              key: localKey,
+            });
+          }
           if (localVideoRef.current) {
             attachTracks(localParticipant, localVideoRef.current, true);
           }
