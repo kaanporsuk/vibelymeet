@@ -593,7 +593,30 @@ export default function VideoDateScreen() {
         vdbg('date_guard_blocked', { sessionId, userId: user.id, reason: 'missing_session_truth_row' });
         return;
       }
+      const { data: reg } = await supabase
+        .from('event_registrations')
+        .select('queue_status')
+        .eq('profile_id', user.id)
+        .eq('current_room_id', sessionId)
+        .maybeSingle();
+      if (cancelled) return;
       if (vs.ended_at != null) {
+        const { data: verdict } = await supabase
+          .from('date_feedback')
+          .select('id')
+          .eq('session_id', sessionId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        const reconnectExpiredSurveyDue =
+          (vs as { ended_reason?: string | null }).ended_reason === 'reconnect_grace_expired' &&
+          Boolean((vs as { date_started_at?: string | null }).date_started_at) &&
+          !verdict;
+        if (reg?.queue_status === 'in_survey' || reconnectExpiredSurveyDue) {
+          dateEstablishedRef.current = true;
+          setShowFeedback(true);
+          return;
+        }
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
           session_id: sessionId,
           user_id: user.id,
@@ -623,13 +646,6 @@ export default function VideoDateScreen() {
       if (videoSessionIndicatesHandshakeOrDate(vs)) {
         return;
       }
-      const { data: reg } = await supabase
-        .from('event_registrations')
-        .select('queue_status')
-        .eq('profile_id', user.id)
-        .eq('current_room_id', sessionId)
-        .maybeSingle();
-      if (cancelled) return;
       if (reg?.queue_status === 'in_ready_gate') {
         const rgStatus = vs.ready_gate_status ?? null;
         const rgExpiresRaw = vs.ready_gate_expires_at ?? null;
@@ -2518,6 +2534,45 @@ export default function VideoDateScreen() {
   useEffect(() => {
     reconnectEndedHandledRef.current = false;
   }, [sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || showFeedback) return;
+    const isTerminalSession =
+      phase === 'ended' ||
+      !!session?.ended_at ||
+      session?.state === 'ended' ||
+      session?.phase === 'ended';
+    if (!isTerminalSession) return;
+    let cancelled = false;
+    void (async () => {
+      const [{ data: reg }, { data: verdict }] = await Promise.all([
+        supabase
+          .from('event_registrations')
+          .select('queue_status')
+          .eq('profile_id', user.id)
+          .eq('current_room_id', sessionId)
+          .maybeSingle(),
+        supabase
+          .from('date_feedback')
+          .select('id')
+          .eq('session_id', sessionId)
+          .eq('user_id', user.id)
+          .maybeSingle(),
+      ]);
+      if (cancelled) return;
+      const reconnectExpiredSurveyDue =
+        session?.ended_reason === 'reconnect_grace_expired' &&
+        Boolean(session?.date_started_at) &&
+        !verdict;
+      if (reg?.queue_status === 'in_survey' || reconnectExpiredSurveyDue) {
+        dateEstablishedRef.current = true;
+        setShowFeedback(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, user?.id, showFeedback, phase, session?.ended_at, session?.state, session?.phase]);
 
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
   useEffect(() => {

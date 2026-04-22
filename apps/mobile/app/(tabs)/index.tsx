@@ -496,6 +496,9 @@ export default function DashboardScreen() {
   const handleEndActiveSession = useCallback(async () => {
     if (!activeSession || !user?.id) return;
     if (activeSession.kind === 'syncing') return;
+    if (activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey') {
+      return;
+    }
     if (activeSession.kind === 'ready_gate') {
       await supabase.rpc('ready_gate_transition', {
         p_session_id: activeSession.sessionId,
@@ -837,7 +840,7 @@ export default function DashboardScreen() {
             partnerName={activeSession.partnerName}
             mode={activeSession.kind === 'ready_gate' ? 'ready_gate' : 'video'}
             onRejoin={() => router.push(hrefForActiveSession(activeSession))}
-            onEnd={handleEndActiveSession}
+            onEnd={activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey' ? undefined : handleEndActiveSession}
           />
         </View>
       )}

@@ -14,11 +14,59 @@ import { videoSessionIndicatesHandshakeOrDate, type VideoSessionDateEntryTruth }
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 export type ActiveSession =
-  | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' }
+  | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' | 'in_survey' }
   | { kind: 'ready_gate'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_ready_gate' }
   | { kind: 'syncing'; sessionId: string; eventId: string };
 
 type Options = { eventId?: string | null };
+
+async function findPendingReconnectGraceSurveySession(
+  userId: string,
+  eventFilter: string | null
+): Promise<{ sessionId: string; eventId: string; partnerName: string | null } | null> {
+  const endedQuery = supabase
+    .from('video_sessions')
+    .select('id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at')
+    .eq('ended_reason', 'reconnect_grace_expired')
+    .not('date_started_at', 'is', null)
+    .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
+    .order('ended_at', { ascending: false, nullsFirst: false })
+    .limit(5);
+  if (eventFilter) endedQuery.eq('event_id', eventFilter);
+  const { data: endedRows, error: endedError } = await endedQuery;
+  if (endedError || !endedRows?.length) return null;
+
+  for (const row of endedRows) {
+    const sessionId = row.id as string;
+    const eventId = row.event_id as string | null;
+    if (!eventId) continue;
+    const { data: verdict } = await supabase
+      .from('date_feedback')
+      .select('id')
+      .eq('session_id', sessionId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (verdict) continue;
+
+    const partnerId =
+      row.participant_1_id === userId
+        ? (row.participant_2_id as string | null)
+        : (row.participant_1_id as string | null);
+    let partnerName: string | null = null;
+    if (partnerId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', partnerId)
+        .maybeSingle();
+      partnerName = profile?.name ?? null;
+    }
+
+    return { sessionId, eventId, partnerName };
+  }
+
+  return null;
+}
 
 export function useActiveSession(
   userId: string | null | undefined,
@@ -53,7 +101,7 @@ export function useActiveSession(
       .from('event_registrations')
       .select('event_id, current_room_id, queue_status, current_partner_id')
       .eq('profile_id', userId)
-      .in('queue_status', ['in_handshake', 'in_date', 'in_ready_gate'])
+      .in('queue_status', ['in_handshake', 'in_date', 'in_survey', 'in_ready_gate'])
       .not('current_room_id', 'is', null);
 
     if (regError) {
@@ -80,7 +128,6 @@ export function useActiveSession(
         .from('video_sessions')
         .select('id, ended_at, handshake_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
         .eq('id', reg.current_room_id)
-        .is('ended_at', null)
         .maybeSingle();
 
       if (sessionError && __DEV__) {
@@ -89,7 +136,7 @@ export function useActiveSession(
 
       if (session?.id) {
         const qs = reg.queue_status;
-        if (qs === 'in_ready_gate' || qs === 'in_handshake' || qs === 'in_date') {
+        if (qs === 'in_ready_gate' || qs === 'in_handshake' || qs === 'in_date' || qs === 'in_survey') {
           const truth = session as unknown as VideoSessionDateEntryTruth;
           const startable = videoSessionIndicatesHandshakeOrDate(truth);
           const rgStatus = truth.ready_gate_status ?? null;
@@ -131,6 +178,11 @@ export function useActiveSession(
           };
 
           if (mounted.current) {
+            if ((qs === 'in_handshake' || qs === 'in_date' || qs === 'in_ready_gate') && session.ended_at) {
+              setActiveSession(null);
+              setHydrated(true);
+              return;
+            }
             if (qs === 'in_ready_gate' || (!startable && readyGateEligible)) {
               if (qs !== 'in_ready_gate') {
                 rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
@@ -144,7 +196,7 @@ export function useActiveSession(
                 });
               }
               setActiveSession({ kind: 'ready_gate', ...base, queueStatus: 'in_ready_gate' });
-            } else if (startable) {
+            } else if (startable || qs === 'in_survey') {
               setActiveSession({ kind: 'video', ...base, queueStatus: qs });
             } else {
               rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
@@ -164,6 +216,21 @@ export function useActiveSession(
         }
       }
       // Stale current_room_id or registration not in an active gate/date phase: try queued `syncing` below.
+    }
+
+    const reconnectSurvey = await findPendingReconnectGraceSurveySession(userId, eventFilter);
+    if (reconnectSurvey) {
+      if (mounted.current) {
+        setActiveSession({
+          kind: 'video',
+          sessionId: reconnectSurvey.sessionId,
+          eventId: reconnectSurvey.eventId,
+          partnerName: reconnectSurvey.partnerName,
+          queueStatus: 'in_survey',
+        });
+        setHydrated(true);
+      }
+      return;
     }
 
     // Secondary: queued mutual match while still browsing — registration row may not qualify for primary filter.

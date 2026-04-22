@@ -12,6 +12,54 @@ type UseActiveSessionOptions = {
   eventId?: string | null;
 };
 
+async function findPendingReconnectGraceSurveySession(
+  userId: string,
+  eventFilter: string | null
+): Promise<{ sessionId: string; eventId: string; partnerName: string | null } | null> {
+  const endedQuery = supabase
+    .from("video_sessions")
+    .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at")
+    .eq("ended_reason", "reconnect_grace_expired")
+    .not("date_started_at", "is", null)
+    .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
+    .order("ended_at", { ascending: false, nullsFirst: false })
+    .limit(5);
+  if (eventFilter) endedQuery.eq("event_id", eventFilter);
+  const { data: endedRows, error: endedError } = await endedQuery;
+  if (endedError || !endedRows?.length) return null;
+
+  for (const row of endedRows) {
+    const sessionId = row.id as string;
+    const eventId = row.event_id as string | null;
+    if (!eventId) continue;
+    const { data: verdict } = await supabase
+      .from("date_feedback")
+      .select("id")
+      .eq("session_id", sessionId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (verdict) continue;
+
+    const partnerId =
+      row.participant_1_id === userId
+        ? (row.participant_2_id as string | null)
+        : (row.participant_1_id as string | null);
+    let partnerName: string | null = null;
+    if (partnerId) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name")
+        .eq("id", partnerId)
+        .maybeSingle();
+      partnerName = profile?.name ?? null;
+    }
+
+    return { sessionId, eventId, partnerName };
+  }
+
+  return null;
+}
+
 export function useActiveSession(
   userId: string | null | undefined,
   options?: UseActiveSessionOptions
@@ -66,7 +114,7 @@ export function useActiveSession(
       .from("event_registrations")
       .select("event_id, current_room_id, queue_status, current_partner_id")
       .eq("profile_id", userId)
-      .in("queue_status", ["in_handshake", "in_date", "in_ready_gate"])
+      .in("queue_status", ["in_handshake", "in_date", "in_survey", "in_ready_gate"])
       .not("current_room_id", "is", null);
 
     if (regError) {
@@ -78,7 +126,21 @@ export function useActiveSession(
     const reg = pickRegistrationForActiveSession(regs ?? []);
 
     if (!reg?.current_room_id) {
-      commitActiveSession(null, "no_active_registration_room");
+      const reconnectSurvey = await findPendingReconnectGraceSurveySession(userId, eventFilter);
+      if (reconnectSurvey) {
+        commitActiveSession(
+          {
+            kind: "video",
+            sessionId: reconnectSurvey.sessionId,
+            eventId: reconnectSurvey.eventId,
+            partnerName: reconnectSurvey.partnerName,
+            queueStatus: "in_survey",
+          },
+          "reconnect_grace_pending_survey"
+        );
+      } else {
+        commitActiveSession(null, "no_active_registration_room");
+      }
       return;
     }
 
@@ -91,7 +153,6 @@ export function useActiveSession(
       .from("video_sessions")
       .select("id, ended_at")
       .eq("id", reg.current_room_id)
-      .is("ended_at", null)
       .maybeSingle();
 
     if (sessionError) {
@@ -126,9 +187,14 @@ export function useActiveSession(
       partnerName,
     };
 
+    if ((qs === "in_handshake" || qs === "in_date" || qs === "in_ready_gate") && session.ended_at) {
+      commitActiveSession(null, "session_missing_or_ended");
+      return;
+    }
+
     if (qs === "in_ready_gate") {
       commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
-    } else if (qs === "in_handshake" || qs === "in_date") {
+    } else if (qs === "in_handshake" || qs === "in_date" || qs === "in_survey") {
       commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
     } else {
       commitActiveSession(null, "unsupported_registration_status");
