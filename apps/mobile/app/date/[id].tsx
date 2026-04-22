@@ -317,6 +317,9 @@ export default function VideoDateScreen() {
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
+  const handshakeCompletionInFlightRef = useRef(false);
+  const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
+  const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerMissingTerminalImpressionRef = useRef(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
@@ -592,6 +595,12 @@ export default function VideoDateScreen() {
     setLocalInDailyRoom(false);
     setPeerMissingTerminal(false);
     clearHandshakeGraceState();
+    handshakeCompletionInFlightRef.current = false;
+    handshakeCompletionDeadlineKeyRef.current = null;
+    if (handshakeCompletionRetryTimerRef.current) {
+      clearTimeout(handshakeCompletionRetryTimerRef.current);
+      handshakeCompletionRetryTimerRef.current = null;
+    }
     noRemoteAutoRecoveryUsedRef.current = false;
     lastLoggedPostJoinStageRef.current = null;
   }, [sessionId, clearHandshakeGraceState]);
@@ -2775,6 +2784,129 @@ export default function VideoDateScreen() {
     void handleCallEnd('server_end');
   }, [phase, sessionId, handleCallEnd, clearHandshakeGraceState]);
 
+  const completeHandshakeFromServerDeadline = useCallback(
+    async (source: string, allowRetry = true) => {
+      if (!sessionId || phaseRef.current !== 'handshake') return;
+      if (handshakeCompletionInFlightRef.current) {
+        vdbg('complete_handshake_skip', {
+          sessionId,
+          source,
+          reason: 'in_flight',
+        });
+        return;
+      }
+
+      handshakeCompletionInFlightRef.current = true;
+      try {
+        vdbg('complete_handshake_fire', {
+          sessionId,
+          source,
+          trigger: 'server_deadline',
+        });
+        const result = await completeHandshake(sessionId);
+        if (phaseRef.current !== 'handshake') return;
+
+        if (!result) {
+          vdbg('complete_handshake_uncertain', {
+            sessionId,
+            source,
+            reason: 'null_result',
+            retryScheduled: allowRetry,
+          });
+          await refetchVideoSession();
+          if (allowRetry && phaseRef.current === 'handshake') {
+            if (handshakeCompletionRetryTimerRef.current) {
+              clearTimeout(handshakeCompletionRetryTimerRef.current);
+            }
+            handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+              handshakeCompletionRetryTimerRef.current = null;
+              void completeHandshakeFromServerDeadline(`${source}_retry`, false);
+            }, 1500);
+          }
+          return;
+        }
+
+        if (result.state === 'date') {
+          clearHandshakeGraceState();
+          setShowMutualToast(true);
+          return;
+        }
+
+        if (result.waiting_for_partner === true) {
+          const graceExpiresAt =
+            typeof result.grace_expires_at === 'string'
+              ? result.grace_expires_at
+              : null;
+          const serverSeconds =
+            typeof result.seconds_remaining === 'number' &&
+            Number.isFinite(result.seconds_remaining)
+              ? Math.max(0, Math.ceil(result.seconds_remaining))
+              : null;
+          const derivedSeconds =
+            graceExpiresAt !== null
+              ? Math.max(0, Math.ceil((new Date(graceExpiresAt).getTime() - Date.now()) / 1000))
+              : null;
+          setHandshakeGraceExpiresAt(graceExpiresAt);
+          setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
+          return;
+        }
+
+        if (result.state === 'ended' || result.already_ended) {
+          clearHandshakeGraceState();
+          void handleCallEnd('server_end');
+          return;
+        }
+
+        vdbg('complete_handshake_uncertain', {
+          sessionId,
+          source,
+          reason: 'unexpected_result',
+          result,
+        });
+        await refetchVideoSession();
+      } finally {
+        handshakeCompletionInFlightRef.current = false;
+      }
+    },
+    [clearHandshakeGraceState, handleCallEnd, refetchVideoSession, sessionId]
+  );
+
+  useEffect(() => {
+    if (
+      !sessionId ||
+      phase !== 'handshake' ||
+      showFeedback ||
+      session?.ended_at ||
+      handshakeGraceSecondsRemaining !== null
+    ) {
+      return;
+    }
+
+    const handshakeStartedAt = session?.handshake_started_at ?? null;
+    if (!handshakeStartedAt) return;
+    const startedMs = new Date(handshakeStartedAt).getTime();
+    if (!Number.isFinite(startedMs)) return;
+
+    const deadlineKey = `${sessionId}:${handshakeStartedAt}`;
+    const delayMs = Math.max(0, startedMs + HANDSHAKE_SECONDS * 1000 - Date.now());
+    const fire = () => {
+      if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
+      handshakeCompletionDeadlineKeyRef.current = deadlineKey;
+      void completeHandshakeFromServerDeadline('handshake_server_deadline');
+    };
+
+    const timer = setTimeout(fire, delayMs);
+    return () => clearTimeout(timer);
+  }, [
+    completeHandshakeFromServerDeadline,
+    handshakeGraceSecondsRemaining,
+    phase,
+    session?.ended_at,
+    session?.handshake_started_at,
+    sessionId,
+    showFeedback,
+  ]);
+
   useEffect(() => {
     if (phase === 'date') {
       clearHandshakeGraceState();
@@ -2797,32 +2929,9 @@ export default function VideoDateScreen() {
       setLocalTimeLeft((prev) => {
         if (prev === null || prev <= 1) {
           if (phaseRef.current === 'handshake') {
-            completeHandshake(sessionId!).then((result) => {
-              if (phaseRef.current !== 'handshake') return;
-              if (result?.state === 'date') {
-                clearHandshakeGraceState();
-                setShowMutualToast(true);
-              } else if (result?.waiting_for_partner === true) {
-                const graceExpiresAt =
-                  typeof result.grace_expires_at === 'string'
-                    ? result.grace_expires_at
-                    : null;
-                const serverSeconds =
-                  typeof result.seconds_remaining === 'number' &&
-                  Number.isFinite(result.seconds_remaining)
-                    ? Math.max(0, Math.ceil(result.seconds_remaining))
-                    : null;
-                const derivedSeconds =
-                  graceExpiresAt !== null
-                    ? Math.max(0, Math.ceil((new Date(graceExpiresAt).getTime() - Date.now()) / 1000))
-                    : null;
-                setHandshakeGraceExpiresAt(graceExpiresAt);
-                setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
-                return;
-              } else {
-                clearHandshakeGraceState();
-                handleCallEnd('local_end');
-              }
+            vdbg('handshake_visible_countdown_elapsed', {
+              sessionId: sessionId ?? null,
+              trigger: 'display_only',
             });
           } else {
             handleCallEnd('local_end');
@@ -2843,7 +2952,6 @@ export default function VideoDateScreen() {
     sessionId,
     handleCallEnd,
     handshakeGraceSecondsRemaining,
-    clearHandshakeGraceState,
   ]);
 
   useEffect(() => {
@@ -2875,18 +2983,7 @@ export default function VideoDateScreen() {
         }
         // One-shot guard prevents repeated force-retries in grace expiry race windows.
         handshakeGraceRetryTriggeredRef.current = true;
-        void completeHandshake(sessionId).then((result) => {
-          if (phaseRef.current !== 'handshake') return;
-          if (result?.state === 'date') {
-            clearHandshakeGraceState();
-            setShowMutualToast(true);
-            return;
-          }
-          if (result?.state === 'ended' || result?.already_ended) {
-            clearHandshakeGraceState();
-            void handleCallEnd('server_end');
-          }
-        });
+        void completeHandshakeFromServerDeadline('handshake_grace_expiry');
       }
     }, 1000);
 
@@ -2897,8 +2994,8 @@ export default function VideoDateScreen() {
     showFeedback,
     handshakeGraceExpiresAt,
     handshakeGraceSecondsRemaining,
-    handleCallEnd,
     clearHandshakeGraceState,
+    completeHandshakeFromServerDeadline,
   ]);
 
   const toggleMute = useCallback(() => {

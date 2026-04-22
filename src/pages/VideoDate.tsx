@@ -144,6 +144,8 @@ const VideoDate = () => {
   const [showInCallSafety, setShowInCallSafety] = useState(false);
   const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
   const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
+  const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
+  const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
   const [eventId, setEventId] = useState<string | undefined>(undefined);
@@ -159,6 +161,9 @@ const VideoDate = () => {
   const sessionIdRef = useRef(id);
   const accessTokenRef = useRef<string | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
+  const handshakeCompletionInFlightRef = useRef(false);
+  const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
+  const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
   const canonicalRoomNameRef = useRef<string | null>(null);
   const hasEnteredDateFlowRef = useRef(false);
@@ -274,6 +279,13 @@ const VideoDate = () => {
   useEffect(() => {
     videoJoinCycleRef.current = 0;
     videoJoinOutcomeByCycleRef.current = new Set();
+    setHandshakeStartedAt(null);
+    handshakeCompletionInFlightRef.current = false;
+    handshakeCompletionDeadlineKeyRef.current = null;
+    if (handshakeCompletionRetryTimerRef.current) {
+      clearTimeout(handshakeCompletionRetryTimerRef.current);
+      handshakeCompletionRetryTimerRef.current = null;
+    }
   }, [id]);
 
   useEffect(() => {
@@ -668,6 +680,7 @@ const VideoDate = () => {
           error: error ? { code: error.code, message: error.message } : null,
           hasData: Boolean(data),
         });
+        setHandshakeStartedAt(null);
         setHandshakeStartFailed(true);
         setHandshakeFailureCode(undefined);
         setTimeLeft(null);
@@ -683,6 +696,7 @@ const VideoDate = () => {
 
       if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
+        setHandshakeStartedAt(null);
         if (hasEnteredDateFlowRef.current) {
           openPostDateSurvey("timing_terminal");
         } else {
@@ -697,6 +711,7 @@ const VideoDate = () => {
       if ((data.state as string) === "date" || data.phase === "date" || Boolean(data.date_started_at)) {
         vdbg("date_timing_existing_date", { sessionId: id, row: data });
         markDateFlowEntered();
+        setHandshakeStartedAt(null);
         const dateStartedAt = typeof data.date_started_at === "string" ? data.date_started_at : null;
         setTimeLeft(
           remainingDatePhaseSeconds({
@@ -713,6 +728,7 @@ const VideoDate = () => {
 
       if (data.handshake_started_at) {
         vdbg("date_timing_existing_handshake", { sessionId: id, row: data });
+        setHandshakeStartedAt(data.handshake_started_at);
         const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
         const handshakeRemaining = Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed));
         setTimeLeft(handshakeRemaining);
@@ -778,6 +794,7 @@ const VideoDate = () => {
       setHandshakeStartFailed(false);
       clearHandshakeGraceState();
       setTimeLeft(HANDSHAKE_TIME);
+      setTimingRefreshNonce((n) => n + 1);
       setTimingReady(true);
     };
 
@@ -786,7 +803,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, videoDateAccess, clearHandshakeGraceState, markDateFlowEntered, openPostDateSurvey]);
+  }, [id, videoDateAccess, clearHandshakeGraceState, markDateFlowEntered, openPostDateSurvey, timingRefreshNonce]);
 
   // Start Daily only when timing/handshake bootstrap succeeded (or session already in progress).
   useEffect(() => {
@@ -875,6 +892,7 @@ const VideoDate = () => {
           const newState = row.state || row.phase;
 
           if (row.ended_at || newState === "ended") {
+            setHandshakeStartedAt(null);
             if (hasEnteredDateFlowRef.current) {
               openPostDateSurvey("realtime_terminal");
             } else {
@@ -888,6 +906,7 @@ const VideoDate = () => {
           if (newState === "date" || Boolean(row.date_started_at)) {
             markDateFlowEntered();
             clearHandshakeGraceState();
+            setHandshakeStartedAt(null);
             const extraNorm = normalizedDateExtraSeconds(row.date_extra_seconds);
             setDateExtraSeconds(extraNorm);
             const dateStartedAt = typeof row.date_started_at === "string" ? row.date_started_at : null;
@@ -903,6 +922,7 @@ const VideoDate = () => {
           }
 
           if (row.handshake_started_at) {
+            setHandshakeStartedAt(row.handshake_started_at);
             const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
             const handshakeRemaining = Math.ceil(Math.max(0, HANDSHAKE_TIME - elapsed));
             setTimeLeft(handshakeRemaining);
@@ -960,7 +980,10 @@ const VideoDate = () => {
       setTimeLeft((prev) => {
         if (prev === null || prev <= 1) {
           if (phaseRef.current === "handshake") {
-            checkMutualVibe();
+            vdbg("handshake_visible_countdown_elapsed", {
+              sessionId: id ?? null,
+              trigger: "display_only",
+            });
           } else {
             toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
             handleCallEnd();
@@ -976,6 +999,7 @@ const VideoDate = () => {
     timeLeft !== null,
     timeLeft,
     showFeedback,
+    id,
     isConnected,
     phase,
     reconnection.isTimerPaused,
@@ -1118,28 +1142,58 @@ const VideoDate = () => {
     }
   }, [id, user?.id]);
 
-  // Check mutual vibe at end of handshake
-  const checkMutualVibe = useCallback(async () => {
-    if (!id) {
-      handleCallEnd();
+  // Check mutual vibe at the backend-owned handshake deadline.
+  const checkMutualVibe = useCallback(async (source = "handshake_server_deadline", allowRetry = true) => {
+    if (!id) return;
+    if (phaseRef.current !== "handshake") return;
+    if (handshakeCompletionInFlightRef.current) {
+      vdbg("complete_handshake_skip", {
+        sessionId: id,
+        source,
+        reason: "in_flight",
+      });
       return;
     }
+
+    const scheduleRetry = (reason: string) => {
+      vdbg("complete_handshake_uncertain", {
+        sessionId: id,
+        source,
+        reason,
+        retryScheduled: allowRetry,
+      });
+      setTimingRefreshNonce((n) => n + 1);
+      if (!allowRetry || phaseRef.current !== "handshake") return;
+      if (handshakeCompletionRetryTimerRef.current) {
+        clearTimeout(handshakeCompletionRetryTimerRef.current);
+      }
+      handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+        handshakeCompletionRetryTimerRef.current = null;
+        void checkMutualVibe(`${source}_retry`, false);
+      }, 1500);
+    };
+
+    handshakeCompletionInFlightRef.current = true;
     const args = {
       p_session_id: id,
       p_action: "complete_handshake",
     };
-    vdbg("video_date_transition_before", { action: "complete_handshake", args });
+    vdbg("video_date_transition_before", { action: "complete_handshake", source, args });
     try {
       const { data: result, error } = await supabase.rpc("video_date_transition", args);
-      if (phaseRef.current !== "handshake") {
-        return;
-      }
+      if (phaseRef.current !== "handshake") return;
       vdbg("video_date_transition_after", {
         action: "complete_handshake",
+        source,
         ok: !error,
         payload: result ?? null,
         error: error ? { code: error.code, message: error.message } : null,
       });
+
+      if (error || !result) {
+        scheduleRetry(error ? "rpc_error" : "null_result");
+        return;
+      }
 
       const payload = result as CompleteHandshakePayload | null;
       if (payload?.state === "date") {
@@ -1170,13 +1224,48 @@ const VideoDate = () => {
       console.error("Error checking mutual vibe:", err);
       vdbg("video_date_transition_after", {
         action: "complete_handshake",
+        source,
         ok: false,
         error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
       });
-      clearHandshakeGraceState();
-      handleCallEnd();
+      scheduleRetry("exception");
+    } finally {
+      handshakeCompletionInFlightRef.current = false;
     }
-  }, [id, endCall, setStatus, clearHandshakeGraceState]);
+  }, [id, endCall, clearHandshakeGraceState]);
+
+  useEffect(() => {
+    if (
+      !id ||
+      phase !== "handshake" ||
+      showFeedback ||
+      handshakeGraceSecondsRemaining !== null ||
+      !handshakeStartedAt
+    ) {
+      return;
+    }
+
+    const startedMs = new Date(handshakeStartedAt).getTime();
+    if (!Number.isFinite(startedMs)) return;
+
+    const deadlineKey = `${id}:${handshakeStartedAt}`;
+    const delayMs = Math.max(0, startedMs + HANDSHAKE_TIME * 1000 - Date.now());
+    const fire = () => {
+      if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
+      handshakeCompletionDeadlineKeyRef.current = deadlineKey;
+      void checkMutualVibe("handshake_server_deadline");
+    };
+
+    const timer = setTimeout(fire, delayMs);
+    return () => clearTimeout(timer);
+  }, [
+    checkMutualVibe,
+    handshakeGraceSecondsRemaining,
+    handshakeStartedAt,
+    id,
+    phase,
+    showFeedback,
+  ]);
 
   // Handshake grace countdown. One forced complete_handshake retry at expiry.
   useEffect(() => {
@@ -1208,7 +1297,7 @@ const VideoDate = () => {
         }
         // One-shot guard prevents repeated force-retries in grace expiry race windows.
         handshakeGraceRetryTriggeredRef.current = true;
-        void checkMutualVibe();
+        void checkMutualVibe("handshake_grace_expiry");
       }
     }, 1000);
 
