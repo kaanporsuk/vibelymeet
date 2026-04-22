@@ -43,6 +43,8 @@ export const FeaturedEventCard = ({
     attendeePreview?.success === true ? attendeePreview.total_other_confirmed : attendees;
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
+  const [imageFailed, setImageFailed] = useState(false);
+  const coverSrc = eventCoverHeroUrl(image);
   const pastScheduledEnd = isEventExpired({
     event_date: eventDate.toISOString(),
     duration_minutes: durationMinutes,
@@ -90,6 +92,10 @@ export const FeaturedEventCard = ({
     return () => clearInterval(timer);
   }, [eventDate, durationMinutes]);
 
+  useEffect(() => {
+    setImageFailed(false);
+  }, [coverSrc]);
+
   // Primary action button handler
   const handlePrimaryAction = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -106,13 +112,18 @@ export const FeaturedEventCard = ({
     >
       {/* Background Image */}
       <div className="absolute inset-0">
-        <img
-          src={eventCoverHeroUrl(image)}
-          alt={title}
-          className={cn("w-full h-full object-cover", showEnded && "grayscale-[40%] brightness-75")}
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-        <div className="absolute inset-0 bg-gradient-to-r from-background/80 via-transparent to-transparent" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(125%_95%_at_8%_14%,hsl(var(--primary)/0.34)_0%,transparent_58%),radial-gradient(120%_105%_at_90%_18%,hsl(var(--accent)/0.26)_0%,transparent_56%),linear-gradient(135deg,hsl(var(--neon-cyan)/0.15)_0%,hsl(var(--background)/0.08)_55%,hsl(var(--background)/0.34)_100%)]" />
+        {!imageFailed && (
+          <img
+            src={coverSrc}
+            alt={title}
+            onError={() => setImageFailed(true)}
+            className={cn("w-full h-full object-cover", showEnded && "grayscale-[40%] brightness-75")}
+          />
+        )}
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(10,12,24,0.06)_0%,rgba(10,12,24,0.26)_58%,rgba(10,12,24,0.45)_100%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(2,4,12,0.38)_0%,rgba(2,4,12,0.12)_30%,rgba(2,4,12,0)_45%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(2,4,12,0)_0%,rgba(2,4,12,0.14)_44%,rgba(2,4,12,0.46)_72%,rgba(2,4,12,0.78)_100%)]" />
       </div>
 
       {/* Content */}

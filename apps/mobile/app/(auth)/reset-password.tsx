@@ -9,7 +9,6 @@ import Colors from '@/constants/Colors';
 import { requestPasswordReset, updatePassword } from '@/lib/authApi';
 import { useAuth } from '@/context/AuthContext';
 import { VibelyButton } from '@/components/ui';
-import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
 import {
   isPasswordRecoveryStatus,
   type PasswordRecoveryStatus,
@@ -48,8 +47,6 @@ export default function ResetPasswordScreen() {
 
   const recoveryReady = recoveryStatus === 'ready';
 
-  const redirectTo = getNativePasswordResetRedirectUrl();
-
   useEffect(() => {
     if (recoveryStatus === 'invalid') {
       setError(authLinkError ?? 'That recovery link is invalid or expired.');
@@ -83,7 +80,7 @@ export default function ResetPasswordScreen() {
     setLoading(true);
     setError(null);
     setMessage(null);
-    const result = await requestPasswordReset(email.trim(), redirectTo);
+    const result = await requestPasswordReset(email.trim());
     if (!result.ok) {
       setError(result.error.message);
       setLoading(false);

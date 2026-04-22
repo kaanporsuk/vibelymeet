@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeContractError } from '@/lib/contractErrors';
+import { getNativePasswordResetRedirectUrl } from '@/lib/nativeAuthRedirect';
 import {
   resolveEntryState as resolveSharedEntryState,
   type EntryStateResponse,
@@ -15,7 +16,8 @@ export async function signInWithEmail(email: string, password: string): Promise<
   return { ok: true };
 }
 
-export async function requestPasswordReset(email: string, redirectTo: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
+export async function requestPasswordReset(email: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
+  const redirectTo = getNativePasswordResetRedirectUrl();
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) {
     return { ok: false, error: normalizeContractError(error, 'auth_reset_request_failed', 'Could not send reset email.') };
