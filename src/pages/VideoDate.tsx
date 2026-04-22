@@ -107,6 +107,13 @@ function videoSessionIndicatesHandshakeOrDate(
   );
 }
 
+function videoSessionIndicatesTerminalEnd(
+  row: { ended_at?: string | null; state?: string | null; phase?: string | null } | null
+): boolean {
+  if (!row) return false;
+  return Boolean(row.ended_at || row.state === "ended" || row.phase === "ended");
+}
+
 const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -146,6 +153,8 @@ const VideoDate = () => {
   const handshakeGraceRetryTriggeredRef = useRef(false);
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
   const canonicalRoomNameRef = useRef<string | null>(null);
+  const hasEnteredDateFlowRef = useRef(false);
+  const surveyOpenedRef = useRef(false);
 
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
@@ -155,6 +164,25 @@ const VideoDate = () => {
 
   const { credits, refetch: refetchCredits } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
+
+  const markDateFlowEntered = useCallback(() => {
+    hasEnteredDateFlowRef.current = true;
+  }, []);
+
+  const openPostDateSurvey = useCallback(
+    (reason: string) => {
+      if (surveyOpenedRef.current) return false;
+      surveyOpenedRef.current = true;
+      clearHandshakeGraceState();
+      setPhase("ended");
+      setTimeLeft(0);
+      setShowFeedback(true);
+      setStatus("in_survey");
+      vdbg("post_date_survey_opened", { sessionId: id ?? null, reason });
+      return true;
+    },
+    [clearHandshakeGraceState, id, setStatus]
+  );
 
   const {
     isConnecting,
@@ -268,7 +296,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, state, phase, handshake_started_at, ready_gate_status, ready_gate_expires_at")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -307,19 +335,28 @@ const VideoDate = () => {
           return;
         }
 
-        if (sessionRow.ended_at) {
-          clearDateEntryTransition(id);
-          toast.info("This date has already ended.", { duration: 2800 });
-          const target = sessionRow.event_id
-            ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-            : "/home";
-          vdbgRedirect(target, "session_ended", {
-            sessionId: id,
-            userId: user.id,
-            eventId: sessionRow.event_id,
-            endedAt: sessionRow.ended_at,
-          });
-          navigate(target, { replace: true });
+        if (videoSessionIndicatesTerminalEnd(sessionRow)) {
+          const shouldOpenSurvey =
+            hasEnteredDateFlowRef.current ||
+            sessionRow.state === "date" ||
+            sessionRow.phase === "date" ||
+            Boolean(sessionRow.date_started_at);
+          if (shouldOpenSurvey) {
+            openPostDateSurvey("session_load_terminal");
+          } else {
+            clearDateEntryTransition(id);
+            toast.info("This date has already ended.", { duration: 2800 });
+            const target = sessionRow.event_id
+              ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+              : "/home";
+            vdbgRedirect(target, "session_ended", {
+              sessionId: id,
+              userId: user.id,
+              eventId: sessionRow.event_id,
+              endedAt: sessionRow.ended_at,
+            });
+            navigate(target, { replace: true });
+          }
           return;
         }
 
@@ -496,7 +533,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, navigate]);
+  }, [id, user?.id, navigate, openPostDateSurvey]);
 
   // Server-side phase timing + enter_handshake (only after participant guard passes).
   useEffect(() => {
@@ -534,17 +571,27 @@ const VideoDate = () => {
 
       if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
-        clearHandshakeGraceState();
-        setPhase("ended");
-        setTimeLeft(0);
+        if (hasEnteredDateFlowRef.current) {
+          openPostDateSurvey("timing_terminal");
+        } else {
+          clearHandshakeGraceState();
+          setPhase("ended");
+          setTimeLeft(0);
+        }
         setTimingReady(true);
         return;
       }
 
-      if (((data.state as string) === "date" || data.phase === "date") && data.date_started_at) {
+      if ((data.state as string) === "date" || data.phase === "date" || Boolean(data.date_started_at)) {
         vdbg("date_timing_existing_date", { sessionId: id, row: data });
-        const elapsed = (now - new Date(data.date_started_at).getTime()) / 1000;
-        setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
+        markDateFlowEntered();
+        const dateStartedAt = typeof data.date_started_at === "string" ? data.date_started_at : null;
+        if (dateStartedAt) {
+          const elapsed = (now - new Date(dateStartedAt).getTime()) / 1000;
+          setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
+        } else {
+          setTimeLeft(DATE_TIME);
+        }
         setPhase("date");
         setTimingReady(true);
         return;
@@ -625,7 +672,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, videoDateAccess, clearHandshakeGraceState]);
+  }, [id, videoDateAccess, clearHandshakeGraceState, markDateFlowEntered, openPostDateSurvey]);
 
   // Start Daily only when timing/handshake bootstrap succeeded (or session already in progress).
   useEffect(() => {
@@ -641,6 +688,7 @@ const VideoDate = () => {
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
       if (ok) {
+        markDateFlowEntered();
         clearDateEntryTransition(id);
         vdbg("date_entry_latch_cleared", {
           sessionId: id,
@@ -665,6 +713,7 @@ const VideoDate = () => {
     dupBlocked,
     eventId,
     user?.id,
+    markDateFlowEntered,
   ]);
 
   // Subscribe to phase changes via Realtime
@@ -686,16 +735,26 @@ const VideoDate = () => {
           const newState = row.state || row.phase;
 
           if (row.ended_at || newState === "ended") {
-            clearHandshakeGraceState();
-            setPhase("ended");
-            setTimeLeft(0);
+            if (hasEnteredDateFlowRef.current) {
+              openPostDateSurvey("realtime_terminal");
+            } else {
+              clearHandshakeGraceState();
+              setPhase("ended");
+              setTimeLeft(0);
+            }
             return;
           }
 
-          if (newState === "date" && row.date_started_at) {
+          if (newState === "date" || Boolean(row.date_started_at)) {
+            markDateFlowEntered();
             clearHandshakeGraceState();
-            const elapsed = (Date.now() - new Date(row.date_started_at).getTime()) / 1000;
-            setTimeLeft(Math.ceil(Math.max(0, DATE_TIME - elapsed)));
+            const dateStartedAt = typeof row.date_started_at === "string" ? row.date_started_at : null;
+            if (dateStartedAt) {
+              const elapsed = (Date.now() - new Date(dateStartedAt).getTime()) / 1000;
+              setTimeLeft(Math.ceil(Math.max(0, DATE_TIME - elapsed)));
+            } else {
+              setTimeLeft(DATE_TIME);
+            }
             setPhase("date");
             return;
           }
@@ -726,7 +785,7 @@ const VideoDate = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, videoDateAccess, clearHandshakeGraceState]);
+  }, [id, videoDateAccess, clearHandshakeGraceState, markDateFlowEntered, openPostDateSurvey]);
 
   // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
@@ -1023,6 +1082,7 @@ const VideoDate = () => {
 
   const handleMutualToastComplete = useCallback(async () => {
     clearHandshakeGraceState();
+    markDateFlowEntered();
     setShowMutualToast(false);
     setPhase("date");
     setTimeLeft(DATE_TIME);
@@ -1031,7 +1091,7 @@ const VideoDate = () => {
     setTimeout(() => setShowIceBreaker(false), 30000);
 
     // Server already transitioned to date via video_date_transition; no client-owned writes needed here.
-  }, [id, clearHandshakeGraceState]);
+  }, [id, clearHandshakeGraceState, markDateFlowEntered]);
 
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<boolean> => {
@@ -1056,15 +1116,23 @@ const VideoDate = () => {
 
   // End call: update session, show survey
   const handleCallEnd = useCallback(async () => {
-    clearHandshakeGraceState();
+    const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date";
     const totalTime = phase === "handshake" ? HANDSHAKE_TIME : HANDSHAKE_TIME + DATE_TIME;
     trackEvent('video_date_ended', {
       session_id: id,
       duration_seconds: totalTime - (timeLeft ?? 0),
       phase,
     });
-    setPhase("ended");
-    setShowFeedback(true);
+    if (hasDateEntryTruth) {
+      markDateFlowEntered();
+      openPostDateSurvey("local_end");
+    } else {
+      clearHandshakeGraceState();
+      setPhase("ended");
+      setTimeLeft(0);
+      setShowFeedback(false);
+      setStatus("offline");
+    }
 
     if (id) {
       const args = {
@@ -1089,8 +1157,7 @@ const VideoDate = () => {
         });
       }
     }
-    setStatus("in_survey");
-  }, [id, setStatus, phase, timeLeft, clearHandshakeGraceState]);
+  }, [id, phase, timeLeft, openPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
 
   const handleLeave = useCallback(async () => {
     clearHandshakeGraceState();

@@ -37,7 +37,7 @@ type Props = {
   eventId: string | undefined;
   onSubmitVerdict: (liked: boolean) => Promise<SubmitVerdictAndCheckMutualResult>;
   onMutualMatch: () => void;
-  onStartChatting?: (matchId?: string) => void;
+  onStartChatting?: (otherProfileId?: string) => void;
   onDone: () => void;
 };
 
@@ -124,7 +124,6 @@ export function PostDateSurvey({
   const [submitting, setSubmitting] = useState(false);
   const [verdictError, setVerdictError] = useState<string | null>(null);
   const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
-  const [matchId, setMatchId] = useState<string | undefined>(undefined);
 
   const [tagSel, setTagSel] = useState({
     tagChemistry: false,
@@ -210,7 +209,6 @@ export function PostDateSurvey({
         verdict: liked ? 'vibe' : 'pass',
       });
       if (result.mutual) {
-        setMatchId(result.match_id);
         setStep('celebration');
       } else {
         setStep('highlights');
@@ -299,7 +297,7 @@ export function PostDateSurvey({
         sharedVibes={celebrationData?.sharedVibes}
         onStartChatting={() => {
           if (onStartChatting) {
-            onStartChatting(matchId);
+            onStartChatting(partnerId);
           } else {
             onMutualMatch();
           }
