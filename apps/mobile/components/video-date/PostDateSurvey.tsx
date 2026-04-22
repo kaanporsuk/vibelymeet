@@ -26,7 +26,7 @@ import { supabase } from '@/lib/supabase';
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
-} from '@shared/matching/videoDateDiagnostics';
+} from '@clientShared/matching/videoDateDiagnostics';
 import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,

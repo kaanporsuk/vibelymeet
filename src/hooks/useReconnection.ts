@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
-import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@shared/matching/videoDateDiagnostics";
+import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@clientShared/matching/videoDateDiagnostics";
 
 export type VideoDatePhase = "handshake" | "date" | "ended";
 

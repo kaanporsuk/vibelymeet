@@ -24,7 +24,7 @@ import { trackEvent } from '@/lib/analytics';
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
-} from '@shared/matching/videoDateDiagnostics';
+} from '@clientShared/matching/videoDateDiagnostics';
 
 const RING_SIZE = 88;
 const STROKE = 4;

@@ -38,7 +38,7 @@ import {
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
-} from "@shared/matching/videoDateDiagnostics";
+} from "@clientShared/matching/videoDateDiagnostics";
 import {
   effectiveDateDurationSeconds,
   parseSpendVideoDateCreditExtensionPayload,

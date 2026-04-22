@@ -19,7 +19,7 @@ import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionF
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
-} from "@shared/matching/videoDateDiagnostics";
+} from "@clientShared/matching/videoDateDiagnostics";
 import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,
