@@ -825,7 +825,7 @@ const EventLobby = () => {
       {/* Card Area */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-5 max-w-lg mx-auto w-full relative z-10">
         {suppressDeckUiForConvergence ? (
-          <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
+          <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full min-h-[min(280px,50vh)]">
             <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)] mb-5" />
             <p className="text-lg font-display font-semibold text-white">
               {yieldingToVideoDateUi ? "Joining your date..." : "Opening Ready Gate..."}
