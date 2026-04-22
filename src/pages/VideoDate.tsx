@@ -48,6 +48,7 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
+import { videoSessionRowIndicatesHandshakeOrDate } from "@clientShared/matching/activeSession";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -98,19 +99,6 @@ function videoDateDebug(message: string, data?: Record<string, unknown>) {
 
 function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {
   vdbg("date_redirect", { target, reason, ...(data ?? {}) });
-}
-
-function videoSessionIndicatesHandshakeOrDate(
-  row: { state?: string | null; phase?: string | null; handshake_started_at?: string | null } | null
-): boolean {
-  return Boolean(
-    row &&
-      (row.state === "handshake" ||
-        row.state === "date" ||
-        row.phase === "handshake" ||
-        row.phase === "date" ||
-        row.handshake_started_at)
-  );
 }
 
 function videoSessionIndicatesTerminalEnd(
@@ -419,7 +407,7 @@ const VideoDate = () => {
 
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
-        const sessionIsDateCapable = videoSessionIndicatesHandshakeOrDate(sessionRow);
+        const sessionIsDateCapable = videoSessionRowIndicatesHandshakeOrDate(sessionRow);
         if (!isParticipant) {
           vdbg("date_guard_blocked", {
             sessionId: id,
@@ -468,6 +456,20 @@ const VideoDate = () => {
             const target = sessionRow.event_id
               ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
               : "/home";
+            videoDateDebug("date_refresh_routing", {
+              outcome: "redirect_lobby",
+              reason: "session_ended",
+              sessionId: id,
+              queueStatus: reg?.queue_status ?? null,
+              sessionTruth: {
+                state: sessionRow.state ?? null,
+                phase: sessionRow.phase ?? null,
+                handshake_started_at: sessionRow.handshake_started_at ?? null,
+                date_started_at: sessionRow.date_started_at ?? null,
+                ended_at: sessionRow.ended_at ?? null,
+              },
+              target,
+            });
             vdbgRedirect(target, "session_ended", {
               sessionId: id,
               userId: user.id,
@@ -535,6 +537,21 @@ const VideoDate = () => {
               queueStatus: reg.queue_status,
               state: sessionRow.state,
               phase: sessionRow.phase,
+            });
+            videoDateDebug("date_refresh_routing", {
+              outcome: "redirect_lobby",
+              reason: "in_ready_gate_without_date_entry_latch_or_handshake",
+              sessionId: id,
+              queueStatus: reg.queue_status,
+              sessionTruth: {
+                state: sessionRow.state ?? null,
+                phase: sessionRow.phase ?? null,
+                handshake_started_at: sessionRow.handshake_started_at ?? null,
+                date_started_at: sessionRow.date_started_at ?? null,
+                ready_gate_status: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+              },
+              latchActive: isDateEntryTransitionActive(id),
+              target: `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`,
             });
             const target = `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`;
             vdbgRedirect(target, "in_ready_gate_without_date_entry_latch_or_handshake", {
@@ -631,6 +648,19 @@ const VideoDate = () => {
         }
 
         if (!cancelled) {
+          videoDateDebug("date_refresh_routing", {
+            outcome: "stayed_on_date_route",
+            reason: "guard_passed",
+            sessionId: id,
+            queueStatus: reg?.queue_status ?? null,
+            sessionTruth: {
+              state: sessionRow.state ?? null,
+              phase: sessionRow.phase ?? null,
+              handshake_started_at: sessionRow.handshake_started_at ?? null,
+              date_started_at: sessionRow.date_started_at ?? null,
+            },
+            latchActive: isDateEntryTransitionActive(id),
+          });
           setVideoDateAccess("allowed");
         }
       } catch (err) {

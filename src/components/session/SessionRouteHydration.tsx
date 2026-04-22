@@ -5,19 +5,7 @@ import { vdbg } from "@/lib/vdbg";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { clearDateEntryTransition, isDateEntryTransitionActive } from "@/lib/dateEntryTransitionLatch";
-
-function sessionIndicatesHandshakeOrDate(
-  row: { state?: string | null; phase?: string | null; handshake_started_at?: string | null } | null
-): boolean {
-  return Boolean(
-    row &&
-      (row.state === "handshake" ||
-        row.state === "date" ||
-        row.phase === "handshake" ||
-        row.phase === "date" ||
-        row.handshake_started_at)
-  );
-}
+import { videoSessionRowIndicatesHandshakeOrDate } from "@clientShared/matching/activeSession";
 
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -59,7 +47,7 @@ export function SessionRouteHydration() {
     void (async () => {
       const { data: vs, error } = await supabase
         .from("video_sessions")
-        .select("ended_at, state, phase, handshake_started_at")
+        .select("ended_at, state, phase, handshake_started_at, date_started_at")
         .eq("id", sessionIdFromUrl)
         .maybeSingle();
 
@@ -107,7 +95,7 @@ export function SessionRouteHydration() {
         return;
       }
 
-      if (sessionIndicatesHandshakeOrDate(vs)) {
+      if (videoSessionRowIndicatesHandshakeOrDate(vs)) {
         routeHydrationDebug("blocked ready_gate bounce; video session is date-capable", {
           sessionId: sessionIdFromUrl,
           state: vs.state,
