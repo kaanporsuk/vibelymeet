@@ -928,6 +928,10 @@ export default function VideoDateScreen() {
 
       if (!noRemoteAutoRecoveryUsedRef.current) {
         noRemoteAutoRecoveryUsedRef.current = true;
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'no_remote_watchdog_recovery_start', {
+          session_id: sessionId,
+          room_name: roomNameRef.current ?? undefined,
+        });
         videoDateDailyDiagnostic('no_remote_auto_recovery_start', {
           session_id: sessionId,
           room_name: roomNameRef.current ?? null,
@@ -985,6 +989,11 @@ export default function VideoDateScreen() {
         })();
         return;
       }
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'peer_missing_terminal_watchdog_fire', {
+        session_id: sessionId,
+        room_name: roomNameRef.current ?? undefined,
+        watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
+      });
       videoDateDailyDiagnostic('peer_missing_timeout', { session_id: sessionId, room_name: roomNameRef.current ?? null });
       setPeerMissingTerminal(true);
       vdbg('prejoin_state_awaitingFirstConnect', {
