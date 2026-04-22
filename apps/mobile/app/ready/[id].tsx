@@ -364,7 +364,7 @@ export default function ReadyGateScreen() {
 
   const handleSkip = () => {
     showDialog({
-      title: 'Step away?',
+      title: 'Step away from this match?',
       message: "You'll return to the lobby. Your match can keep going with others.",
       variant: 'destructive',
       primaryAction: { label: 'Step away', onPress: () => forfeit() },
@@ -434,10 +434,10 @@ export default function ReadyGateScreen() {
   const statusLine = isSnoozed
     ? `${partnerName ?? 'Partner'} needs a moment — back in ${Math.floor(snoozeTimeLeft / 60)}:${String(snoozeTimeLeft % 60).padStart(2, '0')}`
     : iAmReady
-      ? `Waiting for ${partnerName ?? 'partner'}...`
+      ? `You're ready. Waiting for ${partnerName ?? 'partner'}...`
       : partnerReady
-        ? `${partnerName ?? 'Your match'} is ready! Tap when you're ready.`
-        : `Join in ${timeLeft}s`;
+        ? `${partnerName ?? 'Your match'} is ready. Tap Ready when you're ready.`
+        : `Ready check ends in ${timeLeft}s`;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -500,8 +500,11 @@ export default function ReadyGateScreen() {
                 variant="primary"
                 size="lg"
                 style={styles.primaryBtn}
-                disabled={markingReady}
+                disabled={markingReady || requestingSnooze}
               />
+              <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+                Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
+              </Text>
               <View style={styles.secondaryRow}>
                 <Pressable
                   onPress={() => {
@@ -515,15 +518,28 @@ export default function ReadyGateScreen() {
                       }
                     })();
                   }}
-                  style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}
+                  disabled={requestingSnooze || markingReady}
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    (requestingSnooze || markingReady) && { opacity: 0.5 },
+                    pressed && { opacity: 0.8 },
+                  ]}
                 >
                   <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
                     {requestingSnooze ? 'Snoozing...' : 'Snooze — give me 2 min'}
                   </Text>
                 </Pressable>
                 <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
-                <Pressable onPress={handleSkip} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
-                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Not ready? Step away</Text>
+                <Pressable
+                  onPress={handleSkip}
+                  disabled={requestingSnooze || markingReady}
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    (requestingSnooze || markingReady) && { opacity: 0.5 },
+                    pressed && { opacity: 0.8 },
+                  ]}
+                >
+                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Step away</Text>
                 </Pressable>
               </View>
             </>
@@ -534,7 +550,7 @@ export default function ReadyGateScreen() {
                 <Text style={[styles.waitingText, { color: theme.text }]}>You're ready! Waiting for {partnerName ?? 'partner'}...</Text>
               </View>
               <Pressable onPress={handleSkip} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
-                <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Cancel & go back</Text>
+                <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Step away</Text>
               </Pressable>
             </>
           )}
@@ -599,6 +615,11 @@ const styles = StyleSheet.create({
   snoozeCueText: { fontSize: 14 },
   actions: { alignItems: 'center', gap: spacing.lg },
   primaryBtn: { alignSelf: 'stretch' },
+  helperText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
   secondaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   ghostBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
   ghostBtnText: { fontSize: 13 },
