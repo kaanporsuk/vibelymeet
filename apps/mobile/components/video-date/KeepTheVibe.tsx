@@ -48,8 +48,12 @@ export function KeepTheVibe({
             accessibilityHint="Opens credits in settings. Your date stays active."
           >
             <Text style={[styles.getCreditsTitle, { color: theme.text }]}>Get Credits</Text>
-            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>Extra Time: +2 min</Text>
-            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>Extended Vibe: +5 min</Text>
+            <Text style={[styles.getCreditsSub, { color: theme.mutedForeground }]}>
+              Extra Time adds +2 min. Extended Vibe adds +5 min.
+            </Text>
+            <Text style={[styles.getCreditsFootnote, { color: theme.mutedForeground }]}>
+              Opens in settings - your date continues.
+            </Text>
           </Pressable>
         ) : (
           <Text style={[styles.hint, { color: theme.mutedForeground }]}>Get credits for +time</Text>
@@ -140,6 +144,11 @@ const styles = StyleSheet.create({
   },
   getCreditsSub: {
     fontSize: 11,
+    textAlign: 'center',
+  },
+  getCreditsFootnote: {
+    fontSize: 10,
+    textAlign: 'center',
   },
   pillIcon: {
     fontSize: 12,
