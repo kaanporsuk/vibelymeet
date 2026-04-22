@@ -51,6 +51,10 @@ export const useReconnection = ({
   const onReconnectedRef = useRef(onReconnected);
   const graceExpiredFiredRef = useRef(false);
   const graceWindowStartedRef = useRef(false);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncCountRef = useRef(0);
+  const syncWindowStartedAtRef = useRef<number | null>(null);
+  const requestSyncReconnectRef = useRef<(reason: string) => void>(() => {});
 
   useEffect(() => {
     onGraceExpiredRef.current = onGraceExpired;
@@ -87,57 +91,142 @@ export const useReconnection = ({
     };
   }, [sessionId]);
 
-  // Server-owned grace: poll sync_reconnect (applies lazy expiry on server)
+  const clearSyncTimer = useCallback(() => {
+    if (!syncTimerRef.current) return;
+    clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = null;
+  }, []);
+
+  const nextSyncDelayMs = useCallback((elapsedMs: number) => {
+    if (elapsedMs < 5_000) return 1_000;
+    if (elapsedMs < 20_000) return 3_000;
+    return 7_000;
+  }, []);
+
+  // Server-owned reconnect truth: event-driven immediate sync + bounded backoff while uncertain.
   useEffect(() => {
     if (!sessionId || phase === "ended") return;
-
     let cancelled = false;
+    let inFlight = false;
 
-    const tick = async () => {
-      const r = await fetchSync();
-      if (cancelled || !r) return;
+    const stopLoop = (reason: string) => {
+      clearSyncTimer();
+      if (syncWindowStartedAtRef.current !== null) {
+        vdbg("sync_reconnect_loop_stop", {
+          sessionId,
+          phase,
+          reason,
+          totalSyncCount: syncCountRef.current,
+          elapsedMs: Date.now() - syncWindowStartedAtRef.current,
+        });
+      }
+      syncWindowStartedAtRef.current = null;
+    };
 
-      if (r.ended) {
-        if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
-          graceExpiredFiredRef.current = true;
-          if (graceWindowStartedRef.current) {
-            trackEvent("video_date_reconnect_grace_expired", {
-              session_id: sessionId,
-              phase,
-            });
-            graceWindowStartedRef.current = false;
-          }
-          onGraceExpiredRef.current?.();
-        }
-        setInReconnectGraceUi(false);
-        setGraceTimeLeft(0);
+    const scheduleBackoff = (reason: string) => {
+      if (cancelled) return;
+      const startedAt = syncWindowStartedAtRef.current ?? Date.now();
+      syncWindowStartedAtRef.current = startedAt;
+      const delayMs = nextSyncDelayMs(Math.max(0, Date.now() - startedAt));
+      clearSyncTimer();
+      vdbg("sync_reconnect_schedule", {
+        sessionId,
+        phase,
+        reason,
+        mode: "backoff",
+        delayMs,
+        totalSyncCount: syncCountRef.current,
+      });
+      syncTimerRef.current = setTimeout(() => {
+        void runSync(reason, "backoff");
+      }, delayMs);
+    };
+
+    const runSync = async (reason: string, mode: "immediate" | "backoff") => {
+      if (cancelled) return;
+      if (inFlight) {
+        vdbg("sync_reconnect_skip", { sessionId, phase, reason, mode, skip: "in_flight" });
         return;
       }
+      inFlight = true;
+      syncCountRef.current += 1;
+      vdbg("sync_reconnect_fire", {
+        sessionId,
+        phase,
+        reason,
+        mode,
+        totalSyncCount: syncCountRef.current,
+      });
+      try {
+        const r = await fetchSync();
+        if (cancelled) return;
+        if (!r) {
+          scheduleBackoff("rpc_error");
+          return;
+        }
 
-      graceExpiredFiredRef.current = false;
+        if (r.ended) {
+          if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
+            graceExpiredFiredRef.current = true;
+            if (graceWindowStartedRef.current) {
+              trackEvent("video_date_reconnect_grace_expired", {
+                session_id: sessionId,
+                phase,
+              });
+              graceWindowStartedRef.current = false;
+            }
+            onGraceExpiredRef.current?.();
+          }
+          setInReconnectGraceUi(false);
+          setGraceTimeLeft(0);
+          stopLoop("session_ended");
+          return;
+        }
 
-      const hasGrace = !!r.reconnect_grace_ends_at;
-      const show = hasGrace && r.partner_marked_away;
-      setInReconnectGraceUi(show);
+        graceExpiredFiredRef.current = false;
 
-      if (hasGrace && r.reconnect_grace_ends_at) {
-        const sec = Math.max(
-          0,
-          Math.ceil((new Date(r.reconnect_grace_ends_at).getTime() - Date.now()) / 1000),
-        );
-        setGraceTimeLeft(sec);
-      } else {
+        const hasGrace = !!r.reconnect_grace_ends_at;
+        const show = hasGrace && r.partner_marked_away;
+        setInReconnectGraceUi(show);
+
+        if (hasGrace && r.reconnect_grace_ends_at) {
+          const sec = Math.max(
+            0,
+            Math.ceil((new Date(r.reconnect_grace_ends_at).getTime() - Date.now()) / 1000),
+          );
+          setGraceTimeLeft(sec);
+          scheduleBackoff(show ? "reconnect_grace_active" : "grace_active_partner_not_marked_away");
+          return;
+        }
+
         setGraceTimeLeft(0);
+        stopLoop("truth_stable_no_grace");
+      } finally {
+        inFlight = false;
       }
     };
 
-    void tick();
-    const iv = setInterval(() => void tick(), 1000);
+    requestSyncReconnectRef.current = (reason: string) => {
+      if (cancelled) return;
+      if (syncWindowStartedAtRef.current === null) {
+        syncWindowStartedAtRef.current = Date.now();
+      }
+      void runSync(reason, "immediate");
+    };
+
+    requestSyncReconnectRef.current("mount_or_phase_change");
     return () => {
       cancelled = true;
-      clearInterval(iv);
+      clearSyncTimer();
+      requestSyncReconnectRef.current = () => {};
     };
-  }, [sessionId, phase, fetchSync]);
+  }, [sessionId, phase, fetchSync, clearSyncTimer, nextSyncDelayMs]);
+
+  useEffect(() => {
+    syncCountRef.current = 0;
+    syncWindowStartedAtRef.current = null;
+    clearSyncTimer();
+  }, [sessionId, clearSyncTimer]);
 
   useEffect(() => {
     const prev = prevIsConnectedRef.current;
@@ -185,6 +274,7 @@ export const useReconnection = ({
       })();
       setInReconnectGraceUi(false);
       onReconnectedRef.current?.();
+      requestSyncReconnectRef.current("daily_reconnected");
     }
   }, [isConnected, sessionId, phase]);
 
@@ -221,6 +311,7 @@ export const useReconnection = ({
         });
       }
     })();
+    requestSyncReconnectRef.current("partner_marked_away");
   }, [sessionId, phase]);
 
   const checkActiveSession = useCallback(async (): Promise<{
