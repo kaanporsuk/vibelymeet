@@ -132,7 +132,7 @@ export const PostDateSurvey = ({
   // While in survey, drain/realtime can promote a queued session — navigate to lobby with pending session.
   const handleQueueMatch = useCallback(
     (videoSessionId: string, _queuePartnerId: string) => {
-      toast("Your video date is ready — head to the lobby 💚", { duration: 2000 });
+      toast("Your next date is ready — head to the event lobby 💚", { duration: 2000 });
       if (eventId) {
         const target = buildEventLobbyPendingSessionUrl(eventId, videoSessionId);
         vdbgRedirect(target, "survey_queue_match_ready", { sessionId, eventId, pendingVideoSession: videoSessionId });
@@ -158,7 +158,7 @@ export const PostDateSurvey = ({
       logJourney("survey_completed", { source: "finish_survey_active_event" }, "survey_completed");
       setStatus("browsing");
       setSurveyStatus("browsing");
-      toast("Back in the mix! 💚", { duration: 2000 });
+      toast("You're back in the lobby — keep browsing 💚", { duration: 2000 });
       if (eventId) {
         const target = `/event/${eventId}/lobby`;
         vdbgRedirect(target, "survey_finish", { sessionId, eventId, lobbyRefresh: true });

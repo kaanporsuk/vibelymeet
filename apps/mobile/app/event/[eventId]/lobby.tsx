@@ -1320,11 +1320,11 @@ export default function EventLobbyScreen() {
         {yieldingToVideoDateUi || yieldingToReadyGateUi ? (
           <View style={styles.convergenceYieldWrap}>
             <LoadingState
-              title={yieldingToVideoDateUi ? 'Joining your date…' : 'Opening Ready Gate…'}
+              title={yieldingToVideoDateUi ? 'Joining your date...' : 'Opening Ready Gate...'}
               message={
                 yieldingToVideoDateUi
-                  ? 'Taking you to your video date.'
-                  : 'Syncing with your match — almost there.'
+                  ? 'Taking you to the same video session as your match.'
+                  : 'Syncing with your match. Almost there.'
               }
             />
           </View>
@@ -1334,7 +1334,7 @@ export default function EventLobbyScreen() {
             <View style={styles.centeredInner}>
             <ErrorState
               title="Couldn't load deck"
-              message="We couldn't load people at this event. Tap Retry to try again."
+              message="We couldn't load people in this room. Check your connection and tap Retry."
               actionLabel="Retry"
               onActionPress={() => refetchDeck()}
             />
@@ -1390,7 +1390,7 @@ export default function EventLobbyScreen() {
                   <Text style={styles.emptyEmoji}>⏳</Text>
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>Hang tight!</Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    New people may join the event! We'll refresh your deck automatically.
+                    More people may join the room — we'll refresh your deck automatically.
                   </Text>
                   <View style={styles.emptyCheckingRow}>
                     <Ionicons name="sync" size={14} color={theme.tint} />
@@ -1408,9 +1408,9 @@ export default function EventLobbyScreen() {
                   <View style={[styles.emptyIconWrap, { backgroundColor: theme.accentSoft }]}>
                     <Ionicons name="people-outline" size={40} color={theme.tint} />
                   </View>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>No more profiles</Text>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>You've seen everyone for now</Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    The deck refreshes every few seconds — or try Mystery Match (native).
+                    More people may join the room — your deck refreshes every few seconds. Try Mystery Match or tap Refresh.
                   </Text>
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
