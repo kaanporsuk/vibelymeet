@@ -11,6 +11,32 @@ export type ParsedExtensionSpend =
   | { success: true; addedSeconds?: number; dateExtraSeconds?: number }
   | { success: false; error: string };
 
+/** Total allowed date-phase length after server-owned extensions (`video_sessions.date_extra_seconds`). */
+export function effectiveDateDurationSeconds(
+  baseDateSeconds: number,
+  dateExtraSeconds: number | null | undefined,
+): number {
+  const extra =
+    typeof dateExtraSeconds === "number" && Number.isFinite(dateExtraSeconds)
+      ? Math.max(0, Math.floor(dateExtraSeconds))
+      : 0;
+  return baseDateSeconds + extra;
+}
+
+/** Remaining date-phase seconds from monotonic elapsed time since `date_started_at`; full effective budget if start missing. */
+export function remainingDatePhaseSeconds(args: {
+  dateStartedAtIso: string | null | undefined;
+  baseDateSeconds: number;
+  dateExtraSeconds: number | null | undefined;
+  nowMs?: number;
+}): number {
+  const effective = effectiveDateDurationSeconds(args.baseDateSeconds, args.dateExtraSeconds);
+  if (!args.dateStartedAtIso) return effective;
+  const elapsed =
+    ((args.nowMs ?? Date.now()) - new Date(args.dateStartedAtIso).getTime()) / 1000;
+  return Math.max(0, Math.ceil(effective - elapsed));
+}
+
 export function parseSpendVideoDateCreditExtensionPayload(data: unknown): ParsedExtensionSpend {
   if (data == null || typeof data !== "object" || Array.isArray(data)) {
     return { success: false, error: "invalid_response" };

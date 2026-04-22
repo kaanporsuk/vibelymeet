@@ -40,13 +40,19 @@ import {
   type VideoDateJourneyEvent,
 } from "@shared/matching/videoDateDiagnostics";
 import {
+  effectiveDateDurationSeconds,
   parseSpendVideoDateCreditExtensionPayload,
+  remainingDatePhaseSeconds,
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
+
+function normalizedDateExtraSeconds(raw: unknown): number {
+  return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
+}
 
 type VideoDateAccess = "loading" | "allowed" | "denied" | "not_found";
 
@@ -130,6 +136,8 @@ const VideoDate = () => {
   const { user } = useUserProfile();
 
   const [phase, setPhase] = useState<CallPhase>("handshake");
+  /** Server-owned extension seconds (`video_sessions.date_extra_seconds`) for reconciliation after refetch/rejoin. */
+  const [dateExtraSeconds, setDateExtraSeconds] = useState(0);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [videoDateAccess, setVideoDateAccess] = useState<VideoDateAccess>("loading");
   const [deniedEventId, setDeniedEventId] = useState<string | undefined>(undefined);
@@ -343,6 +351,10 @@ const VideoDate = () => {
       cancelled = true;
     };
   }, [id, user?.id, logJourney]);
+
+  useEffect(() => {
+    setDateExtraSeconds(0);
+  }, [id]);
 
   // Resolve a photo path to a displayable URL (sync via public URL)
   const resolvePhoto = (path: string): string | null => {
@@ -644,7 +656,9 @@ const VideoDate = () => {
 
       const { data, error } = await supabase
         .from("video_sessions")
-        .select("handshake_started_at, handshake_grace_expires_at, date_started_at, phase, state, ended_at")
+        .select(
+          "handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at",
+        )
         .eq("id", id)
         .maybeSingle();
 
@@ -664,6 +678,10 @@ const VideoDate = () => {
       }
 
       const now = Date.now();
+      const extraNorm = normalizedDateExtraSeconds(
+        (data as { date_extra_seconds?: unknown }).date_extra_seconds,
+      );
+      setDateExtraSeconds(extraNorm);
 
       if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
@@ -682,12 +700,14 @@ const VideoDate = () => {
         vdbg("date_timing_existing_date", { sessionId: id, row: data });
         markDateFlowEntered();
         const dateStartedAt = typeof data.date_started_at === "string" ? data.date_started_at : null;
-        if (dateStartedAt) {
-          const elapsed = (now - new Date(dateStartedAt).getTime()) / 1000;
-          setTimeLeft(Math.max(0, Math.ceil(DATE_TIME - elapsed)));
-        } else {
-          setTimeLeft(DATE_TIME);
-        }
+        setTimeLeft(
+          remainingDatePhaseSeconds({
+            dateStartedAtIso: dateStartedAt,
+            baseDateSeconds: DATE_TIME,
+            dateExtraSeconds: extraNorm,
+            nowMs: now,
+          }),
+        );
         setPhase("date");
         setTimingReady(true);
         return;
@@ -844,13 +864,16 @@ const VideoDate = () => {
           if (newState === "date" || Boolean(row.date_started_at)) {
             markDateFlowEntered();
             clearHandshakeGraceState();
+            const extraNorm = normalizedDateExtraSeconds(row.date_extra_seconds);
+            setDateExtraSeconds(extraNorm);
             const dateStartedAt = typeof row.date_started_at === "string" ? row.date_started_at : null;
-            if (dateStartedAt) {
-              const elapsed = (Date.now() - new Date(dateStartedAt).getTime()) / 1000;
-              setTimeLeft(Math.ceil(Math.max(0, DATE_TIME - elapsed)));
-            } else {
-              setTimeLeft(DATE_TIME);
-            }
+            setTimeLeft(
+              remainingDatePhaseSeconds({
+                dateStartedAtIso: dateStartedAt,
+                baseDateSeconds: DATE_TIME,
+                dateExtraSeconds: extraNorm,
+              }),
+            );
             setPhase("date");
             return;
           }
@@ -1181,13 +1204,13 @@ const VideoDate = () => {
     markDateFlowEntered();
     setShowMutualToast(false);
     setPhase("date");
-    setTimeLeft(DATE_TIME);
+    setTimeLeft(effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds));
     trackEvent('video_date_extended', { session_id: id });
     setShowIceBreaker(true);
     setTimeout(() => setShowIceBreaker(false), 30000);
 
     // Server already transitioned to date via video_date_transition; no client-owned writes needed here.
-  }, [id, clearHandshakeGraceState, markDateFlowEntered]);
+  }, [id, clearHandshakeGraceState, markDateFlowEntered, dateExtraSeconds]);
 
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<VideoDateExtendOutcome> => {
@@ -1213,6 +1236,9 @@ const VideoDate = () => {
           void refetchCredits();
           return { ok: false, userMessage: userMessageForExtensionSpendFailure(parsed.error) };
         }
+        if (parsed.dateExtraSeconds !== undefined) {
+          setDateExtraSeconds(Math.max(0, Math.floor(parsed.dateExtraSeconds)));
+        }
         Sentry.addBreadcrumb({ category: "credits", message: `Used ${type} credit, +${minutes} min`, level: "info" });
         trackEvent("credit_used", { type, minutes });
         setTimeLeft((prev) => (prev ?? 0) + minutes * 60);
@@ -1228,10 +1254,13 @@ const VideoDate = () => {
   // End call: update session, show survey
   const handleCallEnd = useCallback(async () => {
     const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date";
-    const totalTime = phase === "handshake" ? HANDSHAKE_TIME : HANDSHAKE_TIME + DATE_TIME;
+    const analyticsBudgetSeconds =
+      phase === "handshake"
+        ? HANDSHAKE_TIME
+        : HANDSHAKE_TIME + effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
     trackEvent('video_date_ended', {
       session_id: id,
-      duration_seconds: totalTime - (timeLeft ?? 0),
+      duration_seconds: analyticsBudgetSeconds - (timeLeft ?? 0),
       phase,
     });
     if (hasDateEntryTruth) {
@@ -1268,7 +1297,7 @@ const VideoDate = () => {
         });
       }
     }
-  }, [id, phase, timeLeft, openPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
+  }, [id, phase, timeLeft, dateExtraSeconds, openPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
 
   const handleLeave = useCallback(async () => {
     clearHandshakeGraceState();
@@ -1310,7 +1339,8 @@ const VideoDate = () => {
     })();
   }, [dupBlocked, callStarted, endCall, navigate, eventId]);
 
-  const totalTime = phase === "handshake" ? HANDSHAKE_TIME : DATE_TIME;
+  const totalTime =
+    phase === "handshake" ? HANDSHAKE_TIME : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
 
   if (!id || videoDateAccess === "not_found") {

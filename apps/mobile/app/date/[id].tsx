@@ -54,6 +54,7 @@ import {
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
 import {
+  effectiveDateDurationSeconds,
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
@@ -1493,8 +1494,8 @@ export default function VideoDateScreen() {
   const handleMutualToastComplete = useCallback(() => {
     clearHandshakeGraceState();
     setShowMutualToast(false);
-    setLocalTimeLeft(DATE_SECONDS);
-  }, [clearHandshakeGraceState]);
+    setLocalTimeLeft(effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds));
+  }, [clearHandshakeGraceState, session?.date_extra_seconds]);
 
   const focusKeepTheVibeAddTime = useCallback(() => {
     void AccessibilityInfo.announceForAccessibility(
@@ -1536,6 +1537,7 @@ export default function VideoDateScreen() {
           trackEvent('video_date_extended', { session_id: sessionId });
           trackEvent('credit_used', { type, minutes });
           setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+          void refetchVideoSession();
           setExtendBanner({ kind: 'success', minutes });
           return { ok: true, minutesAdded: minutes };
         }
@@ -1547,7 +1549,7 @@ export default function VideoDateScreen() {
         setIsExtending(false);
       }
     },
-    [user?.id, sessionId]
+    [user?.id, sessionId, refetchVideoSession]
   );
 
   useEffect(() => {
@@ -2840,7 +2842,10 @@ export default function VideoDateScreen() {
     setIsVideoOff(nextVideoOff);
   }, [isVideoOff]);
 
-  const totalTime = phase === 'handshake' ? HANDSHAKE_SECONDS : DATE_SECONDS;
+  const totalTime =
+    phase === 'handshake'
+      ? HANDSHAKE_SECONDS
+      : effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds);
   const displayTimeLeft = localTimeLeft ?? totalTime;
 
   /** Local user is in Daily but server has no join stamp for the peer yet — distinct from reconnect / ambiguous absence. */

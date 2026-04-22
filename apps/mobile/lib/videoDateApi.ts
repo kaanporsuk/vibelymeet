@@ -6,7 +6,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
-import { parseSpendVideoDateCreditExtensionPayload } from '@clientShared/matching/videoDateExtensionSpend';
+import {
+  parseSpendVideoDateCreditExtensionPayload,
+  remainingDatePhaseSeconds,
+} from '@clientShared/matching/videoDateExtensionSpend';
 
 export type VideoDateSession = {
   id: string;
@@ -28,6 +31,8 @@ export type VideoDateSession = {
   /** First successful Daily join for each participant (server RPC after `call.join`). */
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  /** Seconds added onto the base date window (credit extensions); server-owned. */
+  date_extra_seconds?: number | null;
 };
 
 export type SyncReconnectPayload = {
@@ -152,7 +157,17 @@ export function useVideoDateSession(
   };
 
   const resolvePhaseAndTime = useCallback(
-    (row: Pick<VideoDateSession, 'ended_at' | 'state' | 'phase' | 'date_started_at' | 'handshake_started_at'>): PhaseResolution => {
+    (
+      row: Pick<
+        VideoDateSession,
+        | 'ended_at'
+        | 'state'
+        | 'phase'
+        | 'date_started_at'
+        | 'handshake_started_at'
+        | 'date_extra_seconds'
+      >,
+    ): PhaseResolution => {
       const state = row.state ?? null;
       const phaseValue = row.phase ?? null;
 
@@ -162,11 +177,16 @@ export function useVideoDateSession(
 
       // Authoritative date evidence always wins over handshake fields.
       if (state === 'date' || phaseValue === 'date' || !!row.date_started_at) {
-        if (row.date_started_at) {
-          const elapsed = (Date.now() - new Date(row.date_started_at).getTime()) / 1000;
-          return { phase: 'date', timeLeft: Math.max(0, Math.ceil(DATE_SECONDS - elapsed)) };
-        }
-        return { phase: 'date', timeLeft: DATE_SECONDS };
+        const dateStarted =
+          typeof row.date_started_at === 'string' ? row.date_started_at : null;
+        return {
+          phase: 'date',
+          timeLeft: remainingDatePhaseSeconds({
+            dateStartedAtIso: dateStarted,
+            baseDateSeconds: DATE_SECONDS,
+            dateExtraSeconds: row.date_extra_seconds,
+          }),
+        };
       }
 
       if (row.handshake_started_at || state === 'handshake' || phaseValue === 'handshake') {
@@ -210,7 +230,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
+          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -304,6 +324,10 @@ export function useVideoDateSession(
             if (row.handshake_started_at !== undefined) next.handshake_started_at = row.handshake_started_at as string | null;
             if (row.handshake_grace_expires_at !== undefined) {
               next.handshake_grace_expires_at = row.handshake_grace_expires_at as string | null;
+            }
+            if (row.date_extra_seconds !== undefined) {
+              next.date_extra_seconds =
+                typeof row.date_extra_seconds === 'number' ? row.date_extra_seconds : null;
             }
             const resolved = resolvePhaseAndTime(next);
             setPhase(resolved.phase);
