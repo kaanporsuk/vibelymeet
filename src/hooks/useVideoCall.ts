@@ -17,6 +17,7 @@ interface UseVideoCallOptions {
 export type VideoCallNetworkTier = "good" | "fair" | "poor";
 
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
+const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 
 type VideoDateTruthRow = {
   id: string;
@@ -107,6 +108,11 @@ function getTrackIdsKey(p: DailyParticipant | undefined, includeAudio: boolean):
   return `${videoId}|${audioId}`;
 }
 
+function streamHasTrackId(stream: MediaStream | null, trackId: string): boolean {
+  if (!stream || !trackId) return false;
+  return stream.getTracks().some((t) => t.id === trackId);
+}
+
 export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -128,6 +134,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastRemoteStreamRef = useRef<MediaStream | null>(null);
   const lastLocalMountedTrackKeyRef = useRef<string>("");
   const lastRemoteMountedTrackKeyRef = useRef<string>("");
+  const firstRemoteWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noRemoteAutoRecoveryUsedRef = useRef(false);
+  const startAttemptNonceRef = useRef(0);
+  const latestLocalParticipantRef = useRef<DailyParticipant | undefined>(undefined);
+  const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -142,6 +153,24 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
       videoEl.srcObject = stream;
+    },
+    []
+  );
+
+  const needsTrackReattach = useCallback(
+    (videoEl: HTMLVideoElement | null, participant: DailyParticipant | undefined, isLocal: boolean) => {
+      if (!videoEl || !participant?.tracks) return false;
+
+      const expectedVideoId = participant.tracks.video?.persistentTrack?.id ?? "";
+      const expectedAudioId = isLocal ? "" : (participant.tracks.audio?.persistentTrack?.id ?? "");
+      if (!expectedVideoId && !expectedAudioId) return false;
+
+      const current = videoEl.srcObject as MediaStream | null;
+      if (!current) return true;
+
+      const hasExpectedVideo = !expectedVideoId || streamHasTrackId(current, expectedVideoId);
+      const hasExpectedAudio = !expectedAudioId || streamHasTrackId(current, expectedAudioId);
+      return !(hasExpectedVideo && hasExpectedAudio);
     },
     []
   );
@@ -174,6 +203,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     },
     []
   );
+
+  const clearFirstRemoteWatchdog = useCallback(() => {
+    if (!firstRemoteWatchdogRef.current) return;
+    clearTimeout(firstRemoteWatchdogRef.current);
+    firstRemoteWatchdogRef.current = null;
+  }, []);
 
   const cleanupCallObject = useCallback(
     async (caller: string, reason: string) => {
@@ -233,18 +268,21 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnecting(false);
       setNetworkTier("good");
       firstRemoteObservedRef.current = false;
+      clearFirstRemoteWatchdog();
       lastLocalTrackIdsRef.current = "";
       lastLocalStreamRef.current = null;
       lastRemoteTrackIdsRef.current = "";
       lastRemoteStreamRef.current = null;
       lastLocalMountedTrackKeyRef.current = "";
       lastRemoteMountedTrackKeyRef.current = "";
+      latestLocalParticipantRef.current = undefined;
+      latestRemoteParticipantRef.current = undefined;
     },
-    []
+    [clearFirstRemoteWatchdog]
   );
 
   const startCall = useCallback(
-    async (roomId?: string) => {
+    async (roomId?: string, opts?: { internalRetry?: boolean }) => {
       const sessionId = roomId || optionsRef.current?.roomId;
       const eventId = optionsRef.current?.eventId ?? null;
       const userId = optionsRef.current?.userId ?? null;
@@ -257,6 +295,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnected(false);
       setHasPermission(null);
       firstRemoteObservedRef.current = false;
+      clearFirstRemoteWatchdog();
+      startAttemptNonceRef.current += 1;
+      const startNonce = startAttemptNonceRef.current;
+      if (!opts?.internalRetry) {
+        noRemoteAutoRecoveryUsedRef.current = false;
+      }
 
       try {
         if (callObjectRef.current) {
@@ -394,8 +438,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         callObject.on("participant-joined", (event) => {
           if (event && !event.participant?.local) {
+            latestRemoteParticipantRef.current = event.participant;
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
+              clearFirstRemoteWatchdog();
               vdbg("first_remote_participant_seen", {
                 sessionId,
                 eventId: truthRow.event_id ?? eventId,
@@ -415,8 +461,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callObject.on("participant-updated", (event) => {
           if (!event?.participant) return;
           if (event.participant.local) {
+            latestLocalParticipantRef.current = event.participant;
             const localKey = getTrackIdsKey(event.participant, false);
-            if (localKey !== lastLocalTrackIdsRef.current) {
+            const localKeyChanged = localKey !== lastLocalTrackIdsRef.current;
+            if (localKeyChanged) {
               const newStream = buildStreamFromParticipant(event.participant, { includeAudio: false });
               lastLocalTrackIdsRef.current = localKey;
               lastLocalStreamRef.current = newStream;
@@ -428,7 +476,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 key: localKey,
               });
             }
-            if (localVideoRef.current) {
+            if (localVideoRef.current && (localKeyChanged || needsTrackReattach(localVideoRef.current, event.participant, true))) {
               attachTracks(event.participant, localVideoRef.current, true);
               logTrackMounted("participant_updated", {
                 isLocal: true,
@@ -437,8 +485,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
             }
           } else {
+            latestRemoteParticipantRef.current = event.participant;
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
+              clearFirstRemoteWatchdog();
               vdbg("first_remote_participant_seen", {
                 sessionId,
                 eventId: truthRow.event_id ?? eventId,
@@ -448,7 +498,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
             }
             const remoteKey = getTrackIdsKey(event.participant, true);
-            if (remoteKey !== lastRemoteTrackIdsRef.current) {
+            const remoteKeyChanged = remoteKey !== lastRemoteTrackIdsRef.current;
+            if (remoteKeyChanged) {
               lastRemoteTrackIdsRef.current = remoteKey;
               if (remoteVideoRef.current) {
                 attachTracks(event.participant, remoteVideoRef.current, false);
@@ -464,6 +515,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 eventId: truthRow.event_id ?? eventId,
                 userId,
                 key: remoteKey,
+              });
+            } else if (
+              remoteVideoRef.current &&
+              needsTrackReattach(remoteVideoRef.current, event.participant, false)
+            ) {
+              attachTracks(event.participant, remoteVideoRef.current, false);
+              logTrackMounted("participant_updated_reattach", {
+                isLocal: false,
+                participant: event.participant,
+                roomName: roomData.room_name ?? null,
               });
             }
           }
@@ -592,6 +653,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
+          latestLocalParticipantRef.current = localParticipant;
           const localKey = getTrackIdsKey(localParticipant, false);
           if (localKey !== lastLocalTrackIdsRef.current) {
             const newStream = buildStreamFromParticipant(localParticipant, { includeAudio: false });
@@ -618,8 +680,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const participants = callObject.participants();
         const remoteParticipants = Object.values(participants).filter((p) => !p.local);
         if (remoteParticipants.length > 0) {
+          latestRemoteParticipantRef.current = remoteParticipants[0];
           if (!firstRemoteObservedRef.current) {
             firstRemoteObservedRef.current = true;
+            clearFirstRemoteWatchdog();
             vdbg("first_remote_participant_seen", {
               sessionId,
               eventId: truthRow.event_id ?? eventId,
@@ -638,6 +702,49 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             participant: remoteParticipants[0],
             roomName: roomData.room_name ?? null,
           });
+        } else {
+          vdbg("daily_no_remote_watchdog_start", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            timeoutMs: FIRST_REMOTE_TIMEOUT_MS,
+            autoRecoveryUsed: noRemoteAutoRecoveryUsedRef.current,
+          });
+          firstRemoteWatchdogRef.current = setTimeout(() => {
+            if (
+              startAttemptNonceRef.current !== startNonce ||
+              !callObjectRef.current ||
+              firstRemoteObservedRef.current
+            ) {
+              return;
+            }
+            vdbg("daily_no_remote_watchdog_timeout", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              autoRecoveryUsed: noRemoteAutoRecoveryUsedRef.current,
+            });
+            if (!noRemoteAutoRecoveryUsedRef.current) {
+              noRemoteAutoRecoveryUsedRef.current = true;
+              void (async () => {
+                await cleanupCallObject("startCall", "no_remote_auto_recovery");
+                vdbg("daily_no_remote_watchdog_recovery", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  roomName: roomData.room_name,
+                  result: "rejoin_scheduled",
+                });
+                void startCall(sessionId, { internalRetry: true });
+              })();
+              return;
+            }
+            setIsConnecting(false);
+            setIsConnected(false);
+            toast.error("Your match has not joined this video room yet.");
+          }, FIRST_REMOTE_TIMEOUT_MS);
         }
 
         return true;
@@ -657,8 +764,35 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         return false;
       }
     },
-    [attachTracks, cleanupCallObject]
+    [attachTracks, cleanupCallObject, clearFirstRemoteWatchdog, needsTrackReattach]
   );
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      const localParticipant = latestLocalParticipantRef.current;
+      const remoteParticipant = latestRemoteParticipantRef.current;
+
+      if (localVideoRef.current && needsTrackReattach(localVideoRef.current, localParticipant, true)) {
+        attachTracks(localParticipant, localVideoRef.current, true);
+        logTrackMounted("maintenance_reattach", {
+          isLocal: true,
+          participant: localParticipant,
+          roomName: roomNameRef.current,
+        });
+      }
+
+      if (remoteVideoRef.current && needsTrackReattach(remoteVideoRef.current, remoteParticipant, false)) {
+        attachTracks(remoteParticipant, remoteVideoRef.current, false);
+        logTrackMounted("maintenance_reattach", {
+          isLocal: false,
+          participant: remoteParticipant,
+          roomName: roomNameRef.current,
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [attachTracks, logTrackMounted, needsTrackReattach]);
 
   const endCall = useCallback(
     async (reason = "manual_end") => {
