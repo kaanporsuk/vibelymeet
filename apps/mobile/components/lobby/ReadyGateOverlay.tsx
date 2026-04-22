@@ -3,10 +3,21 @@
  * No visual redesign — behavior and state machine parity only.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet, Modal, Image, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  Modal,
+  Image,
+  ActivityIndicator,
+  PermissionsAndroid,
+  Platform,
+} from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
+import { BlurView } from 'expo-blur';
 import * as Sentry from '@sentry/react-native';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
@@ -15,7 +26,6 @@ import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useReadyGate } from '@/lib/readyGateApi';
 import { updateParticipantStatus } from '@/lib/videoDateApi';
-import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
@@ -50,6 +60,8 @@ export type ReadyGateOverlayProps = {
   partnerImageUri?: string | null;
   onNavigateToDate: (sessionId: string) => void;
   onClose: () => void;
+  /** Sonner-equivalent feedback on the lobby after close (forfeit / stale) — avoids blocking modal alerts. */
+  onLobbyUserMessage?: (message: string, variant?: 'info' | 'success') => void;
 };
 
 export function ReadyGateOverlay({
@@ -59,10 +71,10 @@ export function ReadyGateOverlay({
   partnerImageUri,
   onNavigateToDate,
   onClose,
+  onLobbyUserMessage,
 }: ReadyGateOverlayProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { show } = useVibelyDialog();
   const closedRef = useRef(false);
   const invalidSessionNotifiedRef = useRef(false);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
@@ -136,15 +148,15 @@ export function ReadyGateOverlay({
       rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeited', { reason: _reason, eventId });
       logJourney('ready_gate_forfeited', { reason: _reason }, `ready_gate_forfeited_${_reason}`);
       await updateParticipantStatus(eventId, 'browsing');
-      show({
-        title: _reason === 'timeout' ? "They weren't ready" : 'No worries',
-        message: _reason === 'timeout' ? 'Back to browsing — your deck is waiting.' : 'Back to browsing 💚',
-        variant: 'info',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
+      onLobbyUserMessage?.(
+        _reason === 'timeout'
+          ? "They weren't ready. Back to browsing — your deck is waiting."
+          : 'No worries — back to browsing 💚',
+        'info',
+      );
       onClose();
     },
-    [eventId, show, onClose, logJourney],
+    [eventId, onLobbyUserMessage, onClose, logJourney],
   );
 
   const {
@@ -216,12 +228,7 @@ export function ReadyGateOverlay({
         });
         if (!invalidSessionNotifiedRef.current) {
           invalidSessionNotifiedRef.current = true;
-          show({
-            title: 'Ready Gate unavailable',
-            message: READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
-            variant: 'info',
-            primaryAction: { label: 'OK', onPress: () => {} },
-          });
+          onLobbyUserMessage?.(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, 'info');
         }
         onClose();
       }
@@ -229,7 +236,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [sessionId, eventId, userId, onClose, show, logJourney]);
+  }, [sessionId, eventId, userId, onClose, onLobbyUserMessage, logJourney]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
@@ -286,6 +293,9 @@ export function ReadyGateOverlay({
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <ActivityIndicator size="large" color={theme.tint} />
             <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>Opening Ready Gate...</Text>
+            <Text style={[styles.permissionLoadingSub, { color: theme.textSecondary }]}>
+              Checking camera and microphone...
+            </Text>
           </Card>
         ) : isTransitioning || isBothReady ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
@@ -299,39 +309,31 @@ export function ReadyGateOverlay({
           </Card>
         ) : (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
-            <View style={styles.ringWrap}>
-              <Svg width={RING_SIZE} height={RING_SIZE} style={styles.ringSvg}>
-                <Circle
-                  cx={RING_SIZE / 2}
-                  cy={RING_SIZE / 2}
-                  r={R}
-                  fill="none"
-                  stroke={theme.muted}
-                  strokeWidth={STROKE}
-                  opacity={0.35}
-                />
-                <Circle
-                  cx={RING_SIZE / 2}
-                  cy={RING_SIZE / 2}
-                  r={R}
-                  fill="none"
-                  stroke={theme.tint}
-                  strokeWidth={STROKE}
-                  strokeDasharray={CIRC}
-                  strokeDashoffset={dashOffset}
-                  strokeLinecap="round"
-                  transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
-                />
-              </Svg>
-              {!iAmReady && (
-                <Text style={[styles.countdownNum, { color: theme.text }]}>{Math.max(0, timeLeft)}</Text>
-              )}
-            </View>
-
             <Text style={[styles.title, { color: theme.text }]}>Ready to vibe?</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
               You matched with {displayName}.
             </Text>
+
+            <View
+              style={[
+                styles.avatarWrap,
+                { borderColor: withAlpha(theme.tint, 0.31), backgroundColor: theme.surfaceSubtle },
+              ]}
+            >
+              {partnerImageUri ? (
+                <>
+                  <Image source={{ uri: partnerImageUri }} style={styles.avatarImage} />
+                  <BlurView intensity={22} tint="dark" style={StyleSheet.absoluteFillObject} />
+                  <View style={styles.avatarNameScrim} pointerEvents="none">
+                    <Text style={styles.avatarNameText} numberOfLines={1}>
+                      {displayName}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <Ionicons name="person" size={48} color={theme.textSecondary} />
+              )}
+            </View>
 
             {partnerReady && !iAmReady ? (
               <View style={styles.partnerReadyRow}>
@@ -351,21 +353,35 @@ export function ReadyGateOverlay({
               </View>
             ) : null}
 
-            <View
-              style={[
-                styles.avatarWrap,
-                { borderColor: withAlpha(theme.tint, 0.31), backgroundColor: theme.surfaceSubtle },
-              ]}
-            >
-              {partnerImageUri ? (
-                <Image source={{ uri: partnerImageUri }} style={styles.avatarImage} />
-              ) : (
-                <Ionicons name="person" size={48} color={theme.textSecondary} />
-              )}
-            </View>
-
             {!iAmReady ? (
               <>
+                <View style={styles.ringWrap}>
+                  <Svg width={RING_SIZE} height={RING_SIZE} style={styles.ringSvg}>
+                    <Circle
+                      cx={RING_SIZE / 2}
+                      cy={RING_SIZE / 2}
+                      r={R}
+                      fill="none"
+                      stroke={theme.muted}
+                      strokeWidth={STROKE}
+                      opacity={0.35}
+                    />
+                    <Circle
+                      cx={RING_SIZE / 2}
+                      cy={RING_SIZE / 2}
+                      r={R}
+                      fill="none"
+                      stroke={theme.tint}
+                      strokeWidth={STROKE}
+                      strokeDasharray={CIRC}
+                      strokeDashoffset={dashOffset}
+                      strokeLinecap="round"
+                      transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+                    />
+                  </Svg>
+                  <Text style={[styles.countdownNum, { color: theme.text }]}>{Math.max(0, timeLeft)}</Text>
+                </View>
+
                 <VibelyButton
                   label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                   onPress={() => {
@@ -434,7 +450,7 @@ export function ReadyGateOverlay({
                 <View style={[styles.waitingPill, { borderColor: withAlpha(theme.tint, 0.35), backgroundColor: theme.tintSoft }]}>
                   <Ionicons name="checkmark-circle" size={18} color={theme.tint} />
                   <Text style={[styles.waitingPillText, { color: theme.text }]}>
-                    You're ready. Waiting for {displayName}...
+                    You&apos;re ready. Waiting for {displayName}...
                   </Text>
                 </View>
                 <Pressable
@@ -476,6 +492,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
+    marginTop: spacing.sm,
   },
   ringSvg: { position: 'absolute' },
   countdownNum: {
@@ -494,6 +511,11 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     textAlign: 'center',
   },
+  permissionLoadingSub: {
+    fontSize: 13,
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
   partnerReadyRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -510,11 +532,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
+    position: 'relative',
   },
   avatarImage: {
     width: '100%',
     height: '100%',
+  },
+  avatarNameScrim: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    paddingHorizontal: spacing.sm,
+  },
+  avatarNameText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
   },
   readyBtn: {
     alignSelf: 'stretch',
