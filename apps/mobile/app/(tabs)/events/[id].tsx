@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   StyleSheet,
   ScrollView,
@@ -569,6 +570,10 @@ export default function EventDetailScreen() {
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
+  /** Raw path only — `eventCoverUrl` always returns a URL (placeholder when missing). */
+  const hasCoverArt =
+    typeof event.cover_image === 'string' && event.cover_image.trim().length > 0;
+  const coverUri = eventCoverUrl(event.cover_image);
   const goingCount = event.current_attendees ?? 0;
   const ticketNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
   const floatingTabBarObstruction = FLOATING_TAB_BAR_HEIGHT + Math.max(insets.bottom, 8);
@@ -625,11 +630,39 @@ export default function EventDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.coverWrap, { height: coverHeight }]}>
-          <Image
-            source={{ uri: eventCoverUrl(event.cover_image) }}
-            style={[styles.cover, { backgroundColor: theme.surfaceSubtle }]}
+          {/* Neon-Noir backplate (matches events Discover featured hero brand layer) */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(84,46,255,0.38)', 'rgba(18,14,32,0.97)', 'rgba(236,72,153,0.22)', 'rgba(6,182,212,0.14)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
           />
-          <View style={[styles.coverGradient, { height: coverHeight * 0.5 }]} />
+          {hasCoverArt ? (
+            <>
+              <Image
+                source={{ uri: coverUri }}
+                style={styles.coverAmbient}
+                resizeMode="cover"
+                blurRadius={Platform.OS === 'ios' ? 36 : 12}
+              />
+              <View style={styles.coverForeground}>
+                <Image
+                  source={{ uri: coverUri }}
+                  style={[styles.coverMain, { backgroundColor: 'transparent' }]}
+                  resizeMode="contain"
+                />
+              </View>
+            </>
+          ) : null}
+          {/* Short, light edge fade (~≤18% hero height, max 48px) — not a scrim */}
+          <LinearGradient
+            pointerEvents="none"
+            colors={['rgba(2,4,12,0)', 'rgba(2,4,12,0.08)']}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={[styles.coverBottomFade, { height: Math.min(48, coverHeight * 0.18) }]}
+          />
         </View>
         <Card variant="glass" style={styles.infoCard}>
           <Text style={[styles.title, { color: theme.text }]}>{event.title}</Text>
@@ -1032,7 +1065,7 @@ export default function EventDetailScreen() {
         event={{
           id: event.id,
           title: event.title,
-          cover_url: eventCoverUrl(event.cover_image),
+          cover_url: coverUri,
           start_time: event.event_date,
           city: eventRow.location_name ?? undefined,
         }}
@@ -1065,19 +1098,28 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { padding: spacing.lg, paddingTop: spacing.md },
   coverWrap: { marginBottom: spacing.xl, borderRadius: radius['2xl'], overflow: 'hidden', position: 'relative' },
-  cover: {
+  coverAmbient: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.28,
+  },
+  coverForeground: {
+    ...StyleSheet.absoluteFillObject,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coverMain: {
     width: '100%',
     height: '100%',
-    borderRadius: radius['2xl'],
   },
-  coverGradient: {
+  coverBottomFade: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
     borderBottomLeftRadius: radius['2xl'],
     borderBottomRightRadius: radius['2xl'],
-    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   infoCard: { marginBottom: spacing.xl },
   title: { ...typography.titleLG, marginBottom: spacing.md },
