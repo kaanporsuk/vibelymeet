@@ -53,8 +53,11 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
 
   if (hasVibed) {
     return (
-      <View style={[styles.button, styles.vibedButton, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
-        <Text style={[styles.vibedText, { color: theme.tint }]}>✓ Vibed</Text>
+      <View style={styles.wrap}>
+        <View style={[styles.button, styles.vibedButton, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
+          <Text style={[styles.vibedText, { color: theme.tint }]}>✓ Vibed</Text>
+        </View>
+        <Text style={[styles.hint, { color: theme.mutedForeground }]}>Waiting for them to tap Vibe too.</Text>
       </View>
     );
   }
@@ -66,23 +69,34 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
   const animatedScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
 
   return (
-    <Animated.View style={[buttonStyle, isProminent && { transform: [{ scale: animatedScale }] }]}>
-      <Pressable
-        onPress={handlePress}
-        disabled={disabled}
-        style={({ pressed }) => [StyleSheet.absoluteFill, pressed && styles.pressed]}
-      >
-        <View style={styles.inner}>
-          <Text style={[styles.label, isProminent ? { color: theme.primaryForeground } : { color: theme.mutedForeground }]}>
-            {hasVibed ? 'Vibed ✓' : 'Vibe ✓'}
-          </Text>
-        </View>
-      </Pressable>
-    </Animated.View>
+    <View style={styles.wrap}>
+      <Animated.View style={[buttonStyle, isProminent && { transform: [{ scale: animatedScale }] }]}>
+        <Pressable
+          onPress={handlePress}
+          disabled={disabled}
+          style={({ pressed }) => [StyleSheet.absoluteFill, pressed && styles.pressed]}
+        >
+          <View style={styles.inner}>
+            <Text style={[styles.label, isProminent ? { color: theme.primaryForeground } : { color: theme.mutedForeground }]}>
+              Tap Vibe
+            </Text>
+          </View>
+        </Pressable>
+      </Animated.View>
+      <Text style={[styles.hint, { color: theme.mutedForeground }]}>
+        {isProminent
+          ? 'Last chance: you both need to tap Vibe to keep going.'
+          : 'Both of you need to tap Vibe to continue to the full date.'}
+      </Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrap: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   button: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
@@ -116,5 +130,12 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
+  },
+  hint: {
+    maxWidth: 240,
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 15,
+    fontFamily: fonts.body,
   },
 });

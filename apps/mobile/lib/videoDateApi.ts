@@ -20,6 +20,7 @@ export type VideoDateSession = {
   daily_room_name: string | null;
   daily_room_url: string | null;
   reconnect_grace_ends_at?: string | null;
+  handshake_grace_expires_at?: string | null;
   participant_1_away_at?: string | null;
   participant_2_away_at?: string | null;
   /** First successful Daily join for each participant (server RPC after `call.join`). */
@@ -78,6 +79,11 @@ export type CompleteHandshakeResult = {
   seconds_remaining?: number;
   already_ended?: boolean;
   reason?: string;
+};
+
+type VideoDateTransitionDiagnostics = {
+  actorUserId?: string | null;
+  phase?: string | null;
 };
 
 export class VideoDateRequestTimeoutError extends Error {
@@ -165,7 +171,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, handshake_started_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
+          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, handshake_started_at, handshake_grace_expires_at, date_started_at, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -264,6 +270,9 @@ export function useVideoDateSession(
             }
             if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
             if (row.state !== undefined) next.state = row.state as string;
+            if (row.handshake_grace_expires_at !== undefined) {
+              next.handshake_grace_expires_at = row.handshake_grace_expires_at as string | null;
+            }
             return next;
           });
           if (row.ended_at || row.state === 'ended' || row.phase === 'ended') {
@@ -622,15 +631,24 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 }
 
 /** Record that current user "vibed" during handshake (participant_1_liked or participant_2_liked). Partner is never notified. */
-export async function recordVibe(sessionId: string): Promise<boolean> {
+export async function recordVibe(
+  sessionId: string,
+  diagnostics?: VideoDateTransitionDiagnostics
+): Promise<boolean> {
   const args = {
     p_session_id: sessionId,
     p_action: 'vibe',
   };
-  vdbg('video_date_transition_before', { action: 'vibe', args });
+  const diagnosticPayload = {
+    action: 'vibe',
+    sessionId,
+    actorUserId: diagnostics?.actorUserId ?? null,
+    currentPhase: diagnostics?.phase ?? null,
+  };
+  vdbg('video_date_transition_before', { ...diagnosticPayload, args });
   const { data, error } = await supabase.rpc('video_date_transition', args);
   vdbg('video_date_transition_after', {
-    action: 'vibe',
+    ...diagnosticPayload,
     ok: !error,
     payload: data ?? null,
     error: error ? { code: error.code, message: error.message } : null,
