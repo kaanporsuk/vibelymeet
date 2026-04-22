@@ -110,6 +110,8 @@ Any future PR that modifies `nextConvergenceDelayMs` or reconnect scheduling mus
 
 ## 6. References
 
+**Production cadence snapshot (dates, tables, replay SQL):** [`evidence-backed-cadence-report-2026-04-22.md`](./evidence-backed-cadence-report-2026-04-22.md).
+
 - `shared/matching/convergenceScheduling.ts`
 - `docs/observability/watchdog-no-remote-query-pack.md`
 - `docs/video-date-diagnostics-runbook.md`
