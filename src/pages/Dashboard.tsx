@@ -518,21 +518,11 @@ const Dashboard = () => {
                     await refetchActiveSession();
                     return;
                   }
-                  await supabase
-                    .from("video_sessions")
-                    .update({ ended_at: new Date().toISOString() })
-                    .eq("id", activeSession.sessionId);
-                  if (user?.id) {
-                    await supabase
-                      .from("event_registrations")
-                      .update({
-                        queue_status: "browsing",
-                        current_room_id: null,
-                        current_partner_id: null,
-                      })
-                      .eq("profile_id", user.id)
-                      .eq("event_id", activeSession.eventId);
-                  }
+                  await supabase.rpc("video_date_transition", {
+                    p_session_id: activeSession.sessionId,
+                    p_action: "end",
+                    p_reason: "dashboard_active_banner",
+                  });
                   await refetchActiveSession();
                 }}
               />

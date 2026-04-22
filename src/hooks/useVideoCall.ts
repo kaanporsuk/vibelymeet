@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import DailyIframe, { DailyCall, DailyParticipant } from "@daily-co/daily-js";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
+import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UseVideoCallOptions {
@@ -78,17 +79,6 @@ function withTimeout<T>(operation: string, promise: Promise<T>, timeoutMs: numbe
   });
 }
 
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
-  });
-}
-
 function buildStreamFromParticipant(
   p: DailyParticipant | undefined,
   opts: { includeAudio: boolean }
@@ -152,7 +142,35 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const audioTrack = participant.tracks.audio?.persistentTrack;
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
-      videoEl.srcObject = stream;
+      try {
+        videoEl.srcObject = stream;
+        if (!isLocal) {
+          const playPromise = videoEl.play();
+          if (playPromise && typeof playPromise.catch === "function") {
+            playPromise.catch((error: unknown) => {
+              vdbg("daily_remote_video_play_rejected", {
+                sessionId: optionsRef.current?.roomId ?? null,
+                eventId: optionsRef.current?.eventId ?? null,
+                userId: optionsRef.current?.userId ?? null,
+                participantSessionId: participant.session_id ?? null,
+                videoTrackId: videoTrack?.id ?? null,
+                audioTrackId: audioTrack?.id ?? null,
+                error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+              });
+            });
+          }
+        }
+      } catch (error) {
+        vdbg(isLocal ? "daily_local_video_attach_failed" : "daily_remote_video_attach_failed", {
+          sessionId: optionsRef.current?.roomId ?? null,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          participantSessionId: participant.session_id ?? null,
+          videoTrackId: videoTrack?.id ?? null,
+          audioTrackId: isLocal ? null : (audioTrack?.id ?? null),
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
+      }
     },
     []
   );

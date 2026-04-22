@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio } from "lucide-react";
-import * as Sentry from "@sentry/react";
 import { Button } from "@/components/ui/button";
+import { vdbg } from "@/lib/vdbg";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
@@ -34,17 +34,6 @@ const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both
 function lobbyDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[EventLobby] ${message}`, data ?? {});
-}
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
-  });
 }
 
 function logVdbgSessionStage(message: string, sessionId: string, data?: Record<string, unknown>) {

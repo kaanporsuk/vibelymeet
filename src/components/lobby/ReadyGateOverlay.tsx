@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
-import * as Sentry from "@sentry/react";
 import { useReadyGate } from "@/hooks/useReadyGate";
+import { vdbg } from "@/lib/vdbg";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -27,17 +27,6 @@ const TERMINAL_READY_GATE_STATUSES = new Set(["forfeited", "expired"]);
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[ReadyGateOverlay] ${message}`, data ?? {});
-}
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
-  });
 }
 
 function videoSessionIndicatesActiveDate(row: { state?: unknown; phase?: unknown } | null): boolean {

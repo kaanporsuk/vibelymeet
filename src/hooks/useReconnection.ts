@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import * as Sentry from "@sentry/react";
 import { supabase } from "@/integrations/supabase/client";
+import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
 import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@clientShared/matching/videoDateDiagnostics";
@@ -23,17 +23,6 @@ type SyncPayload = {
   ended_reason: string | null;
   partner_marked_away: boolean;
 };
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
-  });
-}
 
 export const useReconnection = ({
   sessionId,
