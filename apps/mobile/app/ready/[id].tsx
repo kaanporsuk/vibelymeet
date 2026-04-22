@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
@@ -15,8 +15,10 @@ import { withAlpha } from '@/lib/colorUtils';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
-import { eventLobbyHref, tabsRootHref, videoDateHref } from '@/lib/activeSessionRoutes';
+import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
+import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
+import { fetchVideoSessionDateEntryTruth, videoSessionIndicatesHandshakeOrDate } from '@/lib/videoDateApi';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
@@ -27,6 +29,7 @@ const GATE_TIMEOUT_SEC = 30;
 
 export default function ReadyGateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
+  const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -225,12 +228,81 @@ export default function ReadyGateScreen() {
       setTransitioning(true);
       if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
       transitionTimeoutRef.current = setTimeout(() => {
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', { session_id: sessionId });
-        if (sessionId) markVideoDateEntryPipelineStarted(String(sessionId));
-        router.replace(videoDateHref(String(sessionId)));
+        void (async () => {
+          if (!sessionId || !user?.id) return;
+          const [vs, regRes] = await Promise.all([
+            fetchVideoSessionDateEntryTruth(String(sessionId)),
+            supabase
+              .from('event_registrations')
+              .select('queue_status, current_room_id')
+              .eq('profile_id', user.id)
+              .eq('current_room_id', String(sessionId))
+              .maybeSingle(),
+          ]);
+          const reg = regRes.data;
+          const startable = videoSessionIndicatesHandshakeOrDate(vs);
+          const rgStatus = vs?.ready_gate_status ?? null;
+          const rgExpiresRaw = vs?.ready_gate_expires_at ?? null;
+          const rgExpiresMs =
+            rgExpiresRaw == null
+              ? null
+              : typeof rgExpiresRaw === 'number'
+                ? rgExpiresRaw
+                : Date.parse(String(rgExpiresRaw));
+          const readyGateEligible =
+            rgStatus === 'ready' ||
+            rgStatus === 'ready_a' ||
+            rgStatus === 'ready_b' ||
+            rgStatus === 'snoozed' ||
+            (rgStatus === 'both_ready' &&
+              rgExpiresMs != null &&
+              Number.isFinite(rgExpiresMs) &&
+              rgExpiresMs > Date.now());
+          const decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' = startable
+            ? 'navigate_date'
+            : readyGateEligible
+              ? 'navigate_ready'
+              : 'stay_lobby';
+          const reason = startable ? null : 'video_truth_not_startable';
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
+            session_id: String(sessionId),
+            user_id: user.id,
+            decision,
+            reason,
+            queue_status: reg?.queue_status ?? null,
+            current_room_id: reg?.current_room_id ?? null,
+            vs_state: vs?.state ?? null,
+            vs_phase: vs?.phase ?? null,
+            handshake_started_at: Boolean(vs?.handshake_started_at),
+            ready_gate_status: rgStatus,
+            ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+          });
+          if (decision === 'navigate_ready') {
+            router.replace(`/ready/${String(sessionId)}` as const);
+            return;
+          }
+          if (decision === 'stay_lobby') {
+            if (vs?.event_id) router.replace(eventLobbyHref(vs.event_id as string));
+            return;
+          }
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', { session_id: sessionId });
+          markVideoDateEntryPipelineStarted(String(sessionId));
+          navigateToDateSessionGuarded({
+            sessionId: String(sessionId),
+            pathname,
+            mode: 'replace',
+            onSuppressed: ({ reason: suppressReason, target }) => {
+              rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date_suppressed', {
+                session_id: String(sessionId),
+                reason: suppressReason,
+                target: String(target),
+              });
+            },
+          });
+        })();
       }, 1500);
     }
-  }, [isBothReady, sessionId]);
+  }, [isBothReady, sessionId, pathname, user?.id]);
 
   useEffect(() => {
     return () => {

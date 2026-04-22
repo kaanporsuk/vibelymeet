@@ -10,6 +10,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { pickRegistrationForActiveSession } from '@clientShared/matching/activeSession';
+import { videoSessionIndicatesHandshakeOrDate, type VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 export type ActiveSession =
   | { kind: 'video'; sessionId: string; eventId: string; partnerName?: string | null; queueStatus: 'in_handshake' | 'in_date' }
@@ -76,7 +78,7 @@ export function useActiveSession(
 
       const { data: session, error: sessionError } = await supabase
         .from('video_sessions')
-        .select('id, ended_at')
+        .select('id, ended_at, handshake_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
         .eq('id', reg.current_room_id)
         .is('ended_at', null)
         .maybeSingle();
@@ -88,6 +90,26 @@ export function useActiveSession(
       if (session?.id) {
         const qs = reg.queue_status;
         if (qs === 'in_ready_gate' || qs === 'in_handshake' || qs === 'in_date') {
+          const truth = session as unknown as VideoSessionDateEntryTruth;
+          const startable = videoSessionIndicatesHandshakeOrDate(truth);
+          const rgStatus = truth.ready_gate_status ?? null;
+          const rgExpiresRaw = truth.ready_gate_expires_at ?? null;
+          const rgExpiresMs =
+            rgExpiresRaw == null
+              ? null
+              : typeof rgExpiresRaw === 'number'
+                ? rgExpiresRaw
+                : Date.parse(String(rgExpiresRaw));
+          const readyGateEligible =
+            rgStatus === 'ready' ||
+            rgStatus === 'ready_a' ||
+            rgStatus === 'ready_b' ||
+            rgStatus === 'snoozed' ||
+            (rgStatus === 'both_ready' &&
+              rgExpiresMs != null &&
+              Number.isFinite(rgExpiresMs) &&
+              rgExpiresMs > Date.now());
+
           let partnerName: string | null = null;
           if (reg.current_partner_id) {
             const { data: profile, error: profileError } = await supabase
@@ -109,10 +131,32 @@ export function useActiveSession(
           };
 
           if (mounted.current) {
-            if (qs === 'in_ready_gate') {
+            if (qs === 'in_ready_gate' || (!startable && readyGateEligible)) {
+              if (qs !== 'in_ready_gate') {
+                rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
+                  reason: 'video_truth_not_startable',
+                  queue_status: qs,
+                  session_id: session.id,
+                  vs_state: truth.state ?? null,
+                  vs_phase: truth.phase ?? null,
+                  handshake_started_at: Boolean(truth.handshake_started_at),
+                  ready_gate_status: rgStatus,
+                });
+              }
               setActiveSession({ kind: 'ready_gate', ...base, queueStatus: 'in_ready_gate' });
-            } else {
+            } else if (startable) {
               setActiveSession({ kind: 'video', ...base, queueStatus: qs });
+            } else {
+              rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
+                reason: 'video_truth_not_startable',
+                queue_status: qs,
+                session_id: session.id,
+                vs_state: truth.state ?? null,
+                vs_phase: truth.phase ?? null,
+                handshake_started_at: Boolean(truth.handshake_started_at),
+                ready_gate_status: rgStatus,
+              });
+              setActiveSession(null);
             }
             setHydrated(true);
           }
