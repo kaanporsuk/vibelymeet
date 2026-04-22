@@ -66,9 +66,6 @@ import {
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
 
-/** Bounded interval for queued-session promotion (`drain_match_queue` + server `promote_ready_gate_if_eligible`). */
-const QUEUED_CONVERGENCE_DRAIN_INTERVAL_MS = 10_000;
-
 /**
  * If the in-lobby Ready Gate overlay stops making progress (realtime gaps, missed transitions),
  * hand off to standalone `/ready/[id]`, which runs its own subscriptions + polling — reduces stuck-overlay risk.
@@ -595,8 +592,9 @@ export default function EventLobbyScreen() {
   }, [sessionHydrated, id, sameEventActiveSession, openReadyGateWithSession, navigateToDateSession]);
 
   /**
-   * Queued mutual match: promotion may lag realtime. Re-run `drain_match_queue` on a bounded interval
-   * while the user still has a queued session row and is not already in an active gate/date route.
+   * Queued mutual match: promotion may lag realtime. Re-run `drain_match_queue` with adaptive backoff
+   * (same curve as reconnect sync) while queued/syncing and not already routing to date/Ready Gate.
+   * Realtime on `event_registrations` / `video_sessions` + `queue_drain_initial` still drive fast paths.
    */
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -605,21 +603,38 @@ export default function EventLobbyScreen() {
     if (activeSessionId) return;
     if (sameEventActiveSession?.kind === 'video') return;
 
-    const run = async () => {
-      const result = await drainMatchQueue(id, user.id);
-      const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
-      if (result?.found && sessionId) {
-        await openReadyGateWithSession(sessionId, 'queue_drain_interval');
-      }
-      await refreshQueueAndSuperVibe();
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const startedAt = Date.now();
+
+    const drainBackoffMs = (elapsedMs: number) => {
+      if (elapsedMs < 5_000) return 1_000;
+      if (elapsedMs < 20_000) return 3_000;
+      return 7_000;
     };
 
-    void run();
-    const intervalId = setInterval(() => {
-      void run();
-    }, QUEUED_CONVERGENCE_DRAIN_INTERVAL_MS);
+    const tick = async () => {
+      if (cancelled) return;
+      const result = await drainMatchQueue(id, user.id);
+      const promotedSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
+      if (result?.found && promotedSessionId) {
+        await openReadyGateWithSession(promotedSessionId, 'queue_drain_interval');
+      }
+      await refreshQueueAndSuperVibe();
+      if (cancelled) return;
+      const elapsed = Date.now() - startedAt;
+      const delay = drainBackoffMs(elapsed);
+      timeoutId = setTimeout(() => {
+        void tick();
+      }, delay);
+    };
 
-    return () => clearInterval(intervalId);
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [
     id,
     user?.id,

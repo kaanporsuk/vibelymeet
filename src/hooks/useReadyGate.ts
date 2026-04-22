@@ -19,7 +19,6 @@ interface UseReadyGateOptions {
   onForfeited: (reason: "timeout" | "skip") => void;
 }
 
-const POLL_MS = 2000;
 const TERMINAL_READY_GATE_STATUSES = [
   ReadyGateStatus.BothReady,
   ReadyGateStatus.Forfeited,
@@ -184,19 +183,8 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     };
   }, [sessionId, user?.id, notifyTerminal]);
 
-  // Fallback sync while ready gate is active in case realtime misses transitions.
-  useEffect(() => {
-    if (!sessionId || !user?.id) return;
-    if (isTerminalReadyGateStatus(state.status)) {
-      return;
-    }
-
-    const intervalId = setInterval(() => {
-      void fetchSession();
-    }, POLL_MS);
-
-    return () => clearInterval(intervalId);
-  }, [sessionId, user?.id, state.status, fetchSession]);
+  // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
+  // so we avoid duplicate 2s timers alongside the overlay reconcile loop.
 
   // Mark self as ready (server-owned transition)
   const markReady = useCallback(async () => {
@@ -234,5 +222,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     markReady,
     skip,
     snooze,
+    /** Refresh gate UI from `video_sessions` (called by ReadyGateOverlay after reconcile poll). */
+    refetchSession: fetchSession,
   };
 };

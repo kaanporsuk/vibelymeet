@@ -38,6 +38,7 @@ const MatchCelebration = () => {
       <MatchSuccessModal
         isOpen={showModal}
         onClose={handleClose}
+        onStartChatting={() => navigate("/matches")}
         matchData={{
           name: "Sarah",
           age: 24,

@@ -1,5 +1,7 @@
 # Phase 5 — Ready Gate & Daily Drop visible-surface pass
 
+> **Historical — UI copy and control labels below describe an older Ready Gate pass.** Current strings use **Snooze**, **Step away**, and aligned waiting copy; see `apps/mobile/app/ready/[id].tsx` and lobby Ready Gate components.
+
 UI-only pass for Ready Gate and Daily Drop so these surfaces feel like Vibely product surfaces. All server-owned mechanics preserved: `ready_gate_transition`, `daily_drop_transition`, `daily-drop-actions`.
 
 ---

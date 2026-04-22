@@ -13,7 +13,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 interface MatchSuccessModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Override the default navigate("/chat") behaviour for "Start Chatting" */
+  /** When set, runs instead of the safe fallback (matches hub) after mutual match celebration. */
   onStartChatting?: () => void;
   matchData?: {
     name: string;
@@ -154,7 +154,7 @@ const MatchSuccessModal = ({
     if (onStartChatting) {
       onStartChatting();
     } else {
-      navigate("/chat");
+      navigate("/matches");
     }
   };
 

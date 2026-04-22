@@ -146,6 +146,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
     markReady,
     skip,
     snooze,
+    refetchSession,
   } = useReadyGate({
     sessionId,
     onBothReady: handleBothReady,
@@ -228,9 +229,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
 
       if (queueStatus && queueStatus !== "in_ready_gate") {
         closeAsStale(source, { reason: "registration_not_in_ready_gate", queueStatus });
+        return;
       }
+
+      void refetchSession();
     },
-    [sessionId, eventId, user?.id, navigateToDate, closeAsStale]
+    [sessionId, eventId, user?.id, navigateToDate, closeAsStale, refetchSession]
   );
 
   // Set status to in_ready_gate only when that will not overwrite active date truth.

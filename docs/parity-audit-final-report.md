@@ -1,5 +1,7 @@
 # Web vs Native Visual & Structural Parity — Final Audit Report
 
+> **Historical snapshot — not authoritative.** This document captures parity notes from a past pass. Ready Gate labels, skip/step-away copy, and several native details have since changed; treat the live surfaces as source of truth (`src/components/lobby/ReadyGateOverlay.tsx`, `apps/mobile/components/lobby/ReadyGateOverlay.tsx`, `apps/mobile/app/ready/[id].tsx`).
+
 Code-only comparison (no screenshots). All fixes have been applied in the native app.
 
 ---
