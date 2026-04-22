@@ -201,6 +201,10 @@ Branch: `phase3/event-loop-read-model`.
 - **Permissions:** `REVOKE` from `PUBLIC` / `anon` / `authenticated`; `GRANT SELECT` to **`service_role`** only (same posture as base table).
 - **Explicitly out of scope:** retention/archival, admin UI, Edge Functions, product API changes.
 
+### Phase 3b — operator dashboard normalization (additive views)
+
+- **Migration:** `20260430123100_event_loop_operator_normalized_read_models.sql` adds **`v_event_loop_mark_lobby_promotion_normalized`** (nested promotion mapped to **`promotion_derived_outcome`**), **`v_event_loop_observability_metric_streams`** (**`metric_stream`** label for dedupe-friendly filters), and **COMMENT-only** clarifications on existing hourly rollup views. **No** changes to base table or write paths. **Docs:** `docs/observability/event-loop-dashboard-normalization.md`.
+
 ### Video Dates P0/P1 closure (2026-04-28)
 
 Branch: `fix/video-date-p0-p1-closure`.
