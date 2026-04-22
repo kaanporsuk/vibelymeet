@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import * as Sentry from "@sentry/react";
+import { vdbg } from "@/lib/vdbg";
 
 import { VerdictScreen } from "./survey/VerdictScreen";
 import { HighlightsScreen } from "./survey/HighlightsScreen";
@@ -25,17 +25,6 @@ import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,
 } from "@clientShared/safety/submitUserReportRpc";
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
-  });
-}
 
 function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {
   vdbg("date_redirect", { target, reason, ...(data ?? {}) });

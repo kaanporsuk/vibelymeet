@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { User } from "lucide-react";
 import * as Sentry from "@sentry/react";
+import { vdbg } from "@/lib/vdbg";
 import { captureSupabaseError } from "@/lib/errorTracking";
 
 import { HandshakeTimer } from "@/components/video-date/HandshakeTimer";
@@ -93,17 +94,6 @@ type CompleteHandshakePayload = {
 function videoDateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[VideoDate] ${message}`, data ?? {});
-}
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
-  });
 }
 
 function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {

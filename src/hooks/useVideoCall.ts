@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import DailyIframe, { DailyCall, DailyParticipant } from "@daily-co/daily-js";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
+import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 
 interface UseVideoCallOptions {
@@ -75,17 +76,6 @@ function withTimeout<T>(operation: string, promise: Promise<T>, timeoutMs: numbe
         reject(error);
       }
     );
-  });
-}
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: "vdbg",
-    message,
-    level: "info",
-    data: payload,
   });
 }
 
