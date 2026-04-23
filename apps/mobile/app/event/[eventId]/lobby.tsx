@@ -982,6 +982,69 @@ export default function EventLobbyScreen() {
   );
 
   const isOffline = useIsOffline();
+  const current = sortedProfiles[0] ?? null;
+  const nextProfile = sortedProfiles[1] ?? null;
+  const thirdProfile = sortedProfiles[2] ?? null;
+  const hasCards = sortedProfiles.length > 0;
+  const isEmpty = !hasCards || !current;
+
+  const convergenceImpressionRef = useRef(false);
+  const emptyStateImpressionRef = useRef(false);
+  const mysteryCtaImpressionRef = useRef(false);
+
+  const showConvergenceYieldUi = yieldingToVideoDateUi || yieldingToReadyGateUi;
+  const baseEmptyEligible =
+    deckQueryEnabled &&
+    !deckLoading &&
+    !deckError &&
+    !showConvergenceYieldUi &&
+    !showQueuedStyleConvergenceUi;
+
+  useEffect(() => {
+    if (!id || !showConvergenceYieldUi) {
+      convergenceImpressionRef.current = false;
+      return;
+    }
+    if (convergenceImpressionRef.current) return;
+    convergenceImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
+      platform: 'native',
+      event_id: id,
+      source_surface: yieldingToVideoDateUi ? 'video_date' : 'ready_gate',
+    });
+  }, [id, showConvergenceYieldUi, yieldingToVideoDateUi]);
+
+  useEffect(() => {
+    if (!id || !baseEmptyEligible || !isEmpty) {
+      emptyStateImpressionRef.current = false;
+      return;
+    }
+    if (emptyStateImpressionRef.current) return;
+    emptyStateImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_IMPRESSION, {
+      platform: 'native',
+      event_id: id,
+    });
+  }, [baseEmptyEligible, id, isEmpty]);
+
+  useEffect(() => {
+    const mysteryVisible =
+      Boolean(id) &&
+      baseEmptyEligible &&
+      isEmpty &&
+      mysteryMatchEnabled &&
+      !isWaiting;
+    if (!mysteryVisible) {
+      mysteryCtaImpressionRef.current = false;
+      return;
+    }
+    if (mysteryCtaImpressionRef.current) return;
+    mysteryCtaImpressionRef.current = true;
+    trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_IMPRESSION, {
+      platform: 'native',
+      event_id: id,
+    });
+  }, [baseEmptyEligible, id, isEmpty, isWaiting, mysteryMatchEnabled]);
 
   if (eventLoading || (user?.id && regLoading)) {
     return (
@@ -1085,70 +1148,6 @@ export default function EventLobbyScreen() {
       </>
     );
   }
-
-  const current = sortedProfiles[0] ?? null;
-  const nextProfile = sortedProfiles[1] ?? null;
-  const thirdProfile = sortedProfiles[2] ?? null;
-  const hasCards = sortedProfiles.length > 0;
-  const isEmpty = !hasCards || !current;
-
-  const convergenceImpressionRef = useRef(false);
-  const emptyStateImpressionRef = useRef(false);
-  const mysteryCtaImpressionRef = useRef(false);
-
-  const showConvergenceYieldUi = yieldingToVideoDateUi || yieldingToReadyGateUi;
-  const baseEmptyEligible =
-    deckQueryEnabled &&
-    !deckLoading &&
-    !deckError &&
-    !showConvergenceYieldUi &&
-    !showQueuedStyleConvergenceUi;
-
-  useEffect(() => {
-    if (!id || !showConvergenceYieldUi) {
-      convergenceImpressionRef.current = false;
-      return;
-    }
-    if (convergenceImpressionRef.current) return;
-    convergenceImpressionRef.current = true;
-    trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
-      platform: 'native',
-      event_id: id,
-      source_surface: yieldingToVideoDateUi ? 'video_date' : 'ready_gate',
-    });
-  }, [id, showConvergenceYieldUi, yieldingToVideoDateUi]);
-
-  useEffect(() => {
-    if (!id || !baseEmptyEligible || !isEmpty) {
-      emptyStateImpressionRef.current = false;
-      return;
-    }
-    if (emptyStateImpressionRef.current) return;
-    emptyStateImpressionRef.current = true;
-    trackEvent(LobbyPostDateEvents.LOBBY_EMPTY_STATE_IMPRESSION, {
-      platform: 'native',
-      event_id: id,
-    });
-  }, [baseEmptyEligible, id, isEmpty]);
-
-  useEffect(() => {
-    const mysteryVisible =
-      Boolean(id) &&
-      baseEmptyEligible &&
-      isEmpty &&
-      mysteryMatchEnabled &&
-      !isWaiting;
-    if (!mysteryVisible) {
-      mysteryCtaImpressionRef.current = false;
-      return;
-    }
-    if (mysteryCtaImpressionRef.current) return;
-    mysteryCtaImpressionRef.current = true;
-    trackEvent(LobbyPostDateEvents.MYSTERY_MATCH_CTA_IMPRESSION, {
-      platform: 'native',
-      event_id: id,
-    });
-  }, [baseEmptyEligible, id, isEmpty, isWaiting, mysteryMatchEnabled]);
 
   const discoverSectionIntro = (
     <View style={styles.sectionIntro}>
