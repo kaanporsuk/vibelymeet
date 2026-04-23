@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { vdbg } from "@/lib/vdbg";
+import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 
 import { VerdictScreen } from "./survey/VerdictScreen";
 import { HighlightsScreen } from "./survey/HighlightsScreen";
@@ -25,10 +25,6 @@ import {
   mapPostDateSafetyCategoryToReasonId,
   submitUserReportRpc,
 } from "@clientShared/safety/submitUserReportRpc";
-
-function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {
-  vdbg("date_redirect", { target, reason, ...(data ?? {}) });
-}
 
 interface PostDateSurveyProps {
   isOpen: boolean;

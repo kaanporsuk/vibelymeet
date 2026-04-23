@@ -18,7 +18,6 @@ import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
 import { BlurView } from 'expo-blur';
-import * as Sentry from '@sentry/react-native';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
@@ -28,6 +27,7 @@ import { useReadyGate } from '@/lib/readyGateApi';
 import { updateParticipantStatus } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
+import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { trackEvent } from '@/lib/analytics';
@@ -38,17 +38,6 @@ const STROKE = 4;
 const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
 const GATE_TIMEOUT_SEC = 30;
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: 'vdbg',
-    message,
-    level: 'info',
-    data: payload,
-  });
-}
 
 export type ReadyGateOverlayProps = {
   sessionId: string;

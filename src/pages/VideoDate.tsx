@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { User } from "lucide-react";
 import * as Sentry from "@sentry/react";
-import { vdbg } from "@/lib/vdbg";
+import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 import { captureSupabaseError } from "@/lib/errorTracking";
 
 import { HandshakeTimer } from "@/components/video-date/HandshakeTimer";
@@ -95,10 +95,6 @@ type CompleteHandshakePayload = {
 function videoDateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[VideoDate] ${message}`, data ?? {});
-}
-
-function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>) {
-  vdbg("date_redirect", { target, reason, ...(data ?? {}) });
 }
 
 function videoSessionIndicatesTerminalEnd(
@@ -1435,7 +1431,7 @@ const VideoDate = () => {
     [id, refetchCredits]
   );
 
-  // End call: update session, show survey
+  // End call: server-owned `video_date_transition(end, …)` + survey/navigation UX (no direct session row writes here).
   const handleCallEnd = useCallback(async () => {
     const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date";
     const analyticsBudgetSeconds =

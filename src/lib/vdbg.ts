@@ -1,9 +1,10 @@
 import * as Sentry from "@sentry/react";
 
 /**
- * Video-date diagnostics helper (web): always records a Sentry breadcrumb (`category: vdbg`).
+ * Video-date diagnostics helper (web): every `vdbg` call logs to the console and adds a Sentry
+ * breadcrumb (`category: vdbg`) in all environments — intentional for session debugging.
  * In development, selected messages also JSON-stringify to the console for copy/paste (nested `row`
- * payloads); production keeps standard console logging for those messages. The allowlist below
+ * payloads); production uses the standard object console line for those. The allowlist below
  * controls which messages get dev JSON formatting and can be trimmed when noise is understood.
  */
 const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
@@ -97,4 +98,9 @@ export function vdbg(message: string, data?: Record<string, unknown>): void {
     level: "info",
     data: payload,
   });
+}
+
+/** Breadcrumb helper: same `date_redirect` message key as native (`vdbgRedirect`). */
+export function vdbgRedirect(target: string, reason: string, data?: Record<string, unknown>): void {
+  vdbg("date_redirect", { target, reason, ...(data ?? {}) });
 }

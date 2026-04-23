@@ -71,6 +71,7 @@ import { MutualVibeToast } from '@/components/video-date/MutualVibeToast';
 import { PostDateSurvey } from '@/components/video-date/PostDateSurvey';
 import { InCallSafetySheet } from '@/components/video-date/InCallSafetySheet';
 import { supabase } from '@/lib/supabase';
+import { vdbg, vdbgRedirect } from '@/lib/vdbg';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -221,21 +222,6 @@ function videoDateSessionDiagnostic(
     level: 'info',
     data: data as Record<string, unknown>,
   });
-}
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: 'vdbg',
-    message,
-    level: 'info',
-    data: payload,
-  });
-}
-
-function vdbgRedirect(target: unknown, reason: string, data?: Record<string, unknown>) {
-  vdbg('date_redirect', { target, reason, ...(data ?? {}) });
 }
 
 export default function VideoDateScreen() {
@@ -1419,7 +1405,7 @@ export default function VideoDateScreen() {
             reason,
             mode,
             outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.RPC_ERROR,
-            resultKind: 'null_result',
+            syncHelperReturnedNullBecause: 'supabase_rpc_reported_error',
           });
           scheduleBackoff('rpc_error');
           return;
