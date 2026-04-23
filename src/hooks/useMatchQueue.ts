@@ -6,10 +6,16 @@ import {
   isVideoSessionQueuedTtlExpiryTransition,
   videoSessionIdFromDrainPayload,
 } from "@shared/matching/videoSessionFlow";
+import { isMatchQueueDrainEligible } from "@clientShared/matching/matchQueueDrainEligibility";
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
   currentStatus: string;
+  /**
+   * When true, post-date survey (`/date/:id`) may poll `drain_match_queue` while local status is `in_survey`
+   * (fallback if `video_sessions` realtime lags). Lobby callers should omit this.
+   */
+  enableSurveyPhaseDrain?: boolean;
   /** Canonical: `video_sessions.id` when queue drain or realtime activates ready gate. */
   onVideoSessionReady?: (videoSessionId: string, partnerId: string) => void;
   /** Fired at most once per session id (deduped) when a queued session expires (TTL) for this user. */
@@ -19,6 +25,7 @@ interface UseMatchQueueOptions {
 export const useMatchQueue = ({
   eventId,
   currentStatus,
+  enableSurveyPhaseDrain,
   onVideoSessionReady,
   onQueuedSessionExpired,
 }: UseMatchQueueOptions) => {
@@ -56,7 +63,7 @@ export const useMatchQueue = ({
   }, [eventId, user?.id]);
 
   useEffect(() => {
-    if (!eventId || !user?.id || !["browsing", "idle"].includes(currentStatus)) return;
+    if (!eventId || !user?.id || !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })) return;
 
     const drainQueue = async () => {
       try {
@@ -76,7 +83,7 @@ export const useMatchQueue = ({
 
     drainQueue();
     refreshQueueCount();
-  }, [eventId, user?.id, currentStatus, refreshQueueCount]);
+  }, [eventId, user?.id, currentStatus, enableSurveyPhaseDrain, refreshQueueCount]);
 
   useEffect(() => {
     if (!eventId || !user?.id) return;

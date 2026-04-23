@@ -144,7 +144,10 @@ export const PostDateSurvey = ({
 
   const { checkEventActive } = useEventLifecycle({ eventId });
 
-  // While in survey, drain/realtime can promote a queued session — navigate to lobby with pending session.
+  /**
+   * Post-date survey is intentionally anchored on `/date/:sessionId` (not lobby `useActiveSession`).
+   * We still poll `drain_match_queue` here as a fallback when realtime lags — see `enableSurveyPhaseDrain`.
+   */
   const handleQueueMatch = useCallback(
     (videoSessionId: string, _queuePartnerId: string) => {
       toast("Your next date is ready — head to the event lobby 💚", { duration: 2000 });
@@ -163,6 +166,7 @@ export const PostDateSurvey = ({
   useMatchQueue({
     eventId,
     currentStatus: surveyStatus,
+    enableSurveyPhaseDrain: true,
     onVideoSessionReady: handleQueueMatch,
   });
 
