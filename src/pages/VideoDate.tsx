@@ -276,6 +276,48 @@ const VideoDate = () => {
     }
   }, [id]);
 
+  /** Breadcrumbs for the next Sentry #310 / render crash: last stable tree checkpoint before failure. */
+  useEffect(() => {
+    Sentry.addBreadcrumb({
+      category: "video_date.render_tree",
+      level: "info",
+      message: "VideoDate_checkpoint",
+      data: {
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+        videoDateAccess,
+        timingReady,
+        handshakeStartFailed,
+        phase,
+        showFeedback,
+        isConnected,
+        isConnecting,
+        dupBlocked,
+        callStarted,
+        showMutualToast,
+        handshakeGraceSecondsRemaining,
+        reconnect_partner_disconnected: reconnection.isPartnerDisconnected,
+        reconnect_timer_paused: reconnection.isTimerPaused,
+      },
+    });
+  }, [
+    id,
+    eventId,
+    videoDateAccess,
+    timingReady,
+    handshakeStartFailed,
+    phase,
+    showFeedback,
+    isConnected,
+    isConnecting,
+    dupBlocked,
+    callStarted,
+    showMutualToast,
+    handshakeGraceSecondsRemaining,
+    reconnection.isPartnerDisconnected,
+    reconnection.isTimerPaused,
+  ]);
+
   useEffect(() => {
     if (!id || !user?.id || showFeedback || phase !== "ended") return;
     let cancelled = false;
