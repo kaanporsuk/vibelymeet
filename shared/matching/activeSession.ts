@@ -3,6 +3,9 @@
  * Lives under repo-root `shared/` (client-neutral), not Edge function bundles.
  * Registration `queue_status` drives routing; `video_sessions` confirms the row is live and can
  * override stale `in_ready_gate` when the session already entered handshake/date.
+ *
+ * Lobby hydration requires `current_room_id` — typical post-date `in_survey` clears that pointer on
+ * the server, so survey is handled on `/date/:id`, not as an `ActiveSession` row. That is intentional.
  */
 
 export type ActiveSessionKind = "video" | "ready_gate";

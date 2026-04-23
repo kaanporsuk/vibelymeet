@@ -314,22 +314,29 @@ const VideoDate = () => {
     reconnection.isTimerPaused,
   ]);
 
+  // After `video_date_transition('end')`, `event_registrations.current_room_id` is cleared while
+  // `queue_status` may be `in_survey` — recover survey using `event_id` + `profile_id` (same shape as main session load).
   useEffect(() => {
     if (!id || !user?.id || showFeedback || phase !== "ended") return;
     let cancelled = false;
     void (async () => {
-      const [{ data: reg }, { data: sessionRow }, { data: verdict }] = await Promise.all([
-        supabase
-          .from("event_registrations")
-          .select("queue_status")
-          .eq("profile_id", user.id)
-          .eq("current_room_id", id)
-          .maybeSingle(),
-        supabase
-          .from("video_sessions")
-          .select("ended_reason, date_started_at")
-          .eq("id", id)
-          .maybeSingle(),
+      const { data: sessionRow, error: sessionErr } = await supabase
+        .from("video_sessions")
+        .select("event_id, ended_reason, date_started_at")
+        .eq("id", id)
+        .maybeSingle();
+      if (cancelled || sessionErr || !sessionRow) return;
+
+      const eventIdForReg = (sessionRow as { event_id?: string | null }).event_id;
+      const [{ data: reg }, { data: verdict }] = await Promise.all([
+        eventIdForReg
+          ? supabase
+              .from("event_registrations")
+              .select("queue_status")
+              .eq("profile_id", user.id)
+              .eq("event_id", eventIdForReg)
+              .maybeSingle()
+          : Promise.resolve({ data: null as { queue_status: string } | null }),
         supabase
           .from("date_feedback")
           .select("id")

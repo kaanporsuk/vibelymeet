@@ -112,6 +112,8 @@ export function useActiveSession(
       return;
     }
 
+    // Intentional: plain `in_survey` with `current_room_id` null (normal post-date end) is not surfaced here.
+    // Survey UX lives on `/date/:id` until verdict/flow completes; see `VideoDate` + `PostDateSurvey`.
     const { data: regs, error: regError } = await supabase
       .from("event_registrations")
       .select("event_id, current_room_id, queue_status, current_partner_id")
