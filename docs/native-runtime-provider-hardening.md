@@ -3,7 +3,8 @@
 ## Push provider boundary
 
 - OneSignal owns remote push delivery, foreground display decisions, and click/deep-link lifecycle.
-- `expo-notifications` is used only for OS permission/status utility calls.
+- OneSignal native permission APIs also own OS permission/status reads and permission prompting.
+- `expo-notifications` is no longer linked in the mobile runtime.
 - Do not add `Notifications.setNotificationHandler`, `addNotificationReceivedListener`, or `addNotificationResponseReceivedListener` while OneSignal is the active delivery provider.
 
 ## iOS React SwiftUI duplicate class loading
@@ -61,8 +62,8 @@ into generated `apps/mobile/ios/Podfile.properties.json` during prebuild, so the
 
 - Confirmed current source keeps OneSignal as the only remote push click/foreground lifecycle owner:
   - `apps/mobile/components/NotificationDeepLinkHandler.tsx` uses `OneSignal.Notifications.addEventListener(...)`.
-- Confirmed no `expo-notifications` delegate/event ownership (`setNotificationHandler`, response listeners, etc.) in mobile runtime code.
-- `expo-notifications` remains permission/status utility only.
+- Confirmed no competing `expo-notifications` delegate/event ownership (`setNotificationHandler`, response listeners, etc.) in mobile runtime code.
+- Removed the `expo-notifications` package and reinstalled iOS pods so `UNUserNotificationCenter` delegation stays single-owner under OneSignal.
 
 ## Web service-worker warning
 

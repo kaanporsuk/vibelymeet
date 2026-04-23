@@ -9,7 +9,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { pickRegistrationForActiveSession } from '@clientShared/matching/activeSession';
+import {
+  decideVideoSessionRouteFromTruth,
+  inferVideoQueueStatusFromSessionTruth,
+  pickRegistrationForActiveSession,
+} from '@clientShared/matching/activeSession';
 import { videoSessionIndicatesHandshakeOrDate, type VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
@@ -66,6 +70,66 @@ async function findPendingReconnectGraceSurveySession(
   }
 
   return null;
+}
+
+async function findDirectVideoSessionFallback(
+  userId: string,
+  eventFilter: string | null
+): Promise<Exclude<ActiveSession, { kind: 'syncing' }> | null> {
+  const query = supabase
+    .from('video_sessions')
+    .select(
+      'id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at'
+    )
+    .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
+    .is('ended_at', null)
+    .order('handshake_started_at', { ascending: false, nullsFirst: false })
+    .order('ready_gate_expires_at', { ascending: false, nullsFirst: false })
+    .limit(10);
+  if (eventFilter) query.eq('event_id', eventFilter);
+
+  const { data: rows, error } = await query;
+  if (error || !rows?.length) return null;
+
+  const candidate =
+    rows.find((row) => decideVideoSessionRouteFromTruth(row) === 'navigate_date') ??
+    rows.find((row) => decideVideoSessionRouteFromTruth(row) === 'navigate_ready') ??
+    null;
+
+  if (!candidate?.id || !candidate.event_id) return null;
+
+  const decision = decideVideoSessionRouteFromTruth(candidate);
+  if (decision !== 'navigate_date' && decision !== 'navigate_ready') return null;
+
+  const partnerId =
+    candidate.participant_1_id === userId
+      ? (candidate.participant_2_id as string | null)
+      : (candidate.participant_1_id as string | null);
+  let partnerName: string | null = null;
+  if (partnerId) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('id', partnerId)
+      .maybeSingle();
+    partnerName = profile?.name ?? null;
+  }
+
+  return decision === 'navigate_date'
+    ? {
+        kind: 'video',
+        sessionId: candidate.id as string,
+        eventId: candidate.event_id as string,
+        partnerName,
+        queueStatus: inferVideoQueueStatusFromSessionTruth(candidate),
+      }
+    : {
+        kind: 'ready_gate',
+        sessionId: candidate.id as string,
+        eventId: candidate.event_id as string,
+        partnerName,
+        queueStatus: 'in_ready_gate',
+      };
 }
 
 export function useActiveSession(
@@ -216,6 +280,23 @@ export function useActiveSession(
         }
       }
       // Stale current_room_id or registration not in an active gate/date phase: try queued `syncing` below.
+      const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+      if (directSession) {
+        if (mounted.current) {
+          setActiveSession(directSession);
+          setHydrated(true);
+        }
+        return;
+      }
+    }
+
+    const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+    if (directSession) {
+      if (mounted.current) {
+        setActiveSession(directSession);
+        setHydrated(true);
+      }
+      return;
     }
 
     const reconnectSurvey = await findPendingReconnectGraceSurveySession(userId, eventFilter);

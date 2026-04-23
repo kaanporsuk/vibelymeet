@@ -1,10 +1,8 @@
 /**
- * Canonical OS-level push permission (expo-notifications).
- * Do not use OneSignal.requestPermission for OS state — it does not distinguish undetermined vs denied reliably.
+ * Canonical OS-level push permission (OneSignal native permission APIs).
  * This module must not register notification handlers/listeners; OneSignal owns delivery and click handling.
  */
-import * as Notifications from 'expo-notifications';
-import { PermissionStatus } from 'expo-modules-core';
+import { OneSignal, OSNotificationPermission } from 'react-native-onesignal';
 
 export type OsPushPermissionState = 'undetermined' | 'granted' | 'denied';
 
@@ -27,16 +25,32 @@ export function pushPermDevLog(message: string, extra?: Record<string, unknown>)
   }
 }
 
+function mapOneSignalPermissionState(
+  nativePermission: OSNotificationPermission,
+  canRequestPermission: boolean,
+): OsPushPermissionState {
+  if (
+    nativePermission === OSNotificationPermission.Authorized ||
+    nativePermission === OSNotificationPermission.Provisional ||
+    nativePermission === OSNotificationPermission.Ephemeral
+  ) {
+    return 'granted';
+  }
+  if (canRequestPermission) return 'undetermined';
+  return 'denied';
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function getOsPushPermissionState(): Promise<OsPushPermissionState> {
   try {
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status === PermissionStatus.GRANTED) return 'granted';
-    if (status === PermissionStatus.DENIED) return 'denied';
-    return 'undetermined';
+    const [nativePermission, canRequestPermission] = await Promise.all([
+      OneSignal.Notifications.permissionNative(),
+      OneSignal.Notifications.canRequestPermission(),
+    ]);
+    return mapOneSignalPermissionState(nativePermission, canRequestPermission);
   } catch (e) {
     pushPermDevLog('getOsPushPermissionState:transient_read_failed', {
       message: e instanceof Error ? e.message : String(e),
@@ -47,7 +61,7 @@ export async function getOsPushPermissionState(): Promise<OsPushPermissionState>
 
 /**
  * Treat an initial `undetermined` read as provisional. On native startup / focus,
- * expo-notifications can briefly report undetermined before reconciling to the real
+ * permission state can briefly report as requestable before reconciling to the real
  * OS state; auto prompts must wait for the confirmation read.
  */
 export async function getStableOsPushPermissionState(context: string): Promise<OsPushPermissionState> {
@@ -67,8 +81,8 @@ export async function getStableOsPushPermissionState(context: string): Promise<O
 }
 
 /**
- * Single OS permission request path: expo-notifications only (no OneSignal.requestPermission).
- * Does not sync OneSignal or the backend — call sync helpers after grant if needed.
+ * Single OS permission request path: OneSignal native permission prompt only.
+ * Does not sync the backend — call sync helpers after grant if needed.
  */
 export async function requestOsPushPermission(): Promise<OsPushRequestResult> {
   if (osPermissionRequestInFlight) {
@@ -100,11 +114,12 @@ export async function requestOsPushPermission(): Promise<OsPushRequestResult> {
 
     pushPermDevLog('os_permission_request_started');
     try {
-      const { status } = await Notifications.requestPermissionsAsync();
-      pushPermDevLog('os_permission_request_completed', { status });
+      const granted = await OneSignal.Notifications.requestPermission(false);
+      const after = await getOsPushPermissionState();
+      pushPermDevLog('os_permission_request_completed', { granted, after });
       return {
-        granted: status === PermissionStatus.GRANTED,
-        osDenied: status === PermissionStatus.DENIED,
+        granted: granted === true || after === 'granted',
+        osDenied: after === 'denied',
       };
     } catch (e) {
       pushPermDevLog('os_permission_request_completed', {
