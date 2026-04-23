@@ -11,6 +11,81 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
 
+type VideoDateRoomGateSession = {
+  id: string;
+  participant_1_id: string | null;
+  participant_2_id: string | null;
+  daily_room_name?: string | null;
+  ended_at: string | null;
+  handshake_started_at: string | null;
+  ready_gate_status: string | null;
+  ready_gate_expires_at: string | null;
+  state: string | null;
+  phase?: string | null;
+};
+
+function logDateRoomReject(params: {
+  action: "create_date_room" | "join_date_room";
+  sessionId: string | null | undefined;
+  userId: string;
+  code: string;
+  httpStatus: number;
+  session?: VideoDateRoomGateSession | null;
+  detail?: string | null;
+  extra?: Record<string, unknown>;
+}) {
+  const { action, sessionId, userId, code, httpStatus, session, detail, extra } = params;
+  console.log(
+    JSON.stringify({
+      event: `${action}_rejected`,
+      emitted_code: code,
+      http_status: httpStatus,
+      session_id: session?.id ?? sessionId ?? null,
+      user_id: userId,
+      participant_1_id: session?.participant_1_id ?? null,
+      participant_2_id: session?.participant_2_id ?? null,
+      state: session?.state ?? null,
+      phase: session?.phase ?? null,
+      handshake_started_at: session?.handshake_started_at ?? null,
+      ready_gate_status: session?.ready_gate_status ?? null,
+      ready_gate_expires_at: session?.ready_gate_expires_at ?? null,
+      ended_at: session?.ended_at ?? null,
+      detail,
+      ...(extra ?? {}),
+    }),
+  );
+}
+
+function createDateRoomRejectResponse(params: {
+  action: "create_date_room" | "join_date_room";
+  sessionId: string | null | undefined;
+  userId: string;
+  status: number;
+  code: string;
+  error: string;
+  session?: VideoDateRoomGateSession | null;
+  detail?: string | null;
+  extra?: Record<string, unknown>;
+}) {
+  logDateRoomReject({
+    action: params.action,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    code: params.code,
+    httpStatus: params.status,
+    session: params.session,
+    detail: params.detail,
+    extra: params.extra,
+  });
+  return new Response(
+    JSON.stringify({ error: params.error, code: params.code }),
+    {
+      status: params.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
 /** Server-owned: allow Daily token only for active handshake/date states or non-expired both_ready gate. */
 function canIssueVideoDateRoomToken(session: {
   ended_at: string | null;
@@ -378,104 +453,76 @@ serve(async (req) => {
 
     // ── ACTION: create_date_room ──
     if (action === "create_date_room") {
-      const { data: session } = await supabase
-        .from("video_sessions")
-        .select(
-          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state",
-        )
-        .eq("id", sessionId)
-        .maybeSingle();
-
-      if (!session) {
-        return new Response(
-          JSON.stringify({
-            error: "Session not found",
-            code: "SESSION_NOT_FOUND",
-          }),
-          {
-            status: 404,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-
-      if (
-        session.participant_1_id !== user.id &&
-        session.participant_2_id !== user.id
-      ) {
-        return new Response(
-          JSON.stringify({ error: "Access denied", code: "ACCESS_DENIED" }),
-          {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-
-      if (session.ended_at) {
-        return new Response(
-          JSON.stringify({
-            error: "Session has ended",
-            code: "SESSION_ENDED",
-          }),
-          {
-            status: 410,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-
-      if (!canIssueVideoDateRoomToken(session)) {
-        return new Response(
-          JSON.stringify({
-            error: "Both participants must be ready before starting video",
-            code: "READY_GATE_NOT_READY",
-          }),
-          {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-
-      const roomName =
-        session.daily_room_name ||
-        `date-${sessionId.replace(/-/g, "")}`;
-      const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
-      let reusedRoom = Boolean(session.daily_room_name);
-      let providerRoomRecreated = false;
-
-      if (!session.daily_room_name) {
-        await createDailyRoom(roomName, {
-          max_participants: 2,
-          enable_chat: false,
-          enable_screenshare: false,
-          enable_knocking: false,
-          start_video_off: false,
-          start_audio_off: false,
-          exp: Math.floor(Date.now() / 1000) + 7200,
-          eject_at_room_exp: true,
-        });
-
-        await supabase
+      let session: VideoDateRoomGateSession | null = null;
+      try {
+        const { data } = await supabase
           .from("video_sessions")
-          .update({ daily_room_name: roomName, daily_room_url: roomUrl })
-          .eq("id", sessionId);
-        reusedRoom = false;
-      } else {
-        const providerRoomState = await getDailyRoomProviderState(roomName);
-        if (!providerRoomState.exists || providerRoomState.expired) {
-          console.log(JSON.stringify({
-            event: "date_room_provider_unusable_recreate",
-            session_id: sessionId,
-            user_id: user.id,
-            room_name: roomName,
-            provider_exists: providerRoomState.exists,
-            provider_expired: providerRoomState.expired,
-          }));
-          if (providerRoomState.exists) {
-            await deleteDailyRoom(roomName);
-          }
+          .select(
+            "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+          )
+          .eq("id", sessionId)
+          .maybeSingle();
+
+        session = (data as VideoDateRoomGateSession | null) ?? null;
+
+        if (!session) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 404,
+            code: "SESSION_NOT_FOUND",
+            error: "Session not found",
+          });
+        }
+
+        if (
+          session.participant_1_id !== user.id &&
+          session.participant_2_id !== user.id
+        ) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "ACCESS_DENIED",
+            error: "Access denied",
+            session,
+          });
+        }
+
+        if (session.ended_at) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 410,
+            code: "SESSION_ENDED",
+            error: "Session has ended",
+            session,
+          });
+        }
+
+        if (!canIssueVideoDateRoomToken(session)) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "READY_GATE_NOT_READY",
+            error: "Both participants must be ready before starting video",
+            session,
+          });
+        }
+
+        const roomName =
+          session.daily_room_name ||
+          `date-${sessionId.replace(/-/g, "")}`;
+        const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
+        let reusedRoom = Boolean(session.daily_room_name);
+        let providerRoomRecreated = false;
+
+        if (!session.daily_room_name) {
           await createDailyRoom(roomName, {
             max_participants: 2,
             enable_chat: false,
@@ -486,102 +533,162 @@ serve(async (req) => {
             exp: Math.floor(Date.now() / 1000) + 7200,
             eject_at_room_exp: true,
           });
+
           await supabase
             .from("video_sessions")
             .update({ daily_room_name: roomName, daily_room_url: roomUrl })
             .eq("id", sessionId);
           reusedRoom = false;
-          providerRoomRecreated = true;
+        } else {
+          const providerRoomState = await getDailyRoomProviderState(roomName);
+          if (!providerRoomState.exists || providerRoomState.expired) {
+            console.log(JSON.stringify({
+              event: "date_room_provider_unusable_recreate",
+              session_id: sessionId,
+              user_id: user.id,
+              room_name: roomName,
+              provider_exists: providerRoomState.exists,
+              provider_expired: providerRoomState.expired,
+            }));
+            if (providerRoomState.exists) {
+              await deleteDailyRoom(roomName);
+            }
+            await createDailyRoom(roomName, {
+              max_participants: 2,
+              enable_chat: false,
+              enable_screenshare: false,
+              enable_knocking: false,
+              start_video_off: false,
+              start_audio_off: false,
+              exp: Math.floor(Date.now() / 1000) + 7200,
+              eject_at_room_exp: true,
+            });
+            await supabase
+              .from("video_sessions")
+              .update({ daily_room_name: roomName, daily_room_url: roomUrl })
+              .eq("id", sessionId);
+            reusedRoom = false;
+            providerRoomRecreated = true;
+          }
         }
+
+        const token = await createMeetingToken(roomName, user.id, 7200);
+
+        return new Response(
+          JSON.stringify({
+            room_name: roomName,
+            room_url: roomUrl,
+            token,
+            reused_room: reusedRoom,
+            provider_room_recreated: providerRoomRecreated,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      } catch (error) {
+        return createDateRoomRejectResponse({
+          action,
+          sessionId,
+          userId: user.id,
+          status: 503,
+          code: "DAILY_PROVIDER_ERROR",
+          error: "Video service temporarily unavailable",
+          session,
+          detail: error instanceof Error ? error.message : String(error),
+        });
       }
-
-      const token = await createMeetingToken(roomName, user.id, 7200);
-
-      return new Response(
-        JSON.stringify({
-          room_name: roomName,
-          room_url: roomUrl,
-          token,
-          reused_room: reusedRoom,
-          provider_room_recreated: providerRoomRecreated,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     // ── ACTION: join_date_room ──
     if (action === "join_date_room") {
-      const { data: session } = await supabase
-        .from("video_sessions")
-        .select(
-          "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state",
-        )
-        .eq("id", sessionId)
-        .maybeSingle();
+      let session: VideoDateRoomGateSession | null = null;
+      try {
+        const { data } = await supabase
+          .from("video_sessions")
+          .select(
+            "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+          )
+          .eq("id", sessionId)
+          .maybeSingle();
 
-      if (!session || !session.daily_room_name) {
-        return new Response(
-          JSON.stringify({ error: "Room not found", code: "ROOM_NOT_FOUND" }),
-          {
+        session = (data as VideoDateRoomGateSession | null) ?? null;
+
+        if (!session || !session.daily_room_name) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
             status: 404,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
+            code: "ROOM_NOT_FOUND",
+            error: "Room not found",
+            session,
+          });
+        }
 
-      if (
-        session.participant_1_id !== user.id &&
-        session.participant_2_id !== user.id
-      ) {
-        return new Response(
-          JSON.stringify({ error: "Access denied", code: "ACCESS_DENIED" }),
-          {
+        if (
+          session.participant_1_id !== user.id &&
+          session.participant_2_id !== user.id
+        ) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
             status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
+            code: "ACCESS_DENIED",
+            error: "Access denied",
+            session,
+          });
+        }
 
-      if (session.ended_at) {
-        return new Response(
-          JSON.stringify({
-            error: "Session has ended",
-            code: "SESSION_ENDED",
-          }),
-          {
+        if (session.ended_at) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
             status: 410,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
+            code: "SESSION_ENDED",
+            error: "Session has ended",
+            session,
+          });
+        }
 
-      if (!canIssueVideoDateRoomToken(session)) {
+        if (!canIssueVideoDateRoomToken(session)) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "READY_GATE_NOT_READY",
+            error: "Both participants must be ready before joining video",
+            session,
+          });
+        }
+
+        const token = await createMeetingToken(
+          session.daily_room_name,
+          user.id,
+          7200
+        );
+
         return new Response(
           JSON.stringify({
-            error: "Both participants must be ready before joining video",
-            code: "READY_GATE_NOT_READY",
+            room_name: session.daily_room_name,
+            room_url: `https://${DAILY_DOMAIN}/${session.daily_room_name}`,
+            token,
           }),
-          {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
+      } catch (error) {
+        return createDateRoomRejectResponse({
+          action,
+          sessionId,
+          userId: user.id,
+          status: 503,
+          code: "DAILY_PROVIDER_ERROR",
+          error: "Video service temporarily unavailable",
+          session,
+          detail: error instanceof Error ? error.message : String(error),
+        });
       }
-
-      const token = await createMeetingToken(
-        session.daily_room_name,
-        user.id,
-        7200
-      );
-
-      return new Response(
-        JSON.stringify({
-          room_name: session.daily_room_name,
-          room_url: `https://${DAILY_DOMAIN}/${session.daily_room_name}`,
-          token,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     // ── ACTION: create_match_call ──

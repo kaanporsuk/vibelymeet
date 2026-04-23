@@ -4,6 +4,12 @@ import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  DAILY_ROOM_ACTIONS,
+  classifyDailyRoomInvokeFailure,
+  type DailyRoomFailureClassification,
+  type DailyRoomFailureKind,
+} from "@clientShared/matching/dailyRoomFailure";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -29,6 +35,7 @@ export type RemotePlaybackState = {
 
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
+const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
 
 type VideoDateTruthRow = {
   id: string;
@@ -38,6 +45,8 @@ type VideoDateTruthRow = {
   phase: string | null;
   handshake_started_at: string | null;
   daily_room_name: string | null;
+  ready_gate_status?: string | null;
+  ready_gate_expires_at?: string | null;
 };
 
 type DailyRoomResponse = {
@@ -49,6 +58,26 @@ type DailyRoomResponse = {
   reused_room?: boolean;
   provider_room_recreated?: boolean;
 };
+
+type DailyRoomSuccessResponse = DailyRoomResponse & {
+  room_name: string;
+  room_url: string;
+  token: string;
+};
+
+export type VideoCallStartFailure = {
+  kind: DailyRoomFailureKind | "daily_join_failed" | "session_unavailable";
+  retryable: boolean;
+  httpStatus?: number;
+  serverCode?: string;
+};
+
+export type VideoCallStartResult =
+  | { ok: true }
+  | {
+      ok: false;
+      failure: VideoCallStartFailure;
+    };
 
 function tierFromNetworkQualityEvent(event: { threshold?: string; quality?: number } | undefined): VideoCallNetworkTier {
   const q = typeof event?.quality === "number" ? event.quality : 100;
@@ -87,6 +116,22 @@ function withTimeout<T>(operation: string, promise: Promise<T>, timeoutMs: numbe
       }
     );
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isInvokeTimeoutError(error: unknown): boolean {
+  return error instanceof Error && /timed out after/i.test(error.message);
+}
+
+function failureFromTransitionCode(code?: string): VideoCallStartFailure {
+  if (code === "READY_GATE_NOT_READY") return { kind: "READY_GATE_NOT_READY", retryable: false, serverCode: code };
+  if (code === "ACCESS_DENIED") return { kind: "ACCESS_DENIED", retryable: false, serverCode: code };
+  if (code === "SESSION_ENDED") return { kind: "SESSION_ENDED", retryable: false, serverCode: code };
+  if (code === "SESSION_NOT_FOUND") return { kind: "SESSION_NOT_FOUND", retryable: false, serverCode: code };
+  return { kind: "session_unavailable", retryable: false, serverCode: code };
 }
 
 function buildStreamFromParticipant(
@@ -386,6 +431,167 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [clearFirstRemoteWatchdog]
   );
 
+  const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
+    const { data, error } = await supabase
+      .from("video_sessions")
+      .select(
+        "id, event_id, ended_at, state, phase, handshake_started_at, daily_room_name, ready_gate_status, ready_gate_expires_at",
+      )
+      .eq("id", sessionId)
+      .maybeSingle();
+    return {
+      truth: (data as VideoDateTruthRow | null) ?? null,
+      error,
+    };
+  }, []);
+
+  const acquireDateRoom = useCallback(
+    async (
+      sessionId: string,
+      eventId: string | null,
+      userId: string | null,
+      truthRow: VideoDateTruthRow | null
+    ): Promise<
+      | { ok: true; roomData: DailyRoomSuccessResponse }
+      | {
+          ok: false;
+          failure: VideoCallStartFailure;
+        }
+    > => {
+      let lastFailure: (VideoCallStartFailure & DailyRoomFailureClassification) | null = null;
+
+      for (let attempt = 0; attempt <= CREATE_DATE_ROOM_RETRY_DELAYS_MS.length; attempt += 1) {
+        const createRoomArgs = { action: "create_date_room", sessionId };
+        try {
+          vdbg("daily_room_before", {
+            action: "create_date_room",
+            args: createRoomArgs,
+            eventId: truthRow?.event_id ?? eventId,
+            userId,
+            timeoutMs: VIDEO_DATE_PREJOIN_TIMEOUT_MS,
+            attempt: attempt + 1,
+          });
+          const { data: roomData, error: roomError, response } = await withTimeout(
+            "daily_room",
+            supabase.functions.invoke<DailyRoomResponse>("daily-room", { body: createRoomArgs }),
+            VIDEO_DATE_PREJOIN_TIMEOUT_MS
+          );
+
+          if (!roomError && roomData?.token && roomData.room_name && roomData.room_url) {
+            const successfulRoomData: DailyRoomSuccessResponse = {
+              ...roomData,
+              token: roomData.token,
+              room_name: roomData.room_name,
+              room_url: roomData.room_url,
+            };
+            vdbg("daily_room_after", {
+              action: "create_date_room",
+              ok: true,
+              sessionId,
+              eventId: truthRow?.event_id ?? eventId,
+              userId,
+              roomName: successfulRoomData.room_name,
+              hasToken: true,
+              reusedRoom: successfulRoomData.reused_room ?? null,
+              providerRoomRecreated: successfulRoomData.provider_room_recreated ?? null,
+              attempt: attempt + 1,
+            });
+            return { ok: true, roomData: successfulRoomData };
+          }
+
+          const failure = await classifyDailyRoomInvokeFailure({
+            action: DAILY_ROOM_ACTIONS.CREATE,
+            data: roomData,
+            invokeError: roomError,
+            response,
+          });
+          lastFailure = {
+            ...failure,
+            kind: failure.kind,
+            retryable: failure.retryable,
+          };
+          vdbg("daily_room_after", {
+            action: "create_date_room",
+            ok: false,
+            sessionId,
+            eventId: truthRow?.event_id ?? eventId,
+            userId,
+            roomName: roomData?.room_name ?? null,
+            hasToken: Boolean(roomData?.token),
+            reusedRoom: roomData?.reused_room ?? null,
+            providerRoomRecreated: roomData?.provider_room_recreated ?? null,
+            httpStatus: failure.httpStatus ?? null,
+            serverCode: failure.serverCode ?? roomData?.code ?? null,
+            classifiedCode: failure.kind,
+            retryable: failure.retryable,
+            attempt: attempt + 1,
+          });
+        } catch (error) {
+          const failure = await classifyDailyRoomInvokeFailure({
+            action: DAILY_ROOM_ACTIONS.CREATE,
+            timedOut: isInvokeTimeoutError(error),
+            invokeError: error,
+          });
+          lastFailure = {
+            ...failure,
+            kind: failure.kind,
+            retryable: failure.retryable,
+          };
+          vdbg("daily_room_after", {
+            action: "create_date_room",
+            ok: false,
+            sessionId,
+            eventId: truthRow?.event_id ?? eventId,
+            userId,
+            httpStatus: failure.httpStatus ?? null,
+            serverCode: failure.serverCode ?? null,
+            classifiedCode: failure.kind,
+            retryable: failure.retryable,
+            attempt: attempt + 1,
+            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          });
+        }
+
+        if (!lastFailure?.retryable) {
+          return {
+            ok: false,
+            failure: {
+              kind: lastFailure?.kind ?? "unknown",
+              retryable: false,
+              httpStatus: lastFailure?.httpStatus,
+              serverCode: lastFailure?.serverCode,
+            },
+          };
+        }
+
+        const delayMs = CREATE_DATE_ROOM_RETRY_DELAYS_MS[attempt];
+        if (delayMs == null) break;
+        vdbg("daily_room_retry_scheduled", {
+          action: "create_date_room",
+          sessionId,
+          eventId: truthRow?.event_id ?? eventId,
+          userId,
+          attempt: attempt + 1,
+          nextAttempt: attempt + 2,
+          delayMs,
+          classifiedCode: lastFailure.kind,
+        });
+        await sleep(delayMs);
+      }
+
+      return {
+        ok: false,
+        failure: {
+          kind: lastFailure?.kind ?? "unknown",
+          retryable: lastFailure?.retryable ?? false,
+          httpStatus: lastFailure?.httpStatus,
+          serverCode: lastFailure?.serverCode,
+        },
+      };
+    },
+    []
+  );
+
   const startCall = useCallback(
     async (roomId?: string, opts?: { internalRetry?: boolean }) => {
       const sessionId = roomId || optionsRef.current?.roomId;
@@ -393,7 +599,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const userId = optionsRef.current?.userId ?? null;
       if (!sessionId) {
         toast.error("No session ID provided");
-        return false;
+        return { ok: false, failure: { kind: "session_unavailable", retryable: false } } as VideoCallStartResult;
       }
       if (activeCallSessionIdRef.current === sessionId && callObjectRef.current) {
         vdbg("daily_call_reuse_decision", {
@@ -404,7 +610,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reason: "existing_call_object_already_started",
           roomName: roomNameRef.current,
         });
-        return true;
+        return { ok: true } as VideoCallStartResult;
       }
       if (startCallInFlightSessionRef.current === sessionId) {
         vdbg("daily_call_reuse_decision", {
@@ -415,7 +621,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reason: "start_call_already_in_flight",
           roomName: roomNameRef.current,
         });
-        return true;
+        return { ok: true } as VideoCallStartResult;
       }
       startCallInFlightSessionRef.current = sessionId;
 
@@ -452,12 +658,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
         }
 
-        const { data: truth, error: truthError } = await supabase
-          .from("video_sessions")
-          .select("id, event_id, ended_at, state, phase, handshake_started_at, daily_room_name")
-          .eq("id", sessionId)
-          .maybeSingle();
-        const truthRow = truth as VideoDateTruthRow | null;
+        const { truth: initialTruthRow, error: truthError } = await fetchVideoDateTruth(sessionId);
+        let truthRow = initialTruthRow;
         vdbg("date_prejoin_truth_row", {
           sessionId,
           eventId: truthRow?.event_id ?? eventId,
@@ -466,9 +668,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           error: truthError ? { code: truthError.code, message: truthError.message } : null,
         });
 
-        if (truthError || !truthRow || truthRow.ended_at) {
+        if (truthError || !truthRow) {
           setIsConnecting(false);
-          return false;
+          return {
+            ok: false,
+            failure: { kind: "session_unavailable", retryable: false },
+          } as VideoCallStartResult;
+        }
+
+        if (truthRow.ended_at) {
+          setIsConnecting(false);
+          return {
+            ok: false,
+            failure: { kind: "SESSION_ENDED", retryable: false },
+          } as VideoCallStartResult;
         }
 
         const syncArgs = { p_session_id: sessionId, p_action: "sync_reconnect" };
@@ -482,7 +695,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
         if (syncError || (syncData as { ended?: boolean } | null)?.ended === true) {
           setIsConnecting(false);
-          return false;
+          return {
+            ok: false,
+            failure: {
+              kind: (syncData as { ended?: boolean } | null)?.ended === true ? "SESSION_ENDED" : "session_unavailable",
+              retryable: false,
+            },
+          } as VideoCallStartResult;
         }
 
         if (!sessionIndicatesHandshakeOrDate(truthRow)) {
@@ -501,7 +720,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
           if (enterError || (enterData as { success?: boolean } | null)?.success === false) {
             setIsConnecting(false);
-            return false;
+            return {
+              ok: false,
+              failure: failureFromTransitionCode(
+                (enterData as { code?: string } | null)?.code ?? (enterError ? "RPC_ERROR" : undefined)
+              ),
+            } as VideoCallStartResult;
           }
         } else {
           vdbg("video_date_transition_skipped", {
@@ -516,39 +740,43 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
         }
 
-        const createRoomArgs = { action: "create_date_room", sessionId };
-        vdbg("daily_room_before", {
-          action: "create_date_room",
-          args: createRoomArgs,
-          eventId: truthRow.event_id ?? eventId,
-          userId,
-          timeoutMs: VIDEO_DATE_PREJOIN_TIMEOUT_MS,
-        });
-        const { data: roomData, error: roomError } = await withTimeout(
-          "daily_room",
-          supabase.functions.invoke<DailyRoomResponse>("daily-room", { body: createRoomArgs }),
-          VIDEO_DATE_PREJOIN_TIMEOUT_MS
-        );
-        vdbg("daily_room_after", {
-          action: "create_date_room",
-          ok: !roomError && Boolean(roomData?.token),
+        const { truth: fencedTruthRow, error: fencedTruthError } = await fetchVideoDateTruth(sessionId);
+        truthRow = fencedTruthRow ?? truthRow;
+        vdbg("date_prejoin_truth_fence", {
           sessionId,
-          eventId: truthRow.event_id ?? eventId,
+          eventId: truthRow?.event_id ?? eventId,
           userId,
-          roomName: roomData?.room_name ?? null,
-          hasToken: Boolean(roomData?.token),
-          reusedRoom: roomData?.reused_room ?? null,
-          providerRoomRecreated: roomData?.provider_room_recreated ?? null,
-          error: roomError ? { name: roomError.name, message: roomError.message } : null,
-          serverCode: roomData?.code ?? null,
+          row: truthRow ?? null,
+          error: fencedTruthError ? { code: fencedTruthError.code, message: fencedTruthError.message } : null,
         });
 
-        if (roomError || !roomData?.token || !roomData.room_name || !roomData.room_url) {
-          console.error("[Daily] Room creation failed:", roomError);
-          toast.error("Video is temporarily unavailable. Please try again in a moment.");
+        if (fencedTruthError || !truthRow) {
           setIsConnecting(false);
-          return false;
+          return {
+            ok: false,
+            failure: { kind: "session_unavailable", retryable: false },
+          } as VideoCallStartResult;
         }
+
+        if (truthRow.ended_at) {
+          setIsConnecting(false);
+          return {
+            ok: false,
+            failure: { kind: "SESSION_ENDED", retryable: false },
+          } as VideoCallStartResult;
+        }
+
+        const roomResult = await acquireDateRoom(
+          sessionId,
+          truthRow.event_id ?? eventId,
+          userId,
+          truthRow
+        );
+        if (roomResult.ok === false) {
+          setIsConnecting(false);
+          return { ok: false, failure: roomResult.failure } as VideoCallStartResult;
+        }
+        const roomData = roomResult.roomData;
 
         roomNameRef.current = roomData.room_name;
 
@@ -885,7 +1113,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }, FIRST_REMOTE_TIMEOUT_MS);
         }
 
-        return true;
+        return { ok: true } as VideoCallStartResult;
       } catch (error) {
         console.error("[Daily] Failed to start call:", error);
         vdbg("daily_join_failure", {
@@ -899,14 +1127,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         setHasPermission(false);
         toast.error("Video is temporarily unavailable. Please try again.");
         setIsConnecting(false);
-        return false;
+        return {
+          ok: false,
+          failure: { kind: "daily_join_failed", retryable: true },
+        } as VideoCallStartResult;
       } finally {
         if (startCallInFlightSessionRef.current === sessionId) {
           startCallInFlightSessionRef.current = null;
         }
       }
     },
-    [attachTracks, cleanupCallObject, clearFirstRemoteWatchdog, needsTrackReattach]
+    [acquireDateRoom, attachTracks, cleanupCallObject, clearFirstRemoteWatchdog, fetchVideoDateTruth, needsTrackReattach]
   );
 
   useEffect(() => {

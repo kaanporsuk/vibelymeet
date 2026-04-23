@@ -20,7 +20,7 @@ import { MutualVibeToast } from "@/components/video-date/MutualVibeToast";
 import { KeepTheVibe } from "@/components/video-date/KeepTheVibe";
 import { ReconnectionOverlay } from "@/components/video-date/ReconnectionOverlay";
 import { InCallSafetyModal } from "@/components/video-date/InCallSafetyModal";
-import { useVideoCall } from "@/hooks/useVideoCall";
+import { useVideoCall, type VideoCallStartFailure } from "@/hooks/useVideoCall";
 import { useCredits } from "@/hooks/useCredits";
 import { useReconnection } from "@/hooks/useReconnection";
 import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
@@ -48,7 +48,10 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
-import { videoSessionRowIndicatesHandshakeOrDate } from "@clientShared/matching/activeSession";
+import {
+  decideVideoSessionRouteFromTruth,
+  videoSessionRowIndicatesHandshakeOrDate,
+} from "@clientShared/matching/activeSession";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -67,6 +70,18 @@ function messageForHandshakeFailure(code?: string): string {
     return "This date has already ended.";
   }
   return "Could not start your video date. Go back and try again.";
+}
+
+function messageForRetryableStartFailure(failure: VideoCallStartFailure | null): string {
+  if (!failure) return "We’re still connecting your video date. Please try again.";
+  if (failure.kind === "network") return "Your connection dropped while starting the date. Try again.";
+  if (failure.kind === "DAILY_PROVIDER_ERROR") {
+    return "The video service is still spinning up. Try again in a moment.";
+  }
+  if (failure.kind === "daily_join_failed") {
+    return "We couldn’t finish joining the video room. Try again.";
+  }
+  return "We’re still connecting your video date. Please try again.";
 }
 
 interface PartnerData {
@@ -122,6 +137,7 @@ const VideoDate = () => {
   const [blurAmount, setBlurAmount] = useState(20);
   const [showFeedback, setShowFeedback] = useState(false);
   const [callStarted, setCallStarted] = useState(false);
+  const [callStartFailure, setCallStartFailure] = useState<VideoCallStartFailure | null>(null);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
@@ -205,6 +221,135 @@ const VideoDate = () => {
     [clearHandshakeGraceState, id, setStatus, logJourney]
   );
 
+  const recoverFromNotStartableDateTruth = useCallback(
+    async (source: string) => {
+      if (!id || !user?.id) return false;
+      const [vsRes, regRes] = await Promise.all([
+        supabase
+          .from("video_sessions")
+          .select(
+            "event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at"
+          )
+          .eq("id", id)
+          .maybeSingle(),
+        supabase
+          .from("event_registrations")
+          .select("queue_status, current_room_id")
+          .eq("profile_id", user.id)
+          .eq("current_room_id", id)
+          .maybeSingle(),
+      ]);
+      const vs = vsRes.data;
+      const reg = regRes.data;
+      const decision = decideVideoSessionRouteFromTruth(vs);
+      vdbg("date_route_decision", {
+        sessionId: id,
+        userId: user.id,
+        source,
+        decision,
+        queueStatus: reg?.queue_status ?? null,
+        currentRoomId: reg?.current_room_id ?? null,
+        vsState: vs?.state ?? null,
+        vsPhase: vs?.phase ?? null,
+        handshakeStartedAt: vs?.handshake_started_at ?? null,
+        readyGateStatus: vs?.ready_gate_status ?? null,
+        readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
+      });
+
+      if (decision === "navigate_ready") {
+        const target = `/ready/${encodeURIComponent(id)}`;
+        clearDateEntryTransition(id);
+        logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
+        vdbgRedirect(target, source, { sessionId: id, userId: user.id });
+        navigate(target, { replace: true });
+        return true;
+      }
+
+      const fallbackEventId = vs?.event_id ?? eventId;
+      if (decision === "stay_lobby" && fallbackEventId) {
+        const target = `/event/${encodeURIComponent(fallbackEventId)}/lobby`;
+        clearDateEntryTransition(id);
+        logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
+        vdbgRedirect(target, source, { sessionId: id, userId: user.id, eventId: fallbackEventId });
+        navigate(target, { replace: true });
+        return true;
+      }
+
+      if (decision === "ended") {
+        return false;
+      }
+
+      return false;
+    },
+    [eventId, id, logJourney, navigate, user?.id]
+  );
+
+  const recoverFromEndedSessionTruth = useCallback(
+    async (source: string) => {
+      if (!id || !user?.id) return;
+      const { data: sessionRow } = await supabase
+        .from("video_sessions")
+        .select("event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (!sessionRow) {
+        setVideoDateAccess("not_found");
+        return;
+      }
+
+      const [{ data: reg }, { data: verdict }] = await Promise.all([
+        sessionRow.event_id
+          ? supabase
+              .from("event_registrations")
+              .select("queue_status")
+              .eq("profile_id", user.id)
+              .eq("event_id", sessionRow.event_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null as { queue_status?: string | null } | null }),
+        supabase
+          .from("date_feedback")
+          .select("id")
+          .eq("session_id", id)
+          .eq("user_id", user.id)
+          .maybeSingle(),
+      ]);
+
+      const shouldOpenSurvey =
+        hasEnteredDateFlowRef.current ||
+        reg?.queue_status === "in_survey" ||
+        (
+          (sessionRow as { ended_reason?: string | null }).ended_reason === "reconnect_grace_expired" &&
+          Boolean(sessionRow.date_started_at) &&
+          !verdict
+        ) ||
+        sessionRow.state === "date" ||
+        sessionRow.phase === "date" ||
+        Boolean(sessionRow.date_started_at);
+
+      if (shouldOpenSurvey) {
+        openPostDateSurvey(source);
+        return;
+      }
+
+      clearHandshakeGraceState();
+      setPhase("ended");
+      setTimeLeft(0);
+      const target = sessionRow.event_id
+        ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+        : "/events";
+      clearDateEntryTransition(id);
+      vdbgRedirect(target, source, {
+        sessionId: id,
+        userId: user.id,
+        eventId: sessionRow.event_id,
+        endedAt: sessionRow.ended_at,
+      });
+      navigate(target, { replace: true });
+    },
+    [clearHandshakeGraceState, id, navigate, openPostDateSurvey, user?.id]
+  );
+
   const {
     isConnecting,
     isConnected,
@@ -266,6 +411,7 @@ const VideoDate = () => {
     videoJoinCycleRef.current = 0;
     videoJoinOutcomeByCycleRef.current = new Set();
     setHandshakeStartedAt(null);
+    setCallStartFailure(null);
     handshakeCompletionInFlightRef.current = false;
     handshakeCompletionDeadlineKeyRef.current = null;
     if (handshakeCompletionRetryTimerRef.current) {
@@ -292,6 +438,7 @@ const VideoDate = () => {
         isConnecting,
         dupBlocked,
         callStarted,
+        callStartFailure: callStartFailure?.kind ?? null,
         showMutualToast,
         handshakeGraceSecondsRemaining,
         reconnect_partner_disconnected: reconnection.isPartnerDisconnected,
@@ -310,6 +457,7 @@ const VideoDate = () => {
     isConnecting,
     dupBlocked,
     callStarted,
+    callStartFailure?.kind,
     showMutualToast,
     handshakeGraceSecondsRemaining,
     reconnection.isPartnerDisconnected,
@@ -423,6 +571,7 @@ const VideoDate = () => {
       setTimingReady(false);
       setHandshakeStartFailed(false);
       setHandshakeFailureCode(undefined);
+      setCallStartFailure(null);
       setCallStarted(false);
 
       try {
@@ -852,6 +1001,7 @@ const VideoDate = () => {
     if (phase === "ended") return;
     if (dupBlocked) return;
     if (callStarted) return;
+    if (callStartFailure) return;
 
     setCallStarted(true);
     videoJoinCycleRef.current += 1;
@@ -863,14 +1013,14 @@ const VideoDate = () => {
       is_retry: joinCycle > 1,
     });
     Sentry.addBreadcrumb({ category: "video-date", message: "Joined video date", level: "info" });
-    startCall(id).then((ok) => {
+    startCall(id).then((result) => {
       const name = getRoomName();
       if (name) canonicalRoomNameRef.current = name;
       if (!videoJoinOutcomeByCycleRef.current.has(joinCycle)) {
         videoJoinOutcomeByCycleRef.current.add(joinCycle);
         trackEvent(
-          ok ? LobbyPostDateEvents.VIDEO_DATE_JOIN_SUCCESS : LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE,
-          ok
+          result.ok ? LobbyPostDateEvents.VIDEO_DATE_JOIN_SUCCESS : LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE,
+          result.ok
             ? {
                 platform: "web",
                 session_id: id,
@@ -884,7 +1034,7 @@ const VideoDate = () => {
               }
         );
       }
-      if (ok) {
+      if (result.ok === true) {
         markDateFlowEntered();
         setTimingRefreshNonce((n) => n + 1);
         clearDateEntryTransition(id);
@@ -895,11 +1045,60 @@ const VideoDate = () => {
           reason: "daily_join_success",
           roomName: name ?? null,
         });
-      } else {
-        setCallStarted(false);
+        return;
       }
+
+      const failure = result.failure;
+      setCallStarted(false);
+      if (failure.retryable) {
+        setCallStartFailure(failure);
+        return;
+      }
+
+      if (failure.kind === "READY_GATE_NOT_READY") {
+        void (async () => {
+          const redirected = await recoverFromNotStartableDateTruth("create_date_room_not_ready");
+          if (!redirected) {
+            setHandshakeStartFailed(true);
+            setHandshakeFailureCode("READY_GATE_NOT_READY");
+          }
+        })();
+        return;
+      }
+
+      if (failure.kind === "SESSION_ENDED") {
+        void recoverFromEndedSessionTruth("create_date_room_session_ended");
+        return;
+      }
+
+      if (failure.kind === "ACCESS_DENIED") {
+        clearDateEntryTransition(id);
+        toast.error("This date link is no longer valid.");
+        const target = eventId
+          ? `/event/${encodeURIComponent(eventId)}/lobby`
+          : "/events";
+        vdbgRedirect(target, "create_date_room_access_denied", {
+          sessionId: id,
+          userId: user?.id ?? null,
+          eventId: eventId ?? null,
+        });
+        navigate(target, { replace: true });
+        return;
+      }
+
+      if (failure.kind === "SESSION_NOT_FOUND" || failure.kind === "ROOM_NOT_FOUND") {
+        setVideoDateAccess("not_found");
+        return;
+      }
+
+      if (failure.kind === "auth") {
+        toast.error("Please sign in again, then try once more.");
+      }
+      setHandshakeStartFailed(true);
+      setHandshakeFailureCode(undefined);
     });
   }, [
+    callStartFailure,
     id,
     videoDateAccess,
     timingReady,
@@ -912,6 +1111,9 @@ const VideoDate = () => {
     eventId,
     user?.id,
     markDateFlowEntered,
+    navigate,
+    recoverFromEndedSessionTruth,
+    recoverFromNotStartableDateTruth,
   ]);
 
   // Subscribe to phase changes via Realtime
@@ -1580,6 +1782,49 @@ const VideoDate = () => {
         >
           {eventId ? "Back to event lobby" : "Back to events"}
         </Button>
+      </div>
+    );
+  }
+
+  if (callStartFailure?.retryable) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
+        <User className="w-14 h-14 text-muted-foreground" />
+        <h1 className="text-xl font-display font-semibold">Still connecting your date</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          {messageForRetryableStartFailure(callStartFailure)}
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+          <Button
+            type="button"
+            className="w-full"
+            onClick={() => {
+              setCallStartFailure(null);
+              setCallStarted(false);
+            }}
+          >
+            Try again
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="w-full"
+            onClick={() => {
+              const target = eventId
+                ? `/event/${encodeURIComponent(eventId)}/lobby`
+                : "/events";
+              clearDateEntryTransition(id);
+              vdbgRedirect(target, "retryable_call_start_back", {
+                sessionId: id ?? null,
+                eventId: eventId ?? null,
+                code: callStartFailure.kind,
+              });
+              navigate(target, { replace: true });
+            }}
+          >
+            Back
+          </Button>
+        </div>
       </div>
     );
   }

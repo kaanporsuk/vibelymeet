@@ -128,16 +128,17 @@ function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
   switch (code) {
     case 'auth':
       return 'Please sign in again, then try once more.';
-    case 'ready_gate_required':
+    case 'READY_GATE_NOT_READY':
       return 'Almost there — finish the Ready Gate with your match first.';
-    case 'session_ended':
+    case 'SESSION_ENDED':
       return 'This date has already ended.';
-    case 'not_found':
+    case 'SESSION_NOT_FOUND':
+    case 'ROOM_NOT_FOUND':
       return "We couldn't open this date. Go back and try again.";
-    case 'forbidden':
+    case 'ACCESS_DENIED':
       return "You don't have access to this date.";
     case 'network':
-    case 'daily_provider':
+    case 'DAILY_PROVIDER_ERROR':
     default:
       return 'Could not start video. Please try again.';
   }
@@ -2453,7 +2454,7 @@ export default function VideoDateScreen() {
         return;
       }
       if (!tokenRes.ok) {
-        if (tokenRes.code === 'ready_gate_required') {
+        if (tokenRes.code === 'READY_GATE_NOT_READY') {
           const redirected = await recoverFromNotStartableDateTruth('create_date_room');
           if (redirected) {
             hasStartedJoinRef.current = false;

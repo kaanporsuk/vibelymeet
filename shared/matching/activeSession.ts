@@ -18,6 +18,8 @@ export type ActiveSessionBase = {
   queueStatus: "in_handshake" | "in_date" | "in_survey" | "in_ready_gate";
 };
 
+export type VideoSessionTruthRouteDecision = "navigate_date" | "navigate_ready" | "stay_lobby" | "ended";
+
 /** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
 export function pickRegistrationForActiveSession<
   T extends { queue_status: string | null; current_room_id: string | null; event_id: string },
@@ -50,6 +52,58 @@ export function videoSessionRowIndicatesHandshakeOrDate(
         row.handshake_started_at ||
         row.date_started_at)
   );
+}
+
+export function videoSessionRowIsEnded(
+  row: {
+    ended_at?: string | null;
+    state?: string | null;
+    phase?: string | null;
+  } | null
+): boolean {
+  return Boolean(row && (row.ended_at || row.state === "ended" || row.phase === "ended"));
+}
+
+export function videoSessionRowReadyGateEligible(
+  row: {
+    ready_gate_status?: string | null;
+    ready_gate_expires_at?: string | number | null;
+  } | null,
+  nowMs: number = Date.now()
+): boolean {
+  if (!row) return false;
+  const status = row.ready_gate_status ?? null;
+  if (status === "ready" || status === "ready_a" || status === "ready_b" || status === "snoozed") {
+    return true;
+  }
+  if (status !== "both_ready") return false;
+  const rawExpiry = row.ready_gate_expires_at ?? null;
+  const expiresMs =
+    rawExpiry == null
+      ? null
+      : typeof rawExpiry === "number"
+        ? rawExpiry
+        : Date.parse(String(rawExpiry));
+  return expiresMs != null && Number.isFinite(expiresMs) && expiresMs > nowMs;
+}
+
+export function decideVideoSessionRouteFromTruth(
+  row: {
+    ended_at?: string | null;
+    state?: string | null;
+    phase?: string | null;
+    handshake_started_at?: string | null;
+    date_started_at?: string | null;
+    ready_gate_status?: string | null;
+    ready_gate_expires_at?: string | number | null;
+  } | null,
+  nowMs: number = Date.now()
+): VideoSessionTruthRouteDecision {
+  if (!row) return "stay_lobby";
+  if (videoSessionRowIsEnded(row)) return "ended";
+  if (videoSessionRowIndicatesHandshakeOrDate(row)) return "navigate_date";
+  if (videoSessionRowReadyGateEligible(row, nowMs)) return "navigate_ready";
+  return "stay_lobby";
 }
 
 /** Best-effort queue_status aligned with session row when registration still says `in_ready_gate`. */

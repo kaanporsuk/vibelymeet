@@ -1,5 +1,5 @@
 /**
- * Push permission for native: expo-notifications is canonical for OS state and for requesting the system sheet.
+ * Push permission for native: OneSignal native permission APIs are canonical for OS state and the system sheet.
  * Backend / OneSignal subscription sync is separate (see syncPushSubscriptionToBackend, syncBackendAfterPushGrant).
  */
 import { useState, useEffect, useCallback } from 'react';

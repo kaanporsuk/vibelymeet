@@ -24,13 +24,14 @@ import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useReadyGate } from '@/lib/readyGateApi';
-import { updateParticipantStatus } from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruth, updateParticipantStatus } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { trackEvent } from '@/lib/analytics';
+import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
 const RING_SIZE = 88;
@@ -38,6 +39,7 @@ const STROKE = 4;
 const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
 const GATE_TIMEOUT_SEC = 30;
+const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
 
 export type ReadyGateOverlayProps = {
   sessionId: string;
@@ -95,6 +97,61 @@ export function ReadyGateOverlay({
     setPermissionsResolved(true);
     return ok;
   }, []);
+
+  const reconcileFromCanonicalTruth = useCallback(
+    async (source: string) => {
+      const [vs, regRes] = await Promise.all([
+        fetchVideoSessionDateEntryTruth(sessionId),
+        supabase
+          .from('event_registrations')
+          .select('queue_status, current_room_id')
+          .eq('event_id', eventId)
+          .eq('profile_id', userId)
+          .eq('current_room_id', sessionId)
+          .maybeSingle(),
+      ]);
+      const reg = regRes.data;
+      const decision = decideVideoSessionRouteFromTruth(vs);
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
+        session_id: sessionId,
+        user_id: userId,
+        decision,
+        source,
+        queue_status: reg?.queue_status ?? null,
+        current_room_id: reg?.current_room_id ?? null,
+        vs_state: vs?.state ?? null,
+        vs_phase: vs?.phase ?? null,
+        handshake_started_at: Boolean(vs?.handshake_started_at),
+        ready_gate_status: vs?.ready_gate_status ?? null,
+        ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+      });
+
+      if (decision === 'navigate_date') {
+        closedRef.current = true;
+        setIsTransitioning(true);
+        markVideoDateEntryPipelineStarted(sessionId);
+        onNavigateToDate(sessionId);
+        return true;
+      }
+
+      if (decision === 'navigate_ready') {
+        return false;
+      }
+
+      if (decision === 'ended' || decision === 'stay_lobby') {
+        if (!invalidSessionNotifiedRef.current) {
+          invalidSessionNotifiedRef.current = true;
+          onLobbyUserMessage?.(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, 'info');
+        }
+        closedRef.current = true;
+        onClose();
+        return true;
+      }
+
+      return false;
+    },
+    [eventId, onClose, onLobbyUserMessage, onNavigateToDate, sessionId, userId]
+  );
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
@@ -211,6 +268,14 @@ export function ReadyGateOverlay({
   }, [iAmReady]);
 
   useEffect(() => {
+    if (!iAmReady || isBothReady || isTransitioning) return;
+    const timer = setTimeout(() => {
+      void reconcileFromCanonicalTruth('overlay_ready_wait_threshold');
+    }, READY_GATE_TRUTH_RECONCILE_MS);
+    return () => clearTimeout(timer);
+  }, [iAmReady, isBothReady, isTransitioning, reconcileFromCanonicalTruth]);
+
+  useEffect(() => {
     if (permissionsResolved) return;
     if (openingPermissionWaitRef.current) return;
     openingPermissionWaitRef.current = true;
@@ -252,38 +317,36 @@ export function ReadyGateOverlay({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [{ data: reg }, { data: vs }] = await Promise.all([
+      const [regResult, vs] = await Promise.all([
         supabase
           .from('event_registrations')
           .select('queue_status')
           .eq('event_id', eventId)
           .eq('profile_id', userId)
           .maybeSingle(),
-        supabase.from('video_sessions').select('ended_at').eq('id', sessionId).maybeSingle(),
+        fetchVideoSessionDateEntryTruth(sessionId),
       ]);
+      const reg = regResult.data;
       if (cancelled) return;
-      if (!vs || vs.ended_at != null || reg?.queue_status !== 'in_ready_gate') {
+      const decision = decideVideoSessionRouteFromTruth(vs);
+      if (!vs || (decision !== 'navigate_ready' && reg?.queue_status !== 'in_ready_gate')) {
         trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId,
           reason: !vs
             ? 'missing_session'
-            : vs.ended_at != null
+            : decision === 'ended'
               ? 'session_ended'
               : 'registration_not_in_ready_gate',
         });
-        if (!invalidSessionNotifiedRef.current) {
-          invalidSessionNotifiedRef.current = true;
-          onLobbyUserMessage?.(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, 'info');
-        }
-        onClose();
+        await reconcileFromCanonicalTruth('overlay_initial_stale_check');
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sessionId, eventId, userId, onClose, onLobbyUserMessage]);
+  }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, userId]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;

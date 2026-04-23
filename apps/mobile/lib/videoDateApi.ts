@@ -8,6 +8,11 @@ import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import {
+  DAILY_ROOM_ACTIONS,
+  classifyDailyRoomInvokeFailure,
+  type DailyRoomFailureKind,
+} from '@clientShared/matching/dailyRoomFailure';
+import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
 } from '@clientShared/matching/videoDateExtensionSpend';
@@ -57,15 +62,7 @@ export type RoomTokenResult = {
 };
 
 /** Classified create_date_room failure (no secrets). */
-export type RoomTokenFailureCode =
-  | 'auth'
-  | 'forbidden'
-  | 'not_found'
-  | 'session_ended'
-  | 'ready_gate_required'
-  | 'daily_provider'
-  | 'network'
-  | 'unknown';
+export type RoomTokenFailureCode = DailyRoomFailureKind;
 
 export type GetDailyRoomTokenResult =
   | { ok: true; data: RoomTokenResult }
@@ -335,22 +332,6 @@ export function useVideoDateSession(
   return { session, partner, phase, timeLeft, loading, isRefreshing, error, refetch: fetchSession };
 }
 
-function mapHttpStatusAndServerCode(
-  status: number,
-  serverCode?: string
-): RoomTokenFailureCode {
-  const c = serverCode ?? '';
-  if (c === 'UNAUTHORIZED' || status === 401) return 'auth';
-  if (c === 'READY_GATE_NOT_READY') return 'ready_gate_required';
-  if (c === 'SESSION_ENDED') return 'session_ended';
-  if (c === 'SESSION_NOT_FOUND' || c === 'ROOM_NOT_FOUND' || status === 404) return 'not_found';
-  if (c === 'ACCESS_DENIED' || status === 403) return 'forbidden';
-  if (c === 'DAILY_PROVIDER_ERROR' || status === 503 || status === 502 || status === 500) {
-    return 'daily_provider';
-  }
-  return 'unknown';
-}
-
 type DailyRoomResponseBody = {
   room_name?: string;
   room_url?: string;
@@ -385,80 +366,53 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
   }
 
   if (!error && data && !data.token) {
+    const failure = await classifyDailyRoomInvokeFailure({
+      action: DAILY_ROOM_ACTIONS.CREATE,
+      data: { ...data, code: data.code ?? 'MISSING_TOKEN' },
+      response,
+    });
     vdbg('daily_room_after', {
       action: 'create_date_room',
       ok: false,
       roomName: data.room_name ?? null,
       hasToken: false,
-      httpStatus: response?.status,
-      serverCode: data.code ?? 'MISSING_TOKEN',
+      httpStatus: failure.httpStatus ?? response?.status,
+      serverCode: failure.serverCode ?? data.code ?? 'MISSING_TOKEN',
+      classifiedCode: failure.kind,
       message: data.error ?? null,
     });
     return {
       ok: false,
-      code: 'daily_provider',
-      httpStatus: response?.status,
-      serverCode: data.code ?? 'MISSING_TOKEN',
+      code: failure.kind,
+      httpStatus: failure.httpStatus ?? response?.status,
+      serverCode: failure.serverCode ?? data.code ?? 'MISSING_TOKEN',
     };
   }
 
   if (error) {
     const errName = error instanceof Error ? error.name : 'unknown';
-
-    if (errName === 'FunctionsFetchError') {
-      vdbg('daily_room_after', {
-        action: 'create_date_room',
-        ok: false,
-        hasToken: false,
-        error: { name: errName, message: error.message },
-        serverCode: 'FETCH_FAILED',
-      });
-      return { ok: false, code: 'network', serverCode: 'FETCH_FAILED' };
-    }
-    if (errName === 'FunctionsRelayError') {
-      vdbg('daily_room_after', {
-        action: 'create_date_room',
-        ok: false,
-        hasToken: false,
-        error: { name: errName, message: error.message },
-        serverCode: 'RELAY_ERROR',
-      });
-      return { ok: false, code: 'network', serverCode: 'RELAY_ERROR' };
-    }
-
-    if (response && typeof (response as Response).clone === 'function') {
-      const res = response as Response;
-      const status = res.status;
-      let body: DailyRoomResponseBody | null = null;
-      try {
-        body = await res.clone().json();
-      } catch {
-        /* non-JSON body */
-      }
-      const serverCode = body?.code;
-      vdbg('daily_room_after', {
-        action: 'create_date_room',
-        ok: false,
-        hasToken: false,
-        httpStatus: status,
-        serverCode: serverCode ?? body?.error ?? null,
-        error: { name: errName, message: error.message },
-      });
-      return {
-        ok: false,
-        code: mapHttpStatusAndServerCode(status, serverCode),
-        httpStatus: status,
-        serverCode: serverCode ?? body?.error,
-      };
-    }
+    const failure = await classifyDailyRoomInvokeFailure({
+      action: DAILY_ROOM_ACTIONS.CREATE,
+      invokeError: error,
+      response,
+      data,
+    });
 
     vdbg('daily_room_after', {
       action: 'create_date_room',
       ok: false,
       hasToken: false,
+      httpStatus: failure.httpStatus ?? null,
+      serverCode: failure.serverCode ?? null,
+      classifiedCode: failure.kind,
       error: { name: errName, message: error.message },
     });
-    return { ok: false, code: 'unknown', serverCode: errName };
+    return {
+      ok: false,
+      code: failure.kind,
+      httpStatus: failure.httpStatus,
+      serverCode: failure.serverCode ?? errName,
+    };
   }
 
   vdbg('daily_room_after', {

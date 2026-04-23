@@ -4,18 +4,19 @@
  * backend can deliver to this device (web uses onesignal_player_id).
  *
  * Provider boundary: OneSignal owns remote push delivery, foreground display decisions,
- * and click lifecycle. expo-notifications is used only for OS permission/status utilities.
+ * click lifecycle, and native OS permission/status checks.
  */
 import { OneSignal } from 'react-native-onesignal';
-import * as Notifications from 'expo-notifications';
-import { PermissionStatus } from 'expo-modules-core';
 import { supabase } from '@/lib/supabase';
+import { getOsPushPermissionState } from '@/lib/osPushPermission';
 
 const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
 
 let initialized = false;
+let overLimitTagWritesSuppressed = false;
+let lastAppliedTagDigest: string | null = null;
 
-/** Dev-only: OneSignal subscription snapshot — not authoritative for OS permission (use expo-notifications). */
+/** Dev-only: OneSignal subscription snapshot — not authoritative for durable backend registration. */
 export async function logOneSignalPushDiagnostics(context: string): Promise<void> {
   if (!__DEV__ || !APP_ID) return;
   try {
@@ -107,8 +108,7 @@ export async function registerPushWithBackend(userId: string): Promise<boolean> 
   if (!APP_ID) return false;
   pushSyncDevLog('registerPushWithBackend (sync-only, no OS prompt)', { userId });
   try {
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== PermissionStatus.GRANTED) return false;
+    if ((await getOsPushPermissionState()) !== 'granted') return false;
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] registerPushWithBackend error:', e);
@@ -124,8 +124,7 @@ export async function syncPushWithBackendIfPermissionGranted(userId: string): Pr
   if (!APP_ID) return false;
   pushSyncDevLog('syncPushWithBackendIfPermissionGranted', { userId });
   try {
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== PermissionStatus.GRANTED) return false;
+    if ((await getOsPushPermissionState()) !== 'granted') return false;
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] syncPushWithBackendIfPermissionGranted error:', e);
@@ -137,6 +136,8 @@ export function logoutOneSignal(): void {
   try {
     OneSignal.logout();
   } catch {}
+  overLimitTagWritesSuppressed = false;
+  lastAppliedTagDigest = null;
 }
 
 /**
@@ -208,6 +209,14 @@ function oneSignalTagWriteWarn(stage: string, error: unknown, extra?: Record<str
   console.warn('[Vibely] OneSignal tag write failed:', payload);
 }
 
+function digestOneSignalTags(tags: Record<string, string>): string {
+  return JSON.stringify(
+    Object.keys(tags)
+      .sort()
+      .map((key) => [key, tags[key]])
+  );
+}
+
 async function removeOneSignalTags(keys: readonly string[]): Promise<void> {
   if (!keys.length) return;
   const userAny = OneSignal.User as unknown as {
@@ -233,6 +242,10 @@ async function removeOneSignalTags(keys: readonly string[]): Promise<void> {
  */
 export async function setOneSignalTags(input: OneSignalTagsInput): Promise<void> {
   if (!APP_ID) return;
+  if (overLimitTagWritesSuppressed) {
+    pushSyncDevLog('setOneSignalTags skipped', { reason: 'over_limit_suppressed' });
+    return;
+  }
   try {
     const tier =
       (input.subscriptionTier ?? '').toString().trim().toLowerCase() || 'free';
@@ -242,13 +255,23 @@ export async function setOneSignalTags(input: OneSignalTagsInput): Promise<void>
       is_premium: input.isPremium === true ? 'true' : 'false',
       subscription_tier: tier,
     };
+    const digest = digestOneSignalTags(tags);
+    if (lastAppliedTagDigest === digest) {
+      pushSyncDevLog('setOneSignalTags skipped', { reason: 'unchanged_tags' });
+      return;
+    }
     // OneSignal docs: when user is at/over tag limit, delete first then add in a second request.
     await removeOneSignalTags(OBSOLETE_OR_EPHEMERAL_TAG_KEYS);
     await OneSignal.User.addTags(tags);
+    lastAppliedTagDigest = digest;
   } catch (e) {
+    if (looksLikeTagLimitError(e)) {
+      overLimitTagWritesSuppressed = true;
+    }
     oneSignalTagWriteWarn('add_durable_tags', e, {
       durableKeys: DURABLE_SEGMENTATION_TAG_KEYS,
       obsoleteKeys: OBSOLETE_OR_EPHEMERAL_TAG_KEYS,
+      overLimitTagWritesSuppressed,
     });
   }
 }
