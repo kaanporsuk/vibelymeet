@@ -53,8 +53,8 @@ import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatc
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import {
   fetchVideoSessionDateEntryTruth,
-  videoSessionIndicatesHandshakeOrDate,
 } from '@/lib/videoDateApi';
+import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
@@ -262,30 +262,8 @@ export default function EventLobbyScreen() {
             : Promise.resolve({ data: null as { queue_status?: string | null; current_room_id?: string | null } | null }),
         ]);
         const reg = regRes.data;
-        const startable = videoSessionIndicatesHandshakeOrDate(vs);
-        const rgStatus = vs?.ready_gate_status ?? null;
-        const rgExpiresRaw = vs?.ready_gate_expires_at ?? null;
-        const rgExpiresMs =
-          rgExpiresRaw == null
-            ? null
-            : typeof rgExpiresRaw === 'number'
-              ? rgExpiresRaw
-              : Date.parse(String(rgExpiresRaw));
-        const readyGateEligible =
-          rgStatus === 'ready' ||
-          rgStatus === 'ready_a' ||
-          rgStatus === 'ready_b' ||
-          rgStatus === 'snoozed' ||
-          (rgStatus === 'both_ready' &&
-            rgExpiresMs != null &&
-            Number.isFinite(rgExpiresMs) &&
-            rgExpiresMs > Date.now());
-        const decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' = startable
-          ? 'navigate_date'
-          : readyGateEligible
-            ? 'navigate_ready'
-            : 'stay_lobby';
-        const reason = startable ? null : 'video_truth_not_startable';
+        const decision = decideVideoSessionRouteFromTruth(vs);
+        const reason = decision === 'navigate_date' ? null : decision === 'ended' ? 'session_ended' : 'video_truth_not_startable';
 
         rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
           session_id: sessionIdToOpen,
@@ -297,8 +275,8 @@ export default function EventLobbyScreen() {
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
           handshake_started_at: Boolean(vs?.handshake_started_at),
-          ready_gate_status: rgStatus,
-          ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+          ready_gate_status: vs?.ready_gate_status ?? null,
+          ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         });
         vdbg('lobby_date_route_decision', {
           trigger,
@@ -311,15 +289,15 @@ export default function EventLobbyScreen() {
           vsState: vs?.state ?? null,
           vsPhase: vs?.phase ?? null,
           handshakeStartedAt: vs?.handshake_started_at ?? null,
-          readyGateStatus: rgStatus,
-          readyGateExpiresAt: rgExpiresRaw,
+          readyGateStatus: vs?.ready_gate_status ?? null,
+          readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
         });
 
         if (decision === 'navigate_ready') {
           router.replace(`/ready/${sessionIdToOpen}` as const);
           return;
         }
-        if (decision === 'stay_lobby') {
+        if (decision !== 'navigate_date') {
           void refetchActiveSession();
           return;
         }

@@ -23,7 +23,6 @@ import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeS
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
-  READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
 } from '@shared/matching/videoSessionFlow';
 
 const GATE_TIMEOUT_SEC = 30;
@@ -204,19 +203,6 @@ export default function ReadyGateScreen() {
         primaryAction: { label: 'Continue', onPress: () => router.replace(tabsRootHref()) },
       });
     };
-    const explainStaleToLobby = (eventIdForLobby: string) => {
-      if (redirectExplainedRef.current) return;
-      redirectExplainedRef.current = true;
-      showDialog({
-        title: 'Ready Gate ended',
-        message: READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
-        variant: 'info',
-        primaryAction: {
-          label: 'Continue',
-          onPress: () => router.replace(eventLobbyHref(eventIdForLobby)),
-        },
-      });
-    };
     const load = async () => {
       let revealReadyUi = false;
       try {
@@ -252,9 +238,12 @@ export default function ReadyGateScreen() {
         }
 
         const initialTruth = await fetchVideoSessionDateEntryTruth(String(sessionId));
-        if (decideVideoSessionRouteFromTruth(initialTruth) === 'navigate_date') {
-          revealReadyUi = true;
-          await reconcileFromCanonicalTruth('initial_truth_date');
+        const initialDecision = decideVideoSessionRouteFromTruth(initialTruth);
+        if (initialDecision !== 'navigate_ready') {
+          if (initialDecision === 'navigate_date') {
+            revealReadyUi = true;
+          }
+          await reconcileFromCanonicalTruth(`initial_truth_${initialDecision}`);
           return;
         }
 
@@ -269,12 +258,8 @@ export default function ReadyGateScreen() {
           rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_not_in_ready_gate', {
             session_id: sessionId,
             queue_status: reg?.queue_status ?? null,
+            canonical_decision: initialDecision,
           });
-          const redirected = await reconcileFromCanonicalTruth('registration_not_in_ready_gate');
-          if (!redirected) {
-            explainStaleToLobby(session.event_id);
-          }
-          return;
         }
 
         setEventId(session.event_id);
