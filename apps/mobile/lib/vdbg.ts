@@ -1,17 +1,25 @@
 import * as Sentry from '@sentry/react-native';
+import { sanitizeNativeDiagnosticRecord } from '@/lib/nativeDiagnosticsPayload';
 
 /**
- * Native video-date / lobby diagnostics: console + Sentry breadcrumb (`category: vdbg`).
- * Same contract as the previous per-file helpers — single place to keep keys and payload shape stable.
+ * Native video-date / lobby diagnostics: debug-only console + Sentry breadcrumb (`category: vdbg`).
+ * Production can opt in with EXPO_PUBLIC_VDBG_ENABLED=true for incident investigation.
  */
+const VDBG_ENABLED = __DEV__ || process.env.EXPO_PUBLIC_VDBG_ENABLED === 'true';
+
+export function isVdbgEnabled(): boolean {
+  return VDBG_ENABLED;
+}
+
 export function vdbg(message: string, data?: Record<string, unknown>): void {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
+  if (!VDBG_ENABLED) return;
+  const payload = sanitizeNativeDiagnosticRecord({ ...(data ?? {}), ts: new Date().toISOString() });
   console.log(`[VDBG] ${message}`, payload);
   Sentry.addBreadcrumb({
     category: 'vdbg',
     message,
     level: 'info',
-    data: payload,
+    data: payload as Record<string, unknown> | undefined,
   });
 }
 

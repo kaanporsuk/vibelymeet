@@ -1,16 +1,23 @@
 import { motion } from "framer-motion";
-import { Loader2, ArrowLeft, Wifi } from "lucide-react";
+import { Loader2, ArrowLeft, Play, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { RemotePlaybackState } from "@/hooks/useVideoCall";
 
 interface ConnectionOverlayProps {
   isConnecting: boolean;
+  remotePlayback?: RemotePlaybackState;
+  onRetryRemotePlayback?: () => void;
   onLeave: () => void;
 }
 
 export const ConnectionOverlay = ({
   isConnecting,
+  remotePlayback,
+  onRetryRemotePlayback,
   onLeave,
 }: ConnectionOverlayProps) => {
+  const playbackRejected = Boolean(remotePlayback?.playRejected);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -40,6 +47,8 @@ export const ConnectionOverlay = ({
             <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
               {isConnecting ? (
                 <Loader2 className="w-7 h-7 animate-spin text-primary" />
+              ) : playbackRejected ? (
+                <Play className="w-7 h-7 text-primary" />
               ) : (
                 <Wifi className="w-7 h-7 text-primary" />
               )}
@@ -49,14 +58,27 @@ export const ConnectionOverlay = ({
 
         <div>
           <h3 className="font-display font-semibold text-lg text-foreground mb-1">
-            {isConnecting ? "Connecting..." : "Waiting for partner"}
+            {playbackRejected ? "Tap to resume video" : isConnecting ? "Connecting..." : "Waiting for partner"}
           </h3>
           <p className="text-sm text-muted-foreground">
-            {isConnecting
-              ? "Setting up your video date"
-              : "Your date will start as soon as they join"}
+            {playbackRejected
+              ? "Your match is here, but the browser blocked playback."
+              : isConnecting
+                ? "Setting up your video date"
+                : "Your date will start as soon as they join"}
           </p>
         </div>
+
+        {playbackRejected && onRetryRemotePlayback && (
+          <Button
+            type="button"
+            onClick={onRetryRemotePlayback}
+            className="rounded-full px-6"
+          >
+            <Play className="w-4 h-4 mr-2" />
+            Retry video
+          </Button>
+        )}
 
         <Button
           variant="outline"

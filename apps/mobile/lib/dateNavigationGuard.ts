@@ -5,7 +5,9 @@ type DateNavMode = 'replace' | 'push';
 type DateNavReason = 'already_on_same_date_route' | 'recent_duplicate_navigation';
 
 let lastDateNav: { sessionId: string; ts: number } | null = null;
-const DUPLICATE_BURST_MS = 1500;
+// Realtime can deliver the same ready/date convergence from registration + video_sessions.
+// Keep this route-only latch long enough to cover duplicate render/update bursts.
+const DUPLICATE_BURST_MS = 15_000;
 
 function activeDateSessionIdFromPath(pathname: string | null | undefined): string | null {
   const m = pathname?.match(/^\/date\/([^/]+)/);
@@ -36,4 +38,3 @@ export function navigateToDateSessionGuarded(params: {
   else router.replace(target);
   return true;
 }
-

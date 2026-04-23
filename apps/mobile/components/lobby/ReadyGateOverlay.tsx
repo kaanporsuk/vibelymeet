@@ -204,7 +204,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [requestMediaPermissions, eventId]);
+  }, [requestMediaPermissions, eventId, sessionId]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);

@@ -2,6 +2,9 @@
  * OneSignal push integration for mobile. Same backend contract as web: send-notification
  * targets user_id; we store mobile_onesignal_player_id in notification_preferences so
  * backend can deliver to this device (web uses onesignal_player_id).
+ *
+ * Provider boundary: OneSignal owns remote push delivery, foreground display decisions,
+ * and click lifecycle. expo-notifications is used only for OS permission/status utilities.
  */
 import { OneSignal } from 'react-native-onesignal';
 import * as Notifications from 'expo-notifications';

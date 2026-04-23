@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
 import { useReadyGate } from "@/hooks/useReadyGate";
@@ -10,7 +9,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
-import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 
@@ -18,6 +16,7 @@ interface ReadyGateOverlayProps {
   sessionId: string;
   eventId: string;
   onClose: () => void;
+  onNavigateToDate: (sessionId: string, source: string) => void;
 }
 
 const GATE_TIMEOUT = 30;
@@ -34,8 +33,7 @@ function videoSessionIndicatesActiveDate(row: { state?: unknown; phase?: unknown
   return row.state === "handshake" || row.state === "date" || row.phase === "handshake" || row.phase === "date";
 }
 
-const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps) => {
-  const navigate = useNavigate();
+const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
   const { user } = useUserProfile();
   const { setStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
 
@@ -59,7 +57,6 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
       dateNavigationStartedRef.current = true;
       closedRef.current = true;
       setIsTransitioning(true);
-      markVideoDateEntryPipelineStarted(sessionId);
       readyGateDebug("success-path navigation to date", { sessionId, source });
       trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY, {
         platform: "web",
@@ -74,10 +71,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose }: ReadyGateOverlayProps
         target: `/date/${sessionId}`,
       });
       setTimeout(() => {
-        navigate(`/date/${sessionId}`, { replace: true });
+        onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
       }, 1200);
     },
-    [navigate, sessionId, eventId]
+    [sessionId, eventId, onNavigateToDate]
   );
 
   const handleBothReady = useCallback(() => {
