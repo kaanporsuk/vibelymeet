@@ -71,7 +71,7 @@ import { MutualVibeToast } from '@/components/video-date/MutualVibeToast';
 import { PostDateSurvey } from '@/components/video-date/PostDateSurvey';
 import { InCallSafetySheet } from '@/components/video-date/InCallSafetySheet';
 import { supabase } from '@/lib/supabase';
-import { vdbg, vdbgRedirect } from '@/lib/vdbg';
+import { isVdbgEnabled, vdbg, vdbgRedirect } from '@/lib/vdbg';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -324,6 +324,11 @@ export default function VideoDateScreen() {
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerMissingTerminalImpressionRef = useRef(false);
+  const localInDailyRoomRef = useRef(false);
+  const bootstrapTimingsRef = useRef<Record<string, number>>({});
+  const firstIceConnectedLoggedRef = useRef(false);
+  const firstRemoteParticipantTimedRef = useRef(false);
+  const firstPlayableRemoteTimedRef = useRef(false);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
@@ -353,6 +358,29 @@ export default function VideoDateScreen() {
     [sessionId, eventId]
   );
 
+  const beginBootstrapTiming = useCallback((step: string, data?: Record<string, unknown>) => {
+    if (!isVdbgEnabled()) return;
+    bootstrapTimingsRef.current[step] = Date.now();
+    vdbg('date_bootstrap_timing_start', {
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step,
+      ...(data ?? {}),
+    });
+  }, [sessionId, user?.id]);
+
+  const endBootstrapTiming = useCallback((step: string, data?: Record<string, unknown>) => {
+    if (!isVdbgEnabled()) return;
+    const startedAt = bootstrapTimingsRef.current[step];
+    vdbg('date_bootstrap_timing_end', {
+      sessionId: sessionId ?? null,
+      userId: user?.id ?? null,
+      step,
+      duration_ms: typeof startedAt === 'number' ? Math.max(0, Date.now() - startedAt) : null,
+      ...(data ?? {}),
+    });
+  }, [sessionId, user?.id]);
+
   const releaseSharedCallIfOwned = useCallback(
     (call: DailyCallObject | null, reason: string) => {
       if (!call) return;
@@ -372,6 +400,10 @@ export default function VideoDateScreen() {
       firstConnectWatchdogRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    localInDailyRoomRef.current = localInDailyRoom;
+  }, [localInDailyRoom]);
   const boundCallRef = useRef<DailyCallObject | null>(null);
   const boundHandlersRef = useRef<{
     onParticipantJoined: (event: { participant?: DailyParticipant }) => void;
@@ -426,6 +458,14 @@ export default function VideoDateScreen() {
           participant_id: p ? dailyParticipantId(p) ?? 'unknown' : 'none',
         });
         if (p && !isLocal) {
+          if (!firstRemoteParticipantTimedRef.current) {
+            firstRemoteParticipantTimedRef.current = true;
+            endBootstrapTiming('first_remote_participant', {
+              source: 'participant_joined',
+              participant_id: dailyParticipantId(p) ?? 'unknown',
+              room_name: roomName,
+            });
+          }
           if (__DEV__) vdbg('first_remote_participant_seen', { sessionId: sessionId ?? null, userId: user?.id ?? null, source: 'participant_joined' });
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
           rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'remote_participant_joined', {
@@ -505,6 +545,14 @@ export default function VideoDateScreen() {
         releaseSharedCallIfOwned(call, 'daily_error_event');
       };
       const onNetworkQualityChange = (ev: unknown) => {
+        if (!firstIceConnectedLoggedRef.current && localInDailyRoomRef.current) {
+          firstIceConnectedLoggedRef.current = true;
+          endBootstrapTiming('first_ice_connected', {
+            source: 'network_quality_change',
+            room_name: roomName,
+            proxy: true,
+          });
+        }
         setNetQualityTier(networkTierFromDailyEvent(ev as { threshold?: string; quality?: number }));
       };
 
@@ -533,7 +581,7 @@ export default function VideoDateScreen() {
         roomName,
       });
     },
-    [clearFirstConnectWatchdog, detachCallListeners, releaseSharedCallIfOwned, sessionId, user?.id]
+    [clearFirstConnectWatchdog, detachCallListeners, releaseSharedCallIfOwned, endBootstrapTiming, sessionId, user?.id]
   );
 
   phaseRef.current = phase;
@@ -578,6 +626,10 @@ export default function VideoDateScreen() {
     setPartnerEverJoined(false);
     hasStartedJoinRef.current = false;
     dateEstablishedRef.current = false;
+    bootstrapTimingsRef.current = {};
+    firstIceConnectedLoggedRef.current = false;
+    firstRemoteParticipantTimedRef.current = false;
+    firstPlayableRemoteTimedRef.current = false;
     vdbg('prejoin_state_hasStartedJoinRef', {
       value: false,
       sessionId: sessionId ?? null,
@@ -615,6 +667,8 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     vdbg('date_mount', { sessionId: sessionId ?? null, userId: user?.id ?? null });
+    beginBootstrapTiming('date_route_entered', { source: 'mount' });
+    endBootstrapTiming('date_route_entered', { source: 'mount' });
     logJourney('date_route_entered', { source: 'mount' }, 'date_route_entered');
     if (!sessionId || !user?.id) return;
     const userId = user.id;
@@ -636,14 +690,16 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id, logJourney]);
+  }, [sessionId, user?.id, beginBootstrapTiming, endBootstrapTiming, logJourney]);
 
   // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (backend truth first).
   useEffect(() => {
     if (!sessionId || !user?.id) return;
     let cancelled = false;
     void (async () => {
+      beginBootstrapTiming('truth_fetch', { source: 'route_guard' });
       const vs = await fetchVideoSessionDateEntryTruth(sessionId);
+      endBootstrapTiming('truth_fetch', { source: 'route_guard', has_truth: Boolean(vs) });
       if (cancelled) return;
       vdbg('date_entry_truth_row', { sessionId, userId: user.id, row: vs ?? null });
       if (!vs) {
@@ -770,7 +826,7 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, beginBootstrapTiming, endBootstrapTiming]);
 
   const recoverFromNotStartableDateTruth = useCallback(
     async (source: 'enter_handshake' | 'create_date_room') => {
@@ -1115,13 +1171,20 @@ export default function VideoDateScreen() {
     }
     if (lastRemoteMountedTrackIdRef.current === trackId) return;
     lastRemoteMountedTrackIdRef.current = trackId;
+    if (!firstPlayableRemoteTimedRef.current) {
+      firstPlayableRemoteTimedRef.current = true;
+      endBootstrapTiming('first_playable_remote_media', {
+        source: 'remote_track_mounted',
+        participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
+      });
+    }
     videoDateDailyDiagnostic('remote_track_mounted', {
       session_id: sessionId ?? '',
       room_name: roomNameRef.current ?? null,
       participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
       track_id: trackId,
     });
-  }, [remoteParticipant, sessionId]);
+  }, [remoteParticipant, sessionId, endBootstrapTiming]);
 
   useEffect(() => {
     if (!hasRemotePartner || phase !== 'handshake') return;
@@ -1933,7 +1996,9 @@ export default function VideoDateScreen() {
         started: true,
         reason: null,
       });
+      beginBootstrapTiming('truth_fetch', { source: 'prejoin' });
       const truth0 = await fetchVideoSessionDateEntryTruth(sessionId);
+      endBootstrapTiming('truth_fetch', { source: 'prejoin', has_truth: Boolean(truth0) });
       if (cancelled) {
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
@@ -2291,12 +2356,18 @@ export default function VideoDateScreen() {
           vs_phase: truth0.phase,
         });
         videoDateDailyDiagnostic('token_fetch_start', { session_id: sessionId });
+        beginBootstrapTiming('daily_room_acquire', { source: 'prejoin' });
         vdbg('prejoin_step_prejoin_daily_room_before', {
           sessionId,
           userId: user.id,
           timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
         });
         tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+        endBootstrapTiming('daily_room_acquire', {
+          source: 'prejoin',
+          ok: tokenRes.ok,
+          code: tokenRes.ok ? null : tokenRes.code ?? null,
+        });
         vdbg('prejoin_step_prejoin_daily_room_after', {
           sessionId,
           userId: user.id,
@@ -2309,6 +2380,12 @@ export default function VideoDateScreen() {
         });
       } catch (error) {
         const timedOut = error instanceof VideoDateRequestTimeoutError;
+        endBootstrapTiming('daily_room_acquire', {
+          source: 'prejoin',
+          ok: false,
+          timed_out: timedOut,
+          exception: true,
+        });
         vdbg('prejoin_step_prejoin_daily_room_after', {
           sessionId,
           userId: user.id,
@@ -2502,6 +2579,10 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           room_name: tokenResult.room_name,
         });
+        beginBootstrapTiming('daily_join', { room_name: tokenResult.room_name });
+        beginBootstrapTiming('first_ice_connected', { room_name: tokenResult.room_name });
+        beginBootstrapTiming('first_remote_participant', { room_name: tokenResult.room_name });
+        beginBootstrapTiming('first_playable_remote_media', { room_name: tokenResult.room_name });
         addVideoDateBreadcrumb('Joining call', 'info', { sessionId });
         vdbg('prejoin_step_prejoin_daily_join_before', {
           sessionId,
@@ -2511,6 +2592,7 @@ export default function VideoDateScreen() {
           hasToken: Boolean(tokenResult.token),
         });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+        endBootstrapTiming('daily_join', { ok: true, room_name: tokenResult.room_name });
         vdbg('prejoin_step_prejoin_daily_join_after', {
           sessionId,
           userId: user.id,
@@ -2578,6 +2660,14 @@ export default function VideoDateScreen() {
         });
         setIsConnecting(false);
         if (remotes.length > 0) {
+          if (!firstRemoteParticipantTimedRef.current) {
+            firstRemoteParticipantTimedRef.current = true;
+            endBootstrapTiming('first_remote_participant', {
+              source: 'post_join_snapshot',
+              participant_id: dailyParticipantId(remotes[0] as DailyParticipant) ?? 'unknown',
+              room_name: tokenResult.room_name,
+            });
+          }
           clearFirstConnectWatchdog();
           vdbg('prejoin_state_awaitingFirstConnect', {
             value: false,
@@ -2610,6 +2700,11 @@ export default function VideoDateScreen() {
           setAwaitingFirstConnect(true);
         }
       } catch (err) {
+        endBootstrapTiming('daily_join', {
+          ok: false,
+          room_name: tokenResult.room_name,
+          exception: true,
+        });
         vdbg('prejoin_step_prejoin_daily_join_after', {
           sessionId,
           userId: user.id,
@@ -2706,6 +2801,8 @@ export default function VideoDateScreen() {
     detachCallListeners,
     refetchVideoSession,
     recoverFromNotStartableDateTruth,
+    beginBootstrapTiming,
+    endBootstrapTiming,
   ]);
 
   useEffect(() => {

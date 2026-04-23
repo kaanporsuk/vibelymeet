@@ -28,6 +28,9 @@
         "NSPhotoLibraryUsageDescription": "Vibely needs photo library access to add profile photos.",
         "NSLocationWhenInUseUsageDescription": "Vibely uses your location to show events and people near you.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Vibely uses your location to show events and people near you.",
+        "UIApplicationSceneManifest": {
+          "UIApplicationSupportsMultipleScenes": false
+        },
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
