@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
+import { vdbg } from '@/lib/vdbg';
 import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
@@ -102,17 +103,6 @@ export class VideoDateRequestTimeoutError extends Error {
 
 const HANDSHAKE_SECONDS = 60;
 const DATE_SECONDS = 300;
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: 'vdbg',
-    message,
-    level: 'info',
-    data: payload,
-  });
-}
 
 function withTimeout<T>(
   operation: 'getDailyRoomToken' | 'enterHandshake',

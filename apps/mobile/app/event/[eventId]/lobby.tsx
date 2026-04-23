@@ -48,6 +48,7 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
+import { vdbg } from '@/lib/vdbg';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import {
@@ -74,17 +75,6 @@ const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both
  * hand off to standalone `/ready/[id]`, which runs its own subscriptions + polling — reduces stuck-overlay risk.
  */
 const READY_GATE_LOBBY_OVERLAY_STALL_FALLBACK_MS = 30_000;
-
-function vdbg(message: string, data?: Record<string, unknown>) {
-  const payload = { ...(data ?? {}), ts: new Date().toISOString() };
-  console.log(`[VDBG] ${message}`, payload);
-  Sentry.addBreadcrumb({
-    category: 'vdbg',
-    message,
-    level: 'info',
-    data: payload,
-  });
-}
 
 function logVdbgSessionStage(message: string, sessionId: string, data?: Record<string, unknown>) {
   vdbg(message, { sessionId, ...(data ?? {}) });
