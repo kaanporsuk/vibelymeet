@@ -116,6 +116,19 @@ const App = () => (
             fallback={({ resetError }) => <SentryFallback resetError={resetError} />}
             onError={(error) => {
               console.error("Caught by Sentry ErrorBoundary:", error);
+              const msg = error instanceof Error ? error.message : String(error);
+              Sentry.addBreadcrumb({
+                category: "react.error_boundary",
+                level: "fatal",
+                message: msg.slice(0, 240),
+                data: {
+                  pathname: typeof window !== "undefined" ? window.location.pathname : null,
+                  search: typeof window !== "undefined" ? window.location.search : null,
+                  is_date_route:
+                    typeof window !== "undefined" &&
+                    /^\/date\/[^/]+\/?$/.test(window.location.pathname),
+                },
+              });
             }}
           >
             <BrowserRouter>
