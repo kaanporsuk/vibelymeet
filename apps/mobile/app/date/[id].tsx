@@ -91,6 +91,7 @@ import {
   tabsRootHref,
 } from '@/lib/activeSessionRoutes';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { sanitizeNativeDiagnosticRecord } from '@/lib/nativeDiagnosticsPayload';
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
@@ -201,26 +202,42 @@ function dailyParticipantId(p: DailyParticipant | undefined): string | undefined
 
 function videoDateDailyDiagnostic(
   message: string,
-  data: Record<string, string | number | boolean | null | undefined>
+  data: Record<string, unknown>
 ) {
+  const safeData = sanitizeNativeDiagnosticRecord(data);
   Sentry.addBreadcrumb({
     category: 'video-date-daily',
     message,
     level: 'info',
-    data: data as Record<string, unknown>,
+    data: safeData as Record<string, unknown> | undefined,
   });
 }
 
 /** Same keys as {@link videoDateDailyDiagnostic}; use where room name is only on refs (e.g. AppState). */
 function videoDateSessionDiagnostic(
   message: string,
-  data: Record<string, string | number | boolean | null | undefined>
+  data: Record<string, unknown>
 ) {
+  const safeData = sanitizeNativeDiagnosticRecord(data);
   Sentry.addBreadcrumb({
     category: 'video-date-session',
     message,
     level: 'info',
-    data: data as Record<string, unknown>,
+    data: safeData as Record<string, unknown> | undefined,
+  });
+}
+
+function addVideoDateBreadcrumb(
+  message: string,
+  level: 'info' | 'warning' | 'error',
+  data?: Record<string, unknown>
+) {
+  const safeData = sanitizeNativeDiagnosticRecord(data);
+  Sentry.addBreadcrumb({
+    category: 'video-date',
+    message,
+    level,
+    data: safeData as Record<string, unknown> | undefined,
   });
 }
 
@@ -479,12 +496,7 @@ export default function VideoDateScreen() {
           event && typeof event === 'object' && 'errorMsg' in event
             ? String((event as { errorMsg?: unknown }).errorMsg)
             : undefined;
-        Sentry.addBreadcrumb({
-          category: 'video-date',
-          message: 'Daily call error',
-          level: 'error',
-          data: { sessionId, errorMsg: msg },
-        });
+        addVideoDateBreadcrumb('Daily call error', 'error', { sessionId, errorMsg: msg });
         setCallError('Connection error. Please try again.');
         clearFirstConnectWatchdog();
         setAwaitingFirstConnect(false);
@@ -1265,12 +1277,7 @@ export default function VideoDateScreen() {
       videoDateEndedRef.current = true;
       trackEvent('video_date_ended', { session_id: sessionId });
     }
-    Sentry.addBreadcrumb({
-      category: 'video-date',
-      message: 'Call ended (user)',
-      level: 'info',
-      data: { sessionId, source, dateWasEstablished },
-    });
+    addVideoDateBreadcrumb('Call ended (user)', 'info', { sessionId, source, dateWasEstablished });
     if (dateWasEstablished) {
       logJourney('survey_opened', { source }, `survey_opened_${source}`);
       setShowFeedback(true);
@@ -2189,12 +2196,7 @@ export default function VideoDateScreen() {
             user_id: user?.id ?? null,
             code: hs.code != null ? String(hs.code) : 'unknown',
           });
-          Sentry.addBreadcrumb({
-            category: 'video-date',
-            message: 'enter_handshake failed',
-            level: 'error',
-            data: { sessionId, code: hs.code, message: hs.message },
-          });
+          addVideoDateBreadcrumb('enter_handshake failed', 'error', { sessionId, code: hs.code, message: hs.message });
           Sentry.captureMessage('video_date_enter_handshake_failed', {
             level: 'warning',
             extra: { sessionId, code: hs.code, message: hs.message },
@@ -2405,16 +2407,11 @@ export default function VideoDateScreen() {
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
         });
-        Sentry.addBreadcrumb({
-          category: 'video-date',
-          message: 'create_date_room failed',
-          level: 'error',
-          data: {
-            sessionId,
-            code: tokenRes.code,
-            httpStatus: tokenRes.httpStatus,
-            serverCode: tokenRes.serverCode,
-          },
+        addVideoDateBreadcrumb('create_date_room failed', 'error', {
+          sessionId,
+          code: tokenRes.code,
+          httpStatus: tokenRes.httpStatus,
+          serverCode: tokenRes.serverCode,
         });
         Sentry.captureMessage('video_date_token_failed', {
           level: 'warning',
@@ -2505,7 +2502,7 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           room_name: tokenResult.room_name,
         });
-        Sentry.addBreadcrumb({ category: 'video-date', message: 'Joining call', level: 'info', data: { sessionId } });
+        addVideoDateBreadcrumb('Joining call', 'info', { sessionId });
         vdbg('prejoin_step_prejoin_daily_join_before', {
           sessionId,
           userId: user.id,
@@ -3307,13 +3304,15 @@ export default function VideoDateScreen() {
       <View style={styles.remoteContainer}>
         {remoteParticipant ? (
           <>
-            <DailyMediaView
-              videoTrack={remoteVideoTrack}
-              audioTrack={remoteAudioTrack}
-              mirror={false}
-              zOrder={0}
-              style={StyleSheet.absoluteFill}
-            />
+            {(remoteVideoTrack || remoteAudioTrack) && (
+              <DailyMediaView
+                videoTrack={remoteVideoTrack}
+                audioTrack={remoteAudioTrack}
+                mirror={false}
+                zOrder={0}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
             {!remoteVideoTrack && (
               <View style={[StyleSheet.absoluteFill, styles.placeholderRemote, { backgroundColor: theme.muted }]}>
                 <Text style={[styles.placeholderText, { color: theme.mutedForeground }]}>

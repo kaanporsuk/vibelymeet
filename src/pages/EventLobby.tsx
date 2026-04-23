@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams, useLocation } from "react-rout
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { vdbg } from "@/lib/vdbg";
+import { isVdbgEnabled, vdbg } from "@/lib/vdbg";
 import { haptics } from "@/lib/haptics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventDetails, useIsRegisteredForEvent } from "@/hooks/useEventDetails";
@@ -23,7 +23,7 @@ import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
-import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
+import { claimDateNavigation } from "@/lib/dateNavigationGuard";
 import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
@@ -37,6 +37,7 @@ function lobbyDebug(message: string, data?: Record<string, unknown>) {
 }
 
 function logVdbgSessionStage(message: string, sessionId: string, data?: Record<string, unknown>) {
+  if (!isVdbgEnabled()) return;
   vdbg(message, { sessionId, ...(data ?? {}) });
   void supabase
     .from("video_sessions")
@@ -152,9 +153,20 @@ const EventLobby = () => {
     (sessionId: string, source: string) => {
       if (!sessionId) return;
       if (dateNavigationSessionIdRef.current === sessionId) return;
+      const claim = claimDateNavigation(sessionId, location.pathname);
+      if (claim.ok === false) {
+        vdbg("lobby_navigate_to_date_suppressed", {
+          trigger: source,
+          sessionId,
+          eventId,
+          reason: claim.reason,
+          currentPath: location.pathname,
+          target: `/date/${sessionId}`,
+        });
+        return;
+      }
       dateNavigationSessionIdRef.current = sessionId;
       setDateNavigationSessionId(sessionId);
-      markVideoDateEntryPipelineStarted(sessionId);
       lobbyDebug("ready-gate success path navigating to date", { sessionId, source });
       logVdbgSessionStage("lobby_navigate_to_date", sessionId, {
         trigger: source,
@@ -163,7 +175,7 @@ const EventLobby = () => {
       });
       navigate(`/date/${sessionId}`, { replace: true });
     },
-    [eventId, navigate]
+    [eventId, location.pathname, navigate]
   );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
@@ -1019,6 +1031,7 @@ const EventLobby = () => {
           <ReadyGateOverlay
             sessionId={activeSessionId}
             eventId={eventId}
+            onNavigateToDate={navigateToDateSession}
             onClose={() => {
               clearReadyGateSession("ready_gate_overlay_close");
               setStatus("browsing");

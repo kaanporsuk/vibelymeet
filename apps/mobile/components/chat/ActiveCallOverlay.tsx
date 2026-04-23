@@ -119,13 +119,15 @@ export function ActiveCallOverlay({
         <View style={StyleSheet.absoluteFill}>
           {remoteParticipant ? (
             <>
-              <DailyMediaView
-                videoTrack={remoteVideoTrack}
-                audioTrack={remoteAudioTrack}
-                mirror={false}
-                zOrder={0}
-                style={StyleSheet.absoluteFill}
-              />
+              {(remoteVideoTrack || remoteAudioTrack) && (
+                <DailyMediaView
+                  videoTrack={remoteVideoTrack}
+                  audioTrack={remoteAudioTrack}
+                  mirror={false}
+                  zOrder={0}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
               {!remoteVideoTrack && (
                 <View style={[StyleSheet.absoluteFill, styles.placeholderRemote, { backgroundColor: theme.muted }]}>
                   <VibelyText variant="body" style={{ color: theme.textSecondary }}>

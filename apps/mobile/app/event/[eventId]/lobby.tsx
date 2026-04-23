@@ -48,7 +48,7 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
-import { vdbg } from '@/lib/vdbg';
+import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import {
@@ -77,6 +77,7 @@ const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both
 const READY_GATE_LOBBY_OVERLAY_STALL_FALLBACK_MS = 30_000;
 
 function logVdbgSessionStage(message: string, sessionId: string, data?: Record<string, unknown>) {
+  if (!isVdbgEnabled()) return;
   vdbg(message, { sessionId, ...(data ?? {}) });
   void supabase
     .from('video_sessions')

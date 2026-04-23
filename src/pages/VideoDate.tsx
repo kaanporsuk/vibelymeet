@@ -219,6 +219,8 @@ const VideoDate = () => {
     toggleVideo,
     getRoomName,
     networkTier,
+    remotePlayback,
+    retryRemotePlayback,
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
@@ -825,51 +827,14 @@ const VideoDate = () => {
         return;
       }
 
-      const enterHandshakeArgs = {
-        p_session_id: id,
-        p_action: "enter_handshake",
-      };
-      vdbg("video_date_transition_before", {
-        action: "enter_handshake",
-        args: enterHandshakeArgs,
+      vdbg("date_timing_prejoin_pending", {
+        sessionId: id,
+        reason: "use_video_call_owns_enter_handshake",
+        row: data,
       });
-      const { data: rpcData, error: rpcErr } = await supabase.rpc("video_date_transition", enterHandshakeArgs);
-
-      if (cancelled) return;
-
-      if (rpcErr) {
-        console.error("enter_handshake RPC error:", rpcErr);
-        vdbg("video_date_transition_after", {
-          action: "enter_handshake",
-          ok: false,
-          error: { code: rpcErr.code, message: rpcErr.message },
-        });
-        captureSupabaseError("video_date_enter_handshake", rpcErr);
-        setHandshakeStartFailed(true);
-        setHandshakeFailureCode(undefined);
-        setTimeLeft(null);
-        setTimingReady(true);
-        return;
-      }
-
-      const payload = rpcData as { success?: boolean; code?: string } | null;
-      vdbg("video_date_transition_after", {
-        action: "enter_handshake",
-        ok: payload?.success !== false,
-        payload,
-      });
-      if (payload && payload.success === false) {
-        setHandshakeStartFailed(true);
-        setHandshakeFailureCode(payload.code);
-        setTimeLeft(null);
-        setTimingReady(true);
-        return;
-      }
-
       setHandshakeStartFailed(false);
       clearHandshakeGraceState();
-      setTimeLeft(HANDSHAKE_TIME);
-      setTimingRefreshNonce((n) => n + 1);
+      setTimeLeft(null);
       setTimingReady(true);
     };
 
@@ -921,6 +886,7 @@ const VideoDate = () => {
       }
       if (ok) {
         markDateFlowEntered();
+        setTimingRefreshNonce((n) => n + 1);
         clearDateEntryTransition(id);
         vdbg("date_entry_latch_cleared", {
           sessionId: id,
@@ -1785,11 +1751,13 @@ const VideoDate = () => {
 
         {/* Connection overlay */}
         <AnimatePresence>
-          {(isConnecting || !isConnected) &&
+          {(isConnecting || !isConnected || remotePlayback.playRejected) &&
             !showFeedback &&
             !reconnection.isPartnerDisconnected && (
               <ConnectionOverlay
                 isConnecting={isConnecting}
+                remotePlayback={remotePlayback}
+                onRetryRemotePlayback={retryRemotePlayback}
                 onLeave={handleLeave}
               />
             )}

@@ -1,6 +1,7 @@
 /**
  * Canonical OS-level push permission (expo-notifications).
  * Do not use OneSignal.requestPermission for OS state — it does not distinguish undetermined vs denied reliably.
+ * This module must not register notification handlers/listeners; OneSignal owns delivery and click handling.
  */
 import * as Notifications from 'expo-notifications';
 import { PermissionStatus } from 'expo-modules-core';

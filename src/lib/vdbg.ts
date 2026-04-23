@@ -1,15 +1,15 @@
 import * as Sentry from "@sentry/react";
 
 /**
- * Video-date diagnostics helper (web): every `vdbg` call logs to the console and adds a Sentry
- * breadcrumb (`category: vdbg`) in all environments — intentional for session debugging.
- * In development, selected messages also JSON-stringify to the console for copy/paste (nested `row`
- * payloads); production uses the standard object console line for those. The allowlist below
- * controls which messages get dev JSON formatting and can be trimmed when noise is understood.
+ * Video-date diagnostics helper (web): debug-only console lines and Sentry breadcrumbs.
+ * Production can opt in with VITE_VDBG_ENABLED=true when investigating a live incident.
  */
+const VDBG_ENABLED = Boolean(import.meta.env.DEV) || import.meta.env.VITE_VDBG_ENABLED === "true";
+
 const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "lobby_mount_active_session",
   "lobby_navigate_to_date",
+  "lobby_navigate_to_date_suppressed",
   "lobby_mount_active_session_detail",
   "ready_gate_open",
   "date_mount",
@@ -27,6 +27,7 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "video_date_transition_before",
   "video_date_transition_after",
   "video_date_transition_skipped",
+  "date_timing_prejoin_pending",
   "daily_call_reuse_decision",
   "date_prejoin_truth_row",
   "daily_room_before",
@@ -45,6 +46,9 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "daily_remote_track_mounted",
   "daily_local_track_mounted",
   "daily_call_cleanup_start",
+  "daily_remote_first_frame_rendered",
+  "daily_remote_video_play_retry",
+  "daily_remote_video_play_retry_skipped",
   "daily_call_leave_before",
   "daily_call_leave_after",
   "daily_call_left_meeting",
@@ -63,6 +67,10 @@ function devConsoleShouldJsonStringify(message: string): boolean {
   // journey_* from VideoDate / PostDateSurvey (`journey_${event}`).
   if (message.startsWith("journey_")) return true;
   return false;
+}
+
+export function isVdbgEnabled(): boolean {
+  return VDBG_ENABLED;
 }
 
 /** Best-effort JSON for console; handles typical circular refs in devtools mirrors without throwing. */
@@ -86,6 +94,7 @@ function stringifyPayloadForDevConsole(payload: Record<string, unknown>): string
 }
 
 export function vdbg(message: string, data?: Record<string, unknown>): void {
+  if (!VDBG_ENABLED) return;
   const payload = { ...(data ?? {}), ts: new Date().toISOString() };
   if (import.meta.env.DEV && devConsoleShouldJsonStringify(message)) {
     console.log(`[VDBG] ${message}`, stringifyPayloadForDevConsole(payload));

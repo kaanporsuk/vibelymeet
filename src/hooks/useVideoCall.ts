@@ -17,6 +17,16 @@ interface UseVideoCallOptions {
 /** Daily `network-quality-change` — surfaced as lightweight HUD, not toasts. */
 export type VideoCallNetworkTier = "good" | "fair" | "poor";
 
+export type RemotePlaybackState = {
+  participantPresent: boolean;
+  mediaAttached: boolean;
+  playSucceeded: boolean;
+  firstFrameRendered: boolean;
+  playRejected: boolean;
+  retryCount: number;
+  error?: string;
+};
+
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 
@@ -103,6 +113,22 @@ function streamHasTrackId(stream: MediaStream | null, trackId: string): boolean 
   return stream.getTracks().some((t) => t.id === trackId);
 }
 
+function createRemotePlaybackState(): RemotePlaybackState {
+  return {
+    participantPresent: false,
+    mediaAttached: false,
+    playSucceeded: false,
+    firstFrameRendered: false,
+    playRejected: false,
+    retryCount: 0,
+  };
+}
+
+function describeMediaError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
 export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -111,6 +137,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [networkTier, setNetworkTier] = useState<VideoCallNetworkTier>("good");
+  const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackState>(() => createRemotePlaybackState());
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -127,6 +154,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const firstRemoteWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noRemoteAutoRecoveryUsedRef = useRef(false);
   const startAttemptNonceRef = useRef(0);
+  const startCallInFlightSessionRef = useRef<string | null>(null);
+  const activeCallSessionIdRef = useRef<string | null>(null);
   const latestLocalParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
 
@@ -134,33 +163,89 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     optionsRef.current = options;
   }, [options]);
 
+  const markRemoteFirstFrameRendered = useCallback((source: string) => {
+    setRemotePlayback((prev) => {
+      if (prev.firstFrameRendered) return prev;
+      return {
+        ...prev,
+        mediaAttached: true,
+        playRejected: false,
+        firstFrameRendered: true,
+      };
+    });
+    vdbg("daily_remote_first_frame_rendered", {
+      sessionId: optionsRef.current?.roomId ?? null,
+      eventId: optionsRef.current?.eventId ?? null,
+      userId: optionsRef.current?.userId ?? null,
+      source,
+    });
+  }, []);
+
   const attachTracks = useCallback(
     (participant: DailyParticipant | undefined, videoEl: HTMLVideoElement | null, isLocal: boolean) => {
+      if (!isLocal && participant) {
+        setRemotePlayback((prev) => ({ ...prev, participantPresent: true }));
+      }
       if (!videoEl || !participant?.tracks) return;
       const stream = new MediaStream();
       const videoTrack = participant.tracks.video?.persistentTrack;
       const audioTrack = participant.tracks.audio?.persistentTrack;
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
+      const hasRemoteMedia = !isLocal && (Boolean(videoTrack) || Boolean(audioTrack));
       try {
         videoEl.srcObject = stream;
         if (!isLocal) {
+          setRemotePlayback((prev) => ({
+            ...prev,
+            participantPresent: true,
+            mediaAttached: hasRemoteMedia,
+            playRejected: hasRemoteMedia ? false : prev.playRejected,
+            error: hasRemoteMedia ? undefined : prev.error,
+          }));
+          if (hasRemoteMedia) {
+            videoEl.addEventListener("loadeddata", () => markRemoteFirstFrameRendered("loadeddata"), { once: true });
+            videoEl.addEventListener("playing", () => markRemoteFirstFrameRendered("playing"), { once: true });
+          }
           const playPromise = videoEl.play();
-          if (playPromise && typeof playPromise.catch === "function") {
-            playPromise.catch((error: unknown) => {
-              vdbg("daily_remote_video_play_rejected", {
-                sessionId: optionsRef.current?.roomId ?? null,
-                eventId: optionsRef.current?.eventId ?? null,
-                userId: optionsRef.current?.userId ?? null,
-                participantSessionId: participant.session_id ?? null,
-                videoTrackId: videoTrack?.id ?? null,
-                audioTrackId: audioTrack?.id ?? null,
-                error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          if (playPromise && typeof playPromise.then === "function") {
+            void playPromise
+              .then(() => {
+                setRemotePlayback((prev) => ({
+                  ...prev,
+                  playSucceeded: true,
+                  playRejected: false,
+                  error: undefined,
+                }));
+              })
+              .catch((error: unknown) => {
+                setRemotePlayback((prev) => ({
+                  ...prev,
+                  playSucceeded: false,
+                  playRejected: true,
+                  error: describeMediaError(error),
+                }));
+                vdbg("daily_remote_video_play_rejected", {
+                  sessionId: optionsRef.current?.roomId ?? null,
+                  eventId: optionsRef.current?.eventId ?? null,
+                  userId: optionsRef.current?.userId ?? null,
+                  participantSessionId: participant.session_id ?? null,
+                  videoTrackId: videoTrack?.id ?? null,
+                  audioTrackId: audioTrack?.id ?? null,
+                  error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+                });
               });
-            });
           }
         }
       } catch (error) {
+        if (!isLocal) {
+          setRemotePlayback((prev) => ({
+            ...prev,
+            mediaAttached: false,
+            playRejected: true,
+            error: describeMediaError(error),
+          }));
+        }
         vdbg(isLocal ? "daily_local_video_attach_failed" : "daily_remote_video_attach_failed", {
           sessionId: optionsRef.current?.roomId ?? null,
           eventId: optionsRef.current?.eventId ?? null,
@@ -172,7 +257,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
       }
     },
-    []
+    [markRemoteFirstFrameRendered]
   );
 
   const needsTrackReattach = useCallback(
@@ -277,6 +362,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         callObjectRef.current = null;
       }
+      activeCallSessionIdRef.current = null;
 
       if (localVideoRef.current) localVideoRef.current.srcObject = null;
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -285,6 +371,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnected(false);
       setIsConnecting(false);
       setNetworkTier("good");
+      setRemotePlayback(createRemotePlaybackState());
       firstRemoteObservedRef.current = false;
       clearFirstRemoteWatchdog();
       lastLocalTrackIdsRef.current = "";
@@ -308,10 +395,34 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         toast.error("No session ID provided");
         return false;
       }
+      if (activeCallSessionIdRef.current === sessionId && callObjectRef.current) {
+        vdbg("daily_call_reuse_decision", {
+          sessionId,
+          eventId,
+          userId,
+          reusedCallObject: true,
+          reason: "existing_call_object_already_started",
+          roomName: roomNameRef.current,
+        });
+        return true;
+      }
+      if (startCallInFlightSessionRef.current === sessionId) {
+        vdbg("daily_call_reuse_decision", {
+          sessionId,
+          eventId,
+          userId,
+          reusedCallObject: true,
+          reason: "start_call_already_in_flight",
+          roomName: roomNameRef.current,
+        });
+        return true;
+      }
+      startCallInFlightSessionRef.current = sessionId;
 
       setIsConnecting(true);
       setIsConnected(false);
       setHasPermission(null);
+      setRemotePlayback(createRemotePlaybackState());
       firstRemoteObservedRef.current = false;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
@@ -552,6 +663,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           if (event && !event.participant?.local) {
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+            setRemotePlayback(createRemotePlaybackState());
             optionsRef.current?.onPartnerLeft?.();
           }
         });
@@ -583,6 +695,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           });
           setIsConnected(false);
           setIsConnecting(false);
+          setRemotePlayback((prev) => ({
+            ...prev,
+            participantPresent: false,
+            mediaAttached: false,
+            playSucceeded: false,
+            firstFrameRendered: false,
+          }));
         });
 
         callObject.on("network-connection", (event: { event?: string } | undefined) => {
@@ -641,6 +760,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
         await callObject.join({ url: roomData.room_url, token: roomData.token });
         setHasPermission(true);
+        activeCallSessionIdRef.current = sessionId;
         vdbg("daily_join_success", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -780,6 +900,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         toast.error("Video is temporarily unavailable. Please try again.");
         setIsConnecting(false);
         return false;
+      } finally {
+        if (startCallInFlightSessionRef.current === sessionId) {
+          startCallInFlightSessionRef.current = null;
+        }
       }
     },
     [attachTracks, cleanupCallObject, clearFirstRemoteWatchdog, needsTrackReattach]
@@ -811,6 +935,36 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
     return () => clearInterval(intervalId);
   }, [attachTracks, logTrackMounted, needsTrackReattach]);
+
+  const retryRemotePlayback = useCallback(() => {
+    const participant = latestRemoteParticipantRef.current;
+    const videoEl = remoteVideoRef.current;
+    setRemotePlayback((prev) => ({
+      ...prev,
+      playRejected: false,
+      error: undefined,
+      retryCount: prev.retryCount + 1,
+    }));
+
+    if (!participant || !videoEl) {
+      vdbg("daily_remote_video_play_retry_skipped", {
+        sessionId: optionsRef.current?.roomId ?? null,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: optionsRef.current?.userId ?? null,
+        hasParticipant: Boolean(participant),
+        hasVideoElement: Boolean(videoEl),
+      });
+      return;
+    }
+
+    vdbg("daily_remote_video_play_retry", {
+      sessionId: optionsRef.current?.roomId ?? null,
+      eventId: optionsRef.current?.eventId ?? null,
+      userId: optionsRef.current?.userId ?? null,
+      participantSessionId: participant.session_id ?? null,
+    });
+    attachTracks(participant, videoEl, false);
+  }, [attachTracks]);
 
   const endCall = useCallback(
     async (reason = "manual_end") => {
@@ -873,11 +1027,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     isVideoOff,
     hasPermission,
     networkTier,
+    remotePlayback,
     localVideoRef,
     remoteVideoRef,
     localStream,
     startCall,
     endCall,
+    retryRemotePlayback,
     toggleMute,
     toggleVideo,
     getRoomName,
