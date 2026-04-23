@@ -1,6 +1,6 @@
 # Vibe Video Date Hardening 360 Audit
 
-Audit date: 2026-04-22
+Audit date: 2026-04-22. **Revision 2026-04-23:** Dashboard active-banner video end path corrected in repo (PR #476); related audit rows in §1, §4, and §14 updated below.
 
 Scope: local repo at `Git/vibelymeet`, focused only on the hardened Vibe Video Date flow from Event Lobby / Ready Gate through handshake, Daily join, live date, reconnect, extension, end, survey, and finalization.
 
@@ -22,7 +22,7 @@ The strongest hardening is in the database and Daily token gate. `video_sessions
 
 The remaining risk is not "move state back to the client." It is adoption drift and runtime fragility:
 
-- one web dashboard path still directly updates `video_sessions.ended_at`, bypassing `video_date_transition`;
+- **Resolved (2026-04-23, PR #476):** `ActiveCallBanner` video end calls `video_date_transition('end', p_reason: 'dashboard_active_banner')` (no direct `ended_at` write from this path).
 - web and native date timers ignore `date_extra_seconds` during hydration/realtime;
 - native session realtime can regress from `date` back to `handshake` because it checks `date_started_at` and then still applies `handshake_started_at`;
 - vibe UI can indicate success without understanding `success:false` RPC payloads such as `GRACE_EXPIRED`;
@@ -145,7 +145,7 @@ Latest definition: `supabase/migrations/20260428120000_video_date_p0_p1_closure.
 
 | File | Gap | Risk |
 | --- | --- | --- |
-| `src/pages/Dashboard.tsx` | `ActiveCallBanner` video end directly updates `video_sessions.ended_at` and `event_registrations`, bypassing `video_date_transition` | correctness-critical |
+| `src/pages/Dashboard.tsx` | ~~Previously bypassed RPC.~~ **2026-04-23:** video-mode `onEnd` calls `video_date_transition('end')` with reason `dashboard_active_banner` (no direct `ended_at` write). | resolved in code; verify prod telemetry |
 | `src/hooks/useActiveSession.ts` | uses registration as first-class route authority and only confirms `ended_at`, not `state/phase/handshake_started_at` | route drift, stale ready gate can still steer UI |
 | `src/hooks/useReadyGate.ts` | 2s polling reads `video_sessions` directly, does not call `ready_gate_transition('sync')` | fallback does not execute server expiry/reconciliation |
 | `src/pages/VideoDate.tsx` | date timer hydration/realtime ignores `date_extra_seconds` | paid extension can disappear after reload/realtime and client can end early |
@@ -493,7 +493,7 @@ Client/Edge:
 | `sync_reconnect` enter/exit | client VDBG/Sentry | no DB observability for normal sync, which is probably good for volume |
 | partner away/return | client VDBG and RPC effects | limited DB observability |
 | extension attempt/success/failure | analytics + Sentry breadcrumbs | no structured DB row |
-| end transition | client VDBG, partial DB action logs | direct Dashboard bypass has no RPC observability |
+| end transition | client VDBG, `video_date_transition` observability rows when RPC used | Dashboard banner end now uses RPC (#476) |
 | survey opened/submitted/skipped | submitted has analytics/Edge logs; opened/skipped weak | no durable survey-open/abandon signal |
 | cleanup success/failure | room cleanup Edge console | no event_loop row, no retry health summary |
 
@@ -503,7 +503,7 @@ Noise callout: reconnect polling is not DB-spammy, but VDBG/Sentry breadcrumbs c
 
 ### P0 / correctness-critical
 
-1. `src/pages/Dashboard.tsx` directly updates `video_sessions.ended_at` for active video sessions, bypassing `video_date_transition`.
+1. ~~`src/pages/Dashboard.tsx` directly updates `video_sessions.ended_at`~~ **Resolved (#476):** Dashboard video end uses `video_date_transition('end')`.
 2. `apps/mobile/lib/videoDateApi.ts` realtime can regress native phase from date to handshake.
 3. Web/native timers ignore `date_extra_seconds` on hydration/realtime, risking early end after paid extension.
 4. Web/native vibe actions ignore `success:false` JSON payloads, especially `GRACE_EXPIRED`.
@@ -515,7 +515,7 @@ Noise callout: reconnect polling is not DB-spammy, but VDBG/Sentry breadcrumbs c
 7. Ready Gate polling does not call `ready_gate_transition('sync')`.
 8. Standalone ready routes on web/native can send startable sessions to lobby instead of date.
 9. `complete_handshake` transient RPC errors can trigger local end/survey in web.
-10. Direct terminal/compatibility surfaces (`leave_matching_queue`, dashboard active banner) need a no-bypass audit lock.
+10. Direct terminal/compatibility surfaces (`leave_matching_queue`, and any future dashboard shortcuts) need a no-bypass audit lock; dashboard active banner end is on the RPC path as of #476.
 
 ### P2 / runtime fragility
 
