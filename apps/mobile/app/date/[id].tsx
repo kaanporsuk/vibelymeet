@@ -49,7 +49,6 @@ import {
   HANDSHAKE_SECONDS,
   DATE_SECONDS,
   fetchVideoSessionDateEntryTruth,
-  videoSessionIndicatesHandshakeOrDate,
   markVideoDateDailyJoined,
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
@@ -59,6 +58,7 @@ import {
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
+import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
@@ -714,7 +714,8 @@ export default function VideoDateScreen() {
         .eq('current_room_id', sessionId)
         .maybeSingle();
       if (cancelled) return;
-      if (vs.ended_at != null) {
+      const truthDecision = decideVideoSessionRouteFromTruth(vs);
+      if (truthDecision === 'ended') {
         const { data: verdict } = await supabase
           .from('date_feedback')
           .select('id')
@@ -766,39 +767,22 @@ export default function VideoDateScreen() {
         }
         return;
       }
-      if (videoSessionIndicatesHandshakeOrDate(vs)) {
+      if (truthDecision === 'navigate_date') {
         return;
       }
-      if (reg?.queue_status === 'in_ready_gate') {
-        const rgStatus = vs.ready_gate_status ?? null;
-        const rgExpiresRaw = vs.ready_gate_expires_at ?? null;
-        const rgExpiresMs =
-          rgExpiresRaw == null
-            ? null
-            : typeof rgExpiresRaw === 'number'
-              ? rgExpiresRaw
-              : Date.parse(String(rgExpiresRaw));
-        const bothReady = rgStatus === 'both_ready';
-        const bothReadyValid =
-          bothReady && rgExpiresMs != null && Number.isFinite(rgExpiresMs) && rgExpiresMs > Date.now();
-        const readyGateBranch = bothReadyValid
-          ? 'both_ready_valid_staying'
-          : bothReady
-            ? 'both_ready_expired_redirecting'
-            : 'no_both_ready_redirecting';
+      if (truthDecision === 'navigate_ready') {
         vdbg('date_guard_ready_gate_branch', {
           sessionId,
           userId: user.id,
-          branch: readyGateBranch,
-          readyGateStatus: rgStatus,
-          readyGateExpiresAt: rgExpiresRaw,
+          branch: 'navigate_ready',
+          readyGateStatus: vs.ready_gate_status ?? null,
+          readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         });
-        if (bothReadyValid) return;
         if (isDateEntryTransitionActive(sessionId)) return;
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
           session_id: sessionId,
           user_id: user.id,
-          queue_status: reg.queue_status,
+          queue_status: reg?.queue_status ?? null,
           vs_state: vs.state,
           vs_phase: vs.phase,
           handshake_started_at: Boolean(vs.handshake_started_at),
@@ -807,7 +791,7 @@ export default function VideoDateScreen() {
         vdbgRedirect(target, 'in_ready_gate_without_date_entry_latch_or_handshake', {
           sessionId,
           userId: user.id,
-          queueStatus: reg.queue_status,
+          queueStatus: reg?.queue_status ?? null,
           state: vs.state,
           phase: vs.phase,
           handshakeStarted: Boolean(vs.handshake_started_at),
@@ -820,9 +804,37 @@ export default function VideoDateScreen() {
         router.replace(target);
         return;
       }
-      if (reg?.queue_status && reg.queue_status !== 'in_ready_gate') {
-        clearDateEntryTransition(sessionId);
+      clearDateEntryTransition(sessionId);
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
+        session_id: sessionId,
+        user_id: user.id,
+        reason: 'video_truth_not_startable',
+        event_id: vs.event_id,
+      });
+      if (vs.event_id) {
+        const target = eventLobbyHref(vs.event_id as string);
+        vdbgRedirect(target, 'video_truth_not_startable_route_guard', {
+          sessionId,
+          userId: user.id,
+          eventId: vs.event_id,
+          state: vs.state,
+          phase: vs.phase,
+          readyGateStatus: vs.ready_gate_status ?? null,
+        });
+        logJourney('date_route_bounced', { reason: 'video_truth_not_startable_route_guard', target });
+        router.replace(target);
+        return;
       }
+      const target = tabsRootHref();
+      vdbgRedirect(target, 'video_truth_not_startable_route_guard', {
+        sessionId,
+        userId: user.id,
+        state: vs.state,
+        phase: vs.phase,
+        readyGateStatus: vs.ready_gate_status ?? null,
+      });
+      logJourney('date_route_bounced', { reason: 'video_truth_not_startable_route_guard', target });
+      router.replace(target);
     })();
     return () => {
       cancelled = true;
@@ -842,30 +854,8 @@ export default function VideoDateScreen() {
           .maybeSingle(),
       ]);
       const reg = regRes.data;
-      const startable = videoSessionIndicatesHandshakeOrDate(vs);
-      const rgStatus = vs?.ready_gate_status ?? null;
-      const rgExpiresRaw = vs?.ready_gate_expires_at ?? null;
-      const rgExpiresMs =
-        rgExpiresRaw == null
-          ? null
-          : typeof rgExpiresRaw === 'number'
-            ? rgExpiresRaw
-            : Date.parse(String(rgExpiresRaw));
-      const readyGateEligible =
-        rgStatus === 'ready' ||
-        rgStatus === 'ready_a' ||
-        rgStatus === 'ready_b' ||
-        rgStatus === 'snoozed' ||
-        (rgStatus === 'both_ready' &&
-          rgExpiresMs != null &&
-          Number.isFinite(rgExpiresMs) &&
-          rgExpiresMs > Date.now());
-      const decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' = startable
-        ? 'navigate_date'
-        : readyGateEligible
-          ? 'navigate_ready'
-          : 'stay_lobby';
-      const reason = startable ? null : 'video_truth_not_startable';
+      const decision = decideVideoSessionRouteFromTruth(vs);
+      const reason = decision === 'navigate_date' ? null : decision === 'ended' ? 'session_ended' : 'video_truth_not_startable';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
         session_id: sessionId,
         user_id: user.id,
@@ -877,8 +867,8 @@ export default function VideoDateScreen() {
         vs_state: vs?.state ?? null,
         vs_phase: vs?.phase ?? null,
         handshake_started_at: Boolean(vs?.handshake_started_at),
-        ready_gate_status: rgStatus,
-        ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+        ready_gate_status: vs?.ready_gate_status ?? null,
+        ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
       });
       vdbg('date_route_decision', {
         sessionId,
@@ -891,13 +881,35 @@ export default function VideoDateScreen() {
         vsState: vs?.state ?? null,
         vsPhase: vs?.phase ?? null,
         handshakeStartedAt: vs?.handshake_started_at ?? null,
-        readyGateStatus: rgStatus,
-        readyGateExpiresAt: rgExpiresRaw,
+        readyGateStatus: vs?.ready_gate_status ?? null,
+        readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
       });
       if (decision === 'navigate_ready') {
         const target = readyGateHref(sessionId);
         vdbgRedirect(target, 'ready_gate_not_ready_recover_to_ready', { source, sessionId, userId: user.id });
         router.replace(target);
+        return true;
+      }
+      if (decision === 'ended') {
+        const fallbackEventId = vs?.event_id ?? eventId;
+        if (fallbackEventId) {
+          const target = eventLobbyHref(fallbackEventId as string);
+          vdbgRedirect(target, 'ready_gate_not_ready_recover_to_lobby', {
+            source,
+            sessionId,
+            userId: user.id,
+            eventId: fallbackEventId,
+          });
+          router.replace(target);
+        } else {
+          const target = tabsRootHref();
+          vdbgRedirect(target, 'ready_gate_not_ready_recover_to_tabs', {
+            source,
+            sessionId,
+            userId: user.id,
+          });
+          router.replace(target);
+        }
         return true;
       }
       if (decision === 'stay_lobby') {
@@ -2050,19 +2062,20 @@ export default function VideoDateScreen() {
         prejoinCompleted = true;
         return;
       }
-      if (truth0.ended_at) {
+      const truthDecision0 = decideVideoSessionRouteFromTruth(truth0);
+      if (truthDecision0 === 'ended') {
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
           userId: user.id,
           step: currentStep,
           reason: 'session_ended_prejoin',
-          endedAt: truth0.ended_at,
+          endedAt: truth0.ended_at ?? null,
         });
         vdbg('prejoin_step_prejoin_daily_room_skipped', {
           sessionId,
           userId: user.id,
           reason: 'session_ended_prejoin',
-          endedAt: truth0.ended_at,
+          endedAt: truth0.ended_at ?? null,
         });
         if (truth0.event_id) {
           const target = eventLobbyHref(truth0.event_id as string);
@@ -2070,7 +2083,7 @@ export default function VideoDateScreen() {
             sessionId,
             userId: user.id,
             eventId: truth0.event_id,
-            endedAt: truth0.ended_at,
+            endedAt: truth0.ended_at ?? null,
           });
           router.replace(target);
         } else {
@@ -2078,7 +2091,7 @@ export default function VideoDateScreen() {
           vdbgRedirect(target, 'session_ended_prejoin', {
             sessionId,
             userId: user.id,
-            endedAt: truth0.ended_at,
+            endedAt: truth0.ended_at ?? null,
           });
           router.replace(target);
         }
@@ -2091,17 +2104,18 @@ export default function VideoDateScreen() {
       }
 
       currentStep = 'handshake_guard';
-      const hasHandshakeStarted = !!truth0.handshake_started_at;
-      const indicatesHandshakeOrDate = videoSessionIndicatesHandshakeOrDate(truth0);
-      const handshakeAlready = hasHandshakeStarted;
+      const hasHandshakeStarted = Boolean(truth0.handshake_started_at);
+      const alreadyInHandshakeOrDate = truthDecision0 === 'navigate_date';
+      const handshakeAlready = alreadyInHandshakeOrDate;
       vdbg('prejoin_step_prejoin_handshake_guard', {
         sessionId,
         userId: user.id,
         hasHandshakeStarted,
-        indicatesHandshakeOrDate,
+        alreadyInHandshakeOrDate,
+        truthDecision: truthDecision0,
         handshakeAlready,
         willCallEnterHandshake: !handshakeAlready,
-        skipReason: handshakeAlready ? 'canonical_handshake_started_at' : 'not_started',
+        skipReason: handshakeAlready ? 'canonical_handshake_or_date' : 'not_started',
         state: truth0.state,
         phase: truth0.phase,
         endedAt: truth0.ended_at ?? null,
@@ -2307,7 +2321,8 @@ export default function VideoDateScreen() {
           userId: user.id,
           reason: 'handshake_already_started',
           hasHandshakeStarted,
-          indicatesHandshakeOrDate,
+          alreadyInHandshakeOrDate,
+          truthDecision: truthDecision0,
           state: truth0.state,
           phase: truth0.phase,
         });

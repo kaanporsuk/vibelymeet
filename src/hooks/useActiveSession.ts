@@ -4,7 +4,6 @@ import {
   decideVideoSessionRouteFromTruth,
   inferVideoQueueStatusFromSessionTruth,
   pickRegistrationForActiveSession,
-  videoSessionRowIndicatesHandshakeOrDate,
   type ActiveSessionBase,
 } from "@clientShared/matching/activeSession";
 
@@ -266,8 +265,9 @@ export function useActiveSession(
       eventId: reg.event_id as string,
       partnerName,
     };
+    const truthDecision = decideVideoSessionRouteFromTruth(session);
 
-    if ((qs === "in_handshake" || qs === "in_date" || qs === "in_ready_gate") && session.ended_at) {
+    if (truthDecision === "ended") {
       const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_registration_ended");
@@ -278,16 +278,32 @@ export function useActiveSession(
     }
 
     if (qs === "in_ready_gate") {
-      if (videoSessionRowIndicatesHandshakeOrDate(session)) {
+      if (truthDecision === "navigate_date") {
         const inferredQs = inferVideoQueueStatusFromSessionTruth(session);
         commitActiveSession(
           { kind: "video", ...base, queueStatus: inferredQs },
           "ready_gate_stale_registration_session_truth"
         );
-      } else {
+      } else if (truthDecision === "navigate_ready") {
         commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
+      } else {
+        const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+        if (directSession) {
+          commitActiveSession(directSession, "direct_video_session_fallback_after_registration_not_startable");
+        } else {
+          commitActiveSession(null, "session_not_startable");
+        }
       }
-    } else if (qs === "in_handshake" || qs === "in_date" || qs === "in_survey") {
+    } else if (qs === "in_handshake" || qs === "in_date") {
+      if (truthDecision === "navigate_ready") {
+        commitActiveSession(
+          { kind: "ready_gate", ...base, queueStatus: "in_ready_gate" },
+          "video_registration_truth_ready_gate"
+        );
+      } else {
+        commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
+      }
+    } else if (qs === "in_survey") {
       commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
     } else {
       commitActiveSession(null, "unsupported_registration_status");

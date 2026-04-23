@@ -14,7 +14,7 @@ import {
   inferVideoQueueStatusFromSessionTruth,
   pickRegistrationForActiveSession,
 } from '@clientShared/matching/activeSession';
-import { videoSessionIndicatesHandshakeOrDate, type VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
+import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
 export type ActiveSession =
@@ -202,24 +202,7 @@ export function useActiveSession(
         const qs = reg.queue_status;
         if (qs === 'in_ready_gate' || qs === 'in_handshake' || qs === 'in_date' || qs === 'in_survey') {
           const truth = session as unknown as VideoSessionDateEntryTruth;
-          const startable = videoSessionIndicatesHandshakeOrDate(truth);
-          const rgStatus = truth.ready_gate_status ?? null;
-          const rgExpiresRaw = truth.ready_gate_expires_at ?? null;
-          const rgExpiresMs =
-            rgExpiresRaw == null
-              ? null
-              : typeof rgExpiresRaw === 'number'
-                ? rgExpiresRaw
-                : Date.parse(String(rgExpiresRaw));
-          const readyGateEligible =
-            rgStatus === 'ready' ||
-            rgStatus === 'ready_a' ||
-            rgStatus === 'ready_b' ||
-            rgStatus === 'snoozed' ||
-            (rgStatus === 'both_ready' &&
-              rgExpiresMs != null &&
-              Number.isFinite(rgExpiresMs) &&
-              rgExpiresMs > Date.now());
+          const truthDecision = decideVideoSessionRouteFromTruth(truth);
 
           let partnerName: string | null = null;
           if (reg.current_partner_id) {
@@ -242,12 +225,7 @@ export function useActiveSession(
           };
 
           if (mounted.current) {
-            if ((qs === 'in_handshake' || qs === 'in_date' || qs === 'in_ready_gate') && session.ended_at) {
-              setActiveSession(null);
-              setHydrated(true);
-              return;
-            }
-            if (qs === 'in_ready_gate' || (!startable && readyGateEligible)) {
+            if (truthDecision === 'navigate_ready') {
               if (qs !== 'in_ready_gate') {
                 rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
                   reason: 'video_truth_not_startable',
@@ -256,13 +234,29 @@ export function useActiveSession(
                   vs_state: truth.state ?? null,
                   vs_phase: truth.phase ?? null,
                   handshake_started_at: Boolean(truth.handshake_started_at),
-                  ready_gate_status: rgStatus,
+                  ready_gate_status: truth.ready_gate_status ?? null,
                 });
               }
               setActiveSession({ kind: 'ready_gate', ...base, queueStatus: 'in_ready_gate' });
-            } else if (startable || qs === 'in_survey') {
+              setHydrated(true);
+              return;
+            }
+            if (truthDecision === 'navigate_date') {
+              setActiveSession({
+                kind: 'video',
+                ...base,
+                queueStatus: qs === 'in_ready_gate' ? inferVideoQueueStatusFromSessionTruth(truth) : qs,
+              });
+              setHydrated(true);
+              return;
+            }
+            if (qs === 'in_survey') {
               setActiveSession({ kind: 'video', ...base, queueStatus: qs });
-            } else {
+              setHydrated(true);
+              return;
+            }
+
+            if (truthDecision !== 'ended') {
               rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
                 reason: 'video_truth_not_startable',
                 queue_status: qs,
@@ -270,13 +264,20 @@ export function useActiveSession(
                 vs_state: truth.state ?? null,
                 vs_phase: truth.phase ?? null,
                 handshake_started_at: Boolean(truth.handshake_started_at),
-                ready_gate_status: rgStatus,
+                ready_gate_status: truth.ready_gate_status ?? null,
               });
-              setActiveSession(null);
+            } else {
+              rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
+                reason: 'video_truth_ended',
+                queue_status: qs,
+                session_id: session.id,
+                vs_state: truth.state ?? null,
+                vs_phase: truth.phase ?? null,
+                handshake_started_at: Boolean(truth.handshake_started_at),
+                ready_gate_status: truth.ready_gate_status ?? null,
+              });
             }
-            setHydrated(true);
           }
-          return;
         }
       }
       // Stale current_room_id or registration not in an active gate/date phase: try queued `syncing` below.

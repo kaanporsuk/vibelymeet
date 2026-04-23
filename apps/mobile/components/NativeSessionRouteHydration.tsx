@@ -4,8 +4,9 @@ import { useAuth } from '@/context/AuthContext';
 import { readyGateHref } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
-import { fetchVideoSessionDateEntryTruth, videoSessionIndicatesHandshakeOrDate } from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
 
 /**
  * Stack-level owner for `/date/[id]` when `useActiveSession` is **ready_gate** for that id →
@@ -51,14 +52,33 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      if (vs.ended_at) return;
-      if (videoSessionIndicatesHandshakeOrDate(vs)) {
+      const truthDecision = decideVideoSessionRouteFromTruth(vs);
+      if (truthDecision === 'ended') {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
+          session_id: sid,
+          reason: 'video_sessions_ended',
+          vs_state: vs?.state ?? null,
+          vs_phase: vs?.phase ?? null,
+        });
+        return;
+      }
+      if (truthDecision === 'navigate_date') {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
           reason: 'video_sessions_handshake_or_date',
           handshake_started_at: Boolean(vs?.handshake_started_at),
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
+        });
+        return;
+      }
+      if (truthDecision !== 'navigate_ready') {
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
+          session_id: sid,
+          reason: 'video_sessions_not_ready_gate_eligible',
+          vs_state: vs?.state ?? null,
+          vs_phase: vs?.phase ?? null,
+          ready_gate_status: vs?.ready_gate_status ?? null,
         });
         return;
       }

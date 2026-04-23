@@ -329,18 +329,28 @@ export function ReadyGateOverlay({
       const reg = regResult.data;
       if (cancelled) return;
       const decision = decideVideoSessionRouteFromTruth(vs);
-      if (!vs || (decision !== 'navigate_ready' && reg?.queue_status !== 'in_ready_gate')) {
+      if (!vs || decision !== 'navigate_ready') {
         trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId,
           reason: !vs
             ? 'missing_session'
+            : decision === 'navigate_date'
+              ? 'session_started'
             : decision === 'ended'
               ? 'session_ended'
-              : 'registration_not_in_ready_gate',
+              : 'session_not_ready_gate_eligible',
         });
         await reconcileFromCanonicalTruth('overlay_initial_stale_check');
+        return;
+      }
+      if (reg?.queue_status !== 'in_ready_gate') {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'overlay_registration_stale_but_truth_ready', {
+          session_id: sessionId,
+          event_id: eventId,
+          queue_status: reg?.queue_status ?? null,
+        });
       }
     })();
     return () => {

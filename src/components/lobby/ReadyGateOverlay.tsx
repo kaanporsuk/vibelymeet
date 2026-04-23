@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import { decideVideoSessionRouteFromTruth } from "@clientShared/matching/activeSession";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -21,16 +22,10 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = 30;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
-const TERMINAL_READY_GATE_STATUSES = new Set(["forfeited", "expired"]);
 
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[ReadyGateOverlay] ${message}`, data ?? {});
-}
-
-function videoSessionIndicatesActiveDate(row: { state?: unknown; phase?: unknown } | null): boolean {
-  if (!row) return false;
-  return row.state === "handshake" || row.state === "date" || row.phase === "handshake" || row.phase === "date";
 }
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
@@ -174,12 +169,14 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       const queueStatus = reg?.queue_status ?? null;
       const readyGateStatus = (vs?.ready_gate_status as string | null | undefined) ?? null;
       const isParticipant = vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
+      const decision = decideVideoSessionRouteFromTruth(vs);
 
       readyGateDebug("session reconciliation", {
         sessionId,
         source,
         queueStatus,
         sameRoom,
+        decision,
         vsState: vs?.state ?? null,
         vsPhase: vs?.phase ?? null,
         readyGateStatus,
@@ -187,9 +184,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         ended: Boolean(vs?.ended_at),
       });
 
-      if (!vs || vs.ended_at || (readyGateStatus && TERMINAL_READY_GATE_STATUSES.has(readyGateStatus))) {
+      if (!vs) {
         closeAsStale(source, {
-          reason: !vs ? "session_missing" : vs.ended_at ? "session_ended" : readyGateStatus,
+          reason: "session_missing",
         });
         return;
       }
@@ -199,23 +196,17 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         return;
       }
 
-      if ((sameRoom && ACTIVE_DATE_QUEUE_STATUSES.has(queueStatus ?? "")) || videoSessionIndicatesActiveDate(vs)) {
+      if (decision === "navigate_date") {
         navigateToDate(source);
         return;
       }
 
-      if (!reg) {
-        closeAsStale(source, { reason: "registration_missing" });
-        return;
-      }
-
-      if (reg?.current_room_id && reg.current_room_id !== sessionId) {
-        closeAsStale(source, { reason: "different_current_room", currentRoomId: reg.current_room_id });
-        return;
-      }
-
-      if (queueStatus && queueStatus !== "in_ready_gate") {
-        closeAsStale(source, { reason: "registration_not_in_ready_gate", queueStatus });
+      if (decision !== "navigate_ready") {
+        closeAsStale(source, {
+          reason: decision === "ended" ? "session_ended" : "session_not_ready_gate_eligible",
+          queueStatus,
+          currentRoomId: reg?.current_room_id ?? null,
+        });
         return;
       }
 
@@ -287,7 +278,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         },
         (payload) => {
           const row = payload.new as Record<string, unknown>;
-          if (videoSessionIndicatesActiveDate(row)) {
+          if (decideVideoSessionRouteFromTruth(row) === "navigate_date") {
             readyGateDebug("same-session active date detected from video session realtime", {
               sessionId,
               state: row.state,

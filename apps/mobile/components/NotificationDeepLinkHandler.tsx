@@ -20,10 +20,8 @@ import {
 } from '@/lib/activeSessionRoutes';
 import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
-import {
-  fetchVideoSessionDateEntryTruth,
-  videoSessionIndicatesHandshakeOrDate,
-} from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
+import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
@@ -127,29 +125,11 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
   };
 
   let reg = await fetchReg();
-
-  const truth = await fetchVideoSessionDateEntryTruth(sid);
-  const startable = videoSessionIndicatesHandshakeOrDate(truth);
-  const rgStatus = truth?.ready_gate_status ?? null;
-  const rgExpiresRaw = truth?.ready_gate_expires_at ?? null;
-  const rgExpiresMs =
-    rgExpiresRaw == null
-      ? null
-      : typeof rgExpiresRaw === 'number'
-        ? rgExpiresRaw
-        : Date.parse(String(rgExpiresRaw));
-  const readyGateEligible =
-    rgStatus === 'ready' ||
-    rgStatus === 'ready_a' ||
-    rgStatus === 'ready_b' ||
-    rgStatus === 'snoozed' ||
-    (rgStatus === 'both_ready' &&
-      rgExpiresMs != null &&
-      Number.isFinite(rgExpiresMs) &&
-      rgExpiresMs > Date.now());
+  let truth = await fetchVideoSessionDateEntryTruth(sid);
+  let truthDecision = decideVideoSessionRouteFromTruth(truth);
 
   const emitDecision = (
-    decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby',
+    decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' | 'ended',
     reason: string | null
   ) => {
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_decision', {
@@ -162,26 +142,17 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
       vs_state: truth?.state ?? null,
       vs_phase: truth?.phase ?? null,
       handshake_started_at: Boolean(truth?.handshake_started_at),
-      ready_gate_status: rgStatus,
-      ready_gate_expires_at: rgExpiresRaw == null ? null : String(rgExpiresRaw),
+      ready_gate_status: truth?.ready_gate_status ?? null,
+      ready_gate_expires_at: truth?.ready_gate_expires_at == null ? null : String(truth.ready_gate_expires_at),
     });
   };
-
-  if (!startable) {
-    if (readyGateEligible || reg?.queue_status === 'in_ready_gate') {
-      emitDecision('navigate_ready', 'video_truth_not_startable');
-      return readyGateHref(sid);
-    }
-    emitDecision('stay_lobby', 'video_truth_not_startable');
-    return eventLobbyHref(vs.event_id as string);
-  }
 
   const needsQueuedRescue =
     vs.ready_gate_status === 'queued' &&
     reg != null &&
     LOBBY_IDLE_STATUSES.has(String(reg.queue_status));
 
-  if (needsQueuedRescue) {
+  if (needsQueuedRescue && truthDecision === 'stay_lobby') {
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_start', {
       session_id: sid,
       event_id: String(vs.event_id),
@@ -193,35 +164,30 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     }
     await drainMatchQueue(vs.event_id as string, userId);
     reg = await fetchReg();
+    truth = await fetchVideoSessionDateEntryTruth(sid);
+    truthDecision = decideVideoSessionRouteFromTruth(truth);
+  }
 
-    const { data: vsAfter } = await supabase
-      .from('video_sessions')
-      .select('ready_gate_status')
-      .eq('id', sid)
-      .maybeSingle();
-
-    if (reg?.queue_status === 'in_ready_gate') {
-      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_ready', { session_id: sid });
-      return readyGateHref(sid);
-    }
-    const qs = reg?.queue_status;
-    const room = reg?.current_room_id as string | null | undefined;
-    if ((qs === 'in_handshake' || qs === 'in_date') && room === sid) {
-      emitDecision('navigate_date', null);
-      rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_route_date', { session_id: sid });
-      return videoDateHref(sid);
-    }
-
-    rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'queued_session_rescue_fallback_lobby', {
+  if (truthDecision === 'ended') {
+    emitDecision('ended', 'session_ended');
+    return eventLobbyHref(vs.event_id as string);
+  }
+  if (truthDecision === 'navigate_ready') {
+    emitDecision('navigate_ready', 'video_truth_not_startable');
+    return readyGateHref(sid);
+  }
+  if (truthDecision === 'stay_lobby') {
+    emitDecision('stay_lobby', 'video_truth_not_startable');
+    rcBreadcrumb(RC_CATEGORY.notifDeepLink, needsQueuedRescue ? 'queued_session_rescue_fallback_lobby' : 'date_link_fallback_lobby', {
       session_id: sid,
-      queue_status: qs ?? null,
-      ready_gate_status_after: vsAfter?.ready_gate_status ?? null,
+      queue_status: reg?.queue_status ?? null,
+      ready_gate_status_after: truth?.ready_gate_status ?? null,
     });
     return eventLobbyHref(vs.event_id as string);
   }
 
   emitDecision('navigate_date', null);
-  return href as Href;
+  return videoDateHref(sid);
 }
 
 /** Keeps notificationRouteRef in sync for foreground suppression. */

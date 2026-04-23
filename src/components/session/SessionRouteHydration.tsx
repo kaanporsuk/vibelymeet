@@ -5,7 +5,7 @@ import { vdbg } from "@/lib/vdbg";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { clearDateEntryTransition, isDateEntryTransitionActive } from "@/lib/dateEntryTransitionLatch";
-import { videoSessionRowIndicatesHandshakeOrDate } from "@clientShared/matching/activeSession";
+import { decideVideoSessionRouteFromTruth } from "@clientShared/matching/activeSession";
 
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -79,7 +79,9 @@ export function SessionRouteHydration() {
         return;
       }
 
-      if (vs.ended_at) {
+      const truthDecision = decideVideoSessionRouteFromTruth(vs);
+
+      if (truthDecision === "ended") {
         clearDateEntryTransition(sessionIdFromUrl);
         routeHydrationDebug("blocked ready_gate bounce; video session ended", {
           sessionId: sessionIdFromUrl,
@@ -95,7 +97,7 @@ export function SessionRouteHydration() {
         return;
       }
 
-      if (videoSessionRowIndicatesHandshakeOrDate(vs)) {
+      if (truthDecision === "navigate_date") {
         routeHydrationDebug("blocked ready_gate bounce; video session is date-capable", {
           sessionId: sessionIdFromUrl,
           state: vs.state,
