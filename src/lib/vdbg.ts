@@ -1,9 +1,10 @@
 import * as Sentry from "@sentry/react";
 
 /**
- * Temporary diagnostics (web dev only): JSON-stringify selected VDBG payloads for Chrome console
- * copy/paste during video-date investigation — avoids collapsed `Object` previews for nested `row` data.
- * Remove or narrow once investigation ends.
+ * Video-date diagnostics helper (web): always records a Sentry breadcrumb (`category: vdbg`).
+ * In development, selected messages also JSON-stringify to the console for copy/paste (nested `row`
+ * payloads); production keeps standard console logging for those messages. The allowlist below
+ * controls which messages get dev JSON formatting and can be trimmed when noise is understood.
  */
 const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "lobby_mount_active_session",
