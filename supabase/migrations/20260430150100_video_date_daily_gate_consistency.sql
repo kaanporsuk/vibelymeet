@@ -459,6 +459,8 @@ BEGIN
     'browsing',
     'idle',
     'in_ready_gate',
+    'in_handshake',
+    'in_date',
     'in_survey',
     'offline'
   ) THEN
