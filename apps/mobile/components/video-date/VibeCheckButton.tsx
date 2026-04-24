@@ -1,10 +1,12 @@
 /**
- * Handshake decision controls. UI only acknowledges a Vibe/Pass after the
- * caller confirms the actor's decision persisted.
+ * Warm-up (handshake) Pass / Vibe strip. UI only acknowledges a choice after the
+ * caller confirms the decision persisted (`recordHandshakeDecision`).
  */
 
 import React, { useEffect, useRef } from 'react';
-import { Pressable, Text, View, StyleSheet, Animated, Vibration } from 'react-native';
+import { Pressable, Text, View, StyleSheet, Animated, ActivityIndicator, Vibration } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { radius, spacing, fonts } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -15,9 +17,21 @@ type Props = {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
-  /** Non-null during handshake grace when the local user still needs to decide. */
+  /** Server Last Chance grace: local user still owes a decision. */
   graceSecondsRemaining?: number | null;
 };
+
+function formatWarmHint(
+  inGrace: boolean,
+  graceSecondsRemaining: number | null | undefined,
+  isProminent: boolean,
+  hasDecided: boolean
+): string | null {
+  if (hasDecided) return null;
+  if (inGrace && graceSecondsRemaining != null) return `${graceSecondsRemaining}s to choose`;
+  if (isProminent) return 'Choose before time runs out';
+  return null;
+}
 
 export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, graceSecondsRemaining }: Props) {
   const colorScheme = useColorScheme();
@@ -67,7 +81,9 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
     try {
       try {
         Vibration.vibrate(30);
-      } catch {}
+      } catch {
+        /* ignore */
+      }
       const result = await Promise.resolve(action === 'vibe' ? onVibe() : onPass());
       if (result === false) return;
     } finally {
@@ -76,146 +92,170 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
     }
   };
 
+  const hint = formatWarmHint(inGrace, graceSecondsRemaining, isProminent, hasDecided);
+  const vibeScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] });
+  const lastChanceLabelOpacity = inGrace && !hasDecided ? lastChanceFlash : 1;
+
   if (hasDecided) {
     return (
-      <View style={styles.wrap}>
-        <View style={[styles.savedButton, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
-          <Text style={[styles.savedText, { color: theme.tint }]}>{decision ? 'Vibed' : 'Passed'}</Text>
+      <View style={styles.stripWrap}>
+        <View style={[styles.lockedRow, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
+          <Ionicons name={decision ? 'heart' : 'close-circle'} size={18} color={theme.tint} />
+          <Text style={[styles.lockedLabel, { color: theme.tint }]}>{decision ? 'Vibed' : 'Passed'}</Text>
         </View>
-        <Text style={[styles.hint, { color: theme.mutedForeground }]}>Waiting for your match...</Text>
+        <Text style={[styles.waitingLine, { color: theme.mutedForeground }]}>Waiting for your match…</Text>
       </View>
     );
   }
 
-  const animatedScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
-
-  const lastChanceLabelOpacity = inGrace && !hasDecided ? lastChanceFlash : 1;
-
   return (
-    <View style={styles.wrap}>
+    <View style={styles.stripWrap}>
       {inGrace && !hasDecided ? (
         <Animated.Text
-          style={[
-            styles.lastChanceTitle,
-            { color: theme.tint, opacity: lastChanceLabelOpacity },
-          ]}
+          style={[styles.lastChanceTag, { color: theme.neonPink, opacity: lastChanceLabelOpacity }]}
         >
-          Last Chance
+          Last chance
         </Animated.Text>
       ) : null}
-      <Text style={[styles.cta, { color: theme.text }]}>Vibe or Pass to continue</Text>
+
       <View style={styles.row}>
         <Pressable
           onPress={() => void handlePress('pass')}
           disabled={disabled || submitting !== null}
           style={({ pressed }) => [
-            styles.actionButton,
-            styles.passButton,
-            { borderColor: theme.border, backgroundColor: theme.muted },
+            styles.passShell,
+            {
+              borderColor: 'rgba(255,255,255,0.22)',
+              backgroundColor: 'rgba(12,12,16,0.72)',
+            },
             (pressed || disabled || submitting !== null) && styles.pressed,
           ]}
         >
-          <Text style={[styles.passLabel, { color: theme.mutedForeground }]}>
-            {submitting === 'pass' ? 'Saving...' : 'Pass'}
-          </Text>
+          {submitting === 'pass' ? (
+            <ActivityIndicator size="small" color={theme.mutedForeground} />
+          ) : (
+            <>
+              <Ionicons name="close" size={18} color={theme.mutedForeground} />
+              <Text style={[styles.passWord, { color: theme.mutedForeground }]}>Pass</Text>
+            </>
+          )}
         </Pressable>
-        <Animated.View style={[styles.actionButton, styles.vibeButton, { backgroundColor: theme.tint, borderColor: theme.tint }, isProminent && { transform: [{ scale: animatedScale }] }]}>
+
+        <Animated.View style={isProminent ? { transform: [{ scale: vibeScale }] } : undefined}>
           <Pressable
             onPress={() => void handlePress('vibe')}
             disabled={disabled || submitting !== null}
-            style={({ pressed }) => [StyleSheet.absoluteFill, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.vibeShell, (pressed || disabled || submitting !== null) && styles.pressed]}
           >
-            <View style={styles.inner}>
-              <Text style={[styles.vibeLabel, { color: theme.primaryForeground }]}>
-                {submitting === 'vibe' ? 'Saving...' : 'Vibe'}
-              </Text>
-            </View>
+            <LinearGradient
+              colors={[theme.neonViolet, theme.neonPink]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.vibeGradient}
+            >
+              {submitting === 'vibe' ? (
+                <ActivityIndicator size="small" color={theme.primaryForeground} />
+              ) : (
+                <>
+                  <Ionicons name="heart" size={18} color={theme.primaryForeground} style={{ marginRight: 6 }} />
+                  <Text style={[styles.vibeWord, { color: theme.primaryForeground }]}>Vibe</Text>
+                </>
+              )}
+            </LinearGradient>
           </Pressable>
         </Animated.View>
       </View>
-      <Text style={[styles.hint, { color: inGrace ? theme.tint : theme.mutedForeground }]}>
-        {inGrace
-          ? `${graceSecondsRemaining}s left to choose.`
-          : isProminent
-            ? 'Last chance: choose before the timer ends.'
-            : 'Your choice only continues after it saves.'}
-      </Text>
+
+      {hint ? (
+        <Text style={[styles.hint, { color: inGrace ? theme.neonPink : theme.mutedForeground }]}>{hint}</Text>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  stripWrap: {
     alignItems: 'center',
     gap: spacing.xs,
+    width: '100%',
+    maxWidth: 360,
+    alignSelf: 'center',
   },
-  lastChanceTitle: {
-    fontSize: 12,
-    letterSpacing: 1.2,
+  lastChanceTag: {
+    fontSize: 11,
+    letterSpacing: 1.4,
     fontFamily: fonts.bodyBold,
-    textAlign: 'center',
-    marginBottom: 2,
-  },
-  cta: {
-    maxWidth: 240,
-    textAlign: 'center',
-    fontSize: 13,
-    lineHeight: 17,
-    fontFamily: fonts.bodySemiBold,
+    textTransform: 'uppercase',
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'stretch',
     gap: spacing.sm,
-  },
-  actionButton: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    minWidth: 104,
-    minHeight: 48,
-    alignItems: 'center',
+    width: '100%',
     justifyContent: 'center',
   },
-  passButton: {
-    borderWidth: 1,
-  },
-  vibeButton: {},
-  savedButton: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    minWidth: 140,
-    alignItems: 'center',
-  },
-  savedText: {
-    fontSize: 14,
-    fontFamily: fonts.bodySemiBold,
-  },
-  pressed: {
-    opacity: 0.65,
-  },
-  inner: {
+  passShell: {
     flex: 1,
+    maxWidth: 148,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
   },
-  passLabel: {
+  vibeShell: {
+    flex: 1,
+    maxWidth: 168,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  vibeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+    gap: 2,
+  },
+  passWord: {
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
   },
-  vibeLabel: {
+  vibeWord: {
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
+  },
+  lockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  lockedLabel: {
+    fontSize: 14,
+    fontFamily: fonts.bodySemiBold,
+  },
+  waitingLine: {
+    fontSize: 11,
+    fontFamily: fonts.body,
+    textAlign: 'center',
   },
   hint: {
-    maxWidth: 240,
-    textAlign: 'center',
     fontSize: 11,
-    lineHeight: 15,
+    lineHeight: 14,
     fontFamily: fonts.body,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  pressed: {
+    opacity: 0.72,
   },
 });
