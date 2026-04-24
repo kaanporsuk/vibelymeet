@@ -24,22 +24,40 @@ type VideoDateRoomGateSession = {
   phase?: string | null;
 };
 
+type ClientRequestContext = {
+  client_platform: string | null;
+  client_platform_version: string | null;
+  client_runtime: string | null;
+  client_runtime_version: string | null;
+};
+
+function getClientRequestContext(req: Request): ClientRequestContext {
+  return {
+    client_platform: req.headers.get("x-supabase-client-platform"),
+    client_platform_version: req.headers.get("x-supabase-client-platform-version"),
+    client_runtime: req.headers.get("x-supabase-client-runtime"),
+    client_runtime_version: req.headers.get("x-supabase-client-runtime-version"),
+  };
+}
+
 function logDateRoomReject(params: {
   action: "create_date_room" | "join_date_room";
   sessionId: string | null | undefined;
   userId: string;
   code: string;
   httpStatus: number;
+  requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
   extra?: Record<string, unknown>;
 }) {
-  const { action, sessionId, userId, code, httpStatus, session, detail, extra } = params;
+  const { action, sessionId, userId, code, httpStatus, requestContext, session, detail, extra } = params;
   console.log(
     JSON.stringify({
       event: `${action}_rejected`,
       emitted_code: code,
       http_status: httpStatus,
+      has_token: false,
       session_id: session?.id ?? sessionId ?? null,
       user_id: userId,
       participant_1_id: session?.participant_1_id ?? null,
@@ -51,6 +69,7 @@ function logDateRoomReject(params: {
       ready_gate_expires_at: session?.ready_gate_expires_at ?? null,
       ended_at: session?.ended_at ?? null,
       detail,
+      ...requestContext,
       ...(extra ?? {}),
     }),
   );
@@ -63,6 +82,7 @@ function createDateRoomRejectResponse(params: {
   status: number;
   code: string;
   error: string;
+  requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
   extra?: Record<string, unknown>;
@@ -73,6 +93,7 @@ function createDateRoomRejectResponse(params: {
     userId: params.userId,
     code: params.code,
     httpStatus: params.status,
+    requestContext: params.requestContext,
     session: params.session,
     detail: params.detail,
     extra: params.extra,
@@ -333,6 +354,7 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
+    const requestContext = getClientRequestContext(req);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -473,6 +495,7 @@ serve(async (req) => {
             status: 404,
             code: "SESSION_NOT_FOUND",
             error: "Session not found",
+            requestContext,
           });
         }
 
@@ -487,6 +510,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            requestContext,
             session,
           });
         }
@@ -499,6 +523,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            requestContext,
             session,
           });
         }
@@ -511,6 +536,7 @@ serve(async (req) => {
             status: 403,
             code: "READY_GATE_NOT_READY",
             error: "Both participants must be ready before starting video",
+            requestContext,
             session,
           });
         }
@@ -592,6 +618,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
         });
@@ -620,6 +647,7 @@ serve(async (req) => {
             status: 404,
             code: "ROOM_NOT_FOUND",
             error: "Room not found",
+            requestContext,
             session,
           });
         }
@@ -635,6 +663,7 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            requestContext,
             session,
           });
         }
@@ -647,6 +676,7 @@ serve(async (req) => {
             status: 410,
             code: "SESSION_ENDED",
             error: "Session has ended",
+            requestContext,
             session,
           });
         }
@@ -659,6 +689,7 @@ serve(async (req) => {
             status: 403,
             code: "READY_GATE_NOT_READY",
             error: "Both participants must be ready before joining video",
+            requestContext,
             session,
           });
         }
@@ -685,6 +716,7 @@ serve(async (req) => {
           status: 503,
           code: "DAILY_PROVIDER_ERROR",
           error: "Video service temporarily unavailable",
+          requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
         });

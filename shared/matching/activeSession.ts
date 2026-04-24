@@ -20,6 +20,47 @@ export type ActiveSessionBase = {
 
 export type VideoSessionTruthRouteDecision = "navigate_date" | "navigate_ready" | "stay_lobby" | "ended";
 
+type VideoSessionDailyRoomTruth = {
+  ended_at?: string | null;
+  handshake_started_at?: string | null;
+  ready_gate_expires_at?: string | number | null;
+  ready_gate_status?: string | null;
+  state?: string | null;
+};
+
+function readyGateExpiryMs(
+  rawExpiry: string | number | null | undefined,
+): number | null {
+  if (rawExpiry == null) return null;
+  const expiresMs =
+    typeof rawExpiry === "number"
+      ? rawExpiry
+      : Date.parse(String(rawExpiry));
+  return Number.isFinite(expiresMs) ? expiresMs : null;
+}
+
+/**
+ * Canonical client mirror of the Daily room server gate.
+ * Legacy `phase` is intentionally ignored: mixed rows can still carry
+ * `phase = "handshake"` while the canonical state remains `ready_gate`.
+ */
+export function canAttemptDailyRoomFromVideoSessionTruth(
+  row: VideoSessionDailyRoomTruth | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!row || row.ended_at) return false;
+  if (
+    row.state === "handshake" ||
+    row.state === "date" ||
+    row.handshake_started_at
+  ) {
+    return true;
+  }
+  if (row.ready_gate_status !== "both_ready") return false;
+  const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
+  return expiresMs != null && expiresMs > nowMs;
+}
+
 /** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
 export function pickRegistrationForActiveSession<
   T extends { queue_status: string | null; current_room_id: string | null; event_id: string },
@@ -34,23 +75,21 @@ export function pickRegistrationForActiveSession<
   return withRoom.find((r) => r.queue_status === "in_ready_gate") ?? null;
 }
 
-/** True when `video_sessions` already reflects an in-call handshake or date (registration may lag `in_ready_gate`). */
+/**
+ * True when `video_sessions` already reflects an authoritative handshake/date transition.
+ * Do not trust legacy `phase` alone here.
+ */
 export function videoSessionRowIndicatesHandshakeOrDate(
   row: {
     state?: string | null;
-    phase?: string | null;
     handshake_started_at?: string | null;
-    date_started_at?: string | null;
   } | null
 ): boolean {
   return Boolean(
     row &&
       (row.state === "handshake" ||
         row.state === "date" ||
-        row.phase === "handshake" ||
-        row.phase === "date" ||
-        row.handshake_started_at ||
-        row.date_started_at)
+        row.handshake_started_at)
   );
 }
 
@@ -77,14 +116,8 @@ export function videoSessionRowReadyGateEligible(
     return true;
   }
   if (status !== "both_ready") return false;
-  const rawExpiry = row.ready_gate_expires_at ?? null;
-  const expiresMs =
-    rawExpiry == null
-      ? null
-      : typeof rawExpiry === "number"
-        ? rawExpiry
-        : Date.parse(String(rawExpiry));
-  return expiresMs != null && Number.isFinite(expiresMs) && expiresMs > nowMs;
+  const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
+  return expiresMs != null && expiresMs > nowMs;
 }
 
 export function decideVideoSessionRouteFromTruth(

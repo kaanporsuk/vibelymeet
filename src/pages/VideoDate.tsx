@@ -49,6 +49,7 @@ import {
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
 import {
+  canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
@@ -242,11 +243,22 @@ const VideoDate = () => {
       const vs = vsRes.data;
       const reg = regRes.data;
       const decision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const reason =
+        decision === "navigate_date"
+          ? null
+          : decision === "ended"
+            ? "session_ended"
+            : canAttemptDaily
+              ? "video_truth_startable_after_refetch"
+              : "video_truth_not_startable";
       vdbg("date_route_decision", {
         sessionId: id,
         userId: user.id,
         source,
         decision,
+        reason,
+        canAttemptDaily,
         queueStatus: reg?.queue_status ?? null,
         currentRoomId: reg?.current_room_id ?? null,
         vsState: vs?.state ?? null,
@@ -256,7 +268,7 @@ const VideoDate = () => {
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
       });
 
-      if (decision === "navigate_ready") {
+      if (!canAttemptDaily && decision === "navigate_ready") {
         const target = `/ready/${encodeURIComponent(id)}`;
         clearDateEntryTransition(id);
         logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);
@@ -266,7 +278,7 @@ const VideoDate = () => {
       }
 
       const fallbackEventId = vs?.event_id ?? eventId;
-      if (decision === "stay_lobby" && fallbackEventId) {
+      if (!canAttemptDaily && decision === "stay_lobby" && fallbackEventId) {
         const target = `/event/${encodeURIComponent(fallbackEventId)}/lobby`;
         clearDateEntryTransition(id);
         logJourney("date_route_bounced", { reason: source, target }, `date_route_bounced_${source}`);

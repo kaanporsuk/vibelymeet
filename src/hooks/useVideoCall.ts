@@ -5,6 +5,10 @@ import * as Sentry from "@sentry/react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  videoSessionRowIndicatesHandshakeOrDate,
+} from "@clientShared/matching/activeSession";
+import {
   DAILY_ROOM_ACTIONS,
   classifyDailyRoomInvokeFailure,
   type DailyRoomFailureClassification,
@@ -85,19 +89,6 @@ function tierFromNetworkQualityEvent(event: { threshold?: string; quality?: numb
   if (th === "low" || q < 30) return "poor";
   if (q < 70) return "fair";
   return "good";
-}
-
-function sessionIndicatesHandshakeOrDate(
-  row: { state?: string | null; phase?: string | null; handshake_started_at?: string | null } | null
-): boolean {
-  return Boolean(
-    row &&
-      (row.state === "handshake" ||
-        row.state === "date" ||
-        row.phase === "handshake" ||
-        row.phase === "date" ||
-        row.handshake_started_at)
-  );
 }
 
 function withTimeout<T>(operation: string, promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -704,7 +695,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           } as VideoCallStartResult;
         }
 
-        if (!sessionIndicatesHandshakeOrDate(truthRow)) {
+        if (!videoSessionRowIndicatesHandshakeOrDate(truthRow)) {
           const enterHandshakeArgs = { p_session_id: sessionId, p_action: "enter_handshake" };
           vdbg("video_date_transition_before", { action: "enter_handshake", args: enterHandshakeArgs });
           const { data: enterData, error: enterError } = await withTimeout(
@@ -763,6 +754,26 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           return {
             ok: false,
             failure: { kind: "SESSION_ENDED", retryable: false },
+          } as VideoCallStartResult;
+        }
+
+        if (!canAttemptDailyRoomFromVideoSessionTruth(truthRow)) {
+          vdbg("daily_room_before_skipped", {
+            action: "create_date_room",
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            reason: "client_daily_gate_not_startable",
+            state: truthRow.state,
+            phase: truthRow.phase,
+            handshakeStartedAt: truthRow.handshake_started_at,
+            readyGateStatus: truthRow.ready_gate_status ?? null,
+            readyGateExpiresAt: truthRow.ready_gate_expires_at ?? null,
+          });
+          setIsConnecting(false);
+          return {
+            ok: false,
+            failure: failureFromTransitionCode("READY_GATE_NOT_READY"),
           } as VideoCallStartResult;
         }
 
