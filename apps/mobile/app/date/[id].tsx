@@ -1,5 +1,5 @@
 /**
- * Video date screen: full Vibely experience — handshake (60s) with blur, vibe check,
+ * Video date screen: full Vibely experience — warm-up phase (60s) with blur, vibe check,
  * mutual vibe → date (300s), controls, partner sheet, keep-the-vibe, reconnection, post-date survey.
  */
 
@@ -20,6 +20,7 @@ import {
   AppState,
   Easing,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router, usePathname } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -65,7 +66,6 @@ import {
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
 import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
-import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
 import { ConnectionOverlay } from '@/components/video-date/ConnectionOverlay';
@@ -182,6 +182,14 @@ function userMessageForHandshakeFailure(code?: string): string {
     return 'This date has already ended.';
   }
   return 'Could not start video. Please try again.';
+}
+
+/** Compact M:SS / 0:SS for in-call phase HUD (Warm up / Live). */
+function formatVideoDateCountdown(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `0:${String(r).padStart(2, '0')}`;
 }
 
 function isReadyGateRace(code?: string): boolean {
@@ -352,7 +360,6 @@ export default function VideoDateScreen() {
   const keepVibePulse = useRef(new Animated.Value(1)).current;
   const topChromeAnim = useRef(new Animated.Value(1)).current;
   const controlsAnim = useRef(new Animated.Value(1)).current;
-  const phaseCueAnim = useRef(new Animated.Value(1)).current;
   /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
   const remotePromotionLoggedRef = useRef(false);
   const lastLocalMountedTrackIdRef = useRef<string | null>(null);
@@ -3736,7 +3743,6 @@ export default function VideoDateScreen() {
     !peerMissingTerminal &&
     (handshakeGraceSecondsRemaining === null || handshakeGraceWaitingForSelf);
   const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
-  const phaseCueLabel = phase === 'handshake' ? 'HANDSHAKE' : phase === 'date' ? 'DATE LIVE' : null;
   const localHandshakeDecision = useMemo<boolean | null>(() => {
     if (!session || !user?.id) return null;
     if (session.participant_1_id === user.id) {
@@ -3757,12 +3763,11 @@ export default function VideoDateScreen() {
   ]);
 
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
-  const handshakeBottomOffset = insets.bottom + 96;
+  const handshakeBottomOffset = insets.bottom + 104;
 
   useEffect(() => {
     topChromeAnim.setValue(0.92);
     controlsAnim.setValue(0.94);
-    phaseCueAnim.setValue(0.9);
     Animated.parallel([
       Animated.timing(topChromeAnim, {
         toValue: 1,
@@ -3776,14 +3781,8 @@ export default function VideoDateScreen() {
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(phaseCueAnim, {
-        toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
     ]).start();
-  }, [phase, postJoinStage, topChromeAnim, controlsAnim, phaseCueAnim]);
+  }, [phase, postJoinStage, topChromeAnim, controlsAnim]);
 
   const handlePeerMissingKeepWaiting = useCallback(() => {
     if (sessionId) {
@@ -3993,14 +3992,16 @@ export default function VideoDateScreen() {
           />
         ) : (
           <View style={[styles.localVideo, styles.placeholderLocal, { backgroundColor: theme.surface }]}>
-            <Text style={[styles.placeholderTextSmall, { color: theme.mutedForeground }]}>
-              {localParticipant ? 'Camera off' : 'You'}
-            </Text>
+            <Ionicons
+              name={localParticipant ? 'videocam-off' : 'person-outline'}
+              size={28}
+              color={theme.mutedForeground}
+            />
           </View>
         )}
         {isMuted && (
           <View style={[styles.muteBadge, { backgroundColor: theme.danger }]}>
-            <Text style={styles.muteBadgeText}>🔇</Text>
+            <Ionicons name="mic-off" size={12} color="#fff" />
           </View>
         )}
       </View>
@@ -4094,20 +4095,8 @@ export default function VideoDateScreen() {
           },
         ]}
       >
-        <Pressable onPress={() => setShowProfileSheet(true)} style={styles.partnerPill}>
-          <Text style={[styles.partnerName, { color: theme.text }]}>{partnerName}</Text>
-          {netQualityTier !== 'good' && hasRemotePartner ? (
-            <Text
-              style={[
-                styles.netHint,
-                { color: netQualityTier === 'poor' ? theme.danger : '#f59e0b' },
-              ]}
-            >
-              {netQualityTier === 'poor' ? 'Poor connection' : 'Fair connection'}
-            </Text>
-          ) : null}
-        </Pressable>
-          {showTopBarWaitingPill ? (
+        {showTopBarWaitingPill ? (
+          <View style={styles.topBarFullWidth}>
             <View style={styles.waitingTimerPill}>
               <Text style={[styles.waitingTimerText, { color: theme.text }]}>
                 {joining || isConnecting
@@ -4117,43 +4106,47 @@ export default function VideoDateScreen() {
                     : 'Waiting for partner...'}
               </Text>
             </View>
-          ) : showHandshakeGraceWait ? (
+          </View>
+        ) : showHandshakeGraceWait ? (
+          <View style={styles.topBarFullWidth}>
             <View style={styles.waitingTimerPill}>
               <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
                 <Text style={[styles.waitingTimerText, { color: theme.text }]}>
-                  Last Chance · {handshakeGraceSecondsRemaining}s — waiting for partner
+                  Last chance · {handshakeGraceSecondsRemaining}s — waiting for partner
                 </Text>
               </Animated.View>
             </View>
-          ) : handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null ? (
+          </View>
+        ) : handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null ? (
+          <View style={styles.topBarFullWidth}>
             <View style={[styles.waitingTimerPill, { backgroundColor: theme.tintSoft }]}>
               <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
                 <Text style={[styles.waitingTimerText, { color: theme.tint }]}>
-                  Last Chance · {handshakeGraceSecondsRemaining}s — tap Vibe or Pass
+                  Last chance · {handshakeGraceSecondsRemaining}s — tap Pass or Vibe
                 </Text>
               </Animated.View>
             </View>
-          ) : hasRemotePartner ? (
-            <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
-          ) : null}
+          </View>
+        ) : hasRemotePartner ? (
+          <View style={styles.phaseHudRow}>
+            {netQualityTier !== 'good' ? (
+              <Text
+                style={[
+                  styles.netHint,
+                  { color: netQualityTier === 'poor' ? theme.danger : '#f59e0b' },
+                ]}
+              >
+                {netQualityTier === 'poor' ? 'Poor connection' : 'Fair connection'}
+              </Text>
+            ) : null}
+            <View style={[styles.phaseTimePill, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
+              <Text style={[styles.phaseTimeText, { color: theme.text }]}>
+                {phase === 'handshake' ? 'Warm up' : 'Live'} · {formatVideoDateCountdown(Math.max(0, displayTimeLeft))}
+              </Text>
+            </View>
+          </View>
+        ) : null}
       </Animated.View>
-
-      {phaseCueLabel && hasRemotePartner ? (
-        <Animated.View
-          style={[
-            styles.phaseCuePill,
-            {
-              opacity: phaseCueAnim,
-              transform: [
-                { translateY: phaseCueAnim.interpolate({ inputRange: [0.9, 1], outputRange: [-6, 0] }) },
-                { scale: phaseCueAnim },
-              ],
-            },
-          ]}
-        >
-          <Text style={styles.phaseCueText}>{phaseCueLabel}</Text>
-        </Animated.View>
-      ) : null}
 
       {showHandshakeChrome && (
         <View style={[styles.handshakeBottomStack, { bottom: handshakeBottomOffset }]}> 
@@ -4240,15 +4233,34 @@ export default function VideoDateScreen() {
           onToggleVideo={toggleVideo}
           onLeave={handleEndDateFromControls}
           onViewProfile={() => setShowProfileSheet(true)}
+          partnerName={partnerName}
           onSafety={
             hasRemotePartner && partnerId && !showFeedback
               ? () => setShowInCallSafety(true)
               : undefined
           }
-          onAddTime={phase === 'date' ? handleAddTimeShortcut : undefined}
-          hasCredits={credits.extraTime > 0 || credits.extendedVibe > 0}
         />
       </Animated.View>
+
+      {phase === 'date' && hasRemotePartner && !peerMissingTerminal && !showFeedback ? (
+        <Pressable
+          onPress={handleAddTimeShortcut}
+          style={({ pressed }) => [
+            styles.addTimeFab,
+            { bottom: insets.bottom + 86, opacity: pressed ? 0.85 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={
+            credits.extraTime > 0 || credits.extendedVibe > 0
+              ? 'Add time: use credits from Keep the Vibe'
+              : 'Get video date credits to add time'
+          }
+        >
+          <View style={[styles.addTimeFabInner, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
+            <Ionicons name="add-circle" size={36} color={theme.tint} />
+          </View>
+        </Pressable>
+      ) : null}
 
       <InCallSafetySheet
         visible={showInCallSafety}
@@ -4305,7 +4317,6 @@ const styles = StyleSheet.create({
   },
   localVideo: { width: '100%', height: '100%' },
   placeholderLocal: { justifyContent: 'center', alignItems: 'center' },
-  placeholderTextSmall: { fontSize: 12 },
   muteBadge: {
     position: 'absolute',
     top: 6,
@@ -4316,30 +4327,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  muteBadgeText: { fontSize: 12 },
   topBar: {
     position: 'absolute',
     top: 48,
     left: 16,
     right: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
   },
+  topBarFullWidth: { width: '100%', alignItems: 'center' },
+  phaseHudRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginLeft: 'auto',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  phaseTimePill: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  phaseTimeText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
   waitingTimerPill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.4)' },
   waitingTimerText: { fontSize: 12, fontWeight: '600' },
-  phaseCuePill: {
-    position: 'absolute',
-    top: 92,
-    right: 16,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.35)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  phaseCueText: { color: '#fff', fontSize: 10, letterSpacing: 0.4, fontWeight: '700' },
   initialTimeoutWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -4370,9 +4384,20 @@ const styles = StyleSheet.create({
   },
   initialBackText: { fontSize: 15, fontWeight: '600' },
   initialBtnPressed: { opacity: 0.85 },
-  partnerPill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.4)' },
-  partnerName: { fontSize: 16, fontWeight: '600' },
-  netHint: { fontSize: 11, marginTop: 2, fontWeight: '600' },
+  netHint: { fontSize: 11, fontWeight: '600' },
+  addTimeFab: {
+    position: 'absolute',
+    right: 14,
+    zIndex: 24,
+  },
+  addTimeFabInner: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   handshakeBottomStack: {
     position: 'absolute',
     left: 16,

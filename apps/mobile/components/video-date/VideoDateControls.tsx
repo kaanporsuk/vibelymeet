@@ -1,12 +1,17 @@
 /**
- * Bottom bar: Profile, Mute, End Call (center), Camera, +Time (date phase only when wired).
+ * Bottom dock: Profile (+ partner name), Mic, Leave (center), Camera, Safety.
+ * Icon-only; Leave uses destructive styling. Optional +Time is surfaced by the screen (not in this row).
  */
 
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { spacing, radius } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+
+const BTN = 52;
+const LEAVE = 56;
 
 type Props = {
   isMuted: boolean;
@@ -15,12 +20,10 @@ type Props = {
   onToggleVideo: () => void;
   onLeave: () => void;
   onViewProfile: () => void;
+  /** Partner display name — shown beside the profile control only (not a separate floating chip). */
+  partnerName?: string | null;
   /** In-call safety report (`submit_user_report`). Omit when not in active call. */
   onSafety?: () => void;
-  /** During date: opens credits or highlights in-call add-time controls. Omit during handshake to reserve layout. */
-  onAddTime?: () => void;
-  /** Shapes accessibility label when onAddTime is set (credits vs get-credits path). */
-  hasCredits?: boolean;
 };
 
 export function VideoDateControls({
@@ -30,144 +33,157 @@ export function VideoDateControls({
   onToggleVideo,
   onLeave,
   onViewProfile,
+  partnerName,
   onSafety,
-  onAddTime,
-  hasCredits,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const btnSize = 56;
-  const addTimeLabel = hasCredits
-    ? 'Add time: use the plus two or plus five minute buttons above'
-    : 'Get video date credits to add time';
+  const iconOn = theme.text;
+  const leaveRotation = '135deg' as const;
+
+  const profileBlock = (
+    <Pressable
+      onPress={onViewProfile}
+      style={({ pressed }) => [styles.profileCluster, pressed && styles.pressed]}
+      accessibilityRole="button"
+      accessibilityLabel={partnerName ? `View ${partnerName}'s profile` : 'View profile'}
+    >
+      <View style={[styles.iconBtn, { width: BTN, height: BTN, backgroundColor: theme.muted }]}>
+        <Ionicons name="person" size={22} color={iconOn} />
+      </View>
+      {partnerName ? (
+        <Text style={[styles.partnerName, { color: theme.text }]} numberOfLines={1}>
+          {partnerName}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
 
   return (
     <View style={[styles.bar, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
-      <View style={styles.leftGroup}>
-        <Pressable
-          onPress={onViewProfile}
-          style={({ pressed }) => [
-            styles.iconBtn,
-            { width: btnSize, height: btnSize, backgroundColor: theme.muted },
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="View profile"
-        >
-          <Text style={styles.iconLabel}>👤</Text>
-        </Pressable>
-        {onSafety ? (
-          <Pressable
-            onPress={onSafety}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              { width: btnSize, height: btnSize, backgroundColor: theme.muted },
-              pressed && styles.pressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Safety and report"
-          >
-            <Text style={styles.iconLabel}>🛡️</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      <View style={[styles.sideSlot, styles.sideLeft]}>{profileBlock}</View>
 
-      <View style={styles.centerGroup}>
+      <View style={styles.centerRail}>
         <Pressable
           onPress={onToggleMute}
           style={({ pressed }) => [
             styles.iconBtn,
-            { width: btnSize, height: btnSize, backgroundColor: isMuted ? theme.danger : theme.muted },
+            { width: BTN, height: BTN, backgroundColor: isMuted ? theme.dangerSoft : theme.muted },
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
           accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
-          <Text style={styles.iconLabel}>{isMuted ? '🔇' : '🎤'}</Text>
+          <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={22} color={isMuted ? theme.danger : iconOn} />
         </Pressable>
+
         <Pressable
           onPress={onLeave}
-          style={({ pressed }) => [styles.endBtn, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.leaveBtn, pressed && styles.pressed]}
           accessibilityRole="button"
           accessibilityLabel="End call"
         >
-          <Text style={styles.endBtnText}>📞 End</Text>
+          <View style={[styles.leaveInner, { transform: [{ rotate: leaveRotation }] }]}>
+            <Ionicons name="call" size={26} color="#fff" />
+          </View>
         </Pressable>
+
         <Pressable
           onPress={onToggleVideo}
           style={({ pressed }) => [
             styles.iconBtn,
-            { width: btnSize, height: btnSize, backgroundColor: isVideoOff ? theme.danger : theme.muted },
+            { width: BTN, height: BTN, backgroundColor: isVideoOff ? theme.dangerSoft : theme.muted },
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
           accessibilityLabel={isVideoOff ? 'Turn camera on' : 'Turn camera off'}
         >
-          <Text style={styles.iconLabel}>{isVideoOff ? '📷 Off' : '📷'}</Text>
+          <Ionicons name={isVideoOff ? 'videocam-off' : 'videocam'} size={22} color={isVideoOff ? theme.danger : iconOn} />
         </Pressable>
       </View>
 
-      {onAddTime ? (
-        <Pressable
-          onPress={onAddTime}
-          style={({ pressed }) => [
-            styles.iconBtn,
-            { width: btnSize, height: btnSize, backgroundColor: theme.muted },
-            pressed && styles.pressed,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={addTimeLabel}
-          accessibilityHint={hasCredits ? undefined : 'Opens video date credits in settings'}
-        >
-          <Text style={styles.iconLabel}>+⏱</Text>
-        </Pressable>
-      ) : (
-        <View style={{ width: btnSize, height: btnSize }} accessibilityElementsHidden />
-      )}
+      <View style={[styles.sideSlot, styles.sideRight]}>
+        {onSafety ? (
+          <Pressable
+            onPress={onSafety}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { width: BTN, height: BTN, backgroundColor: theme.muted },
+              pressed && styles.pressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Safety and report"
+          >
+            <Ionicons name="shield-checkmark" size={24} color={theme.tint} />
+          </Pressable>
+        ) : (
+          <View style={{ width: BTN, height: BTN }} accessibilityElementsHidden />
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  leftGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    borderTopWidth: 1,
-    gap: spacing.sm,
-  },
-  iconBtn: {
-    borderRadius: 28,
-    alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderTopWidth: 1,
+    minHeight: BTN + spacing.md * 2,
   },
-  iconLabel: {
-    fontSize: 20,
+  sideSlot: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
   },
-  centerGroup: {
+  sideLeft: { justifyContent: 'flex-start' },
+  sideRight: { justifyContent: 'flex-end' },
+  centerRail: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
-  endBtn: {
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: radius.button,
-    backgroundColor: 'hsl(0, 84%, 60%)',
+  profileCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    maxWidth: '100%',
+    flexShrink: 1,
   },
-  endBtnText: {
-    color: '#fff',
-    fontSize: 16,
+  partnerName: {
+    flexShrink: 1,
+    fontSize: 15,
     fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  iconBtn: {
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leaveBtn: {
+    width: LEAVE,
+    height: LEAVE,
+    borderRadius: LEAVE / 2,
+    backgroundColor: 'hsl(0, 84%, 56%)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#f87171',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  leaveInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pressed: {
-    opacity: 0.9,
+    opacity: 0.88,
   },
 });
