@@ -30,6 +30,42 @@ function ensureDeferredArray() {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
 }
 
+function serviceWorkerScriptPaths(registration: ServiceWorkerRegistration): string[] {
+  return [registration.active, registration.waiting, registration.installing]
+    .map((worker) => worker?.scriptURL)
+    .filter((url): url is string => Boolean(url))
+    .map((url) => {
+      try {
+        return new URL(url).pathname;
+      } catch {
+        return url;
+      }
+    });
+}
+
+async function unregisterLegacyCustomServiceWorker(): Promise<void> {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(
+      registrations.map(async (registration) => {
+        const paths = serviceWorkerScriptPaths(registration);
+        if (!paths.includes("/sw.js")) return;
+        const didUnregister = await registration.unregister();
+        vibelyOsLog("onesignal:legacy sw unregister", {
+          scope: registration.scope,
+          scriptPaths: paths,
+          didUnregister,
+        });
+      })
+    );
+  } catch (e) {
+    vibelyOsLog("onesignal:legacy sw unregister failed", {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 function dispatchInitSettled() {
   try {
     window.dispatchEvent(
@@ -90,6 +126,7 @@ export const initOneSignal = () => {
   ensureDeferredArray();
   window.OneSignalDeferred!.push(async (OneSignal: any) => {
     try {
+      await unregisterLegacyCustomServiceWorker();
       await OneSignal.init({
         appId,
         notifyButton: { enable: false },

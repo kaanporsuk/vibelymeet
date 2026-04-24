@@ -3,6 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { markVideoDateEntryPipelineStarted } from "@/lib/dateEntryTransitionLatch";
+import { canAttemptDailyRoomFromVideoSessionTruth } from "@clientShared/matching/activeSession";
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
   READY_GATE_STALE_OR_ENDED_USER_MESSAGE,
@@ -47,7 +49,7 @@ const ReadyRedirect = () => {
 
       const { data: session, error } = await supabase
         .from("video_sessions")
-        .select("participant_1_id, participant_2_id, event_id, ended_at")
+        .select("participant_1_id, participant_2_id, event_id, ended_at, state, phase, handshake_started_at, ready_gate_status, ready_gate_expires_at")
         .eq("id", candidate)
         .maybeSingle();
 
@@ -80,6 +82,12 @@ const ReadyRedirect = () => {
       if (!session.event_id) {
         notifyOnce(READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE);
         navigate("/events", { replace: true });
+        return;
+      }
+
+      if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+        markVideoDateEntryPipelineStarted(candidate);
+        navigate(`/date/${encodeURIComponent(candidate)}`, { replace: true });
         return;
       }
 

@@ -21,7 +21,10 @@ import {
 import { drainMatchQueue } from '@/lib/eventsApi';
 import { supabase } from '@/lib/supabase';
 import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
-import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from '@clientShared/matching/activeSession';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
@@ -127,16 +130,20 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
   let reg = await fetchReg();
   let truth = await fetchVideoSessionDateEntryTruth(sid);
   let truthDecision = decideVideoSessionRouteFromTruth(truth);
+  let canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
 
   const emitDecision = (
     decision: 'navigate_date' | 'navigate_ready' | 'stay_lobby' | 'ended',
-    reason: string | null
+    reason: string | null,
+    routedTo: 'date' | 'ready' | 'lobby'
   ) => {
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_decision', {
       session_id: sid,
       event_id: String(vs.event_id),
       decision,
+      can_attempt_daily: canAttemptDaily,
       reason,
+      routed_to: routedTo,
       queue_status: reg?.queue_status ?? null,
       current_room_id: reg?.current_room_id ?? null,
       vs_state: truth?.state ?? null,
@@ -166,18 +173,23 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     reg = await fetchReg();
     truth = await fetchVideoSessionDateEntryTruth(sid);
     truthDecision = decideVideoSessionRouteFromTruth(truth);
+    canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
   }
 
   if (truthDecision === 'ended') {
-    emitDecision('ended', 'session_ended');
+    emitDecision('ended', 'session_ended', 'lobby');
     return eventLobbyHref(vs.event_id as string);
   }
+  if (canAttemptDaily || truthDecision === 'navigate_date') {
+    emitDecision('navigate_date', null, 'date');
+    return videoDateHref(sid);
+  }
   if (truthDecision === 'navigate_ready') {
-    emitDecision('navigate_ready', 'video_truth_not_startable');
+    emitDecision('navigate_ready', 'video_truth_not_startable', 'ready');
     return readyGateHref(sid);
   }
   if (truthDecision === 'stay_lobby') {
-    emitDecision('stay_lobby', 'video_truth_not_startable');
+    emitDecision('stay_lobby', 'video_truth_not_startable', 'lobby');
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, needsQueuedRescue ? 'queued_session_rescue_fallback_lobby' : 'date_link_fallback_lobby', {
       session_id: sid,
       queue_status: reg?.queue_status ?? null,
@@ -186,7 +198,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     return eventLobbyHref(vs.event_id as string);
   }
 
-  emitDecision('navigate_date', null);
+  emitDecision('navigate_date', null, 'date');
   return videoDateHref(sid);
 }
 

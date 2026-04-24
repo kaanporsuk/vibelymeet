@@ -719,6 +719,41 @@ export default function VideoDateScreen() {
         .maybeSingle();
       if (cancelled) return;
       const truthDecision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const routedTo =
+        canAttemptDaily || truthDecision === 'navigate_date'
+          ? 'date'
+          : truthDecision === 'navigate_ready'
+            ? 'ready'
+            : truthDecision === 'ended'
+              ? 'ended'
+              : 'lobby';
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
+        session_id: sessionId,
+        user_id: user.id,
+        decision: truthDecision,
+        can_attempt_daily: canAttemptDaily,
+        routed_to: routedTo,
+        source: 'route_guard',
+        queue_status: reg?.queue_status ?? null,
+        vs_state: vs.state ?? null,
+        vs_phase: vs.phase ?? null,
+        ready_gate_status: vs.ready_gate_status ?? null,
+        ready_gate_expires_at: vs.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+      });
+      vdbg('date_route_decision', {
+        sessionId,
+        userId: user.id,
+        source: 'route_guard',
+        decision: truthDecision,
+        canAttemptDaily,
+        routed_to: routedTo,
+        queueStatus: reg?.queue_status ?? null,
+        vsState: vs.state ?? null,
+        vsPhase: vs.phase ?? null,
+        readyGateStatus: vs.ready_gate_status ?? null,
+        readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
+      });
       if (truthDecision === 'ended') {
         const { data: verdict } = await supabase
           .from('date_feedback')
@@ -771,7 +806,7 @@ export default function VideoDateScreen() {
         }
         return;
       }
-      if (truthDecision === 'navigate_date') {
+      if (canAttemptDaily || truthDecision === 'navigate_date') {
         return;
       }
       if (truthDecision === 'navigate_ready') {
@@ -779,6 +814,8 @@ export default function VideoDateScreen() {
           sessionId,
           userId: user.id,
           branch: 'navigate_ready',
+          canAttemptDaily,
+          routed_to: 'ready',
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         });
@@ -790,6 +827,10 @@ export default function VideoDateScreen() {
           vs_state: vs.state,
           vs_phase: vs.phase,
           handshake_started_at: Boolean(vs.handshake_started_at),
+          ready_gate_status: vs.ready_gate_status ?? null,
+          ready_gate_expires_at: vs.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+          can_attempt_daily: canAttemptDaily,
+          routed_to: 'ready',
         });
         const target = readyGateHref(sessionId);
         vdbgRedirect(target, 'in_ready_gate_without_date_entry_latch_or_handshake', {
@@ -868,12 +909,21 @@ export default function VideoDateScreen() {
             : canAttemptDaily
               ? 'video_truth_startable_after_refetch'
               : 'video_truth_not_startable';
+      const routedTo =
+        canAttemptDaily || decision === 'navigate_date'
+          ? 'date'
+          : decision === 'navigate_ready'
+            ? 'ready'
+            : decision === 'ended'
+              ? 'ended'
+              : 'lobby';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
         session_id: sessionId,
         user_id: user.id,
         decision,
         can_attempt_daily: canAttemptDaily,
         reason,
+        routed_to: routedTo,
         source,
         queue_status: reg?.queue_status ?? null,
         current_room_id: reg?.current_room_id ?? null,
@@ -889,6 +939,8 @@ export default function VideoDateScreen() {
         source,
         decision,
         reason,
+        canAttemptDaily,
+        routed_to: routedTo,
         queueStatus: reg?.queue_status ?? null,
         currentRoomId: reg?.current_room_id ?? null,
         vsState: vs?.state ?? null,

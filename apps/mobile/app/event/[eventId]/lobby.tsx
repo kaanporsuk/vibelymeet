@@ -54,7 +54,10 @@ import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import {
   fetchVideoSessionDateEntryTruth,
 } from '@/lib/videoDateApi';
-import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from '@clientShared/matching/activeSession';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
@@ -263,13 +266,27 @@ export default function EventLobbyScreen() {
         ]);
         const reg = regRes.data;
         const decision = decideVideoSessionRouteFromTruth(vs);
-        const reason = decision === 'navigate_date' ? null : decision === 'ended' ? 'session_ended' : 'video_truth_not_startable';
+        const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+        const routedTo =
+          canAttemptDaily || decision === 'navigate_date'
+            ? 'date'
+            : decision === 'navigate_ready'
+              ? 'ready'
+              : 'none';
+        const reason =
+          routedTo === 'date'
+            ? null
+            : decision === 'ended'
+              ? 'session_ended'
+              : 'video_truth_not_startable';
 
         rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
           session_id: sessionIdToOpen,
           event_id: id,
           decision,
+          can_attempt_daily: canAttemptDaily,
           reason,
+          routed_to: routedTo,
           queue_status: reg?.queue_status ?? null,
           current_room_id: reg?.current_room_id ?? null,
           vs_state: vs?.state ?? null,
@@ -283,7 +300,9 @@ export default function EventLobbyScreen() {
           eventId: id,
           sessionId: sessionIdToOpen,
           decision,
+          canAttemptDaily,
           reason,
+          routed_to: routedTo,
           queueStatus: reg?.queue_status ?? null,
           currentRoomId: reg?.current_room_id ?? null,
           vsState: vs?.state ?? null,
@@ -293,15 +312,16 @@ export default function EventLobbyScreen() {
           readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
         });
 
-        if (decision === 'navigate_ready') {
+        if (!canAttemptDaily && decision === 'navigate_ready') {
           router.replace(`/ready/${sessionIdToOpen}` as const);
           return;
         }
-        if (decision !== 'navigate_date') {
+        if (!canAttemptDaily && decision !== 'navigate_date') {
           void refetchActiveSession();
           return;
         }
 
+        markVideoDateEntryPipelineStarted(sessionIdToOpen);
         navigateToDateSessionGuarded({
           sessionId: sessionIdToOpen,
           pathname,
@@ -528,6 +548,38 @@ export default function EventLobbyScreen() {
         row: session ?? null,
       });
       if (!session) return;
+      const decision = decideVideoSessionRouteFromTruth(session);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session);
+      if (canAttemptDaily) {
+        rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
+          session_id: sessionId,
+          event_id: id,
+          decision,
+          can_attempt_daily: canAttemptDaily,
+          reason: null,
+          ready_gate_status: session.ready_gate_status ?? null,
+          ready_gate_expires_at:
+            session.ready_gate_expires_at == null ? null : String(session.ready_gate_expires_at),
+          vs_state: session.state ?? null,
+          vs_phase: session.phase ?? null,
+          routed_to: 'date',
+          source: `ready_gate_open_${trigger}`,
+        });
+        vdbg('lobby_date_route_decision', {
+          trigger: `ready_gate_open_${trigger}`,
+          eventId: id,
+          sessionId,
+          decision,
+          canAttemptDaily,
+          readyGateStatus: session.ready_gate_status ?? null,
+          readyGateExpiresAt: session.ready_gate_expires_at ?? null,
+          vsState: session.state ?? null,
+          vsPhase: session.phase ?? null,
+          routed_to: 'date',
+        });
+        navigateToDateSession(sessionId, `ready_gate_open_${trigger}`, 'replace');
+        return;
+      }
       const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
       const { data: profile } = await supabase
         .from('profiles')
@@ -544,7 +596,7 @@ export default function EventLobbyScreen() {
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
       }
     },
-    [id, queryClient, user?.id]
+    [id, navigateToDateSession, queryClient, user?.id]
   );
 
   const refreshQueueAndSuperVibe = useCallback(async () => {
@@ -748,6 +800,10 @@ export default function EventLobbyScreen() {
           }
           void refetchDeck();
           void refreshQueueAndSuperVibe();
+          if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+            navigateToDateSession(session.id as string, 'video_session_update_both_ready', 'replace');
+            return;
+          }
           const newStatus = session.ready_gate_status as string;
           const oldStatus = old?.ready_gate_status as string | undefined;
           const becameReadyGateActive =
@@ -776,6 +832,10 @@ export default function EventLobbyScreen() {
           void refreshQueueAndSuperVibe();
           const status = session.ready_gate_status as string;
           const sid = session.id as string;
+          if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+            navigateToDateSession(sid, 'video_session_insert_both_ready', 'replace');
+            return;
+          }
           if (status === 'queued') {
             const drainResult = await drainMatchQueue(id, user.id);
             const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);

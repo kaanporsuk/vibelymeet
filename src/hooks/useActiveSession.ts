@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   inferVideoQueueStatusFromSessionTruth,
   pickRegistrationForActiveSession,
@@ -82,14 +83,19 @@ async function findDirectVideoSessionFallback(
   if (error || !rows?.length) return null;
 
   const candidate =
-    rows.find((row) => decideVideoSessionRouteFromTruth(row) === "navigate_date") ??
+    rows.find(
+      (row) =>
+        canAttemptDailyRoomFromVideoSessionTruth(row) ||
+        decideVideoSessionRouteFromTruth(row) === "navigate_date"
+    ) ??
     rows.find((row) => decideVideoSessionRouteFromTruth(row) === "navigate_ready") ??
     null;
 
   if (!candidate?.id || !candidate.event_id) return null;
 
   const decision = decideVideoSessionRouteFromTruth(candidate);
-  if (decision !== "navigate_date" && decision !== "navigate_ready") return null;
+  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(candidate);
+  if (!canAttemptDaily && decision !== "navigate_date" && decision !== "navigate_ready") return null;
 
   const partnerId =
     candidate.participant_1_id === userId
@@ -105,7 +111,7 @@ async function findDirectVideoSessionFallback(
     partnerName = profile?.name ?? null;
   }
 
-  return decision === "navigate_date"
+  return canAttemptDaily || decision === "navigate_date"
     ? {
         kind: "video",
         sessionId: candidate.id as string,
@@ -220,7 +226,7 @@ export function useActiveSession(
 
     const { data: session, error: sessionError } = await supabase
       .from("video_sessions")
-      .select("id, ended_at, state, phase, handshake_started_at, date_started_at")
+      .select("id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
       .eq("id", reg.current_room_id)
       .maybeSingle();
 
@@ -266,6 +272,7 @@ export function useActiveSession(
       partnerName,
     };
     const truthDecision = decideVideoSessionRouteFromTruth(session);
+    const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session);
 
     if (truthDecision === "ended") {
       const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
@@ -278,7 +285,7 @@ export function useActiveSession(
     }
 
     if (qs === "in_ready_gate") {
-      if (truthDecision === "navigate_date") {
+      if (canAttemptDaily || truthDecision === "navigate_date") {
         const inferredQs = inferVideoQueueStatusFromSessionTruth(session);
         commitActiveSession(
           { kind: "video", ...base, queueStatus: inferredQs },
@@ -295,7 +302,7 @@ export function useActiveSession(
         }
       }
     } else if (qs === "in_handshake" || qs === "in_date") {
-      if (truthDecision === "navigate_ready") {
+      if (!canAttemptDaily && truthDecision === "navigate_ready") {
         commitActiveSession(
           { kind: "ready_gate", ...base, queueStatus: "in_ready_gate" },
           "video_registration_truth_ready_gate"

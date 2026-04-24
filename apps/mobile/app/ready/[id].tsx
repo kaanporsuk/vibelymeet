@@ -19,7 +19,10 @@ import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
-import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from '@clientShared/matching/activeSession';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
@@ -100,10 +103,21 @@ export default function ReadyGateScreen() {
       ]);
       const reg = regRes.data;
       const decision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const routedTo =
+        canAttemptDaily || decision === 'navigate_date'
+          ? 'date'
+          : decision === 'navigate_ready'
+            ? 'ready'
+            : decision === 'ended'
+              ? 'ended'
+              : 'lobby';
       rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
         session_id: String(sessionId),
         user_id: user.id,
         decision,
+        can_attempt_daily: canAttemptDaily,
+        routed_to: routedTo,
         source,
         queue_status: reg?.queue_status ?? null,
         current_room_id: reg?.current_room_id ?? null,
@@ -114,10 +128,13 @@ export default function ReadyGateScreen() {
         ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
       });
 
-      if (decision === 'navigate_date') {
+      if (canAttemptDaily || decision === 'navigate_date') {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
           session_id: String(sessionId),
           source,
+          can_attempt_daily: canAttemptDaily,
+          ready_gate_status: vs?.ready_gate_status ?? null,
+          ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         });
         setTransitioning(true);
         markVideoDateEntryPipelineStarted(String(sessionId));
@@ -239,8 +256,9 @@ export default function ReadyGateScreen() {
 
         const initialTruth = await fetchVideoSessionDateEntryTruth(String(sessionId));
         const initialDecision = decideVideoSessionRouteFromTruth(initialTruth);
-        if (initialDecision !== 'navigate_ready') {
-          if (initialDecision === 'navigate_date') {
+        const initialCanAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(initialTruth);
+        if (initialCanAttemptDaily || initialDecision !== 'navigate_ready') {
+          if (initialCanAttemptDaily || initialDecision === 'navigate_date') {
             revealReadyUi = true;
           }
           await reconcileFromCanonicalTruth(`initial_truth_${initialDecision}`);
