@@ -22,6 +22,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
+import { nativeHeroVideoReset } from '@/lib/nativeHeroVideoUploadController';
 import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
@@ -235,6 +236,7 @@ export default function VibeStudioScreen() {
             setIsDeleting(true);
             try {
               await deleteVibeVideo();
+              nativeHeroVideoReset();
               setShowFullscreen(false);
               await refreshProfile();
               show({
