@@ -376,8 +376,19 @@ type DailyRoomResponseBody = {
 export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoomTokenResult> {
   const args = { action: 'create_date_room', sessionId };
   vdbg('daily_room_before', { action: 'create_date_room', args });
+  const invokeStarted = Date.now();
   const { data, error, response } = await supabase.functions.invoke<DailyRoomResponseBody>('daily-room', {
     body: args,
+  });
+  Sentry.addBreadcrumb({
+    category: 'video-date-launch',
+    message: 'daily_room_edge_invoke',
+    level: 'info',
+    data: {
+      session_id: sessionId,
+      duration_ms: Date.now() - invokeStarted,
+      ok: !error && Boolean(data?.token && data.room_name),
+    },
   });
 
   if (!error && data?.token && data.room_name) {
@@ -470,7 +481,18 @@ export async function enterHandshake(sessionId: string): Promise<EnterHandshakeR
     p_action: 'enter_handshake',
   };
   vdbg('video_date_transition_before', { action: 'enter_handshake', args });
+  const rpcStarted = Date.now();
   const { data, error } = await supabase.rpc('video_date_transition', args);
+  Sentry.addBreadcrumb({
+    category: 'video-date-launch',
+    message: 'enter_handshake_rpc',
+    level: 'info',
+    data: {
+      session_id: sessionId,
+      duration_ms: Date.now() - rpcStarted,
+      ok: !error && (data as { success?: boolean } | null)?.success !== false,
+    },
+  });
   vdbg('video_date_transition_after', {
     action: 'enter_handshake',
     ok: !error && (data as { success?: boolean } | null)?.success !== false,
@@ -534,6 +556,21 @@ export async function fetchVideoSessionDateEntryTruth(
     .maybeSingle();
   if (error || !data) return null;
   return data as VideoSessionDateEntryTruth;
+}
+
+/** Single-flight for concurrent reads of the same session (route guard + hydration + prejoin truth0). */
+const dateEntryTruthInflight = new Map<string, Promise<VideoSessionDateEntryTruth | null>>();
+
+export function fetchVideoSessionDateEntryTruthCoalesced(
+  sessionId: string
+): Promise<VideoSessionDateEntryTruth | null> {
+  const existing = dateEntryTruthInflight.get(sessionId);
+  if (existing) return existing;
+  const p = fetchVideoSessionDateEntryTruth(sessionId).finally(() => {
+    dateEntryTruthInflight.delete(sessionId);
+  });
+  dateEntryTruthInflight.set(sessionId, p);
+  return p;
 }
 
 /** True when the session has entered handshake/date on the server (do not bounce to `/ready` from stale `in_ready_gate`). */

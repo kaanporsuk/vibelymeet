@@ -18,7 +18,8 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
-import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
+import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -62,7 +63,6 @@ export default function ReadyGateScreen() {
   const [sessionLookupDone, setSessionLookupDone] = useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
-  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
@@ -93,7 +93,7 @@ export default function ReadyGateScreen() {
     async (source: string) => {
       if (!sessionId || !user?.id) return false;
       const [vs, regRes] = await Promise.all([
-        fetchVideoSessionDateEntryTruth(String(sessionId)),
+        fetchVideoSessionDateEntryTruthCoalesced(String(sessionId)),
         supabase
           .from('event_registrations')
           .select('queue_status, current_room_id')
@@ -138,7 +138,7 @@ export default function ReadyGateScreen() {
         });
         setTransitioning(true);
         markVideoDateEntryPipelineStarted(String(sessionId));
-        navigateToDateSessionGuarded({
+        const navigated = navigateToDateSessionGuarded({
           sessionId: String(sessionId),
           pathname,
           mode: 'replace',
@@ -151,6 +151,12 @@ export default function ReadyGateScreen() {
             });
           },
         });
+        if (source === 'both_ready' && navigated) {
+          videoDateLaunchBreadcrumb('ready_standalone_navigate_to_date', {
+            session_id: String(sessionId),
+          });
+          markNativeVideoDateLaunchIntent('ready_standalone_both_ready');
+        }
         return true;
       }
 
@@ -254,7 +260,7 @@ export default function ReadyGateScreen() {
           return;
         }
 
-        const initialTruth = await fetchVideoSessionDateEntryTruth(String(sessionId));
+        const initialTruth = await fetchVideoSessionDateEntryTruthCoalesced(String(sessionId));
         const initialDecision = decideVideoSessionRouteFromTruth(initialTruth);
         const initialCanAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(initialTruth);
         if (initialCanAttemptDaily || initialDecision !== 'navigate_ready') {
@@ -310,15 +316,9 @@ export default function ReadyGateScreen() {
   }, [isBothReady, sessionId]);
 
   useEffect(() => {
-    if (isBothReady) {
-      setTransitioning(true);
-      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
-      transitionTimeoutRef.current = setTimeout(() => {
-        void (async () => {
-          await reconcileFromCanonicalTruth('both_ready');
-        })();
-      }, 1500);
-    }
+    if (!isBothReady) return;
+    setTransitioning(true);
+    void reconcileFromCanonicalTruth('both_ready');
   }, [isBothReady, reconcileFromCanonicalTruth]);
 
   useEffect(() => {
@@ -331,12 +331,6 @@ export default function ReadyGateScreen() {
 
     return () => clearTimeout(timer);
   }, [iAmReady, isBothReady, isForfeited, reconcileFromCanonicalTruth, sessionId, transitioning, user?.id]);
-
-  useEffect(() => {
-    return () => {
-      if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
-    };
-  }, []);
 
   useEffect(() => {
     if (isForfeited) {

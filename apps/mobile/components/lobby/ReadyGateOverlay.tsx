@@ -24,7 +24,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useReadyGate } from '@/lib/readyGateApi';
-import { fetchVideoSessionDateEntryTruth, updateParticipantStatus } from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruthCoalesced, updateParticipantStatus } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
@@ -104,7 +104,7 @@ export function ReadyGateOverlay({
   const reconcileFromCanonicalTruth = useCallback(
     async (source: string) => {
       const [vs, regRes] = await Promise.all([
-        fetchVideoSessionDateEntryTruth(sessionId),
+        fetchVideoSessionDateEntryTruthCoalesced(sessionId),
         supabase
           .from('event_registrations')
           .select('queue_status, current_room_id')
@@ -197,9 +197,7 @@ export function ReadyGateOverlay({
       eventId,
     });
     // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
-    setTimeout(() => {
-      onNavigateToDate(sessionId);
-    }, 1200);
+    onNavigateToDate(sessionId);
   }, [sessionId, onNavigateToDate, eventId]);
 
   const handleForfeited = useCallback(
@@ -349,7 +347,7 @@ export function ReadyGateOverlay({
           .eq('event_id', eventId)
           .eq('profile_id', userId)
           .maybeSingle(),
-        fetchVideoSessionDateEntryTruth(sessionId),
+        fetchVideoSessionDateEntryTruthCoalesced(sessionId),
       ]);
       const reg = regResult.data;
       if (cancelled) return;

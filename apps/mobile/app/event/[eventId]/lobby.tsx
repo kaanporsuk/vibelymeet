@@ -51,6 +51,7 @@ import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
+import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   fetchVideoSessionDateEntryTruth,
 } from '@/lib/videoDateApi';
@@ -322,7 +323,7 @@ export default function EventLobbyScreen() {
         }
 
         markVideoDateEntryPipelineStarted(sessionIdToOpen);
-        navigateToDateSessionGuarded({
+        const navigated = navigateToDateSessionGuarded({
           sessionId: sessionIdToOpen,
           pathname,
           mode,
@@ -344,6 +345,13 @@ export default function EventLobbyScreen() {
             });
           },
         });
+        if (trigger === 'ready_gate_overlay' && navigated) {
+          videoDateLaunchBreadcrumb('ready_lobby_overlay_navigate_to_date', {
+            session_id: sessionIdToOpen,
+            event_id: id,
+          });
+          markNativeVideoDateLaunchIntent('ready_lobby_overlay_both_ready');
+        }
       })();
     },
     [id, pathname, refetchActiveSession, user?.id]
