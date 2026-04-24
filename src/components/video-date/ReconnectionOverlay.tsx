@@ -5,13 +5,23 @@ interface ReconnectionOverlayProps {
   isVisible: boolean;
   partnerName: string;
   graceTimeLeft: number;
+  mode?: "partner_away" | "network_interrupted";
 }
 
 export const ReconnectionOverlay = ({
   isVisible,
   partnerName,
   graceTimeLeft,
+  mode = "partner_away",
 }: ReconnectionOverlayProps) => {
+  const title =
+    mode === "network_interrupted"
+      ? "Connection interrupted - reconnecting..."
+      : `Reconnecting with ${partnerName}...`;
+  const subtitle =
+    mode === "network_interrupted"
+      ? "Your match may be reconnecting. We'll keep the date open for a moment."
+      : "Hang tight - they might be back! We'll keep the date open for a moment.";
   return (
     <AnimatePresence>
       {isVisible && (
@@ -38,10 +48,10 @@ export const ReconnectionOverlay = ({
 
             <div className="space-y-1">
               <h3 className="text-lg font-display font-semibold text-foreground">
-                Reconnecting with {partnerName}...
+                {title}
               </h3>
               <p className="text-sm text-muted-foreground">
-                Hang tight — they might be back! ⏳
+                {subtitle}
               </p>
             </div>
 
