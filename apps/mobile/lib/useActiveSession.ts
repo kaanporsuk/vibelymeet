@@ -10,6 +10,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import {
+  canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   inferVideoQueueStatusFromSessionTruth,
   pickRegistrationForActiveSession,
@@ -92,14 +93,19 @@ async function findDirectVideoSessionFallback(
   if (error || !rows?.length) return null;
 
   const candidate =
-    rows.find((row) => decideVideoSessionRouteFromTruth(row) === 'navigate_date') ??
+    rows.find(
+      (row) =>
+        canAttemptDailyRoomFromVideoSessionTruth(row) ||
+        decideVideoSessionRouteFromTruth(row) === 'navigate_date'
+    ) ??
     rows.find((row) => decideVideoSessionRouteFromTruth(row) === 'navigate_ready') ??
     null;
 
   if (!candidate?.id || !candidate.event_id) return null;
 
   const decision = decideVideoSessionRouteFromTruth(candidate);
-  if (decision !== 'navigate_date' && decision !== 'navigate_ready') return null;
+  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(candidate);
+  if (!canAttemptDaily && decision !== 'navigate_date' && decision !== 'navigate_ready') return null;
 
   const partnerId =
     candidate.participant_1_id === userId
@@ -115,7 +121,7 @@ async function findDirectVideoSessionFallback(
     partnerName = profile?.name ?? null;
   }
 
-  return decision === 'navigate_date'
+  return canAttemptDaily || decision === 'navigate_date'
     ? {
         kind: 'video',
         sessionId: candidate.id as string,
@@ -203,6 +209,7 @@ export function useActiveSession(
         if (qs === 'in_ready_gate' || qs === 'in_handshake' || qs === 'in_date' || qs === 'in_survey') {
           const truth = session as unknown as VideoSessionDateEntryTruth;
           const truthDecision = decideVideoSessionRouteFromTruth(truth);
+          const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
 
           let partnerName: string | null = null;
           if (reg.current_partner_id) {
@@ -225,6 +232,15 @@ export function useActiveSession(
           };
 
           if (mounted.current) {
+            if (canAttemptDaily || truthDecision === 'navigate_date') {
+              setActiveSession({
+                kind: 'video',
+                ...base,
+                queueStatus: qs === 'in_ready_gate' ? inferVideoQueueStatusFromSessionTruth(truth) : qs,
+              });
+              setHydrated(true);
+              return;
+            }
             if (truthDecision === 'navigate_ready') {
               if (qs !== 'in_ready_gate') {
                 rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
@@ -235,18 +251,10 @@ export function useActiveSession(
                   vs_phase: truth.phase ?? null,
                   handshake_started_at: Boolean(truth.handshake_started_at),
                   ready_gate_status: truth.ready_gate_status ?? null,
+                  can_attempt_daily: canAttemptDaily,
                 });
               }
               setActiveSession({ kind: 'ready_gate', ...base, queueStatus: 'in_ready_gate' });
-              setHydrated(true);
-              return;
-            }
-            if (truthDecision === 'navigate_date') {
-              setActiveSession({
-                kind: 'video',
-                ...base,
-                queueStatus: qs === 'in_ready_gate' ? inferVideoQueueStatusFromSessionTruth(truth) : qs,
-              });
               setHydrated(true);
               return;
             }
@@ -265,6 +273,7 @@ export function useActiveSession(
                 vs_phase: truth.phase ?? null,
                 handshake_started_at: Boolean(truth.handshake_started_at),
                 ready_gate_status: truth.ready_gate_status ?? null,
+                can_attempt_daily: canAttemptDaily,
               });
             } else {
               rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'active_session_video_blocked', {
@@ -275,6 +284,7 @@ export function useActiveSession(
                 vs_phase: truth.phase ?? null,
                 handshake_started_at: Boolean(truth.handshake_started_at),
                 ready_gate_status: truth.ready_gate_status ?? null,
+                can_attempt_daily: canAttemptDaily,
               });
             }
           }

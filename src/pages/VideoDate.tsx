@@ -616,6 +616,7 @@ const VideoDate = () => {
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
         const sessionIsDateCapable = videoSessionRowIndicatesHandshakeOrDate(sessionRow);
+        const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(sessionRow);
         if (!isParticipant) {
           vdbg("date_guard_blocked", {
             sessionId: id,
@@ -711,25 +712,18 @@ const VideoDate = () => {
           const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
           const rgExpiresRaw =
             (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
-          const rgExpiresMs =
-            rgExpiresRaw == null
-              ? null
-              : typeof rgExpiresRaw === "number"
-                ? rgExpiresRaw
-                : Date.parse(String(rgExpiresRaw));
-          const bothReady = rgStatus === "both_ready";
-          const bothReadyValid =
-            bothReady && rgExpiresMs != null && Number.isFinite(rgExpiresMs) && rgExpiresMs > Date.now();
-          const readyGateBranch = bothReadyValid
-            ? "both_ready_valid_staying"
-            : bothReady
-              ? "both_ready_expired_redirecting"
+          const readyGateBranch = canAttemptDaily
+            ? "daily_startable_staying"
+            : rgStatus === "both_ready"
+              ? "both_ready_not_startable_redirecting"
               : "no_both_ready_redirecting";
           vdbg("date_guard_ready_gate_branch", {
             sessionId: id,
             userId: user.id,
             eventId: sessionRow.event_id,
             branch: readyGateBranch,
+            canAttemptDaily,
+            routed_to: canAttemptDaily || isDateEntryTransitionActive(id) ? "date" : "lobby",
             readyGateStatus: rgStatus,
             readyGateExpiresAt: rgExpiresRaw,
             latchActive: isDateEntryTransitionActive(id),
@@ -737,7 +731,7 @@ const VideoDate = () => {
             phase: sessionRow.phase,
             handshakeStarted: Boolean(sessionRow.handshake_started_at),
           });
-          const allowEntry = bothReadyValid || isDateEntryTransitionActive(id);
+          const allowEntry = canAttemptDaily || isDateEntryTransitionActive(id);
           if (!allowEntry) {
             videoDateDebug("bouncing ready_gate session back to lobby", {
               sessionId: id,

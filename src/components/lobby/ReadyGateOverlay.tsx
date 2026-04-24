@@ -11,7 +11,10 @@ import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
-import { decideVideoSessionRouteFromTruth } from "@clientShared/matching/activeSession";
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from "@clientShared/matching/activeSession";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -148,7 +151,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           .maybeSingle(),
         supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status")
+          .select("participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at")
           .eq("id", sessionId)
           .maybeSingle(),
       ]);
@@ -170,6 +173,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       const readyGateStatus = (vs?.ready_gate_status as string | null | undefined) ?? null;
       const isParticipant = vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
       const decision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const routedTo =
+        canAttemptDaily || decision === "navigate_date"
+          ? "date"
+          : decision === "navigate_ready"
+            ? "ready"
+            : "lobby";
 
       readyGateDebug("session reconciliation", {
         sessionId,
@@ -177,11 +187,28 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         queueStatus,
         sameRoom,
         decision,
+        canAttemptDaily,
+        routedTo,
         vsState: vs?.state ?? null,
         vsPhase: vs?.phase ?? null,
         readyGateStatus,
+        readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
         isParticipant,
         ended: Boolean(vs?.ended_at),
+      });
+      vdbg("ready_gate_date_route_decision", {
+        sessionId,
+        eventId,
+        source,
+        decision,
+        canAttemptDaily,
+        routed_to: routedTo,
+        queueStatus,
+        currentRoomId: reg?.current_room_id ?? null,
+        readyGateStatus,
+        readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
+        state: vs?.state ?? null,
+        phase: vs?.phase ?? null,
       });
 
       if (!vs) {
@@ -196,7 +223,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         return;
       }
 
-      if (decision === "navigate_date") {
+      if (canAttemptDaily || decision === "navigate_date") {
         navigateToDate(source);
         return;
       }
@@ -278,11 +305,16 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         },
         (payload) => {
           const row = payload.new as Record<string, unknown>;
-          if (decideVideoSessionRouteFromTruth(row) === "navigate_date") {
+          if (
+            canAttemptDailyRoomFromVideoSessionTruth(row) ||
+            decideVideoSessionRouteFromTruth(row) === "navigate_date"
+          ) {
             readyGateDebug("same-session active date detected from video session realtime", {
               sessionId,
               state: row.state,
               phase: row.phase,
+              readyGateStatus: row.ready_gate_status,
+              readyGateExpiresAt: row.ready_gate_expires_at,
             });
             navigateToDate("video_session_realtime");
             return;

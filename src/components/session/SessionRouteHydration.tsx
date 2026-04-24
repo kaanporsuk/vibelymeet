@@ -5,7 +5,10 @@ import { vdbg } from "@/lib/vdbg";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { clearDateEntryTransition, isDateEntryTransitionActive } from "@/lib/dateEntryTransitionLatch";
-import { decideVideoSessionRouteFromTruth } from "@clientShared/matching/activeSession";
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from "@clientShared/matching/activeSession";
 
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -47,7 +50,7 @@ export function SessionRouteHydration() {
     void (async () => {
       const { data: vs, error } = await supabase
         .from("video_sessions")
-        .select("ended_at, state, phase, handshake_started_at, date_started_at")
+        .select("ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
         .eq("id", sessionIdFromUrl)
         .maybeSingle();
 
@@ -80,6 +83,7 @@ export function SessionRouteHydration() {
       }
 
       const truthDecision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
 
       if (truthDecision === "ended") {
         clearDateEntryTransition(sessionIdFromUrl);
@@ -97,21 +101,26 @@ export function SessionRouteHydration() {
         return;
       }
 
-      if (truthDecision === "navigate_date") {
+      if (canAttemptDaily || truthDecision === "navigate_date") {
         routeHydrationDebug("blocked ready_gate bounce; video session is date-capable", {
           sessionId: sessionIdFromUrl,
           state: vs.state,
           phase: vs.phase,
           handshakeStarted: Boolean(vs.handshake_started_at),
+          canAttemptDaily,
         });
         vdbg("route_hydration_ready_gate_bounce_blocked", {
           sessionId: sessionIdFromUrl,
           userId: user.id,
           eventId: activeSession.eventId,
-          reason: "video_session_handshake_or_date",
+          reason: canAttemptDaily ? "video_session_daily_startable" : "video_session_handshake_or_date",
+          canAttemptDaily,
+          routed_to: "date",
           state: vs.state,
           phase: vs.phase,
           handshakeStarted: Boolean(vs.handshake_started_at),
+          readyGateStatus: vs.ready_gate_status ?? null,
+          readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
           latchActive: latchActiveAtStart,
         });
         return;

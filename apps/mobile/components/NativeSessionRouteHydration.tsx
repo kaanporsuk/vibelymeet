@@ -6,7 +6,10 @@ import { useActiveSession } from '@/lib/useActiveSession';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
-import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from '@clientShared/matching/activeSession';
 
 /**
  * Stack-level owner for `/date/[id]` when `useActiveSession` is **ready_gate** for that id →
@@ -53,6 +56,7 @@ export function NativeSessionRouteHydration() {
         return;
       }
       const truthDecision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
       if (truthDecision === 'ended') {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
@@ -62,13 +66,17 @@ export function NativeSessionRouteHydration() {
         });
         return;
       }
-      if (truthDecision === 'navigate_date') {
+      if (canAttemptDaily || truthDecision === 'navigate_date') {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
-          reason: 'video_sessions_handshake_or_date',
+          reason: canAttemptDaily ? 'video_sessions_daily_startable' : 'video_sessions_handshake_or_date',
+          can_attempt_daily: canAttemptDaily,
+          routed_to: 'date',
           handshake_started_at: Boolean(vs?.handshake_started_at),
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
+          ready_gate_status: vs?.ready_gate_status ?? null,
+          ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         });
         return;
       }
@@ -88,6 +96,10 @@ export function NativeSessionRouteHydration() {
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
         session_id: sid,
         source: 'native_session_route_hydration',
+        can_attempt_daily: canAttemptDaily,
+        ready_gate_status: vs?.ready_gate_status ?? null,
+        ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
+        routed_to: 'ready',
       });
       router.replace(readyGateHref(sid));
     })();

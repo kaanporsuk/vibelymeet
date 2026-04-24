@@ -31,7 +31,10 @@ import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { trackEvent } from '@/lib/analytics';
-import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+} from '@clientShared/matching/activeSession';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
 const RING_SIZE = 88;
@@ -112,10 +115,19 @@ export function ReadyGateOverlay({
       ]);
       const reg = regRes.data;
       const decision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const routedTo =
+        canAttemptDaily || decision === 'navigate_date'
+          ? 'date'
+          : decision === 'navigate_ready'
+            ? 'ready'
+            : 'none';
       rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
         session_id: sessionId,
         user_id: userId,
         decision,
+        can_attempt_daily: canAttemptDaily,
+        routed_to: routedTo,
         source,
         queue_status: reg?.queue_status ?? null,
         current_room_id: reg?.current_room_id ?? null,
@@ -125,8 +137,21 @@ export function ReadyGateOverlay({
         ready_gate_status: vs?.ready_gate_status ?? null,
         ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
       });
+      vdbg('ready_gate_date_route_decision', {
+        sessionId,
+        userId,
+        eventId,
+        source,
+        decision,
+        canAttemptDaily,
+        routed_to: routedTo,
+        readyGateStatus: vs?.ready_gate_status ?? null,
+        readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
+        state: vs?.state ?? null,
+        phase: vs?.phase ?? null,
+      });
 
-      if (decision === 'navigate_date') {
+      if (canAttemptDaily || decision === 'navigate_date') {
         closedRef.current = true;
         setIsTransitioning(true);
         markVideoDateEntryPipelineStarted(sessionId);
@@ -329,6 +354,11 @@ export function ReadyGateOverlay({
       const reg = regResult.data;
       if (cancelled) return;
       const decision = decideVideoSessionRouteFromTruth(vs);
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      if (canAttemptDaily) {
+        await reconcileFromCanonicalTruth('overlay_initial_daily_startable_check');
+        return;
+      }
       if (!vs || decision !== 'navigate_ready') {
         trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
           platform: 'native',

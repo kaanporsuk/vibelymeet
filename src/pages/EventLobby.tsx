@@ -24,7 +24,10 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
-import { videoSessionRowIndicatesHandshakeOrDate } from "@clientShared/matching/activeSession";
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  videoSessionRowIndicatesHandshakeOrDate,
+} from "@clientShared/matching/activeSession";
 import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
@@ -527,11 +530,13 @@ const EventLobby = () => {
           const sessionId = typeof session.id === "string" ? session.id : null;
           if (!sessionId) return;
 
-          if (isActiveVideoPhase(session)) {
+          if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
             lobbyDebug("same-session active date detected from video session realtime", {
               sessionId,
               state: session.state,
               phase: session.phase,
+              readyGateStatus: session.ready_gate_status,
+              readyGateExpiresAt: session.ready_gate_expires_at,
             });
             navigateToDateSession(sessionId, "video_session_realtime");
             return;
@@ -559,7 +564,7 @@ const EventLobby = () => {
           const sessionId = typeof session.id === "string" ? session.id : null;
           if (!sessionId) return;
 
-          if (isActiveVideoPhase(session)) {
+          if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
             navigateToDateSession(sessionId, "video_session_insert");
             return;
           }
