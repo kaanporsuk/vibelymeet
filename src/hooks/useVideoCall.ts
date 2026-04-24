@@ -19,9 +19,13 @@ interface UseVideoCallOptions {
   roomId?: string;
   userId?: string;
   eventId?: string;
+  videoSessionState?: string;
+  localDecisionPersisted?: boolean;
   onCallEnded?: () => void;
   onPartnerJoined?: () => void;
   onPartnerLeft?: () => void;
+  onPartnerTransientDisconnect?: () => void;
+  onPartnerTransientRecover?: () => void;
 }
 
 /** Daily `network-quality-change` — surfaced as lightweight HUD, not toasts. */
@@ -40,6 +44,7 @@ export type RemotePlaybackState = {
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
+const DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
 
 type VideoDateTruthRow = {
   id: string;
@@ -82,6 +87,13 @@ export type VideoCallStartResult =
       ok: false;
       failure: VideoCallStartFailure;
     };
+
+export type DailyReconnectState =
+  | "connected"
+  | "interrupted"
+  | "partner_reconnecting"
+  | "recovered"
+  | "failed_after_grace";
 
 function tierFromNetworkQualityEvent(event: { threshold?: string; quality?: number } | undefined): VideoCallNetworkTier {
   const q = typeof event?.quality === "number" ? event.quality : 100;
@@ -174,6 +186,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [networkTier, setNetworkTier] = useState<VideoCallNetworkTier>("good");
   const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackState>(() => createRemotePlaybackState());
+  const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
+  const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -194,6 +208,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const activeCallSessionIdRef = useRef<string | null>(null);
   const latestLocalParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
+  const reconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectGraceTickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectGraceActiveRef = useRef(false);
+  const reconnectPartnerAwayTriggeredRef = useRef(false);
+  const reconnectSyncRequestedRef = useRef(false);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -349,6 +368,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     firstRemoteWatchdogRef.current = null;
   }, []);
 
+  const clearReconnectGraceTimers = useCallback(() => {
+    if (reconnectGraceTimeoutRef.current) {
+      clearTimeout(reconnectGraceTimeoutRef.current);
+      reconnectGraceTimeoutRef.current = null;
+    }
+    if (reconnectGraceTickerRef.current) {
+      clearInterval(reconnectGraceTickerRef.current);
+      reconnectGraceTickerRef.current = null;
+    }
+  }, []);
+
   const cleanupCallObject = useCallback(
     async (caller: string, reason: string) => {
       const callObject = callObjectRef.current;
@@ -408,6 +438,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnecting(false);
       setNetworkTier("good");
       setRemotePlayback(createRemotePlaybackState());
+      clearReconnectGraceTimers();
+      reconnectGraceActiveRef.current = false;
+      reconnectPartnerAwayTriggeredRef.current = false;
+      reconnectSyncRequestedRef.current = false;
+      setDailyReconnectState("connected");
+      setReconnectGraceTimeLeft(0);
       firstRemoteObservedRef.current = false;
       clearFirstRemoteWatchdog();
       lastLocalTrackIdsRef.current = "";
@@ -419,7 +455,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       latestLocalParticipantRef.current = undefined;
       latestRemoteParticipantRef.current = undefined;
     },
-    [clearFirstRemoteWatchdog]
+    [clearFirstRemoteWatchdog, clearReconnectGraceTimers]
   );
 
   const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
@@ -804,8 +840,136 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reusedCallObject: false,
         });
 
+        const getRemoteParticipantCount = () => {
+          const activeCall = callObjectRef.current;
+          if (!activeCall) return 0;
+          try {
+            return Object.values(activeCall.participants()).filter((p) => !p.local).length;
+          } catch {
+            return 0;
+          }
+        };
+
+        const getMeetingState = () => {
+          const activeCall = callObjectRef.current as (DailyCall & { meetingState?: () => unknown }) | null;
+          if (!activeCall || typeof activeCall.meetingState !== "function") return null;
+          try {
+            const state = activeCall.meetingState();
+            return typeof state === "string" ? state : String(state);
+          } catch {
+            return null;
+          }
+        };
+
+        const logTransportState = (message: string, extra?: Record<string, unknown>) => {
+          vdbg(message, {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            localParticipantId: latestLocalParticipantRef.current?.session_id ?? null,
+            remoteParticipantCount: getRemoteParticipantCount(),
+            dailyMeetingState: getMeetingState(),
+            videoSessionState: optionsRef.current?.videoSessionState ?? null,
+            localJoined: activeCallSessionIdRef.current === sessionId,
+            localDecisionPersisted: optionsRef.current?.localDecisionPersisted ?? null,
+            reconnectState: reconnectGraceActiveRef.current ? "interrupted" : "connected",
+            ...extra,
+          });
+        };
+
+        const syncReconnectOnce = async (reason: string) => {
+          if (reconnectSyncRequestedRef.current) return;
+          reconnectSyncRequestedRef.current = true;
+          const args = { p_session_id: sessionId, p_action: "sync_reconnect" };
+          vdbg("video_date_transition_before", { action: "sync_reconnect", args, reason });
+          const { data, error } = await supabase.rpc("video_date_transition", args);
+          vdbg("video_date_transition_after", {
+            action: "sync_reconnect",
+            ok: !error,
+            payload: data ?? null,
+            error: error ? { code: error.code, message: error.message } : null,
+            reason,
+          });
+        };
+
+        const clearReconnectGrace = (reason: string, recovered: boolean) => {
+          if (!reconnectGraceActiveRef.current) return;
+          clearReconnectGraceTimers();
+          reconnectGraceActiveRef.current = false;
+          reconnectSyncRequestedRef.current = false;
+          setReconnectGraceTimeLeft(0);
+          logTransportState("reconnect_grace_cleared", { reason, recovered });
+          if (recovered) {
+            setDailyReconnectState("recovered");
+            logTransportState("daily_transport_recovered", { reason });
+            optionsRef.current?.onPartnerTransientRecover?.();
+            setTimeout(() => {
+              if (!reconnectGraceActiveRef.current) {
+                setDailyReconnectState("connected");
+              }
+            }, 1200);
+          } else {
+            setDailyReconnectState("connected");
+          }
+        };
+
+        const startReconnectGrace = (reason: string) => {
+          if (reconnectGraceActiveRef.current) {
+            logTransportState("daily_transport_reconnecting", { reason, duplicate: true });
+            return;
+          }
+          reconnectGraceActiveRef.current = true;
+          reconnectSyncRequestedRef.current = false;
+          setDailyReconnectState("interrupted");
+          setReconnectGraceTimeLeft(Math.ceil(DAILY_TRANSPORT_RECONNECT_GRACE_MS / 1000));
+          logTransportState("daily_transport_disconnected", { reason });
+          logTransportState("reconnect_grace_started", { reason, graceMs: DAILY_TRANSPORT_RECONNECT_GRACE_MS });
+          optionsRef.current?.onPartnerTransientDisconnect?.();
+          void syncReconnectOnce(reason);
+
+          reconnectGraceTickerRef.current = setInterval(() => {
+            setReconnectGraceTimeLeft((prev) => Math.max(0, prev - 1));
+          }, 1000);
+
+          reconnectGraceTimeoutRef.current = setTimeout(() => {
+            clearReconnectGraceTimers();
+            reconnectGraceActiveRef.current = false;
+            reconnectSyncRequestedRef.current = false;
+            setReconnectGraceTimeLeft(0);
+            setDailyReconnectState("failed_after_grace");
+            logTransportState("reconnect_grace_expired", { reason });
+            if (!reconnectPartnerAwayTriggeredRef.current) {
+              reconnectPartnerAwayTriggeredRef.current = true;
+              optionsRef.current?.onPartnerLeft?.();
+            }
+          }, DAILY_TRANSPORT_RECONNECT_GRACE_MS);
+        };
+
+        const recoverTransport = (reason: string) => {
+          if (!reconnectGraceActiveRef.current) return;
+          setDailyReconnectState("partner_reconnecting");
+          clearReconnectGrace(reason, true);
+          if (reconnectPartnerAwayTriggeredRef.current) {
+            reconnectPartnerAwayTriggeredRef.current = false;
+            const returnArgs = { p_session_id: sessionId, p_action: "mark_reconnect_return" };
+            vdbg("video_date_transition_before", { action: "mark_reconnect_return", args: returnArgs, reason });
+            void supabase.rpc("video_date_transition", returnArgs).then(({ data, error }) => {
+              vdbg("video_date_transition_after", {
+                action: "mark_reconnect_return",
+                ok: !error,
+                payload: data ?? null,
+                error: error ? { code: error.code, message: error.message } : null,
+                reason,
+              });
+            });
+          }
+          void syncReconnectOnce(`${reason}_recovered`);
+        };
+
         callObject.on("participant-joined", (event) => {
           if (event && !event.participant?.local) {
+            recoverTransport("participant_joined");
             latestRemoteParticipantRef.current = event.participant;
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
@@ -853,6 +1017,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
             }
           } else {
+            recoverTransport("participant_updated");
             latestRemoteParticipantRef.current = event.participant;
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
@@ -903,7 +1068,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
             setRemotePlayback(createRemotePlaybackState());
-            optionsRef.current?.onPartnerLeft?.();
+            if (reconnectGraceActiveRef.current) {
+              logTransportState("daily_transport_reconnecting", {
+                reason: "participant_left_during_grace",
+              });
+            } else {
+              optionsRef.current?.onPartnerLeft?.();
+            }
           }
         });
 
@@ -920,12 +1091,23 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             roomName: roomData.room_name,
             errorMsg: errorMsg ?? null,
           });
+          const lowered = (errorMsg ?? "").toLowerCase();
+          if (lowered.includes("stale")) {
+            logTransportState("daily_ws_stale", { errorMsg: errorMsg ?? null });
+            startReconnectGrace("daily_ws_stale");
+            return;
+          }
+          if (lowered.includes("reconnect") || lowered.includes("transport")) {
+            startReconnectGrace("daily_transport_error");
+            return;
+          }
           toast.error("Connection error. Please try again.");
           setIsConnecting(false);
           setIsConnected(false);
         });
 
         callObject.on("left-meeting", () => {
+          clearReconnectGrace("left_meeting", false);
           vdbg("daily_call_left_meeting", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
@@ -945,9 +1127,33 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         callObject.on("network-connection", (event: { event?: string } | undefined) => {
           if (event?.event === "interrupted") {
-            console.log("[Daily] Network interrupted — partner may be reconnecting");
-            optionsRef.current?.onPartnerLeft?.();
+            logTransportState("daily_network_interrupted", { networkEvent: event.event });
+            startReconnectGrace("network_interrupted");
+            return;
           }
+          if (event?.event === "reconnecting") {
+            setDailyReconnectState("partner_reconnecting");
+            logTransportState("daily_transport_reconnecting", { networkEvent: event.event });
+            return;
+          }
+          if (event?.event === "reconnected" || event?.event === "connected") {
+            recoverTransport(`network_${event.event}`);
+          }
+        });
+
+        callObject.on("nonfatal-error", (event) => {
+          logTransportState("daily_nonfatal_error", {
+            event:
+              event && typeof event === "object"
+                ? JSON.parse(JSON.stringify(event))
+                : String(event),
+          });
+        });
+
+        callObject.on("app-message", (event) => {
+          logTransportState("daily_app_message", {
+            hasData: Boolean(event && typeof event === "object" && "data" in (event as object)),
+          });
         });
 
         callObject.on("network-quality-change", (event: { threshold?: string; quality?: number }) => {
@@ -1148,7 +1354,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
       }
     },
-    [acquireDateRoom, attachTracks, cleanupCallObject, clearFirstRemoteWatchdog, fetchVideoDateTruth, needsTrackReattach]
+    [
+      acquireDateRoom,
+      attachTracks,
+      cleanupCallObject,
+      clearFirstRemoteWatchdog,
+      clearReconnectGraceTimers,
+      fetchVideoDateTruth,
+      needsTrackReattach,
+    ]
   );
 
   useEffect(() => {
@@ -1270,6 +1484,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     hasPermission,
     networkTier,
     remotePlayback,
+    dailyReconnectState,
+    reconnectGraceTimeLeft,
     localVideoRef,
     remoteVideoRef,
     localStream,

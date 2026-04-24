@@ -389,10 +389,19 @@ const VideoDate = () => {
     networkTier,
     remotePlayback,
     retryRemotePlayback,
+    dailyReconnectState,
+    reconnectGraceTimeLeft,
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
     eventId,
+    videoSessionState: phase,
+    localDecisionPersisted: Boolean(
+      handshakeTruth &&
+        user?.id &&
+        ((handshakeTruth.participant_1_id === user.id && handshakeTruth.participant_1_decided_at) ||
+          (handshakeTruth.participant_2_id === user.id && handshakeTruth.participant_2_decided_at))
+    ),
     onCallEnded: () => {
       Sentry.addBreadcrumb({ category: "video-date", message: "Call ended", level: "info" });
     },
@@ -401,6 +410,12 @@ const VideoDate = () => {
     },
     onPartnerLeft: () => {
       reconnection.startGraceWindow();
+    },
+    onPartnerTransientDisconnect: () => {
+      toast("Connection interrupted - reconnecting...", { duration: 2500 });
+    },
+    onPartnerTransientRecover: () => {
+      toast("Connection restored", { duration: 1800 });
     },
   });
 
@@ -1862,6 +1877,11 @@ const VideoDate = () => {
   const totalTime =
     phase === "handshake" ? HANDSHAKE_TIME : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
+  const transportReconnectVisible =
+    dailyReconnectState === "interrupted" ||
+    dailyReconnectState === "partner_reconnecting" ||
+    dailyReconnectState === "failed_after_grace";
+  const anyReconnectVisible = transportReconnectVisible || reconnection.isPartnerDisconnected;
 
   if (!id || videoDateAccess === "not_found") {
     return (
@@ -2163,7 +2183,7 @@ const VideoDate = () => {
         <AnimatePresence>
           {(isConnecting || !isConnected || remotePlayback.playRejected) &&
             !showFeedback &&
-            !reconnection.isPartnerDisconnected && (
+            !anyReconnectVisible && (
               <ConnectionOverlay
                 isConnecting={isConnecting}
                 remotePlayback={remotePlayback}
@@ -2175,9 +2195,10 @@ const VideoDate = () => {
 
         {/* Reconnection overlay */}
         <ReconnectionOverlay
-          isVisible={reconnection.isPartnerDisconnected}
+          isVisible={anyReconnectVisible}
           partnerName={partner.name}
-          graceTimeLeft={reconnection.graceTimeLeft}
+          graceTimeLeft={transportReconnectVisible ? reconnectGraceTimeLeft : reconnection.graceTimeLeft}
+          mode={transportReconnectVisible ? "network_interrupted" : "partner_away"}
         />
 
         {/* Bottom gradient */}

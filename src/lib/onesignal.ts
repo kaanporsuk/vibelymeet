@@ -22,6 +22,7 @@ let resolveInit!: () => void;
 let sdkUsable = false;
 /** True after the deferred init callback has finished (success or catch). */
 let initResolvedFlag = false;
+let legacySwCleanupRan = false;
 
 /** Last user id passed to OneSignal.login — avoids duplicate login spam on re-renders / token refresh. */
 let lastLoggedInUserId: string | null = null;
@@ -47,10 +48,22 @@ async function unregisterLegacyCustomServiceWorker(): Promise<void> {
   if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
   try {
     const registrations = await navigator.serviceWorker.getRegistrations();
+    const registrationDiagnostics = registrations.map((registration) => ({
+      scope: registration.scope,
+      scriptPaths: serviceWorkerScriptPaths(registration),
+    }));
+    vibelyOsLog("onesignal:sw registrations", { registrations: registrationDiagnostics });
+
+    let cleanupRan = false;
     await Promise.all(
       registrations.map(async (registration) => {
         const paths = serviceWorkerScriptPaths(registration);
-        if (!paths.includes("/sw.js")) return;
+        const hasLegacySw = paths.includes("/sw.js");
+        const hasOneSignalWorker = paths.some(
+          (path) => path.includes("OneSignalSDK.sw.js") || path.includes("OneSignalSDKWorker.js")
+        );
+        if (!hasLegacySw || hasOneSignalWorker) return;
+        cleanupRan = true;
         const didUnregister = await registration.unregister();
         vibelyOsLog("onesignal:legacy sw unregister", {
           scope: registration.scope,
@@ -59,6 +72,16 @@ async function unregisterLegacyCustomServiceWorker(): Promise<void> {
         });
       })
     );
+    legacySwCleanupRan = legacySwCleanupRan || cleanupRan;
+    vibelyOsLog("onesignal:sw cleanup summary", {
+      cleanupRan,
+      cleanupRanEver: legacySwCleanupRan,
+      oneSignalWorkerActive: registrationDiagnostics.some((entry) =>
+        entry.scriptPaths.some(
+          (path) => path.includes("OneSignalSDK.sw.js") || path.includes("OneSignalSDKWorker.js")
+        )
+      ),
+    });
   } catch (e) {
     vibelyOsLog("onesignal:legacy sw unregister failed", {
       error: e instanceof Error ? e.message : String(e),
