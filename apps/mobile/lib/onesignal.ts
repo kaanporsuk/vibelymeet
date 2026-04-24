@@ -192,7 +192,7 @@ const OBSOLETE_OR_EPHEMERAL_TAG_KEYS = [
 
 function looksLikeTagLimitError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
-  return /tag.*limit|limit.*tag|too many tags|too_many_tags|tags per user/i.test(msg);
+  return /entitlements.tag.limit|tag.*limit|limit.*tag|too many tags|too_many_tags|tags per user/i.test(msg);
 }
 
 function oneSignalTagWriteWarn(stage: string, error: unknown, extra?: Record<string, unknown>): void {

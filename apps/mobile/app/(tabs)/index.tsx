@@ -17,7 +17,7 @@ import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import Colors from '@/constants/Colors';
 import {
   Avatar,
@@ -252,6 +252,7 @@ export default function DashboardScreen() {
   const hasEventAdmissionForNext =
     nextEventData?.hasEventAdmission ?? (isConfirmedForNextEvent || isWaitlistedForNextEvent);
   const [liveClockMs, setLiveClockMs] = useState(() => Date.now());
+  const isFocused = useIsFocused();
 
   useEffect(() => {
     if (!nextEvent || !hasEventAdmissionForNext) return;
@@ -889,7 +890,7 @@ export default function DashboardScreen() {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
+        refreshControl={<RefreshControl refreshing={isFocused && refreshing} onRefresh={handleRefresh} tintColor={theme.tint} />}
       >
         <Animated.View style={[{ opacity: fadeAnim }, styles.scrollInner]}>
           <OnBreakBanner variant="full" />

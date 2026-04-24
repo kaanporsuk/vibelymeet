@@ -5,6 +5,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
 import { disablePush } from '@/lib/onesignal';
+import { getCachedUserId } from '@/lib/nativeAuthSession';
 
 /** Current key — also migrate legacy `notifications_paused_until` on read. */
 export const PAUSED_UNTIL_KEY = 'vibely_notifications_paused_until';
@@ -130,11 +131,9 @@ export async function clearExpiredPauseIfNeeded(): Promise<void> {
   const pausedUntil = new Date(stored);
   if (pausedUntil > new Date()) return;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user?.id) {
-    await resumeNotifications(user.id);
+  const userId = await getCachedUserId();
+  if (userId) {
+    await resumeNotifications(userId);
   } else {
     disablePush(false);
     await AsyncStorage.multiRemove([PAUSED_UNTIL_KEY, LEGACY_PAUSED_UNTIL_KEY, PAUSE_KIND_KEY]);

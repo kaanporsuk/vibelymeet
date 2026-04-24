@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { getCachedSession, getCachedUserId } from '@/lib/nativeAuthSession';
 import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
@@ -575,7 +576,7 @@ export type SwipeResult = SwipeSessionStageResult;
 export type { DrainMatchQueueResult };
 
 export async function swipe(eventId: string, targetId: string, swipeType: 'vibe' | 'pass' | 'super_vibe'): Promise<SwipeResult | null> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const session = await getCachedSession();
   if (!session) return null;
   const { data, error } = await supabase.functions.invoke('swipe-actions', {
     body: { event_id: eventId, target_id: targetId, swipe_type: swipeType },
@@ -672,10 +673,9 @@ export function useEventAttendeePreview(eventId: string | undefined) {
     enabled: !!eventId,
     queryFn: async (): Promise<EventAttendeePreviewPayload> => {
       if (!eventId) return { success: false, error: 'missing_event' };
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user?.id) return { success: false, error: 'not_signed_in' };
+      const userId = await getCachedUserId();
+      if (!userId) return { success: false, error: 'not_signed_in' };
+      const user = { id: userId };
 
       const { data, error } = await supabase.rpc('get_event_attendee_preview', {
         p_event_id: eventId,

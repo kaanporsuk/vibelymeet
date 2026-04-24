@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getLanguageLabel } from '@/lib/eventLanguages';
 import { Ionicons } from '@expo/vector-icons';
@@ -918,6 +919,7 @@ export default function EventsListScreen() {
     canCityBrowse: !!canCityBrowse,
   }), [canCityBrowse, filters.locationMode, filters.selectedCity, filters.distanceKm, userCoords]);
 
+  const isFocused = useIsFocused();
   const { data: events = [], isLoading, error, refetch, isRefetching } = useDiscoverEvents(
     user?.id ?? null,
     discoverParams,
@@ -1054,7 +1056,7 @@ export default function EventsListScreen() {
       contentContainerStyle={styles.scrollContent}
       refreshControl={
         <RefreshControl
-          refreshing={isRefetching && !isLoading}
+          refreshing={isFocused && isRefetching && !isLoading}
           onRefresh={() => refetch()}
           tintColor={theme.tint}
         />
