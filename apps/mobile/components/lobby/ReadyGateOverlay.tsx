@@ -30,7 +30,6 @@ import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
-import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import { trackEvent } from '@/lib/analytics';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -192,11 +191,6 @@ export function ReadyGateOverlay({
       source: 'both_ready',
     });
     markVideoDateEntryPipelineStarted(sessionId);
-    videoDateLaunchBreadcrumb('ready_lobby_overlay_both_ready_navigate', {
-      session_id: sessionId,
-      event_id: eventId,
-    });
-    markNativeVideoDateLaunchIntent('ready_lobby_overlay_both_ready');
     vdbg('lobby_navigate_to_date', {
       trigger: 'ready_gate_overlay_both_ready',
       sessionId,

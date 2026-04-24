@@ -136,15 +136,9 @@ export default function ReadyGateScreen() {
           ready_gate_status: vs?.ready_gate_status ?? null,
           ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         });
-        if (source === 'both_ready') {
-          videoDateLaunchBreadcrumb('ready_standalone_navigate_to_date', {
-            session_id: String(sessionId),
-          });
-          markNativeVideoDateLaunchIntent('ready_standalone_both_ready');
-        }
         setTransitioning(true);
         markVideoDateEntryPipelineStarted(String(sessionId));
-        navigateToDateSessionGuarded({
+        const navigated = navigateToDateSessionGuarded({
           sessionId: String(sessionId),
           pathname,
           mode: 'replace',
@@ -157,6 +151,12 @@ export default function ReadyGateScreen() {
             });
           },
         });
+        if (source === 'both_ready' && navigated) {
+          videoDateLaunchBreadcrumb('ready_standalone_navigate_to_date', {
+            session_id: String(sessionId),
+          });
+          markNativeVideoDateLaunchIntent('ready_standalone_both_ready');
+        }
         return true;
       }
 
