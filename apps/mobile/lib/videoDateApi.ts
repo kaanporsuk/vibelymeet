@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
+import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import {
   DAILY_ROOM_ACTIONS,
   classifyDailyRoomInvokeFailure,
@@ -163,7 +164,7 @@ export function useVideoDateSession(
       }
 
       // Authoritative date evidence always wins over handshake fields.
-      if (state === 'date' || phaseValue === 'date' || !!row.date_started_at) {
+      if (state === 'date' || !!row.date_started_at) {
         const dateStarted =
           typeof row.date_started_at === 'string' ? row.date_started_at : null;
         return {
@@ -176,7 +177,12 @@ export function useVideoDateSession(
         };
       }
 
-      if (row.handshake_started_at || state === 'handshake' || phaseValue === 'handshake') {
+      if (
+        videoSessionRowIndicatesHandshakeOrDate({
+          state,
+          handshake_started_at: row.handshake_started_at,
+        })
+      ) {
         if (row.handshake_started_at) {
           const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
           return { phase: 'handshake', timeLeft: Math.max(0, Math.ceil(HANDSHAKE_SECONDS - elapsed)) };
@@ -498,11 +504,14 @@ export async function fetchVideoSessionDateEntryTruth(
 export function videoSessionIndicatesHandshakeOrDate(
   vs: Pick<VideoSessionDateEntryTruth, 'handshake_started_at' | 'state' | 'phase'> | null
 ): boolean {
-  if (!vs) return false;
-  if (vs.handshake_started_at) return true;
-  const s = vs.state ?? '';
-  const p = vs.phase ?? '';
-  return s === 'handshake' || s === 'date' || p === 'handshake' || p === 'date';
+  return videoSessionRowIndicatesHandshakeOrDate(
+    vs
+      ? {
+          state: vs.state,
+          handshake_started_at: vs.handshake_started_at,
+        }
+      : null
+  );
 }
 
 /** Poll server reconnect state (`sync_reconnect` path); applies lazy grace expiry on the server. */

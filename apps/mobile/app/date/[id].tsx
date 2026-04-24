@@ -58,7 +58,11 @@ import {
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
-import { decideVideoSessionRouteFromTruth } from '@clientShared/matching/activeSession';
+import {
+  canAttemptDailyRoomFromVideoSessionTruth,
+  decideVideoSessionRouteFromTruth,
+  videoSessionRowIndicatesHandshakeOrDate,
+} from '@clientShared/matching/activeSession';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
@@ -855,11 +859,20 @@ export default function VideoDateScreen() {
       ]);
       const reg = regRes.data;
       const decision = decideVideoSessionRouteFromTruth(vs);
-      const reason = decision === 'navigate_date' ? null : decision === 'ended' ? 'session_ended' : 'video_truth_not_startable';
+      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
+      const reason =
+        decision === 'navigate_date'
+          ? null
+          : decision === 'ended'
+            ? 'session_ended'
+            : canAttemptDaily
+              ? 'video_truth_startable_after_refetch'
+              : 'video_truth_not_startable';
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
         session_id: sessionId,
         user_id: user.id,
         decision,
+        can_attempt_daily: canAttemptDaily,
         reason,
         source,
         queue_status: reg?.queue_status ?? null,
@@ -884,7 +897,7 @@ export default function VideoDateScreen() {
         readyGateStatus: vs?.ready_gate_status ?? null,
         readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
       });
-      if (decision === 'navigate_ready') {
+      if (!canAttemptDaily && decision === 'navigate_ready') {
         const target = readyGateHref(sessionId);
         vdbgRedirect(target, 'ready_gate_not_ready_recover_to_ready', { source, sessionId, userId: user.id });
         router.replace(target);
@@ -912,7 +925,7 @@ export default function VideoDateScreen() {
         }
         return true;
       }
-      if (decision === 'stay_lobby') {
+      if (!canAttemptDaily && decision === 'stay_lobby') {
         const fallbackEventId = vs?.event_id ?? eventId;
         if (fallbackEventId) {
           const target = eventLobbyHref(fallbackEventId as string);
@@ -2105,7 +2118,7 @@ export default function VideoDateScreen() {
 
       currentStep = 'handshake_guard';
       const hasHandshakeStarted = Boolean(truth0.handshake_started_at);
-      const alreadyInHandshakeOrDate = truthDecision0 === 'navigate_date';
+      const alreadyInHandshakeOrDate = videoSessionRowIndicatesHandshakeOrDate(truth0);
       const handshakeAlready = alreadyInHandshakeOrDate;
       vdbg('prejoin_step_prejoin_handshake_guard', {
         sessionId,
@@ -2348,6 +2361,42 @@ export default function VideoDateScreen() {
         });
         vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
         setJoining(false);
+        return;
+      }
+
+      currentStep = 'daily_room_truth_guard';
+      const truth1 = await fetchVideoSessionDateEntryTruth(sessionId);
+      vdbg('date_prejoin_truth_daily_room_guard', { sessionId, userId: user.id, row: truth1 ?? null });
+      if (!canAttemptDailyRoomFromVideoSessionTruth(truth1)) {
+        const redirected = await recoverFromNotStartableDateTruth('create_date_room');
+        if (redirected) {
+          hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+          vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+          setJoining(false);
+          prejoinCompleted = true;
+          return;
+        }
+        vdbg('prejoin_step_prejoin_daily_room_skipped', {
+          sessionId,
+          userId: user.id,
+          reason: 'client_daily_gate_not_startable',
+          row: truth1 ?? null,
+        });
+        vdbg('prejoin_state_callError', {
+          value: 'Almost there — finish the Ready Gate with your match first.',
+          sessionId,
+          userId: user.id,
+          step: currentStep,
+        });
+        setCallError('Almost there — finish the Ready Gate with your match first.');
+        vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
+        setPreJoinFailed(true);
+        hasStartedJoinRef.current = false;
+        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+        setJoining(false);
+        prejoinCompleted = true;
         return;
       }
 

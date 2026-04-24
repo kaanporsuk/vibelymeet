@@ -24,6 +24,7 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
+import { videoSessionRowIndicatesHandshakeOrDate } from "@clientShared/matching/activeSession";
 import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
@@ -59,7 +60,11 @@ function isActiveDateQueueStatus(status: unknown): status is "in_handshake" | "i
 }
 
 function isActiveVideoPhase(row: Record<string, unknown>): boolean {
-  return row.state === "handshake" || row.state === "date" || row.phase === "handshake" || row.phase === "date";
+  return videoSessionRowIndicatesHandshakeOrDate({
+    state: typeof row.state === "string" ? row.state : null,
+    handshake_started_at:
+      typeof row.handshake_started_at === "string" ? row.handshake_started_at : null,
+  });
 }
 
 const EventLobby = () => {
