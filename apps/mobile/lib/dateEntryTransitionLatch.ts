@@ -4,6 +4,8 @@
  *
  * This is intentionally tiny (module-level Map + TTL), not a global state system.
  */
+import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+
 const DEFAULT_TTL_MS = 25_000;
 
 /** Covers full native prejoin: enter_handshake → token → Daily join (lobby closure pack used 25s; too short). */
@@ -25,7 +27,12 @@ export function markDateEntryTransition(sessionId: string, ttlMs: number = DEFAU
   if (!sessionId) return;
   const t = nowMs();
   pruneExpired(t);
-  latch.set(sessionId, t + Math.max(1_000, ttlMs));
+  const ttl = Math.max(1_000, ttlMs);
+  latch.set(sessionId, t + ttl);
+  rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_entry_latch_marked', {
+    session_id: sessionId,
+    ttl_ms: ttl,
+  });
 }
 
 export function isDateEntryTransitionActive(sessionId: string): boolean {
@@ -36,6 +43,7 @@ export function isDateEntryTransitionActive(sessionId: string): boolean {
   if (!exp) return false;
   if (exp <= t) {
     latch.delete(sessionId);
+    rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_entry_latch_expired', { session_id: sessionId });
     return false;
   }
   return true;
@@ -43,6 +51,9 @@ export function isDateEntryTransitionActive(sessionId: string): boolean {
 
 export function clearDateEntryTransition(sessionId: string) {
   if (!sessionId) return;
+  if (latch.has(sessionId)) {
+    rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_entry_latch_cleared', { session_id: sessionId });
+  }
   latch.delete(sessionId);
 }
 

@@ -29,7 +29,6 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
-import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { trackEvent } from '@/lib/analytics';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -154,7 +153,6 @@ export function ReadyGateOverlay({
       if (canAttemptDaily || decision === 'navigate_date') {
         closedRef.current = true;
         setIsTransitioning(true);
-        markVideoDateEntryPipelineStarted(sessionId);
         onNavigateToDate(sessionId);
         return true;
       }
@@ -190,7 +188,6 @@ export function ReadyGateOverlay({
       event_id: eventId,
       source: 'both_ready',
     });
-    markVideoDateEntryPipelineStarted(sessionId);
     vdbg('lobby_navigate_to_date', {
       trigger: 'ready_gate_overlay_both_ready',
       sessionId,

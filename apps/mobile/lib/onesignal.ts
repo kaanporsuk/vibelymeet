@@ -6,6 +6,7 @@
  * Provider boundary: OneSignal owns remote push delivery, foreground display decisions,
  * click lifecycle, and native OS permission/status checks.
  */
+import { Platform } from 'react-native';
 import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
 import { getOsPushPermissionState } from '@/lib/osPushPermission';
@@ -242,6 +243,11 @@ async function removeOneSignalTags(keys: readonly string[]): Promise<void> {
  */
 export async function setOneSignalTags(input: OneSignalTagsInput): Promise<void> {
   if (!APP_ID) return;
+  // Native: skip SDK segmentation tags to avoid per-user tag limit noise; backend push prefs stay authoritative.
+  if (Platform.OS !== 'web') {
+    pushSyncDevLog('setOneSignalTags skipped', { reason: 'native_sdk_tags_disabled' });
+    return;
+  }
   if (overLimitTagWritesSuppressed) {
     pushSyncDevLog('setOneSignalTags skipped', { reason: 'over_limit_suppressed' });
     return;

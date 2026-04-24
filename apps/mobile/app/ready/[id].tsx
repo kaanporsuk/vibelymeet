@@ -16,7 +16,6 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
-import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
@@ -137,7 +136,6 @@ export default function ReadyGateScreen() {
           ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         });
         setTransitioning(true);
-        markVideoDateEntryPipelineStarted(String(sessionId));
         const navigated = navigateToDateSessionGuarded({
           sessionId: String(sessionId),
           pathname,
