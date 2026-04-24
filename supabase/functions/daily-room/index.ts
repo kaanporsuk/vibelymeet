@@ -196,6 +196,17 @@ async function createDailyRoom(
   return { url: room.url, name: room.name };
 }
 
+/** Skip Daily REST GET when handshake just started — room was created for this window or DB is authoritative; mitigates double RTT on every launch. */
+function shouldSkipDailyProviderVerifyForVideoDate(session: VideoDateRoomGateSession): boolean {
+  if (!session.daily_room_name) return false;
+  const hs = session.handshake_started_at;
+  if (!hs) return false;
+  const t = new Date(hs).getTime();
+  if (!Number.isFinite(t)) return false;
+  const ageMs = Date.now() - t;
+  return ageMs >= 0 && ageMs < 120_000;
+}
+
 async function getDailyRoomProviderState(roomName: string): Promise<{ exists: boolean; expired: boolean }> {
   const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
@@ -547,6 +558,7 @@ serve(async (req) => {
         const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
         let reusedRoom = Boolean(session.daily_room_name);
         let providerRoomRecreated = false;
+        let providerVerifySkipped = false;
 
         if (!session.daily_room_name) {
           await createDailyRoom(roomName, {
@@ -565,6 +577,15 @@ serve(async (req) => {
             .update({ daily_room_name: roomName, daily_room_url: roomUrl })
             .eq("id", sessionId);
           reusedRoom = false;
+        } else if (shouldSkipDailyProviderVerifyForVideoDate(session)) {
+          providerVerifySkipped = true;
+          console.log(JSON.stringify({
+            event: "date_room_provider_verify_skipped",
+            session_id: sessionId,
+            user_id: user.id,
+            room_name: roomName,
+            handshake_started_at: session.handshake_started_at,
+          }));
         } else {
           const providerRoomState = await getDailyRoomProviderState(roomName);
           if (!providerRoomState.exists || providerRoomState.expired) {
@@ -607,6 +628,7 @@ serve(async (req) => {
             token,
             reused_room: reusedRoom,
             provider_room_recreated: providerRoomRecreated,
+            provider_verify_skipped: providerVerifySkipped,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );

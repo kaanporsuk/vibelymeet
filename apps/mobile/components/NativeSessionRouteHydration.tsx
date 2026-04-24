@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { readyGateHref } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
-import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -45,7 +45,7 @@ export function NativeSessionRouteHydration() {
 
     let cancelled = false;
     void (async () => {
-      const vs = await fetchVideoSessionDateEntryTruth(sid);
+      const vs = await fetchVideoSessionDateEntryTruthCoalesced(sid);
       if (cancelled) return;
       // Do not navigate on unknown server state — stale `ready_gate` ER is safer than bouncing when vs is missing.
       if (!vs) {
