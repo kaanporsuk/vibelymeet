@@ -17,6 +17,12 @@ import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
 } from '@clientShared/matching/videoDateExtensionSpend';
+import {
+  VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
+  handshakeTruthLogPayload,
+  persistHandshakeDecisionWithVerification,
+  type PersistHandshakeDecisionResult,
+} from '@clientShared/matching/videoDateHandshakePersistence';
 
 export type VideoDateSession = {
   id: string;
@@ -38,6 +44,9 @@ export type VideoDateSession = {
   /** First successful Daily join for each participant (server RPC after `call.join`). */
   participant_1_joined_at?: string | null;
   participant_2_joined_at?: string | null;
+  /** Handshake Vibe decision slots. Null means the actor has not persisted a decision yet. */
+  participant_1_liked?: boolean | null;
+  participant_2_liked?: boolean | null;
   /** Seconds added onto the base date window (credit extensions); server-owned. */
   date_extra_seconds?: number | null;
 };
@@ -223,7 +232,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at'
+          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -308,6 +317,12 @@ export function useVideoDateSession(
             }
             if (row.participant_2_joined_at !== undefined) {
               next.participant_2_joined_at = row.participant_2_joined_at as string | null;
+            }
+            if (row.participant_1_liked !== undefined) {
+              next.participant_1_liked = row.participant_1_liked as boolean | null;
+            }
+            if (row.participant_2_liked !== undefined) {
+              next.participant_2_liked = row.participant_2_liked as boolean | null;
             }
             if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
             if (row.ended_reason !== undefined) next.ended_reason = row.ended_reason as string | null;
@@ -477,15 +492,23 @@ export async function enterHandshakeWithTimeout(
 
 /** Minimal `video_sessions` row for native route guards (stale ER vs backend truth). */
 export type VideoSessionDateEntryTruth = {
+  id?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
   ended_at: string | null;
   ended_reason?: string | null;
   event_id: string | null;
   handshake_started_at: string | null;
+  handshake_grace_expires_at?: string | null;
   date_started_at?: string | null;
   state: string | null;
   phase: string | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | number | null;
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
+  participant_1_liked?: boolean | null;
+  participant_2_liked?: boolean | null;
 };
 
 export async function fetchVideoSessionDateEntryTruth(
@@ -493,7 +516,7 @@ export async function fetchVideoSessionDateEntryTruth(
 ): Promise<VideoSessionDateEntryTruth | null> {
   const { data, error } = await supabase
     .from('video_sessions')
-    .select('ended_at, ended_reason, event_id, handshake_started_at, date_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
+    .select(`${VIDEO_DATE_HANDSHAKE_TRUTH_SELECT}, event_id, date_started_at, ready_gate_status, ready_gate_expires_at`)
     .eq('id', sessionId)
     .maybeSingle();
   if (error || !data) return null;
@@ -633,26 +656,84 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 export async function recordVibe(
   sessionId: string,
   diagnostics?: VideoDateTransitionDiagnostics
-): Promise<boolean> {
-  const args = {
-    p_session_id: sessionId,
-    p_action: 'vibe',
-  };
-  const diagnosticPayload = {
+): Promise<PersistHandshakeDecisionResult> {
+  const actorUserId = diagnostics?.actorUserId ?? null;
+  if (!actorUserId) {
+    return {
+      ok: false,
+      action: 'vibe',
+      attempts: 0,
+      reason: 'actor_not_participant',
+      retryable: false,
+      actorDecisionPersisted: false,
+      actorDecisionSlot: null,
+      expectedDecision: true,
+      persistedDecision: null,
+      rpcPayload: null,
+      truth: null,
+      userMessage: 'This date is no longer available.',
+    };
+  }
+
+  const result = await persistHandshakeDecisionWithVerification({
+    sessionId,
+    actorUserId,
+    action: 'vibe',
+    rpc: async (args) => {
+      vdbg('video_date_transition_before', {
+        action: 'vibe',
+        sessionId,
+        actorUserId,
+        currentPhase: diagnostics?.phase ?? null,
+        args,
+      });
+      const { data, error } = await supabase.rpc('video_date_transition', args);
+      return {
+        data: data ?? null,
+        error: error ? { code: error.code, message: error.message, name: error.name } : null,
+      };
+    },
+    fetchTruth: async () => {
+      const truth = await fetchVideoSessionDateEntryTruth(sessionId);
+      return { truth };
+    },
+    log: (event, payload) => {
+      vdbg(event, {
+        ...payload,
+        currentPhase: diagnostics?.phase ?? null,
+      });
+      if (event === 'handshake_decision_rpc_after') {
+        vdbg('video_date_transition_after', {
+          action: 'vibe',
+          sessionId,
+          actorUserId,
+          currentPhase: diagnostics?.phase ?? null,
+          ok: payload.ok,
+          payload: payload.rpcPayload ?? null,
+          error: payload.error ?? null,
+          participant_1_liked: payload.participant_1_liked ?? null,
+          participant_2_liked: payload.participant_2_liked ?? null,
+          actorDecisionPersisted: payload.actorDecisionPersisted,
+        });
+      }
+    },
+  });
+
+  vdbg('handshake_decision_persistence_result', {
     action: 'vibe',
     sessionId,
-    actorUserId: diagnostics?.actorUserId ?? null,
-    currentPhase: diagnostics?.phase ?? null,
-  };
-  vdbg('video_date_transition_before', { ...diagnosticPayload, args });
-  const { data, error } = await supabase.rpc('video_date_transition', args);
-  vdbg('video_date_transition_after', {
-    ...diagnosticPayload,
-    ok: !error,
-    payload: data ?? null,
-    error: error ? { code: error.code, message: error.message } : null,
+    actorUserId,
+    ok: result.ok,
+    attempts: result.attempts,
+    reason: result.ok ? null : result.reason,
+    rpcPayload: result.rpcPayload,
+    actorDecisionSlot: result.actorDecisionSlot,
+    expectedDecision: result.expectedDecision,
+    persistedDecision: result.persistedDecision,
+    actorDecisionPersisted: result.actorDecisionPersisted,
+    ...handshakeTruthLogPayload(result.truth),
   });
-  return !error;
+  return result;
 }
 
 /** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
@@ -661,13 +742,27 @@ export async function completeHandshake(sessionId: string): Promise<CompleteHand
     p_session_id: sessionId,
     p_action: 'complete_handshake',
   };
+  const truthBefore = await fetchVideoSessionDateEntryTruth(sessionId);
+  vdbg('complete_handshake_truth_before', {
+    action: 'complete_handshake',
+    sessionId,
+    ...handshakeTruthLogPayload(truthBefore),
+  });
   vdbg('video_date_transition_before', { action: 'complete_handshake', args });
   const { data, error } = await supabase.rpc('video_date_transition', args);
+  const truthAfter = await fetchVideoSessionDateEntryTruth(sessionId);
   vdbg('video_date_transition_after', {
     action: 'complete_handshake',
     ok: !error,
     payload: data ?? null,
     error: error ? { code: error.code, message: error.message } : null,
+  });
+  vdbg('complete_handshake_truth_after', {
+    action: 'complete_handshake',
+    sessionId,
+    ok: !error,
+    rpcPayload: data ?? null,
+    ...handshakeTruthLogPayload(truthAfter),
   });
   if (error) return null;
   const payload = data as Partial<CompleteHandshakeResult> | null;

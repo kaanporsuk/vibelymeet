@@ -53,6 +53,12 @@ import {
   decideVideoSessionRouteFromTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
+import {
+  VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
+  handshakeTruthLogPayload,
+  persistHandshakeDecisionWithVerification,
+  type VideoDateHandshakeTruth,
+} from "@clientShared/matching/videoDateHandshakePersistence";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -163,6 +169,7 @@ const VideoDate = () => {
   const accessTokenRef = useRef<string | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
   const handshakeCompletionInFlightRef = useRef(false);
+  const handshakeDecisionInFlightRef = useRef(false);
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
@@ -1360,34 +1367,95 @@ const VideoDate = () => {
   }, [id, user?.id, eventId, isConnected, videoDateAccess]);
 
   // Record user's vibe
-  const handleUserVibe = useCallback(async () => {
-    if (!id || !user?.id) return;
-    const args = { p_session_id: id, p_action: "vibe" };
-    const diagnostic = {
-      action: "vibe",
-      sessionId: id,
-      actorUserId: user.id,
-      currentPhase: phaseRef.current,
-    };
-    vdbg("video_date_transition_before", { ...diagnostic, args });
+  const handleUserVibe = useCallback(async (): Promise<boolean> => {
+    if (!id || !user?.id) return false;
+    if (handshakeDecisionInFlightRef.current) return false;
+    handshakeDecisionInFlightRef.current = true;
     try {
-      const { data, error } = await supabase.rpc("video_date_transition", args);
-      vdbg("video_date_transition_after", {
-        ...diagnostic,
-        currentPhase: phaseRef.current,
-        ok: !error,
-        payload: data ?? null,
-        error: error ? { code: error.code, message: error.message } : null,
+      const result = await persistHandshakeDecisionWithVerification({
+        sessionId: id,
+        actorUserId: user.id,
+        action: "vibe",
+        rpc: async (args) => {
+          vdbg("video_date_transition_before", {
+            action: "vibe",
+            sessionId: id,
+            actorUserId: user.id,
+            currentPhase: phaseRef.current,
+            args,
+          });
+          const { data, error } = await supabase.rpc("video_date_transition", args);
+          return {
+            data: data ?? null,
+            error: error ? { code: error.code, message: error.message, name: error.name } : null,
+          };
+        },
+        fetchTruth: async () => {
+          const { data, error } = await supabase
+            .from("video_sessions")
+            .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+            .eq("id", id)
+            .maybeSingle();
+          return {
+            truth: (data as VideoDateHandshakeTruth | null) ?? null,
+            error: error ? { code: error.code, message: error.message, name: error.name } : null,
+          };
+        },
+        log: (event, payload) => {
+          vdbg(event, {
+            ...payload,
+            currentPhase: phaseRef.current,
+          });
+          if (event === "handshake_decision_rpc_after") {
+            vdbg("video_date_transition_after", {
+              action: "vibe",
+              sessionId: id,
+              actorUserId: user.id,
+              currentPhase: phaseRef.current,
+              ok: payload.ok,
+              payload: payload.rpcPayload ?? null,
+              error: payload.error ?? null,
+              participant_1_liked: payload.participant_1_liked ?? null,
+              participant_2_liked: payload.participant_2_liked ?? null,
+              actorDecisionPersisted: payload.actorDecisionPersisted,
+            });
+          }
+        },
       });
-    } catch (err) {
-      console.error("Error recording vibe:", err);
-      vdbg("video_date_transition_after", {
-        ...diagnostic,
-        currentPhase: phaseRef.current,
+
+      if (!("reason" in result)) {
+        vdbg("handshake_decision_ui_result", {
+          sessionId: id,
+          actorUserId: user.id,
+          action: "vibe",
+          ok: true,
+          attempts: result.attempts,
+          reason: null,
+          actorDecisionPersisted: result.actorDecisionPersisted,
+          participant_1_liked: result.truth.participant_1_liked ?? null,
+          participant_2_liked: result.truth.participant_2_liked ?? null,
+          completeHandshakeTriggeredAfterPersistence: false,
+          completeHandshakeTriggerReason: "vibe_rpc_owns_transition",
+        });
+        return true;
+      }
+      vdbg("handshake_decision_ui_result", {
+        sessionId: id,
+        actorUserId: user.id,
+        action: "vibe",
         ok: false,
-        payload: null,
-        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
+        attempts: result.attempts,
+        reason: result.reason,
+        actorDecisionPersisted: result.actorDecisionPersisted,
+        participant_1_liked: result.truth?.participant_1_liked ?? null,
+        participant_2_liked: result.truth?.participant_2_liked ?? null,
+        completeHandshakeTriggeredAfterPersistence: false,
+        completeHandshakeTriggerReason: "decision_not_persisted",
       });
+      toast.error(result.userMessage);
+      return false;
+    } finally {
+      handshakeDecisionInFlightRef.current = false;
     }
   }, [id, user?.id]);
 
@@ -1401,6 +1469,25 @@ const VideoDate = () => {
         source,
         reason: "in_flight",
       });
+      return;
+    }
+    if (handshakeDecisionInFlightRef.current) {
+      vdbg("complete_handshake_skip", {
+        sessionId: id,
+        source,
+        reason: "local_decision_persistence_in_flight",
+        retryScheduled: allowRetry,
+      });
+      setTimingRefreshNonce((n) => n + 1);
+      if (allowRetry && phaseRef.current === "handshake") {
+        if (handshakeCompletionRetryTimerRef.current) {
+          clearTimeout(handshakeCompletionRetryTimerRef.current);
+        }
+        handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+          handshakeCompletionRetryTimerRef.current = null;
+          void checkMutualVibe(`${source}_after_decision_persistence`, false);
+        }, 900);
+      }
       return;
     }
 
@@ -1427,16 +1514,40 @@ const VideoDate = () => {
       p_session_id: id,
       p_action: "complete_handshake",
     };
-    vdbg("video_date_transition_before", { action: "complete_handshake", source, args });
     try {
+      const { data: truthBefore } = await supabase
+        .from("video_sessions")
+        .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+        .eq("id", id)
+        .maybeSingle();
+      vdbg("complete_handshake_truth_before", {
+        action: "complete_handshake",
+        sessionId: id,
+        source,
+        ...handshakeTruthLogPayload((truthBefore as VideoDateHandshakeTruth | null) ?? null),
+      });
+      vdbg("video_date_transition_before", { action: "complete_handshake", source, args });
       const { data: result, error } = await supabase.rpc("video_date_transition", args);
       if (phaseRef.current !== "handshake") return;
+      const { data: truthAfter } = await supabase
+        .from("video_sessions")
+        .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
+        .eq("id", id)
+        .maybeSingle();
       vdbg("video_date_transition_after", {
         action: "complete_handshake",
         source,
         ok: !error,
         payload: result ?? null,
         error: error ? { code: error.code, message: error.message } : null,
+      });
+      vdbg("complete_handshake_truth_after", {
+        action: "complete_handshake",
+        sessionId: id,
+        source,
+        ok: !error,
+        rpcPayload: result ?? null,
+        ...handshakeTruthLogPayload((truthAfter as VideoDateHandshakeTruth | null) ?? null),
       });
 
       if (error || !result) {
