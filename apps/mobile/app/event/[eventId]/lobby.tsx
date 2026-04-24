@@ -49,7 +49,6 @@ import { useActiveSession } from '@/lib/useActiveSession';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
-import { markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
@@ -146,6 +145,10 @@ export default function EventLobbyScreen() {
   }>();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  /** Supersedes stale `ready_gate_overlay` date-navigation rescue timers when a new attempt starts. */
+  const dateNavRescueSeqRef = useRef(0);
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
@@ -322,7 +325,6 @@ export default function EventLobbyScreen() {
           return;
         }
 
-        markVideoDateEntryPipelineStarted(sessionIdToOpen);
         const navigated = navigateToDateSessionGuarded({
           sessionId: sessionIdToOpen,
           pathname,
@@ -351,6 +353,77 @@ export default function EventLobbyScreen() {
             event_id: id,
           });
           markNativeVideoDateLaunchIntent('ready_lobby_overlay_both_ready');
+        }
+        if (trigger === 'ready_gate_overlay') {
+          const rescueSeq = ++dateNavRescueSeqRef.current;
+          const rescueSid = sessionIdToOpen;
+          setTimeout(() => {
+            if (rescueSeq !== dateNavRescueSeqRef.current) return;
+            void (async () => {
+              const p = pathnameRef.current ?? '';
+              const onDate = p.match(/^\/date\/([^/]+)/)?.[1] === rescueSid;
+              if (onDate) {
+                rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_skipped', {
+                  session_id: rescueSid,
+                  event_id: id,
+                  reason: 'already_on_date_route',
+                  pathname: p,
+                });
+                return;
+              }
+              rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_attempt', {
+                session_id: rescueSid,
+                event_id: id,
+                pathname: p,
+              });
+              const vsRescue = await fetchVideoSessionDateEntryTruth(rescueSid);
+              const canRescue = canAttemptDailyRoomFromVideoSessionTruth(vsRescue);
+              const decisionRescue = decideVideoSessionRouteFromTruth(vsRescue);
+              if (!canRescue && decisionRescue !== 'navigate_date') {
+                rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_failed', {
+                  session_id: rescueSid,
+                  event_id: id,
+                  reason: 'session_not_startable',
+                  decision: decisionRescue,
+                  can_attempt_daily: canRescue,
+                });
+                return;
+              }
+              const rescueNavigated = navigateToDateSessionGuarded({
+                sessionId: rescueSid,
+                pathname: pathnameRef.current,
+                mode: 'replace',
+                bypassDuplicateBurstForRescue: true,
+                onSuppressed: ({ reason: suppressReason, target: t }) => {
+                  vdbg('lobby_navigate_to_date_suppressed', {
+                    trigger: 'ready_gate_overlay_rescue',
+                    eventId: id,
+                    target: t,
+                    sessionId: rescueSid,
+                    reason: suppressReason,
+                  });
+                },
+                onNavigate: ({ target, mode: resolvedMode }) => {
+                  logVdbgSessionStage('lobby_navigate_to_date', rescueSid, {
+                    trigger: 'ready_gate_overlay_rescue',
+                    eventId: id,
+                    target,
+                    mode: resolvedMode,
+                  });
+                },
+              });
+              rcBreadcrumb(
+                RC_CATEGORY.lobbyDateEntry,
+                rescueNavigated ? 'date_navigation_rescue_success' : 'date_navigation_rescue_failed',
+                {
+                  session_id: rescueSid,
+                  event_id: id,
+                  pathname: pathnameRef.current ?? null,
+                  navigated: rescueNavigated,
+                }
+              );
+            })();
+          }, 1500);
         }
       })();
     },
@@ -1673,7 +1746,6 @@ export default function EventLobbyScreen() {
           partnerImageUri={activeSessionPartnerImage}
           onNavigateToDate={(sessionIdToOpen) => {
             rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'navigate_to_video_date', { event_id: id, session_id: sessionIdToOpen });
-            markVideoDateEntryPipelineStarted(sessionIdToOpen);
             lastOpenedSessionRef.current = null;
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);

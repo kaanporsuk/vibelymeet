@@ -20,7 +20,7 @@ import {
   AppState,
   Easing,
 } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, usePathname } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -273,7 +273,8 @@ function addVideoDateBreadcrumb(
 
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
-  const { user } = useAuth();
+  const pathname = usePathname();
+  const { user, loading: authLoading } = useAuth();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
@@ -705,6 +706,12 @@ export default function VideoDateScreen() {
   /** Latch + RC before paint so hydration cannot bounce `/date` → `/ready` during stale `in_ready_gate`. */
   useLayoutEffect(() => {
     if (!sessionId) return;
+    rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_screen_mount', {
+      date_screen_param_session_id: sessionId,
+      pathname: pathname ?? null,
+      user_id: user?.id ?? null,
+      ts_ms: Date.now(),
+    });
     markVideoDateEntryPipelineStarted(sessionId);
     const launch = consumeNativeVideoDateLaunchIntent();
     if (launch) {
@@ -718,7 +725,7 @@ export default function VideoDateScreen() {
       session_id: sessionId,
       user_id: user?.id ?? null,
     });
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, pathname]);
 
   useEffect(() => {
     vdbg('date_mount', { sessionId: sessionId ?? null, userId: user?.id ?? null });
@@ -2058,6 +2065,17 @@ export default function VideoDateScreen() {
       sessionError: sessionError ?? null,
       phase: currentPhase,
     };
+    rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_prejoin_effect_started', {
+      session_id: sessionId ?? null,
+      user_id: userId,
+      has_session_id: Boolean(sessionId),
+      auth_loading: authLoading,
+      session_loading: sessionLoading,
+      auth_hydrated: !authLoading,
+      session_hydrated: !sessionLoading,
+      current_phase: currentPhase,
+      pathname: pathname ?? null,
+    });
     vdbg('prejoin_step_prejoin_effect_fired', {
       sessionId: sessionId ?? null,
       userId,
@@ -3181,6 +3199,9 @@ export default function VideoDateScreen() {
     joinAttemptNonce,
     sessionId,
     user?.id,
+    authLoading,
+    sessionLoading,
+    pathname,
     session?.id,
     session?.ended_at,
     sessionError,
