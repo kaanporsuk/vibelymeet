@@ -1,24 +1,31 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Check, Sparkles } from "lucide-react";
 
 interface VibeCheckButtonProps {
   timeLeft: number;
-  onVibe: () => void;
+  onVibe: () => void | Promise<boolean | void>;
   disabled?: boolean;
 }
 
 export const VibeCheckButton = ({ timeLeft, onVibe, disabled }: VibeCheckButtonProps) => {
   const [hasVibed, setHasVibed] = useState(false);
+  const submittingRef = useRef(false);
   const isProminent = timeLeft <= 20; // At the 40-second mark (20s remaining)
 
-  const handleTap = () => {
-    if (hasVibed || disabled) return;
-    setHasVibed(true);
-    onVibe();
+  const handleTap = async () => {
+    if (hasVibed || disabled || submittingRef.current) return;
+    submittingRef.current = true;
     // Haptic
     if (navigator.vibrate) {
       navigator.vibrate([30, 50, 30]);
+    }
+    try {
+      const result = await Promise.resolve(onVibe());
+      if (result === false) return;
+      setHasVibed(true);
+    } finally {
+      submittingRef.current = false;
     }
   };
 
