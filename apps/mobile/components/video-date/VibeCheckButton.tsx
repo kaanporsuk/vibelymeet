@@ -1,6 +1,6 @@
 /**
- * Vibe check button: subtle until 20s left, then prominent with pulse.
- * Tapping records participant_X_liked (partner is never notified).
+ * Handshake decision controls. UI only acknowledges a Vibe/Pass after the
+ * caller confirms the actor's decision persisted.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -11,21 +11,23 @@ import { useColorScheme } from '@/components/useColorScheme';
 
 type Props = {
   timeLeft: number;
-  /** Return false if the server rejected the vibe (UI stays tappable). */
+  decision?: boolean | null;
   onVibe: () => void | Promise<boolean | void>;
+  onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
 };
 
-export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
+export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const [hasVibed, setHasVibed] = React.useState(false);
+  const [submitting, setSubmitting] = React.useState<'vibe' | 'pass' | null>(null);
   const submittingRef = useRef(false);
   const isProminent = timeLeft <= 20;
+  const hasDecided = decision === true || decision === false;
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!isProminent || hasVibed) return;
+    if (!isProminent || hasDecided) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
@@ -34,59 +36,71 @@ export function VibeCheckButton({ timeLeft, onVibe, disabled }: Props) {
     );
     loop.start();
     return () => loop.stop();
-  }, [isProminent, hasVibed, pulseAnim]);
+  }, [isProminent, hasDecided, pulseAnim]);
 
-  const handlePress = async () => {
-    if (hasVibed || disabled || submittingRef.current) return;
+  const handlePress = async (action: 'vibe' | 'pass') => {
+    if (hasDecided || disabled || submittingRef.current) return;
     submittingRef.current = true;
+    setSubmitting(action);
     try {
       try {
         Vibration.vibrate(30);
       } catch {}
-      const result = await Promise.resolve(onVibe());
+      const result = await Promise.resolve(action === 'vibe' ? onVibe() : onPass());
       if (result === false) return;
-      setHasVibed(true);
     } finally {
       submittingRef.current = false;
+      setSubmitting(null);
     }
   };
 
-  if (hasVibed) {
+  if (hasDecided) {
     return (
       <View style={styles.wrap}>
-        <View style={[styles.button, styles.vibedButton, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
-          <Text style={[styles.vibedText, { color: theme.tint }]}>✓ Vibed</Text>
+        <View style={[styles.savedButton, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
+          <Text style={[styles.savedText, { color: theme.tint }]}>{decision ? 'Vibed' : 'Passed'}</Text>
         </View>
-        <Text style={[styles.hint, { color: theme.mutedForeground }]}>Waiting for them to tap Vibe too.</Text>
+        <Text style={[styles.hint, { color: theme.mutedForeground }]}>Waiting for your match...</Text>
       </View>
     );
   }
-
-  const buttonStyle = isProminent
-    ? [styles.button, styles.prominent, { backgroundColor: theme.tint, borderColor: theme.tint }]
-    : [styles.button, styles.subtle, { borderColor: theme.border, backgroundColor: theme.muted }];
 
   const animatedScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
 
   return (
     <View style={styles.wrap}>
-      <Animated.View style={[buttonStyle, isProminent && { transform: [{ scale: animatedScale }] }]}>
+      <Text style={[styles.cta, { color: theme.text }]}>Vibe or Pass to continue</Text>
+      <View style={styles.row}>
         <Pressable
-          onPress={handlePress}
-          disabled={disabled}
-          style={({ pressed }) => [StyleSheet.absoluteFill, pressed && styles.pressed]}
+          onPress={() => void handlePress('pass')}
+          disabled={disabled || submitting !== null}
+          style={({ pressed }) => [
+            styles.actionButton,
+            styles.passButton,
+            { borderColor: theme.border, backgroundColor: theme.muted },
+            (pressed || disabled || submitting !== null) && styles.pressed,
+          ]}
         >
-          <View style={styles.inner}>
-            <Text style={[styles.label, isProminent ? { color: theme.primaryForeground } : { color: theme.mutedForeground }]}>
-              Tap Vibe
-            </Text>
-          </View>
+          <Text style={[styles.passLabel, { color: theme.mutedForeground }]}>
+            {submitting === 'pass' ? 'Saving...' : 'Pass'}
+          </Text>
         </Pressable>
-      </Animated.View>
+        <Animated.View style={[styles.actionButton, styles.vibeButton, { backgroundColor: theme.tint, borderColor: theme.tint }, isProminent && { transform: [{ scale: animatedScale }] }]}>
+          <Pressable
+            onPress={() => void handlePress('vibe')}
+            disabled={disabled || submitting !== null}
+            style={({ pressed }) => [StyleSheet.absoluteFill, pressed && styles.pressed]}
+          >
+            <View style={styles.inner}>
+              <Text style={[styles.vibeLabel, { color: theme.primaryForeground }]}>
+                {submitting === 'vibe' ? 'Saving...' : 'Vibe'}
+              </Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+      </View>
       <Text style={[styles.hint, { color: theme.mutedForeground }]}>
-        {isProminent
-          ? 'Last chance: you both need to tap Vibe to keep going.'
-          : 'Both of you need to tap Vibe to continue to the full date.'}
+        {isProminent ? 'Last chance: choose before the timer ends.' : 'Your choice only continues after it saves.'}
       </Text>
     </View>
   );
@@ -97,37 +111,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
-  button: {
+  cta: {
+    maxWidth: 240,
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 17,
+    fontFamily: fonts.bodySemiBold,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  actionButton: {
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
+    paddingHorizontal: spacing.lg,
     borderRadius: radius.pill,
     borderWidth: 2,
-    minWidth: 140,
+    minWidth: 104,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  subtle: {
-    opacity: 0.85,
-  },
-  prominent: {},
-  vibedButton: {
+  passButton: {
     borderWidth: 1,
   },
-  vibedText: {
+  vibeButton: {},
+  savedButton: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    minWidth: 140,
+    alignItems: 'center',
+  },
+  savedText: {
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
   },
   pressed: {
-    opacity: 0.9,
+    opacity: 0.65,
   },
   inner: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
   },
-  label: {
+  passLabel: {
+    fontSize: 14,
+    fontFamily: fonts.bodySemiBold,
+  },
+  vibeLabel: {
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
   },

@@ -47,6 +47,8 @@ export type VideoDateSession = {
   /** Handshake Vibe decision slots. Null means the actor has not persisted a decision yet. */
   participant_1_liked?: boolean | null;
   participant_2_liked?: boolean | null;
+  participant_1_decided_at?: string | null;
+  participant_2_decided_at?: string | null;
   /** Seconds added onto the base date window (credit extensions); server-owned. */
   date_extra_seconds?: number | null;
 };
@@ -90,6 +92,9 @@ export type EnterHandshakeResult =
 export type CompleteHandshakeResult = {
   state: 'date' | 'ended' | 'handshake';
   waiting_for_partner?: boolean;
+  waiting_for_self?: boolean;
+  local_decision_persisted?: boolean;
+  partner_decision_persisted?: boolean;
   grace_expires_at?: string;
   seconds_remaining?: number;
   already_ended?: boolean;
@@ -232,7 +237,7 @@ export function useVideoDateSession(
       const { data: row, error: e } = await supabase
         .from('video_sessions')
         .select(
-          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked'
+          'id, participant_1_id, participant_2_id, event_id, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at'
         )
         .eq('id', sessionId)
         .maybeSingle();
@@ -323,6 +328,12 @@ export function useVideoDateSession(
             }
             if (row.participant_2_liked !== undefined) {
               next.participant_2_liked = row.participant_2_liked as boolean | null;
+            }
+            if (row.participant_1_decided_at !== undefined) {
+              next.participant_1_decided_at = row.participant_1_decided_at as string | null;
+            }
+            if (row.participant_2_decided_at !== undefined) {
+              next.participant_2_decided_at = row.participant_2_decided_at as string | null;
             }
             if (row.ended_at !== undefined) next.ended_at = row.ended_at as string | null;
             if (row.ended_reason !== undefined) next.ended_reason = row.ended_reason as string | null;
@@ -509,6 +520,8 @@ export type VideoSessionDateEntryTruth = {
   participant_2_joined_at?: string | null;
   participant_1_liked?: boolean | null;
   participant_2_liked?: boolean | null;
+  participant_1_decided_at?: string | null;
+  participant_2_decided_at?: string | null;
 };
 
 export async function fetchVideoSessionDateEntryTruth(
@@ -652,23 +665,27 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
   }
 }
 
-/** Record that current user "vibed" during handshake (participant_1_liked or participant_2_liked). Partner is never notified. */
-export async function recordVibe(
+/** Record the current user's explicit handshake decision. Partner is never notified. */
+export async function recordHandshakeDecision(
   sessionId: string,
+  action: 'vibe' | 'pass',
   diagnostics?: VideoDateTransitionDiagnostics
 ): Promise<PersistHandshakeDecisionResult> {
   const actorUserId = diagnostics?.actorUserId ?? null;
+  const expectedDecision = action === 'vibe';
   if (!actorUserId) {
     return {
       ok: false,
-      action: 'vibe',
+      action,
       attempts: 0,
       reason: 'actor_not_participant',
       retryable: false,
       actorDecisionPersisted: false,
       actorDecisionSlot: null,
-      expectedDecision: true,
+      actorDecisionTimestampSlot: null,
+      expectedDecision,
       persistedDecision: null,
+      persistedDecisionAt: null,
       rpcPayload: null,
       truth: null,
       userMessage: 'This date is no longer available.',
@@ -678,10 +695,10 @@ export async function recordVibe(
   const result = await persistHandshakeDecisionWithVerification({
     sessionId,
     actorUserId,
-    action: 'vibe',
+    action,
     rpc: async (args) => {
       vdbg('video_date_transition_before', {
-        action: 'vibe',
+        action,
         sessionId,
         actorUserId,
         currentPhase: diagnostics?.phase ?? null,
@@ -704,7 +721,7 @@ export async function recordVibe(
       });
       if (event === 'handshake_decision_rpc_after') {
         vdbg('video_date_transition_after', {
-          action: 'vibe',
+          action,
           sessionId,
           actorUserId,
           currentPhase: diagnostics?.phase ?? null,
@@ -713,6 +730,8 @@ export async function recordVibe(
           error: payload.error ?? null,
           participant_1_liked: payload.participant_1_liked ?? null,
           participant_2_liked: payload.participant_2_liked ?? null,
+          participant_1_decided_at: payload.participant_1_decided_at ?? null,
+          participant_2_decided_at: payload.participant_2_decided_at ?? null,
           actorDecisionPersisted: payload.actorDecisionPersisted,
         });
       }
@@ -720,7 +739,7 @@ export async function recordVibe(
   });
 
   vdbg('handshake_decision_persistence_result', {
-    action: 'vibe',
+    action,
     sessionId,
     actorUserId,
     ok: result.ok,
@@ -728,12 +747,22 @@ export async function recordVibe(
     reason: result.ok ? null : result.reason,
     rpcPayload: result.rpcPayload,
     actorDecisionSlot: result.actorDecisionSlot,
+    actorDecisionTimestampSlot: result.actorDecisionTimestampSlot,
     expectedDecision: result.expectedDecision,
     persistedDecision: result.persistedDecision,
+    persistedDecisionAt: result.persistedDecisionAt,
     actorDecisionPersisted: result.actorDecisionPersisted,
     ...handshakeTruthLogPayload(result.truth),
   });
   return result;
+}
+
+/** Record that current user "vibed" during handshake. */
+export async function recordVibe(
+  sessionId: string,
+  diagnostics?: VideoDateTransitionDiagnostics
+): Promise<PersistHandshakeDecisionResult> {
+  return recordHandshakeDecision(sessionId, 'vibe', diagnostics);
 }
 
 /** At handshake end: check mutual vibe. Returns { state: 'date' } if both liked, else terminal/waiting state. */
@@ -770,6 +799,9 @@ export async function completeHandshake(sessionId: string): Promise<CompleteHand
   return {
     state: state === 'date' || state === 'handshake' || state === 'ended' ? state : 'ended',
     waiting_for_partner: payload?.waiting_for_partner,
+    waiting_for_self: payload?.waiting_for_self,
+    local_decision_persisted: payload?.local_decision_persisted,
+    partner_decision_persisted: payload?.partner_decision_persisted,
     grace_expires_at: payload?.grace_expires_at,
     seconds_remaining: payload?.seconds_remaining,
     already_ended: payload?.already_ended,
