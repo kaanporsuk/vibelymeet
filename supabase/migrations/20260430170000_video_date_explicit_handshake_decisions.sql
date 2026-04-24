@@ -291,7 +291,7 @@ BEGIN
       v_allow_handshake :=
         COALESCE(v_session.ready_gate_status, '') = 'both_ready'
         OR v_session.state IN ('handshake'::public.video_date_state, 'date'::public.video_date_state)
-        OR v_session.phase IN ('handshake', 'date');
+        OR v_session.handshake_started_at IS NOT NULL;
 
       IF NOT v_allow_handshake THEN
         PERFORM public.record_event_loop_observability(
