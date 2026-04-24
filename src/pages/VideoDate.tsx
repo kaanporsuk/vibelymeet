@@ -2167,12 +2167,12 @@ const VideoDate = () => {
       </motion.div>
 
       {/* ─── Remote Video with Progressive Blur ─── */}
-      <div className="flex-1 relative" ref={remoteContainerRef}>
+      <div className="flex-1 relative bg-black" ref={remoteContainerRef}>
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain"
           style={{
             filter: `blur(${blurAmount}px)`,
             transition: "filter 10s linear",
