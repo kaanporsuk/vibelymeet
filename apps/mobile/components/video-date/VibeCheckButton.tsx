@@ -28,6 +28,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
   const isProminent = inGrace || timeLeft <= 20;
   const hasDecided = decision === true || decision === false;
   const pulseAnim = useRef(new Animated.Value(0)).current;
+  const lastChanceFlash = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!isProminent || hasDecided) return;
@@ -40,6 +41,24 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
     loop.start();
     return () => loop.stop();
   }, [isProminent, hasDecided, pulseAnim]);
+
+  useEffect(() => {
+    if (!inGrace || hasDecided) {
+      lastChanceFlash.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(lastChanceFlash, { toValue: 0.35, duration: 320, useNativeDriver: true }),
+        Animated.timing(lastChanceFlash, { toValue: 1, duration: 320, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      lastChanceFlash.setValue(1);
+    };
+  }, [inGrace, hasDecided, lastChanceFlash]);
 
   const handlePress = async (action: 'vibe' | 'pass') => {
     if (hasDecided || disabled || submittingRef.current) return;
@@ -70,8 +89,20 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
 
   const animatedScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
 
+  const lastChanceLabelOpacity = inGrace && !hasDecided ? lastChanceFlash : 1;
+
   return (
     <View style={styles.wrap}>
+      {inGrace && !hasDecided ? (
+        <Animated.Text
+          style={[
+            styles.lastChanceTitle,
+            { color: theme.tint, opacity: lastChanceLabelOpacity },
+          ]}
+        >
+          Last Chance
+        </Animated.Text>
+      ) : null}
       <Text style={[styles.cta, { color: theme.text }]}>Vibe or Pass to continue</Text>
       <View style={styles.row}>
         <Pressable
@@ -104,7 +135,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
       </View>
       <Text style={[styles.hint, { color: inGrace ? theme.tint : theme.mutedForeground }]}>
         {inGrace
-          ? `Last chance — ${graceSecondsRemaining}s left to choose.`
+          ? `${graceSecondsRemaining}s left to choose.`
           : isProminent
             ? 'Last chance: choose before the timer ends.'
             : 'Your choice only continues after it saves.'}
@@ -117,6 +148,13 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
     gap: spacing.xs,
+  },
+  lastChanceTitle: {
+    fontSize: 12,
+    letterSpacing: 1.2,
+    fontFamily: fonts.bodyBold,
+    textAlign: 'center',
+    marginBottom: 2,
   },
   cta: {
     maxWidth: 240,

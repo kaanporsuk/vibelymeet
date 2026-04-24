@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   completeHandshakeExpectation,
+  handshakeDecisionFailureIndicatesSessionEnded,
+  handshakeRpcIndicatesTerminalDecisionRejection,
+  handshakeTruthIndicatesEndedSession,
+  HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
   persistHandshakeDecisionWithVerification,
   type VideoDateHandshakeTruth,
 } from "./videoDateHandshakePersistence";
@@ -99,7 +103,7 @@ test("transient RPC failure is retried before acknowledging Vibe", async () => {
   assert.equal(result.attempts, 2);
 });
 
-test("both Daily joins with one null like means handshake grace, not success", () => {
+test("one vibe and partner undecided → Last Chance grace (10s), not date", () => {
   assert.deepEqual(
     completeHandshakeExpectation({
       ...baseTruth,
@@ -109,7 +113,7 @@ test("both Daily joins with one null like means handshake grace, not success", (
     }),
     {
       kind: "waiting_for_decision",
-      graceSecondsIfStartedNow: 60,
+      graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
       waitingForParticipant1: false,
       waitingForParticipant2: true,
     },
@@ -142,7 +146,7 @@ test("one explicit pass ends as non-mutual", () => {
   );
 });
 
-test("boolean false without decided_at is still undecided, not explicit pass", () => {
+test("boolean false without decided_at is still undecided → 10s grace window", () => {
   assert.deepEqual(
     completeHandshakeExpectation({
       ...baseTruth,
@@ -151,10 +155,57 @@ test("boolean false without decided_at is still undecided, not explicit pass", (
     }),
     {
       kind: "waiting_for_decision",
-      graceSecondsIfStartedNow: 60,
+      graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
       waitingForParticipant1: true,
       waitingForParticipant2: true,
     },
+  );
+});
+
+test("both undecided → 10s Last Chance grace", () => {
+  assert.deepEqual(completeHandshakeExpectation({ ...baseTruth }), {
+    kind: "waiting_for_decision",
+    graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
+    waitingForParticipant1: true,
+    waitingForParticipant2: true,
+  });
+});
+
+test("explicit pass and partner undecided → terminal, no grace", () => {
+  assert.deepEqual(
+    completeHandshakeExpectation({
+      ...baseTruth,
+      participant_1_liked: false,
+      participant_1_decided_at: "2026-04-24T06:02:02.000Z",
+      participant_2_liked: null,
+    }),
+    { kind: "ended_non_mutual" },
+  );
+});
+
+test("explicit pass and partner vibe → terminal, no grace", () => {
+  assert.deepEqual(
+    completeHandshakeExpectation({
+      ...baseTruth,
+      participant_1_liked: false,
+      participant_1_decided_at: "2026-04-24T06:02:02.000Z",
+      participant_2_liked: true,
+      participant_2_decided_at: "2026-04-24T06:02:03.000Z",
+    }),
+    { kind: "ended_non_mutual" },
+  );
+});
+
+test("both explicit pass → terminal, no grace", () => {
+  assert.deepEqual(
+    completeHandshakeExpectation({
+      ...baseTruth,
+      participant_1_liked: false,
+      participant_1_decided_at: "2026-04-24T06:02:02.000Z",
+      participant_2_liked: false,
+      participant_2_decided_at: "2026-04-24T06:02:03.000Z",
+    }),
+    { kind: "ended_non_mutual" },
   );
 });
 
@@ -176,4 +227,83 @@ test("explicit pass persistence succeeds when false and decided_at are both stor
 
   assert.equal(result.ok, true);
   assert.equal(result.persistedDecision, false);
+});
+
+test("handshakeTruthIndicatesEndedSession", () => {
+  assert.equal(handshakeTruthIndicatesEndedSession(null), false);
+  assert.equal(handshakeTruthIndicatesEndedSession({ ...baseTruth }), false);
+  assert.equal(
+    handshakeTruthIndicatesEndedSession({ ...baseTruth, ended_at: "2026-04-24T06:10:00.000Z" }),
+    true,
+  );
+  assert.equal(handshakeTruthIndicatesEndedSession({ ...baseTruth, state: "ended" }), true);
+  assert.equal(handshakeTruthIndicatesEndedSession({ ...baseTruth, phase: "ended" }), true);
+});
+
+test("handshakeRpcIndicatesTerminalDecisionRejection", () => {
+  assert.equal(handshakeRpcIndicatesTerminalDecisionRejection(null), false);
+  assert.equal(handshakeRpcIndicatesTerminalDecisionRejection({ success: false }), false);
+  assert.equal(
+    handshakeRpcIndicatesTerminalDecisionRejection({ success: false, code: "GRACE_EXPIRED" }),
+    true,
+  );
+  assert.equal(
+    handshakeRpcIndicatesTerminalDecisionRejection({ success: false, code: "SESSION_ENDED" }),
+    true,
+  );
+  assert.equal(handshakeRpcIndicatesTerminalDecisionRejection({ state: "ended" }), true);
+});
+
+test("handshakeDecisionFailureIndicatesSessionEnded combines truth and payload", () => {
+  assert.equal(
+    handshakeDecisionFailureIndicatesSessionEnded({
+      truth: { ...baseTruth, ended_at: "2026-04-24T06:10:00.000Z" },
+      rpcPayload: null,
+    }),
+    true,
+  );
+  assert.equal(
+    handshakeDecisionFailureIndicatesSessionEnded({
+      truth: baseTruth,
+      rpcPayload: { success: false, code: "GRACE_EXPIRED" },
+    }),
+    true,
+  );
+  assert.equal(
+    handshakeDecisionFailureIndicatesSessionEnded({
+      truth: baseTruth,
+      rpcPayload: { success: true, state: "handshake" },
+    }),
+    false,
+  );
+});
+
+test("persistHandshakeDecisionWithVerification: rpc_error returns fetched truth when prior truth was null", async () => {
+  let fetchCount = 0;
+  const result = await persistHandshakeDecisionWithVerification({
+    sessionId: "session-1",
+    actorUserId: "user-a",
+    action: "vibe",
+    retryDelaysMs: [],
+    rpc: async () => ({
+      data: null,
+      error: { code: "PGRST301", message: "JSON object requested, multiple (or no) rows returned", name: "Error" },
+    }),
+    fetchTruth: async () => {
+      fetchCount += 1;
+      return {
+        truth: {
+          ...baseTruth,
+          ended_at: "2026-04-24T06:10:00.000Z",
+          state: "ended",
+          phase: "ended",
+        },
+      };
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "rpc_error");
+  assert.equal(fetchCount >= 1, true);
+  assert.equal(handshakeTruthIndicatesEndedSession(result.truth), true);
 });

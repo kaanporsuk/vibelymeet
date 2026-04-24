@@ -34,6 +34,33 @@ export type VideoDateTransitionPayload = {
   seconds_remaining?: number | null;
 };
 
+export function handshakeTruthIndicatesEndedSession(
+  truth: VideoDateHandshakeTruth | null | undefined,
+): boolean {
+  if (!truth) return false;
+  return Boolean(truth.ended_at) || truth.state === "ended" || truth.phase === "ended";
+}
+
+/** `video_date_transition` returned `success:false` with a terminal code or ended state. */
+export function handshakeRpcIndicatesTerminalDecisionRejection(
+  payload: VideoDateTransitionPayload | null | undefined,
+): boolean {
+  if (!payload) return false;
+  const code = payload.code ?? null;
+  if (code === "GRACE_EXPIRED" || code === "SESSION_ENDED") return true;
+  return payload.state === "ended";
+}
+
+export function handshakeDecisionFailureIndicatesSessionEnded(opts: {
+  truth: VideoDateHandshakeTruth | null;
+  rpcPayload: VideoDateTransitionPayload | null;
+}): boolean {
+  return (
+    handshakeTruthIndicatesEndedSession(opts.truth) ||
+    handshakeRpcIndicatesTerminalDecisionRejection(opts.rpcPayload)
+  );
+}
+
 export type VideoDateTransitionError = {
   code?: string | null;
   message?: string | null;
@@ -102,13 +129,16 @@ export type PersistHandshakeDecisionResult =
       userMessage: string;
     };
 
+/** Server `complete_handshake` Last Chance grace when outcome is unresolved and no explicit Pass. */
+export const HANDSHAKE_LAST_CHANCE_GRACE_SECONDS = 10 as const;
+
 export type CompleteHandshakeTruthExpectation =
   | { kind: "already_ended"; reason: string | null }
   | { kind: "date" }
   | { kind: "ended_non_mutual" }
   | {
       kind: "waiting_for_decision";
-      graceSecondsIfStartedNow: 15 | 60;
+      graceSecondsIfStartedNow: typeof HANDSHAKE_LAST_CHANCE_GRACE_SECONDS;
       waitingForParticipant1: boolean;
       waitingForParticipant2: boolean;
     };
@@ -169,6 +199,13 @@ export function actorDecisionPersisted(
     && actorPersistedDecision(truth, actorUserId) === expectedDecisionForHandshakeAction(action);
 }
 
+/** Explicit Pass: decided_at set and liked is false (undecided keeps liked null or legacy false without decided_at). */
+export function hasExplicitHandshakePass(truth: VideoDateHandshakeTruth): boolean {
+  const p1Pass = Boolean(truth.participant_1_decided_at) && truth.participant_1_liked === false;
+  const p2Pass = Boolean(truth.participant_2_decided_at) && truth.participant_2_liked === false;
+  return p1Pass || p2Pass;
+}
+
 export function completeHandshakeExpectation(
   truth: VideoDateHandshakeTruth,
 ): CompleteHandshakeTruthExpectation {
@@ -180,13 +217,15 @@ export function completeHandshakeExpectation(
   if (participant1Decided && participant2Decided && truth.participant_1_liked === true && truth.participant_2_liked === true) {
     return { kind: "date" };
   }
+  if (hasExplicitHandshakePass(truth)) {
+    return { kind: "ended_non_mutual" };
+  }
   if (participant1Decided && participant2Decided) {
     return { kind: "ended_non_mutual" };
   }
   return {
     kind: "waiting_for_decision",
-    graceSecondsIfStartedNow:
-      truth.participant_1_joined_at && truth.participant_2_joined_at ? 60 : 15,
+    graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
     waitingForParticipant1: !participant1Decided,
     waitingForParticipant2: !participant2Decided,
   };
@@ -219,6 +258,13 @@ function userMessageForFailure(reason: PersistHandshakeDecisionFailureReason): s
   if (reason === "actor_not_participant") return "This date is no longer available.";
   if (reason === "truth_unavailable") return "We could not confirm your choice. Try again.";
   return "Connection hiccup. Try again.";
+}
+
+function userMessageForRpcRejectedPayload(payload: VideoDateTransitionPayload | null): string {
+  const code = payload?.code ?? null;
+  if (code === "GRACE_EXPIRED") return "That Last Chance window just closed — the date ended.";
+  if (code === "SESSION_ENDED") return "This date has already ended.";
+  return userMessageForFailure("rpc_rejected");
 }
 
 export async function persistHandshakeDecisionWithVerification(
@@ -266,6 +312,13 @@ export async function persistHandshakeDecisionWithVerification(
           rpcPayload: lastPayload,
         });
         if (retryable) continue;
+        let truthForReturn: VideoDateHandshakeTruth | null = lastTruth;
+        if (!truthForReturn) {
+          const tr = await input.fetchTruth();
+          const fetched = tr.truth ?? null;
+          truthForReturn = fetched;
+          lastTruth = fetched;
+        }
         return {
           ok: false,
           action: input.action,
@@ -279,7 +332,7 @@ export async function persistHandshakeDecisionWithVerification(
           persistedDecision: null,
           persistedDecisionAt: null,
           rpcPayload: lastPayload,
-          truth: lastTruth,
+          truth: truthForReturn,
           error: rpcResult.error,
           userMessage: userMessageForFailure("rpc_error"),
         };
@@ -335,7 +388,7 @@ export async function persistHandshakeDecisionWithVerification(
           rpcPayload: lastPayload,
           truth: lastTruth,
           error: null,
-          userMessage: userMessageForFailure("rpc_rejected"),
+          userMessage: userMessageForRpcRejectedPayload(lastPayload),
         };
       }
 
@@ -435,6 +488,13 @@ export async function persistHandshakeDecisionWithVerification(
         rpcPayload: lastPayload,
       });
       if (retryable) continue;
+      let truthForException: VideoDateHandshakeTruth | null = lastTruth;
+      if (!truthForException) {
+        const tr = await input.fetchTruth();
+        const fetched = tr.truth ?? null;
+        truthForException = fetched;
+        lastTruth = fetched;
+      }
       return {
         ok: false,
         action: input.action,
@@ -448,7 +508,7 @@ export async function persistHandshakeDecisionWithVerification(
         persistedDecision: null,
         persistedDecisionAt: null,
         rpcPayload: lastPayload,
-        truth: lastTruth,
+        truth: truthForException,
         error: normalizedError,
         userMessage: userMessageForFailure("exception"),
       };
