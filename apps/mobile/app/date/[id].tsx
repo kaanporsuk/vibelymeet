@@ -109,6 +109,10 @@ import {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
 const PREJOIN_STEP_TIMEOUT_MS = 12000;
+// Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
+// media before the server deadline is allowed to call completeHandshake.
+// Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
+const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
 type DailyCallObject = ReturnType<typeof Daily.createCallObject>;
 type SharedDailyCallEntry = { sessionId: string; call: DailyCallObject; roomName: string | null };
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
@@ -303,6 +307,8 @@ export default function VideoDateScreen() {
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
   const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
+  /** True during grace when the server says the local user's decision is still pending. */
+  const [handshakeGraceWaitingForSelf, setHandshakeGraceWaitingForSelf] = useState(false);
 
   const callRef = useRef<ReturnType<typeof Daily.createCallObject> | null>(null);
   const roomNameRef = useRef<string | null>(null);
@@ -356,6 +362,8 @@ export default function VideoDateScreen() {
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
+  /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
+  const firstPlayableRemoteAtMsRef = useRef(0);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
@@ -635,6 +643,7 @@ export default function VideoDateScreen() {
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
     setHandshakeGraceSecondsRemaining(null);
+    setHandshakeGraceWaitingForSelf(false);
     handshakeGraceRetryTriggeredRef.current = false;
   }, []);
 
@@ -661,6 +670,7 @@ export default function VideoDateScreen() {
     firstIceConnectedLoggedRef.current = false;
     firstRemoteParticipantTimedRef.current = false;
     firstPlayableRemoteTimedRef.current = false;
+    firstPlayableRemoteAtMsRef.current = 0;
     vdbg('prejoin_state_hasStartedJoinRef', {
       value: false,
       sessionId: sessionId ?? null,
@@ -1279,6 +1289,7 @@ export default function VideoDateScreen() {
     lastRemoteMountedTrackIdRef.current = trackId;
     if (!firstPlayableRemoteTimedRef.current) {
       firstPlayableRemoteTimedRef.current = true;
+      firstPlayableRemoteAtMsRef.current = Date.now();
       endBootstrapTiming('first_playable_remote_media', {
         source: 'remote_track_mounted',
         participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
@@ -1755,11 +1766,15 @@ export default function VideoDateScreen() {
         return false;
       }
       setCallError(null);
+      // Immediately reconcile UI from server truth so that localHandshakeDecision
+      // reflects the persisted decision even if the Realtime UPDATE arrives late
+      // or the component remounts before it does.
+      void refetchVideoSession();
       return true;
     } finally {
       handshakeDecisionInFlightRef.current = false;
     }
-  }, [sessionId, user?.id]);
+  }, [sessionId, user?.id, refetchVideoSession]);
 
   const handleUserVibe = useCallback(() => handleHandshakeDecision('vibe'), [handleHandshakeDecision]);
   const handleUserPass = useCallback(() => handleHandshakeDecision('pass'), [handleHandshakeDecision]);
@@ -3211,6 +3226,31 @@ export default function VideoDateScreen() {
         return;
       }
 
+      // Fairness guard: if the server deadline fires before the local user has had at
+      // least MIN_DECISION_WINDOW_AFTER_MEDIA_MS of usable CTA time after first playable
+      // remote media, defer the call by the remaining gap. This prevents expiry on slow
+      // Daily joins where media arrives close to the 60 s server deadline.
+      if (allowRetry && firstPlayableRemoteAtMsRef.current > 0) {
+        const mediaAge = Date.now() - firstPlayableRemoteAtMsRef.current;
+        const deferMs = MIN_DECISION_WINDOW_AFTER_MEDIA_MS - mediaAge;
+        if (deferMs > 0) {
+          vdbg('complete_handshake_deferred_for_media_window', {
+            sessionId,
+            source,
+            deferMs,
+            mediaAgeMs: mediaAge,
+          });
+          if (handshakeCompletionRetryTimerRef.current) {
+            clearTimeout(handshakeCompletionRetryTimerRef.current);
+          }
+          handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+            handshakeCompletionRetryTimerRef.current = null;
+            void completeHandshakeFromServerDeadline(`${source}_after_media_window`, false);
+          }, deferMs + 200);
+          return;
+        }
+      }
+
       handshakeCompletionInFlightRef.current = true;
       try {
         vdbg('complete_handshake_fire', {
@@ -3247,7 +3287,7 @@ export default function VideoDateScreen() {
           return;
         }
 
-        if (result.waiting_for_partner === true) {
+        if (result.waiting_for_partner === true || result.waiting_for_self === true) {
           const graceExpiresAt =
             typeof result.grace_expires_at === 'string'
               ? result.grace_expires_at
@@ -3263,6 +3303,7 @@ export default function VideoDateScreen() {
               : null;
           setHandshakeGraceExpiresAt(graceExpiresAt);
           setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
+          setHandshakeGraceWaitingForSelf(result.waiting_for_self === true);
           return;
         }
 
@@ -3538,11 +3579,14 @@ export default function VideoDateScreen() {
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
+  // During grace, only show "waiting for partner" pill when the local decision is already saved.
+  // If the local user still needs to tap, we show the Vibe CTA instead (handled by showHandshakeChrome).
   const showHandshakeGraceWait =
     phase === 'handshake' &&
     hasRemotePartner &&
     !peerMissingTerminal &&
-    handshakeGraceSecondsRemaining !== null;
+    handshakeGraceSecondsRemaining !== null &&
+    !handshakeGraceWaitingForSelf;
 
   const showJoiningOverlay = (joining || isConnecting) && !preJoinFailed && !peerMissingTerminal;
   const showPeerWaitOverlay =
@@ -3554,11 +3598,12 @@ export default function VideoDateScreen() {
     !joining &&
     !isConnecting;
 
+  // Show the Vibe/Pass CTA during normal handshake AND during grace when the local user still needs to decide.
   const showHandshakeChrome =
     phase === 'handshake' &&
     hasRemotePartner &&
     !peerMissingTerminal &&
-    handshakeGraceSecondsRemaining === null;
+    (handshakeGraceSecondsRemaining === null || handshakeGraceWaitingForSelf);
   const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
   const phaseCueLabel = phase === 'handshake' ? 'HANDSHAKE' : phase === 'date' ? 'DATE LIVE' : null;
   const localHandshakeDecision = useMemo<boolean | null>(() => {
@@ -3947,6 +3992,12 @@ export default function VideoDateScreen() {
                 Waiting for your partner... {handshakeGraceSecondsRemaining}s
               </Text>
             </View>
+          ) : handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null ? (
+            <View style={[styles.waitingTimerPill, { backgroundColor: theme.tintSoft }]}>
+              <Text style={[styles.waitingTimerText, { color: theme.tint }]}>
+                Tap Vibe or Pass — {handshakeGraceSecondsRemaining}s left
+              </Text>
+            </View>
           ) : hasRemotePartner ? (
             <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
           ) : null}
@@ -3979,10 +4030,13 @@ export default function VideoDateScreen() {
             />
           ) : null}
           <VibeCheckButton
-            timeLeft={displayTimeLeft}
+            timeLeft={handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null
+              ? handshakeGraceSecondsRemaining
+              : displayTimeLeft}
             decision={localHandshakeDecision}
             onVibe={handleUserVibe}
             onPass={handleUserPass}
+            graceSecondsRemaining={handshakeGraceWaitingForSelf ? handshakeGraceSecondsRemaining : null}
           />
         </View>
       )}

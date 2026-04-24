@@ -15,14 +15,17 @@ type Props = {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
+  /** Non-null during handshake grace when the local user still needs to decide. */
+  graceSecondsRemaining?: number | null;
 };
 
-export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
+export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, graceSecondsRemaining }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [submitting, setSubmitting] = React.useState<'vibe' | 'pass' | null>(null);
   const submittingRef = useRef(false);
-  const isProminent = timeLeft <= 20;
+  const inGrace = graceSecondsRemaining != null;
+  const isProminent = inGrace || timeLeft <= 20;
   const hasDecided = decision === true || decision === false;
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
@@ -99,8 +102,12 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
           </Pressable>
         </Animated.View>
       </View>
-      <Text style={[styles.hint, { color: theme.mutedForeground }]}>
-        {isProminent ? 'Last chance: choose before the timer ends.' : 'Your choice only continues after it saves.'}
+      <Text style={[styles.hint, { color: inGrace ? theme.tint : theme.mutedForeground }]}>
+        {inGrace
+          ? `Last chance — ${graceSecondsRemaining}s left to choose.`
+          : isProminent
+            ? 'Last chance: choose before the timer ends.'
+            : 'Your choice only continues after it saves.'}
       </Text>
     </View>
   );

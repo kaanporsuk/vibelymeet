@@ -186,6 +186,9 @@ export async function initStreamCdnHostname(): Promise<void> {
   }
 }
 
+// Per-UID set so playback.url.resolved only logs once per session in dev.
+const loggedPlaybackUids = new Set<string>();
+
 /** Canonical playback URL; null only when uid is missing (hostname is always resolved). */
 export function getVibeVideoPlaybackUrl(bunnyVideoUid: string | null | undefined): string | null {
   const { hostname, source } = resolveVibeVideoStreamHostnameSync();
@@ -196,13 +199,16 @@ export function getVibeVideoPlaybackUrl(bunnyVideoUid: string | null | undefined
   }
   if (!uid || !hostname) return null;
   const url = `https://${hostname}/${uid}/playlist.m3u8`;
-  vibeVideoDiagVerbose('playback.url.resolved', {
-    uid,
-    hostname,
-    hostnameSource: source,
-    projectRef: SUPABASE_PROJECT_REF,
-    url,
-  });
+  if (!loggedPlaybackUids.has(uid)) {
+    loggedPlaybackUids.add(uid);
+    vibeVideoDiagVerbose('playback.url.resolved', {
+      uid,
+      hostname,
+      hostnameSource: source,
+      projectRef: SUPABASE_PROJECT_REF,
+      url,
+    });
+  }
   return url;
 }
 

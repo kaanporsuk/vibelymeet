@@ -18,6 +18,7 @@ import {
   Linking,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
 import {
@@ -106,6 +107,7 @@ export default function MatchesListScreen() {
   const { user } = useAuth();
   const { canSeeLikedYou } = useEntitlements();
   const { data: matches = [], isLoading, isRefetching, error, refetch } = useMatches(user?.id);
+  const isFocused = useIsFocused();
   const [activeTab, setActiveTab] = useState<'conversations' | 'drops'>('conversations');
   const [searchQuery, setSearchQuery] = useState('');
   const [conversationSort, setConversationSort] = useState<ConversationSortOption>('recent');
@@ -759,7 +761,7 @@ export default function MatchesListScreen() {
             onScrollBeginDrag={onConversationsScrollBeginDrag}
             refreshControl={
               <RefreshControl
-                refreshing={isRefetching && !isLoading}
+                refreshing={isFocused && isRefetching && !isLoading}
                 onRefresh={handleRefresh}
                 tintColor={theme.tint}
               />
