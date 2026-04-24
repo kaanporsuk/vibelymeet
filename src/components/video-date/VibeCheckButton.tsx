@@ -8,12 +8,22 @@ interface VibeCheckButtonProps {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
+  /** Server Last Chance grace: local user still owes a decision. */
+  graceSecondsRemaining?: number | null;
 }
 
-export const VibeCheckButton = ({ timeLeft, decision, onVibe, onPass, disabled }: VibeCheckButtonProps) => {
+export const VibeCheckButton = ({
+  timeLeft,
+  decision,
+  onVibe,
+  onPass,
+  disabled,
+  graceSecondsRemaining,
+}: VibeCheckButtonProps) => {
   const [submitting, setSubmitting] = useState<"vibe" | "pass" | null>(null);
   const submittingRef = useRef(false);
-  const isProminent = timeLeft <= 20;
+  const inGrace = graceSecondsRemaining != null;
+  const isProminent = inGrace || timeLeft <= 20;
   const hasDecided = decision === true || decision === false;
 
   const handleTap = async (action: "vibe" | "pass") => {
@@ -48,6 +58,15 @@ export const VibeCheckButton = ({ timeLeft, decision, onVibe, onPass, disabled }
 
   return (
     <div className="flex flex-col items-center gap-2">
+      {inGrace && !hasDecided ? (
+        <motion.p
+          className="text-[11px] font-display font-bold tracking-widest text-primary uppercase"
+          animate={{ opacity: [1, 0.4, 1] }}
+          transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
+        >
+          Last Chance
+        </motion.p>
+      ) : null}
       <p
         className="max-w-[240px] text-center text-[11px] font-medium leading-snug text-foreground"
       >
@@ -91,9 +110,13 @@ export const VibeCheckButton = ({ timeLeft, decision, onVibe, onPass, disabled }
         </motion.button>
       </div>
       <p
-        className="max-w-[240px] text-center text-[10px] leading-snug text-muted-foreground/70"
+        className={`max-w-[240px] text-center text-[10px] leading-snug ${inGrace ? "text-primary font-medium" : "text-muted-foreground/70"}`}
       >
-        {isProminent ? "Last chance: choose before the timer ends." : "Your choice only continues after it saves."}
+        {inGrace
+          ? `${graceSecondsRemaining}s left to choose.`
+          : isProminent
+            ? "Last chance: choose before the timer ends."
+            : "Your choice only continues after it saves."}
       </p>
     </div>
   );

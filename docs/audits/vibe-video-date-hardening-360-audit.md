@@ -101,7 +101,7 @@ Latest definition: `supabase/migrations/20260430090000_video_date_handshake_hard
 | `mark_reconnect_return` | success with reconnect/away fields, or `SESSION_ENDED` | clears caller's away slot and clears grace when both are present |
 | `enter_handshake` | success `state:'handshake'`, or false `SESSION_ENDED`, `READY_GATE_NOT_READY` | idempotent once handshake/date is already active |
 | `vibe` | success `state:'handshake'|'date'|'ended'`, or false `SESSION_ENDED` / `GRACE_EXPIRED` | records actor's pre-date vibe; no explicit client `pass` action exists |
-| `complete_handshake` | success `state:'date'|'handshake'|'ended'`, optional `waiting_for_partner`, `grace_expires_at`, `seconds_remaining`, `already_ended`, `reason` | starts/observes/expires 15s handshake grace |
+| `complete_handshake` | success `state:'date'|'handshake'|'ended'`, optional `waiting_for_self` / `waiting_for_partner`, `grace_expires_at`, `seconds_remaining`, `already_ended`, `reason` | starts/observes/expires **10s** Last Chance handshake grace when unresolved and no explicit Pass (migration `20260430180000_*`) |
 | `end` | success `state:'ended'`, optional `already_ended` | server-owned terminal path; reason changes event-registration status behavior |
 
 Global false/error returns also include `UNAUTHORIZED`, `SESSION_NOT_FOUND`, `ACCESS_DENIED`, and `UNKNOWN_ACTION`.
@@ -150,8 +150,8 @@ Latest definition: `supabase/migrations/20260428120000_video_date_p0_p1_closure.
 | `src/hooks/useReadyGate.ts` | 2s polling reads `video_sessions` directly, does not call `ready_gate_transition('sync')` | fallback does not execute server expiry/reconciliation |
 | `src/pages/VideoDate.tsx` | date timer hydration/realtime ignores `date_extra_seconds` | paid extension can disappear after reload/realtime and client can end early |
 | `src/pages/VideoDate.tsx` | realtime ended path sets `phase='ended'` but does not open survey | users can land on ended surface instead of survey |
-| `src/components/video-date/VibeCheckButton.tsx` | marks `hasVibed=true` before backend result | UI can imply state change before backend confirmation |
-| `src/pages/VideoDate.tsx` | `handleUserVibe` logs payload but ignores `success:false` | `GRACE_EXPIRED` / `SESSION_ENDED` can look like a successful tap |
+| `src/components/video-date/VibeCheckButton.tsx` | ~~marks `hasVibed=true` before backend~~ **Mitigated:** `decision` comes from server truth; tap awaits handler | residual risk only if parent passes optimistic `decision` |
+| `src/pages/VideoDate.tsx` | ~~`handleUserVibe` ignores `success:false`~~ **Mitigated (Last Chance pass):** `persistHandshakeDecisionWithVerification`, `setHandshakeTruth` on failure, refetch nonce, terminal `endCall` + `handleCallEnd` when ended | stale Vibed/Passed should not stick after `GRACE_EXPIRED` / ended truth |
 | `src/pages/VideoDate.tsx` | `handleCallEnd` opens survey before `end` RPC confirms | survey can imply terminal state if RPC/network fails |
 | `src/pages/ReadyRedirect.tsx` | `/ready/:id` only accepts `queue_status='in_ready_gate'`; if backend already says handshake/date, it redirects to lobby instead of date | route parity/UX gap |
 | `src/pages/VideoDate.tsx` | `handleMutualToastComplete` fires `video_date_extended` when date starts | observability false signal |
@@ -177,7 +177,7 @@ Latest definition: `supabase/migrations/20260428120000_video_date_p0_p1_closure.
 | --- | --- | --- |
 | `apps/mobile/lib/videoDateApi.ts` | realtime handler sets `date` when `date_started_at` is present, then immediately sets `handshake` when `handshake_started_at` is also present | correctness-critical native phase regression |
 | `apps/mobile/lib/videoDateApi.ts` | timer hydration/realtime ignores `date_extra_seconds` | paid extension can disappear after reload/realtime |
-| `apps/mobile/lib/videoDateApi.ts` | `recordVibe` returns `!error`, ignoring payload `success:false` | UI can mark Vibed on `GRACE_EXPIRED` / `SESSION_ENDED` |
+| `apps/mobile/lib/videoDateApi.ts` | ~~`recordVibe` ignores payload `success:false`~~ **Mitigated:** `recordHandshakeDecision` uses shared persistence + truth refetch on RPC error; native date screen refetches and runs terminal end flow when truth/RPC say session ended | verify `recordVibe` call sites still route through `recordHandshakeDecision` only |
 | `apps/mobile/app/date/[id].tsx` | server-reported end from `sync_reconnect` opens survey only if `partnerEverJoinedRef.current` is true | ended date can show "Date ended" with no survey |
 | `apps/mobile/app/date/[id].tsx` | `handleCallEnd` opens feedback before server end confirmation | same confirmation gap as web |
 | `apps/mobile/app/ready/[id].tsx` | standalone ready screen treats non-`in_ready_gate` registration as stale, even if video session is already startable | route parity/UX gap |
@@ -191,7 +191,7 @@ Latest definition: `supabase/migrations/20260428120000_video_date_p0_p1_closure.
 | --- | --- | --- | --- |
 | Ready Gate | `queued`, `ready`, `ready_a`, `ready_b`, `snoozed`, `both_ready`, `forfeited`, `expired` | `ready_gate_transition`, `drain_match_queue`, `expire_stale_video_sessions` | `both_ready` is terminal for Ready Gate but not terminal for video session |
 | Handshake | `video_sessions.state/phase='handshake'`, `handshake_started_at` | `video_date_transition('enter_handshake')` | clients may join Daily only after server permits token |
-| Handshake grace | `handshake_grace_expires_at` | `video_date_transition('complete_handshake')`, `expire_stale_video_date_phases` | 15s window for NULL response preservation |
+| Handshake grace | `handshake_grace_expires_at` | `video_date_transition('complete_handshake')`, `expire_stale_video_date_phases` | **10s** Last Chance when at least one participant is still undecided and neither has an explicit Pass; explicit Pass ends immediately |
 | Live date | `state/phase='date'`, `date_started_at` | `video_date_transition('vibe'|'complete_handshake')` | current clients do not write phase directly |
 | Reconnect | `reconnect_grace_ends_at`, `participant_*_away_at` | reconnect actions and cron/lazy expiry | Daily events trigger RPCs, DB owns result |
 | End | `state/phase='ended'`, `ended_at`, `ended_reason` | `video_date_transition('end')`, expiry functions, reconnect cron | direct client writes should not exist |
@@ -227,7 +227,7 @@ Latest definition: `supabase/migrations/20260428120000_video_date_p0_p1_closure.
 
 ### Current contract
 
-`enter_handshake` starts the server timer after both-ready. `vibe` persists the actor's pre-date positive consent. `complete_handshake` resolves mutual/non-mutual outcomes and owns the 15s grace window. Post-date survey does not use `complete_handshake`; it uses `post-date-verdict` and `submit_post_date_verdict`.
+`enter_handshake` starts the server timer after both-ready. `vibe` persists the actor's pre-date positive consent. `complete_handshake` resolves mutual/non-mutual outcomes and owns the **10s** Last Chance grace window (no grace if any explicit Pass). Post-date survey does not use `complete_handshake`; it uses `post-date-verdict` and `submit_post_date_verdict`.
 
 Important distinction: the backend now distinguishes `NULL` from `false`. `NULL` means no pre-date response yet. `false` means pass/non-vibe. Current clients do not expose an explicit pre-date pass action, so `false` is mostly produced by grace expiry or by later post-date verdict writes to the same columns.
 
@@ -243,8 +243,8 @@ Important distinction: the backend now distinguishes `NULL` from `false`. `NULL`
 
 ### Verification answers
 
-- False early no-match on last-second taps: mostly fixed at backend by 15s grace. Late `vibe` after grace expiry cannot advance an ended session; it returns `GRACE_EXPIRED` or terminal.
-- Late taps after grace expiry creating inconsistent state: backend prevents inconsistent mutation. Client UI may still mark "Vibed" if it ignores `success:false`.
+- False early no-match on last-second taps: mitigated at backend by the **10s** Last Chance grace (after the 60s visible handshake). Late `vibe` after grace expiry cannot advance an ended session; it returns `GRACE_EXPIRED` or terminal.
+- Late taps after grace expiry creating inconsistent state: backend prevents inconsistent mutation. Client handshake handlers reconcile on `success:false` / terminal truth (`handshakeDecisionFailureIndicatesSessionEnded`) so local UI should follow server rows after refetch.
 - Already-ended sessions returning misleading success: `complete_handshake` and `end` return success with `already_ended`; this is intentionally idempotent but risky for clients that treat any success as an active mutation.
 - Web/native return-shape support: both understand `complete_handshake` grace enough for the main timer path. Neither fully handles `vibe` false payloads. Native `recordVibe` explicitly returns `!error`, so false JSON success is lost.
 
@@ -506,7 +506,7 @@ Noise callout: reconnect polling is not DB-spammy, but VDBG/Sentry breadcrumbs c
 1. ~~`src/pages/Dashboard.tsx` directly updates `video_sessions.ended_at`~~ **Resolved (#476):** Dashboard video end uses `video_date_transition('end')`.
 2. `apps/mobile/lib/videoDateApi.ts` realtime can regress native phase from date to handshake.
 3. Web/native timers ignore `date_extra_seconds` on hydration/realtime, risking early end after paid extension.
-4. Web/native vibe actions ignore `success:false` JSON payloads, especially `GRACE_EXPIRED`.
+4. ~~Web/native vibe actions ignore `success:false` JSON payloads, especially `GRACE_EXPIRED`.~~ **Mitigated** for explicit handshake Vibe/Pass via shared persistence + native/web terminal reconcile (remaining gap: any other code paths that call `video_date_transition` without inspecting JSON).
 5. Survey can open before backend end confirmation; conversely server-ended realtime can fail to open survey.
 
 ### P1 / high UX or data-integrity risk
@@ -704,7 +704,7 @@ Real device: optional for breadcrumb volume, but useful.
 1. PR 1 - no-bypass correctness:
    - replace Dashboard direct video end write with `video_date_transition('end')`;
    - fix native date->handshake realtime regression;
-   - make `recordVibe`/web vibe handler respect `success:false`.
+   - ~~make `recordVibe`/web vibe handler respect `success:false`.~~ Done for handshake decisions via `persistHandshakeDecisionWithVerification` + terminal UI reconcile.
 2. PR 2 - monetized extension correctness:
    - select/use `date_extra_seconds` in web/native session hydration and realtime;
    - use returned `date_extra_seconds` after credit spend.

@@ -64,6 +64,7 @@ import {
   decideVideoSessionRouteFromTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
+import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
@@ -359,6 +360,8 @@ export default function VideoDateScreen() {
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
   const handshakeGraceRetryTriggeredRef = useRef(false);
+  /** Opacity blink for Last Chance grace (server-owned countdown). */
+  const lastChanceBlinkOpacity = useRef(new Animated.Value(1)).current;
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
@@ -653,6 +656,24 @@ export default function VideoDateScreen() {
     setHandshakeGraceWaitingForSelf(false);
     handshakeGraceRetryTriggeredRef.current = false;
   }, []);
+
+  useEffect(() => {
+    if (!handshakeGraceExpiresAt) {
+      lastChanceBlinkOpacity.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(lastChanceBlinkOpacity, { toValue: 0.42, duration: 360, useNativeDriver: true }),
+        Animated.timing(lastChanceBlinkOpacity, { toValue: 1, duration: 360, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      lastChanceBlinkOpacity.setValue(1);
+    };
+  }, [handshakeGraceExpiresAt, lastChanceBlinkOpacity]);
 
   const hasRemotePartner = !!remoteParticipant;
   /** Remote participant's first Daily join stamp (null = they have not opened/joined this date yet). */
@@ -1097,12 +1118,25 @@ export default function VideoDateScreen() {
     }
     const graceRemaining = Math.max(0, Math.ceil((new Date(graceExpiresAtRaw).getTime() - Date.now()) / 1000));
     if (graceRemaining > 0) {
+      handshakeGraceRetryTriggeredRef.current = false;
       setHandshakeGraceExpiresAt(graceExpiresAtRaw);
       setHandshakeGraceSecondsRemaining(graceRemaining);
+      const isP1 = user?.id === session?.participant_1_id;
+      const decidedAt = isP1 ? session?.participant_1_decided_at : session?.participant_2_decided_at;
+      setHandshakeGraceWaitingForSelf(!decidedAt);
     } else {
       clearHandshakeGraceState();
     }
-  }, [phase, session?.handshake_grace_expires_at, localTimeLeft, clearHandshakeGraceState]);
+  }, [
+    phase,
+    session?.handshake_grace_expires_at,
+    session?.participant_1_id,
+    session?.participant_1_decided_at,
+    session?.participant_2_decided_at,
+    user?.id,
+    localTimeLeft,
+    clearHandshakeGraceState,
+  ]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !localInDailyRoom) return;
@@ -1789,6 +1823,23 @@ export default function VideoDateScreen() {
         completeHandshakeTriggerReason: result.ok ? 'decision_rpc_owns_transition' : 'decision_not_persisted',
       });
       if (!result.ok) {
+        void refetchVideoSession();
+        const sessionEnded = handshakeDecisionFailureIndicatesSessionEnded({
+          truth: result.truth,
+          rpcPayload: result.rpcPayload,
+        });
+        if (sessionEnded) {
+          clearHandshakeGraceState();
+          vdbg('prejoin_state_callError', {
+            value: null,
+            sessionId,
+            userId: user.id,
+            step: 'handshake_decision_terminal',
+          });
+          setCallError(null);
+          void handleCallEnd('server_end');
+          return false;
+        }
         vdbg('prejoin_state_callError', {
           value: result.userMessage,
           sessionId,
@@ -1807,7 +1858,7 @@ export default function VideoDateScreen() {
     } finally {
       handshakeDecisionInFlightRef.current = false;
     }
-  }, [sessionId, user?.id, refetchVideoSession]);
+  }, [sessionId, user?.id, refetchVideoSession, clearHandshakeGraceState, handleCallEnd]);
 
   const handleUserVibe = useCallback(() => handleHandshakeDecision('vibe'), [handleHandshakeDecision]);
   const handleUserPass = useCallback(() => handleHandshakeDecision('pass'), [handleHandshakeDecision]);
@@ -3380,6 +3431,7 @@ export default function VideoDateScreen() {
             graceExpiresAt !== null
               ? Math.max(0, Math.ceil((new Date(graceExpiresAt).getTime() - Date.now()) / 1000))
               : null;
+          handshakeGraceRetryTriggeredRef.current = false;
           setHandshakeGraceExpiresAt(graceExpiresAt);
           setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
           setHandshakeGraceWaitingForSelf(result.waiting_for_self === true);
@@ -4067,15 +4119,19 @@ export default function VideoDateScreen() {
             </View>
           ) : showHandshakeGraceWait ? (
             <View style={styles.waitingTimerPill}>
-              <Text style={[styles.waitingTimerText, { color: theme.text }]}>
-                Waiting for your partner... {handshakeGraceSecondsRemaining}s
-              </Text>
+              <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
+                <Text style={[styles.waitingTimerText, { color: theme.text }]}>
+                  Last Chance · {handshakeGraceSecondsRemaining}s — waiting for partner
+                </Text>
+              </Animated.View>
             </View>
           ) : handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null ? (
             <View style={[styles.waitingTimerPill, { backgroundColor: theme.tintSoft }]}>
-              <Text style={[styles.waitingTimerText, { color: theme.tint }]}>
-                Tap Vibe or Pass — {handshakeGraceSecondsRemaining}s left
-              </Text>
+              <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
+                <Text style={[styles.waitingTimerText, { color: theme.tint }]}>
+                  Last Chance · {handshakeGraceSecondsRemaining}s — tap Vibe or Pass
+                </Text>
+              </Animated.View>
             </View>
           ) : hasRemotePartner ? (
             <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
