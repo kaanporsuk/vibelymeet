@@ -22,7 +22,9 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
-import { fetchMyProfile, updateMyProfile } from '@/lib/profileApi';
+import { nativeHeroVideoReset } from '@/lib/nativeHeroVideoUploadController';
+import { fetchMyProfile, updateMyProfile, type ProfileRow } from '@/lib/profileApi';
+import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
 
@@ -235,16 +237,6 @@ export default function VibeStudioScreen() {
             setIsDeleting(true);
             try {
               await deleteVibeVideo();
-              setShowFullscreen(false);
-              await refreshProfile();
-              show({
-                title: 'Video removed',
-                message: deletingPipelineVideo
-                  ? 'The in-progress Vibe Video was removed.'
-                  : 'Your Vibe Video was deleted.',
-                variant: 'success',
-                primaryAction: { label: 'OK', onPress: () => {} },
-              });
             } catch (error) {
               const message =
                 error instanceof DeleteVibeVideoError ? error.message : 'Could not delete. Try again.';
@@ -252,6 +244,47 @@ export default function VibeStudioScreen() {
                 title: "Couldn't delete video",
                 message,
                 variant: 'warning',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
+              setIsDeleting(false);
+              return;
+            }
+
+            nativeHeroVideoReset();
+            setShowFullscreen(false);
+            qc.setQueryData<ProfileRow | null>(['my-profile'], (prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                bunny_video_uid: null,
+                bunny_video_status: 'none',
+                vibe_caption: null,
+              };
+            });
+            setCaptionDraft('');
+
+            const removedOkMessage = deletingPipelineVideo
+              ? 'The in-progress Vibe Video was removed.'
+              : 'Your Vibe Video was removed.';
+
+            try {
+              await refreshProfile();
+              show({
+                title: 'Video removed',
+                message: removedOkMessage,
+                variant: 'success',
+                primaryAction: { label: 'OK', onPress: () => {} },
+              });
+            } catch (refreshError) {
+              vibeVideoDiagVerbose('vibe_studio.delete.refresh_failed', {
+                message: refreshError instanceof Error ? refreshError.message : String(refreshError),
+              });
+              console.warn('[VibeStudio] refreshProfile after delete failed', refreshError);
+              show({
+                title: 'Video removed',
+                message:
+                  'Your Vibe Video was removed. Pull to refresh if the page does not update right away.',
+                variant: 'success',
                 primaryAction: { label: 'OK', onPress: () => {} },
               });
             } finally {

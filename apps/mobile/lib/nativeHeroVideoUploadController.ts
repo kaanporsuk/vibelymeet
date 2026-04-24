@@ -13,6 +13,9 @@
  *   processing — tus complete; polling backend for transcoding result
  *   ready      — backend confirmed ready; query cache invalidated
  *   failed     — tus error OR backend reported failure; retry available
+ *
+ * A monotonic generation counter invalidates in-flight async work after reset or a newer
+ * nativeHeroVideoStart(), so late TUS/poll callbacks cannot resurrect stale phases.
  */
 
 import { getCreateVideoUploadCredentials, uploadVibeVideoToBunny } from '@/lib/vibeVideoApi';
@@ -43,6 +46,9 @@ let _state: NativeHeroVideoControllerState = {
   errorMessage: null,
 };
 
+/** Bumped on every nativeHeroVideoStart and nativeHeroVideoReset to fence stale async work. */
+let _generation = 0;
+
 const _subscribers = new Set<Subscriber>();
 let _pollAbort: AbortController | null = null;
 let _uploadAbort: AbortController | null = null;
@@ -59,13 +65,27 @@ export function nativeHeroVideoSetQueryClient(qc: QueryClientLike): void {
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
+function _isCurrent(runId: number): boolean {
+  return runId === _generation;
+}
+
 function _setState(patch: Partial<NativeHeroVideoControllerState>): void {
   _state = { ..._state, ...patch };
   _subscribers.forEach((cb) => cb(_state));
 }
 
+function _setStateIfCurrent(runId: number, patch: Partial<NativeHeroVideoControllerState>): void {
+  if (!_isCurrent(runId)) return;
+  _setState(patch);
+}
+
 function _invalidateProfile(): void {
   void _queryClient?.invalidateQueries({ queryKey: ['my-profile'] });
+}
+
+function _invalidateProfileIfCurrent(runId: number): void {
+  if (!_isCurrent(runId)) return;
+  _invalidateProfile();
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -100,9 +120,12 @@ export function nativeHeroVideoStart(
   _uploadAbort = new AbortController();
   _pollAbort = new AbortController();
 
+  _generation++;
+  const runId = _generation;
+
   _setState({ phase: 'uploading', uploadProgress: 0, videoId: null, errorMessage: null });
 
-  void _run(videoUri, caption, context ?? 'profile_studio', _uploadAbort, _pollAbort);
+  void _run(videoUri, caption, context ?? 'profile_studio', _uploadAbort, _pollAbort, runId);
 }
 
 async function _run(
@@ -111,23 +134,31 @@ async function _run(
   context: 'onboarding' | 'profile_studio',
   uploadAc: AbortController,
   pollAc: AbortController,
+  runId: number,
 ): Promise<void> {
   try {
     // ── Get tus credentials ───────────────────────────────────────────────────
     const creds = await getCreateVideoUploadCredentials({ context });
-    _setState({ videoId: creds.videoId });
+    if (!_isCurrent(runId)) return;
+
+    _setStateIfCurrent(runId, { videoId: creds.videoId });
+    if (!_isCurrent(runId)) return;
 
     // ── TUS upload to Bunny ───────────────────────────────────────────────────
     await uploadVibeVideoToBunny(
       videoUri,
       creds,
       (bytesUploaded, bytesTotal) => {
+        if (uploadAc.signal.aborted) return;
+        if (!_isCurrent(runId)) return;
         if (bytesTotal > 0) {
-          _setState({ uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
+          _setStateIfCurrent(runId, { uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
         }
       },
       { signal: uploadAc.signal, uploadSource: 'unknown' },
     );
+
+    if (!_isCurrent(runId)) return;
 
     // ── Caption save (best-effort after tus) ─────────────────────────────────
     if (caption !== undefined && caption !== null) {
@@ -139,9 +170,14 @@ async function _run(
       }
     }
 
+    if (!_isCurrent(runId)) return;
+
     // ── Move to processing, start backend poll ────────────────────────────────
-    _setState({ phase: 'processing', uploadProgress: 100 });
-    _invalidateProfile();
+    _setStateIfCurrent(runId, { phase: 'processing', uploadProgress: 100 });
+    if (!_isCurrent(runId)) return;
+
+    _invalidateProfileIfCurrent(runId);
+    if (!_isCurrent(runId)) return;
 
     const result = await pollVibeVideoUntilTerminal({
       expectedVideoId: creds.videoId,
@@ -150,19 +186,24 @@ async function _run(
       signal: pollAc.signal,
     });
 
+    if (!_isCurrent(runId)) return;
+
     if (result === 'ready') {
-      _setState({ phase: 'ready', errorMessage: null });
+      _setStateIfCurrent(runId, { phase: 'ready', errorMessage: null });
     } else if (result === 'failed') {
-      _setState({ phase: 'failed', errorMessage: 'Processing did not complete. Try uploading again.' });
+      _setStateIfCurrent(runId, {
+        phase: 'failed',
+        errorMessage: 'Processing did not complete. Try uploading again.',
+      });
     } else if (result === 'aborted') {
-      // Signal was aborted — a new upload started; do nothing
+      // Signal was aborted — a new upload started or reset; do nothing
       return;
     } else {
       // timeout or superseded — go idle and let profile be authoritative
-      _setState({ phase: 'idle', videoId: null, errorMessage: null });
+      _setStateIfCurrent(runId, { phase: 'idle', videoId: null, errorMessage: null });
     }
 
-    _invalidateProfile();
+    _invalidateProfileIfCurrent(runId);
   } catch (err) {
     const isAbort =
       err !== null &&
@@ -171,9 +212,11 @@ async function _run(
       (err as { name?: string }).name === 'AbortError';
     if (isAbort) return;
 
+    if (!_isCurrent(runId)) return;
+
     const msg = err instanceof Error ? err.message : 'Upload failed. Please try again.';
-    _setState({ phase: 'failed', errorMessage: msg });
-    _invalidateProfile();
+    _setStateIfCurrent(runId, { phase: 'failed', errorMessage: msg });
+    _invalidateProfileIfCurrent(runId);
   }
 }
 
@@ -186,5 +229,6 @@ export function nativeHeroVideoReset(): void {
   _pollAbort?.abort();
   _uploadAbort = null;
   _pollAbort = null;
+  _generation++;
   _setState({ phase: 'idle', uploadProgress: 0, videoId: null, errorMessage: null });
 }

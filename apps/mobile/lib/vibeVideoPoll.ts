@@ -73,6 +73,7 @@ export async function pollVibeVideoUntilTerminal(options: {
       continue;
     }
 
+    // Empty / null / non-string / whitespace-only → treat as cleared (matches delete + RPC clears).
     const rowUid = typeof data?.bunny_video_uid === 'string' ? data.bunny_video_uid.trim() : '';
     const rawStatus =
       typeof data?.bunny_video_status === 'string' ? data.bunny_video_status.trim() : null;
@@ -83,7 +84,22 @@ export async function pollVibeVideoUntilTerminal(options: {
       rowUid: rowUid || null,
       rawStatus,
     });
-    if (rowUid && rowUid !== expectedVideoId) {
+    if (!rowUid) {
+      vibeVideoDiagVerbose('poll.uid_removed_or_empty', {
+        userId: user.id,
+        expectedVideoId,
+        attempt,
+        rawStatus,
+      });
+      vibeVideoDiagVerbose('poll.terminal', {
+        expectedVideoId,
+        result: 'superseded',
+        reason: 'profile_bunny_video_uid_cleared',
+        attempt,
+      });
+      return 'superseded';
+    }
+    if (rowUid !== expectedVideoId) {
       vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'superseded', rowUid, attempt });
       return 'superseded';
     }
