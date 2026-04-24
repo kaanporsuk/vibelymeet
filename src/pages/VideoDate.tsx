@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -108,6 +108,9 @@ type CallPhase = "handshake" | "date" | "ended";
 type CompleteHandshakePayload = {
   state?: "date" | "ended" | "handshake";
   waiting_for_partner?: boolean;
+  waiting_for_self?: boolean;
+  local_decision_persisted?: boolean;
+  partner_decision_persisted?: boolean;
   grace_expires_at?: string;
   seconds_remaining?: number;
   already_ended?: boolean;
@@ -152,6 +155,7 @@ const VideoDate = () => {
   const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
   const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
   const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
+  const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
   const [isParticipant1, setIsParticipant1] = useState(false);
   const [partnerId, setPartnerId] = useState<string>("");
@@ -596,7 +600,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -619,6 +623,7 @@ const VideoDate = () => {
           setVideoDateAccess("not_found");
           return;
         }
+        setHandshakeTruth({ id, ...(sessionRow as VideoDateHandshakeTruth) });
 
         const isP1 = sessionRow.participant_1_id === user.id;
         const isParticipant = isP1 || sessionRow.participant_2_id === user.id;
@@ -729,8 +734,10 @@ const VideoDate = () => {
             userId: user.id,
             eventId: sessionRow.event_id,
             branch: readyGateBranch,
+            truthDecision: canAttemptDaily ? "navigate_date" : "stay_lobby",
             canAttemptDaily,
-            routed_to: canAttemptDaily || isDateEntryTransitionActive(id) ? "date" : "lobby",
+            routeOverride: isDateEntryTransitionActive(id) ? "date_entry_latch" : null,
+            finalRoute: canAttemptDaily || isDateEntryTransitionActive(id) ? "date" : "lobby",
             readyGateStatus: rgStatus,
             readyGateExpiresAt: rgExpiresRaw,
             latchActive: isDateEntryTransitionActive(id),
@@ -1145,6 +1152,7 @@ const VideoDate = () => {
         },
         (payload) => {
           const row = payload.new as any;
+          setHandshakeTruth({ id, ...(row as VideoDateHandshakeTruth) });
           const newState = row.state || row.phase;
 
           if (row.ended_at || newState === "ended") {
@@ -1366,8 +1374,8 @@ const VideoDate = () => {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [id, user?.id, eventId, isConnected, videoDateAccess]);
 
-  // Record user's vibe
-  const handleUserVibe = useCallback(async (): Promise<boolean> => {
+  // Record user's explicit handshake decision.
+  const handleHandshakeDecision = useCallback(async (action: "vibe" | "pass"): Promise<boolean> => {
     if (!id || !user?.id) return false;
     if (handshakeDecisionInFlightRef.current) return false;
     handshakeDecisionInFlightRef.current = true;
@@ -1375,10 +1383,10 @@ const VideoDate = () => {
       const result = await persistHandshakeDecisionWithVerification({
         sessionId: id,
         actorUserId: user.id,
-        action: "vibe",
+        action,
         rpc: async (args) => {
           vdbg("video_date_transition_before", {
-            action: "vibe",
+            action,
             sessionId: id,
             actorUserId: user.id,
             currentPhase: phaseRef.current,
@@ -1417,6 +1425,8 @@ const VideoDate = () => {
               error: payload.error ?? null,
               participant_1_liked: payload.participant_1_liked ?? null,
               participant_2_liked: payload.participant_2_liked ?? null,
+              participant_1_decided_at: payload.participant_1_decided_at ?? null,
+              participant_2_decided_at: payload.participant_2_decided_at ?? null,
               actorDecisionPersisted: payload.actorDecisionPersisted,
             });
           }
@@ -1424,31 +1434,37 @@ const VideoDate = () => {
       });
 
       if (!("reason" in result)) {
+        setHandshakeTruth(result.truth);
         vdbg("handshake_decision_ui_result", {
           sessionId: id,
           actorUserId: user.id,
-          action: "vibe",
+          action,
           ok: true,
           attempts: result.attempts,
           reason: null,
           actorDecisionPersisted: result.actorDecisionPersisted,
           participant_1_liked: result.truth.participant_1_liked ?? null,
           participant_2_liked: result.truth.participant_2_liked ?? null,
+          participant_1_decided_at: result.truth.participant_1_decided_at ?? null,
+          participant_2_decided_at: result.truth.participant_2_decided_at ?? null,
           completeHandshakeTriggeredAfterPersistence: false,
-          completeHandshakeTriggerReason: "vibe_rpc_owns_transition",
+          completeHandshakeTriggerReason: "decision_rpc_owns_transition",
         });
         return true;
       }
+      setHandshakeTruth(result.truth);
       vdbg("handshake_decision_ui_result", {
         sessionId: id,
         actorUserId: user.id,
-        action: "vibe",
+        action,
         ok: false,
         attempts: result.attempts,
         reason: result.reason,
         actorDecisionPersisted: result.actorDecisionPersisted,
         participant_1_liked: result.truth?.participant_1_liked ?? null,
         participant_2_liked: result.truth?.participant_2_liked ?? null,
+        participant_1_decided_at: result.truth?.participant_1_decided_at ?? null,
+        participant_2_decided_at: result.truth?.participant_2_decided_at ?? null,
         completeHandshakeTriggeredAfterPersistence: false,
         completeHandshakeTriggerReason: "decision_not_persisted",
       });
@@ -1458,6 +1474,28 @@ const VideoDate = () => {
       handshakeDecisionInFlightRef.current = false;
     }
   }, [id, user?.id]);
+
+  const handleUserVibe = useCallback(() => handleHandshakeDecision("vibe"), [handleHandshakeDecision]);
+  const handleUserPass = useCallback(() => handleHandshakeDecision("pass"), [handleHandshakeDecision]);
+
+  const localHandshakeDecision = useMemo<boolean | null>(() => {
+    if (!handshakeTruth || !user?.id) return null;
+    if (handshakeTruth.participant_1_id === user.id) {
+      return handshakeTruth.participant_1_decided_at ? handshakeTruth.participant_1_liked ?? null : null;
+    }
+    if (handshakeTruth.participant_2_id === user.id) {
+      return handshakeTruth.participant_2_decided_at ? handshakeTruth.participant_2_liked ?? null : null;
+    }
+    return null;
+  }, [
+    handshakeTruth?.participant_1_decided_at,
+    handshakeTruth?.participant_1_id,
+    handshakeTruth?.participant_1_liked,
+    handshakeTruth?.participant_2_decided_at,
+    handshakeTruth?.participant_2_id,
+    handshakeTruth?.participant_2_liked,
+    user?.id,
+  ]);
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(async (source = "handshake_server_deadline", allowRetry = true) => {
@@ -1534,6 +1572,7 @@ const VideoDate = () => {
         .select(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT)
         .eq("id", id)
         .maybeSingle();
+      setHandshakeTruth((truthAfter as VideoDateHandshakeTruth | null) ?? null);
       vdbg("video_date_transition_after", {
         action: "complete_handshake",
         source,
@@ -1576,7 +1615,16 @@ const VideoDate = () => {
         return;
       } else {
         clearHandshakeGraceState();
-        toast("Great meeting you! 👋", { duration: 2500 });
+        if (payload?.reason === "handshake_grace_expired") {
+          const message = payload.waiting_for_self
+            ? "You didn't choose Vibe or Pass in time."
+            : payload.waiting_for_partner
+              ? "Your match didn't choose in time."
+              : "The handshake timed out before both choices were saved.";
+          toast.error(message, { duration: 3000 });
+        } else {
+          toast("Great meeting you! 👋", { duration: 2500 });
+        }
         await endCall("complete_handshake_not_mutual");
         handleCallEnd();
       }
@@ -2173,7 +2221,12 @@ const VideoDate = () => {
             exit={{ opacity: 0, y: 10 }}
             className="absolute bottom-28 left-0 right-0 z-25 flex justify-center"
           >
-            <VibeCheckButton timeLeft={timeLeft} onVibe={handleUserVibe} />
+            <VibeCheckButton
+              timeLeft={timeLeft}
+              decision={localHandshakeDecision}
+              onVibe={handleUserVibe}
+              onPass={handleUserPass}
+            />
           </motion.div>
         )}
       </AnimatePresence>

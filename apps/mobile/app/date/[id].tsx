@@ -35,7 +35,7 @@ import {
   VideoDateRequestTimeoutError,
   type RoomTokenFailureCode,
   endVideoDate,
-  recordVibe,
+  recordHandshakeDecision,
   completeHandshake,
   syncVideoDateReconnect,
   markReconnectPartnerAway,
@@ -310,6 +310,9 @@ export default function VideoDateScreen() {
   const prejoinAttemptSeqRef = useRef(0);
   const prejoinAttemptRef = useRef<PrejoinAttemptState | null>(null);
   const phaseRef = useRef(phase);
+  const latestDateRouteSessionIdRef = useRef<string | null>(null);
+  const latestDateRouteUserIdRef = useRef<string | null>(null);
+  const latestDateRouteEndedRef = useRef(false);
   const extensionSpendInFlightRef = useRef(false);
   /** True once we have ever observed a remote Daily participant (survives transient participant-left). */
   const [partnerEverJoined, setPartnerEverJoined] = useState(false);
@@ -326,6 +329,7 @@ export default function VideoDateScreen() {
   const reconnectSyncCountRef = useRef(0);
   const reconnectSyncWindowStartedAtRef = useRef<number | null>(null);
   const requestReconnectSyncRef = useRef<(reason: string) => void>(() => {});
+  const enterHandshakeSucceededRef = useRef(false);
   const handleCallEndRef = useRef<((source?: 'local_end' | 'server_end') => Promise<void>) | null>(null);
   const handshakeAnalyticsRef = useRef(false);
   const videoDateEndedRef = useRef(false);
@@ -608,6 +612,9 @@ export default function VideoDateScreen() {
   );
 
   phaseRef.current = phase;
+  latestDateRouteSessionIdRef.current = sessionId ?? null;
+  latestDateRouteUserIdRef.current = user?.id ?? null;
+  latestDateRouteEndedRef.current = Boolean(session?.ended_at || session?.state === 'ended' || phase === 'ended');
 
   useEffect(() => {
     if (!sessionId) {
@@ -750,9 +757,10 @@ export default function VideoDateScreen() {
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_route_decision', {
         session_id: sessionId,
         user_id: user.id,
-        decision: truthDecision,
+        truth_decision: truthDecision,
         can_attempt_daily: canAttemptDaily,
-        routed_to: routedTo,
+        route_override: canAttemptDaily && truthDecision !== 'navigate_date' ? 'daily_startable' : null,
+        final_route: routedTo,
         source: 'route_guard',
         queue_status: reg?.queue_status ?? null,
         vs_state: vs.state ?? null,
@@ -764,9 +772,10 @@ export default function VideoDateScreen() {
         sessionId,
         userId: user.id,
         source: 'route_guard',
-        decision: truthDecision,
+        truthDecision,
         canAttemptDaily,
-        routed_to: routedTo,
+        routeOverride: canAttemptDaily && truthDecision !== 'navigate_date' ? 'daily_startable' : null,
+        finalRoute: routedTo,
         queueStatus: reg?.queue_status ?? null,
         vsState: vs.state ?? null,
         vsPhase: vs.phase ?? null,
@@ -1539,6 +1548,29 @@ export default function VideoDateScreen() {
 
     const runSync = async (reason: string, mode: 'immediate' | 'backoff') => {
       if (cancelled || !sessionId || phaseRef.current === 'ended') return;
+      const canSyncReconnect =
+        enterHandshakeSucceededRef.current ||
+        videoSessionRowIndicatesHandshakeOrDate(
+          session
+            ? {
+                state: session.state ?? null,
+                handshake_started_at: session.handshake_started_at,
+              }
+            : null
+        );
+      if (!canSyncReconnect) {
+        vdbg('sync_reconnect_skip', {
+          sessionId,
+          phase: phaseRef.current,
+          reason,
+          mode,
+          skip: 'server_truth_not_handshake_or_date',
+          serverState: session?.state ?? null,
+          handshakeStartedAt: session?.handshake_started_at ?? null,
+          enterHandshakeSucceeded: enterHandshakeSucceededRef.current,
+        });
+        return;
+      }
       if (inFlight) {
         vdbg('sync_reconnect_skip', { sessionId, phase: phaseRef.current, reason, mode, skip: 'in_flight' });
         return;
@@ -1639,11 +1671,12 @@ export default function VideoDateScreen() {
       clearReconnectSyncTimer();
       requestReconnectSyncRef.current = () => {};
     };
-  }, [sessionId, phase, clearReconnectSyncTimer]);
+  }, [sessionId, phase, session?.state, session?.handshake_started_at, clearReconnectSyncTimer]);
 
   useEffect(() => {
     reconnectSyncCountRef.current = 0;
     reconnectSyncWindowStartedAtRef.current = null;
+    enterHandshakeSucceededRef.current = false;
     clearReconnectSyncTimer();
   }, [sessionId, clearReconnectSyncTimer]);
 
@@ -1687,27 +1720,29 @@ export default function VideoDateScreen() {
     [cleanupForAbortWithoutServerEnd, eventId, sessionId]
   );
 
-  const handleUserVibe = useCallback(async (): Promise<boolean> => {
+  const handleHandshakeDecision = useCallback(async (action: 'vibe' | 'pass'): Promise<boolean> => {
     if (!sessionId || !user?.id) return false;
     if (handshakeDecisionInFlightRef.current) return false;
     handshakeDecisionInFlightRef.current = true;
     try {
-      const result = await recordVibe(sessionId, {
+      const result = await recordHandshakeDecision(sessionId, action, {
         actorUserId: user.id,
         phase: phaseRef.current,
       });
       vdbg('handshake_decision_ui_result', {
         sessionId,
         actorUserId: user.id,
-        action: 'vibe',
+        action,
         ok: result.ok,
         attempts: result.attempts,
         reason: result.ok ? null : result.reason,
         actorDecisionPersisted: result.actorDecisionPersisted,
         participant_1_liked: result.truth?.participant_1_liked ?? null,
         participant_2_liked: result.truth?.participant_2_liked ?? null,
+        participant_1_decided_at: result.truth?.participant_1_decided_at ?? null,
+        participant_2_decided_at: result.truth?.participant_2_decided_at ?? null,
         completeHandshakeTriggeredAfterPersistence: false,
-        completeHandshakeTriggerReason: result.ok ? 'vibe_rpc_owns_transition' : 'decision_not_persisted',
+        completeHandshakeTriggerReason: result.ok ? 'decision_rpc_owns_transition' : 'decision_not_persisted',
       });
       if (!result.ok) {
         vdbg('prejoin_state_callError', {
@@ -1725,6 +1760,9 @@ export default function VideoDateScreen() {
       handshakeDecisionInFlightRef.current = false;
     }
   }, [sessionId, user?.id]);
+
+  const handleUserVibe = useCallback(() => handleHandshakeDecision('vibe'), [handleHandshakeDecision]);
+  const handleUserPass = useCallback(() => handleHandshakeDecision('pass'), [handleHandshakeDecision]);
 
   const handleMutualToastComplete = useCallback(() => {
     clearHandshakeGraceState();
@@ -2475,6 +2513,7 @@ export default function VideoDateScreen() {
           vs_phase: truth0.phase,
         });
         videoDateDailyDiagnostic('enter_handshake_success', { session_id: sessionId });
+        enterHandshakeSucceededRef.current = true;
       } else {
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_skipped', {
           session_id: sessionId,
@@ -2496,6 +2535,7 @@ export default function VideoDateScreen() {
           state: truth0.state,
           phase: truth0.phase,
         });
+        enterHandshakeSucceededRef.current = true;
       }
 
       currentStep = setPrejoinStep('refetch_video_session');
@@ -3020,6 +3060,28 @@ export default function VideoDateScreen() {
           enterHandshakeCompletedAfterCancellation: attemptState.enterHandshakeCompletedAfterCancellation,
         });
       }
+      const sameSessionAndUser =
+        latestDateRouteSessionIdRef.current === sessionId &&
+        latestDateRouteUserIdRef.current === (user?.id ?? null) &&
+        !latestDateRouteEndedRef.current;
+      const preserveInFlight =
+        sameSessionAndUser &&
+        !callRef.current &&
+        shouldPreservePrejoinAttemptOnCleanup(currentStep);
+      if (preserveInFlight) {
+        vdbg('prejoin_effect_cleanup_preserved_active_pipeline', {
+          sessionId,
+          userId: user?.id ?? null,
+          currentStep,
+          attemptId,
+          cancellationReason,
+          sameSessionAndUser,
+          hasCall: false,
+          hasStartedJoin: hasStartedJoinRef.current,
+          roomAcquisitionStarted: attemptState.roomAcquisitionStarted,
+        });
+        return;
+      }
       cancelled = true;
       if (!callRef.current) {
         if (shouldPreservePrejoinAttemptOnCleanup(currentStep)) {
@@ -3206,6 +3268,23 @@ export default function VideoDateScreen() {
 
         if (result.state === 'ended' || result.already_ended) {
           clearHandshakeGraceState();
+          if (result.reason === 'handshake_grace_expired') {
+            const message = result.waiting_for_self
+              ? "You didn't choose Vibe or Pass in time."
+              : result.waiting_for_partner
+                ? "Your match didn't choose in time."
+                : 'The handshake timed out before both choices were saved.';
+            setCallError(message);
+            vdbg('complete_handshake_timeout_copy', {
+              sessionId,
+              source,
+              message,
+              waiting_for_self: result.waiting_for_self ?? null,
+              waiting_for_partner: result.waiting_for_partner ?? null,
+              local_decision_persisted: result.local_decision_persisted ?? null,
+              partner_decision_persisted: result.partner_decision_persisted ?? null,
+            });
+          }
           void handleCallEnd('server_end');
           return;
         }
@@ -3482,6 +3561,24 @@ export default function VideoDateScreen() {
     handshakeGraceSecondsRemaining === null;
   const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
   const phaseCueLabel = phase === 'handshake' ? 'HANDSHAKE' : phase === 'date' ? 'DATE LIVE' : null;
+  const localHandshakeDecision = useMemo<boolean | null>(() => {
+    if (!session || !user?.id) return null;
+    if (session.participant_1_id === user.id) {
+      return session.participant_1_decided_at ? session.participant_1_liked ?? null : null;
+    }
+    if (session.participant_2_id === user.id) {
+      return session.participant_2_decided_at ? session.participant_2_liked ?? null : null;
+    }
+    return null;
+  }, [
+    session?.participant_1_decided_at,
+    session?.participant_1_id,
+    session?.participant_1_liked,
+    session?.participant_2_decided_at,
+    session?.participant_2_id,
+    session?.participant_2_liked,
+    user?.id,
+  ]);
 
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
   const handshakeBottomOffset = insets.bottom + 96;
@@ -3881,7 +3978,12 @@ export default function VideoDateScreen() {
               onShuffle={() => setCurrentQuestionIndex((prev) => (prev + 1) % Math.max(1, vibeQuestions.length))}
             />
           ) : null}
-          <VibeCheckButton timeLeft={displayTimeLeft} onVibe={handleUserVibe} />
+          <VibeCheckButton
+            timeLeft={displayTimeLeft}
+            decision={localHandshakeDecision}
+            onVibe={handleUserVibe}
+            onPass={handleUserPass}
+          />
         </View>
       )}
 
