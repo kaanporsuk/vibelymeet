@@ -43,7 +43,6 @@ type PrivacyProfile = {
   activity_status_visibility: ActivityVis | null;
   event_attendance_visibility: EventAttendanceVisibility | null;
   distance_visibility: "approximate" | "hidden" | null;
-  show_distance: boolean | null;
 };
 
 const DEFAULTS: PrivacyProfile = {
@@ -53,7 +52,6 @@ const DEFAULTS: PrivacyProfile = {
   activity_status_visibility: "matches",
   event_attendance_visibility: "attendees",
   distance_visibility: "approximate",
-  show_distance: true,
 };
 
 function discoveryChip(mode: DiscoveryMode | null): string {
@@ -113,7 +111,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
     const { data, error } = await supabase
       .from("profiles")
       .select(
-        "discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, event_attendance_visibility, distance_visibility, show_distance",
+        "discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, event_attendance_visibility, distance_visibility",
       )
       .eq("id", user.id)
       .maybeSingle();
@@ -132,7 +130,6 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
           ? data.event_attendance_visibility
           : "attendees",
         distance_visibility: (data.distance_visibility as "approximate" | "hidden") ?? "approximate",
-        show_distance: data.show_distance ?? true,
       });
     }
     setLoading(false);
@@ -385,7 +382,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                       </div>
                     </div>
                     <Switch
-                      checked={(profile.distance_visibility ?? (profile.show_distance === false ? "hidden" : "approximate")) === "approximate"}
+                      checked={(profile.distance_visibility ?? "approximate") === "approximate"}
                       disabled={saving}
                       onCheckedChange={(on) => {
                         void save({
