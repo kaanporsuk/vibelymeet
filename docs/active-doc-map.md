@@ -32,6 +32,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Launch blocker status, build ids, pass/fail updates | `docs/native-final-blocker-matrix.md` |
 | Browser/runtime proof results | `docs/browser-auth-runtime-proof-results.md` |
 | Post-audit ops checklist (Supabase vs Vercel vs manual QA) | `docs/post-audit-operational-verification-checklist.md` |
+| Distance Visibility Stage 1 rollout and Stage 2 gate | `docs/distance-visibility-stage1-rollout.md` |
 | Fresh smoke bootstrap method and proof boundaries | `docs/fresh-smoke-proof-bootstrap.md` |
 | Proof policy and rebuild-proof context | `docs/authenticated-proof-and-rebuild-plan.md` |
 | Clean rebuild rehearsal log | `docs/rebuild-rehearsal-log.md` |
