@@ -77,6 +77,12 @@ function audienceChip(v: DiscoveryAudience | null): string {
   return "Everyone";
 }
 
+function audienceDescription(v: DiscoveryAudience | null): string {
+  if (v === "event_based") return "People can discover you through events you’ve joined";
+  if (v === "hidden") return "You won’t appear in passive discovery";
+  return "People can discover you in eligible Vibely experiences";
+}
+
 interface PrivacyDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,6 +94,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
   const { blockedUsers, unblockUser } = useBlockUser();
   const [profile, setProfile] = useState<PrivacyProfile>(DEFAULTS);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [geoState, setGeoState] = useState<PermissionState | "unsupported">("prompt");
 
   const [view, setView] = useState<"main" | "discovery" | "audience" | "activity" | "event_att" | "blocked">("main");
@@ -108,7 +115,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       .eq("id", user.id)
       .maybeSingle();
     if (error) {
-      toast.error(error.message);
+      toast.error("Couldn’t load privacy settings");
       setLoading(false);
       return;
     }
@@ -161,10 +168,12 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       });
   }, [blockedUsers]);
 
-  const save = async (patch: Partial<PrivacyProfile>) => {
-    if (!user?.id) return;
+  const save = async (patch: Partial<PrivacyProfile>): Promise<boolean> => {
+    if (!user?.id || saving) return false;
+    const previous = profile;
     const next = { ...profile, ...patch };
     setProfile(next);
+    setSaving(true);
     const body: Record<string, unknown> = {
       discovery_mode: next.discovery_mode,
       discovery_snooze_until: next.discovery_snooze_until,
@@ -174,8 +183,14 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       distance_visibility: next.distance_visibility,
     };
     const { error } = await supabase.from("profiles").update(body).eq("id", user.id);
-    if (error) toast.error(error.message);
-    else toast.success("Saved");
+    setSaving(false);
+    if (error) {
+      setProfile(previous);
+      toast.error("Couldn’t save privacy setting. Please try again.");
+      return false;
+    }
+    toast.success("Saved");
+    return true;
   };
 
   const snoozePresets = useMemo(
@@ -293,7 +308,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   <Row
                     icon={Eye}
                     title="Who can discover me"
-                    subtitle="Everyone, event-based only, or hidden"
+                    subtitle={audienceDescription(profile.discovery_audience)}
                     onClick={() => setView("audience")}
                     right={
                       <>
@@ -363,6 +378,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                     </div>
                     <Switch
                       checked={profile.distance_visibility === "approximate" && !!profile.show_distance}
+                      disabled={saving}
                       onCheckedChange={(on) => {
                         void save({
                           distance_visibility: on ? "approximate" : "hidden",
@@ -397,13 +413,15 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                 variant="outline"
                 className="h-auto w-full justify-start py-3"
                 onClick={() => {
-                  void save({ discovery_mode: "visible", discovery_snooze_until: null });
-                  setView("main");
+                  void save({ discovery_mode: "visible", discovery_snooze_until: null }).then((ok) => {
+                    if (ok) setView("main");
+                  });
                 }}
+                disabled={saving}
               >
                 <div className="text-left">
                   <p className="font-medium">Visible</p>
-                  <p className="text-xs text-muted-foreground">Everyone can find you</p>
+                  <p className="text-xs text-muted-foreground">You appear in eligible discovery</p>
                 </div>
               </Button>
               <p className="text-xs font-semibold uppercase text-muted-foreground">Snooze</p>
@@ -416,9 +434,11 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                     variant="secondary"
                     onClick={() => {
                       const until = new Date(Date.now() + ms).toISOString();
-                      void save({ discovery_mode: "snoozed", discovery_snooze_until: until });
-                      setView("main");
+                      void save({ discovery_mode: "snoozed", discovery_snooze_until: until }).then((ok) => {
+                        if (ok) setView("main");
+                      });
                     }}
+                    disabled={saving}
                   >
                     {label}
                   </Button>
@@ -428,32 +448,40 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                 variant="outline"
                 className="h-auto w-full justify-start border-destructive/40 py-3"
                 onClick={() => {
-                  void save({ discovery_mode: "hidden", discovery_snooze_until: null });
-                  setView("main");
+                  void save({ discovery_mode: "hidden", discovery_snooze_until: null }).then((ok) => {
+                    if (ok) setView("main");
+                  });
                 }}
+                disabled={saving}
               >
                 <div className="text-left">
                   <p className="font-medium">Hidden</p>
-                  <p className="text-xs text-muted-foreground">Only matches can see you</p>
+                  <p className="text-xs text-muted-foreground">You are hidden from new discovery; matches stay available</p>
                 </div>
               </Button>
             </div>
           ) : view === "audience" ? (
             <div className="space-y-2">
+              <div className="rounded-xl border border-primary/20 bg-primary/10 p-3 text-xs text-primary">
+                This controls passive discovery, such as decks, suggestions, and event-based introductions. Existing
+                matches can still see and message you.
+              </div>
               {(
                 [
-                  ["everyone", "Everyone", "Standard discovery across Vibely"],
-                  ["event_based", "Event-based only", "Only people at events you join can find you"],
-                  ["hidden", "Hidden", "No passive discovery"],
+                  ["everyone", "Everyone", "People can discover you in eligible Vibely experiences"],
+                  ["event_based", "Event-based only", "People can discover you through events you’ve joined"],
+                  ["hidden", "Hidden", "You won’t appear in passive discovery"],
                 ] as const
               ).map(([value, title, desc]) => (
                 <Button
                   key={value}
                   variant={profile.discovery_audience === value ? "default" : "outline"}
                   className="h-auto w-full justify-start py-3"
+                  disabled={saving}
                   onClick={() => {
-                    void save({ discovery_audience: value });
-                    setView("main");
+                    void save({ discovery_audience: value }).then((ok) => {
+                      if (ok) setView("main");
+                    });
                   }}
                 >
                   <div className="text-left">
@@ -476,11 +504,13 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   key={value}
                   variant={profile.activity_status_visibility === value ? "default" : "outline"}
                   className="h-auto w-full justify-start py-3"
+                  disabled={saving}
                   onClick={() => {
                     void save({
                       activity_status_visibility: value,
+                    }).then((ok) => {
+                      if (ok) setView("main");
                     });
-                    setView("main");
                   }}
                 >
                   <div className="text-left">
@@ -503,9 +533,11 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   key={value}
                   variant={profile.event_attendance_visibility === value ? "default" : "outline"}
                   className="h-auto w-full justify-start py-3"
+                  disabled={saving}
                   onClick={() => {
-                    void save({ event_attendance_visibility: value });
-                    setView("main");
+                    void save({ event_attendance_visibility: value }).then((ok) => {
+                      if (ok) setView("main");
+                    });
                   }}
                 >
                   <div className="text-left">

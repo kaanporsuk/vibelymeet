@@ -198,9 +198,9 @@ export function PostDateSurvey({
     let cancelled = false;
 
     const fetchShared = async () => {
-      const [{ data: myVibes }, { data: partnerVibes }] = await Promise.all([
+      const [{ data: myVibes }, { data: partnerProfile }] = await Promise.all([
         supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', userId),
-        supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', partnerId),
+        supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId }),
       ]);
       if (cancelled) return;
 
@@ -213,7 +213,11 @@ export function PostDateSurvey({
           })
           .filter((l): l is string => !!l);
 
-      const shared = extractLabels(myVibes).filter((l) => extractLabels(partnerVibes).includes(l));
+      const partnerRow = partnerProfile as { vibes?: string[] | null } | null;
+      const partnerLabels = Array.isArray(partnerRow?.vibes)
+        ? partnerRow.vibes.filter((label): label is string => typeof label === 'string' && label.trim().length > 0)
+        : [];
+      const shared = extractLabels(myVibes).filter((l) => partnerLabels.includes(l));
       setCelebrationData({ sharedVibes: shared });
     };
 

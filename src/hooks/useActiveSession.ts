@@ -15,6 +15,19 @@ type UseActiveSessionOptions = {
   eventId?: string | null;
 };
 
+async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
+  const { data: profile, error } = await supabase.rpc("get_profile_for_viewer", {
+    p_target_id: partnerId,
+  });
+
+  if (error) {
+    if (import.meta.env.DEV) console.warn("[useActiveSession] partner query failed:", error.message);
+    return null;
+  }
+
+  return (profile as { name?: string | null } | null)?.name ?? null;
+}
+
 async function findPendingReconnectGraceSurveySession(
   userId: string,
   eventFilter: string | null
@@ -49,12 +62,7 @@ async function findPendingReconnectGraceSurveySession(
         : (row.participant_1_id as string | null);
     let partnerName: string | null = null;
     if (partnerId) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("name")
-        .eq("id", partnerId)
-        .maybeSingle();
-      partnerName = profile?.name ?? null;
+      partnerName = await fetchPartnerNameForViewer(partnerId);
     }
 
     return { sessionId, eventId, partnerName };
@@ -99,16 +107,11 @@ async function findDirectVideoSessionFallback(
 
   const partnerId =
     candidate.participant_1_id === userId
-      ? (candidate.participant_2_id as string | null)
-      : (candidate.participant_1_id as string | null);
+        ? (candidate.participant_2_id as string | null)
+        : (candidate.participant_1_id as string | null);
   let partnerName: string | null = null;
   if (partnerId) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("name")
-      .eq("id", partnerId)
-      .maybeSingle();
-    partnerName = profile?.name ?? null;
+    partnerName = await fetchPartnerNameForViewer(partnerId);
   }
 
   return canAttemptDaily || decision === "navigate_date"
@@ -253,16 +256,7 @@ export function useActiveSession(
 
     let partnerName: string | null = null;
     if (reg.current_partner_id) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("name")
-        .eq("id", reg.current_partner_id)
-        .maybeSingle();
-      if (profileError && import.meta.env.DEV) {
-        console.warn("[useActiveSession] partner query failed:", profileError.message);
-      } else {
-        partnerName = profile?.name ?? null;
-      }
+      partnerName = await fetchPartnerNameForViewer(reg.current_partner_id as string);
     }
 
     const qs = reg.queue_status;

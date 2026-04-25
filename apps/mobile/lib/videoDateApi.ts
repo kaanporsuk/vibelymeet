@@ -271,14 +271,18 @@ export function useVideoDateSession(
       }
 
       const partnerId = s.participant_1_id === userId ? s.participant_2_id : s.participant_1_id;
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id, name, age, avatar_url')
-        .eq('id', partnerId)
-        .maybeSingle();
+      const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+        p_target_id: partnerId,
+      });
 
       if (profile) {
-        setPartner(profile as unknown as VideoDatePartner);
+        const row = profile as { id?: string; name?: string | null; age?: number | null; avatar_url?: string | null };
+        setPartner({
+          id: row.id ?? partnerId,
+          name: row.name ?? 'Your date',
+          age: row.age ?? null,
+          avatar_url: row.avatar_url ?? null,
+        });
       }
 
       const resolved = resolvePhaseAndTime(s);
@@ -900,34 +904,24 @@ export async function fetchPartnerProfile(
 
   const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('name, age, avatar_url, photos, about_me, job, location, height_cm, prompts')
-    .eq('id', partnerId)
-    .maybeSingle();
+  const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+    p_target_id: partnerId,
+  });
   if (!profile) return { ok: false, reason: 'not_found' };
+  const row = profile as Record<string, unknown>;
+  const tags = Array.isArray(row.vibes)
+    ? row.vibes.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    : [];
 
-  const { data: vibes } = await supabase
-    .from('profile_vibes')
-    .select('vibe_tags(label)')
-    .eq('profile_id', partnerId);
-  const tags = (vibes ?? [])
-    .map((v: unknown) => {
-      const vt = (v as { vibe_tags?: { label?: string } | { label?: string }[] | null })?.vibe_tags;
-      if (Array.isArray(vt)) return vt.map((t) => t?.label).filter(Boolean);
-      return vt?.label ? [vt.label] : [];
-    })
-    .flat()
-    .filter(Boolean) as string[];
-
-  const photoArr = (profile.photos as string[] | null) ?? [];
-  const primaryPath = photoArr[0] ?? profile.avatar_url ?? null;
+  const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === 'string') : [];
+  const avatarUrl = typeof row.avatar_url === 'string' ? row.avatar_url : null;
+  const primaryPath = photoArr[0] ?? avatarUrl;
   const photos = photoArr.slice(0, 6).map((p) => avatarUrlResolver(p));
   const avatarUrlResolved = primaryPath ? avatarUrlResolver(primaryPath) : null;
 
   let prompts: { question: string; answer: string }[] = [];
-  if (profile.prompts && Array.isArray(profile.prompts)) {
-    prompts = (profile.prompts as { question?: string; answer?: string }[]).map((p) => ({
+  if (Array.isArray(row.prompts)) {
+    prompts = (row.prompts as { question?: string; answer?: string }[]).map((p) => ({
       question: p.question ?? '',
       answer: p.answer ?? '',
     }));
@@ -939,14 +933,14 @@ export async function fetchPartnerProfile(
     eventId: session.event_id ?? '',
     isParticipant1: isP1,
     partner: {
-      name: profile.name ?? 'Your date',
-      age: profile.age ?? 0,
+      name: typeof row.name === 'string' ? row.name : 'Your date',
+      age: typeof row.age === 'number' ? row.age : 0,
       avatarUrl: avatarUrlResolved,
       photos,
-      about_me: profile.about_me ?? null,
-      job: profile.job ?? null,
-      location: profile.location ?? null,
-      heightCm: profile.height_cm ?? null,
+      about_me: typeof row.about_me === 'string' ? row.about_me : null,
+      job: typeof row.job === 'string' ? row.job : null,
+      location: typeof row.location === 'string' ? row.location : null,
+      heightCm: typeof row.height_cm === 'number' ? row.height_cm : null,
       tags,
       prompts,
     },

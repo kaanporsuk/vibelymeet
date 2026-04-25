@@ -31,43 +31,27 @@ export function useDailyDrop() {
 
   // Fetch partner profile
   const fetchPartner = useCallback(async (id: string) => {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, name, age, gender, about_me, avatar_url, photos, bunny_video_uid, bunny_video_status, vibe_caption')
-      .eq('id', id)
-      .maybeSingle();
+    const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+      p_target_id: id,
+    });
 
     if (!profile) { setPartner(null); return; }
-
-    const { data: vibeData } = await supabase
-      .from('profile_vibes')
-      .select('vibe_tags(label)')
-      .eq('profile_id', id);
-    
-    type VibeRow = { vibe_tags: any };
-    const vibes =
-      ((vibeData as VibeRow[]) || [])
-        .map((v) => {
-          const vt = v.vibe_tags;
-          if (!vt) return undefined;
-          if (Array.isArray(vt)) {
-            return vt[0]?.label as string | undefined;
-          }
-          return (vt as { label: string }).label;
-        })
-        .filter(Boolean) as string[];
+    const row = profile as Record<string, unknown>;
+    const vibes = Array.isArray(row.vibes)
+      ? row.vibes.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      : [];
 
     setPartner({
-      id: profile.id,
-      name: profile.name,
-      age: profile.age,
-      gender: profile.gender,
-      about_me: profile.about_me,
-      avatar_url: profile.avatar_url,
-      photos: profile.photos,
-      bunny_video_uid: profile.bunny_video_uid,
-      bunny_video_status: profile.bunny_video_status,
-      vibe_caption: profile.vibe_caption,
+      id: row.id as string,
+      name: (row.name as string | null) ?? 'Unknown',
+      age: (row.age as number | null) ?? 0,
+      gender: (row.gender as string | null) ?? 'unknown',
+      about_me: (row.about_me as string | null) ?? null,
+      avatar_url: (row.avatar_url as string | null) ?? null,
+      photos: (row.photos as string[] | null) ?? null,
+      bunny_video_uid: (row.bunny_video_uid as string | null) ?? null,
+      bunny_video_status: (row.bunny_video_status as string | null) ?? null,
+      vibe_caption: (row.vibe_caption as string | null) ?? null,
       vibes,
     });
   }, []);
@@ -167,13 +151,19 @@ export function useDailyDrop() {
     if (!data?.length) { setPastDrops([]); return; }
 
     const partnerIds = data.map(d => d.user_a_id === user.id ? d.user_b_id : d.user_a_id);
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, name, avatar_url')
-      .in('id', partnerIds);
+    const profiles = await Promise.all(
+      [...new Set(partnerIds)].map(async (id) => {
+        const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+          p_target_id: id,
+        });
+        return profile as { id?: string; name?: string | null; avatar_url?: string | null } | null;
+      }),
+    );
 
     const profileMap: Record<string, { name: string; avatar_url: string | null }> = {};
-    profiles?.forEach(p => { profileMap[p.id] = p; });
+    profiles.forEach(p => {
+      if (p?.id) profileMap[p.id] = { name: p.name ?? 'Unknown', avatar_url: p.avatar_url ?? null };
+    });
 
     setPastDrops(data.map(d => {
       const pid = d.user_a_id === user.id ? d.user_b_id : d.user_a_id;

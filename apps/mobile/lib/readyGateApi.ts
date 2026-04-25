@@ -78,8 +78,9 @@ export function useReadyGate(
     const partnerReadyAt = isP1 ? session.ready_participant_2_at : session.ready_participant_1_at;
 
     let partnerName: string | null = null;
-    const { data: profile } = await supabase.from('profiles').select('name').eq('id', partnerId).maybeSingle();
-    if (profile) partnerName = profile.name ?? 'Your match';
+    const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+    const partnerProfile = profile as { name?: string | null } | null;
+    if (partnerProfile) partnerName = partnerProfile.name ?? 'Your match';
 
     const status = session.ready_gate_status ?? 'queued';
 

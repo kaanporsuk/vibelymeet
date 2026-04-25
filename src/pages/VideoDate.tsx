@@ -837,32 +837,29 @@ const VideoDate = () => {
         const pId = isP1 ? sessionRow.participant_2_id : sessionRow.participant_1_id;
         setPartnerId(pId);
 
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("name, age, avatar_url, photos, about_me, job, location, height_cm, prompts")
-          .eq("id", pId)
-          .maybeSingle();
+        const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
+          p_target_id: pId,
+        });
 
         if (cancelled) return;
 
         if (profile) {
-          const { data: vibes } = await supabase
-            .from("profile_vibes")
-            .select("vibe_tags(label)")
-            .eq("profile_id", pId);
-
-          const tags = vibes?.map((v: any) => v.vibe_tags?.label).filter(Boolean) || [];
+          const row = profile as Record<string, unknown>;
+          const tags = Array.isArray(row.vibes)
+            ? row.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+            : [];
 
           let prompts: { question: string; answer: string }[] = [];
-          if (profile.prompts && Array.isArray(profile.prompts)) {
-            prompts = (profile.prompts as any[]).map((p) => ({
+          if (Array.isArray(row.prompts)) {
+            prompts = (row.prompts as Array<{ question?: string; answer?: string }>).map((p) => ({
               question: p.question || "",
               answer: p.answer || "",
             }));
           }
 
-          const photoArr = (profile.photos as string[]) || [];
-          const primaryPath = photoArr[0] || profile.avatar_url;
+          const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === "string") : [];
+          const avatarUrl = typeof row.avatar_url === "string" ? row.avatar_url : null;
+          const primaryPath = photoArr[0] || avatarUrl;
           const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
           setPartnerPhotoUrl(resolvedUrl);
 
@@ -872,15 +869,15 @@ const VideoDate = () => {
             .filter(Boolean) as string[];
 
           setPartner({
-            name: profile.name,
-            age: profile.age,
+            name: typeof row.name === "string" ? row.name : "Your date",
+            age: typeof row.age === "number" ? row.age : 0,
             tags,
             avatarUrl: resolvedUrl || undefined,
             photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-            about_me: profile.about_me || undefined,
-            job: profile.job || undefined,
-            location: profile.location || undefined,
-            heightCm: profile.height_cm || undefined,
+            about_me: typeof row.about_me === "string" ? row.about_me : undefined,
+            job: typeof row.job === "string" ? row.job : undefined,
+            location: typeof row.location === "string" ? row.location : undefined,
+            heightCm: typeof row.height_cm === "number" ? row.height_cm : undefined,
             prompts,
           });
         }

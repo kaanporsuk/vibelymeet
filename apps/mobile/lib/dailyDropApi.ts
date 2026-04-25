@@ -103,22 +103,21 @@ export function useDailyDrop(userId: string | null | undefined) {
   const affinityScore = drop?.affinity_score ?? 0;
 
   const fetchPartner = useCallback(async (id: string) => {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, name, age, avatar_url, photos, about_me')
-      .eq('id', id)
-      .maybeSingle();
+    const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+      p_target_id: id,
+    });
     if (!profile) {
       setPartner(null);
       return;
     }
+    const row = profile as Record<string, unknown>;
     setPartner({
-      id: profile.id,
-      name: profile.name ?? 'Unknown',
-      age: profile.age ?? 0,
-      avatar_url: profile.avatar_url ?? null,
-      photos: (profile.photos as string[]) ?? null,
-      about_me: profile.about_me ?? null,
+      id: row.id as string,
+      name: (row.name as string | null) ?? 'Unknown',
+      age: (row.age as number | null) ?? 0,
+      avatar_url: (row.avatar_url as string | null) ?? null,
+      photos: (row.photos as string[] | null) ?? null,
+      about_me: (row.about_me as string | null) ?? null,
     });
   }, []);
 
@@ -195,13 +194,19 @@ export function useDailyDrop(userId: string | null | undefined) {
       return;
     }
     const partnerIds = data.map((d) => (d.user_a_id === userId ? d.user_b_id : d.user_a_id));
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id, name, avatar_url')
-      .in('id', partnerIds);
-    if (profilesError && __DEV__) console.warn('[dailyDropApi] profiles fetch failed:', profilesError.message);
+    const profiles = await Promise.all(
+      [...new Set(partnerIds)].map(async (id) => {
+        const { data: profile, error: profileError } = await supabase.rpc('get_profile_for_viewer', {
+          p_target_id: id,
+        });
+        if (profileError && __DEV__) console.warn('[dailyDropApi] get_profile_for_viewer failed:', profileError.message);
+        return profile as { id?: string; name?: string | null; avatar_url?: string | null } | null;
+      })
+    );
     const profileMap: Record<string, { name: string; avatar_url: string | null }> = {};
-    profiles?.forEach((p) => { profileMap[p.id] = p; });
+    profiles.forEach((p) => {
+      if (p?.id) profileMap[p.id] = { name: p.name ?? 'Unknown', avatar_url: p.avatar_url ?? null };
+    });
     setPastDrops(
       data.map((d) => {
         const pid = d.user_a_id === userId ? d.user_b_id : d.user_a_id;

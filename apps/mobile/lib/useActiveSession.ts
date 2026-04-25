@@ -59,12 +59,9 @@ async function findPendingReconnectGraceSurveySession(
         : (row.participant_1_id as string | null);
     let partnerName: string | null = null;
     if (partnerId) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('name')
-        .eq('id', partnerId)
-        .maybeSingle();
-      partnerName = profile?.name ?? null;
+      const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+      const partnerProfile = profile as { name?: string | null } | null;
+      partnerName = partnerProfile?.name ?? null;
     }
 
     return { sessionId, eventId, partnerName };
@@ -113,12 +110,9 @@ async function findDirectVideoSessionFallback(
       : (candidate.participant_1_id as string | null);
   let partnerName: string | null = null;
   if (partnerId) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('name')
-      .eq('id', partnerId)
-      .maybeSingle();
-    partnerName = profile?.name ?? null;
+    const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+    const partnerProfile = profile as { name?: string | null } | null;
+    partnerName = partnerProfile?.name ?? null;
   }
 
   return canAttemptDaily || decision === 'navigate_date'
@@ -213,15 +207,14 @@ export function useActiveSession(
 
           let partnerName: string | null = null;
           if (reg.current_partner_id) {
-            const { data: profile, error: profileError } = await supabase
-              .from('profiles')
-              .select('name')
-              .eq('id', reg.current_partner_id)
-              .maybeSingle();
+            const { data: profile, error: profileError } = await supabase.rpc('get_profile_for_viewer', {
+              p_target_id: reg.current_partner_id,
+            });
             if (profileError && __DEV__) {
               console.warn('[useActiveSession] partner query failed:', profileError.message);
             } else {
-              partnerName = profile?.name ?? null;
+              const partnerProfile = profile as { name?: string | null } | null;
+              partnerName = partnerProfile?.name ?? null;
             }
           }
 
