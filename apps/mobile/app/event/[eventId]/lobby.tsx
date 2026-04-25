@@ -50,10 +50,9 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
+import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
+import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
-import {
-  fetchVideoSessionDateEntryTruth,
-} from '@/lib/videoDateApi';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -256,8 +255,12 @@ export default function EventLobbyScreen() {
   const navigateToDateSession = useCallback(
     (sessionIdToOpen: string, trigger: string, mode: 'replace' | 'push' = 'replace') => {
       void (async () => {
-        const [vs, regRes] = await Promise.all([
-          fetchVideoSessionDateEntryTruth(sessionIdToOpen),
+        const [startable, regRes] = await Promise.all([
+          ensureVideoDateStartableBeforeNavigation({
+            sessionId: sessionIdToOpen,
+            source: `lobby_${trigger}`,
+            userId: user?.id ?? null,
+          }),
           user?.id
             ? supabase
                 .from('event_registrations')
@@ -269,26 +272,21 @@ export default function EventLobbyScreen() {
             : Promise.resolve({ data: null as { queue_status?: string | null; current_room_id?: string | null } | null }),
         ]);
         const reg = regRes.data;
-        const decision = decideVideoSessionRouteFromTruth(vs);
-        const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
-        const routedTo =
-          canAttemptDaily || decision === 'navigate_date'
-            ? 'date'
-            : decision === 'navigate_ready'
-              ? 'ready'
-              : 'none';
-        const reason =
-          routedTo === 'date'
-            ? null
-            : decision === 'ended'
-              ? 'session_ended'
-              : 'video_truth_not_startable';
+        const vs = startable.truth;
+        const routedTo = startable.ok
+          ? 'date'
+          : startable.recommend === 'ready'
+            ? 'ready'
+            : startable.recommend === 'ended'
+              ? 'ended'
+              : 'lobby';
+        const reason = startable.ok ? null : startable.reason;
 
         rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
           session_id: sessionIdToOpen,
           event_id: id,
-          decision,
-          can_attempt_daily: canAttemptDaily,
+          startable_ok: startable.ok,
+          startable_reason: startable.ok ? startable.reason : startable.reason,
           reason,
           routed_to: routedTo,
           queue_status: reg?.queue_status ?? null,
@@ -303,9 +301,8 @@ export default function EventLobbyScreen() {
           trigger,
           eventId: id,
           sessionId: sessionIdToOpen,
-          decision,
-          canAttemptDaily,
-          reason,
+          startable_ok: startable.ok,
+          startable_reason: startable.reason,
           routed_to: routedTo,
           queueStatus: reg?.queue_status ?? null,
           currentRoomId: reg?.current_room_id ?? null,
@@ -316,11 +313,21 @@ export default function EventLobbyScreen() {
           readyGateExpiresAt: vs?.ready_gate_expires_at ?? null,
         });
 
-        if (!canAttemptDaily && decision === 'navigate_ready') {
-          router.replace(`/ready/${sessionIdToOpen}` as const);
-          return;
-        }
-        if (!canAttemptDaily && decision !== 'navigate_date') {
+        if (!startable.ok) {
+          // No /date entry is allowed unless backend truth confirms startability. Always clear the
+          // entry latch on the recommended redirect so future attempts cannot be suppressed by a
+          // stale latch from this aborted attempt.
+          clearDateEntryTransition(sessionIdToOpen);
+          if (startable.recommend === 'ready') {
+            router.replace(startable.recommendHref);
+            return;
+          }
+          // 'ended' / 'lobby' / 'tabs' — refetch active session so the lobby can settle, but if the
+          // backend gave us a definitive terminal/lobby route, follow it.
+          if (startable.recommend === 'ended') {
+            router.replace(startable.recommendHref);
+            return;
+          }
           void refetchActiveSession();
           return;
         }
@@ -376,17 +383,22 @@ export default function EventLobbyScreen() {
                 event_id: id,
                 pathname: p,
               });
-              const vsRescue = await fetchVideoSessionDateEntryTruth(rescueSid);
-              const canRescue = canAttemptDailyRoomFromVideoSessionTruth(vsRescue);
-              const decisionRescue = decideVideoSessionRouteFromTruth(vsRescue);
-              if (!canRescue && decisionRescue !== 'navigate_date') {
+              const rescueStartable = await ensureVideoDateStartableBeforeNavigation({
+                sessionId: rescueSid,
+                source: 'ready_gate_overlay_rescue',
+                userId: user?.id ?? null,
+              });
+              if (!rescueStartable.ok) {
+                clearDateEntryTransition(rescueSid);
                 rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_failed', {
                   session_id: rescueSid,
                   event_id: id,
-                  reason: 'session_not_startable',
-                  decision: decisionRescue,
-                  can_attempt_daily: canRescue,
+                  reason: rescueStartable.reason,
+                  recommend: rescueStartable.recommend,
                 });
+                if (rescueStartable.recommend === 'ready' || rescueStartable.recommend === 'ended') {
+                  router.replace(rescueStartable.recommendHref);
+                }
                 return;
               }
               const rescueNavigated = navigateToDateSessionGuarded({

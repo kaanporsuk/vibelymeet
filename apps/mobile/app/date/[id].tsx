@@ -196,6 +196,27 @@ function isReadyGateRace(code?: string): boolean {
   return code === 'READY_GATE_NOT_READY';
 }
 
+/** Backoffs (ms) for bounded refetch loops on `READY_GATE_NOT_READY` — short enough that user
+ *  perceives no extra latency, long enough to absorb cross-region replica lag. Two retries by
+ *  design: longer windows are better handled by `recoverFromNotStartableDateTruth` redirecting. */
+const READY_GATE_RACE_RETRY_BACKOFFS_MS = [220, 320];
+
+/**
+ * Refetch backend truth and check whether the session is now Daily-startable. Used by the prejoin
+ * `READY_GATE_NOT_READY` retry loops — does not call any RPC, just a coalesced read.
+ */
+async function refetchTruthAndCheckStartable(
+  sessionId: string
+): Promise<{ startable: boolean; truth: Awaited<ReturnType<typeof fetchVideoSessionDateEntryTruth>> }> {
+  const truth = await fetchVideoSessionDateEntryTruth(sessionId);
+  const decision = decideVideoSessionRouteFromTruth(truth);
+  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
+  return {
+    startable: canAttemptDaily || decision === 'navigate_date',
+    truth,
+  };
+}
+
 function getTrack(
   participant: DailyParticipant | undefined,
   kind: 'video' | 'audio'
@@ -1040,6 +1061,12 @@ export default function VideoDateScreen() {
       });
       if (!canAttemptDaily && decision === 'navigate_ready') {
         const target = readyGateHref(sessionId);
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'latch_cleared_before_recovery_redirect', {
+          session_id: sessionId,
+          source,
+          target: String(target),
+        });
+        clearDateEntryTransition(sessionId);
         vdbgRedirect(target, 'ready_gate_not_ready_recover_to_ready', { source, sessionId, userId: user.id });
         router.replace(target);
         return true;
@@ -1048,6 +1075,12 @@ export default function VideoDateScreen() {
         const fallbackEventId = vs?.event_id ?? eventId;
         if (fallbackEventId) {
           const target = eventLobbyHref(fallbackEventId as string);
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'latch_cleared_before_recovery_redirect', {
+            session_id: sessionId,
+            source,
+            target: String(target),
+          });
+          clearDateEntryTransition(sessionId);
           vdbgRedirect(target, 'ready_gate_not_ready_recover_to_lobby', {
             source,
             sessionId,
@@ -1057,6 +1090,12 @@ export default function VideoDateScreen() {
           router.replace(target);
         } else {
           const target = tabsRootHref();
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'latch_cleared_before_recovery_redirect', {
+            session_id: sessionId,
+            source,
+            target: String(target),
+          });
+          clearDateEntryTransition(sessionId);
           vdbgRedirect(target, 'ready_gate_not_ready_recover_to_tabs', {
             source,
             sessionId,
@@ -1070,6 +1109,12 @@ export default function VideoDateScreen() {
         const fallbackEventId = vs?.event_id ?? eventId;
         if (fallbackEventId) {
           const target = eventLobbyHref(fallbackEventId as string);
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'latch_cleared_before_recovery_redirect', {
+            session_id: sessionId,
+            source,
+            target: String(target),
+          });
+          clearDateEntryTransition(sessionId);
           vdbgRedirect(target, 'ready_gate_not_ready_recover_to_lobby', {
             source,
             sessionId,
@@ -1079,6 +1124,12 @@ export default function VideoDateScreen() {
           router.replace(target);
         } else {
           const target = tabsRootHref();
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'latch_cleared_before_recovery_redirect', {
+            session_id: sessionId,
+            source,
+            target: String(target),
+          });
+          clearDateEntryTransition(sessionId);
           vdbgRedirect(target, 'ready_gate_not_ready_recover_to_tabs', {
             source,
             sessionId,
@@ -1088,6 +1139,18 @@ export default function VideoDateScreen() {
         }
         return true;
       }
+      // Truth says startable (`navigate_date` / `canAttemptDaily=true`) yet the original op
+      // failed — caller should bounded-retry rather than show the fatal banner. Emit the missing
+      // breadcrumb so production logs distinguish this silent path from a successful redirect.
+      rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'recover_not_startable_no_redirect', {
+        session_id: sessionId,
+        source,
+        decision,
+        can_attempt_daily: canAttemptDaily,
+        vs_state: vs?.state ?? null,
+        ready_gate_status: vs?.ready_gate_status ?? null,
+        handshake_started_at: Boolean(vs?.handshake_started_at),
+      });
       return false;
     },
     [eventId, sessionId, user?.id]
@@ -1518,7 +1581,13 @@ export default function VideoDateScreen() {
 
   const cleanupForAbortWithoutServerEnd = useCallback(async () => {
     await cleanupDailyAndLocalState();
-  }, [cleanupDailyAndLocalState]);
+    if (sessionId) {
+      // Aborting the prejoin/Daily pipeline must release the date-entry latch — otherwise the
+      // hydration / route-guard bounce stays suppressed for up to 180s and a re-entry into
+      // the date stack pins the user with the stale latch.
+      clearDateEntryTransition(sessionId);
+    }
+  }, [cleanupDailyAndLocalState, sessionId]);
 
   const cleanupForEstablishedDateEnd = useCallback(async () => {
     await cleanupDailyAndLocalState();
@@ -2585,6 +2654,7 @@ export default function VideoDateScreen() {
           requestPrejoinRetryAfterCancellation('enter_handshake_completed_after_cancellation');
           return;
         }
+        let handshakeRecoveredByRetry = false;
         if (!hs.ok) {
           if (isReadyGateRace(hs.code)) {
             const redirected = await recoverFromNotStartableDateTruth('enter_handshake');
@@ -2596,50 +2666,101 @@ export default function VideoDateScreen() {
               prejoinCompleted = true;
               return;
             }
+            // Recover did not redirect → truth says startable now (replica/snapshot caught up).
+            // Bounded refetch loop: if any iteration confirms startability, the server has already
+            // applied `enter_handshake` for this session (idempotent SQL), so we proceed without
+            // banner. The next prejoin step (`daily_room_truth_guard`) will re-confirm before any
+            // Daily call.
+            rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_start', {
+              session_id: sessionId,
+              user_id: user.id,
+              source: 'enter_handshake',
+              code: hs.code ?? null,
+            });
+            for (let i = 0; i < READY_GATE_RACE_RETRY_BACKOFFS_MS.length; i++) {
+              if (cancelled) break;
+              const delay = READY_GATE_RACE_RETRY_BACKOFFS_MS[i];
+              await new Promise<void>((resolve) => setTimeout(resolve, delay));
+              if (cancelled) break;
+              const { startable } = await refetchTruthAndCheckStartable(sessionId);
+              if (startable) {
+                rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_success', {
+                  session_id: sessionId,
+                  user_id: user.id,
+                  source: 'enter_handshake',
+                  attempt: i + 1,
+                  backoff_ms: delay,
+                });
+                handshakeRecoveredByRetry = true;
+                break;
+              }
+            }
+            if (!handshakeRecoveredByRetry) {
+              rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_exhausted', {
+                session_id: sessionId,
+                user_id: user.id,
+                source: 'enter_handshake',
+              });
+            }
           }
-          vdbg('prejoin_step_prejoin_error', {
-            sessionId,
-            userId: user.id,
-            step: currentStep,
-            reason: 'enter_handshake_not_ok',
-            code: hs.code ?? null,
-            message: hs.message ?? null,
-          });
-          vdbg('prejoin_step_prejoin_daily_room_skipped', {
-            sessionId,
-            userId: user.id,
-            reason: 'enter_handshake_not_ok',
-            code: hs.code ?? null,
-          });
-          videoDateDailyDiagnostic('enter_handshake_failure', {
-            session_id: sessionId,
-            code: hs.code != null ? String(hs.code) : 'unknown',
-          });
-          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
-            session_id: sessionId,
-            user_id: user?.id ?? null,
-            code: hs.code != null ? String(hs.code) : 'unknown',
-          });
-          addVideoDateBreadcrumb('enter_handshake failed', 'error', { sessionId, code: hs.code, message: hs.message });
-          Sentry.captureMessage('video_date_enter_handshake_failed', {
-            level: 'warning',
-            extra: { sessionId, code: hs.code, message: hs.message },
-          });
-          vdbg('prejoin_state_callError', {
-            value: userMessageForHandshakeFailure(hs.code),
-            sessionId,
-            userId: user.id,
-            step: currentStep,
-          });
-          setCallError(userMessageForHandshakeFailure(hs.code));
-          vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
-          setPreJoinFailed(true);
-          hasStartedJoinRef.current = false;
-          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
-          vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
-          setJoining(false);
-          prejoinCompleted = true;
-          return;
+          if (!handshakeRecoveredByRetry) {
+            vdbg('prejoin_step_prejoin_error', {
+              sessionId,
+              userId: user.id,
+              step: currentStep,
+              reason: 'enter_handshake_not_ok',
+              code: hs.code ?? null,
+              message: hs.message ?? null,
+            });
+            vdbg('prejoin_step_prejoin_daily_room_skipped', {
+              sessionId,
+              userId: user.id,
+              reason: 'enter_handshake_not_ok',
+              code: hs.code ?? null,
+            });
+            videoDateDailyDiagnostic('enter_handshake_failure', {
+              session_id: sessionId,
+              code: hs.code != null ? String(hs.code) : 'unknown',
+            });
+            rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_fail', {
+              session_id: sessionId,
+              user_id: user?.id ?? null,
+              code: hs.code != null ? String(hs.code) : 'unknown',
+            });
+            addVideoDateBreadcrumb('enter_handshake failed', 'error', { sessionId, code: hs.code, message: hs.message });
+            Sentry.captureMessage('video_date_enter_handshake_failed', {
+              level: 'warning',
+              extra: { sessionId, code: hs.code, message: hs.message },
+            });
+            // Final fatal banner — always clear latch so user can navigate away
+            // (NativeSessionRouteHydration and the in-screen route guard will no longer be
+            // suppressed). RGNR is the case the bug investigation surfaced; other terminal codes
+            // (SESSION_ENDED, RPC_ERROR) likewise leave the user on /date and need the same
+            // escape hatch.
+            if (isReadyGateRace(hs.code)) {
+              rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_entry_final_ready_gate_banner', {
+                session_id: sessionId,
+                user_id: user.id,
+                source: 'enter_handshake',
+              });
+            }
+            clearDateEntryTransition(sessionId);
+            vdbg('prejoin_state_callError', {
+              value: userMessageForHandshakeFailure(hs.code),
+              sessionId,
+              userId: user.id,
+              step: currentStep,
+            });
+            setCallError(userMessageForHandshakeFailure(hs.code));
+            vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
+            setPreJoinFailed(true);
+            hasStartedJoinRef.current = false;
+            vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+            vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+            setJoining(false);
+            prejoinCompleted = true;
+            return;
+          }
         }
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'enter_handshake_ok', {
           session_id: sessionId,
@@ -2647,6 +2768,7 @@ export default function VideoDateScreen() {
           event_id: truth0.event_id,
           vs_state: truth0.state,
           vs_phase: truth0.phase,
+          recovered_by_retry: handshakeRecoveredByRetry,
         });
         videoDateDailyDiagnostic('enter_handshake_success', { session_id: sessionId });
         enterHandshakeSucceededRef.current = true;
@@ -2706,7 +2828,7 @@ export default function VideoDateScreen() {
       }
 
       currentStep = setPrejoinStep('daily_room_truth_guard');
-      const truth1 = await fetchVideoSessionDateEntryTruth(sessionId);
+      let truth1 = await fetchVideoSessionDateEntryTruth(sessionId);
       prejoinMark('truth1_post_handshake');
       vdbg('date_prejoin_truth_daily_room_guard', { sessionId, userId: user.id, row: truth1 ?? null });
       if (!canAttemptDailyRoomFromVideoSessionTruth(truth1)) {
@@ -2719,27 +2841,69 @@ export default function VideoDateScreen() {
           prejoinCompleted = true;
           return;
         }
-        vdbg('prejoin_step_prejoin_daily_room_skipped', {
-          sessionId,
-          userId: user.id,
-          reason: 'client_daily_gate_not_startable',
-          row: truth1 ?? null,
+        // Recover did not redirect — bounded refetch loop in case truth has caught up between
+        // the in-screen guard and recovery's own refetch (cross-region / replica lag).
+        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_start', {
+          session_id: sessionId,
+          user_id: user.id,
+          source: 'daily_room_truth_guard',
         });
-        vdbg('prejoin_state_callError', {
-          value: 'Almost there — finish the Ready Gate with your match first.',
-          sessionId,
-          userId: user.id,
-          step: currentStep,
-        });
-        setCallError('Almost there — finish the Ready Gate with your match first.');
-        vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
-        setPreJoinFailed(true);
-        hasStartedJoinRef.current = false;
-        vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
-        vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
-        setJoining(false);
-        prejoinCompleted = true;
-        return;
+        let truthGuardRecovered = false;
+        for (let i = 0; i < READY_GATE_RACE_RETRY_BACKOFFS_MS.length; i++) {
+          if (cancelled) break;
+          const delay = READY_GATE_RACE_RETRY_BACKOFFS_MS[i];
+          await new Promise<void>((resolve) => setTimeout(resolve, delay));
+          if (cancelled) break;
+          const { startable, truth: refreshed } = await refetchTruthAndCheckStartable(sessionId);
+          if (startable) {
+            truth1 = refreshed;
+            rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_success', {
+              session_id: sessionId,
+              user_id: user.id,
+              source: 'daily_room_truth_guard',
+              attempt: i + 1,
+              backoff_ms: delay,
+            });
+            truthGuardRecovered = true;
+            break;
+          }
+        }
+        if (!truthGuardRecovered) {
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_exhausted', {
+            session_id: sessionId,
+            user_id: user.id,
+            source: 'daily_room_truth_guard',
+          });
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_entry_final_ready_gate_banner', {
+            session_id: sessionId,
+            user_id: user.id,
+            source: 'daily_room_truth_guard',
+          });
+          // Clear latch so the user can navigate away (back-button, app foreground hydration, etc.)
+          // and so a future attempt is not silently suppressed by a stale latch.
+          clearDateEntryTransition(sessionId);
+          vdbg('prejoin_step_prejoin_daily_room_skipped', {
+            sessionId,
+            userId: user.id,
+            reason: 'client_daily_gate_not_startable',
+            row: truth1 ?? null,
+          });
+          vdbg('prejoin_state_callError', {
+            value: 'Almost there — finish the Ready Gate with your match first.',
+            sessionId,
+            userId: user.id,
+            step: currentStep,
+          });
+          setCallError('Almost there — finish the Ready Gate with your match first.');
+          vdbg('prejoin_state_preJoinFailed', { value: true, sessionId, userId: user.id, step: currentStep });
+          setPreJoinFailed(true);
+          hasStartedJoinRef.current = false;
+          vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
+          vdbg('prejoin_state_joining', { value: false, sessionId, userId: user.id, step: currentStep });
+          setJoining(false);
+          prejoinCompleted = true;
+          return;
+        }
       }
 
       currentStep = setPrejoinStep('daily_room_guard');
@@ -2872,7 +3036,53 @@ export default function VideoDateScreen() {
             prejoinCompleted = true;
             return;
           }
+          // Recover did not redirect: truth says startable, but daily-room read on the server side
+          // may have hit a stale snapshot. Bounded retry — refetch truth, retry create_date_room.
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_start', {
+            session_id: sessionId,
+            user_id: user.id,
+            source: 'create_date_room',
+          });
+          let dailyRoomRecovered = false;
+          for (let i = 0; i < READY_GATE_RACE_RETRY_BACKOFFS_MS.length; i++) {
+            if (cancelled) break;
+            const delay = READY_GATE_RACE_RETRY_BACKOFFS_MS[i];
+            await new Promise<void>((resolve) => setTimeout(resolve, delay));
+            if (cancelled) break;
+            const { startable } = await refetchTruthAndCheckStartable(sessionId);
+            if (!startable) continue;
+            try {
+              const retried = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+              if (retried.ok) {
+                tokenRes = retried;
+                dailyRoomRecovered = true;
+                rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_success', {
+                  session_id: sessionId,
+                  user_id: user.id,
+                  source: 'create_date_room',
+                  attempt: i + 1,
+                  backoff_ms: delay,
+                });
+                break;
+              }
+              if (retried.code !== 'READY_GATE_NOT_READY') {
+                tokenRes = retried;
+                break;
+              }
+            } catch {
+              // network/timeout — continue to next backoff
+            }
+          }
+          if (!dailyRoomRecovered && !tokenRes.ok) {
+            rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'ready_gate_not_ready_retry_exhausted', {
+              session_id: sessionId,
+              user_id: user.id,
+              source: 'create_date_room',
+            });
+          }
         }
+      }
+      if (!tokenRes.ok) {
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
           userId: user.id,
@@ -2908,6 +3118,16 @@ export default function VideoDateScreen() {
             serverCode: tokenRes.serverCode,
           },
         });
+        // Final fatal banner — always clear latch so user can navigate away. Without this, the
+        // hydration / route-guard bounce remains suppressed and the user is pinned to /date.
+        if (tokenRes.code === 'READY_GATE_NOT_READY') {
+          rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_entry_final_ready_gate_banner', {
+            session_id: sessionId,
+            user_id: user.id,
+            source: 'create_date_room',
+          });
+        }
+        clearDateEntryTransition(sessionId);
         vdbg('prejoin_state_callError', {
           value: userMessageForTokenFailure(tokenRes.code),
           sessionId,

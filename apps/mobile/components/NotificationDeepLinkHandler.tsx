@@ -25,6 +25,7 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
+import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
@@ -177,6 +178,9 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
   }
 
   if (truthDecision === 'ended') {
+    // Stale latch from a previous attempt would otherwise block `/date` route guards on
+    // re-entry; clear here so the lobby/tabs landing is clean.
+    clearDateEntryTransition(sid);
     emitDecision('ended', 'session_ended', 'lobby');
     return eventLobbyHref(vs.event_id as string);
   }
@@ -185,10 +189,12 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     return videoDateHref(sid);
   }
   if (truthDecision === 'navigate_ready') {
+    clearDateEntryTransition(sid);
     emitDecision('navigate_ready', 'video_truth_not_startable', 'ready');
     return readyGateHref(sid);
   }
   if (truthDecision === 'stay_lobby') {
+    clearDateEntryTransition(sid);
     emitDecision('stay_lobby', 'video_truth_not_startable', 'lobby');
     rcBreadcrumb(RC_CATEGORY.notifDeepLink, needsQueuedRescue ? 'queued_session_rescue_fallback_lobby' : 'date_link_fallback_lobby', {
       session_id: sid,
