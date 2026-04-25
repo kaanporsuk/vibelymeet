@@ -2,6 +2,14 @@
  * Vibe video: create-video-upload (get tus credentials), tus upload to Bunny, delete-vibe-video.
  * Same backend contract as web. Profile snapshot columns (bunny_video_uid, bunny_video_status)
  * are backend-maintained; clients upload bytes, then read/poll backend-owned state.
+ *
+ * REGRESSION GUARD — DO NOT REINTRODUCE:
+ *   Vibe Video upload must NEVER use FileSystem.readAsStringAsync(..., Base64) or
+ *   `fetch("data:<mime>;base64,...")` for the video body. Both materialize the
+ *   entire file as a JS string, which exceeds Hermes' max string length on
+ *   typical 15–20s clips and crashes the recorder with "String length exceeds
+ *   limit". tus-js-client supports a React Native source object
+ *   ({ uri, name, type }) and reads bytes via native XHR + Blob.slice — keep it.
  */
 
 import * as tus from 'tus-js-client';
@@ -228,9 +236,25 @@ export async function getCreateVideoUploadCredentials(
   };
 }
 
+function uriSchemeOf(uri: string): string {
+  const idx = uri.indexOf(':');
+  return idx > 0 ? uri.slice(0, idx).toLowerCase() : 'path';
+}
+
+function boundedErrorMessage(err: unknown): string {
+  if (err instanceof Error && typeof err.message === 'string') {
+    return err.message.slice(0, 300);
+  }
+  if (typeof err === 'string') return err.slice(0, 300);
+  return 'Unknown error';
+}
+
 /**
  * Upload video file (local URI) to Bunny via tus using credentials from create-video-upload.
- * Reads the full file as Base64 via expo-file-system, converts to Blob, then TUS upload.
+ *
+ * Source object: tus-js-client v4 detects React Native via `navigator.product` and,
+ * given an object with `.uri`, fetches the file as a natively-backed Blob via XHR,
+ * then chunks it with Blob.slice() (TUS_CHUNK_SIZE). No JS-string materialization.
  */
 export function uploadVibeVideoToBunny(
   videoUri: string,
@@ -249,7 +273,7 @@ export function uploadVibeVideoToBunny(
 
     const fileInfo = await FileSystem.getInfoAsync(fileUri);
     if (!fileInfo.exists || fileInfo.isDirectory) {
-      throw new Error(`Video file does not exist at path: ${fileUri}`);
+      throw new Error('Video file does not exist at the resolved upload path');
     }
     const fileSize = fileInfo.size;
     if (!fileSize || fileSize === 0) {
@@ -260,59 +284,28 @@ export function uploadVibeVideoToBunny(
     const mimeType = mimeFromExtension(extension);
     const fileName =
       fileUri.split('/').pop()?.split('?')[0] ?? `vibe-video.${extension || 'mp4'}`;
+    const uriScheme = uriSchemeOf(fileUri);
 
     vibeVideoDiagVerbose('upload.file.validated', {
-      uri: fileUri,
+      uriScheme,
       extension,
       mimeType,
       sizeBytes: fileSize,
       sizeMB: (fileSize / (1024 * 1024)).toFixed(2),
+      uploadSource,
     });
 
-    // Read entire file as base64 via expo-file-system (reliable native read)
-    vibeVideoDiagVerbose('upload.read_file.start', { uri: fileUri, sizeBytes: fileSize });
-    let blob: Blob;
-    try {
-      const base64 = await FileSystem.readAsStringAsync(fileUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      vibeVideoDiagVerbose('upload.read_file.base64_ok', {
-        base64Length: base64.length,
-        expectedRatio: (base64.length / fileSize).toFixed(2),
-      });
-      // Convert base64 → blob via data URI (standard RN-compatible approach)
-      const response = await fetch(`data:${mimeType};base64,${base64}`);
-      blob = await response.blob();
-      vibeVideoDiagVerbose('upload.read_file.blob_ok', {
-        blobSize: blob.size,
-        blobType: blob.type,
-        matchesFileSize: blob.size === fileSize,
-      });
-      if (blob.size === 0) {
-        throw new Error('Blob conversion produced empty result');
-      }
-      // Sanity check: blob size should approximately equal file size
-      // (data URI decode should be exact, but log a warning if off)
-      if (Math.abs(blob.size - fileSize) > 1024) {
-        vibeVideoDiagVerbose('upload.read_file.size_mismatch_warning', {
-          blobSize: blob.size,
-          fileSize,
-          diff: blob.size - fileSize,
-        });
-      }
-    } catch (e) {
-      vibeVideoDiagVerbose('upload.read_file.failed', {
-        message: e instanceof Error ? e.message : String(e),
-      });
-      throw new Error('Failed to read video file for upload');
-    }
+    // React-Native-safe TUS source: tus-js-client reads the file natively via XHR.
+    // Never read the file into a JS string (Base64 / data: URL) — that crashes Hermes.
+    const rnFileSource = { uri: fileUri, name: fileName, type: mimeType };
 
     try {
       await new Promise<void>((resolve, reject) => {
-        const upload = new tus.Upload(blob, {
+        const upload = new tus.Upload(rnFileSource as unknown as File, {
           endpoint: 'https://video.bunnycdn.com/tusupload',
           retryDelays: [0, 3000, 5000, 10000],
           chunkSize: TUS_CHUNK_SIZE,
+          uploadSize: fileSize,
           headers: {
             AuthorizationSignature: credentials.signature,
             AuthorizationExpire: String(credentials.expirationTime),
@@ -325,7 +318,7 @@ export function uploadVibeVideoToBunny(
           },
           onError: (error: unknown) => {
             const err = error as { message?: string; originalResponse?: { getStatus?: () => number } };
-            const msg = err?.message ?? String(error);
+            const msg = boundedErrorMessage(error);
             const status = err?.originalResponse?.getStatus?.();
             vibeVideoDiagVerbose('upload.tus.error', { message: msg, status });
             if (/expired|401|403|signature/i.test(msg)) {
@@ -373,7 +366,11 @@ export function uploadVibeVideoToBunny(
           else signal.addEventListener('abort', onAbort, { once: true });
         }
 
-        vibeVideoDiagVerbose('tus.client_start', { videoId: credentials.videoId });
+        vibeVideoDiagVerbose('tus.client_start', {
+          videoId: credentials.videoId,
+          phase: 'tus_start',
+          sizeBytes: fileSize,
+        });
         upload.start();
       });
     } catch (e) {
