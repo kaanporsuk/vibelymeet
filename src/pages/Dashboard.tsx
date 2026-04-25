@@ -861,7 +861,7 @@ const Dashboard = () => {
                     </p>
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Users className="w-3.5 h-3.5" />
-                      {event.attendees} attending
+	                      {event.attendees} registered
                     </div>
                   </div>
                 </div>

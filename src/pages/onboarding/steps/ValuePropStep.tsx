@@ -7,7 +7,7 @@ const CARDS = [
     icon: "🎪",
     pain: "Tired of swiping into the void?",
     solution: "Meet through real events, not algorithms.",
-    detail: "Join events. See who's going. Match with people who actually show up.",
+    detail: "Join events. See attendee previews. Match with people who actually show up.",
   },
   {
     icon: "📹",

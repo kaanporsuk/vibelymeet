@@ -25,6 +25,7 @@ export type UserProfileView = {
   vibe_score: number | null;
   vibe_score_label: string | null;
   is_premium: boolean | null;
+  events_attended: number | null;
   vibes: string[];
 };
 
@@ -107,6 +108,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
     vibe_score: vibeScore,
     vibe_score_label: vibeScoreLabel,
     is_premium: typeof row.is_premium === "boolean" ? row.is_premium : row.is_premium === null ? null : null,
+    events_attended: typeof row.events_attended === "number" ? row.events_attended : null,
     vibes,
   };
 }

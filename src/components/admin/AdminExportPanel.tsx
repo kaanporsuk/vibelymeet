@@ -204,7 +204,6 @@ const AdminExportPanel = () => {
         is_suspended,
         total_matches,
         total_conversations,
-        events_attended,
         created_at,
         updated_at
       `);
@@ -218,6 +217,17 @@ const AdminExportPanel = () => {
 
     const { data, error } = await query;
     if (error) throw error;
+
+    const eventCounts: Record<string, number> = {};
+    if (data?.length) {
+      const { data: registrationRows } = await supabase
+        .from("event_registrations")
+        .select("profile_id")
+        .in("profile_id", data.map((user) => user.id));
+      registrationRows?.forEach((row) => {
+        eventCounts[row.profile_id] = (eventCounts[row.profile_id] ?? 0) + 1;
+      });
+    }
 
     // Fetch vibes for all users
     const { data: vibesData } = await supabase
@@ -245,7 +255,7 @@ const AdminExportPanel = () => {
       normalizeRelationshipIntentId(user.relationship_intent || user.looking_for) || "",
       user.email_verified ? "Yes" : "No", user.photo_verified ? "Yes" : "No",
       user.is_suspended ? "Yes" : "No", user.total_matches || 0,
-      user.total_conversations || 0, user.events_attended || 0,
+      user.total_conversations || 0, eventCounts[user.id] || 0,
       vibesByUser[user.id]?.join("; ") || "",
       format(new Date(user.created_at), "yyyy-MM-dd HH:mm:ss"),
       format(new Date(user.updated_at), "yyyy-MM-dd HH:mm:ss"),

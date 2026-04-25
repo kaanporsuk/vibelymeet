@@ -35,6 +35,10 @@ import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useVibelyDialog } from '@/components/VibelyDialog';
+import {
+  isEventAttendanceVisibility,
+  type EventAttendanceVisibility,
+} from '@clientShared/eventAttendanceVisibility';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -45,7 +49,6 @@ type DiscoveryMode = 'visible' | 'snoozed' | 'hidden';
 type DiscoveryAudience = 'everyone' | 'event_based' | 'hidden';
 type ActivityVisibility = 'matches' | 'event_connections' | 'nobody';
 type DistanceVisibility = 'approximate' | 'hidden';
-type EventAttendanceVisibility = 'attendees' | 'matches_only' | 'hidden';
 
 type SnoozePreset = '1h' | 'tomorrow' | '24h' | 'week' | 'indefinite';
 
@@ -98,7 +101,9 @@ function normalizeProfile(p: PrivacyProfileRow | null | undefined): NormalizedPr
     discovery_audience: p?.discovery_audience ?? 'everyone',
     activity_status_visibility: p?.activity_status_visibility ?? 'matches',
     distance_visibility: p?.distance_visibility ?? 'approximate',
-    event_attendance_visibility: p?.event_attendance_visibility ?? 'attendees',
+    event_attendance_visibility: isEventAttendanceVisibility(p?.event_attendance_visibility)
+      ? p.event_attendance_visibility
+      : 'attendees',
     discoverable: p?.discoverable ?? true,
     show_distance: p?.show_distance ?? true,
     show_online_status: p?.show_online_status ?? true,
@@ -332,7 +337,7 @@ export default function PrivacySettingsScreen() {
   const summaryEvent = useMemo(() => {
     switch (profile.event_attendance_visibility) {
       case 'attendees':
-        return { text: 'Attendees', color: theme.tint };
+        return { text: 'All attendees', color: theme.tint };
       case 'matches_only':
         return { text: 'Matches only', color: CYAN };
       default:
@@ -518,7 +523,7 @@ export default function PrivacySettingsScreen() {
                 icon="calendar-outline"
                 iconColor={EVENT_VIOLET}
                 label="Event attendance visibility"
-                description="Who can see you've joined an event"
+                description="Controls who can see you in attendee lists."
                 onPress={() => setEventAttSheetOpen(true)}
                 right={
                   <View style={styles.rowRight}>
@@ -784,15 +789,17 @@ export default function PrivacySettingsScreen() {
       <OptionSheet<EventAttendanceVisibility>
         visible={eventAttSheetOpen}
         title="Event attendance visibility"
+        subtitle="Live lobby matching may still show your profile when you participate."
         theme={theme}
         options={[
-          { value: 'attendees', title: 'All attendees', description: 'Anyone at the event can see you joined' },
-          { value: 'matches_only', title: 'Matches only', description: 'Only existing matches see your event presence' },
-          { value: 'hidden', title: 'Hidden', description: 'You attend privately; no profile visible in the event' },
+          { value: 'attendees', title: 'All attendees', description: 'All attendees can see you in attendee lists.' },
+          { value: 'matches_only', title: 'Matches only', description: 'Current matches can see you in attendee lists.' },
+          { value: 'hidden', title: 'Hidden', description: 'Hide me from attendee lists and previews.' },
         ]}
         current={profile.event_attendance_visibility}
         onClose={() => setEventAttSheetOpen(false)}
         onSelect={async (v) => {
+          if (!isEventAttendanceVisibility(v)) return;
           if (!user?.id) return;
           const { error } = await supabase.from('profiles').update({ event_attendance_visibility: v }).eq('id', user.id);
           if (error) {

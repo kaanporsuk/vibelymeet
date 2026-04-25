@@ -1060,7 +1060,7 @@ export default function DashboardScreen() {
                       <View style={styles.discoverAttendeesRow}>
                         <Ionicons name="people-outline" size={14} color={theme.mutedForeground} />
                         <Text style={[styles.discoverAttendees, { color: theme.mutedForeground }]}>
-                          {event.attendees} attending
+                            {event.attendees} registered
                         </Text>
                       </View>
                     </View>

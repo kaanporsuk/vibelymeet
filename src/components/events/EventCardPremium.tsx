@@ -214,7 +214,7 @@ export const EventCardPremium = ({
                 />
               ))}
             </div>
-            <span className="text-xs">+{attendees}</span>
+	            <span className="text-xs">{attendees} registered</span>
           </div>
         </div>
 

@@ -364,9 +364,7 @@ const EventDetails = () => {
   };
 
   const preview = attendeePreview?.success === true ? attendeePreview : null;
-  const headlineOtherConfirmed =
-    preview?.total_other_confirmed ??
-    (event ? Math.max(0, event.currentAttendees) : 0);
+  const headlineVisibleOtherCount = preview?.visible_other_count ?? 0;
 
   const rosterRevealed: GuestListRosterAttendee[] = preview
     ? preview.revealed.map((r) => ({
@@ -554,11 +552,11 @@ const EventDetails = () => {
               ) : preview ? (
                 <GuestListRoster
                   revealed={rosterRevealed}
-                  obscuredRemaining={preview.obscured_remaining}
-                  visibleCohortCount={preview.visible_cohort_count}
-                  totalOtherConfirmed={preview.total_other_confirmed}
-                  onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
-                  onTicketClick={() => setShowManageBooking(true)}
+                    obscuredRemaining={preview.obscured_remaining}
+                    visibleCohortCount={preview.visible_cohort_count}
+                    visibleOtherCount={preview.visible_other_count}
+                    onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
+                    onTicketClick={() => setShowManageBooking(true)}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-6">
@@ -573,10 +571,10 @@ const EventDetails = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-              <GuestListTeaser
-                viewerAdmission={isWaitlisted ? "waitlisted" : "none"}
-                totalOtherConfirmed={headlineOtherConfirmed}
-              />
+                <GuestListTeaser
+                  viewerAdmission={isWaitlisted ? "waitlisted" : "none"}
+                  visibleOtherCount={headlineVisibleOtherCount}
+                />
             </motion.div>
           )}
         </AnimatePresence>

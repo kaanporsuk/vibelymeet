@@ -94,6 +94,7 @@ const AdminUsersPanel = () => {
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, sortField, sortDirection],
     queryFn: async () => {
+      const serverSortField = sortField === 'events_attended' ? 'created_at' : sortField;
       let query = supabase
         .from('profiles')
         .select(`
@@ -114,10 +115,9 @@ const AdminUsersPanel = () => {
           is_suspended,
           created_at,
           updated_at,
-          total_matches,
-          events_attended
+          total_matches
         `)
-        .order(sortField, { ascending: sortDirection === 'asc' });
+        .order(serverSortField, { ascending: sortDirection === 'asc' });
 
       if (genderFilter === 'man') {
         query = query.in('gender', [...MAN_GENDER_VALUES]);
@@ -148,7 +148,27 @@ const AdminUsersPanel = () => {
 
       const { data, error } = await query;
       if (error) throw error;
-      const rows = data || [];
+      const profileRows = data || [];
+      const eventCounts: Record<string, number> = {};
+      if (profileRows.length > 0) {
+        const { data: registrationRows } = await supabase
+          .from('event_registrations')
+          .select('profile_id')
+          .in('profile_id', profileRows.map((row) => row.id));
+        registrationRows?.forEach((row) => {
+          eventCounts[row.profile_id] = (eventCounts[row.profile_id] ?? 0) + 1;
+        });
+      }
+      const rows = profileRows.map((row) => ({
+        ...row,
+        events_attended: eventCounts[row.id] ?? 0,
+      }));
+      if (sortField === 'events_attended') {
+        rows.sort((a, b) => {
+          const delta = (a.events_attended ?? 0) - (b.events_attended ?? 0);
+          return sortDirection === 'asc' ? delta : -delta;
+        });
+      }
       if (genderFilter === 'other') {
         // Keep this bucket local to avoid stacking multiple PostgREST `or(...)` clauses.
         return rows.filter((row) => getGenderBucket(row.gender) === 'other');

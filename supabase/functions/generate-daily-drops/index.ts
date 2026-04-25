@@ -239,6 +239,9 @@ serve(async (req) => {
 
     // STEP 6: Get vibe tags for scoring
     const userIds = eligibleUsersFiltered.map(u => u.id);
+    // Co-attendance is used only for internal event-based discovery eligibility.
+    // Daily Drop rows, reasons, and notifications below do not expose event ids,
+    // event names, or "you both attended" copy to users.
     const { data: confirmedRegistrations } = await supabase
       .from("event_registrations")
       .select("profile_id, event_id")

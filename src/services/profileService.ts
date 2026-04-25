@@ -81,7 +81,7 @@ interface DbProfile {
   bunny_video_status: string;
   photo_verified: boolean | null;
   phone_verified: boolean | null;
-  events_attended: number | null;
+  events_attended?: number | null;
   total_matches: number | null;
   total_conversations: number | null;
   vibe_score?: number | null;
@@ -92,10 +92,10 @@ interface DbProfile {
 }
 
 const PROFILE_SELECT_WITH_DISCOVERY =
-  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
+  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
 
 const PROFILE_SELECT_BASE =
-  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, events_attended, total_matches, total_conversations, is_premium, premium_until";
+  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until";
 
 const PROFILE_SELECT_RETRYABLE_ERROR =
   /vibe_score|vibe_score_label|preferred_age|event_discovery_prefs|column .* does not exist|schema cache/i;

@@ -80,10 +80,10 @@ export const EventCard = ({
             <Calendar className="w-4 h-4" />
             <span>{date} • {time}</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <Users className="w-4 h-4" />
-            <span>{attendees}</span>
-          </div>
+	          <div className="flex items-center gap-1.5">
+	            <Users className="w-4 h-4" />
+	            <span>{attendees} registered</span>
+	          </div>
           {(() => {
             const lang = getLanguageLabel(language);
             return lang ? (

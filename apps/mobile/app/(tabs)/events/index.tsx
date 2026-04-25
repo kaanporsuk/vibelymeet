@@ -218,8 +218,10 @@ function FeaturedEventCard({
   const showEnded = expired || event.status === 'ended';
   const [imageFailed, setImageFailed] = useState(false);
   const coverUri = eventCoverUrl(event.image);
-  const goingCount =
-    attendeePreview?.success === true ? attendeePreview.total_other_confirmed : event.attendees;
+  const attendeeCountLabel =
+    attendeePreview?.success === true
+      ? `+${attendeePreview.visible_other_count} visible`
+      : `${event.attendees} registered`;
   const avatarUrls = (attendees ?? []).slice(0, 2).map((a) => a.avatar_url ?? a.photos?.[0]).filter(Boolean) as string[];
 
   useEffect(() => {
@@ -357,9 +359,9 @@ function FeaturedEventCard({
                         <View key={i} style={[featuredStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.background }]} />
                       ))}
                 </View>
-                <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
-                  +{goingCount} going
-                </Text>
+	                <Text style={[featuredStyles.attendeesText, { color: theme.textSecondary }]}>
+	                  {attendeeCountLabel}
+	                </Text>
               </View>
               <View
                 style={[
@@ -575,7 +577,9 @@ function EventRailCard({
               <View key={i} style={[railCardStyles.avatar, { backgroundColor: theme.accentSoft, borderColor: theme.surface }]} />
             ))}
           </View>
-          <Text style={[railCardStyles.attendees, { color: theme.textSecondary }]}>+{event.attendees}</Text>
+	          <Text style={[railCardStyles.attendees, { color: theme.textSecondary }]}>
+	            {event.attendees} registered
+	          </Text>
         </View>
         <View style={[railCardStyles.cta, { backgroundColor: theme.tint }]}>
           <Text style={railCardStyles.ctaLabel}>Get Tickets</Text>
