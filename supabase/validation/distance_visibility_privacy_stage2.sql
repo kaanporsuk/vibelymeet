@@ -1,7 +1,7 @@
--- Cloud validation probes for distance_visibility privacy enforcement.
+-- Cloud validation probes for distance_visibility privacy enforcement Stage 2.
 --
--- Run against the linked Supabase project only:
---   supabase db query --linked -o table -f supabase/validation/distance_visibility_privacy_enforcement.sql
+-- Run after the pending Stage 2 revoke/drop migration is deployed:
+--   supabase db query --linked -o table -f supabase/validation/distance_visibility_privacy_stage2.sql
 --
 -- This script opens an explicit transaction, creates deterministic fixture
 -- rows, switches into authenticated/service_role with JWT settings for RLS
@@ -41,8 +41,8 @@ INSERT INTO public.profiles (
   onboarding_complete
 ) VALUES
   (
-    '9f4d0000-0000-4000-8000-000000000001',
-    'Distance Validation Viewer',
+    '9f4d1000-0000-4000-8000-000000000001',
+    'Distance Stage2 Viewer',
     30,
     'woman',
     NULL,
@@ -60,8 +60,8 @@ INSERT INTO public.profiles (
     true
   ),
   (
-    '9f4d0000-0000-4000-8000-000000000002',
-    'Distance Validation Approx',
+    '9f4d1000-0000-4000-8000-000000000002',
+    'Distance Stage2 Approx',
     31,
     'man',
     NULL,
@@ -79,8 +79,8 @@ INSERT INTO public.profiles (
     true
   ),
   (
-    '9f4d0000-0000-4000-8000-000000000003',
-    'Distance Validation Hidden',
+    '9f4d1000-0000-4000-8000-000000000003',
+    'Distance Stage2 Hidden',
     32,
     'man',
     NULL,
@@ -98,28 +98,9 @@ INSERT INTO public.profiles (
     true
   ),
   (
-    '9f4d0000-0000-4000-8000-000000000004',
-    'Distance Validation Malformed',
+    '9f4d1000-0000-4000-8000-000000000004',
+    'Distance Stage2 Event',
     33,
-    'man',
-    NULL,
-    ARRAY[]::text[],
-    NULL,
-    'Malformed',
-    'Turkey',
-    '{"lat": "not-a-number", "lng": 29.02}'::jsonb,
-    'approximate',
-    true,
-    'attendees',
-    'everyone',
-    'visible',
-    true,
-    true
-  ),
-  (
-    '9f4d0000-0000-4000-8000-000000000005',
-    'Distance Validation Event',
-    34,
     'man',
     NULL,
     ARRAY[]::text[],
@@ -127,25 +108,6 @@ INSERT INTO public.profiles (
     'Sisli',
     'Turkey',
     '{"lat": 41.0602, "lng": 28.9877}'::jsonb,
-    'approximate',
-    true,
-    'attendees',
-    'everyone',
-    'visible',
-    true,
-    true
-  ),
-  (
-    '9f4d0000-0000-4000-8000-000000000006',
-    'Distance Validation Blocked',
-    35,
-    'man',
-    NULL,
-    ARRAY[]::text[],
-    NULL,
-    'Blocked',
-    'Turkey',
-    '{"lat": 41.03, "lng": 28.98}'::jsonb,
     'approximate',
     true,
     'attendees',
@@ -168,8 +130,8 @@ INSERT INTO public.events (
   is_free,
   scope
 ) VALUES (
-  '9f4d0000-0000-4000-8000-000000000100',
-  'Distance Privacy Validation Event',
+  '9f4d1000-0000-4000-8000-000000000100',
+  'Distance Stage2 Validation Event',
   'Rollback-only validation fixture',
   'validation-cover.jpg',
   now() + interval '1 hour',
@@ -183,22 +145,13 @@ INSERT INTO public.events (
 
 INSERT INTO public.event_registrations (event_id, profile_id, admission_status, payment_status, queue_status)
 VALUES
-  ('9f4d0000-0000-4000-8000-000000000100', '9f4d0000-0000-4000-8000-000000000001', 'confirmed', 'free', 'idle'),
-  ('9f4d0000-0000-4000-8000-000000000100', '9f4d0000-0000-4000-8000-000000000005', 'confirmed', 'free', 'idle');
+  ('9f4d1000-0000-4000-8000-000000000100', '9f4d1000-0000-4000-8000-000000000001', 'confirmed', 'free', 'idle'),
+  ('9f4d1000-0000-4000-8000-000000000100', '9f4d1000-0000-4000-8000-000000000004', 'confirmed', 'free', 'idle');
 
 INSERT INTO public.matches (profile_id_1, profile_id_2, event_id)
 VALUES
-  ('9f4d0000-0000-4000-8000-000000000001', '9f4d0000-0000-4000-8000-000000000002', '9f4d0000-0000-4000-8000-000000000100'),
-  ('9f4d0000-0000-4000-8000-000000000001', '9f4d0000-0000-4000-8000-000000000003', '9f4d0000-0000-4000-8000-000000000100'),
-  ('9f4d0000-0000-4000-8000-000000000001', '9f4d0000-0000-4000-8000-000000000004', '9f4d0000-0000-4000-8000-000000000100'),
-  ('9f4d0000-0000-4000-8000-000000000001', '9f4d0000-0000-4000-8000-000000000006', '9f4d0000-0000-4000-8000-000000000100');
-
-INSERT INTO public.blocked_users (blocker_id, blocked_id, reason)
-VALUES (
-  '9f4d0000-0000-4000-8000-000000000006',
-  '9f4d0000-0000-4000-8000-000000000001',
-  'distance visibility validation'
-);
+  ('9f4d1000-0000-4000-8000-000000000001', '9f4d1000-0000-4000-8000-000000000002', '9f4d1000-0000-4000-8000-000000000100'),
+  ('9f4d1000-0000-4000-8000-000000000001', '9f4d1000-0000-4000-8000-000000000003', '9f4d1000-0000-4000-8000-000000000100');
 
 SET LOCAL session_replication_role = origin;
 
@@ -231,8 +184,8 @@ BEGIN
   BEGIN
     EXECUTE 'SET LOCAL ROLE authenticated';
     PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
-    PERFORM set_config('request.jwt.claim.sub', '9f4d0000-0000-4000-8000-000000000001', true);
-    EXECUTE 'SELECT location_data FROM public.profiles WHERE id = ''9f4d0000-0000-4000-8000-000000000002''::uuid';
+    PERFORM set_config('request.jwt.claim.sub', '9f4d1000-0000-4000-8000-000000000001', true);
+    EXECUTE 'SELECT location_data FROM public.profiles WHERE id = ''9f4d1000-0000-4000-8000-000000000002''::uuid';
   EXCEPTION
     WHEN insufficient_privilege THEN
       v_denied := true;
@@ -259,8 +212,8 @@ BEGIN
   BEGIN
     EXECUTE 'SET LOCAL ROLE authenticated';
     PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
-    PERFORM set_config('request.jwt.claim.sub', '9f4d0000-0000-4000-8000-000000000001', true);
-    EXECUTE 'SELECT location_data FROM public.profiles WHERE id = ''9f4d0000-0000-4000-8000-000000000005''::uuid';
+    PERFORM set_config('request.jwt.claim.sub', '9f4d1000-0000-4000-8000-000000000001', true);
+    EXECUTE 'SELECT location_data FROM public.profiles WHERE id = ''9f4d1000-0000-4000-8000-000000000004''::uuid';
   EXCEPTION
     WHEN insufficient_privilege THEN
       v_denied := true;
@@ -281,12 +234,12 @@ END $$;
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
-SELECT set_config('request.jwt.claim.sub', '9f4d0000-0000-4000-8000-000000000001', true);
+SELECT set_config('request.jwt.claim.sub', '9f4d1000-0000-4000-8000-000000000001', true);
 
 INSERT INTO validation_results
 SELECT
   'self exact location rpc',
-  'get_my_location_data returns only the authenticated viewer location',
+  'get_my_location_data still returns only the authenticated viewer location',
   COUNT(*) = 1
     AND bool_and(location_data = '{"lat": 41.0082, "lng": 28.9784}'::jsonb)
     AND bool_and(location = 'Istanbul')
@@ -297,7 +250,7 @@ SELECT
 FROM public.get_my_location_data() AS self_location;
 
 WITH profile_payload AS (
-  SELECT public.get_profile_for_viewer('9f4d0000-0000-4000-8000-000000000002') AS payload
+  SELECT public.get_profile_for_viewer('9f4d1000-0000-4000-8000-000000000002') AS payload
 )
 INSERT INTO validation_results
 SELECT
@@ -311,7 +264,7 @@ SELECT
 FROM profile_payload;
 
 WITH profile_payload AS (
-  SELECT public.get_profile_for_viewer('9f4d0000-0000-4000-8000-000000000002') AS payload
+  SELECT public.get_profile_for_viewer('9f4d1000-0000-4000-8000-000000000002') AS payload
 )
 INSERT INTO validation_results
 SELECT
@@ -322,38 +275,13 @@ SELECT
 FROM profile_payload;
 
 WITH profile_payload AS (
-  SELECT public.get_profile_for_viewer('9f4d0000-0000-4000-8000-000000000003') AS payload
+  SELECT public.get_profile_for_viewer('9f4d1000-0000-4000-8000-000000000003') AS payload
 )
 INSERT INTO validation_results
 SELECT
   'profile rpc',
   'hidden distance_visibility returns null distance_label',
   payload IS NOT NULL AND payload->>'distance_label' IS NULL,
-  COALESCE(payload::text, 'null')
-FROM profile_payload;
-
-INSERT INTO validation_results
-SELECT
-  'distance helper',
-  'malformed target location_data returns null distance label',
-  public.get_profile_distance_label_for_viewer('9f4d0000-0000-4000-8000-000000000004') IS NULL,
-  COALESCE(public.get_profile_distance_label_for_viewer('9f4d0000-0000-4000-8000-000000000004'), 'non-null');
-
-INSERT INTO validation_results
-SELECT
-  'distance helper',
-  'blocked relationships do not return distance',
-  public.get_profile_distance_label_for_viewer('9f4d0000-0000-4000-8000-000000000006') IS NULL,
-  COALESCE(public.get_profile_distance_label_for_viewer('9f4d0000-0000-4000-8000-000000000006'), 'null');
-
-WITH profile_payload AS (
-  SELECT public.get_profile_for_viewer('9f4d0000-0000-4000-8000-000000000006') AS payload
-)
-INSERT INTO validation_results
-SELECT
-  'profile rpc',
-  'blocked relationships do not return profile payload',
-  payload IS NULL,
   COALESCE(payload::text, 'null')
 FROM profile_payload;
 

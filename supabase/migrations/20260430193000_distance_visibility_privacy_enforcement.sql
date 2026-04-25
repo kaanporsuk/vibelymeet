@@ -1,96 +1,14 @@
--- Distance visibility privacy enforcement.
+-- Distance visibility privacy enforcement, Stage 1.
 --
--- Root causes fixed here:
--- 1. profiles.location_data stores exact user coordinates and must not be
---    directly selectable by anon/authenticated clients for any RLS-visible row.
--- 2. Distance visibility was persisted but not enforced by profile read
---    contracts. User-to-user distance now comes only from backend-owned coarse
---    buckets and is hidden when the target opts out.
-
--- Direct profile SELECT must be column-scoped for clients. Column grants are not
--- row-aware, so location_data cannot be granted even for self reads.
-REVOKE SELECT ON TABLE public.profiles FROM PUBLIC;
-REVOKE SELECT ON TABLE public.profiles FROM anon, authenticated;
-REVOKE SELECT (location_data) ON TABLE public.profiles FROM PUBLIC;
-REVOKE SELECT (location_data) ON TABLE public.profiles FROM anon, authenticated;
-
-GRANT SELECT ON TABLE public.profiles TO service_role;
-
-GRANT SELECT (
-  about_me,
-  account_paused,
-  account_paused_until,
-  activity_status_visibility,
-  age,
-  avatar_url,
-  bio,
-  birth_date,
-  bunny_video_status,
-  bunny_video_uid,
-  community_agreed_at,
-  company,
-  country,
-  created_at,
-  discoverable,
-  discovery_audience,
-  discovery_mode,
-  discovery_snooze_until,
-  distance_visibility,
-  email_unsubscribed,
-  email_verified,
-  event_attendance_visibility,
-  event_discovery_prefs,
-  gender,
-  height_cm,
-  id,
-  interested_in,
-  is_paused,
-  is_premium,
-  is_suspended,
-  job,
-  last_seen_at,
-  lifestyle,
-  location,
-  looking_for,
-  name,
-  onboarding_complete,
-  onboarding_stage,
-  pause_reason,
-  paused_at,
-  paused_until,
-  phone_number,
-  phone_verified,
-  phone_verified_at,
-  photo_verification_expires_at,
-  photo_verified,
-  photo_verified_at,
-  photos,
-  preferred_age_max,
-  preferred_age_min,
-  premium_granted_at,
-  premium_granted_by,
-  premium_until,
-  prompts,
-  proof_selfie_url,
-  referred_by,
-  relationship_intent,
-  show_distance,
-  show_online_status,
-  subscription_tier,
-  suspension_reason,
-  tagline,
-  total_conversations,
-  total_matches,
-  updated_at,
-  verified_email,
-  vibe_caption,
-  vibe_score,
-  vibe_score_label,
-  vibe_video_status
-) ON TABLE public.profiles TO anon, authenticated;
-
--- Defensive cleanup for early broad policies if they survived in any env.
-DROP POLICY IF EXISTS "Anyone can view profiles" ON public.profiles;
+-- Additive/compatible rollout only:
+-- 1. Add backend contracts clients can move to before any column revoke.
+-- 2. Make distance_visibility truthful on safe profile RPC reads.
+-- 3. Keep direct profiles.location_data SELECT available temporarily for
+--    already-deployed web/native self-location reads.
+--
+-- Stage 2 final enforcement lives in supabase/pending_migrations and must not
+-- be moved into supabase/migrations until the client rollout/min-version plan is
+-- complete.
 
 CREATE OR REPLACE FUNCTION public.profile_location_coord(
   p_location_data jsonb,
@@ -135,6 +53,7 @@ COMMENT ON FUNCTION public.profile_location_coord(jsonb, text) IS
   'Internal coordinate parser with numeric/range validation. Does not read table data.';
 
 REVOKE ALL ON FUNCTION public.profile_location_coord(jsonb, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.profile_location_coord(jsonb, text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.profile_location_coord(jsonb, text) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_my_location_data()
@@ -271,7 +190,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path TO 'public', 'pg_catalog'
 AS $$
 DECLARE
   v_viewer_id uuid := auth.uid();
@@ -390,3 +309,5 @@ COMMENT ON FUNCTION public.get_profile_for_viewer(uuid) IS
 REVOKE ALL ON FUNCTION public.get_profile_for_viewer(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_profile_for_viewer(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.get_profile_for_viewer(uuid) TO authenticated, service_role;
+
+NOTIFY pgrst, 'reload schema';
