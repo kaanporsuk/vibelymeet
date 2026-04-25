@@ -83,16 +83,34 @@ export function useEventVibes(eventId: string) {
 
       // Fetch sender profiles
       if (data && data.length > 0) {
-        const senderIds = data.map((v) => v.sender_id);
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, name, avatar_url, age")
-          .in("id", senderIds);
+        const senderIds = [...new Set(data.map((v) => v.sender_id))];
+        const profiles = await Promise.all(
+          senderIds.map(async (id) => {
+            const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
+              p_target_id: id,
+            });
+            return profile as { id?: string; name?: string | null; avatar_url?: string | null; age?: number | null } | null;
+          }),
+        );
+        const profileMap = new Map<string, { id?: string; name?: string | null; avatar_url?: string | null; age?: number | null }>();
+        profiles.forEach((p) => {
+          if (p?.id) profileMap.set(p.id, p);
+        });
 
-        return data.map((vibe) => ({
-          ...vibe,
-          sender: profiles?.find((p) => p.id === vibe.sender_id),
-        }));
+        return data.map((vibe) => {
+          const sender = profileMap.get(vibe.sender_id);
+          return {
+            ...vibe,
+            sender: sender
+              ? {
+                  id: vibe.sender_id,
+                  name: sender.name ?? "Unknown",
+                  avatar_url: sender.avatar_url ?? null,
+                  age: sender.age ?? 0,
+                }
+              : undefined,
+          };
+        });
       }
 
       return data || [];

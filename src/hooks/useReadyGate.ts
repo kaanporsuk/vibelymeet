@@ -103,12 +103,11 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
 
       const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
-      // Fetch partner name
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("name")
-        .eq("id", partnerId)
-        .maybeSingle();
+      // Fetch partner name through the privacy-aware profile RPC.
+      const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
+        p_target_id: partnerId,
+      });
+      const partnerProfile = profile as { name?: string | null } | null;
 
       const myReadyAt = isP1 ? session.ready_participant_1_at : session.ready_participant_2_at;
       const partnerReadyAt = isP1 ? session.ready_participant_2_at : session.ready_participant_1_at;
@@ -117,7 +116,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
         status: session.ready_gate_status as ReadyGateStatus,
         iAmReady: !!myReadyAt,
         partnerReady: !!partnerReadyAt,
-        partnerName: profile?.name || "Your match",
+        partnerName: partnerProfile?.name || "Your match",
         snoozedByPartner: session.snoozed_by !== null && session.snoozed_by !== user.id,
         snoozeExpiresAt: session.snooze_expires_at,
         expiresAt: session.ready_gate_expires_at,

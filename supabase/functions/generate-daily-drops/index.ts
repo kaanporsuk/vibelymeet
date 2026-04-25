@@ -164,20 +164,38 @@ serve(async (req) => {
     const { data: eligibleUsers } = await supabase
       .from("profiles")
       .select(
-        "id, name, gender, interested_in, age, is_suspended, is_paused, paused_until, account_paused, account_paused_until",
+        "id, name, gender, interested_in, age, is_suspended, is_paused, paused_until, account_paused, account_paused_until, discoverable, discovery_mode, discovery_snooze_until, discovery_audience",
       )
       .gte("updated_at", sevenDaysAgo)
       .or("is_suspended.is.null,is_suspended.eq.false");
 
     type EligibleRow = {
       id: string;
+      gender?: string | null;
+      interested_in?: string[] | null;
+      is_suspended?: boolean | null;
       is_paused?: boolean | null;
       paused_until?: string | null;
       account_paused?: boolean | null;
       account_paused_until?: string | null;
+      discoverable?: boolean | null;
+      discovery_mode?: string | null;
+      discovery_snooze_until?: string | null;
+      discovery_audience?: string | null;
     };
 
     const eligibleUsersFiltered = (eligibleUsers || []).filter((u: EligibleRow) => {
+      if (u.is_suspended) return false;
+      if (u.discoverable === false) return false;
+      if ((u.discovery_audience ?? "everyone") === "hidden") return false;
+      if ((u.discovery_mode ?? "visible") === "hidden") return false;
+      if ((u.discovery_mode ?? "visible") === "snoozed") {
+        const until = u.discovery_snooze_until;
+        if (!until) return false;
+        const untilDate = new Date(until);
+        if (Number.isNaN(untilDate.getTime())) return false;
+        if (untilDate > now) return false;
+      }
       // Legacy pause check
       if (u.is_paused) {
         const until = u.paused_until;
@@ -211,14 +229,85 @@ serve(async (req) => {
     // STEP 5: Get exclusions
     const { data: existingMatches } = await supabase.from("matches").select("profile_id_1, profile_id_2");
     const { data: blocks } = await supabase.from("blocked_users").select("blocker_id, blocked_id");
+    const { data: reports } = await supabase.from("user_reports").select("reporter_id, reported_id");
     const { data: activeCooldowns } = await supabase.from("daily_drop_cooldowns").select("user_a_id, user_b_id").gte("cooldown_until", today);
 
     const matchSet = new Set((existingMatches || []).map(m => [m.profile_id_1, m.profile_id_2].sort().join(":")));
     const blockSet = new Set((blocks || []).flatMap(b => [`${b.blocker_id}:${b.blocked_id}`, `${b.blocked_id}:${b.blocker_id}`]));
+    const reportSet = new Set((reports || []).flatMap(r => [`${r.reporter_id}:${r.reported_id}`, `${r.reported_id}:${r.reporter_id}`]));
     const cooldownSet = new Set((activeCooldowns || []).map(c => `${c.user_a_id}:${c.user_b_id}`));
 
     // STEP 6: Get vibe tags for scoring
     const userIds = eligibleUsersFiltered.map(u => u.id);
+    const { data: confirmedRegistrations } = await supabase
+      .from("event_registrations")
+      .select("profile_id, event_id")
+      .in("profile_id", userIds)
+      .eq("admission_status", "confirmed");
+
+    const sharedEventIds = [...new Set((confirmedRegistrations || []).map((row: { event_id: string }) => row.event_id))];
+    const { data: sharedEvents } = sharedEventIds.length > 0
+      ? await supabase
+        .from("events")
+        .select("id, status, archived_at, event_date, duration_minutes, ended_at")
+        .in("id", sharedEventIds)
+      : { data: [] };
+
+    type SharedEventRow = {
+      id: string;
+      status?: string | null;
+      archived_at?: string | null;
+      event_date?: string | null;
+      duration_minutes?: number | null;
+      ended_at?: string | null;
+    };
+
+    const eventIsQualifying = (event: SharedEventRow): boolean => {
+      if (event.archived_at) return false;
+      const status = event.status ?? "upcoming";
+      if (status === "cancelled" || status === "draft") return false;
+      const baseEnd = event.ended_at
+        ? new Date(event.ended_at)
+        : event.event_date
+          ? new Date(new Date(event.event_date).getTime() + (event.duration_minutes ?? 60) * 60000)
+          : null;
+      if (!baseEnd || Number.isNaN(baseEnd.getTime())) return false;
+      return now.getTime() <= baseEnd.getTime() + 6 * 60 * 60 * 1000;
+    };
+
+    const qualifyingEventIds = new Set(
+      ((sharedEvents || []) as SharedEventRow[])
+        .filter(eventIsQualifying)
+        .map((event) => event.id),
+    );
+
+    const confirmedEventMap: Record<string, Set<string>> = {};
+    (confirmedRegistrations || []).forEach((row: { profile_id: string; event_id: string }) => {
+      if (!qualifyingEventIds.has(row.event_id)) return;
+      if (!confirmedEventMap[row.profile_id]) confirmedEventMap[row.profile_id] = new Set();
+      confirmedEventMap[row.profile_id].add(row.event_id);
+    });
+
+    const shareConfirmedEvent = (aId: string, bId: string): boolean => {
+      const aEvents = confirmedEventMap[aId];
+      const bEvents = confirmedEventMap[bId];
+      if (!aEvents || !bEvents) return false;
+      for (const eventId of aEvents) {
+        if (bEvents.has(eventId)) return true;
+      }
+      return false;
+    };
+
+    const canDiscover = (viewer: EligibleRow, target: EligibleRow): boolean => {
+      const audience = target.discovery_audience ?? "everyone";
+      if (audience === "hidden") return false;
+      if (audience === "event_based") return shareConfirmedEvent(viewer.id, target.id);
+      return true;
+    };
+
+    const mutuallyDiscoverable = (a: EligibleRow, b: EligibleRow): boolean =>
+      canDiscover(a, b) && canDiscover(b, a);
+
     const { data: allVibes } = await supabase.from("profile_vibes").select("profile_id, vibe_tag_id").in("profile_id", userIds);
 
     const vibeMap: Record<string, Set<string>> = {};
@@ -234,9 +323,9 @@ serve(async (req) => {
     (tagLabels || []).forEach(t => { tagMap[t.id] = { label: t.label, emoji: t.emoji }; });
 
     // STEP 8: Gender compatibility
-    const isGenderCompatible = (a: typeof eligibleUsers[0], b: typeof eligibleUsers[0]): boolean => {
-      const aInt = (a.interested_in as string[]) || [];
-      const bInt = (b.interested_in as string[]) || [];
+    const isGenderCompatible = (a: EligibleRow, b: EligibleRow): boolean => {
+      const aInt = Array.isArray(a.interested_in) ? a.interested_in : [];
+      const bInt = Array.isArray(b.interested_in) ? b.interested_in : [];
       const aLikesB = aInt.length === 0 || aInt.includes(b.gender);
       const bLikesA = bInt.length === 0 || bInt.includes(a.gender);
       return aLikesB && bLikesA;
@@ -251,7 +340,15 @@ serve(async (req) => {
         const [lo, hi] = [a.id, b.id].sort();
         const pairKey = `${lo}:${hi}`;
 
-        if (matchSet.has(pairKey) || blockSet.has(`${a.id}:${b.id}`) || blockSet.has(`${b.id}:${a.id}`) || cooldownSet.has(pairKey)) continue;
+        if (
+          matchSet.has(pairKey)
+          || blockSet.has(`${a.id}:${b.id}`)
+          || blockSet.has(`${b.id}:${a.id}`)
+          || reportSet.has(`${a.id}:${b.id}`)
+          || reportSet.has(`${b.id}:${a.id}`)
+          || cooldownSet.has(pairKey)
+        ) continue;
+        if (!mutuallyDiscoverable(a, b)) continue;
         if (!isGenderCompatible(a, b)) continue;
 
         const aVibes = vibeMap[a.id] || new Set();

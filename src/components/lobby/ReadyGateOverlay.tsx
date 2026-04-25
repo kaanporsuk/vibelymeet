@@ -390,31 +390,24 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           ? session.participant_2_id
           : session.participant_1_id;
 
-      // Partner photo
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("avatar_url, photos")
-        .eq("id", partnerId)
-        .maybeSingle();
+      // Partner photo + vibes through the session-aware profile RPC.
+      const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
+        p_target_id: partnerId,
+      });
 
-      if (profile) {
-        setPartnerPhotos((profile.photos as string[]) || null);
-        setPartnerAvatarUrl(profile.avatar_url || null);
+      const partnerProfile = profile as { avatar_url?: string | null; photos?: string[] | null; vibes?: string[] | null } | null;
+      if (partnerProfile) {
+        setPartnerPhotos(partnerProfile.photos || null);
+        setPartnerAvatarUrl(partnerProfile.avatar_url || null);
       }
 
       // Shared vibes
-      const [{ data: myVibes }, { data: partnerVibes }] = await Promise.all([
-        supabase
-          .from("profile_vibes")
-          .select("vibe_tags(label, emoji)")
-          .eq("profile_id", user.id),
-        supabase
-          .from("profile_vibes")
-          .select("vibe_tags(label, emoji)")
-          .eq("profile_id", partnerId),
-      ]);
+      const { data: myVibes } = await supabase
+        .from("profile_vibes")
+        .select("vibe_tags(label, emoji)")
+        .eq("profile_id", user.id);
 
-      if (myVibes && partnerVibes) {
+      if (myVibes && partnerProfile?.vibes) {
         const myLabels = new Set(
           myVibes
             .map((v) => {
@@ -424,13 +417,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
             })
             .filter(Boolean)
         );
-        const shared = partnerVibes
-          .map((v) => {
-            const raw = v.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
-            const tag = Array.isArray(raw) ? raw[0] : raw;
-            return tag && myLabels.has(tag.label) ? `${tag.emoji ?? ''} ${tag.label}`.trim() : null;
-          })
-          .filter(Boolean) as string[];
+        const shared = partnerProfile.vibes.filter((label) => myLabels.has(label));
         setSharedVibes(shared);
       }
     })();

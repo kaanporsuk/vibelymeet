@@ -231,10 +231,10 @@ export default function PrivacySettingsScreen() {
   const [activitySheetOpen, setActivitySheetOpen] = useState(false);
   const [distanceSheetOpen, setDistanceSheetOpen] = useState(false);
   const [eventAttSheetOpen, setEventAttSheetOpen] = useState(false);
+  const [audienceSaving, setAudienceSaving] = useState<DiscoveryAudience | null>(null);
 
   const invalidatePrivacy = () => {
     qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
-    qc.invalidateQueries({ queryKey: ['my-profile'] });
   };
 
   const discoveryChip = useMemo(() => {
@@ -257,11 +257,11 @@ export default function PrivacySettingsScreen() {
   const audienceDescription = useMemo(() => {
     switch (profile.discovery_audience) {
       case 'everyone':
-        return 'Anyone on Vibely can find you';
+        return 'People can discover you in eligible Vibely experiences';
       case 'event_based':
-        return 'Only people at events you join';
+        return 'People can discover you through events you’ve joined';
       default:
-        return 'No discovery — events and direct only';
+        return 'You won’t appear in passive discovery';
     }
   }, [profile.discovery_audience]);
 
@@ -443,6 +443,21 @@ export default function PrivacySettingsScreen() {
                   </View>
                 }
               />
+              <View
+                style={[
+                  styles.infoNote,
+                  {
+                    backgroundColor: withAlpha(theme.tint, 0.08),
+                    borderColor: withAlpha(theme.tint, 0.2),
+                  },
+                ]}
+              >
+                <Ionicons name="information-circle-outline" size={14} color={theme.tint} />
+                <Text style={[styles.infoNoteText, { color: theme.tint }]}>
+                  This controls passive discovery, such as decks, suggestions, and event-based introductions.
+                  Existing matches can still see and message you.
+                </Text>
+              </View>
             </SectionCard>
 
             <SectionLabel text="PRESENCE" theme={theme} />
@@ -671,14 +686,17 @@ export default function PrivacySettingsScreen() {
         title="Who can discover me"
         theme={theme}
         options={[
-          { value: 'everyone', title: 'Everyone', description: 'Standard discovery across Vibely' },
-          { value: 'event_based', title: 'Event-based only', description: 'Only discoverable within events you’ve joined' },
-          { value: 'hidden', title: 'Hidden', description: 'No passive discovery' },
+          { value: 'everyone', title: 'Everyone', description: 'People can discover you in eligible Vibely experiences' },
+          { value: 'event_based', title: 'Event-based only', description: 'People can discover you through events you’ve joined' },
+          { value: 'hidden', title: 'Hidden', description: 'You won’t appear in passive discovery' },
         ]}
         current={profile.discovery_audience}
+        disabled={audienceSaving !== null}
+        savingValue={audienceSaving}
         onClose={() => setAudienceSheetOpen(false)}
         onSelect={async (v) => {
-          if (!user?.id) return;
+          if (!user?.id || audienceSaving !== null) return;
+          setAudienceSaving(v);
           const { error } = await supabase
             .from('profiles')
             .update({
@@ -688,11 +706,15 @@ export default function PrivacySettingsScreen() {
           if (error) {
             show({
               title: 'Couldn’t save',
-              message: error.message,
+              message: 'Your discoverability setting was not updated. Please try again.',
               variant: 'warning',
               primaryAction: { label: 'OK', onPress: () => {} },
             });
-          } else invalidatePrivacy();
+            setAudienceSaving(null);
+            return;
+          }
+          invalidatePrivacy();
+          setAudienceSaving(null);
           setAudienceSheetOpen(false);
         }}
       />
@@ -1133,6 +1155,8 @@ function OptionSheet<T extends string>({
   options,
   current,
   onSelect,
+  disabled = false,
+  savingValue,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -1142,11 +1166,13 @@ function OptionSheet<T extends string>({
   options: { value: T; title: string; description?: string }[];
   current: T;
   onSelect: (v: T) => void | Promise<void>;
+  disabled?: boolean;
+  savingValue?: T | null;
 }) {
   if (!visible) return null;
   return (
     <Modal transparent visible animationType="slide">
-      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={disabled ? undefined : onClose}>
         <Pressable style={[styles.sheet, { backgroundColor: theme.surface }]} onPress={(e) => e.stopPropagation()}>
           <View style={[styles.handle, { backgroundColor: theme.muted }]} />
           <Text style={[styles.sheetTitle, { color: theme.text }]}>{title}</Text>
@@ -1154,12 +1180,14 @@ function OptionSheet<T extends string>({
           {options.map((o) => (
             <Pressable
               key={o.value}
+              disabled={disabled}
               onPress={() => void onSelect(o.value)}
               style={({ pressed }) => [
                 styles.sheetOption,
                 {
                   borderColor: withAlpha(theme.border, 0.6),
                   backgroundColor: pressed ? withAlpha(theme.tint, 0.06) : 'transparent',
+                  opacity: disabled && savingValue !== o.value ? 0.55 : 1,
                 },
               ]}
             >
@@ -1169,7 +1197,13 @@ function OptionSheet<T extends string>({
                   <Text style={{ color: theme.mutedForeground, fontSize: 12, marginTop: 2 }}>{o.description}</Text>
                 ) : null}
               </View>
-              {current === o.value ? <Ionicons name="checkmark-circle" size={22} color={theme.tint} /> : null}
+              {savingValue === o.value ? (
+                <ActivityIndicator size="small" color={theme.tint} />
+              ) : current === o.value ? (
+                <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
+              ) : (
+                <View style={{ width: 22 }} />
+              )}
             </Pressable>
           ))}
         </Pressable>

@@ -4140,6 +4140,10 @@ export type Database = {
         Returns: Json
       }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
+      can_view_event_registration_profile: {
+        Args: { p_event_id: string; p_profile_id: string; p_viewer_id: string }
+        Returns: boolean
+      }
       create_media_session: {
         Args: {
           p_caption?: string
@@ -4351,6 +4355,10 @@ export type Database = {
         }[]
       }
       get_photo_sessions: { Args: { p_user_id: string }; Returns: Json }
+      get_profile_for_viewer: {
+        Args: { p_target_id: string }
+        Returns: Json
+      }
       get_shared_schedule_for_date_planning: {
         Args: { p_match_id: string; p_subject_user_id: string }
         Returns: Json
@@ -4502,6 +4510,18 @@ export type Database = {
       notification_outbox_reclaim_stale_minutes: {
         Args: { p_stale_minutes: number }
         Returns: number
+      }
+      profile_has_established_access: {
+        Args: { p_target_id: string; p_viewer_id: string }
+        Returns: boolean
+      }
+      profiles_have_qualifying_shared_event: {
+        Args: { p_event_id?: string; p_profile_a: string; p_profile_b: string }
+        Returns: boolean
+      }
+      profiles_have_safety_block: {
+        Args: { p_profile_a: string; p_profile_b: string }
+        Returns: boolean
       }
       promote_purgeable_assets: { Args: { p_limit?: number }; Returns: number }
       promote_ready_gate_if_eligible: {

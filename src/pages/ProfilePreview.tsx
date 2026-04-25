@@ -56,6 +56,10 @@ const ProfilePreview = () => {
 
   const profile: UserProfile | null = useMemo(() => {
     if (!data) return null;
+    const ownTrustData = data as typeof data & {
+      phone_verified?: boolean | null;
+      email_verified?: boolean | null;
+    };
     return {
       id: data.id,
       name: data.name ?? "",
@@ -71,8 +75,8 @@ const ProfilePreview = () => {
       relationshipIntent: data.relationship_intent ?? data.looking_for ?? null,
       lifestyle: data.lifestyle ?? {},
       photoVerified: data.photo_verified === true,
-      phoneVerified: data.phone_verified === true,
-      emailVerified: data.email_verified === true,
+      phoneVerified: ownTrustData.phone_verified === true,
+      emailVerified: ownTrustData.email_verified === true,
       bunnyVideoUid: data.bunny_video_uid ?? null,
       bunnyVideoStatus: data.bunny_video_status ?? "none",
       vibeCaption: data.vibe_caption ?? "",

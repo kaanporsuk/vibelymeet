@@ -108,8 +108,12 @@ export function UserProfileFullView({
   const lifestyle = profile.lifestyle ?? {};
   const lifestyleChips = getLifestyleDisplayChips(lifestyle);
 
-  const emailVerified = profile.email_verified === true;
-  const phoneVerified = profile.phone_verified === true;
+  const ownTrustProfile = profile as UserProfileView & {
+    email_verified?: boolean | null;
+    phone_verified?: boolean | null;
+  };
+  const emailVerified = isOwnProfile && ownTrustProfile.email_verified === true;
+  const phoneVerified = isOwnProfile && ownTrustProfile.phone_verified === true;
   const photoVerified = profile.photo_verified === true;
   /** Public/member profile: photo verification only (no email/phone on others’ profiles). */
   const showEmailTrustPill = isOwnProfile && emailVerified;

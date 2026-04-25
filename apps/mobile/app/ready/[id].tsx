@@ -283,15 +283,12 @@ export default function ReadyGateScreen() {
         revealReadyUi = true;
         const partnerId =
           session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('avatar_url, photos')
-          .eq('id', partnerId)
-          .maybeSingle();
-        if (profile) {
+        const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+        const partnerProfile = profile as { avatar_url?: unknown; photos?: unknown } | null;
+        if (partnerProfile) {
           const photo = resolvePrimaryProfilePhotoPath({
-            photos: (profile as { photos?: unknown } | null)?.photos,
-            avatar_url: (profile as { avatar_url?: unknown } | null)?.avatar_url,
+            photos: partnerProfile.photos,
+            avatar_url: partnerProfile.avatar_url,
           });
           setPartnerAvatar(photo);
         }

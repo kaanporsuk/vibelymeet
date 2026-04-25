@@ -674,17 +674,15 @@ export default function EventLobbyScreen() {
         return;
       }
       const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('name, avatar_url, photos')
-        .eq('id', partnerId)
-        .maybeSingle();
-      if (profile) {
-        setActiveSessionPartnerName((profile as { name?: string }).name ?? null);
-        const p = profile as { avatar_url?: string; photos?: string[] };
+      const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+        p_target_id: partnerId,
+      });
+      const p = profile as { name?: string | null; avatar_url?: string | null; photos?: string[] | null } | null;
+      if (p) {
+        setActiveSessionPartnerName(p.name ?? null);
         const img = resolvePrimaryProfilePhotoPath({
-          photos: p.photos,
-          avatar_url: p.avatar_url,
+          photos: p.photos ?? undefined,
+          avatar_url: p.avatar_url ?? undefined,
         });
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
       }
@@ -1838,7 +1836,7 @@ function LobbyProfileCard({
   useEffect(() => {
     if (isBehind) return;
     (async () => {
-      const { data } = await supabase.from('profiles').select('photo_verified').eq('id', profile.id).maybeSingle();
+      const { data } = await supabase.rpc('get_profile_for_viewer', { p_target_id: profile.id });
       const pr = data as { photo_verified?: boolean } | null;
       setPhotoVerified(Boolean(pr?.photo_verified));
     })();

@@ -751,15 +751,17 @@ export function useEventVibesReceived(eventId: string | undefined, userId: strin
         .eq('receiver_id', userId);
       if (error || !data?.length) return [];
       const senderIds = [...new Set(data.map((r) => r.sender_id))];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, age')
-        .in('id', senderIds);
+      const profiles = await Promise.all(
+        senderIds.map(async (id) => {
+          const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: id });
+          return profile as { id?: string; name?: string | null; avatar_url?: string | null; age?: number | null } | null;
+        })
+      );
       return data.map((r) => {
-        const p = profiles?.find((x) => x.id === r.sender_id);
+        const p = profiles.find((x) => x?.id === r.sender_id);
         return {
           sender_id: r.sender_id,
-          sender: p ? { id: p.id, name: p.name ?? 'Unknown', avatar_url: p.avatar_url, age: p.age ?? 0 } : undefined,
+          sender: p?.id ? { id: p.id, name: p.name ?? 'Unknown', avatar_url: p.avatar_url ?? null, age: p.age ?? 0 } : undefined,
         };
       });
     },
