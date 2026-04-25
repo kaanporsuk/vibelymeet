@@ -1,12 +1,8 @@
--- PENDING / DO NOT DEPLOY WITH STAGE 1.
---
 -- Distance visibility privacy enforcement, Stage 2.
 --
--- Move this file into supabase/migrations only after:
--- 1. Stage 1 is deployed and get_my_location_data() is available through PostgREST.
--- 2. Web has shipped the get_my_location_data() client path.
--- 3. Native has shipped the get_my_location_data() client path.
--- 4. A native adoption/minimum-version strategy is confirmed.
+-- Stage 2 gate was manually cleared for this PR after confirmation that no
+-- native build using the old direct self location_data read path is in real
+-- user hands.
 --
 -- Root cause closed here:
 -- profiles.location_data stores exact user coordinates and must not be directly
