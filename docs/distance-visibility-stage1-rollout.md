@@ -10,9 +10,9 @@ Stage 1 migration is deployed to Supabase project `schdyxcunwcvddlcshwd`:
 
 - `supabase/migrations/20260430193000_distance_visibility_privacy_enforcement.sql`
 
-Stage 2 was pending only during Stage 1 QA. Kaan cleared the Stage 2 native rollout gate on 2026-04-26 by confirming that no native build using the old direct self `profiles.location_data` read path is in real user hands. Stage 2 final enforcement is tracked in `docs/distance-visibility-stage2-final-enforcement.md`.
+Stage 2 was pending only during Stage 1 QA. Kaan cleared the Stage 2 native rollout gate on 2026-04-26 by confirming that no native build using the old direct self `profiles.location_data` read path is in real user hands. Stage 2 final enforcement is complete and tracked in `docs/distance-visibility-stage2-final-enforcement.md`.
 
-Issue #504 tracks Stage 2 revoke/drop work.
+Issue #504 tracked Stage 2 revoke/drop work and is closed as completed.
 
 ## Stage 1 Status
 
@@ -73,18 +73,18 @@ Stage 2 was blocked until the native rollout risk was closed by one of:
 - proof that no native build using the old direct self `profiles.location_data` read path is in users' hands; or
 - a minimum supported native build/version is enforced.
 
-Gate result: Kaan confirmed on 2026-04-26 that no native build is in real user hands. Stage 2 can proceed through PR review and approval, but must not be deployed before the Stage 2 PR is merged and reviewed.
+Gate result: Kaan confirmed on 2026-04-26 that no native build is in real user hands. Stage 2 proceeded through PR review, merged at `bf9ee817802320c1843743c598c0cea4ef771bf8`, and was deployed to Supabase project `schdyxcunwcvddlcshwd`.
 
-Stage 2 work moved to `docs/distance-visibility-stage2-final-enforcement.md`:
+Stage 2 closure is recorded in `docs/distance-visibility-stage2-final-enforcement.md`:
 
-- Move the final enforcement migration into `supabase/migrations`.
-- Deploy Stage 2 only after the PR is reviewed and merged.
-- Run `supabase/validation/distance_visibility_privacy_stage2.sql`.
-- Remove temporary self-only `location_data` fallback helpers from:
+- Final enforcement migration moved into `supabase/migrations`.
+- Stage 2 migration `20260430194000_distance_visibility_privacy_final_enforcement.sql` deployed.
+- `supabase/validation/distance_visibility_privacy_stage2.sql` passed.
+- Temporary self-only `location_data` fallback helpers removed from:
   - `src/services/myLocationData.ts`
   - `apps/mobile/lib/myLocationData.ts`
-- Confirm direct client `SELECT(location_data)` fails for anon/authenticated.
-- Confirm `get_my_location_data()` still works for self.
+- Direct client `SELECT(location_data)` fails for anon/authenticated.
+- `get_my_location_data()` still works for self.
 
 ## Later Cleanup
 
