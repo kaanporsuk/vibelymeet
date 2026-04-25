@@ -100,7 +100,7 @@ function normalizeProfile(p: PrivacyProfileRow | null | undefined): NormalizedPr
     discovery_snooze_until: p?.discovery_snooze_until ?? null,
     discovery_audience: p?.discovery_audience ?? 'everyone',
     activity_status_visibility: p?.activity_status_visibility ?? 'matches',
-    distance_visibility: p?.distance_visibility ?? 'approximate',
+    distance_visibility: p?.distance_visibility ?? (p?.show_distance === false ? 'hidden' : 'approximate'),
     event_attendance_visibility: isEventAttendanceVisibility(p?.event_attendance_visibility)
       ? p.event_attendance_visibility
       : 'attendees',
@@ -237,6 +237,7 @@ export default function PrivacySettingsScreen() {
   const [distanceSheetOpen, setDistanceSheetOpen] = useState(false);
   const [eventAttSheetOpen, setEventAttSheetOpen] = useState(false);
   const [audienceSaving, setAudienceSaving] = useState<DiscoveryAudience | null>(null);
+  const [distanceSaving, setDistanceSaving] = useState<DistanceVisibility | null>(null);
 
   const invalidatePrivacy = () => {
     qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
@@ -492,8 +493,8 @@ export default function PrivacySettingsScreen() {
                 label="Distance visibility"
                 description={
                   profile.distance_visibility === 'approximate'
-                    ? 'Others see only your approximate distance'
-                    : 'Your distance is completely hidden'
+                    ? 'People may see only a rough distance range'
+                    : 'No distance from you is shown'
                 }
                 onPress={() => setDistanceSheetOpen(true)}
                 right={
@@ -515,7 +516,7 @@ export default function PrivacySettingsScreen() {
               >
                 <Ionicons name="information-circle-outline" size={14} color={AMBER} />
                 <Text style={[styles.infoNoteText, { color: AMBER }]}>
-                  Vibely never shares your exact location. Distance is always approximate.
+                  Vibely never shares your exact location. City/location can still appear separately from distance.
                 </Text>
               </View>
               <SelectorRow
@@ -761,13 +762,16 @@ export default function PrivacySettingsScreen() {
         title="Distance visibility"
         theme={theme}
         options={[
-          { value: 'approximate', title: 'Approximate', description: 'Rough distance (neighborhood level). We never share your exact location.' },
-          { value: 'hidden', title: 'Hidden', description: 'No distance shown at all' },
+          { value: 'approximate', title: 'Approximate', description: 'People may see only a rough distance range. Your exact location is never shared.' },
+          { value: 'hidden', title: 'Hidden', description: 'No distance from you is shown.' },
         ]}
         current={profile.distance_visibility}
+        disabled={distanceSaving !== null}
+        savingValue={distanceSaving}
         onClose={() => setDistanceSheetOpen(false)}
         onSelect={async (v) => {
-          if (!user?.id) return;
+          if (!user?.id || distanceSaving !== null) return;
+          setDistanceSaving(v);
           const { error } = await supabase
             .from('profiles')
             .update({
@@ -781,7 +785,11 @@ export default function PrivacySettingsScreen() {
               variant: 'warning',
               primaryAction: { label: 'OK', onPress: () => {} },
             });
-          } else invalidatePrivacy();
+            setDistanceSaving(null);
+            return;
+          }
+          invalidatePrivacy();
+          setDistanceSaving(null);
           setDistanceSheetOpen(false);
         }}
       />

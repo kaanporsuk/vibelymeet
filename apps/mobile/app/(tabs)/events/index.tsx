@@ -43,6 +43,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { eventCoverUrl, avatarUrl } from '@/lib/imageUrl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { fetchMyLocationData } from '@/lib/myLocationData';
 import { useOtherCityEvents } from '@/lib/useOtherCityEvents';
 import { openPremium } from '@/lib/premiumNavigation';
 import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
@@ -769,12 +770,7 @@ export default function EventsListScreen() {
     queryFn: async () => {
       if (!user?.id) return null;
       try {
-        const { data, error } = await supabase.from('profiles').select('location_data').eq('id', user.id).maybeSingle();
-        if (error) {
-          if (__DEV__) console.warn('[events] profile location:', error.message);
-          return null;
-        }
-        return data as { location_data?: { lat?: number; lng?: number } | null } | null;
+        return await fetchMyLocationData();
       } catch (e) {
         if (__DEV__) console.warn('[events] profile location fetch failed:', e);
         return null;

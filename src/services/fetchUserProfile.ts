@@ -8,6 +8,8 @@ export type UserProfileView = {
   gender: string | null;
   tagline: string | null;
   location: string | null;
+  display_location: string | null;
+  distance_label: string | null;
   job: string | null;
   height_cm: number | null;
   about_me: string | null;
@@ -81,6 +83,13 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
     gender: typeof row.gender === "string" ? row.gender : row.gender === null ? null : null,
     tagline: typeof row.tagline === "string" ? row.tagline : row.tagline === null ? null : null,
     location: typeof row.location === "string" ? row.location : row.location === null ? null : null,
+    display_location:
+      typeof row.display_location === "string"
+        ? row.display_location
+        : typeof row.location === "string"
+          ? row.location
+          : null,
+    distance_label: typeof row.distance_label === "string" ? row.distance_label : null,
     job: typeof row.job === "string" ? row.job : row.job === null ? null : null,
     height_cm: typeof row.height_cm === "number" ? row.height_cm : row.height_cm === null ? null : null,
     about_me: typeof row.about_me === "string" ? row.about_me : row.about_me === null ? null : null,

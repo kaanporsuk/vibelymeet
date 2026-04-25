@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import type { SelectedCity } from "@/components/events/EventsFilterBar";
+import { fetchMyLocationData } from "@/services/myLocationData";
 
 export interface VisibleEvent {
   id: string;
@@ -69,13 +70,8 @@ export const useVisibleEvents = (options?: UseVisibleEventsOptions) => {
       const viewerProfileId = user?.id;
       if (!viewerProfileId) return [];
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("location_data")
-        .eq("id", viewerProfileId)
-        .maybeSingle();
-
-      const locationData = profile?.location_data as { lat?: number; lng?: number } | null;
+      const profile = await fetchMyLocationData().catch(() => null);
+      const locationData = profile?.location_data;
       const profileLat = locationData?.lat ?? null;
       const profileLng = locationData?.lng ?? null;
 
@@ -125,13 +121,8 @@ export const useOtherCityEvents = () => {
       const viewerProfileId = user?.id;
       if (!viewerProfileId) return [];
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("location_data")
-        .eq("id", viewerProfileId)
-        .maybeSingle();
-
-      const locationData = profile?.location_data as { lat?: number; lng?: number } | null;
+      const profile = await fetchMyLocationData().catch(() => null);
+      const locationData = profile?.location_data;
 
       const { data, error } = await supabase.rpc("get_other_city_events", {
         p_user_id: viewerProfileId,

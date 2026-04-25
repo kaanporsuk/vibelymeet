@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { assertNoDirectProfileLocationWrites, normalizeRelationshipIntent } from '@shared/profileContracts';
 import type { EventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
+import { fetchMyLocationData } from '@/lib/myLocationData';
 
 export type ProfileRow = {
   id: string;
@@ -148,7 +149,7 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 
 /** Full profile row for PostgREST. */
 const PROFILE_SELECT_WITH_VIBE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs';
 
 /**
  * Minimal `profiles` projection when the first select fails (missing vibe columns, discovery
@@ -156,7 +157,7 @@ const PROFILE_SELECT_WITH_VIBE =
  * with the same missing fields would always fail and break `fetchMyProfile`.
  */
 const PROFILE_SELECT_BASE =
-  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
+  'id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
@@ -181,7 +182,11 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
         .maybeSingle();
     }
 
-    const [vibesRes, counts] = await Promise.all([
+    const [locationResult, vibesRes, counts] = await Promise.all([
+      fetchMyLocationData().catch((e) => {
+        if (__DEV__) console.warn('[profileApi] get_my_location_data:', e instanceof Error ? e.message : e);
+        return null;
+      }),
       supabase
         .from('profile_vibes')
         .select('vibe_tags(label)')
@@ -217,7 +222,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
     return {
       ...row,
       relationship_intent: (row.relationship_intent as string | null) ?? null,
-      location_data: (row.location_data as { lat: number; lng: number } | null) ?? null,
+      location_data: locationResult?.location_data ?? null,
       onboarding_complete: (row.onboarding_complete as boolean | null) ?? null,
       events_attended: counts.events,
       total_matches: counts.matches,

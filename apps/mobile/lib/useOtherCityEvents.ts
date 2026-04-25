@@ -3,6 +3,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { fetchMyLocationData } from '@/lib/myLocationData';
 
 export type OtherCityEvent = {
   city: string;
@@ -16,12 +17,8 @@ export function useOtherCityEvents(viewerProfileId: string | null | undefined) {
     queryKey: ['other-city-events', viewerProfileId],
     queryFn: async (): Promise<OtherCityEvent[]> => {
       if (!viewerProfileId) return [];
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('location_data')
-        .eq('id', viewerProfileId)
-        .maybeSingle();
-      const locationData = profile?.location_data as { lat?: number; lng?: number } | null;
+      const profile = await fetchMyLocationData().catch(() => null);
+      const locationData = profile?.location_data;
       const { data, error } = await supabase.rpc('get_other_city_events', {
         p_user_id: viewerProfileId,
         p_user_lat: locationData?.lat ?? undefined,

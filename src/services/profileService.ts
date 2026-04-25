@@ -5,6 +5,7 @@ import {
 } from "@shared/profileContracts";
 import type { EventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { parseEventDiscoveryPrefs, serializeEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
+import { fetchMyLocationData } from "@/services/myLocationData";
 
 // Frontend profile interface (camelCase)
 export interface ProfileData {
@@ -64,7 +65,7 @@ interface DbProfile {
   tagline: string | null;
   height_cm: number | null;
   location: string | null;
-  location_data: { lat: number; lng: number } | null;
+  location_data?: { lat: number; lng: number } | null;
   job: string | null;
   company: string | null;
   about_me: string | null;
@@ -92,10 +93,10 @@ interface DbProfile {
 }
 
 const PROFILE_SELECT_WITH_DISCOVERY =
-  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
+  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
 
 const PROFILE_SELECT_BASE =
-  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, location_data, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until";
+  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until";
 
 const PROFILE_SELECT_RETRYABLE_ERROR =
   /vibe_score|vibe_score_label|preferred_age|event_discovery_prefs|column .* does not exist|schema cache/i;
@@ -245,8 +246,9 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const [initialProfileResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
+  const [initialProfileResult, locationResult, vibesResult, eventsCountResult, matchesCountResult, convosCountResult] = await Promise.all([
     supabase.from("profiles").select(PROFILE_SELECT_WITH_DISCOVERY).eq("id", user.id).maybeSingle(),
+    fetchMyLocationData().catch(() => null),
     supabase.from("profile_vibes").select("vibe_tags(label)").eq("profile_id", user.id),
     supabase.from("event_registrations").select("*", { count: "exact", head: true }).eq("profile_id", user.id),
     supabase.from("matches").select("*", { count: "exact", head: true }).or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
@@ -276,7 +278,13 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
       return (vt as { label: string }).label;
     }).filter(Boolean) as string[] || [];
 
-  const profileData = dbToProfile(profileResult.data as unknown as DbProfile, vibes);
+  const profileData = dbToProfile(
+    {
+      ...(profileResult.data as unknown as DbProfile),
+      location_data: locationResult?.location_data ?? null,
+    },
+    vibes,
+  );
 
   // Override static counters with real counts
   profileData.stats = {

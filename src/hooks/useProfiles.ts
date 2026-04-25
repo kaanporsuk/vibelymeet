@@ -9,6 +9,8 @@ export interface Profile {
   job: string | null;
   heightCm: number | null;
   location: string | null;
+  displayLocation: string | null;
+  distanceLabel: string | null;
   about_me: string | null;
   avatarUrl: string | null;
   photos: string[];
@@ -46,6 +48,13 @@ export const useProfile = (profileId: string) => {
         job: typeof profile.job === "string" ? profile.job : null,
         heightCm: typeof profile.height_cm === "number" ? profile.height_cm : null,
         location: typeof profile.location === "string" ? profile.location : null,
+        displayLocation:
+          typeof profile.display_location === "string"
+            ? profile.display_location
+            : typeof profile.location === "string"
+              ? profile.location
+              : null,
+        distanceLabel: typeof profile.distance_label === "string" ? profile.distance_label : null,
         about_me: typeof profile.about_me === "string" ? profile.about_me : null,
         avatarUrl: typeof profile.avatar_url === "string" ? profile.avatar_url : null,
         photos,

@@ -18,6 +18,7 @@ import { EventCardPremium } from "@/components/events/EventCardPremium";
 import { FeaturedEventSkeleton, EventsRailSkeleton } from "@/components/ShimmerSkeleton";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchMyLocationData } from "@/services/myLocationData";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
@@ -275,8 +276,8 @@ const Events = () => {
   useEffect(() => {
     const checkLocation = async () => {
       if (!user?.id) return;
-      const { data } = await supabase.from("profiles").select("location_data").eq("id", user.id).maybeSingle();
-      const ld = data?.location_data as { lat?: number } | null;
+      const data = await fetchMyLocationData().catch(() => null);
+      const ld = data?.location_data;
       setHasLocation(!!(ld?.lat));
     };
     checkLocation();
