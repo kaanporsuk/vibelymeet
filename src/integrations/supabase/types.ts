@@ -4332,6 +4332,16 @@ export type Database = {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: string[]
       }
+      get_my_location_data: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          country: string | null
+          lat: number | null
+          lng: number | null
+          location: string | null
+          location_data: Json | null
+        }[]
+      }
       get_media_worker_cron_status: {
         Args: { p_job_name?: string; p_run_limit?: number }
         Returns: Json
@@ -4358,6 +4368,10 @@ export type Database = {
       get_profile_for_viewer: {
         Args: { p_target_id: string }
         Returns: Json
+      }
+      get_profile_distance_label_for_viewer: {
+        Args: { p_target_id: string }
+        Returns: string | null
       }
       get_shared_schedule_for_date_planning: {
         Args: { p_match_id: string; p_subject_user_id: string }

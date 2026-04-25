@@ -5,6 +5,7 @@ import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
 import { normalizeContractError, toError } from '@/lib/contractErrors';
+import { fetchMyLocationData } from '@/lib/myLocationData';
 import {
   parseEventAttendeePreviewRows,
   parseEventDeckProfiles,
@@ -130,15 +131,11 @@ export async function fetchVisibleEventsList(
   viewerProfileId: string,
   discover?: DiscoverEventsParams,
 ): Promise<EventListItem[]> {
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('location_data')
-    .eq('id', viewerProfileId)
-    .maybeSingle();
-  if (profileError && __DEV__) {
-    console.warn('[eventsApi] profile location fetch failed:', profileError.message);
-  }
-  const loc = profile?.location_data as { lat?: number; lng?: number } | null;
+  const profile = await fetchMyLocationData().catch((e) => {
+    if (__DEV__) console.warn('[eventsApi] get_my_location_data failed:', e instanceof Error ? e.message : e);
+    return null;
+  });
+  const loc = profile?.location_data;
 
   const d = discover;
   const mode = !d?.canCityBrowse ? 'nearby' : (d.locationMode ?? 'nearby');

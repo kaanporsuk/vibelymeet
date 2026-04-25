@@ -110,7 +110,8 @@ export const ProfileDetailDrawer = ({
   
   const profileData = {
     job: fetchedProfile?.job ?? match.job ?? null,
-    location: fetchedProfile?.location ?? match.location ?? null,
+    location: fetchedProfile?.display_location ?? fetchedProfile?.location ?? match.location ?? null,
+    distanceLabel: fetchedProfile?.distance_label ?? null,
     height: fetchedProfile?.height_cm ?? match.height ?? null,
     aboutMe: fetchedProfile?.about_me ?? match.aboutMe ?? null,
     lifestyle: fetchedProfile?.lifestyle ?? match.lifestyle ?? {},
@@ -491,6 +492,12 @@ export const ProfileDetailDrawer = ({
                       <span className="flex items-center gap-1.5 text-sm">
                         <MapPin className="w-4 h-4" />
                         {profileData.location}
+                      </span>
+                    )}
+                    {profileData.distanceLabel && (
+                      <span className="flex items-center gap-1.5 text-sm">
+                        <MapPin className="w-4 h-4" />
+                        {profileData.distanceLabel} away
                       </span>
                     )}
                     {profileData.height && (

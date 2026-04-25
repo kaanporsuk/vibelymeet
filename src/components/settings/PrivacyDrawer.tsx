@@ -378,14 +378,14 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                     <div className="flex items-start gap-3">
                       <Crosshair className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                       <div>
-                        <p className="text-sm font-medium text-foreground">Location precision</p>
+                        <p className="text-sm font-medium text-foreground">Distance visibility</p>
                         <p className="text-xs text-muted-foreground">
-                          On: approximate distance only. Off: distance hidden. Web never uses precise GPS for others.
+                          On: people may see only a rough distance range. Off: no distance from you is shown.
                         </p>
                       </div>
                     </div>
                     <Switch
-                      checked={profile.distance_visibility === "approximate" && !!profile.show_distance}
+                      checked={(profile.distance_visibility ?? (profile.show_distance === false ? "hidden" : "approximate")) === "approximate"}
                       disabled={saving}
                       onCheckedChange={(on) => {
                         void save({

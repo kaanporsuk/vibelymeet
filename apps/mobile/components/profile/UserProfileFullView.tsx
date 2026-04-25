@@ -80,7 +80,8 @@ export function UserProfileFullView({
   const nameTrim = profile.name?.trim() ?? '';
   const age = profile.age;
   const tagline = profile.tagline?.trim();
-  const location = profile.location?.trim();
+  const location = profile.display_location?.trim() || profile.location?.trim();
+  const distanceLabel = profile.distance_label?.trim();
   const vibeInfo = resolveVibeVideoState(profile);
   const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
   const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;
@@ -150,10 +151,11 @@ export function UserProfileFullView({
         label: 'Height',
         value: profile.height_cm ? `${profile.height_cm} cm` : undefined,
       },
-      { icon: 'location-outline' as const, label: 'Location', value: profile.location?.trim() },
+      { icon: 'location-outline' as const, label: 'Location', value: location },
+      { icon: 'navigate-outline' as const, label: 'Distance', value: distanceLabel ? `${distanceLabel} away` : undefined },
     ] as const;
     return rows.filter((item) => item.value && item.value !== 'Not set');
-  }, [profile.birth_date, profile.job, profile.height_cm, profile.location]);
+  }, [profile.birth_date, profile.job, profile.height_cm, location, distanceLabel]);
 
   const nameAgeLine =
     nameTrim || age != null
@@ -215,6 +217,12 @@ export function UserProfileFullView({
                 <RNView style={s.locationRow}>
                   <Ionicons name="location-outline" size={14} color={theme.textSecondary} />
                   <Text style={[s.locationText, { color: theme.textSecondary }]}>{location}</Text>
+                </RNView>
+              ) : null}
+              {distanceLabel ? (
+                <RNView style={s.locationRow}>
+                  <Ionicons name="navigate-outline" size={14} color={theme.textSecondary} />
+                  <Text style={[s.locationText, { color: theme.textSecondary }]}>{distanceLabel} away</Text>
                 </RNView>
               ) : null}
 

@@ -235,7 +235,7 @@ const UserProfile = () => {
         )}
 
         {/* The Basics */}
-        {(profile.job || profile.location || profile.height_cm) && (
+        {(profile.job || profile.location || profile.distance_label || profile.height_cm) && (
           <div className="glass-card p-4 space-y-3">
             <h3 className="text-sm font-semibold text-foreground">The Basics</h3>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -253,7 +253,16 @@ const UserProfile = () => {
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Location</p>
                   <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
                     <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                    {profile.location}
+                    {profile.display_location ?? profile.location}
+                  </p>
+                </div>
+              ) : null}
+              {profile.distance_label ? (
+                <div className="rounded-xl border border-border bg-background/40 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Distance</p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-foreground">
+                    <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                    {profile.distance_label} away
                   </p>
                 </div>
               ) : null}
