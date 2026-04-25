@@ -41,6 +41,27 @@ SELECT
   pg_get_functiondef('public.sync_legacy_to_privacy_columns()'::regprocedure) NOT ILIKE '%show_distance%',
   'sync_legacy_to_privacy_columns should keep other legacy sync paths but not show_distance';
 
+INSERT INTO validation_results
+SELECT
+  'profile grants',
+  'authenticated lacks direct profiles.location_data column privilege',
+  NOT has_column_privilege('authenticated', 'public.profiles', 'location_data', 'SELECT'),
+  'has_column_privilege(authenticated, profiles.location_data, SELECT) should be false';
+
+INSERT INTO validation_results
+SELECT
+  'profile grants',
+  'anon lacks direct profiles.location_data column privilege',
+  NOT has_column_privilege('anon', 'public.profiles', 'location_data', 'SELECT'),
+  'has_column_privilege(anon, profiles.location_data, SELECT) should be false';
+
+INSERT INTO validation_results
+SELECT
+  'profile grants',
+  'service_role keeps profiles.location_data column privilege',
+  has_column_privilege('service_role', 'public.profiles', 'location_data', 'SELECT'),
+  'service_role should retain privileged operational access';
+
 SET LOCAL session_replication_role = replica;
 
 INSERT INTO public.profiles (
@@ -148,9 +169,93 @@ VALUES
   ('9f4d2000-0000-4000-8000-000000000001', '9f4d2000-0000-4000-8000-000000000003', '9f4d2000-0000-4000-8000-000000000100');
 
 SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+  v_denied boolean := false;
+  v_details text := NULL;
+BEGIN
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE anon';
+    PERFORM set_config('request.jwt.claim.role', 'anon', true);
+    PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000000', true);
+    EXECUTE 'SELECT location_data FROM public.profiles WHERE id = ''9f4d2000-0000-4000-8000-000000000002''::uuid';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      v_denied := true;
+      v_details := SQLERRM;
+    WHEN others THEN
+      v_details := SQLSTATE || ': ' || SQLERRM;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  INSERT INTO validation_results
+  VALUES (
+    'profile grants',
+    'anon direct SELECT profiles.location_data is denied',
+    v_denied,
+    COALESCE(v_details, 'unexpectedly allowed')
+  );
+END $$;
+
+DO $$
+DECLARE
+  v_denied boolean := false;
+  v_details text := NULL;
+BEGIN
+  BEGIN
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    PERFORM set_config('request.jwt.claim.role', 'authenticated', true);
+    PERFORM set_config('request.jwt.claim.sub', '9f4d2000-0000-4000-8000-000000000001', true);
+    EXECUTE 'SELECT location_data FROM public.profiles WHERE id = ''9f4d2000-0000-4000-8000-000000000002''::uuid';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      v_denied := true;
+      v_details := SQLERRM;
+    WHEN others THEN
+      v_details := SQLSTATE || ': ' || SQLERRM;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  INSERT INTO validation_results
+  VALUES (
+    'profile grants',
+    'authenticated matched viewer direct SELECT profiles.location_data is denied',
+    v_denied,
+    COALESCE(v_details, 'unexpectedly allowed')
+  );
+END $$;
+
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', '9f4d2000-0000-4000-8000-000000000001', true);
+
+INSERT INTO validation_results
+SELECT
+  'self exact location rpc',
+  'get_my_location_data still returns only the authenticated viewer location',
+  COUNT(*) = 1
+    AND bool_and(location_data = '{"lat": 41.0082, "lng": 28.9784}'::jsonb)
+    AND bool_and(location = 'Istanbul')
+    AND bool_and(country = 'Turkey')
+    AND bool_and(lat = 41.0082)
+    AND bool_and(lng = 28.9784),
+  COALESCE(jsonb_agg(to_jsonb(self_location))::text, '[]')
+FROM public.get_my_location_data() AS self_location;
+
+WITH profile_payload AS (
+  SELECT public.get_profile_for_viewer('9f4d2000-0000-4000-8000-000000000002') AS payload
+)
+INSERT INTO validation_results
+SELECT
+  'profile rpc',
+  'get_profile_for_viewer never returns location_data or raw coordinates',
+  payload IS NOT NULL
+    AND NOT (payload ? 'location_data')
+    AND NOT (payload ? 'lat')
+    AND NOT (payload ? 'lng'),
+  COALESCE(payload::text, 'null')
+FROM profile_payload;
 
 WITH profile_payload AS (
   SELECT public.get_profile_for_viewer('9f4d2000-0000-4000-8000-000000000002') AS payload
@@ -175,6 +280,64 @@ SELECT
 FROM profile_payload;
 
 RESET ROLE;
+
+DELETE FROM public.matches
+WHERE event_id = '9f4d2000-0000-4000-8000-000000000100'
+   OR profile_id_1 IN (
+    '9f4d2000-0000-4000-8000-000000000001',
+    '9f4d2000-0000-4000-8000-000000000002',
+    '9f4d2000-0000-4000-8000-000000000003'
+   )
+   OR profile_id_2 IN (
+    '9f4d2000-0000-4000-8000-000000000001',
+    '9f4d2000-0000-4000-8000-000000000002',
+    '9f4d2000-0000-4000-8000-000000000003'
+   );
+
+DELETE FROM public.events
+WHERE id = '9f4d2000-0000-4000-8000-000000000100';
+
+DELETE FROM public.profiles
+WHERE id IN (
+  '9f4d2000-0000-4000-8000-000000000001',
+  '9f4d2000-0000-4000-8000-000000000002',
+  '9f4d2000-0000-4000-8000-000000000003'
+);
+
+INSERT INTO validation_results
+SELECT
+  'cleanup',
+  'rollback-only validation fixtures are removed before result set',
+  NOT EXISTS (
+    SELECT 1
+    FROM public.profiles
+    WHERE id IN (
+      '9f4d2000-0000-4000-8000-000000000001',
+      '9f4d2000-0000-4000-8000-000000000002',
+      '9f4d2000-0000-4000-8000-000000000003'
+    )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.events
+    WHERE id = '9f4d2000-0000-4000-8000-000000000100'
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.matches
+    WHERE event_id = '9f4d2000-0000-4000-8000-000000000100'
+       OR profile_id_1 IN (
+        '9f4d2000-0000-4000-8000-000000000001',
+        '9f4d2000-0000-4000-8000-000000000002',
+        '9f4d2000-0000-4000-8000-000000000003'
+       )
+       OR profile_id_2 IN (
+        '9f4d2000-0000-4000-8000-000000000001',
+        '9f4d2000-0000-4000-8000-000000000002',
+        '9f4d2000-0000-4000-8000-000000000003'
+       )
+  ),
+  'deterministic profile/event/match validation fixture ids should not remain visible in this transaction';
 
 SELECT
   category,
