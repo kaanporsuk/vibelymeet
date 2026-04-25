@@ -39,8 +39,8 @@ export const FeaturedEventCard = ({
   const navigate = useNavigate();
   const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
   const { data: eventAttendees = [], preview: attendeePreview } = useEventAttendees(id, 5);
-  const goingCount =
-    attendeePreview?.success === true ? attendeePreview.total_other_confirmed : attendees;
+  const attendeeCountLabel =
+    attendeePreview?.success === true ? `+${attendeePreview.visible_other_count} visible to you` : `${attendees} registered`;
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(status === "live");
   const [imageFailed, setImageFailed] = useState(false);
@@ -275,7 +275,7 @@ export const FeaturedEventCard = ({
             </div>
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <Users className="w-4 h-4" />
-              <span className="font-medium">+{goingCount} going</span>
+	              <span className="font-medium">{attendeeCountLabel}</span>
             </div>
           </div>
 

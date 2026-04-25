@@ -17,8 +17,8 @@ interface GuestListRosterProps {
   obscuredRemaining: number;
   /** Count matching attendee visibility rules (excludes viewer) */
   visibleCohortCount: number;
-  /** Confirmed others on event (for footer context) */
-  totalOtherConfirmed: number;
+  /** Visible others on event (excludes hidden and unauthorized matches_only attendees) */
+  visibleOtherCount: number;
   onAttendeeClick: (attendee: GuestListRosterAttendee) => void;
   onTicketClick: () => void;
 }
@@ -51,7 +51,7 @@ const GuestListRoster = ({
   revealed,
   obscuredRemaining,
   visibleCohortCount,
-  totalOtherConfirmed,
+  visibleOtherCount,
   onAttendeeClick,
   onTicketClick,
 }: GuestListRosterProps) => {
@@ -165,12 +165,12 @@ const GuestListRoster = ({
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shrink-0">
               <Users className="w-5 h-5 text-white" />
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{visibleCohortCount} in your preview cohort</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {totalOtherConfirmed} confirmed · {obscuredRemaining > 0 ? `${obscuredRemaining} more obscured` : "Meet everyone in the lobby"}
-              </p>
-            </div>
+	            <div className="min-w-0">
+	              <p className="text-sm font-medium text-foreground">{visibleCohortCount} visible to you</p>
+	              <p className="text-xs text-muted-foreground truncate">
+	                {visibleOtherCount} in attendee lists · {obscuredRemaining > 0 ? `${obscuredRemaining} more visible after preview` : "Live lobby matching is separate"}
+	              </p>
+	            </div>
           </div>
           <div className="text-right shrink-0">
             <p className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">

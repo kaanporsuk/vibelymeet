@@ -48,6 +48,27 @@ function isAdminVibeTag(value: unknown): value is AdminVibeTag {
   );
 }
 
+const ADMIN_PROFILE_PREVIEW_SELECT = `
+  id,
+  name,
+  age,
+  gender,
+  job,
+  location,
+  about_me,
+  looking_for,
+  relationship_intent,
+  photos,
+  avatar_url,
+  bunny_video_uid,
+  bunny_video_status,
+  vibe_caption,
+  lifestyle,
+  prompts,
+  photo_verified,
+  height_cm
+`;
+
 const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewProps) => {
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
@@ -58,7 +79,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("*")
+        .select(ADMIN_PROFILE_PREVIEW_SELECT)
         .eq("id", userId)
         .single();
       if (error) throw error;

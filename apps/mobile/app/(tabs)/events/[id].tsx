@@ -574,7 +574,7 @@ export default function EventDetailScreen() {
   const hasCoverArt =
     typeof event.cover_image === 'string' && event.cover_image.trim().length > 0;
   const coverUri = eventCoverUrl(event.cover_image);
-  const goingCount = event.current_attendees ?? 0;
+  const registeredCount = event.current_attendees ?? 0;
   const ticketNumber = `VBL-${event.id.slice(0, 8).toUpperCase()}`;
   const floatingTabBarObstruction = FLOATING_TAB_BAR_HEIGHT + Math.max(insets.bottom, 8);
   const pricingBarBottomInset = floatingTabBarObstruction + spacing.xs;
@@ -590,13 +590,10 @@ export default function EventDetailScreen() {
         }))
       : [];
 
-  const totalOtherConfirmedFallback = Math.max(0, (event.current_attendees ?? 0) - (isConfirmed ? 1 : 0));
   const teaserTotalOthers =
     previewOk && user?.id
-      ? attendeePreview.total_other_confirmed
-      : hasAdmission
-        ? totalOtherConfirmedFallback
-        : event.current_attendees ?? 0;
+      ? attendeePreview.visible_other_count
+      : 0;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -676,7 +673,7 @@ export default function EventDetailScreen() {
           </View>
           <View style={[styles.eventInfoRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
             <Text style={[styles.eventInfoText, { color: theme.textSecondary }]}>
-              {durationMin} min · {goingCount} going
+                {durationMin} min · {registeredCount} registered
             </Text>
           </View>
           {eventRow.location_name ? (
@@ -808,9 +805,9 @@ export default function EventDetailScreen() {
             mode="preview"
             revealed={previewOk ? revealedDisplays : []}
             obscuredCount={previewOk ? attendeePreview.obscured_remaining : 0}
-            totalOtherConfirmed={
-              previewOk ? attendeePreview.total_other_confirmed : totalOtherConfirmedFallback
-            }
+              visibleOtherCount={
+                previewOk ? attendeePreview.visible_other_count : 0
+              }
             visibleCohortCount={previewOk ? attendeePreview.visible_cohort_count : 0}
             loading={!!user?.id && attendeePreviewLoading}
             onAttendeePress={(attendee) => {
@@ -820,10 +817,10 @@ export default function EventDetailScreen() {
           />
         ) : (
           <WhosGoingSection
-            mode="aggregate"
-            viewerAdmission={isWaitlisted ? 'waitlisted' : 'none'}
-            totalOtherConfirmed={teaserTotalOthers}
-          />
+              mode="aggregate"
+              viewerAdmission={isWaitlisted ? 'waitlisted' : 'none'}
+              visibleOtherCount={teaserTotalOthers}
+            />
         )}
 
         {isConfirmed && mutualVibes.length > 0 && (

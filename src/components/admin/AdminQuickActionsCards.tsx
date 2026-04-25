@@ -41,7 +41,7 @@ const AdminQuickActionsCards = ({
       today.setHours(0, 0, 0, 0);
       const { count } = await supabase
         .from('profiles')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .gte('created_at', today.toISOString());
       return count || 0;
     },

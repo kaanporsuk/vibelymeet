@@ -19,7 +19,7 @@ const AdminStatsCards = () => {
     queryFn: async () => {
       const { count } = await supabase
         .from('profiles')
-        .select('*', { count: 'exact', head: true });
+        .select('id', { count: 'exact', head: true });
       return count || 0;
     },
   });
@@ -63,7 +63,7 @@ const AdminStatsCards = () => {
     queryFn: async () => {
       const { count } = await supabase
         .from('profiles')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('photo_verified', true);
       return count || 0;
     },
@@ -77,7 +77,7 @@ const AdminStatsCards = () => {
       today.setHours(0, 0, 0, 0);
       const { count } = await supabase
         .from('profiles')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .gte('created_at', today.toISOString());
       return count || 0;
     },

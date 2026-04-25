@@ -24,37 +24,36 @@ export const useProfile = (profileId: string) => {
   return useQuery({
     queryKey: ["profile", profileId],
     queryFn: async (): Promise<Profile | null> => {
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations")
-        .eq("id", profileId)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc("get_profile_for_viewer", {
+        p_target_id: profileId,
+      });
 
       if (error) throw error;
-      if (!profile) return null;
-
-      // Fetch vibes
-      const { data: vibes } = await supabase
-        .from("profile_vibes")
-        .select("vibe_tags(label)")
-        .eq("profile_id", profileId);
+      const profile = data as Record<string, unknown> | null;
+      if (!profile || typeof profile.id !== "string") return null;
+      const vibes = Array.isArray(profile.vibes)
+        ? profile.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        : [];
+      const photos = Array.isArray(profile.photos)
+        ? profile.photos.filter((photo): photo is string => typeof photo === "string")
+        : [];
 
       return {
         id: profile.id,
-        name: profile.name,
-        age: profile.age,
-        gender: profile.gender,
-        job: profile.job,
-        heightCm: profile.height_cm,
-        location: profile.location,
-        about_me: profile.about_me,
-        avatarUrl: profile.avatar_url,
-        photos: profile.photos || [],
-        vibes: vibes?.map((v: any) => v.vibe_tags?.label).filter(Boolean) || [],
+        name: typeof profile.name === "string" ? profile.name : "",
+        age: typeof profile.age === "number" ? profile.age : 0,
+        gender: typeof profile.gender === "string" ? profile.gender : "",
+        job: typeof profile.job === "string" ? profile.job : null,
+        heightCm: typeof profile.height_cm === "number" ? profile.height_cm : null,
+        location: typeof profile.location === "string" ? profile.location : null,
+        about_me: typeof profile.about_me === "string" ? profile.about_me : null,
+        avatarUrl: typeof profile.avatar_url === "string" ? profile.avatar_url : null,
+        photos,
+        vibes,
         stats: {
-          events: profile.events_attended || 0,
-          matches: profile.total_matches || 0,
-          conversations: profile.total_conversations || 0,
+          events: typeof profile.events_attended === "number" ? profile.events_attended : 0,
+          matches: typeof profile.total_matches === "number" ? profile.total_matches : 0,
+          conversations: typeof profile.total_conversations === "number" ? profile.total_conversations : 0,
         },
       };
     },

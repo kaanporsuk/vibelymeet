@@ -12,6 +12,8 @@ export type EventAttendeePreviewPayload =
   | {
       success: true;
       viewer_admission: "confirmed" | "waitlisted" | "none";
+      visible_other_count: number;
+      /** @deprecated Compatibility alias. Same privacy-safe value as visible_other_count. */
       total_other_confirmed: number;
       visible_cohort_count: number;
       obscured_remaining: number;
@@ -41,11 +43,13 @@ function parsePreviewPayload(data: unknown): EventAttendeePreviewPayload {
   }
 
   const revealed = parseEventAttendeePreviewRows(row.revealed);
+  const visibleOtherCount = Number(row.visible_other_count ?? row.total_other_confirmed ?? 0);
 
   return {
     success: true,
     viewer_admission: row.viewer_admission as "confirmed" | "waitlisted" | "none",
-    total_other_confirmed: Number(row.total_other_confirmed ?? 0),
+    visible_other_count: visibleOtherCount,
+    total_other_confirmed: visibleOtherCount,
     visible_cohort_count: Number(row.visible_cohort_count ?? 0),
     obscured_remaining: Number(row.obscured_remaining ?? 0),
     revealed,

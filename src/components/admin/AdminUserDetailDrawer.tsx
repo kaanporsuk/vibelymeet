@@ -50,6 +50,43 @@ interface AdminUserDetailDrawerProps {
   onClose: () => void;
 }
 
+const ADMIN_PROFILE_DETAIL_SELECT = `
+  id,
+  name,
+  age,
+  gender,
+  birth_date,
+  interested_in,
+  tagline,
+  height_cm,
+  location,
+  job,
+  company,
+  about_me,
+  looking_for,
+  relationship_intent,
+  photos,
+  avatar_url,
+  bunny_video_uid,
+  bunny_video_status,
+  vibe_caption,
+  lifestyle,
+  prompts,
+  photo_verified,
+  phone_number,
+  phone_verified,
+  email_verified,
+  verified_email,
+  is_premium,
+  premium_until,
+  is_suspended,
+  suspension_reason,
+  total_matches,
+  total_conversations,
+  created_at,
+  updated_at
+`;
+
 const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) => {
   const [showModeration, setShowModeration] = useState(false);
   const [showProfilePreview, setShowProfilePreview] = useState(false);
@@ -67,11 +104,15 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
     queryFn: async () => {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select(ADMIN_PROFILE_DETAIL_SELECT)
         .eq('id', userId)
         .single();
       if (error) throw error;
-      return data;
+      const { count } = await supabase
+        .from('event_registrations')
+        .select('id', { count: 'exact', head: true })
+        .eq('profile_id', userId);
+      return { ...data, events_attended: count ?? 0 };
     },
   });
 

@@ -4,20 +4,21 @@ import { Lock, Users, Sparkles } from "lucide-react";
 interface GuestListTeaserProps {
   /** Waitlisted or not admitted — no identifiable faces */
   viewerAdmission: "waitlisted" | "none";
-  /** Confirmed others (excluding viewer), from server */
-  totalOtherConfirmed: number;
+  /** Visible others (excluding viewer), from server */
+  visibleOtherCount: number;
 }
 
 /**
  * Aggregate-only teaser: no real avatars or names until confirmed admission.
  */
-const GuestListTeaser = ({ viewerAdmission, totalOtherConfirmed }: GuestListTeaserProps) => {
+const GuestListTeaser = ({ viewerAdmission, visibleOtherCount }: GuestListTeaserProps) => {
   const subtitle =
     viewerAdmission === "waitlisted"
       ? "Confirm your spot to see who you're most aligned with."
-      : "Get tickets to unlock personalized previews of who's going.";
+      : "Get tickets to unlock personalized attendee previews.";
 
-  const countLabel = totalOtherConfirmed === 1 ? "1 person is going" : `${totalOtherConfirmed} people are going`;
+  const countLabel =
+    visibleOtherCount === 1 ? "1 person visible to you" : `${visibleOtherCount} people visible to you`;
 
   return (
     <motion.div

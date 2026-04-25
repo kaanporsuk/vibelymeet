@@ -21,14 +21,14 @@ export type AttendeeDisplay = {
 type AggregateProps = {
   mode: 'aggregate';
   viewerAdmission: 'waitlisted' | 'none';
-  totalOtherConfirmed: number;
+  visibleOtherCount: number;
 };
 
 type PreviewProps = {
   mode: 'preview';
   revealed: AttendeeDisplay[];
   obscuredCount: number;
-  totalOtherConfirmed: number;
+  visibleOtherCount: number;
   visibleCohortCount: number;
   loading?: boolean;
   onAttendeePress?: (attendee: AttendeeDisplay) => void;
@@ -43,13 +43,13 @@ export function WhosGoingSection(props: Props) {
   const theme = Colors[colorScheme];
 
   if (props.mode === 'aggregate') {
-    const { viewerAdmission, totalOtherConfirmed } = props;
+    const { viewerAdmission, visibleOtherCount } = props;
     const countLabel =
-      totalOtherConfirmed === 1 ? '1 person is going' : `${totalOtherConfirmed} people are going`;
+      visibleOtherCount === 1 ? '1 person visible to you' : `${visibleOtherCount} people visible to you`;
     const subtitle =
       viewerAdmission === 'waitlisted'
         ? "Confirm your spot to see who you're most aligned with."
-        : "Get tickets to unlock personalized previews of who's going.";
+        : 'Get tickets to unlock personalized attendee previews.';
 
     return (
       <View style={[styles.card, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
@@ -99,21 +99,21 @@ export function WhosGoingSection(props: Props) {
     );
   }
 
-  const {
-    revealed,
-    obscuredCount,
-    totalOtherConfirmed,
-    visibleCohortCount,
+    const {
+      revealed,
+      obscuredCount,
+      visibleOtherCount,
+      visibleCohortCount,
     loading,
     onAttendeePress,
   } = props;
 
-  const cohortLine =
-    visibleCohortCount === 0
-      ? 'No one else matches your visibility yet'
-      : visibleCohortCount === 1
-        ? '1 other in your visibility'
-        : `${visibleCohortCount} others in your visibility`;
+    const cohortLine =
+      visibleCohortCount === 0
+        ? 'No one else is visible to you yet'
+        : visibleCohortCount === 1
+          ? '1 other visible to you'
+          : `${visibleCohortCount} others visible to you`;
 
   return (
     <View style={[styles.card, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
@@ -126,10 +126,10 @@ export function WhosGoingSection(props: Props) {
           <ActivityIndicator color={theme.tint} />
           <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Loading preview…</Text>
         </View>
-      ) : null}
-      <Text style={[styles.count, { color: theme.textSecondary }]}>
-        {totalOtherConfirmed === 1 ? '1 other confirmed' : `${totalOtherConfirmed} others confirmed`}
-      </Text>
+        ) : null}
+        <Text style={[styles.count, { color: theme.textSecondary }]}>
+          {visibleOtherCount === 1 ? '1 other in attendee lists' : `${visibleOtherCount} others in attendee lists`}
+        </Text>
       <Text style={[styles.cohortHint, { color: theme.textSecondary }]}>{cohortLine}</Text>
 
       <ScrollView

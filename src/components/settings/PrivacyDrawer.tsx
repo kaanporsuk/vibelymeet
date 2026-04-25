@@ -27,18 +27,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { useBlockUser } from "@/hooks/useBlockUser";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import {
+  isEventAttendanceVisibility,
+  type EventAttendanceVisibility,
+} from "@clientShared/eventAttendanceVisibility";
 
 type DiscoveryMode = "visible" | "snoozed" | "hidden";
 type DiscoveryAudience = "everyone" | "event_based" | "hidden";
 type ActivityVis = "matches" | "event_connections" | "nobody";
-type EventAttVis = "attendees" | "matches_only" | "hidden";
 
 type PrivacyProfile = {
   discovery_mode: DiscoveryMode | null;
   discovery_snooze_until: string | null;
   discovery_audience: DiscoveryAudience | null;
   activity_status_visibility: ActivityVis | null;
-  event_attendance_visibility: EventAttVis | null;
+  event_attendance_visibility: EventAttendanceVisibility | null;
   distance_visibility: "approximate" | "hidden" | null;
   show_distance: boolean | null;
 };
@@ -65,10 +68,10 @@ function activityChip(v: ActivityVis | null): string {
   return "Matches";
 }
 
-function eventAttChip(v: EventAttVis | null): string {
-  if (v === "matches_only") return "Matches";
+function eventAttChip(v: EventAttendanceVisibility | null): string {
+  if (v === "matches_only") return "Matches only";
   if (v === "hidden") return "Hidden";
-  return "Everyone";
+  return "All attendees";
 }
 
 function audienceChip(v: DiscoveryAudience | null): string {
@@ -125,7 +128,9 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
         discovery_snooze_until: data.discovery_snooze_until ?? null,
         discovery_audience: (data.discovery_audience as DiscoveryAudience) ?? "everyone",
         activity_status_visibility: (data.activity_status_visibility as ActivityVis) ?? "matches",
-        event_attendance_visibility: (data.event_attendance_visibility as EventAttVis) ?? "attendees",
+        event_attendance_visibility: isEventAttendanceVisibility(data.event_attendance_visibility)
+          ? data.event_attendance_visibility
+          : "attendees",
         distance_visibility: (data.distance_visibility as "approximate" | "hidden") ?? "approximate",
         show_distance: data.show_distance ?? true,
       });
@@ -172,6 +177,9 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
     if (!user?.id || saving) return false;
     const previous = profile;
     const next = { ...profile, ...patch };
+    const eventAttendanceVisibility = isEventAttendanceVisibility(next.event_attendance_visibility)
+      ? next.event_attendance_visibility
+      : "attendees";
     setProfile(next);
     setSaving(true);
     const body: Record<string, unknown> = {
@@ -179,7 +187,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       discovery_snooze_until: next.discovery_snooze_until,
       discovery_audience: next.discovery_audience,
       activity_status_visibility: next.activity_status_visibility,
-      event_attendance_visibility: next.event_attendance_visibility,
+      event_attendance_visibility: eventAttendanceVisibility,
       distance_visibility: next.distance_visibility,
     };
     const { error } = await supabase.from("profiles").update(body).eq("id", user.id);
@@ -331,8 +339,8 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   />
                   <Row
                     icon={Calendar}
-                    title="Event Attendance"
-                    subtitle="Who sees events you are attending"
+                    title="Event attendance visibility"
+                    subtitle="Controls who can see you in attendee lists."
                     onClick={() => setView("event_att")}
                     right={
                       <>
@@ -524,9 +532,9 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
             <div className="space-y-2">
               {(
                 [
-                  ["attendees", "Everyone", "Anyone at the event"],
-                  ["matches_only", "Matches", "Only existing matches"],
-                  ["hidden", "Hidden", "Attend privately"],
+                  ["attendees", "All attendees", "All attendees can see you in attendee lists."],
+                  ["matches_only", "Matches only", "Current matches can see you in attendee lists."],
+                  ["hidden", "Hidden", "Hide me from attendee lists and previews."],
                 ] as const
               ).map(([value, title, desc]) => (
                 <Button
@@ -535,6 +543,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   className="h-auto w-full justify-start py-3"
                   disabled={saving}
                   onClick={() => {
+                    if (!isEventAttendanceVisibility(value)) return;
                     void save({ event_attendance_visibility: value }).then((ok) => {
                       if (ok) setView("main");
                     });
@@ -546,6 +555,9 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   </div>
                 </Button>
               ))}
+              <p className="text-xs text-muted-foreground">
+                Live lobby matching may still show your profile when you participate.
+              </p>
             </div>
           ) : view === "blocked" ? (
             <div className="space-y-2">

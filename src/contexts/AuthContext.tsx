@@ -144,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = currentUserId;
 
     const profileSelect =
-      "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, events_attended, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason, account_paused, account_paused_until, discoverable, discovery_mode, onboarding_complete";
+      "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason, account_paused, account_paused_until, discoverable, discovery_mode, onboarding_complete";
 
     try {
       let { data: profile } = await supabase
