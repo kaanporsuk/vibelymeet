@@ -34,6 +34,7 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
+import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
 const RING_SIZE = 88;
@@ -193,9 +194,30 @@ export function ReadyGateOverlay({
       sessionId,
       eventId,
     });
-    // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
-    onNavigateToDate(sessionId);
-  }, [sessionId, onNavigateToDate, eventId]);
+    // Backend pre-flight: confirm the session is actually startable (or absorb a small replica-lag
+    // window via `enter_handshake` + bounded refetch) before delegating to lobby's nav guard. The
+    // lobby itself will re-check via the same helper, but doing it here lets the overlay reconcile
+    // straight to /ready or lobby without ever touching `/date/[id]` if the gate has already moved
+    // away from `both_ready` (forfeit, partner timeout, etc.).
+    void (async () => {
+      const startable = await ensureVideoDateStartableBeforeNavigation({
+        sessionId,
+        source: 'ready_gate_overlay_both_ready',
+        userId,
+      });
+      if (startable.ok) {
+        // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
+        onNavigateToDate(sessionId);
+        return;
+      }
+      // Not startable after handshake attempt + retries — fall back to canonical reconcile so the
+      // overlay routes to /ready or /lobby with the latch cleared. Reset closed flag so reconcile
+      // can drive its own close path.
+      closedRef.current = false;
+      setIsTransitioning(false);
+      await reconcileFromCanonicalTruth('both_ready_pre_nav_not_startable');
+    })();
+  }, [sessionId, onNavigateToDate, eventId, userId, reconcileFromCanonicalTruth]);
 
   const handleForfeited = useCallback(
     async (_reason: 'timeout' | 'skip') => {

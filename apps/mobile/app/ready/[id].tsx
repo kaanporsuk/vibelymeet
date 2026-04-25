@@ -17,6 +17,8 @@ import { useVibelyDialog } from '@/components/VibelyDialog';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { eventLobbyHref, tabsRootHref } from '@/lib/activeSessionRoutes';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
+import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
+import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
@@ -91,31 +93,34 @@ export default function ReadyGateScreen() {
   const reconcileFromCanonicalTruth = useCallback(
     async (source: string) => {
       if (!sessionId || !user?.id) return false;
-      const [vs, regRes] = await Promise.all([
-        fetchVideoSessionDateEntryTruthCoalesced(String(sessionId)),
+      const sid = String(sessionId);
+      const [startable, regRes] = await Promise.all([
+        ensureVideoDateStartableBeforeNavigation({
+          sessionId: sid,
+          source: `ready_standalone_${source}`,
+          userId: user.id,
+        }),
         supabase
           .from('event_registrations')
           .select('queue_status, current_room_id')
           .eq('profile_id', user.id)
-          .eq('current_room_id', String(sessionId))
+          .eq('current_room_id', sid)
           .maybeSingle(),
       ]);
       const reg = regRes.data;
-      const decision = decideVideoSessionRouteFromTruth(vs);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
-      const routedTo =
-        canAttemptDaily || decision === 'navigate_date'
-          ? 'date'
-          : decision === 'navigate_ready'
-            ? 'ready'
-            : decision === 'ended'
-              ? 'ended'
-              : 'lobby';
+      const vs = startable.truth;
+      const routedTo = startable.ok
+        ? 'date'
+        : startable.recommend === 'ready'
+          ? 'ready'
+          : startable.recommend === 'ended'
+            ? 'ended'
+            : 'lobby';
       rcBreadcrumb(RC_CATEGORY.readyGate, 'date_route_decision', {
-        session_id: String(sessionId),
+        session_id: sid,
         user_id: user.id,
-        decision,
-        can_attempt_daily: canAttemptDaily,
+        startable_ok: startable.ok,
+        startable_reason: startable.reason,
         routed_to: routedTo,
         source,
         queue_status: reg?.queue_status ?? null,
@@ -127,22 +132,22 @@ export default function ReadyGateScreen() {
         ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
       });
 
-      if (canAttemptDaily || decision === 'navigate_date') {
+      if (startable.ok) {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
-          session_id: String(sessionId),
+          session_id: sid,
           source,
-          can_attempt_daily: canAttemptDaily,
+          startable_reason: startable.reason,
           ready_gate_status: vs?.ready_gate_status ?? null,
           ready_gate_expires_at: vs?.ready_gate_expires_at == null ? null : String(vs.ready_gate_expires_at),
         });
         setTransitioning(true);
         const navigated = navigateToDateSessionGuarded({
-          sessionId: String(sessionId),
+          sessionId: sid,
           pathname,
           mode: 'replace',
           onSuppressed: ({ reason: suppressReason, target }) => {
             rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date_suppressed', {
-              session_id: String(sessionId),
+              session_id: sid,
               reason: suppressReason,
               target: String(target),
               source,
@@ -151,35 +156,25 @@ export default function ReadyGateScreen() {
         });
         if (source === 'both_ready' && navigated) {
           videoDateLaunchBreadcrumb('ready_standalone_navigate_to_date', {
-            session_id: String(sessionId),
+            session_id: sid,
           });
           markNativeVideoDateLaunchIntent('ready_standalone_both_ready');
         }
         return true;
       }
 
-      if (decision === 'navigate_ready') {
+      // Not startable — caller stays on /ready unless we have a definitive non-ready route to take.
+      if (startable.recommend === 'ready') {
         return false;
       }
 
-      if (decision === 'ended') {
-        if (vs?.event_id) {
-          router.replace(eventLobbyHref(vs.event_id as string));
-        } else {
-          router.replace(tabsRootHref());
-        }
-        return true;
-      }
-
-      const fallbackEventId = vs?.event_id ?? eventId;
-      if (fallbackEventId) {
-        router.replace(eventLobbyHref(fallbackEventId as string));
-      } else {
-        router.replace(tabsRootHref());
-      }
+      // Terminal / lobby fallback. Always clear latch so the new route cannot be suppressed by a
+      // stale entry latch from a previous attempt.
+      clearDateEntryTransition(sid);
+      router.replace(startable.recommendHref);
       return true;
     },
-    [eventId, pathname, sessionId, user?.id]
+    [pathname, sessionId, user?.id]
   );
 
   useEffect(() => {
