@@ -62,15 +62,19 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         event_id: eventId,
         source,
       });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_BOTH_READY, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
       vdbg("lobby_navigate_to_date", {
         trigger: `ready_gate_overlay_${source}`,
         sessionId,
         eventId,
         target: `/date/${sessionId}`,
       });
-      setTimeout(() => {
-        onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
-      }, 1200);
+      onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
     },
     [sessionId, eventId, onNavigateToDate]
   );
@@ -582,6 +586,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   onClick={() => {
                     if (markingReady || requestingSnooze) return;
                     trackEvent(LobbyPostDateEvents.READY_GATE_READY_TAP, {
+                      platform: "web",
+                      session_id: sessionId,
+                      event_id: eventId,
+                    });
+                    trackEvent(LobbyPostDateEvents.VIDEO_DATE_READY_GATE_READY, {
                       platform: "web",
                       session_id: sessionId,
                       event_id: eventId,

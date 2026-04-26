@@ -1,0 +1,125 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  parseSpendVideoDateCreditExtensionPayload,
+  remainingDatePhaseSeconds,
+} from "./videoDateExtensionSpend";
+
+const migration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
+  "utf8",
+);
+const preDateEndMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501091000_video_date_pre_date_end_cleanup.sql"),
+  "utf8",
+);
+
+test("credit extension parser preserves server-returned seconds and totals", () => {
+  assert.deepEqual(
+    parseSpendVideoDateCreditExtensionPayload({
+      success: true,
+      added_seconds: 120,
+      date_extra_seconds: 420,
+      idempotent: true,
+    }),
+    {
+      success: true,
+      addedSeconds: 120,
+      dateExtraSeconds: 420,
+      idempotent: true,
+    },
+  );
+});
+
+test("date remaining time is recomputed from server date_extra_seconds", () => {
+  assert.equal(
+    remainingDatePhaseSeconds({
+      dateStartedAtIso: "2026-04-24T10:00:00.000Z",
+      baseDateSeconds: 300,
+      dateExtraSeconds: 120,
+      nowMs: Date.parse("2026-04-24T10:02:00.000Z"),
+    }),
+    300,
+  );
+});
+
+test("migration adds idempotent credit extension ledger and optional key", () => {
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.video_date_credit_extension_spends/);
+  assert.match(migration, /UNIQUE \(session_id, user_id, credit_type, idempotency_key\)/);
+  assert.match(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.spend_video_date_credit_extension\(\s+p_session_id uuid,\s+p_credit_type text,\s+p_idempotency_key text DEFAULT NULL/s,
+  );
+  assert.match(migration, /'idempotent', true/);
+});
+
+test("migration gates post-date verdicts to terminal date-phase sessions", () => {
+  assert.match(migration, /v_session\.ended_at IS NULL/);
+  assert.match(migration, /v_session\.date_started_at IS NULL/);
+  assert.match(migration, /'session_not_survey_eligible'/);
+  assert.match(migration, /'handshake_not_mutual'/);
+  assert.match(migration, /'ready_gate_expired'/);
+});
+
+test("migration serializes super-vibe cap checks per actor and event", () => {
+  assert.match(migration, /pg_advisory_xact_lock/);
+  assert.match(migration, /handle_swipe_super_vibe_cap/);
+  assert.match(migration, /SELECT COUNT\(\*\) INTO v_super_count/);
+});
+
+test("migration extends both_ready join window without reopening expired gates", () => {
+  assert.match(migration, /v_new_status := 'both_ready'/);
+  assert.match(migration, /v_now \+ interval '15 seconds'/);
+  assert.match(migration, /PERFORM public\.expire_stale_video_sessions\(\)/);
+});
+
+test("pre-date end migration delegates non-end actions through the prior state machine", () => {
+  assert.match(
+    preDateEndMigration,
+    /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260430180000_last_chance_grace_10s/s,
+  );
+  assert.match(
+    preDateEndMigration,
+    /IF p_action IS DISTINCT FROM 'end' THEN\s+RETURN public\.video_date_transition_20260430180000_last_chance_grace_10s/s,
+  );
+  assert.match(
+    preDateEndMigration,
+    /REVOKE ALL ON FUNCTION public\.video_date_transition_20260430180000_last_chance_grace_10s\(uuid, text, text\)/,
+  );
+});
+
+test("pre-date manual end cleans registrations without entering survey", () => {
+  assert.match(preDateEndMigration, /v_reached_date_phase := \(/);
+  assert.match(preDateEndMigration, /ELSE 'pre_date_manual_end'/);
+  assert.match(preDateEndMigration, /CASE WHEN v_event_live THEN 'browsing' ELSE 'idle' END/);
+  assert.match(preDateEndMigration, /CASE WHEN v_reached_date_phase THEN 'date_end_survey' ELSE 'pre_date_end_cleanup' END/);
+  assert.match(
+    preDateEndMigration,
+    /ELSE\s+-- Pre-date termination is not survey-eligible[\s\S]*queue_status = v_resume_status[\s\S]*current_room_id = NULL[\s\S]*current_partner_id = NULL[\s\S]*AND current_room_id = p_session_id/s,
+  );
+  assert.match(preDateEndMigration, /'survey_eligible', v_reached_date_phase/);
+});
+
+test("date-phase end still routes pointed registrations to survey", () => {
+  assert.match(preDateEndMigration, /v_session\.date_started_at IS NOT NULL/);
+  assert.match(preDateEndMigration, /v_session\.state = 'date'::public\.video_date_state/);
+  assert.match(
+    preDateEndMigration,
+    /ELSIF v_reached_date_phase THEN\s+UPDATE public\.event_registrations[\s\S]*queue_status = 'in_survey'[\s\S]*AND current_room_id = p_session_id/s,
+  );
+});
+
+test("pre-date end remains terminal and reconnect-compatible", () => {
+  assert.match(preDateEndMigration, /IF v_session\.ended_at IS NOT NULL THEN[\s\S]*'already_ended', true/s);
+  assert.match(preDateEndMigration, /'reconnect_grace_expired'/);
+  assert.match(
+    preDateEndMigration,
+    /'survey_eligible', v_session\.date_started_at IS NOT NULL/s,
+  );
+  assert.match(
+    preDateEndMigration,
+    /WHEN v_reached_date_phase AND COALESCE\(p_reason, ''\) = 'reconnect_grace_expired' THEN 'idle'/,
+  );
+});

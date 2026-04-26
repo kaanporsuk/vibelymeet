@@ -1149,34 +1149,32 @@ export async function fetchUserCredits(userId: string): Promise<{ extraTime: num
   };
 }
 
-/** Deduct one credit (extra_time or extended_vibe). Returns true if successful. */
-export async function deductCredit(userId: string, creditType: 'extra_time' | 'extended_vibe'): Promise<boolean> {
-  const { data, error } = await supabase.rpc('deduct_credit', {
-    p_user_id: userId,
-    p_credit_type: creditType,
-  });
-  return !error && data === true;
-}
-
 export type SpendVideoDateCreditExtensionResult =
-  | { ok: true }
+  | { ok: true; addedSeconds: number; dateExtraSeconds: number | null; idempotent?: boolean }
   | { ok: false; error: string };
 
 /** Atomic credit spend + server budget for date phase (parity with web VideoDate). */
 export async function spendVideoDateCreditExtension(
   sessionId: string,
-  creditType: 'extra_time' | 'extended_vibe'
+  creditType: 'extra_time' | 'extended_vibe',
+  idempotencyKey?: string
 ): Promise<SpendVideoDateCreditExtensionResult> {
   const { data, error } = await supabase.rpc('spend_video_date_credit_extension', {
     p_session_id: sessionId,
     p_credit_type: creditType,
+    ...(idempotencyKey ? { p_idempotency_key: idempotencyKey } : {}),
   });
   if (error) {
     return { ok: false, error: 'rpc_transport' };
   }
   const parsed = parseSpendVideoDateCreditExtensionPayload(data);
   if (parsed.success) {
-    return { ok: true };
+    return {
+      ok: true,
+      addedSeconds: parsed.addedSeconds ?? (creditType === 'extra_time' ? 120 : 300),
+      dateExtraSeconds: parsed.dateExtraSeconds ?? null,
+      idempotent: parsed.idempotent,
+    };
   }
   return { ok: false, error: parsed.error };
 }

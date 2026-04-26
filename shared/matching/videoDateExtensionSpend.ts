@@ -4,11 +4,11 @@
  */
 
 export type VideoDateExtendOutcome =
-  | { ok: true; minutesAdded: number }
+  | { ok: true; minutesAdded: number; secondsAdded: number; dateExtraSeconds?: number }
   | { ok: false; userMessage: string; silent?: boolean };
 
 export type ParsedExtensionSpend =
-  | { success: true; addedSeconds?: number; dateExtraSeconds?: number }
+  | { success: true; addedSeconds?: number; dateExtraSeconds?: number; idempotent?: boolean }
   | { success: false; error: string };
 
 /** Total allowed date-phase length after server-owned extensions (`video_sessions.date_extra_seconds`). */
@@ -47,6 +47,7 @@ export function parseSpendVideoDateCreditExtensionPayload(data: unknown): Parsed
       success: true,
       addedSeconds: typeof row.added_seconds === "number" ? row.added_seconds : undefined,
       dateExtraSeconds: typeof row.date_extra_seconds === "number" ? row.date_extra_seconds : undefined,
+      idempotent: row.idempotent === true,
     };
   }
   const err = typeof row.error === "string" ? row.error : "unknown";

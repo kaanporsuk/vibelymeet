@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
+import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   videoSessionRowIndicatesHandshakeOrDate,
@@ -524,6 +526,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               providerRoomRecreated: successfulRoomData.provider_room_recreated ?? null,
               attempt: attempt + 1,
             });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow?.event_id ?? eventId,
+              reused_room: successfulRoomData.reused_room === true,
+              provider_room_recreated: successfulRoomData.provider_room_recreated === true,
+              attempt: attempt + 1,
+            });
             return { ok: true, roomData: successfulRoomData };
           }
 
@@ -554,6 +564,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             retryable: failure.retryable,
             attempt: attempt + 1,
           });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow?.event_id ?? eventId,
+            code: failure.kind,
+            retryable: failure.retryable,
+            attempt: attempt + 1,
+          });
         } catch (error) {
           const failure = await classifyDailyRoomInvokeFailure({
             action: DAILY_ROOM_ACTIONS.CREATE,
@@ -577,6 +595,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             retryable: failure.retryable,
             attempt: attempt + 1,
             error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow?.event_id ?? eventId,
+            code: failure.kind,
+            retryable: failure.retryable,
+            attempt: attempt + 1,
           });
         }
 
@@ -746,6 +772,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             payload: enterData ?? null,
             error: enterError ? { code: enterError.code, message: enterError.message } : null,
           });
+          trackEvent(
+            !enterError && (enterData as { success?: boolean } | null)?.success !== false
+              ? LobbyPostDateEvents.VIDEO_DATE_ENTER_HANDSHAKE_SUCCESS
+              : LobbyPostDateEvents.VIDEO_DATE_ENTER_HANDSHAKE_FAILURE,
+            {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              code: (enterData as { code?: string } | null)?.code ?? null,
+            },
+          );
           if (enterError || (enterData as { success?: boolean } | null)?.success === false) {
             setIsConnecting(false);
             return {
@@ -982,6 +1019,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 roomName: roomData.room_name,
                 source: "participant_joined",
               });
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: truthRow.event_id ?? eventId,
+                source: "participant_joined",
+              });
             }
             setIsConnected(true);
             setIsConnecting(false);
@@ -1213,6 +1256,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           userId,
           roomName: roomData.room_name,
         });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOINED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: truthRow.event_id ?? eventId,
+        });
 
         const joinedArgs = { p_session_id: sessionId };
         vdbg("mark_video_date_daily_joined_before", {
@@ -1273,6 +1321,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               eventId: truthRow.event_id ?? eventId,
               userId,
               roomName: roomData.room_name,
+              source: "post_join_snapshot",
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
               source: "post_join_snapshot",
             });
           }

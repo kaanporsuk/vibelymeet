@@ -99,6 +99,7 @@ const EventLobby = () => {
   // Ready Gate overlay state (server-backed; optimistic updates via refetch)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
+  const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] = useState(false);
   const {
     activeSession: scopedSession,
     hydrated: sessionHydrated,
@@ -234,7 +235,7 @@ const EventLobby = () => {
   });
 
   // Queue drain / realtime — activates ready gate when a queued video session becomes ready
-  const { queuedCount, refreshQueueCount } = useMatchQueue({
+  const { queuedCount, refreshQueueCount, isDraining: queueDrainInFlight } = useMatchQueue({
     eventId,
     currentStatus: currentStatus || "browsing",
     onVideoSessionReady: () => {
@@ -441,6 +442,7 @@ const EventLobby = () => {
   useEffect(() => {
     const st = location.state as { lobbyRefresh?: boolean } | null;
     if (!st?.lobbyRefresh || !eventId || !user?.id) return;
+    setCheckingNextDateAfterSurvey(true);
     seenProfileIds.current = new Set();
     setDeckNonce((n) => n + 1);
     dateNavigationSessionIdRef.current = null;
@@ -458,6 +460,13 @@ const EventLobby = () => {
     queryClient,
     clearReadyGateSession,
   ]);
+
+  useEffect(() => {
+    if (!checkingNextDateAfterSurvey) return;
+    if (queueDrainInFlight || !sessionHydrated) return;
+    const timer = setTimeout(() => setCheckingNextDateAfterSurvey(false), 900);
+    return () => clearTimeout(timer);
+  }, [checkingNextDateAfterSurvey, queueDrainInFlight, sessionHydrated]);
 
   // FAILURE 1 FIX: Realtime subscription for own registration status changes
   // Uses profile_id filter for efficiency — only fires for THIS user's row
@@ -737,7 +746,10 @@ const EventLobby = () => {
     sameEventScopedSession?.kind === "ready_gate" &&
       activeSessionId !== sameEventScopedSession.sessionId
   );
-  const suppressDeckUiForConvergence = yieldingToVideoDateUi || yieldingToReadyGateUi;
+  const showPostSurveyQueueCheck =
+    checkingNextDateAfterSurvey && !yieldingToVideoDateUi && !yieldingToReadyGateUi;
+  const suppressDeckUiForConvergence =
+    yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
 
   useEffect(() => {
     if (!eventId) return;
@@ -750,9 +762,13 @@ const EventLobby = () => {
     trackEvent(LobbyPostDateEvents.LOBBY_CONVERGENCE_IMPRESSION, {
       platform: "web",
       event_id: eventId,
-      source_surface: yieldingToVideoDateUi ? "video_date" : "ready_gate",
+      source_surface: yieldingToVideoDateUi
+        ? "video_date"
+        : showPostSurveyQueueCheck
+          ? "post_survey_queue_check"
+          : "ready_gate",
     });
-  }, [eventId, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
+  }, [eventId, showPostSurveyQueueCheck, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
 
   // Loading state
   if (eventLoading || regLoading) {
@@ -873,11 +889,17 @@ const EventLobby = () => {
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full min-h-[min(280px,50vh)]">
             <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)] mb-5" />
             <p className="text-lg font-display font-semibold text-white">
-              {yieldingToVideoDateUi ? "Joining your date..." : "Opening Ready Gate..."}
+              {yieldingToVideoDateUi
+                ? "Joining your date..."
+                : showPostSurveyQueueCheck
+                  ? "Finding your next date..."
+                  : "Opening Ready Gate..."}
             </p>
             <p className="text-sm text-white/55 mt-2">
               {yieldingToVideoDateUi
                 ? "Taking you to the same video session as your match."
+                : showPostSurveyQueueCheck
+                  ? "Checking your queue before we refresh the deck."
                 : "Syncing with your match. Almost there."}
             </p>
           </div>

@@ -7,6 +7,8 @@ import {
   videoSessionIdFromDrainPayload,
 } from "@shared/matching/videoSessionFlow";
 import { isMatchQueueDrainEligible } from "@clientShared/matching/matchQueueDrainEligibility";
+import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
@@ -31,6 +33,7 @@ export const useMatchQueue = ({
 }: UseMatchQueueOptions) => {
   const { user } = useUserProfile();
   const [queuedCount, setQueuedCount] = useState(0);
+  const [isDraining, setIsDraining] = useState(false);
   const onReadyRef = useRef(onVideoSessionReady);
   const onQueuedExpiredRef = useRef(onQueuedSessionExpired);
   /** Dedupe TTL-expiry toasts per `video_sessions.id` for this hook instance. */
@@ -66,18 +69,46 @@ export const useMatchQueue = ({
     if (!eventId || !user?.id || !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })) return;
 
     const drainQueue = async () => {
+      setIsDraining(true);
       try {
         const { data } = await supabase.rpc("drain_match_queue", {
           p_event_id: eventId,
         });
 
         const result = data as DrainMatchQueueResult;
+        const reason =
+          data && typeof data === "object" && "reason" in data
+            ? String((data as { reason?: unknown }).reason ?? "")
+            : null;
         const sessionId = videoSessionIdFromDrainPayload(result);
         if (result?.found && sessionId && result.partner_id) {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
+            platform: "web",
+            event_id: eventId,
+            session_id: sessionId,
+          });
           onReadyRef.current?.(sessionId, result.partner_id);
+        } else if (result?.queued || reason) {
+          trackEvent(
+            result?.queued
+              ? LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_BLOCKED
+              : LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND,
+            {
+              platform: "web",
+              event_id: eventId,
+              reason,
+            },
+          );
+        } else {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND, {
+            platform: "web",
+            event_id: eventId,
+          });
         }
       } catch (err) {
         console.error("Error draining queue:", err);
+      } finally {
+        setIsDraining(false);
       }
     };
 
@@ -169,5 +200,5 @@ export const useMatchQueue = ({
     };
   }, [eventId, user?.id, refreshQueueCount]);
 
-  return { queuedCount, refreshQueueCount };
+  return { queuedCount, refreshQueueCount, isDraining };
 };

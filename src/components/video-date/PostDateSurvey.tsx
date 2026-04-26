@@ -262,6 +262,12 @@ export const PostDateSurvey = ({
           event_id: eventId,
           verdict: liked ? "vibe" : "pass",
         });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_SUBMITTED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          verdict: liked ? "vibe" : "pass",
+        });
         logJourney("survey_completed", { source: "verdict_submitted", verdict: liked ? "vibe" : "pass" }, "survey_completed");
 
         trackEvent(LobbyPostDateEvents.MUTUAL_VIBE_OUTCOME, {

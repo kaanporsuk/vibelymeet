@@ -84,6 +84,36 @@ Primary milestones:
 - `mutual_match_detected`
 - `chat_cta_pressed`
 
+Hardening sprint product events added/verified in `shared/analytics/lobbyToPostDateJourney.ts`:
+
+- `video_date_ready_gate_ready`
+- `video_date_both_ready`
+- `video_date_route_entered`
+- `video_date_enter_handshake_success`
+- `video_date_enter_handshake_failure`
+- `video_date_daily_token_success`
+- `video_date_daily_token_failure`
+- `video_date_daily_joined`
+- `video_date_remote_seen`
+- `video_date_handshake_grace_started`
+- `video_date_handshake_completed_mutual`
+- `video_date_handshake_not_mutual`
+- `video_date_extension_attempted`
+- `video_date_extension_succeeded`
+- `video_date_extension_failed`
+- `video_date_reconnect_grace_started`
+- `video_date_reconnect_returned`
+- `video_date_reconnect_expired`
+- `video_date_survey_opened`
+- `video_date_survey_submitted`
+- `video_date_survey_abandoned`
+- `video_date_queue_drain_found`
+- `video_date_queue_drain_not_found`
+- `video_date_queue_drain_blocked`
+
+Read-only operator SQL for stuck sessions and stale registrations lives in
+`supabase/validation/video_date_end_to_end_hardening.sql`.
+
 ## Canonical Fields
 
 Journey events use the same core fields across web and native:
@@ -140,4 +170,3 @@ For a failed user journey, walk in this order:
 - For reconnect incidents, filter message `sync_reconnect_result` and inspect `outcome`.
 - For blank-media incidents, filter for `first_remote_observed`, `remote_track_mounted`, and watchdog events in the same session.
 - For native peer-missing incidents, filter **`rc.video_date.entry`** message **`peer_missing_terminal_watchdog_fire`** or **`video-date-daily`** message **`peer_missing_timeout`** (same clock order).
-

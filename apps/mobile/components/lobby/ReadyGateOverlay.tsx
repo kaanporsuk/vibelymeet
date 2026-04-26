@@ -189,6 +189,12 @@ export function ReadyGateOverlay({
       event_id: eventId,
       source: 'both_ready',
     });
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_BOTH_READY, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      source: 'both_ready',
+    });
     vdbg('lobby_navigate_to_date', {
       trigger: 'ready_gate_overlay_both_ready',
       sessionId,
@@ -559,6 +565,11 @@ export function ReadyGateOverlay({
                   onPress={() => {
                     if (markingReady) return;
                     trackEvent(LobbyPostDateEvents.READY_GATE_READY_TAP, {
+                      platform: 'native',
+                      session_id: sessionId,
+                      event_id: eventId,
+                    });
+                    trackEvent(LobbyPostDateEvents.VIDEO_DATE_READY_GATE_READY, {
                       platform: 'native',
                       session_id: sessionId,
                       event_id: eventId,
