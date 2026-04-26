@@ -4123,6 +4123,14 @@ export type Database = {
         Args: { p_asset_id: string; p_match_id: string }
         Returns: Json
       }
+      block_user_with_cleanup: {
+        Args: {
+          p_blocked_id: string
+          p_match_id?: string | null
+          p_reason?: string | null
+        }
+        Returns: Json
+      }
       backfill_chat_message_media_lifecycle: {
         Args: { p_limit?: number }
         Returns: Json
@@ -4458,6 +4466,19 @@ export type Database = {
           lng: number
           location: string
           location_data: Json
+        }[]
+      }
+      get_my_blocked_users: {
+        Args: never
+        Returns: {
+          avatar_url: string | null
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+          display_name: string | null
+          id: string
+          photo_url: string | null
+          reason: string | null
         }[]
       }
       get_my_privacy_settings: {
@@ -4805,6 +4826,7 @@ export type Database = {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
         Returns: Json
       }
+      unblock_user: { Args: { p_blocked_id: string }; Returns: Json }
       update_media_session_status: {
         Args: {
           p_error_detail?: string

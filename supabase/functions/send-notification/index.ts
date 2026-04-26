@@ -135,6 +135,99 @@ function getQueueId(data: any): string | null {
   return null
 }
 
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
+}
+
+function firstPayloadUuid(data: any, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = data?.[key]
+    if (isUuid(value)) return value.trim()
+  }
+  return null
+}
+
+async function otherParticipantFromMatch(matchId: string, recipientId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('matches')
+    .select('profile_id_1, profile_id_2')
+    .eq('id', matchId)
+    .maybeSingle()
+
+  if (!data) return null
+  if (data.profile_id_1 === recipientId) return data.profile_id_2
+  if (data.profile_id_2 === recipientId) return data.profile_id_1
+  return null
+}
+
+async function otherParticipantFromVideoSession(sessionId: string, recipientId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('video_sessions')
+    .select('participant_1_id, participant_2_id')
+    .eq('id', sessionId)
+    .maybeSingle()
+
+  if (!data) return null
+  if (data.participant_1_id === recipientId) return data.participant_2_id
+  if (data.participant_2_id === recipientId) return data.participant_1_id
+  return null
+}
+
+async function resolveActorId(recipientId: string, category: string, data: any): Promise<string | null> {
+  const directActor = firstPayloadUuid(data, [
+    'sender_id',
+    'actor_id',
+    'from_user_id',
+    'profile_id',
+    'other_user_id',
+  ])
+  if (directActor && directActor !== recipientId) return directActor
+
+  const matchId = firstPayloadUuid(data, ['match_id'])
+  if (
+    matchId &&
+    (category === 'messages' ||
+      category === 'match_call' ||
+      category === 'new_match' ||
+      category.startsWith('date_suggestion_'))
+  ) {
+    const peer = await otherParticipantFromMatch(matchId, recipientId)
+    if (peer && peer !== recipientId) return peer
+  }
+
+  const sessionId = firstPayloadUuid(data, ['video_session_id', 'session_id'])
+    ?? (category === 'ready_gate' ? firstPayloadUuid(data, ['match_id']) : null)
+  if (sessionId && (category === 'ready_gate' || category === 'date_starting' || category === 'partner_ready')) {
+    const peer = await otherParticipantFromVideoSession(sessionId, recipientId)
+    if (peer && peer !== recipientId) return peer
+  }
+
+  return null
+}
+
+async function isPairBlocked(userA: string, userB: string): Promise<boolean> {
+  const { data: blockA, error: blockAError } = await supabase
+    .from('blocked_users')
+    .select('id')
+    .eq('blocker_id', userA)
+    .eq('blocked_id', userB)
+    .maybeSingle()
+
+  if (blockAError) throw blockAError
+  if (blockA?.id) return true
+
+  const { data: blockB, error: blockBError } = await supabase
+    .from('blocked_users')
+    .select('id')
+    .eq('blocker_id', userB)
+    .eq('blocked_id', userA)
+    .maybeSingle()
+
+  if (blockBError) throw blockBError
+  return Boolean(blockB?.id)
+}
+
 function shouldLogLifecycle(category: string, data: any): boolean {
   return isEventLifecycleCategory(category) || !!getEventId(data) || !!getSessionId(data)
 }
@@ -407,6 +500,24 @@ Deno.serve(async (req) => {
     }
     if (!title) title = 'Notification'
     if (!body) body = 'You have a new notification'
+
+    if (!skipsPerBucketPreferenceCheck(category)) {
+      const actorId = await resolveActorId(user_id, category, data)
+      if (actorId && await isPairBlocked(user_id, actorId)) {
+        console.log('send_notification_suppressed_blocked_pair', JSON.stringify({
+          user_id,
+          actor_id: actorId,
+          category,
+          match_id: data?.match_id ?? null,
+          session_id: getSessionId(data),
+        }))
+        await logNotification(user_id, category, title, body, data, false, 'blocked_pair')
+        emitLifecycle('suppressed', 'blocked_pair')
+        return new Response(JSON.stringify({ success: false, reason: 'blocked_pair', code: 'suppressed_blocked_pair' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+    }
 
     // Fetch preferences
     let { data: prefs } = await supabase

@@ -103,7 +103,6 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
   const [geoState, setGeoState] = useState<PermissionState | "unsupported">("prompt");
 
   const [view, setView] = useState<"main" | "discovery" | "audience" | "activity" | "event_att" | "blocked">("main");
-  const [blockedProfiles, setBlockedProfiles] = useState<Record<string, { name: string }>>({});
 
   useEffect(() => {
     if (!open) setView("main");
@@ -149,25 +148,6 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       r.onchange = () => setGeoState(r.state);
     });
   }, [open]);
-
-  useEffect(() => {
-    if (!blockedUsers.length) {
-      setBlockedProfiles({});
-      return;
-    }
-    const ids = blockedUsers.map((b) => b.blocked_id);
-    void supabase
-      .from("profiles")
-      .select("id, name")
-      .in("id", ids)
-      .then(({ data }) => {
-        const m: Record<string, { name: string }> = {};
-        (data || []).forEach((row: { id: string; name: string | null }) => {
-          m[row.id] = { name: row.name || "User" };
-        });
-        setBlockedProfiles(m);
-      });
-  }, [blockedUsers]);
 
   const save = async (patch: Partial<PrivacyProfile>): Promise<boolean> => {
     if (!user?.id || saving) return false;
@@ -568,12 +548,12 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                     key={b.id}
                     className="flex items-center justify-between rounded-xl border border-border/50 bg-secondary/30 p-3"
                   >
-                    <span className="text-sm font-medium">{blockedProfiles[b.blocked_id]?.name ?? "…"}</span>
+                    <span className="text-sm font-medium">{b.display_name ?? "Member"}</span>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() =>
-                        unblockUser(b.blocked_id, blockedProfiles[b.blocked_id]?.name ?? "User")
+                        unblockUser(b.blocked_id, b.display_name ?? "Member")
                       }
                     >
                       Unblock

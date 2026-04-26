@@ -158,11 +158,11 @@ export function useEventVibes(eventId: string) {
         throw error;
       }
 
-      return { vibeData: data, receiverId };
+      return { vibeData: data, receiverId, actorId: user.id };
     },
-    onSuccess: async ({ receiverId }) => {
+    onSuccess: async ({ receiverId, actorId }) => {
       queryClient.invalidateQueries({ queryKey: ["event-vibes-sent", eventId] });
-      
+
       // Check if this creates a mutual vibe
       const isMutual = receivedVibes.some((v) => v.sender_id === receiverId);
       if (isMutual) {
@@ -179,7 +179,7 @@ export function useEventVibes(eventId: string) {
       // The receiver will get notified via their own query refresh
       // For a full push notification, we'd need to call an edge function
       try {
-        await notifyVibeReceiver(receiverId, eventId, isMutual);
+        await notifyVibeReceiver(receiverId, eventId, actorId, isMutual);
       } catch (err) {
         console.error("Failed to send vibe notification:", err);
       }
@@ -232,7 +232,7 @@ export function useEventVibes(eventId: string) {
  * Pre-event `event_vibes` only — does not create `video_sessions` or `matches`.
  * Mutual interest: route to event lobby, never `/matches` or chat-oriented copy.
  */
-async function notifyVibeReceiver(receiverId: string, eventId: string, isMutual: boolean) {
+async function notifyVibeReceiver(receiverId: string, eventId: string, actorId: string, isMutual: boolean) {
   try {
     const { error } = await supabase.functions.invoke("send-notification", {
       body: {
@@ -245,6 +245,7 @@ async function notifyVibeReceiver(receiverId: string, eventId: string, isMutual:
         data: {
           url: `/event/${eventId}/lobby`,
           event_id: eventId,
+          actor_id: actorId,
         },
       },
     });

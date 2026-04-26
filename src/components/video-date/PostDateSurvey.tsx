@@ -237,15 +237,19 @@ export const PostDateSurvey = ({
         const result = data as {
           success?: boolean;
           error?: string;
+          code?: string;
           mutual?: boolean;
           verdict_recorded?: boolean;
         } | null;
 
         if (result && result.success === false) {
+          const code = result.code ?? result.error;
           toast.error(
-            result.error === "not_participant"
+            code === "blocked_pair"
               ? "You can't submit feedback for this date."
-              : result.error === "session_not_found"
+              : code === "not_participant"
+              ? "You can't submit feedback for this date."
+              : code === "session_not_found"
                 ? "This date session is no longer available."
                 : "Something went wrong. Please try again.",
           );

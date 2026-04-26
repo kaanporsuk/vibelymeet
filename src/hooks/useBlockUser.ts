@@ -9,21 +9,33 @@ export interface BlockedUser {
   blocked_id: string;
   reason: string | null;
   created_at: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  photo_url: string | null;
 }
+
+type BlockRpcResult = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+};
 
 export const useBlockUser = () => {
   const { user } = useUserProfile();
   const userId = user?.id;
   const queryClient = useQueryClient();
 
-  const { data: blockedUsers = [] } = useQuery({
+  const {
+    data: blockedUsers = [],
+    error: blockedUsersError,
+    isLoading: isBlockedUsersLoading,
+    isRefetching: isBlockedUsersRefetching,
+    refetch: refetchBlockedUsers,
+  } = useQuery({
     queryKey: ["blocked-users", userId],
     queryFn: async (): Promise<BlockedUser[]> => {
       if (!userId) return [];
-      const { data, error } = await supabase
-        .from("blocked_users")
-        .select("*")
-        .eq("blocker_id", userId);
+      const { data, error } = await supabase.rpc("get_my_blocked_users");
 
       if (error) throw error;
       return (data || []) as BlockedUser[];
@@ -31,60 +43,52 @@ export const useBlockUser = () => {
     enabled: !!userId,
   });
 
+  const invalidateBlockEffects = () => {
+    queryClient.invalidateQueries({ queryKey: ["blocked-users"] });
+    queryClient.invalidateQueries({ queryKey: ["matches"] });
+    queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+    queryClient.invalidateQueries({ queryKey: ["messages"] });
+    queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
+    queryClient.invalidateQueries({ queryKey: ["daily-drop"] });
+    queryClient.invalidateQueries({ queryKey: ["daily-drops"] });
+    queryClient.invalidateQueries({ queryKey: ["date-suggestions"] });
+    queryClient.invalidateQueries({ queryKey: ["event-vibes-received"] });
+    queryClient.invalidateQueries({ queryKey: ["event-vibes-sent"] });
+  };
+
   const blockMutation = useMutation({
     mutationFn: async ({ blockedId, matchId, reason }: { blockedId: string; matchId?: string; reason?: string }) => {
       if (!userId) throw new Error("Not authenticated");
 
-      // 1. Insert into blocked_users
-      const { error: blockError } = await supabase
-        .from("blocked_users")
-        .insert({
-          blocker_id: userId,
-          blocked_id: blockedId,
-          reason: reason || null,
-        });
+      const { data, error } = await supabase.rpc("block_user_with_cleanup", {
+        p_blocked_id: blockedId,
+        p_match_id: matchId ?? null,
+        p_reason: reason ?? null,
+      });
 
-      if (blockError) {
-        // Ignore duplicate (already blocked)
-        if (!blockError.message.includes("duplicate") && !blockError.message.includes("unique")) {
-          throw blockError;
-        }
-      }
-
-      // 2. Remove match + messages if matchId provided
-      if (matchId) {
-        // Delete messages first (FK constraint)
-        await supabase.from("messages").delete().eq("match_id", matchId);
-        // Delete mutes
-        await supabase.from("match_notification_mutes").delete().eq("match_id", matchId).eq("user_id", userId);
-        // Delete match
-        await supabase.from("matches").delete().eq("id", matchId);
+      if (error) throw error;
+      const result = data as BlockRpcResult | null;
+      if (result?.success === false) {
+        throw new Error(result.error || result.code || "Block failed");
       }
 
       return { blockedId };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["blocked-users"] });
-      queryClient.invalidateQueries({ queryKey: ["matches"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
-      queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
-    },
+    onSuccess: invalidateBlockEffects,
   });
 
   const unblockMutation = useMutation({
     mutationFn: async ({ blockedId }: { blockedId: string }) => {
       if (!userId) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("blocked_users")
-        .delete()
-        .eq("blocker_id", userId)
-        .eq("blocked_id", blockedId);
+      const { data, error } = await supabase.rpc("unblock_user", { p_blocked_id: blockedId });
 
       if (error) throw error;
+      const result = data as BlockRpcResult | null;
+      if (result?.success === false) {
+        throw new Error(result.error || result.code || "Unblock failed");
+      }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["blocked-users"] });
-    },
+    onSuccess: invalidateBlockEffects,
   });
 
   const blockUser = (blockedId: string, userName: string, reason?: string, matchId?: string) => {
@@ -120,6 +124,10 @@ export const useBlockUser = () => {
     unblockUser,
     isUserBlocked,
     blockedUsers,
+    blockedUsersError,
+    isBlockedUsersLoading,
+    isBlockedUsersRefetching,
+    refetchBlockedUsers,
     isBlocking: blockMutation.isPending,
     isUnblocking: unblockMutation.isPending,
   };

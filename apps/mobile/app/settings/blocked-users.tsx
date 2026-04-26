@@ -1,7 +1,7 @@
 /**
- * Blocked users — list from blocked_users + profiles; unblock via useBlockUser.
+ * Blocked users — list from get_my_blocked_users; unblock via server-owned RPC.
  */
-import React, { useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -10,55 +10,80 @@ import {
   StyleSheet,
   Image,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
 import Colors from '@/constants/Colors';
 import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { useBlockUser } from '@/lib/useBlockUser';
+import { type BlockedUser, useBlockUser } from '@/lib/useBlockUser';
 import { avatarUrl } from '@/lib/imageUrl';
+import { useVibelyDialog } from '@/components/VibelyDialog';
+
+function formatBlockDate(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
+}
 
 export default function BlockedUsersScreen() {
   const colorScheme = useColorScheme() ?? 'dark';
   const theme = Colors[colorScheme];
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { blockedUsers, unblockUser, isBlockedUsersLoading, isUnblocking } = useBlockUser(user?.id);
+  const {
+    blockedUsers,
+    unblockUser,
+    blockedUsersError,
+    isBlockedUsersLoading,
+    isBlockedUsersRefetching,
+    refetchBlockedUsers,
+    isUnblocking,
+  } = useBlockUser(user?.id);
+  const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
+  const [pendingUnblockId, setPendingUnblockId] = useState<string | null>(null);
 
-  const blockedIds = useMemo(() => blockedUsers.map((b) => b.blocked_id), [blockedUsers]);
+  const listLoading = isBlockedUsersLoading;
 
-  const { data: profiles = [], isLoading: isProfilesLoading } = useQuery({
-    queryKey: ['blocked-user-profiles', user?.id, blockedIds],
-    queryFn: async () => {
-      if (!blockedIds.length) return [];
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, photos')
-        .in('id', blockedIds);
-      if (error) throw error;
-      return (data ?? []) as {
-        id: string;
-        name: string | null;
-        avatar_url: string | null;
-        photos: string[] | null;
-      }[];
-    },
-    enabled: !!user?.id && blockedIds.length > 0,
-  });
+  const performUnblock = async (block: BlockedUser) => {
+    setPendingUnblockId(block.blocked_id);
+    try {
+      await unblockUser({ blockedId: block.blocked_id });
+    } catch {
+      showDialog({
+        title: "Couldn't unblock",
+        message: 'Please try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } finally {
+      setPendingUnblockId(null);
+    }
+  };
 
-  const profileById = useMemo(() => {
-    const m = new Map<string, (typeof profiles)[0]>();
-    profiles.forEach((p) => m.set(p.id, p));
-    return m;
-  }, [profiles]);
-
-  const listLoading = isBlockedUsersLoading || (blockedIds.length > 0 && isProfilesLoading);
+  const confirmUnblock = (block: BlockedUser) => {
+    const name = block.display_name?.trim() || 'Member';
+    showDialog({
+      title: 'Unblock user?',
+      message: `${name} may be able to contact you again if you match later.`,
+      variant: 'warning',
+      primaryAction: {
+        label: 'Unblock',
+        onPress: () => {
+          void performUnblock(block);
+        },
+      },
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -83,10 +108,39 @@ export default function BlockedUsersScreen() {
       <ScrollView
         contentContainerStyle={[styles.scrollInner, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isBlockedUsersRefetching}
+            onRefresh={() => {
+              void refetchBlockedUsers();
+            }}
+            tintColor={theme.tint}
+          />
+        }
       >
         {listLoading ? (
           <View style={styles.centered}>
             <ActivityIndicator color={theme.tint} size="large" />
+          </View>
+        ) : blockedUsersError ? (
+          <View style={styles.empty}>
+            <Ionicons name="alert-circle-outline" size={48} color={theme.mutedForeground} />
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>Couldn't load blocked users</Text>
+            <Text style={[styles.emptyDesc, { color: theme.mutedForeground }]}>
+              Check your connection and try again.
+            </Text>
+            <Pressable
+              onPress={() => {
+                void refetchBlockedUsers();
+              }}
+              style={({ pressed }) => [
+                styles.retryBtn,
+                { borderColor: theme.border },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <Text style={[styles.unblockLabel, { color: theme.tint }]}>Retry</Text>
+            </Pressable>
           </View>
         ) : blockedUsers.length === 0 ? (
           <View style={styles.empty}>
@@ -99,10 +153,15 @@ export default function BlockedUsersScreen() {
         ) : (
           <View style={[styles.card, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
             {blockedUsers.map((block, idx) => {
-              const p = profileById.get(block.blocked_id);
-              const rawPhoto = p?.avatar_url ?? p?.photos?.[0] ?? null;
+              const rawPhoto = block.avatar_url ?? block.photo_url ?? null;
               const uri = avatarUrl(rawPhoto, 'avatar');
-              const name = p?.name?.trim() || 'Member';
+              const name = block.display_name?.trim() || 'Member';
+              const blockDate = formatBlockDate(block.created_at);
+              const subtitle = [
+                blockDate ? `Blocked ${blockDate}` : null,
+                block.reason ? block.reason : null,
+              ].filter(Boolean).join(' | ');
+              const rowPending = pendingUnblockId === block.blocked_id;
               return (
                 <View
                   key={block.id}
@@ -119,17 +178,27 @@ export default function BlockedUsersScreen() {
                     <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>
                       {name}
                     </Text>
+                    {subtitle ? (
+                      <Text style={[styles.meta, { color: theme.mutedForeground }]} numberOfLines={1}>
+                        {subtitle}
+                      </Text>
+                    ) : null}
                   </View>
                   <Pressable
-                    onPress={() => unblockUser({ blockedId: block.blocked_id })}
-                    disabled={isUnblocking}
+                    onPress={() => confirmUnblock(block)}
+                    disabled={isUnblocking || rowPending}
                     style={({ pressed }) => [
                       styles.unblockBtn,
                       { borderColor: theme.border },
+                      (isUnblocking || rowPending) && styles.disabledBtn,
                       pressed && { opacity: 0.85 },
                     ]}
                   >
-                    <Text style={[styles.unblockLabel, { color: theme.tint }]}>Unblock</Text>
+                    {rowPending ? (
+                      <ActivityIndicator color={theme.tint} size="small" />
+                    ) : (
+                      <Text style={[styles.unblockLabel, { color: theme.tint }]}>Unblock</Text>
+                    )}
                   </Pressable>
                 </View>
               );
@@ -137,6 +206,7 @@ export default function BlockedUsersScreen() {
           </View>
         )}
       </ScrollView>
+      {dialogEl}
     </View>
   );
 }
@@ -190,11 +260,21 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, minWidth: 0 },
   name: { fontSize: 16, fontWeight: '600' },
+  meta: { fontSize: 12, marginTop: 3 },
   unblockBtn: {
+    minWidth: 84,
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
   },
+  retryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  disabledBtn: { opacity: 0.6 },
   unblockLabel: { fontSize: 13, fontWeight: '600' },
 });

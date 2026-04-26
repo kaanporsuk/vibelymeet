@@ -1035,6 +1035,7 @@ export type SubmitVerdictAndCheckMutualResult =
 type PostDateVerdictResponseBody = {
   success?: boolean;
   error?: string;
+  code?: string;
   message?: string;
   mutual?: boolean;
   match_id?: string;
@@ -1086,9 +1087,10 @@ export async function submitVerdictAndCheckMutual(
       } catch {
         /* non-JSON */
       }
-      if (body?.success === false && body.error) {
-        verdictBreadcrumb('verdict_backend_rejected', { code: body.error });
-        return { ok: false, reason: 'backend', code: body.error, message: body.message };
+      if (body?.success === false && (body.error || body.code)) {
+        const code = body.code ?? body.error ?? 'unknown';
+        verdictBreadcrumb('verdict_backend_rejected', { code });
+        return { ok: false, reason: 'backend', code, message: body.message };
       }
       if (status === 401 || body?.error === 'Unauthorized') {
         verdictBreadcrumb('verdict_backend_rejected', { code: 'unauthorized' });
@@ -1109,11 +1111,12 @@ export async function submitVerdictAndCheckMutual(
   }
 
   if (row.success === false) {
-    verdictBreadcrumb('verdict_backend_rejected', { code: row.error ?? 'unknown' });
+    const code = row.code ?? row.error ?? 'unknown';
+    verdictBreadcrumb('verdict_backend_rejected', { code });
     return {
       ok: false,
       reason: 'backend',
-      code: row.error ?? 'unknown',
+      code,
       message: row.message,
     };
   }

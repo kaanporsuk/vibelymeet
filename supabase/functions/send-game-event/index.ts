@@ -63,6 +63,32 @@ function isSafeUrl(s: string): boolean {
   }
 }
 
+async function isPairBlocked(
+  serviceClient: ReturnType<typeof createClient>,
+  userA: string,
+  userB: string,
+): Promise<boolean> {
+  const { data: blockA, error: blockAError } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", userA)
+    .eq("blocked_id", userB)
+    .maybeSingle();
+
+  if (blockAError) throw blockAError;
+  if (blockA?.id) return true;
+
+  const { data: blockB, error: blockBError } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", userB)
+    .eq("blocked_id", userA)
+    .maybeSingle();
+
+  if (blockBError) throw blockBError;
+  return Boolean(blockB?.id);
+}
+
 function normalizeGuess(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -434,6 +460,30 @@ serve(async (req) => {
       });
     }
 
+    const recipientId = match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
+    try {
+      if (await isPairBlocked(serviceClient, actorId, recipientId)) {
+        console.log(JSON.stringify({
+          event: "send_game_event_blocked_pair",
+          actor_id: actorId,
+          recipient_id: recipientId,
+          match_id: matchId,
+          game_type: gameType,
+          event_type: eventType,
+        }));
+        return new Response(JSON.stringify({ success: false, error: "blocked_pair", code: "blocked_pair" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } catch (blockError) {
+      console.error("send-game-event block check failed:", blockError);
+      return new Response(JSON.stringify({ success: false, error: "block_check_failed", code: "block_check_failed" }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let sessionRows = await loadSessionRows(serviceClient, matchId, gameSessionId);
     if (hasSessionComplete(sessionRows)) {
       return new Response(JSON.stringify({ success: false, error: "session_already_complete" }), {
@@ -597,9 +647,6 @@ serve(async (req) => {
       if (!completeErr && completeRow) messagesOut.push(completeRow);
       else if (completeErr) console.error("send-game-event complete insert error:", completeErr);
     }
-
-    const recipientId =
-      match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
 
     try {
       const { data: senderProfile } = await serviceClient
