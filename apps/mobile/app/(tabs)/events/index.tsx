@@ -52,7 +52,11 @@ import EventFilterSheet, {
   DEFAULT_FILTERS,
   countActiveFilters,
 } from '@/components/events/EventFilterSheet';
-import * as Location from 'expo-location';
+import { useLocationPermission } from '@/lib/useLocationPermission';
+import {
+  captureCurrentDeviceLocation,
+  saveCurrentDeviceLocationToProfile,
+} from '@/lib/locationProfileUpdate';
 import { parseEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisibility';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
@@ -765,6 +769,7 @@ export default function EventsListScreen() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDismissed, setLocationDismissed] = useState(false);
   const [locationEnableLoading, setLocationEnableLoading] = useState(false);
+  const locationPermission = useLocationPermission();
   const { data: profileLocation } = useQuery({
     queryKey: ['profile-location', user?.id],
     queryFn: async () => {
@@ -778,7 +783,11 @@ export default function EventsListScreen() {
     },
     enabled: !!user?.id,
   });
-  const hasLocation = !!(profileLocation?.location_data && (profileLocation.location_data.lat != null || profileLocation.location_data.lng != null));
+  const hasLocation = !!(
+    profileLocation?.location_data &&
+    profileLocation.location_data.lat != null &&
+    profileLocation.location_data.lng != null
+  );
   const showLocationPrompt = !hasLocation;
 
   const { data: serverEventPrefs } = useQuery({
@@ -819,63 +828,45 @@ export default function EventsListScreen() {
     if (!user?.id || locationEnableLoading) return;
     setLocationEnableLoading(true);
     try {
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (perm.status !== 'granted') {
-        Alert.alert(
-          'Location needed',
-          perm.canAskAgain === false
-            ? 'Location is turned off for Vibely. Enable it in Settings to see events near you.'
-            : 'Allow location access to save your area and show nearby events.',
-        );
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-
-      // Reverse-geocode to normalized city/country label.
-      let displayLabel = '';
-      let country = '';
-      try {
-        const { data: geoData, error: geoErr } = await supabase.functions.invoke('geocode', {
-          body: { lat, lng },
-        });
-        if (!geoErr && geoData) {
-          const city = typeof geoData.city === 'string' ? geoData.city.trim() : '';
-          country = typeof geoData.country === 'string' ? geoData.country.trim() : '';
-          displayLabel = city && country ? `${city}, ${country}` : (geoData.formatted ?? '');
-        }
-      } catch { /* geocode failure — handled below */ }
-
-      if (!displayLabel || !country) {
-        Alert.alert(
-          'Location not recognized',
-          'We couldn\'t match your GPS position to a city. Try again in a moment.',
-        );
-        return;
-      }
-
-      // Atomic write via RPC — location, location_data, and country together.
-      const { data: rpcResult, error: rpcErr } = await supabase.rpc('update_profile_location', {
-        p_user_id: user.id,
-        p_location: displayLabel,
-        p_lat: lat,
-        p_lng: lng,
-        p_country: country,
+      const result = await saveCurrentDeviceLocationToProfile({
+        userId: user.id,
+        requestPermission: true,
       });
-      if (rpcErr) {
-        if (__DEV__) console.warn('[events] update_profile_location:', rpcErr.message);
-        Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
-        return;
-      }
-      const result = rpcResult as { success?: boolean; error?: string } | null;
-      if (!result?.success) {
-        if (__DEV__) console.warn('[events] update_profile_location rpc error:', result?.error);
-        Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
-        return;
+      await locationPermission.refresh();
+
+      if (result.status !== 'success') {
+        switch (result.status) {
+          case 'services_disabled':
+            Alert.alert(
+              'Location Services are off',
+              'Turn on device Location Services, then return to Vibely to see events near you.',
+            );
+            return;
+          case 'permission_denied':
+            Alert.alert(
+              'Location needed',
+              result.canAskAgain === false
+                ? 'Location is turned off for Vibely. Enable it in Settings to see events near you.'
+                : 'Allow location access to save your area and show nearby events.',
+            );
+            return;
+          case 'geocode_failed':
+            Alert.alert(
+              'Location not recognized',
+              "We couldn't match your GPS position to a city. Try again in a moment.",
+            );
+            return;
+          case 'backend_failed':
+            if (__DEV__) console.warn('[events] update_profile_location:', result.message ?? result.error?.message);
+            Alert.alert('Could not save location', 'Try again in a moment or update location from your profile.');
+            return;
+          default:
+            Alert.alert('Could not get location', 'Check permissions and try again.');
+            return;
+        }
       }
 
-      setUserCoords({ lat, lng });
+      setUserCoords(result.coords);
       await queryClient.invalidateQueries({ queryKey: ['profile-location', user.id] });
       await queryClient.invalidateQueries({ queryKey: ['events-discover'] });
       await queryClient.invalidateQueries({ queryKey: ['other-city-events', user.id] });
@@ -886,21 +877,17 @@ export default function EventsListScreen() {
     } finally {
       setLocationEnableLoading(false);
     }
-  }, [user?.id, locationEnableLoading, queryClient]);
+  }, [locationEnableLoading, locationPermission, queryClient, user?.id]);
 
   useEffect(() => {
     if (userCoords) return;
     (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') return;
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-      } catch (error) {
-        if (__DEV__) console.warn('[events] getCurrentPosition failed:', error);
-      }
+      if (!locationPermission.granted || locationPermission.servicesEnabled === false) return;
+      const loc = await captureCurrentDeviceLocation({ requestPermission: false });
+      if (loc.status === 'success') setUserCoords(loc.coords);
+      else if (__DEV__ && loc.status === 'gps_failed') console.warn('[events] getCurrentPosition failed:', loc.error);
     })();
-  }, [userCoords]);
+  }, [locationPermission.granted, locationPermission.servicesEnabled, userCoords]);
 
   useEffect(() => {
     if (!canCityBrowse) {
@@ -1164,6 +1151,7 @@ export default function EventsListScreen() {
         filters={filters}
         onApply={setFilters}
         canCityBrowse={canCityBrowse}
+        hasSavedLocation={hasLocation}
         onPremiumUpgrade={() =>
           openPremium(router.push, {
             entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_EVENTS_FILTER,

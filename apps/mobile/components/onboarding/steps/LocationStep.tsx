@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/Themed';
 import { VibelyButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+import { useLocationPermission } from '@/lib/useLocationPermission';
+import {
+  captureCurrentDeviceLocation,
+  reverseGeocodeDeviceLocation,
+} from '@/lib/locationProfileUpdate';
 
 type GeoResult = { formatted?: string; city?: string; country?: string; lat?: number; lng?: number };
 type LocationPayload = { location: string; country: string; locationData: { lat: number; lng: number } | null };
@@ -17,6 +21,7 @@ const MIN_SEARCH_CHARS = 2;
 
 export default function LocationStep({ location, onLocationChange, onNext }: { location: string; onLocationChange: (payload: LocationPayload) => void; onNext: () => void; }) {
   const theme = Colors[useColorScheme()];
+  const locationPermission = useLocationPermission();
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<GeoResult[]>([]);
   const [showSearch, setShowSearch] = useState(false);
@@ -64,7 +69,21 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
     setDetecting(true);
     setFeedback(null);
     try {
-      const perm = await Location.requestForegroundPermissionsAsync();
+      const perm = await locationPermission.request();
+      if (perm.status === 'unknown') {
+        openManualSearch({
+          tone: 'error',
+          text: "We couldn't check location permission right now. Search for your city instead, or try again.",
+        });
+        return;
+      }
+      if (perm.servicesEnabled === false) {
+        openManualSearch({
+          tone: 'error',
+          text: 'Device Location Services are off. Search for your city instead, or turn them on in Settings and try again.',
+        });
+        return;
+      }
       if (perm.status !== 'granted') {
         openManualSearch({
           tone: 'error',
@@ -74,12 +93,18 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
         });
         return;
       }
-      const pos = await Location.getCurrentPositionAsync({});
-      const { data, error } = await supabase.functions.invoke('geocode', {
-        body: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-      });
-      if (error) throw error;
-      if (data?.error || !data?.city || !data?.country) {
+      const pos = await captureCurrentDeviceLocation({ requestPermission: false });
+      if (pos.status !== 'success') {
+        openManualSearch({
+          tone: 'error',
+          text: pos.status === 'services_disabled'
+            ? 'Device Location Services are off. Search for your city instead, or turn them on in Settings and try again.'
+            : "We couldn't determine your GPS position. Search for your city instead, or try again.",
+        });
+        return;
+      }
+      const geocode = await reverseGeocodeDeviceLocation({ coords: pos.coords });
+      if (geocode.status !== 'success') {
         openManualSearch({
           tone: 'error',
           text: "We couldn't match your current location to a city. Search manually instead.",
@@ -87,12 +112,9 @@ export default function LocationStep({ location, onLocationChange, onNext }: { l
         return;
       }
       applyLocation({
-        location: data.formatted ?? `${data.city}, ${data.country}`,
-        country: data.country,
-        locationData: {
-          lat: Number(data.lat ?? pos.coords.latitude),
-          lng: Number(data.lng ?? pos.coords.longitude),
-        },
+        location: geocode.location,
+        country: geocode.country,
+        locationData: geocode.coords,
       });
     } catch {
       openManualSearch({

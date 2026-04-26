@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -16,7 +16,9 @@ import { spacing, radius } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { EVENT_LANGUAGES } from '@/lib/eventLanguages';
 import { supabase } from '@/lib/supabase';
-import * as Location from 'expo-location';
+import { useLocationPermission } from '@/lib/useLocationPermission';
+import { saveCurrentDeviceLocationToProfile, type SaveProfileLocationResult } from '@/lib/locationProfileUpdate';
+import { useQueryClient } from '@tanstack/react-query';
 
 const CATEGORIES = [
   'Music', 'Tech', 'Art', 'Gaming', 'Food',
@@ -72,16 +74,21 @@ interface EventFilterSheetProps {
   onApply: (filters: EventFilters) => void;
   canCityBrowse: boolean;
   onPremiumUpgrade: () => void;
+  hasSavedLocation?: boolean;
 }
 
 export default function EventFilterSheet({
-  visible, onClose, filters, onApply, canCityBrowse, onPremiumUpgrade,
+  visible, onClose, filters, onApply, canCityBrowse, onPremiumUpgrade, hasSavedLocation,
 }: EventFilterSheetProps) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const queryClient = useQueryClient();
+  const locationPermission = useLocationPermission();
+  const { refresh: refreshLocationPermission } = locationPermission;
 
   const [draft, setDraft] = useState<EventFilters>(filters);
-  const [locationStatus, setLocationStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+  const [locationActionLoading, setLocationActionLoading] = useState(false);
+  const [locationActionMessage, setLocationActionMessage] = useState<string | null>(null);
 
   const [cityQuery, setCityQuery] = useState('');
   const [cityResults, setCityResults] = useState<GeoResult[]>([]);
@@ -97,19 +104,10 @@ export default function EventFilterSheet({
       setDraft(f);
       setCityQuery('');
       setCityResults([]);
+      setLocationActionMessage(null);
+      void refreshLocationPermission();
     }
-  }, [visible, filters, canCityBrowse]);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        setLocationStatus(status === 'granted' ? 'granted' : status === 'denied' ? 'denied' : 'unknown');
-      } catch {
-        setLocationStatus('unknown');
-      }
-    })();
-  }, []);
+  }, [visible, filters, canCityBrowse, refreshLocationPermission]);
 
   const toggleCategory = (cat: string) => {
     setDraft(prev => ({
@@ -134,12 +132,84 @@ export default function EventFilterSheet({
     }
   };
 
+  const nearbyPermissionHelperText = useMemo(() => {
+    if (locationActionLoading || locationPermission.isLoading) return 'Checking location permission...';
+    if (locationPermission.status === 'unknown') return "Couldn't check location permission — tap to retry";
+    if (locationPermission.servicesEnabled === false) {
+      return 'Location Services are off — tap to open Settings';
+    }
+    if (locationPermission.denied && locationPermission.canAskAgain === false) {
+      return 'Location permission is off — tap to update in Settings';
+    }
+    if (locationPermission.denied) return 'Location permission denied — tap to request access';
+    if (locationPermission.undetermined) return 'Tap to allow location for Nearby events';
+    if (locationPermission.granted && hasSavedLocation === false) {
+      return 'Location allowed — tap to save your area for Nearby events';
+    }
+    return null;
+  }, [
+    hasSavedLocation,
+    locationActionLoading,
+    locationPermission.canAskAgain,
+    locationPermission.denied,
+    locationPermission.granted,
+    locationPermission.isLoading,
+    locationPermission.servicesEnabled,
+    locationPermission.status,
+    locationPermission.undetermined,
+  ]);
+
+  const mapLocationResultMessage = (result: SaveProfileLocationResult): string => {
+    switch (result.status) {
+      case 'success':
+        return 'Saved area updated. Nearby filters can use your current area.';
+      case 'services_disabled':
+        return 'Device Location Services are off. Turn them on in Settings, then try again.';
+      case 'permission_denied':
+        return result.canAskAgain === false
+          ? 'Location is off for Vibely. Enable it in Settings to update Nearby.'
+          : 'Allow location access so Vibely can update your saved area.';
+      case 'permission_error':
+        return "Couldn't check location permission. Try again in a moment.";
+      case 'gps_failed':
+        return "Couldn't get your current location. Check Location Services and try again.";
+      case 'geocode_failed':
+        return "Couldn't match your location to a city. Try again in a moment.";
+      case 'backend_failed':
+        return 'Location was allowed, but your saved area was not updated. Try again.';
+      default:
+        return 'Location was not updated. Try again.';
+    }
+  };
+
   const requestLocation = async () => {
+    if (locationActionLoading) return;
+    setLocationActionLoading(true);
+    setLocationActionMessage(null);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationStatus(status === 'granted' ? 'granted' : 'denied');
-    } catch {
-      setLocationStatus('denied');
+      if (
+        (locationPermission.denied && locationPermission.canAskAgain === false) ||
+        locationPermission.servicesEnabled === false
+      ) {
+        await locationPermission.openSettings();
+        return;
+      }
+
+      const result = await saveCurrentDeviceLocationToProfile({
+        requestPermission: !locationPermission.granted,
+      });
+      await locationPermission.refresh();
+      if (result.status === 'success') {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['profile-location'] }),
+          queryClient.invalidateQueries({ queryKey: ['events-discover'] }),
+          queryClient.invalidateQueries({ queryKey: ['other-city-events'] }),
+          queryClient.invalidateQueries({ queryKey: ['next-registered-event'] }),
+        ]);
+      }
+      setLocationActionMessage(mapLocationResultMessage(result));
+    } finally {
+      setLocationActionLoading(false);
     }
   };
 
@@ -339,19 +409,27 @@ export default function EventFilterSheet({
             </View>
 
             {/* Nearby: permission helper */}
-            {draft.locationMode === 'nearby' && locationStatus !== 'granted' && (
+            {draft.locationMode === 'nearby' && nearbyPermissionHelperText && (
               <Pressable
                 onPress={requestLocation}
+                disabled={locationActionLoading || locationPermission.isLoading}
                 style={[s.permissionHelper, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}
               >
-                <Ionicons name="location-outline" size={16} color={theme.tint} />
+                {locationActionLoading || locationPermission.isLoading ? (
+                  <ActivityIndicator size="small" color={theme.tint} />
+                ) : (
+                  <Ionicons name="location-outline" size={16} color={theme.tint} />
+                )}
                 <Text style={[s.permissionHelperText, { color: theme.textSecondary }]}>
-                  {locationStatus === 'denied'
-                    ? 'Location permission denied — enable in Settings'
-                    : 'Tap to enable location for nearby events'}
+                  {nearbyPermissionHelperText}
                 </Text>
               </Pressable>
             )}
+            {draft.locationMode === 'nearby' && locationActionMessage ? (
+              <Text style={[s.helperText, { color: theme.textSecondary, marginBottom: spacing.md }]}>
+                {locationActionMessage}
+              </Text>
+            ) : null}
 
             {/* City mode: upsell for free users */}
             {draft.locationMode === 'city' && !canCityBrowse && (
