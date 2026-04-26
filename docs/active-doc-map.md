@@ -54,6 +54,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Active launch backlog and blocker matrix | `docs/native-final-blocker-matrix.md` |
 | Strict release-readiness decision | `docs/phase7-stage5-release-readiness-and-go-nogo.md` |
 | Provider and store setup depth | `docs/native-external-setup-checklist.md` |
+| **Native external setup closure gate** | `docs/native-external-setup-closure.md` |
 | Phased operator detail | `docs/native-sprint6-launch-closure-runbook.md` |
 | **Web regression harness (static + manual checklist)** | `scripts/run_golden_path_smoke.sh` → `docs/golden-path-regression-runbook.md` |
 | **Native RC smoke pack (iOS/Android operator checklist)** | `docs/qa/native-rc-smoke-pack.md` |
