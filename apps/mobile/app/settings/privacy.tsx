@@ -68,7 +68,6 @@ type PrivacyProfileRow = {
   distance_visibility: DistanceVisibility | null;
   event_attendance_visibility: EventAttendanceVisibility | null;
   discoverable: boolean | null;
-  show_distance: boolean | null;
   show_online_status: boolean | null;
 };
 
@@ -81,7 +80,6 @@ type NormalizedPrivacyProfile = {
   distance_visibility: DistanceVisibility;
   event_attendance_visibility: EventAttendanceVisibility;
   discoverable: boolean;
-  show_distance: boolean;
   show_online_status: boolean;
 };
 
@@ -100,12 +98,11 @@ function normalizeProfile(p: PrivacyProfileRow | null | undefined): NormalizedPr
     discovery_snooze_until: p?.discovery_snooze_until ?? null,
     discovery_audience: p?.discovery_audience ?? 'everyone',
     activity_status_visibility: p?.activity_status_visibility ?? 'matches',
-    distance_visibility: p?.distance_visibility ?? (p?.show_distance === false ? 'hidden' : 'approximate'),
+    distance_visibility: p?.distance_visibility ?? 'approximate',
     event_attendance_visibility: isEventAttendanceVisibility(p?.event_attendance_visibility)
       ? p.event_attendance_visibility
       : 'attendees',
     discoverable: p?.discoverable ?? true,
-    show_distance: p?.show_distance ?? true,
     show_online_status: p?.show_online_status ?? true,
   };
 }
@@ -188,7 +185,7 @@ export default function PrivacySettingsScreen() {
       const { data, error } = await supabase
         .from('profiles')
         .select(
-          'discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, distance_visibility, event_attendance_visibility, discoverable, show_distance, show_online_status'
+          'discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, distance_visibility, event_attendance_visibility, discoverable, show_online_status'
         )
         .eq('id', user.id)
         .maybeSingle();

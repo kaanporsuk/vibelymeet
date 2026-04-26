@@ -2451,7 +2451,6 @@ export type Database = {
           proof_selfie_url: string | null
           referred_by: string | null
           relationship_intent: string | null
-          show_distance: boolean
           show_online_status: boolean
           subscription_tier: string
           suspension_reason: string | null
@@ -2525,7 +2524,6 @@ export type Database = {
           proof_selfie_url?: string | null
           referred_by?: string | null
           relationship_intent?: string | null
-          show_distance?: boolean
           show_online_status?: boolean
           subscription_tier?: string
           suspension_reason?: string | null
@@ -2599,7 +2597,6 @@ export type Database = {
           proof_selfie_url?: string | null
           referred_by?: string | null
           relationship_intent?: string | null
-          show_distance?: boolean
           show_online_status?: boolean
           subscription_tier?: string
           suspension_reason?: string | null

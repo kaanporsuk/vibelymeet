@@ -86,7 +86,7 @@ Stage 2 closure is recorded in `docs/distance-visibility-stage2-final-enforcemen
 - Direct client `SELECT(location_data)` fails for anon/authenticated.
 - `get_my_location_data()` still works for self.
 
-## Later Cleanup
+## Legacy Cleanup
 
-- Deprecate and remove legacy `profiles.show_distance`.
-- Remove the sync trigger once all clients and generated types use `distance_visibility` only.
+- Stage 1 kept legacy `profiles.show_distance` temporarily for rollout compatibility.
+- After Stage 2 was live and verified, the follow-up cleanup removes `profiles.show_distance` and the `show_distance` branches from the shared privacy sync trigger function.

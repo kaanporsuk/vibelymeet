@@ -82,6 +82,10 @@ Manual QA boundaries:
 - The local partner smoke password was invalid, so a fresh second-viewer Hidden visual check was not repeated after Stage 2. Stage 2 SQL validation covers the Hidden backend contract, and Stage 1 manual QA already covered Hidden profile UI rendering.
 - The smoke account had zero visible events after Stage 2, so event venue distance UI was not re-proved without creating a fixture. Stage 1 fixture QA already covered event venue distance rendering, and Stage 2 did not change event distance behavior.
 
-## Later Cleanup
+## Legacy Cleanup
 
-Do not remove `profiles.show_distance` in this closure. Deprecate `show_distance` and its sync trigger later in a separate low-risk cleanup PR after Stage 2 is live and verified.
+Stage 2 intentionally left legacy `profiles.show_distance` in place until the final enforcement deploy was live and verified. The follow-up cleanup removes that compatibility column and the `show_distance` branches from the shared privacy sync trigger function. `distance_visibility` remains the canonical privacy setting.
+
+Post-cleanup validation lives at:
+
+- `supabase/validation/distance_visibility_show_distance_cleanup.sql`
