@@ -1,12 +1,3 @@
-/**
- * Supabase `public` schema types — generated from the linked project.
- *
- * Regenerate:
- *   ./scripts/regen-supabase-types.sh
- *
- * Project id matches supabase/config.toml (linked).
- */
-
 export type Json =
   | string
   | number
@@ -20,6 +11,31 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -4123,16 +4139,12 @@ export type Database = {
         Args: { p_asset_id: string; p_match_id: string }
         Returns: Json
       }
-      block_user_with_cleanup: {
-        Args: {
-          p_blocked_id: string
-          p_match_id?: string | null
-          p_reason?: string | null
-        }
-        Returns: Json
-      }
       backfill_chat_message_media_lifecycle: {
         Args: { p_limit?: number }
+        Returns: Json
+      }
+      block_user_with_cleanup: {
+        Args: { p_blocked_id: string; p_match_id?: string; p_reason?: string }
         Returns: Json
       }
       calculate_vibe_score: { Args: { p_user_id: string }; Returns: Json }
@@ -4458,6 +4470,19 @@ export type Database = {
         Args: { p_job_name?: string; p_run_limit?: number }
         Returns: Json
       }
+      get_my_blocked_users: {
+        Args: never
+        Returns: {
+          avatar_url: string
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+          display_name: string
+          id: string
+          photo_url: string
+          reason: string
+        }[]
+      }
       get_my_location_data: {
         Args: never
         Returns: {
@@ -4466,19 +4491,6 @@ export type Database = {
           lng: number
           location: string
           location_data: Json
-        }[]
-      }
-      get_my_blocked_users: {
-        Args: never
-        Returns: {
-          avatar_url: string | null
-          blocked_id: string
-          blocker_id: string
-          created_at: string
-          display_name: string | null
-          id: string
-          photo_url: string | null
-          reason: string | null
         }[]
       }
       get_my_privacy_settings: {
@@ -5018,6 +5030,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
