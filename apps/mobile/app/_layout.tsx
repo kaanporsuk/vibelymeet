@@ -207,7 +207,7 @@ function RevenueCatUserSync() {
   return null;
 }
 
-/** Updates profiles.last_seen_at every 60s while app is in foreground — skipped when on a break. */
+/** Emits the server-owned activity heartbeat every 60s while foregrounded, skipped when on a break. */
 function ActivityHeartbeat() {
   const { user } = useAuth();
   const { isPaused } = useAccountPauseStatus();

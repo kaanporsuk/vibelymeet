@@ -10,9 +10,7 @@ export const useActivityHeartbeat = () => {
 
     const update = () => {
       supabase
-        .from("profiles")
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq("id", user.id)
+        .rpc("mark_my_activity_seen")
         .then(() => {});
     };
 

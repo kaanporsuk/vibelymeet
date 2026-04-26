@@ -47,9 +47,16 @@ type ChatOtherUser = {
   avatar_url: string | null;
   photos: unknown;
   last_seen_at: string | null;
+  is_online: boolean;
   photo_verified: boolean | null;
   subscription_tier: string | null;
 } | null;
+
+type ChatPresenceRow = {
+  can_view_presence?: boolean | null;
+  is_online?: boolean | null;
+  last_seen_at?: string | null;
+};
 
 export const useMessages = (otherUserId: string, currentUserId?: string) => {
   return useQuery({
@@ -68,23 +75,34 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
       if (matchError) throw matchError;
       if (!match) return { messages: [], matchId: null, otherUser: null };
 
-      const { data: messages, error: msgError } = await supabase
-        .from("messages")
-        .select(
-          "id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload",
-        )
-        .eq("match_id", match.id)
-        .order("created_at", { ascending: true });
+      const [messagesRes, otherUserRes, presenceRes] = await Promise.all([
+        supabase
+          .from("messages")
+          .select(
+            "id, match_id, sender_id, content, created_at, read_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, ref_id, structured_payload",
+          )
+          .eq("match_id", match.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("profiles")
+          .select("id, name, age, avatar_url, photos, photo_verified, subscription_tier")
+          .eq("id", otherUserId)
+          .maybeSingle(),
+        supabase
+          .rpc("get_chat_partner_presence", { p_match_id: match.id })
+          .maybeSingle(),
+      ]);
 
-      if (msgError) throw msgError;
+      if (messagesRes.error) throw messagesRes.error;
+      const messages = messagesRes.data || [];
+      const otherUser = otherUserRes.data;
+      const presenceData = presenceRes.data as ChatPresenceRow | null;
+      const presence =
+        !presenceRes.error && presenceData?.can_view_presence
+          ? presenceData
+          : null;
 
-      const { data: otherUser } = await supabase
-        .from("profiles")
-        .select("id, name, age, avatar_url, photos, last_seen_at, photo_verified, subscription_tier")
-        .eq("id", otherUserId)
-        .maybeSingle();
-
-      const collapsedRows = collapseVibeGameRowsForWeb((messages || []).map((msg) => ({
+      const collapsedRows = collapseVibeGameRowsForWeb(messages.map((msg) => ({
         id: msg.id,
         sender_id: msg.sender_id,
         content: msg.content,
@@ -108,6 +126,8 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
                 photos: otherUser.photos,
                 avatar_url: otherUser.avatar_url,
               }),
+              last_seen_at: presence?.last_seen_at ?? null,
+              is_online: presence?.is_online ?? false,
             }
           : null,
         messages: collapsedRows.map((row) => {

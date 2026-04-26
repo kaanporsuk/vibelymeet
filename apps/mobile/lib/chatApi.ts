@@ -297,6 +297,11 @@ export type ChatOtherUser = {
   last_seen_at: string | null;
 };
 
+type ChatPresenceRow = {
+  can_view_presence?: boolean | null;
+  last_seen_at?: string | null;
+};
+
 export function useMessages(otherUserId: string | undefined, currentUserId: string | null | undefined) {
   return useQuery({
     queryKey: ['messages', otherUserId, currentUserId],
@@ -310,7 +315,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
       if (matchError) throw matchError;
       if (!match) return { messages: [], matchId: null, otherUser: null };
 
-      const [messagesRes, otherUserRes] = await Promise.all([
+      const [messagesRes, otherUserRes, presenceRes] = await Promise.all([
         supabase
           .from('messages')
           .select(
@@ -318,11 +323,17 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           )
           .eq('match_id', match.id)
           .order('created_at', { ascending: true }),
-        supabase.from('profiles').select('id, name, age, avatar_url, photos, last_seen_at').eq('id', otherUserId).maybeSingle(),
+        supabase.from('profiles').select('id, name, age, avatar_url, photos').eq('id', otherUserId).maybeSingle(),
+        supabase.rpc('get_chat_partner_presence', { p_match_id: match.id }).maybeSingle(),
       ]);
       if (messagesRes.error) throw messagesRes.error;
       const messages = messagesRes.data || [];
-      const otherRow = otherUserRes.data as { id: string; name?: string; age?: number; avatar_url?: string | null; photos?: string[] | null; last_seen_at?: string | null } | null;
+      const otherRow = otherUserRes.data as { id: string; name?: string; age?: number; avatar_url?: string | null; photos?: string[] | null } | null;
+      const presenceData = presenceRes.data as ChatPresenceRow | null;
+      const presence =
+        !presenceRes.error && presenceData?.can_view_presence
+          ? presenceData
+          : null;
 
       const otherUser: ChatOtherUser | null = otherRow
         ? {
@@ -334,7 +345,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
               avatar_url: otherRow.avatar_url,
             }),
             photos: otherRow.photos ?? null,
-            last_seen_at: otherRow.last_seen_at ?? null,
+            last_seen_at: presence?.last_seen_at ?? null,
           }
         : null;
 

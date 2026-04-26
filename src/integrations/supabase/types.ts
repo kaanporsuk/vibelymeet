@@ -3426,10 +3426,12 @@ export type Database = {
           handshake_started_at: string | null
           id: string
           participant_1_away_at: string | null
+          participant_1_decided_at: string | null
           participant_1_id: string
           participant_1_joined_at: string | null
           participant_1_liked: boolean | null
           participant_2_away_at: string | null
+          participant_2_decided_at: string | null
           participant_2_id: string
           participant_2_joined_at: string | null
           participant_2_liked: boolean | null
@@ -3460,10 +3462,12 @@ export type Database = {
           handshake_started_at?: string | null
           id?: string
           participant_1_away_at?: string | null
+          participant_1_decided_at?: string | null
           participant_1_id: string
           participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
           participant_2_away_at?: string | null
+          participant_2_decided_at?: string | null
           participant_2_id: string
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
@@ -3494,10 +3498,12 @@ export type Database = {
           handshake_started_at?: string | null
           id?: string
           participant_1_away_at?: string | null
+          participant_1_decided_at?: string | null
           participant_1_id?: string
           participant_1_joined_at?: string | null
           participant_1_liked?: boolean | null
           participant_2_away_at?: string | null
+          participant_2_decided_at?: string | null
           participant_2_id?: string
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
@@ -3827,6 +3833,99 @@ export type Database = {
         }
         Relationships: []
       }
+      v_event_loop_mark_lobby_promotion_normalized: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          event_id: string | null
+          id: string | null
+          latency_ms: number | null
+          nested_promotion_reason_echo: string | null
+          promotion: Json | null
+          promotion_derived_outcome: string | null
+          promotion_promoted: string | null
+          promotion_reason: string | null
+          promotion_succeeded: boolean | null
+          rpc_completed_observability_outcome: string | null
+          session_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          nested_promotion_reason_echo?: string | null
+          promotion?: never
+          promotion_derived_outcome?: never
+          promotion_promoted?: never
+          promotion_reason?: never
+          promotion_succeeded?: never
+          rpc_completed_observability_outcome?: string | null
+          session_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          nested_promotion_reason_echo?: string | null
+          promotion?: never
+          promotion_derived_outcome?: never
+          promotion_promoted?: never
+          promotion_reason?: never
+          promotion_succeeded?: never
+          rpc_completed_observability_outcome?: string | null
+          session_id?: string | null
+        }
+        Relationships: []
+      }
+      v_event_loop_observability_metric_streams: {
+        Row: {
+          actor_id: string | null
+          created_at: string | null
+          detail: Json | null
+          event_id: string | null
+          id: string | null
+          latency_ms: number | null
+          metric_stream: string | null
+          operation: string | null
+          outcome: string | null
+          reason_code: string | null
+          session_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          metric_stream?: never
+          operation?: string | null
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string | null
+          detail?: Json | null
+          event_id?: string | null
+          id?: string | null
+          latency_ms?: number | null
+          metric_stream?: never
+          operation?: string | null
+          outcome?: string | null
+          reason_code?: string | null
+          session_id?: string | null
+        }
+        Relationships: []
+      }
       v_event_loop_promotion_events: {
         Row: {
           actor_id: string | null
@@ -4033,8 +4132,20 @@ export type Database = {
         Args: { p: Database["public"]["Tables"]["profiles"]["Row"] }
         Returns: Json
       }
+      can_view_event_registration_profile: {
+        Args: { p_event_id: string; p_profile_id: string; p_viewer_id: string }
+        Returns: boolean
+      }
       can_view_profile_photo: {
         Args: { photo_owner_id: string }
+        Returns: boolean
+      }
+      can_view_profile_presence: {
+        Args: {
+          p_event_id?: string
+          p_target_user_id: string
+          p_viewer_id: string
+        }
         Returns: boolean
       }
       cancel_account_deletion_media_hold: {
@@ -4120,16 +4231,13 @@ export type Database = {
         }
       }
       clear_expired_pauses: { Args: never; Returns: number }
+      clear_my_location_data: { Args: never; Returns: Json }
       clear_profile_vibe_video: {
         Args: {
           p_clear_caption?: boolean
           p_released_by?: string
           p_user_id: string
         }
-        Returns: Json
-      }
-      clear_my_location_data: {
-        Args: Record<PropertyKey, never>
         Returns: Json
       }
       complete_account_deletion_media_cleanup: {
@@ -4141,10 +4249,6 @@ export type Database = {
         Returns: Json
       }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
-      can_view_event_registration_profile: {
-        Args: { p_event_id: string; p_profile_id: string; p_viewer_id: string }
-        Returns: boolean
-      }
       create_media_session: {
         Args: {
           p_caption?: string
@@ -4276,6 +4380,15 @@ export type Database = {
         Args: { p_media_type: string; p_user_id: string }
         Returns: Json
       }
+      get_chat_partner_presence: {
+        Args: { p_match_id: string }
+        Returns: {
+          can_view_presence: boolean
+          is_online: boolean
+          last_seen_at: string
+          target_user_id: string
+        }[]
+      }
       get_daily_drop_candidates: {
         Args: { p_limit?: number; p_user_id: string }
         Returns: {
@@ -4333,19 +4446,32 @@ export type Database = {
         Args: { p_event_id: string; p_viewer_id: string }
         Returns: string[]
       }
-      get_my_location_data: {
-        Args: Record<PropertyKey, never>
-        Returns: {
-          country: string | null
-          lat: number | null
-          lng: number | null
-          location: string | null
-          location_data: Json | null
-        }[]
-      }
       get_media_worker_cron_status: {
         Args: { p_job_name?: string; p_run_limit?: number }
         Returns: Json
+      }
+      get_my_location_data: {
+        Args: never
+        Returns: {
+          country: string
+          lat: number
+          lng: number
+          location: string
+          location_data: Json
+        }[]
+      }
+      get_my_privacy_settings: {
+        Args: never
+        Returns: {
+          activity_status_visibility: string
+          discoverable: boolean
+          discovery_audience: string
+          discovery_mode: string
+          discovery_snooze_until: string
+          distance_visibility: string
+          event_attendance_visibility: string
+          show_online_status: boolean
+        }[]
       }
       get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
       get_other_city_events: {
@@ -4366,13 +4492,19 @@ export type Database = {
         }[]
       }
       get_photo_sessions: { Args: { p_user_id: string }; Returns: Json }
-      get_profile_for_viewer: {
-        Args: { p_target_id: string }
-        Returns: Json
-      }
       get_profile_distance_label_for_viewer: {
         Args: { p_target_id: string }
-        Returns: string | null
+        Returns: string
+      }
+      get_profile_for_viewer: { Args: { p_target_id: string }; Returns: Json }
+      get_profile_presence_for_viewer: {
+        Args: { p_event_id?: string; p_target_user_id: string }
+        Returns: {
+          can_view_presence: boolean
+          is_online: boolean
+          last_seen_at: string
+          target_user_id: string
+        }[]
       }
       get_shared_schedule_for_date_planning: {
         Args: { p_match_id: string; p_subject_user_id: string }
@@ -4473,6 +4605,7 @@ export type Database = {
         Args: { p_asset_id: string; p_deleted_at?: string }
         Returns: Json
       }
+      mark_my_activity_seen: { Args: never; Returns: boolean }
       mark_photo_deleted: {
         Args: { p_storage_path: string; p_user_id: string }
         Returns: Json
@@ -4526,9 +4659,17 @@ export type Database = {
         Args: { p_stale_minutes: number }
         Returns: number
       }
+      profile_event_attendance_visible_to_viewer: {
+        Args: { p_target_id: string; p_viewer_id: string }
+        Returns: boolean
+      }
       profile_has_established_access: {
         Args: { p_target_id: string; p_viewer_id: string }
         Returns: boolean
+      }
+      profile_location_coord: {
+        Args: { p_key: string; p_location_data: Json }
+        Returns: number
       }
       profiles_have_qualifying_shared_event: {
         Args: { p_event_id?: string; p_profile_a: string; p_profile_b: string }
@@ -4671,6 +4812,19 @@ export type Database = {
           p_provider_id: string
         }
         Returns: Json
+      }
+      update_my_privacy_settings: {
+        Args: { p_patch: Json }
+        Returns: {
+          activity_status_visibility: string
+          discoverable: boolean
+          discovery_audience: string
+          discovery_mode: string
+          discovery_snooze_until: string
+          distance_visibility: string
+          event_attendance_visibility: string
+          show_online_status: boolean
+        }[]
       }
       update_onboarding_stage: {
         Args: { p_stage: string; p_user_id: string }

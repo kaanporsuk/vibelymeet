@@ -355,9 +355,6 @@ const Chat = () => {
   const otherUser = useMemo(() => {
     if (chatData?.otherUser) {
       const ou = chatData.otherUser;
-      const lastSeenAt = ou.last_seen_at ? new Date(ou.last_seen_at) : null;
-      const now = new Date();
-      const diffMinutes = lastSeenAt ? (now.getTime() - lastSeenAt.getTime()) / 60000 : Infinity;
 
       const primaryPhotoPath = resolvePrimaryProfilePhotoPath({
         photos: ou.photos,
@@ -374,7 +371,7 @@ const Chat = () => {
           ? ou.photos.map((p) => getImageUrl(typeof p === "string" ? p : "")).filter(Boolean) as string[]
           : [],
         vibes: [] as string[],
-        isOnline: diffMinutes <= 5,
+        isOnline: ou.is_online === true,
         photoVerified: ou.photo_verified || false,
         subscription_tier: ou.subscription_tier ?? null,
       };

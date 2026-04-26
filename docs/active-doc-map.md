@@ -33,6 +33,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Browser/runtime proof results | `docs/browser-auth-runtime-proof-results.md` |
 | Post-audit ops checklist (Supabase vs Vercel vs manual QA) | `docs/post-audit-operational-verification-checklist.md` |
 | Distance Visibility Stage 1 rollout and Stage 2 final enforcement | `docs/distance-visibility-stage1-rollout.md`, `docs/distance-visibility-stage2-final-enforcement.md` |
+| Activity Status privacy boundary rebuild delta | `docs/branch-deltas/fix-activity-status-privacy-boundary.md`, `docs/activity-status-privacy-verification.sql` |
 | Fresh smoke bootstrap method and proof boundaries | `docs/fresh-smoke-proof-bootstrap.md` |
 | Proof policy and rebuild-proof context | `docs/authenticated-proof-and-rebuild-plan.md` |
 | Clean rebuild rehearsal log | `docs/rebuild-rehearsal-log.md` |
