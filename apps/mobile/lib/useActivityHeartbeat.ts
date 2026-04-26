@@ -1,6 +1,6 @@
 /**
- * Updates profiles.last_seen_at periodically while app is in foreground.
- * Powers "Online" / "Recently active" / "Last seen" in chat. Reference: src/hooks/useActivityHeartbeat.ts
+ * Calls the server-owned activity heartbeat periodically while app is in foreground.
+ * The backend skips user-facing last_seen_at writes when Activity status is Nobody.
  */
 import { useEffect, useRef, useCallback } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase';
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-/** When `skipHeartbeat` is true (e.g. user on a break), we do not touch `last_seen_at` so matches see stale activity. */
+/** When `skipHeartbeat` is true (e.g. user on a break), we do not emit activity. */
 export function useActivityHeartbeat(userId: string | null | undefined, skipHeartbeat = false) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
@@ -18,10 +18,7 @@ export function useActivityHeartbeat(userId: string | null | undefined, skipHear
     if (!userId || skipHeartbeat || inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq('id', userId);
+      const { error } = await supabase.rpc('mark_my_activity_seen');
       if (error && __DEV__) console.warn('[heartbeat] update failed:', error.message);
     } catch (err) {
       if (__DEV__) console.warn('[heartbeat] unexpected error:', err);

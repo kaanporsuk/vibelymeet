@@ -45,6 +45,12 @@ import {
   isEventAttendanceVisibility,
   type EventAttendanceVisibility,
 } from '@clientShared/eventAttendanceVisibility';
+import {
+  getActivityVisibilityDescription,
+  getActivityVisibilityLabel,
+  normalizeActivityStatusVisibility,
+  type ActivityStatusVisibility,
+} from '@clientShared/activityStatusVisibility';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -53,7 +59,6 @@ const EVENT_VIOLET = '#8B5CF6';
 
 type DiscoveryMode = 'visible' | 'snoozed' | 'hidden';
 type DiscoveryAudience = 'everyone' | 'event_based' | 'hidden';
-type ActivityVisibility = 'matches' | 'event_connections' | 'nobody';
 type DistanceVisibility = 'approximate' | 'hidden';
 
 type SnoozePreset = '1h' | 'tomorrow' | '24h' | 'week' | 'indefinite';
@@ -70,7 +75,7 @@ type PrivacyProfileRow = {
   discovery_mode: DiscoveryMode | null;
   discovery_snooze_until: string | null;
   discovery_audience: DiscoveryAudience | null;
-  activity_status_visibility: ActivityVisibility | null;
+  activity_status_visibility: ActivityStatusVisibility | null;
   distance_visibility: DistanceVisibility | null;
   event_attendance_visibility: EventAttendanceVisibility | null;
   discoverable: boolean | null;
@@ -82,7 +87,7 @@ type NormalizedPrivacyProfile = {
   discovery_mode: DiscoveryMode;
   discovery_snooze_until: string | null;
   discovery_audience: DiscoveryAudience;
-  activity_status_visibility: ActivityVisibility;
+  activity_status_visibility: ActivityStatusVisibility;
   distance_visibility: DistanceVisibility;
   event_attendance_visibility: EventAttendanceVisibility;
   discoverable: boolean;
@@ -103,7 +108,7 @@ function normalizeProfile(p: PrivacyProfileRow | null | undefined): NormalizedPr
     discovery_mode: p?.discovery_mode ?? 'visible',
     discovery_snooze_until: p?.discovery_snooze_until ?? null,
     discovery_audience: p?.discovery_audience ?? 'everyone',
-    activity_status_visibility: p?.activity_status_visibility ?? 'matches',
+    activity_status_visibility: normalizeActivityStatusVisibility(p?.activity_status_visibility),
     distance_visibility: p?.distance_visibility ?? 'approximate',
     event_attendance_visibility: isEventAttendanceVisibility(p?.event_attendance_visibility)
       ? p.event_attendance_visibility
@@ -188,13 +193,7 @@ export default function PrivacySettingsScreen() {
     queryKey: ['privacy-profile', user?.id],
     queryFn: async (): Promise<PrivacyProfileRow | null> => {
       if (!user?.id) return null;
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(
-          'discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, distance_visibility, event_attendance_visibility, discoverable, show_online_status'
-        )
-        .eq('id', user.id)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc('get_my_privacy_settings').maybeSingle();
       if (error) throw error;
       return data as PrivacyProfileRow | null;
     },
@@ -250,6 +249,7 @@ export default function PrivacySettingsScreen() {
   const [distanceSheetOpen, setDistanceSheetOpen] = useState(false);
   const [eventAttSheetOpen, setEventAttSheetOpen] = useState(false);
   const [audienceSaving, setAudienceSaving] = useState<DiscoveryAudience | null>(null);
+  const [activitySaving, setActivitySaving] = useState<ActivityStatusVisibility | null>(null);
   const [distanceSaving, setDistanceSaving] = useState<DistanceVisibility | null>(null);
 
   const invalidatePrivacy = () => {
@@ -486,14 +486,16 @@ export default function PrivacySettingsScreen() {
   }, [profile.discovery_audience, theme.tint, theme.mutedForeground]);
 
   const activityChip = useMemo(() => {
-    switch (profile.activity_status_visibility) {
-      case 'matches':
-        return { label: 'Matches only', color: theme.tint };
-      case 'event_connections':
-        return { label: 'Event connections', color: CYAN };
-      default:
-        return { label: 'Nobody', color: theme.mutedForeground };
-    }
+    const color =
+      profile.activity_status_visibility === 'event_connections'
+        ? CYAN
+        : profile.activity_status_visibility === 'nobody'
+          ? theme.mutedForeground
+          : theme.tint;
+    return {
+      label: getActivityVisibilityLabel(profile.activity_status_visibility),
+      color,
+    };
   }, [profile.activity_status_visibility, theme.tint, theme.mutedForeground]);
 
   const distanceChip = useMemo(() => {
@@ -528,14 +530,16 @@ export default function PrivacySettingsScreen() {
   }, [profile.distance_visibility, theme.tint, theme.mutedForeground]);
 
   const summaryActivity = useMemo(() => {
-    switch (profile.activity_status_visibility) {
-      case 'matches':
-        return { text: 'Matches only', color: theme.tint };
-      case 'event_connections':
-        return { text: 'Event only', color: CYAN };
-      default:
-        return { text: 'Off', color: theme.mutedForeground };
-    }
+    const color =
+      profile.activity_status_visibility === 'event_connections'
+        ? CYAN
+        : profile.activity_status_visibility === 'nobody'
+          ? theme.mutedForeground
+          : theme.tint;
+    return {
+      text: getActivityVisibilityLabel(profile.activity_status_visibility),
+      color,
+    };
   }, [profile.activity_status_visibility, theme.tint, theme.mutedForeground]);
 
   const summaryEvent = useMemo(() => {
@@ -737,7 +741,7 @@ export default function PrivacySettingsScreen() {
                 icon="radio-button-on-outline"
                 iconColor={CYAN}
                 label="Activity status"
-                description="Who can see when you're active on Vibely"
+                description="Control who can see your active and last-seen status."
                 onPress={() => setActivitySheetOpen(true)}
                 right={
                   <View style={styles.rowRight}>
@@ -1013,12 +1017,9 @@ export default function PrivacySettingsScreen() {
         onSelect={async (v) => {
           if (!user?.id || audienceSaving !== null) return;
           setAudienceSaving(v);
-          const { error } = await supabase
-            .from('profiles')
-            .update({
-              discovery_audience: v,
-            })
-            .eq('id', user.id);
+          const { error } = await supabase.rpc('update_my_privacy_settings', {
+            p_patch: { discovery_audience: v },
+          });
           if (error) {
             show({
               title: 'Couldn’t save',
@@ -1035,26 +1036,26 @@ export default function PrivacySettingsScreen() {
         }}
       />
 
-      <OptionSheet<ActivityVisibility>
+      <OptionSheet<ActivityStatusVisibility>
         visible={activitySheetOpen}
         title="Activity status"
-        subtitle="Who can see when you're active on Vibely"
+        subtitle="Control who can see your active and last-seen status. Typing, calls, and live event participation may have separate real-time indicators."
         theme={theme}
         options={[
-          { value: 'matches', title: 'Matches only', description: 'Only your current matches see active status' },
-          { value: 'event_connections', title: 'Event connections', description: 'Only people at the same events' },
-          { value: 'nobody', title: 'Nobody', description: 'Activity status completely hidden' },
+          { value: 'matches', title: getActivityVisibilityLabel('matches'), description: getActivityVisibilityDescription('matches') },
+          { value: 'event_connections', title: getActivityVisibilityLabel('event_connections'), description: getActivityVisibilityDescription('event_connections') },
+          { value: 'nobody', title: getActivityVisibilityLabel('nobody'), description: getActivityVisibilityDescription('nobody') },
         ]}
         current={profile.activity_status_visibility}
+        disabled={activitySaving !== null}
+        savingValue={activitySaving}
         onClose={() => setActivitySheetOpen(false)}
         onSelect={async (v) => {
-          if (!user?.id) return;
-          const { error } = await supabase
-            .from('profiles')
-            .update({
-              activity_status_visibility: v,
-            })
-            .eq('id', user.id);
+          if (!user?.id || activitySaving !== null) return;
+          setActivitySaving(v);
+          const { error } = await supabase.rpc('update_my_privacy_settings', {
+            p_patch: { activity_status_visibility: v },
+          });
           if (error) {
             show({
               title: 'Couldn’t save',
@@ -1062,7 +1063,11 @@ export default function PrivacySettingsScreen() {
               variant: 'warning',
               primaryAction: { label: 'OK', onPress: () => {} },
             });
-          } else invalidatePrivacy();
+            setActivitySaving(null);
+            return;
+          }
+          invalidatePrivacy();
+          setActivitySaving(null);
           setActivitySheetOpen(false);
         }}
       />
@@ -1082,12 +1087,9 @@ export default function PrivacySettingsScreen() {
         onSelect={async (v) => {
           if (!user?.id || distanceSaving !== null) return;
           setDistanceSaving(v);
-          const { error } = await supabase
-            .from('profiles')
-            .update({
-              distance_visibility: v,
-            })
-            .eq('id', user.id);
+          const { error } = await supabase.rpc('update_my_privacy_settings', {
+            p_patch: { distance_visibility: v },
+          });
           if (error) {
             show({
               title: 'Couldn’t save',
@@ -1119,7 +1121,9 @@ export default function PrivacySettingsScreen() {
         onSelect={async (v) => {
           if (!isEventAttendanceVisibility(v)) return;
           if (!user?.id) return;
-          const { error } = await supabase.from('profiles').update({ event_attendance_visibility: v }).eq('id', user.id);
+          const { error } = await supabase.rpc('update_my_privacy_settings', {
+            p_patch: { event_attendance_visibility: v },
+          });
           if (error) {
             show({
               title: 'Couldn’t save',
@@ -1333,13 +1337,12 @@ function DiscoveryModeSheet({
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
+      const { error } = await supabase.rpc('update_my_privacy_settings', {
+        p_patch: {
           discovery_mode: mode,
           discovery_snooze_until: mode === 'snoozed' ? until : null,
-        })
-        .eq('id', userId);
+        },
+      });
       if (error) {
         show({
           title: 'Couldn’t save',

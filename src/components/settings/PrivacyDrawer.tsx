@@ -31,18 +31,28 @@ import {
   isEventAttendanceVisibility,
   type EventAttendanceVisibility,
 } from "@clientShared/eventAttendanceVisibility";
+import {
+  getActivityVisibilityDescription,
+  getActivityVisibilityLabel,
+  normalizeActivityStatusVisibility,
+  type ActivityStatusVisibility,
+} from "@clientShared/activityStatusVisibility";
 
 type DiscoveryMode = "visible" | "snoozed" | "hidden";
 type DiscoveryAudience = "everyone" | "event_based" | "hidden";
-type ActivityVis = "matches" | "event_connections" | "nobody";
 
 type PrivacyProfile = {
   discovery_mode: DiscoveryMode | null;
   discovery_snooze_until: string | null;
   discovery_audience: DiscoveryAudience | null;
-  activity_status_visibility: ActivityVis | null;
+  activity_status_visibility: ActivityStatusVisibility | null;
   event_attendance_visibility: EventAttendanceVisibility | null;
   distance_visibility: "approximate" | "hidden" | null;
+};
+
+type PrivacySettingsRpcRow = PrivacyProfile & {
+  discoverable?: boolean | null;
+  show_online_status?: boolean | null;
 };
 
 const DEFAULTS: PrivacyProfile = {
@@ -58,12 +68,6 @@ function discoveryChip(mode: DiscoveryMode | null): string {
   if (mode === "snoozed") return "Snoozed";
   if (mode === "hidden") return "Hidden";
   return "Visible";
-}
-
-function activityChip(v: ActivityVis | null): string {
-  if (v === "event_connections") return "Event connections";
-  if (v === "nobody") return "No one";
-  return "Matches";
 }
 
 function eventAttChip(v: EventAttendanceVisibility | null): string {
@@ -108,28 +112,23 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
   const load = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(
-        "discovery_mode, discovery_snooze_until, discovery_audience, activity_status_visibility, event_attendance_visibility, distance_visibility",
-      )
-      .eq("id", user.id)
-      .maybeSingle();
+    const { data, error } = await supabase.rpc("get_my_privacy_settings").maybeSingle();
     if (error) {
       toast.error("Couldn’t load privacy settings");
       setLoading(false);
       return;
     }
-    if (data) {
+    const row = data as PrivacySettingsRpcRow | null;
+    if (row) {
       setProfile({
-        discovery_mode: (data.discovery_mode as DiscoveryMode) ?? "visible",
-        discovery_snooze_until: data.discovery_snooze_until ?? null,
-        discovery_audience: (data.discovery_audience as DiscoveryAudience) ?? "everyone",
-        activity_status_visibility: (data.activity_status_visibility as ActivityVis) ?? "matches",
-        event_attendance_visibility: isEventAttendanceVisibility(data.event_attendance_visibility)
-          ? data.event_attendance_visibility
+        discovery_mode: (row.discovery_mode as DiscoveryMode) ?? "visible",
+        discovery_snooze_until: row.discovery_snooze_until ?? null,
+        discovery_audience: (row.discovery_audience as DiscoveryAudience) ?? "everyone",
+        activity_status_visibility: normalizeActivityStatusVisibility(row.activity_status_visibility),
+        event_attendance_visibility: isEventAttendanceVisibility(row.event_attendance_visibility)
+          ? row.event_attendance_visibility
           : "attendees",
-        distance_visibility: (data.distance_visibility as "approximate" | "hidden") ?? "approximate",
+        distance_visibility: (row.distance_visibility as "approximate" | "hidden") ?? "approximate",
       });
     }
     setLoading(false);
@@ -179,7 +178,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       : "attendees";
     setProfile(next);
     setSaving(true);
-    const body: Record<string, unknown> = {
+    const body = {
       discovery_mode: next.discovery_mode,
       discovery_snooze_until: next.discovery_snooze_until,
       discovery_audience: next.discovery_audience,
@@ -187,7 +186,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
       event_attendance_visibility: eventAttendanceVisibility,
       distance_visibility: next.distance_visibility,
     };
-    const { error } = await supabase.from("profiles").update(body).eq("id", user.id);
+    const { error } = await supabase.rpc("update_my_privacy_settings", { p_patch: body });
     setSaving(false);
     if (error) {
       setProfile(previous);
@@ -279,7 +278,7 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
             {view === "main" && "Control who can see you and how"}
             {view === "discovery" && "Choose how discoverable you are"}
             {view === "audience" && "Choose who can discover your profile"}
-            {view === "activity" && "Who can see when you are online"}
+            {view === "activity" && "Control who can see your active and last-seen status."}
             {view === "event_att" && "Who can see events you join"}
             {view === "blocked" && "They cannot message you or see your profile"}
           </DrawerDescription>
@@ -324,12 +323,12 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   />
                   <Row
                     icon={Activity}
-                    title="Activity Status"
-                    subtitle="Who sees when you are online"
+                    title="Activity status"
+                    subtitle="Control who can see your active and last-seen status."
                     onClick={() => setView("activity")}
                     right={
                       <>
-                        <Chip>{activityChip(profile.activity_status_visibility)}</Chip>
+                        <Chip>{getActivityVisibilityLabel(profile.activity_status_visibility)}</Chip>
                         <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       </>
                     }
@@ -500,11 +499,11 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
             <div className="space-y-2">
               {(
                 [
-                  ["matches", "Matches", "Only your matches see when you are active"],
-                  ["event_connections", "Event connections", "People at the same events"],
-                  ["nobody", "No one", "Activity status hidden"],
+                  "matches",
+                  "event_connections",
+                  "nobody",
                 ] as const
-              ).map(([value, title, desc]) => (
+              ).map((value) => (
                 <Button
                   key={value}
                   variant={profile.activity_status_visibility === value ? "default" : "outline"}
@@ -519,11 +518,14 @@ export function PrivacyDrawer({ open, onOpenChange }: PrivacyDrawerProps) {
                   }}
                 >
                   <div className="text-left">
-                    <p className="font-medium">{title}</p>
-                    <p className="text-xs opacity-80">{desc}</p>
+                    <p className="font-medium">{getActivityVisibilityLabel(value)}</p>
+                    <p className="text-xs opacity-80">{getActivityVisibilityDescription(value)}</p>
                   </div>
                 </Button>
               ))}
+              <p className="text-xs text-muted-foreground">
+                Typing, calls, and live event participation may have separate real-time indicators.
+              </p>
             </div>
           ) : view === "event_att" ? (
             <div className="space-y-2">
