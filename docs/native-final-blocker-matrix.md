@@ -1,146 +1,145 @@
-# Native final blocker matrix (through Phase 7)
+# Native Final Blocker Matrix
 
-Categorized view of what blocks production-style validation vs what is acceptable or deferred. Reflects Sprints 1–6 and **Phase 7** (Android/iOS runtime validation, RevenueCat/OneSignal/Daily validation, release-readiness go/no-go). Use this as the **single active launch backlog and evidence log** for go/no-go and prioritization.
+Last refreshed: 2026-04-27
 
-**Active doc map:** `docs/active-doc-map.md`
+Use this as the active native launch evidence log. It separates closed repo/runtime work from the remaining provider-dashboard, build, and real-device proof that must be completed before TestFlight / Play internal distribution.
 
-**Phase 7 go/no-go:** See `docs/phase7-stage5-release-readiness-and-go-nogo.md`. Current recommendation: **No-Go** until **KD** (RevenueCat, OneSignal mobile, webhook), **KB** (EAS secrets + installable builds), and **KV** (sandbox purchase/restore, push receive, Daily on device) are done — not because core web or repo typecheck is failing. Rebuild rehearsal is logged; authenticated browser proof covers Schedule, Referrals, OneSignal worker + subscribed session + DB sync, Vibe Studio read/caption/fresh binary upload→processing→ready/replace/cleanup, and public-profile route render. Remaining **browser** gaps: interactive push prompt + notification tap (manual). **Operator path:** `docs/kaan-launch-closure-execution-sheet.md` + `docs/native-launch-closure-master-runbook.md`.
+Active doc map: `docs/active-doc-map.md`
 
----
+## Current Go/No-Go
 
-## Blocker ownership (Sprint 6)
+**No-Go for native distribution until the remaining provider, build, and device proof rows below are closed.**
 
-| Tag | Meaning | Typical items |
-|-----|--------|----------------|
-| **KD** | Kaan — dashboard or store console | RevenueCat project/apps/products/offering/webhook; Supabase `revenuecat-webhook` deploy + `REVENUECAT_WEBHOOK_AUTHORIZATION`; OneSignal iOS/Android apps + APNs/FCM; App Store Connect / Play Console products |
-| **KB** | Kaan — build/install | EAS preview/production builds; local `expo run:*`; install on device; store upload when applicable |
-| **KV** | Kaan — device/runtime proof | Sandbox purchase + restore; test push receive; Daily join/leave; manual test matrix rows |
-| **CF** | Cursor — repo/doc/code **only if** failure is proven | Typecheck/preflight regression; webhook/function defect after URL/secrets verified; doc contradictions |
+This is not a code-hardening no-go. The video-date loop, regression harness, seeded QA pack, native RC smoke pack, and native external setup checklist are now documented and closed from the repo side. The remaining blockers are operator-owned proof in provider dashboards, EAS builds, and real devices.
 
----
+## Status Labels
 
-## Blocker (must resolve before production / TestFlight-style validation)
+| Label | Meaning |
+| --- | --- |
+| Closed with PR/doc evidence | Work is merged or documented and has a canonical evidence doc. |
+| Manual proof pending | Requires a human-run browser/device/provider check. |
+| Provider-dashboard pending | Requires Apple, Google, OneSignal, RevenueCat, EAS, Supabase, Daily, Bunny, Sentry, or PostHog dashboard verification. |
+| Build/device proof pending | Requires installable native artifacts and real device or simulator validation. |
+| Blocked | Cannot proceed until an earlier dependency is closed. |
 
-| Item | Notes |
-|------|--------|
-| **RevenueCat dashboard + webhook** | Products, offerings, entitlement, webhook URL and auth header; App Store Connect / Play Console subscription products. Without these, premium screen shows "No offerings available." **KD.** See `docs/native-external-setup-checklist.md` §2 and §2.4; order in `docs/kaan-launch-closure-execution-sheet.md`. |
-| **OneSignal dashboard (iOS + Android)** | Add iOS app (bundle ID, APNs key/cert) and Android app (FCM). App code is ready; push will not deliver until OneSignal is configured. **KD.** See §3. |
-| **EAS build + secrets** | For real-device validation: EAS profile (preview or production), credentials, and EAS secrets for Supabase, OneSignal App ID, RevenueCat API keys. **KD** (secrets) + **KB** (build). See `docs/kaan-launch-closure-execution-sheet.md` §4–5. |
-| **Real-device validation** | Purchase/restore, push receive, Daily, shell flows. **KV** after **KB.** Record pass/fail in this file § Sprint 6 test results. |
-| **Store submission** | When moving to production: signing, TestFlight/Play upload, store listing. **KD** + **KB.** |
+## Closed With Evidence
 
----
+| Area | Status | Evidence |
+| --- | --- | --- |
+| Video-date hardening chain | Closed with PR/doc evidence | `docs/video-date-hardening-closure-handoff.md` covers PRs #519, #521, #522, #523, #524, #525, #526, #527, #528, and #529. |
+| Video-date Supabase migration | Closed with PR/doc evidence | #522 migration is documented as deployed in `docs/video-date-hardening-closure-handoff.md`; final dry-run was clean. |
+| Admin Video Date Ops function | Closed with PR/doc evidence | #523 function deploy is documented in `docs/video-date-hardening-closure-handoff.md`. |
+| Golden-path regression runbook | Closed with PR/doc evidence | `docs/golden-path-regression-runbook.md` defines quick, video-date, full, and DB-dry-run modes. |
+| CI golden-path smoke gate | Closed with PR/doc evidence | Golden-path quick smoke and video-date path gate are live; see `docs/golden-path-regression-runbook.md`. |
+| Seeded video-date runtime QA pack | Closed with PR/doc evidence | `docs/qa/video-date-seeded-runtime-qa-pack.md` defines the two-user/admin/runtime proof pack. |
+| Native RC smoke pack | Closed with PR/doc evidence | `docs/qa/native-rc-smoke-pack.md` defines iOS/Android release-candidate operator checks. |
+| Native external setup closure checklist | Closed with PR/doc evidence | `docs/native-external-setup-closure.md` records repo-verified native IDs, EAS profiles, providers, secrets, and go/no-go gates. |
+| Authenticated browser proof | Closed with existing evidence | `docs/browser-auth-runtime-proof-results.md` records authenticated Schedule, Referrals, OneSignal worker/subscribed session/DB sync, Vibe Studio, invite, and public-profile proof. |
+| Rebuild rehearsal | Closed with existing evidence | `docs/rebuild-rehearsal-log.md` records `npm ci`, `npm run build`, and `./scripts/run_golden_path_smoke.sh` passing. |
 
-## Blocker resolution plan (Kaan dashboard/device actions)
+## Remaining True Launch Blockers
 
-For items that are blocking and have a clear resolution path:
+| Blocker | Status | Owner | What closes it | Canonical checklist |
+| --- | --- | --- | --- | --- |
+| Apple bundle/app-store records and credentials | Provider-dashboard pending | Operator | Apple Developer bundle ID, capabilities, App Store Connect app, subscription products, signing, main app profile, and OneSignal extension profile are verified for `com.vibelymeet.vibely`. | `docs/native-external-setup-closure.md` |
+| Google Play app records and credentials | Provider-dashboard pending | Operator | Play Console app, Play App Signing/upload key path, internal testing track, subscription products, and FCM setup are verified for `com.vibelymeet.vibely`. | `docs/native-external-setup-closure.md` |
+| EAS preview iOS build proof | Build/device proof pending | Operator | Preview build ID/link is recorded, installed, opened, and tied to the intended Supabase/project secrets. Older notes mention an iOS preview build, but final launch evidence still needs the build ID and smoke result recorded here. | `docs/qa/native-rc-smoke-pack.md` |
+| EAS preview Android build proof | Build/device proof pending | Operator | Preview build ID/link is recorded, installed, opened, and tied to the intended Supabase/project secrets. | `docs/qa/native-rc-smoke-pack.md` |
+| EAS secrets for preview/production | Provider-dashboard pending | Operator | Supabase, OneSignal, RevenueCat, and optional Bunny/Sentry/PostHog envs are confirmed in EAS without exposing secret values. | `docs/native-external-setup-closure.md` |
+| RevenueCat offerings, products, entitlement, webhook, and sandbox purchase proof | Provider-dashboard pending, then Manual proof pending | Operator | RevenueCat iOS/Android apps, store products, entitlement, default offering, webhook URL/auth header, sandbox purchase, restore, webhook delivery, and Supabase DB sync are proven. | `docs/native-external-setup-closure.md`, `docs/qa/native-rc-smoke-pack.md` |
+| OneSignal native push receive/tap proof | Provider-dashboard pending, then Manual proof pending | Operator | OneSignal iOS APNs and Android FCM are configured, `EXPO_PUBLIC_ONESIGNAL_APP_ID` is in EAS, real devices register player IDs, test pushes arrive, and at least one notification tap routes correctly. | `docs/native-external-setup-closure.md`, `docs/qa/native-rc-smoke-pack.md` |
+| Daily native video join proof | Manual proof pending | Operator | iOS and Android preview builds join a Daily room from the Ready Gate/date path, camera/mic work, leave/end works, and backend session state is sane afterward. | `docs/qa/video-date-seeded-runtime-qa-pack.md`, `docs/qa/native-rc-smoke-pack.md` |
+| Native RC smoke execution on devices | Build/device proof pending | Operator | `docs/qa/native-rc-smoke-pack.md` is executed on iOS and Android, including auth/session, event lobby, Ready Gate/date/survey, chat send-message, push identity, media/Vibe Video, and sign-off template. | `docs/qa/native-rc-smoke-pack.md` |
+| Admin Video Date Ops runtime cross-check during native QA | Manual proof pending | Operator | Admin selects the test event in `/kaan/dashboard`, confirms 24h/7d Video Date Ops metrics, verifies aggregate-only output, confirms non-admin 403, and cross-checks one metric against SQL/PostHog. | `docs/qa/video-date-seeded-runtime-qa-pack.md` |
+| OneSignal web final interactive proof | Manual proof pending | Operator | Human grants web push permission and taps a delivered notification on production. Worker, subscribed session, and DB sync are already proven. | `docs/web-push-production-checklist.md`, `docs/browser-auth-runtime-proof-results.md` |
 
-### RevenueCat (hard blocker)
+## Non-Blocking / Accepted Limitations
 
-- **Cause:** Products/offerings not configured in RevenueCat dashboard, or API key points at a project with no packages.
-- **Fix:** Follow `docs/native-external-setup-checklist.md` §2 and §2.4: RevenueCat dashboard (products, entitlement, offering, webhook), Supabase `revenuecat-webhook` + secret, App Store Connect / Play Console products. App shows "No offerings available" until configured; no code change required.
+| Item | Status | Notes |
+| --- | --- | --- |
+| Admin Video Date Ops aggregate-only design | Accepted | Intentional privacy boundary; deeper incident investigation uses SQL/PostHog/Sentry. |
+| PostHog timer drift trends | Accepted | Trends only reflect deployed clients after the observability/timer reconciliation changes. |
+| Existing Vite chunk/import warnings | Accepted | Documented as unrelated to the video-date hardening chain. |
+| Bunny photo/CDN 404s | Provider-dashboard pending, non-blocking if accepted | If still present, verify Bunny pull-zone origin/path prefix. App-side URL logic has been documented as correct. |
+| Reset-password native depth | Non-blocking | Minimal native flow is accepted unless product chooses to raise it. |
 
-### OneSignal (hard blocker for push)
+## Native Launch Evidence Log
 
-- **Cause:** OneSignal project must have iOS and Android apps with APNs/FCM configured.
-- **Fix:** Follow `docs/native-external-setup-checklist.md` §3: Add iOS app (bundle ID, APNs), Android app (FCM). Set `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets. App uses production APNs for EAS preview/production builds via `app.config.js`.
+Fill these rows as operator proof is completed. Do not invent proof; link build IDs, dashboard notes, private screenshots, or private run notes outside Git when they contain secrets or account details.
 
-### OneSignal web (production — remaining manual-only gap)
+| Phase | Status | Evidence / next note |
+| --- | --- | --- |
+| RevenueCat dashboard setup | Provider-dashboard pending | Verify apps/products/entitlement/offering/webhook and record non-secret confirmation. |
+| RevenueCat sandbox purchase + restore | Blocked | Blocked until RevenueCat dashboard/store products and EAS preview build are ready. |
+| RevenueCat webhook delivery + DB sync | Provider-dashboard pending | Verify webhook delivery and Supabase subscription/profile update after sandbox purchase. |
+| OneSignal dashboard setup | Provider-dashboard pending | Verify iOS APNs, Android FCM, and native App ID. |
+| OneSignal real-device push receive/tap | Blocked | Blocked until OneSignal dashboard setup, EAS secrets, and preview builds are ready. |
+| EAS preview iOS build | Build/device proof pending | Record build ID/link, install result, and smoke result. |
+| EAS preview Android build | Build/device proof pending | Record build ID/link, install result, and smoke result. |
+| EAS production build | Blocked | Start after preview builds and RC smoke are clean. |
+| iOS native RC smoke | Build/device proof pending | Run `docs/qa/native-rc-smoke-pack.md` on installed iOS build. |
+| Android native RC smoke | Build/device proof pending | Run `docs/qa/native-rc-smoke-pack.md` on installed Android build. |
+| Two-user video-date seeded runtime QA | Manual proof pending | Run `docs/qa/video-date-seeded-runtime-qa-pack.md` with admin, User A, User B, and a live/recent event. |
+| Daily real-device join/leave | Manual proof pending | Verify room join, media, refresh/rejoin, end/leave, and backend state. |
+| Admin Video Date Ops cross-check | Manual proof pending | Confirm admin panel metrics, non-admin 403, aggregate-only output, and one SQL/PostHog cross-check. |
+| OneSignal web prompt/tap | Manual proof pending | Worker and subscribed state are proven; prompt grant and delivered-notification tap remain manual. |
 
-- **Cause:** Production web push serving and subscribed browser state are now proven, but headless automation cannot complete a human-granted browser permission outcome or click a delivered notification.
-- **Fix:** **KV** (manual browser) — prompt acceptance + notification click/deep-link. Worker + subscribed state already in `docs/browser-auth-runtime-proof-results.md`. See `docs/native-external-setup-checklist.md` §3 (web note).
+## Next Operator Action Sequence
 
-### Bunny photo 404 (non-blocker for launch if accepted)
+1. Complete provider dashboards and credentials:
+   - Apple Developer / App Store Connect for `com.vibelymeet.vibely`.
+   - Google Play Console / FCM for `com.vibelymeet.vibely`.
+   - RevenueCat apps, products, entitlement, offering, webhook, and auth header.
+   - OneSignal iOS + Android apps with APNs/FCM.
+   - EAS preview/production secrets.
+2. Run EAS preview builds:
+   - `cd apps/mobile`
+   - `eas build --profile preview --platform ios`
+   - `eas build --profile preview --platform android`
+3. Install preview builds and run `docs/qa/native-rc-smoke-pack.md` on real devices.
+4. Run `docs/qa/video-date-seeded-runtime-qa-pack.md` for the two-user Ready Gate/date/survey/admin path.
+5. Prove RevenueCat sandbox purchase/restore and webhook/DB sync.
+6. Prove OneSignal native push receive/tap on iOS and Android.
+7. Prove Daily native join/leave and backend cleanup.
+8. Update this evidence log with non-secret pass/fail notes and links to private evidence.
+9. Move to production-profile builds and store submission only after preview proof is clean.
 
-- **Cause:** Pull zone returns 404 — request reaches CDN but path not found. App builds URLs per contract (`photos/{userId}/{timestamp}.{ext}`); no app bug.
-- **Fix (provider-side only):**
-  1. In Bunny dashboard, open the pull zone that serves your CDN hostname (e.g. `cdn.vibelymeet.com`).
-  2. Set **Origin** to **Storage zone** and select the **same** storage zone as `BUNNY_STORAGE_ZONE` (used by upload-image EF).
-  3. If the zone uses a path prefix for the storage root, set `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX` (and web `VITE_BUNNY_CDN_PATH_PREFIX`) to that prefix; otherwise leave unset.
-  4. Confirm in DB that stored paths look like `photos/...`; test one URL in Safari.
-- **App-side:** None required; URL logic is correct.
+## Regression Commands Before Launch-Related Changes
 
+```bash
+npm run launch:preflight
+npm run typecheck
+./scripts/run_golden_path_smoke.sh
+```
 
----
+For video-date or admin ops changes:
 
-## Non-blocking known issue
+```bash
+./scripts/run_golden_path_smoke.sh --video-date
+```
 
-Known issues that do not block release-readiness or dev validation. Fix when convenient.
+For DB work:
 
-| Item | Notes |
-|------|--------|
-| **RevenueCat console warnings** | When dashboard not fully set up; premium screen shows intentional empty state. Resolve via dashboard before launch. |
-| **Reset-password screen** | Minimal flow; web has full flow. Document as P1 if needed. |
-| **Bunny photo 404** | Until pull zone configured; upload works; display may show placeholder. Acceptable for launch if documented. |
+```bash
+supabase db push --linked --dry-run
+```
 
----
+For native RC prep:
 
-## In v1 (done in Sprints 1–4)
+```bash
+cd apps/mobile
+npm run rc-smoke
+```
 
-| Item | Notes |
-|------|--------|
-| **Profile photo upload** | Image picker → upload-image EF → profiles.photos update. |
-| **Vibe video** | Record → create-video-upload → tus upload → video-webhook; state and delete. |
-| **Premium** | RevenueCat + backend; hard blocker until dashboard/webhook configured. |
-| **Public profile** | `/user/:userId`; entry from chat. Sprint 4. |
-| **Match celebration** | Unread match → celebration → Message → chat. Sprint 4. |
-| **Credits** | Pack selection + create-credits-checkout → Stripe in browser. Sprint 4. |
-| **Delete account** | Scheduled/cancelable deletion flow via `request-account-deletion` + `cancel-deletion`; web Settings and native are now normalized to the same contract. |
+## Reference Docs
 
-## Explicitly accepted web handoff (no blocker)
-
-Schedule, profile preview, account settings, notification toggles, Daily Drop (empty state), reset password, legal/marketing links. See `docs/native-web-handoff-burndown.md`.
-
-## Deferred
-
-| Item | Notes |
-|------|--------|
-| **Photo loading (Bunny 404)** | Until pull zone configured; URL logic correct. |
-| **Polish-only** | Accessibility, loading states, visual tweaks after v1 flows. |
-
----
-
-## Dev-only artifact
-
-Expected in dev builds only; not bugs and not present in production builds.
-
-| Item | Notes |
-|------|--------|
-| **Expo dev client chrome** | Dev menu, reload, debug UI. Normal for dev client. |
-| **RevenueCat dev warnings** | Configuration/offerings warnings when dashboard not fully set up. |
-| **Photo URL trace logs** | `[Vibely photo URL]` in __DEV__; useful for diagnosis, not shipped to production. |
-
----
-
-## Sprint 6 / Phase 7 test results (fill after validation)
-
-| Phase | Pass/fail | Blocker (if fail) |
-|-------|-----------|--------------------|
-| RevenueCat dashboard setup | Partial | Operator confirmed RevenueCat dashboard/apps/products/offering are configured. `revenuecat-webhook` is deployed and active in Supabase, but webhook delivery / DB sync is not yet evidenced here. Remaining blocker: **KD** for webhook/header truth, then **KV** for purchase proof. |
-| RevenueCat real-device (purchase/restore) | Blocked by KV | No operator evidence yet for sandbox/tester purchase + restore on device. |
-| OneSignal dashboard setup | Blocked by KD | No operator evidence yet for iOS + Android OneSignal credential/dashboard completion. |
-| OneSignal real-device (push) | Blocked by KD | No operator evidence yet for delivered mobile push on iOS or Android; dashboard setup remains the first blocker. |
-| Daily real-device (join/leave) | Blocked by KV | `daily-room` Edge Function is deployed and active in Supabase, but no operator evidence yet for join/leave media flow or backend cleanup confirmation on device. |
-| OneSignal web (production service-worker + origin) | Partial | **Proven:** worker + subscribed session + DB sync (`docs/browser-auth-runtime-proof-results.md`). **KV:** interactive prompt + delivered-notification click. **KD:** quick dashboard/origin audit after production web deploys. |
-| Authenticated browser proof (Schedule / Referrals / Vibe Studio / invite landing) | Pass | `docs/browser-auth-runtime-proof-results.md` hard-proves authenticated `/schedule`, schedule save + rollback, authenticated `/settings/referrals`, canonical invite copy, browser `/invite?ref=` handoff into `/auth?ref=...`, and post-fix authenticated `/vibe-studio` render health. |
-| Authenticated public-profile browser proof | Pass | `npm run proof:smoke-bootstrap` now opens `/user/2cf4...` from an authenticated partner session and hard-proves public-profile render of name/age, tagline, photo verification, ready Vibe Video caption, About Me, vibes, and lifestyle without hitting the not-found shell. |
-| Authenticated smoke-account browser bootstrap + proof | Pass | `npm run proof:smoke-bootstrap` now resets fresh smoke passwords via linked SQL, seeds tagged proof data, and hard-proves non-empty schedule buckets, reminder countdown routing on `/schedule` + `/dashboard`, referral set-once/self-ref/repeat immutability, Vibe Studio ready/caption save-revert, create/upload-entry plus delete cleanup, and public-profile route render. |
-| Fresh Vibe video binary upload -> processing -> ready / replace (web harness) | Pass | `npm run proof:vibe-upload-processing` kept primary smoke profile `2cf4...` untouched, cleaned partner `2a09...` back to `none`, uploaded two real `video/webm` assets through Bunny tus, observed profile + `draft_media_sessions` `processing -> ready` on fresh uid `d4ccdc68...` and replacement uid `efb092da...`, verified the prior ready session became `abandoned`, re-rendered `/vibe-studio` in the ready state after both uploads, and finally deleted the replacement cleanly (`bunnyRemoteDeleteOk = true`, profile back to `bunny_video_uid = null`, session `deleted`). |
-| EAS preview build | Partial | Operator confirmed a preview iOS build succeeded and was installable. Remaining blocker: **KB** for Android preview evidence and recording the build id / URL here. |
-| EAS production build | Blocked by KB | No operator evidence yet for production-profile builds. |
-| iOS device validation checklist | Blocked by KV | A preview iOS build exists, but no full iOS runtime proof is recorded yet for premium, push, Daily, and shell flows. |
-| Android device validation checklist | Blocked by KB | No Android build/install evidence is recorded yet, so Android runtime validation has not started. |
-| Rebuild rehearsal (post–Phase 7) | Pass | Logged in `docs/rebuild-rehearsal-log.md`; `npm ci`, `npm run build`, and `./scripts/run_golden_path_smoke.sh` passed. Remaining gap is local `SUPABASE_DB_URL` for parity-helper replay, not rebuild failure. |
-
-Execution order (single page): `docs/kaan-launch-closure-execution-sheet.md`. Narrative: `docs/native-launch-closure-master-runbook.md` + `docs/native-sprint6-launch-closure-runbook.md`. Go/no-go matrix: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
-
----
-
-## Summary
-
-- **Blocker (must resolve for native launch):** **KD** RevenueCat + webhook + store products + OneSignal mobile; **KD/KB** EAS secrets; **KB** installable builds; **KV** device proof. Checklist depth: `docs/native-external-setup-checklist.md`. Compressed order: `docs/kaan-launch-closure-execution-sheet.md`.
-- **Non-blocking:** RevenueCat warnings until configured, reset-password minimal, Bunny 404 until pull zone.
-- **In v1 (done):** Profile photo, vibe video, premium, public profile, match celebration, credits, delete account.
-- **Accepted web handoff:** Schedule, account, notifications, Daily Drop, reset password, legal/marketing.
-- **Deferred:** Bunny photo loading, polish.
-- **Dev-only:** Dev client UI, RevenueCat warnings, trace logs.
+- Active doc map: `docs/active-doc-map.md`
+- Native external setup closure gate: `docs/native-external-setup-closure.md`
+- Native external setup depth: `docs/native-external-setup-checklist.md`
+- Native RC smoke pack: `docs/qa/native-rc-smoke-pack.md`
+- Seeded video-date runtime QA pack: `docs/qa/video-date-seeded-runtime-qa-pack.md`
+- Golden-path regression runbook: `docs/golden-path-regression-runbook.md`
+- Video-date hardening closure handoff: `docs/video-date-hardening-closure-handoff.md`
+- Operator execution sheet: `docs/kaan-launch-closure-execution-sheet.md`
+- Canonical launch runbook: `docs/native-launch-closure-master-runbook.md`
+- Strict go/no-go background: `docs/phase7-stage5-release-readiness-and-go-nogo.md`
