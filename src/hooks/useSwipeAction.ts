@@ -7,6 +7,8 @@ import { trackEvent } from "@/lib/analytics";
 import {
   type SwipeSessionStageResult,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
+  shouldOpenReadyGateFromSwipePayload,
+  shouldTrackQueuedSwipeSession,
   videoSessionIdFromSwipePayload,
 } from "@shared/matching/videoSessionFlow";
 
@@ -82,6 +84,7 @@ export const useSwipeAction = ({
           result: outcome,
         });
         const sessionId = videoSessionIdFromSwipePayload(raw);
+        const opensReadyGate = shouldOpenReadyGateFromSwipePayload(raw);
 
         switch (raw.result) {
           case "match":
@@ -104,7 +107,7 @@ export const useSwipeAction = ({
               "You're matched! We'll bring you to Ready Gate when your partner is free — keep browsing.",
               { duration: 4000 }
             );
-            if (sessionId) {
+            if (shouldTrackQueuedSwipeSession(raw) && sessionId) {
               onVideoSessionQueued?.(sessionId);
               onMatchQueued?.(sessionId);
             }
@@ -123,6 +126,13 @@ export const useSwipeAction = ({
             return raw;
 
           case "already_matched":
+            if (opensReadyGate && sessionId) {
+              toast.success("Ready Gate is open. Taking you back to this match attempt.", {
+                duration: 2800,
+              });
+              onVideoSessionReady?.(sessionId);
+              onMatch?.(sessionId);
+            }
             return raw;
 
           case "participant_has_active_session_conflict":

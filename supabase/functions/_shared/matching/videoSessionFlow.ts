@@ -13,6 +13,7 @@ export type SwipeSessionStageResult = {
   /** Event this session belongs to. */
   event_id?: string;
   immediate?: boolean;
+  ready_gate_status?: string;
   success?: boolean;
   error?: string;
   message?: string;
@@ -38,6 +39,33 @@ export function videoSessionIdFromSwipePayload(
   if (!payload) return undefined;
   const v = payload.video_session_id ?? payload.match_id;
   return typeof v === "string" && v.length > 0 ? v : undefined;
+}
+
+export function normalizedSwipeSessionStageResult(
+  result: string | null | undefined,
+): string | undefined {
+  if (result == null || result === "") return undefined;
+  return result === "swipe_recorded" ? "vibe_recorded" : result;
+}
+
+export function shouldOpenReadyGateFromSwipePayload(
+  payload: SwipeSessionStageResult | null | undefined,
+): boolean {
+  const result = normalizedSwipeSessionStageResult(payload?.result);
+  return (
+    (result === "match" || result === "already_matched") &&
+    Boolean(videoSessionIdFromSwipePayload(payload)) &&
+    payload?.immediate !== false
+  );
+}
+
+export function shouldTrackQueuedSwipeSession(
+  payload: SwipeSessionStageResult | null | undefined,
+): boolean {
+  return (
+    normalizedSwipeSessionStageResult(payload?.result) === "match_queued" &&
+    Boolean(videoSessionIdFromSwipePayload(payload))
+  );
 }
 
 export function videoSessionIdFromDrainPayload(
@@ -109,6 +137,7 @@ export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
 ]);
 
 export function shouldAdvanceLobbyDeckAfterSwipe(result: string | null | undefined): boolean {
-  if (result == null || result === "") return false;
-  return !LOBBY_SWIPE_NO_ADVANCE_RESULTS.has(result);
+  const normalized = normalizedSwipeSessionStageResult(result);
+  if (!normalized) return false;
+  return !LOBBY_SWIPE_NO_ADVANCE_RESULTS.has(normalized);
 }

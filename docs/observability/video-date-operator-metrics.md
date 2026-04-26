@@ -16,7 +16,7 @@ Read this together with `docs/observability/event-loop-dashboard-normalization.m
 | Metric ID | Label | Source | Healthy Direction | Notes |
 | --- | --- | --- | --- | --- |
 | `ready_gate_open_to_date_join_latency` | Ready Gate open to date join latency | `event_loop_observability_events` + `video_sessions` | lower | Ready Gate open is derived from promotion rows, not a dedicated timestamp column. |
-| `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | Existing truth can count collision-like outcomes. True recovery rate needs the separate backend hardening migration/fix. |
+| `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | Existing truth counts collision-like outcomes. Deploy `20260501092000_handle_swipe_presence_and_already_matched_session.sql` before treating `already_matched + video_session_id` as recovered/routable. |
 | `survey_to_next_ready_gate_conversion` | Survey to next Ready Gate conversion | PostHog continuity events, plus DB approximation | higher | PostHog is the clean source for route decisions; DB approximation is useful for spot checks. |
 | `queue_drain_failure_rate` | Queue drain failure rate | `v_event_loop_drain_events` or `v_event_loop_observability_metric_streams` | lower | Use `metric_stream = 'drain_rpc_outer'` to avoid double-counting inner promotions. |
 | `timer_drift_recovered_by_server_truth` | Timer drift recovered by server truth | PostHog event `video_date_timer_drift_recovered_by_server_truth` | lower | Added in this branch; emitted only for meaningful date-phase corrections. |
@@ -115,7 +115,7 @@ order by collision_rate desc nulls last;
 
 Limitation:
 
-This measures collision-like backend outcomes. It does not prove that both clients were routed into the already-created session. True recovery rate requires the separate simultaneous-swipe backend hardening work and should not be claimed from this v1 alone.
+This measures collision-like backend outcomes. After `20260501092000_handle_swipe_presence_and_already_matched_session.sql` is deployed, `already_matched` rows with a non-null `session_id` / returned `video_session_id` represent recovered same-pair sessions that clients can route back into. Rows without a session id, or `participant_has_active_session_conflict`, should still be treated as non-recovered collision/conflict signals.
 
 ## 3. Survey To Next Ready Gate Conversion
 
@@ -290,4 +290,4 @@ Implementation notes:
 3. Run Ready Gate open to join latency for the same event window.
 4. Use PostHog continuity funnel for survey to Ready Gate routing.
 5. Use timer drift events as a client health signal, not as server truth. Server truth remains `video_sessions.date_started_at` plus `date_extra_seconds`.
-6. Treat simultaneous-swipe collision rate as a risk indicator until the separate backend recovery PR lands.
+6. Confirm `20260501092000_handle_swipe_presence_and_already_matched_session.sql` is deployed before labeling `already_matched + video_session_id` as recovered/routable.
