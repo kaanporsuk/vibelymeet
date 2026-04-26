@@ -11,6 +11,8 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
 
+type DateRoomAction = "create_date_room" | "join_date_room" | "prepare_date_entry";
+
 type VideoDateRoomGateSession = {
   id: string;
   participant_1_id: string | null;
@@ -58,7 +60,7 @@ function getClientRequestContext(req: Request): ClientRequestContext {
 }
 
 function logDateRoomReject(params: {
-  action: "create_date_room" | "join_date_room";
+  action: DateRoomAction;
   sessionId: string | null | undefined;
   userId: string;
   code: string;
@@ -93,7 +95,7 @@ function logDateRoomReject(params: {
 }
 
 function createDateRoomRejectResponse(params: {
-  action: "create_date_room" | "join_date_room";
+  action: DateRoomAction;
   sessionId: string | null | undefined;
   userId: string;
   status: number;
@@ -130,7 +132,7 @@ function createDateRoomRejectResponse(params: {
 }
 
 function createBlockedDateRoomResponse(params: {
-  action: "create_date_room" | "join_date_room";
+  action: DateRoomAction;
   sessionId: string | null | undefined;
   userId: string;
   requestContext: ClientRequestContext;
@@ -238,7 +240,7 @@ async function isPairBlocked(
 
 async function maybeReturnBlockedDateSessionFallback(params: {
   serviceClient: ReturnType<typeof createClient>;
-  action: "create_date_room" | "join_date_room";
+  action: DateRoomAction;
   sessionId: unknown;
   userId: string;
   requestContext: ClientRequestContext;
@@ -454,6 +456,41 @@ async function deleteDailyRoom(roomName: string): Promise<void> {
   } catch {
     // Best-effort
   }
+}
+
+function videoDateRoomProperties(): Record<string, unknown> {
+  return {
+    max_participants: 2,
+    enable_chat: false,
+    enable_screenshare: false,
+    enable_knocking: false,
+    start_video_off: false,
+    start_audio_off: false,
+    exp: Math.floor(Date.now() / 1000) + 7200,
+    eject_at_room_exp: true,
+  };
+}
+
+type PrepareEntryTransitionPayload = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+  state?: string | null;
+  phase?: string | null;
+  event_id?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  handshake_started_at?: string | null;
+  ready_gate_status?: string | null;
+  ready_gate_expires_at?: string | null;
+};
+
+function statusForPrepareEntryCode(code?: string): number {
+  if (code === "UNAUTHORIZED") return 401;
+  if (code === "SESSION_NOT_FOUND") return 404;
+  if (code === "SESSION_ENDED") return 410;
+  if (code === "BLOCKED_PAIR" || code === "ACCESS_DENIED" || code === "READY_GATE_NOT_READY") return 403;
+  return 500;
 }
 
 type MatchCallProfileGate = {
@@ -702,6 +739,249 @@ serve(async (req) => {
         JSON.stringify({ success: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // ── ACTION: prepare_date_entry ──
+    // Single idempotent entry path for Ready Gate -> Daily join:
+    // atomically prepare server state, create/reuse the deterministic Daily room,
+    // then issue a caller-scoped token. Daily tokens are returned only to the
+    // authenticated caller and are never persisted.
+    if (action === "prepare_date_entry") {
+      const actionName: DateRoomAction = "prepare_date_entry";
+      const timings: Record<string, number> = {};
+      const totalStartedAt = Date.now();
+      let sessionForLog: VideoDateRoomGateSession | null = null;
+
+      if (typeof sessionId !== "string" || !sessionId) {
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 400,
+          code: "MISSING_SESSION_ID",
+          error: "Missing or invalid sessionId",
+          requestContext,
+        });
+      }
+
+      try {
+        const prepareStartedAt = Date.now();
+        const { data: prepareData, error: prepareError } = await supabase.rpc("video_date_transition", {
+          p_session_id: sessionId,
+          p_action: "prepare_entry",
+        });
+        timings.prepare_rpc_ms = Date.now() - prepareStartedAt;
+
+        const preparePayload = (prepareData ?? null) as PrepareEntryTransitionPayload | null;
+        sessionForLog = preparePayload
+          ? {
+              id: sessionId,
+              participant_1_id: preparePayload.participant_1_id ?? null,
+              participant_2_id: preparePayload.participant_2_id ?? null,
+              daily_room_name: null,
+              ended_at: preparePayload.state === "ended" ? new Date().toISOString() : null,
+              handshake_started_at: preparePayload.handshake_started_at ?? null,
+              ready_gate_status: preparePayload.ready_gate_status ?? null,
+              ready_gate_expires_at: preparePayload.ready_gate_expires_at ?? null,
+              state: preparePayload.state ?? null,
+              phase: preparePayload.phase ?? null,
+            }
+          : null;
+
+        if (prepareError || preparePayload?.success !== true) {
+          const code = preparePayload?.code ?? (prepareError ? "RPC_ERROR" : "UNKNOWN");
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: statusForPrepareEntryCode(code),
+            code,
+            error: preparePayload?.error ?? "Could not prepare video date entry",
+            requestContext,
+            session: sessionForLog,
+            detail: prepareError ? prepareError.message : null,
+          });
+        }
+
+        const participant1 = preparePayload.participant_1_id ?? null;
+        const participant2 = preparePayload.participant_2_id ?? null;
+        if (participant1 !== user.id && participant2 !== user.id) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "ACCESS_DENIED",
+            error: "Access denied",
+            requestContext,
+            session: sessionForLog,
+          });
+        }
+
+        const partnerId = participant1 === user.id ? participant2 : participant1;
+        if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
+          return createBlockedDateRoomResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session: sessionForLog,
+            detail: "service_role_post_prepare_block_check",
+          });
+        }
+
+        const { data: sessionRow, error: sessionError } = await serviceClient
+          .from("video_sessions")
+          .select(
+            "id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+          )
+          .eq("id", sessionId)
+          .maybeSingle();
+
+        if (sessionError || !sessionRow) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 404,
+            code: "SESSION_NOT_FOUND",
+            error: "Session not found",
+            requestContext,
+            session: sessionForLog,
+            detail: sessionError ? sessionError.message : null,
+          });
+        }
+
+        sessionForLog = (sessionRow as VideoDateRoomGateSession | null) ?? sessionForLog;
+
+        if (sessionForLog?.ended_at) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 410,
+            code: "SESSION_ENDED",
+            error: "Session has ended",
+            requestContext,
+            session: sessionForLog,
+          });
+        }
+
+        const roomName = `date-${sessionId.replace(/-/g, "")}`;
+        const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
+        const existingRoomName = (sessionRow as { daily_room_name?: string | null }).daily_room_name ?? null;
+        const existingRoomUrl = (sessionRow as { daily_room_url?: string | null }).daily_room_url ?? null;
+        let reusedRoom = existingRoomName === roomName;
+        let providerRoomRecreated = false;
+        let providerVerifySkipped = false;
+
+        const roomStartedAt = Date.now();
+        if (existingRoomName !== roomName || existingRoomUrl !== roomUrl) {
+          const providerRoomState = await getDailyRoomProviderState(roomName);
+          if (providerRoomState.exists && providerRoomState.expired) {
+            console.log(JSON.stringify({
+              event: "prepare_date_entry_untracked_provider_expired_recreate",
+              session_id: sessionId,
+              user_id: user.id,
+              room_name: roomName,
+            }));
+            await deleteDailyRoom(roomName);
+            await createDailyRoom(roomName, videoDateRoomProperties());
+            providerRoomRecreated = true;
+            reusedRoom = false;
+          } else if (providerRoomState.exists) {
+            reusedRoom = true;
+          } else {
+            await createDailyRoom(roomName, videoDateRoomProperties());
+            reusedRoom = false;
+          }
+          await serviceClient
+            .from("video_sessions")
+            .update({ daily_room_name: roomName, daily_room_url: roomUrl })
+            .eq("id", sessionId)
+            .is("ended_at", null);
+        } else if (shouldSkipDailyProviderVerifyForVideoDate(sessionForLog)) {
+          providerVerifySkipped = true;
+          console.log(JSON.stringify({
+            event: "prepare_date_entry_provider_verify_skipped",
+            session_id: sessionId,
+            user_id: user.id,
+            room_name: roomName,
+            handshake_started_at: sessionForLog.handshake_started_at,
+          }));
+        } else {
+          const providerRoomState = await getDailyRoomProviderState(roomName);
+          if (!providerRoomState.exists || providerRoomState.expired) {
+            console.log(JSON.stringify({
+              event: "prepare_date_entry_provider_unusable_recreate",
+              session_id: sessionId,
+              user_id: user.id,
+              room_name: roomName,
+              provider_exists: providerRoomState.exists,
+              provider_expired: providerRoomState.expired,
+            }));
+            if (providerRoomState.exists) {
+              await deleteDailyRoom(roomName);
+            }
+            await createDailyRoom(roomName, videoDateRoomProperties());
+            await serviceClient
+              .from("video_sessions")
+              .update({ daily_room_name: roomName, daily_room_url: roomUrl })
+              .eq("id", sessionId)
+              .is("ended_at", null);
+            reusedRoom = false;
+            providerRoomRecreated = true;
+          }
+        }
+        timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
+
+        const tokenStartedAt = Date.now();
+        const token = await createMeetingToken(roomName, user.id, 7200);
+        timings.token_ms = Date.now() - tokenStartedAt;
+        timings.total_ms = Date.now() - totalStartedAt;
+
+        console.log(JSON.stringify({
+          event: "prepare_date_entry_ok",
+          session_id: sessionId,
+          user_id: user.id,
+          room_name: roomName,
+          reused_room: reusedRoom,
+          provider_room_recreated: providerRoomRecreated,
+          provider_verify_skipped: providerVerifySkipped,
+          state: preparePayload.state ?? null,
+          phase: preparePayload.phase ?? null,
+          timings,
+        }));
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            room_name: roomName,
+            room_url: roomUrl,
+            token,
+            session_state: preparePayload.state ?? null,
+            session_phase: preparePayload.phase ?? null,
+            handshake_started_at: preparePayload.handshake_started_at ?? null,
+            reused_room: reusedRoom,
+            provider_room_recreated: providerRoomRecreated,
+            provider_verify_skipped: providerVerifySkipped,
+            timings,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      } catch (error) {
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 503,
+          code: "DAILY_PROVIDER_ERROR",
+          error: "Video service temporarily unavailable",
+          requestContext,
+          session: sessionForLog,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     // ── ACTION: create_date_room ──

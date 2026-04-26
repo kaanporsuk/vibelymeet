@@ -7,12 +7,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
-import {
-  DAILY_ROOM_ACTIONS,
-  classifyDailyRoomInvokeFailure,
-  type DailyRoomFailureKind,
-} from '@clientShared/matching/dailyRoomFailure';
+import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
@@ -368,22 +365,12 @@ export function useVideoDateSession(
   return { session, partner, phase, timeLeft, loading, isRefreshing, error, refetch: fetchSession };
 }
 
-type DailyRoomResponseBody = {
-  room_name?: string;
-  room_url?: string;
-  token?: string;
-  error?: string;
-  code?: string;
-};
-
-/** Get Daily room token via daily-room Edge Function (create_date_room). Same contract as web; returns classified errors. */
+/** Get Daily room token via daily-room Edge Function (prepare_date_entry). Same contract as web; returns classified errors. */
 export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoomTokenResult> {
-  const args = { action: 'create_date_room', sessionId };
-  vdbg('daily_room_before', { action: 'create_date_room', args });
+  const args = { action: 'prepare_date_entry', sessionId };
+  vdbg('daily_room_before', { action: 'prepare_date_entry', args });
   const invokeStarted = Date.now();
-  const { data, error, response } = await supabase.functions.invoke<DailyRoomResponseBody>('daily-room', {
-    body: args,
-  });
+  const result = await prepareVideoDateEntry(sessionId, { source: 'native_video_date_token' });
   Sentry.addBreadcrumb({
     category: 'video-date-launch',
     message: 'daily_room_edge_invoke',
@@ -391,84 +378,44 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
     data: {
       session_id: sessionId,
       duration_ms: Date.now() - invokeStarted,
-      ok: !error && Boolean(data?.token && data.room_name),
+      ok: result.ok,
+      cached: result.ok === true ? result.cached : false,
     },
   });
 
-  if (!error && data?.token && data.room_name) {
+  if (result.ok === true) {
     vdbg('daily_room_after', {
-      action: 'create_date_room',
+      action: 'prepare_date_entry',
       ok: true,
-      roomName: data.room_name,
+      roomName: result.data.room_name,
       hasToken: true,
+      cached: result.cached,
     });
     return {
       ok: true,
       data: {
-        room_name: data.room_name,
-        room_url: data.room_url ?? `https://vibelyapp.daily.co/${data.room_name}`,
-        token: data.token,
+        room_name: result.data.room_name,
+        room_url: result.data.room_url,
+        token: result.data.token,
       },
     };
   }
 
-  if (!error && data && !data.token) {
-    const failure = await classifyDailyRoomInvokeFailure({
-      action: DAILY_ROOM_ACTIONS.CREATE,
-      data: { ...data, code: data.code ?? 'MISSING_TOKEN' },
-      response,
-    });
-    vdbg('daily_room_after', {
-      action: 'create_date_room',
-      ok: false,
-      roomName: data.room_name ?? null,
-      hasToken: false,
-      httpStatus: failure.httpStatus ?? response?.status,
-      serverCode: failure.serverCode ?? data.code ?? 'MISSING_TOKEN',
-      classifiedCode: failure.kind,
-      message: data.error ?? null,
-    });
-    return {
-      ok: false,
-      code: failure.kind,
-      httpStatus: failure.httpStatus ?? response?.status,
-      serverCode: failure.serverCode ?? data.code ?? 'MISSING_TOKEN',
-    };
-  }
-
-  if (error) {
-    const errName = error instanceof Error ? error.name : 'unknown';
-    const failure = await classifyDailyRoomInvokeFailure({
-      action: DAILY_ROOM_ACTIONS.CREATE,
-      invokeError: error,
-      response,
-      data,
-    });
-
-    vdbg('daily_room_after', {
-      action: 'create_date_room',
-      ok: false,
-      hasToken: false,
-      httpStatus: failure.httpStatus ?? null,
-      serverCode: failure.serverCode ?? null,
-      classifiedCode: failure.kind,
-      error: { name: errName, message: error.message },
-    });
-    return {
-      ok: false,
-      code: failure.kind,
-      httpStatus: failure.httpStatus,
-      serverCode: failure.serverCode ?? errName,
-    };
-  }
-
   vdbg('daily_room_after', {
-    action: 'create_date_room',
+    action: 'prepare_date_entry',
     ok: false,
     hasToken: false,
-    serverCode: 'NO_RESPONSE',
+    httpStatus: result.httpStatus ?? null,
+    serverCode: result.code,
+    classifiedCode: result.code,
+    message: result.message ?? null,
   });
-  return { ok: false, code: 'unknown', serverCode: 'NO_RESPONSE' };
+  return {
+    ok: false,
+    code: result.code as RoomTokenFailureCode,
+    httpStatus: result.httpStatus,
+    serverCode: result.code,
+  };
 }
 
 export async function getDailyRoomTokenWithTimeout(

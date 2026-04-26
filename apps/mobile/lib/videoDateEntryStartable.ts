@@ -4,8 +4,8 @@
  * Centralises the "is the backend actually startable for this session right now?" check that
  * Ready Gate / lobby / standalone Ready / rescue retries previously duplicated. Mirrors the web
  * `SessionRouteHydration` policy: refuse to enter `/date` until either the canonical
- * `video_sessions` row already says startable, or `enter_handshake` has just succeeded and a
- * fresh refetch confirms startability. On `READY_GATE_NOT_READY` from `enter_handshake`, runs a
+ * `video_sessions` row already says startable, or `prepare_date_entry` has just succeeded and a
+ * fresh refetch confirms startability. On `READY_GATE_NOT_READY` from `prepare_date_entry`, runs a
  * short bounded refetch loop to absorb backend / replica lag.
  *
  * Reuses (does NOT duplicate):
@@ -13,7 +13,7 @@
  *  - `decideVideoSessionRouteFromTruth`
  *  - `canAttemptDailyRoomFromVideoSessionTruth`
  *  - `videoSessionRowReadyGateEligible`
- *  - `enterHandshakeWithTimeout`
+ *  - `prepareVideoDateEntry`
  *  - `readyGateHref` / `eventLobbyHref` / `tabsRootHref`
  *
  * Does NOT mark or clear `dateEntryTransitionLatch` — `navigateToDateSessionGuarded` owns marking
@@ -24,10 +24,10 @@ import type { Href } from 'expo-router';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { vdbg } from '@/lib/vdbg';
 import {
-  enterHandshakeWithTimeout,
   fetchVideoSessionDateEntryTruth,
   type VideoSessionDateEntryTruth,
 } from '@/lib/videoDateApi';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -40,7 +40,7 @@ import {
   tabsRootHref,
 } from '@/lib/activeSessionRoutes';
 
-const ENTER_HANDSHAKE_PRENAV_TIMEOUT_MS = 4_000;
+const PREPARE_ENTRY_PRENAV_TIMEOUT_MS = 4_000;
 /** Two short refetches absorb sub-500ms replica lag without making nav feel slow. */
 const READY_GATE_RACE_RETRY_BACKOFFS_MS = [220, 320];
 
@@ -114,6 +114,22 @@ function snapshotTruth(truth: VideoSessionDateEntryTruth | null): Record<string,
     ready_gate_expires_at:
       truth?.ready_gate_expires_at == null ? null : String(truth.ready_gate_expires_at),
   };
+}
+
+function withPrepareTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error('prepare_date_entry_timeout')), timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 export async function ensureVideoDateStartableBeforeNavigation(
@@ -197,18 +213,24 @@ export async function ensureVideoDateStartableBeforeNavigation(
         truth?.ready_gate_expires_at == null ? null : String(truth.ready_gate_expires_at),
     });
 
-    let handshakeOk = false;
-    let handshakeCode: string | null = null;
+    let prepareOk = false;
+    let prepareCode: string | null = null;
     try {
-      const hs = await enterHandshakeWithTimeout(sessionId, ENTER_HANDSHAKE_PRENAV_TIMEOUT_MS);
-      handshakeOk = hs.ok;
-      handshakeCode = hs.ok ? null : (hs.code ?? null);
+      const prepared = await withPrepareTimeout(
+        prepareVideoDateEntry(sessionId, {
+          eventId: truth?.event_id ?? null,
+          source: `pre_nav_${source}`,
+        }),
+        PREPARE_ENTRY_PRENAV_TIMEOUT_MS,
+      );
+      prepareOk = prepared.ok === true;
+      prepareCode = prepared.ok === true ? null : prepared.code;
     } catch (err) {
-      handshakeOk = false;
-      handshakeCode = err instanceof Error ? err.name : 'exception';
+      prepareOk = false;
+      prepareCode = err instanceof Error ? err.message : 'exception';
     }
 
-    if (handshakeOk) {
+    if (prepareOk) {
       truth = await fetchVideoSessionDateEntryTruth(sessionId);
       decision = decideVideoSessionRouteFromTruth(truth);
       canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
@@ -233,15 +255,15 @@ export async function ensureVideoDateStartableBeforeNavigation(
       }
     }
 
-    // Either handshake failed (often READY_GATE_NOT_READY due to replica lag) or it succeeded
+    // Either prepare failed (often READY_GATE_NOT_READY due to replica lag) or it succeeded
     // but a refetch immediately afterwards has not yet observed the new state. Short bounded
     // refetch loop absorbs that window without retrying the RPC itself.
-    if (handshakeCode === 'READY_GATE_NOT_READY' || !handshakeOk) {
+    if (prepareCode === 'READY_GATE_NOT_READY' || !prepareOk) {
       emit('ready_gate_not_ready_retry_start', {
         session_id: sessionId,
         user_id: userId,
         source,
-        handshake_code: handshakeCode,
+        handshake_code: prepareCode,
       });
       for (let i = 0; i < READY_GATE_RACE_RETRY_BACKOFFS_MS.length; i++) {
         const delay = READY_GATE_RACE_RETRY_BACKOFFS_MS[i];

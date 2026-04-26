@@ -30,6 +30,7 @@ import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -39,7 +40,6 @@ import {
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
-import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
 const RING_SIZE = 88;
@@ -48,6 +48,7 @@ const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
+const PREPARE_ENTRY_NAV_GRACE_MS = 900;
 
 export type ReadyGateOverlayProps = {
   sessionId: string;
@@ -80,6 +81,8 @@ export function ReadyGateOverlay({
   const terminalTimeoutRef = useRef(false);
   const timeoutForfeitSentRef = useRef(false);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
+  const bothReadyObservedAtMsRef = useRef<number | null>(null);
+  const prepareEntryHandoffStartedRef = useRef(false);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
@@ -107,6 +110,59 @@ export function ReadyGateOverlay({
     setPermissionsResolved(true);
     return ok;
   }, []);
+
+  const startPrepareEntryHandoff = useCallback(
+    (source: string) => {
+      if (closedRef.current || prepareEntryHandoffStartedRef.current) return;
+      prepareEntryHandoffStartedRef.current = true;
+      closedRef.current = true;
+      setIsTransitioning(true);
+      const observedAtMs = Date.now();
+      bothReadyObservedAtMsRef.current = observedAtMs;
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_observed', {
+        event_id: eventId,
+        session_id: sessionId,
+        source,
+      });
+      trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
+      vdbg('ready_gate_both_ready_observed', {
+        sessionId,
+        eventId,
+        source,
+      });
+
+      const fallback = setTimeout(() => {
+        onNavigateToDate(sessionId);
+      }, PREPARE_ENTRY_NAV_GRACE_MS);
+
+      void prepareVideoDateEntry(sessionId, {
+        eventId,
+        source: `ready_gate_${source}`,
+        bothReadyObservedAtMs: observedAtMs,
+      }).then((result) => {
+        if (result.ok === true) {
+          clearTimeout(fallback);
+          onNavigateToDate(sessionId);
+          return;
+        }
+        if (result.ok === false) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'prepare_date_entry_failed_before_nav', {
+            event_id: eventId,
+            session_id: sessionId,
+            source,
+            code: result.code,
+            retryable: result.retryable,
+          });
+        }
+      });
+    },
+    [eventId, onNavigateToDate, sessionId],
+  );
 
   const reconcileFromCanonicalTruth = useCallback(
     async (source: string) => {
@@ -159,9 +215,8 @@ export function ReadyGateOverlay({
       });
 
       if (canAttemptDaily || decision === 'navigate_date') {
-        closedRef.current = true;
-        setIsTransitioning(true);
-        onNavigateToDate(sessionId);
+        closedRef.current = false;
+        startPrepareEntryHandoff(source);
         return true;
       }
 
@@ -181,13 +236,11 @@ export function ReadyGateOverlay({
 
       return false;
     },
-    [eventId, onClose, onLobbyUserMessage, onNavigateToDate, sessionId, userId]
+    [eventId, onClose, onLobbyUserMessage, sessionId, startPrepareEntryHandoff, userId]
   );
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current) return;
-    closedRef.current = true;
-    setIsTransitioning(true);
     rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', { event_id: eventId, session_id: sessionId });
     rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId });
     trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY, {
@@ -207,30 +260,8 @@ export function ReadyGateOverlay({
       sessionId,
       eventId,
     });
-    // Backend pre-flight: confirm the session is actually startable (or absorb a small replica-lag
-    // window via `enter_handshake` + bounded refetch) before delegating to lobby's nav guard. The
-    // lobby itself will re-check via the same helper, but doing it here lets the overlay reconcile
-    // straight to /ready or lobby without ever touching `/date/[id]` if the gate has already moved
-    // away from `both_ready` (forfeit, partner timeout, etc.).
-    void (async () => {
-      const startable = await ensureVideoDateStartableBeforeNavigation({
-        sessionId,
-        source: 'ready_gate_overlay_both_ready',
-        userId,
-      });
-      if (startable.ok) {
-        // in_handshake / in_date are set from the video date screen when Daily actually starts (parity with standalone Ready Gate).
-        onNavigateToDate(sessionId);
-        return;
-      }
-      // Not startable after handshake attempt + retries — fall back to canonical reconcile so the
-      // overlay routes to /ready or /lobby with the latch cleared. Reset closed flag so reconcile
-      // can drive its own close path.
-      closedRef.current = false;
-      setIsTransitioning(false);
-      await reconcileFromCanonicalTruth('both_ready_pre_nav_not_startable');
-    })();
-  }, [sessionId, onNavigateToDate, eventId, userId, reconcileFromCanonicalTruth]);
+    startPrepareEntryHandoff('both_ready');
+  }, [sessionId, eventId, startPrepareEntryHandoff]);
 
   const handleForfeited = useCallback(
     async (_reason: 'timeout' | 'skip') => {
@@ -282,6 +313,8 @@ export function ReadyGateOverlay({
     openingPermissionWaitRef.current = false;
     terminalTimeoutRef.current = false;
     timeoutForfeitSentRef.current = false;
+    bothReadyObservedAtMsRef.current = null;
+    prepareEntryHandoffStartedRef.current = false;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
