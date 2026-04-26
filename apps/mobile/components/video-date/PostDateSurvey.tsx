@@ -84,6 +84,8 @@ function verdictFailureUserMessage(result: Extract<SubmitVerdictAndCheckMutualRe
     return 'Something went wrong. Please try again.';
   }
   switch (result.code) {
+    case 'blocked_pair':
+      return "You can't submit feedback for this date.";
     case 'not_participant':
       return "You can't submit feedback for this date.";
     case 'session_not_found':

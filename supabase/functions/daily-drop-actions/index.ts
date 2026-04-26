@@ -81,7 +81,7 @@ serve(async (req) => {
                 category: "daily_drop",
                 title: "💧 Your Daily Drop sent you a message",
                 body: "Reply before your drop expires to unlock chat.",
-                data: { url: "/matches" },
+                data: { url: "/matches", sender_id: drop.opener_sender_id },
               },
             });
           }
@@ -136,4 +136,3 @@ serve(async (req) => {
     );
   }
 });
-

@@ -57,6 +57,48 @@ export function invalidateAfterThreadMutation(qc: QueryClient, scope: ThreadInva
 export type { ReactionPair };
 export type { ReactionEmoji } from '../../../shared/chat/messageReactionModel';
 
+const BLOCKED_MESSAGE_COPY = "You can't message this person.";
+
+type SendMessagePayload = {
+  success?: boolean;
+  message?: unknown;
+  error?: string;
+  code?: string;
+};
+
+function isBlockedSendCode(value: unknown): boolean {
+  return value === 'blocked_pair' || value === 'message_blocked' || value === 'blocked';
+}
+
+async function parseFunctionErrorPayload(error: unknown): Promise<SendMessagePayload | null> {
+  const context = (error as { context?: { clone?: () => { json?: () => Promise<unknown> }; json?: () => Promise<unknown> } })?.context;
+  try {
+    const cloned = context?.clone?.();
+    const parsed = cloned?.json ? await cloned.json() : context?.json ? await context.json() : null;
+    return parsed && typeof parsed === 'object' ? parsed as SendMessagePayload : null;
+  } catch {
+    return null;
+  }
+}
+
+async function throwMappedSendMessageError(error: unknown): Promise<never> {
+  const payload = await parseFunctionErrorPayload(error);
+  if (isBlockedSendCode(payload?.code) || isBlockedSendCode(payload?.error)) {
+    throw new Error(BLOCKED_MESSAGE_COPY);
+  }
+  if (error instanceof Error) throw error;
+  throw new Error('Send failed');
+}
+
+function assertSendMessagePayload(payload: SendMessagePayload | null | undefined, fallback: string): asserts payload is SendMessagePayload & { success: true } {
+  if (!payload?.success) {
+    if (isBlockedSendCode(payload?.code) || isBlockedSendCode(payload?.error)) {
+      throw new Error(BLOCKED_MESSAGE_COPY);
+    }
+    throw new Error(payload?.error || fallback);
+  }
+}
+
 export type MatchListItem = {
   id: string;
   name: string;
@@ -423,9 +465,9 @@ export async function invokeSendMessageEdge(params: {
     body.client_request_id = clientRequestId.trim();
   }
   const { data, error } = await supabase.functions.invoke('send-message', { body });
-  if (error) throw error;
-  const payload = data as { success?: boolean; message?: unknown; error?: string };
-  if (!payload?.success) throw new Error(payload?.error || 'Send failed');
+  if (error) await throwMappedSendMessageError(error);
+  const payload = data as { success?: boolean; message?: unknown; error?: string; code?: string };
+  assertSendMessagePayload(payload, 'Send failed');
   return payload.message;
 }
 
@@ -450,9 +492,9 @@ export async function invokePublishVibeClip(params: {
     body.aspect_ratio = params.aspectRatio;
   }
   const { data, error } = await supabase.functions.invoke('send-message', { body });
-  if (error) throw error;
-  const payload = data as { success?: boolean; message?: unknown; error?: string };
-  if (!payload?.success) throw new Error(payload?.error || 'Vibe Clip publish failed');
+  if (error) await throwMappedSendMessageError(error);
+  const payload = data as { success?: boolean; message?: unknown; error?: string; code?: string };
+  assertSendMessagePayload(payload, 'Vibe Clip publish failed');
   return payload.message;
 }
 
@@ -471,9 +513,9 @@ export async function invokePublishVoiceMessage(params: {
     client_request_id: params.clientRequestId,
   };
   const { data, error } = await supabase.functions.invoke('send-message', { body });
-  if (error) throw error;
-  const payload = data as { success?: boolean; message?: unknown; error?: string };
-  if (!payload?.success) throw new Error(payload?.error || 'Voice message publish failed');
+  if (error) await throwMappedSendMessageError(error);
+  const payload = data as { success?: boolean; message?: unknown; error?: string; code?: string };
+  assertSendMessagePayload(payload, 'Voice message publish failed');
   return payload.message;
 }
 

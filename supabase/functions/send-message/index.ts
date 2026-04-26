@@ -57,6 +57,32 @@ function publicUrlHasStorageSegment(url: string, segment: "photos" | "voice" | "
   return parsed.pathname.includes(`/${segment}/`);
 }
 
+async function isPairBlocked(
+  serviceClient: ReturnType<typeof createClient>,
+  userA: string,
+  userB: string,
+): Promise<boolean> {
+  const { data: blockA, error: blockAError } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", userA)
+    .eq("blocked_id", userB)
+    .maybeSingle();
+
+  if (blockAError) throw blockAError;
+  if (blockA?.id) return true;
+
+  const { data: blockB, error: blockBError } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", userB)
+    .eq("blocked_id", userA)
+    .maybeSingle();
+
+  if (blockBError) throw blockBError;
+  return Boolean(blockB?.id);
+}
+
 async function ensureMessageMediaOrRollback(
   serviceClient: ReturnType<typeof createClient>,
   messageId: string,
@@ -187,6 +213,29 @@ serve(async (req) => {
       );
     }
 
+    const recipientId = match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
+    try {
+      if (await isPairBlocked(serviceClient, actorId, recipientId)) {
+        console.log(JSON.stringify({
+          event: "send_message_blocked_pair",
+          actor_id: actorId,
+          recipient_id: recipientId,
+          match_id,
+          message_kind: messageKind ?? "text",
+        }));
+        return new Response(
+          JSON.stringify({ success: false, error: "message_blocked", code: "blocked_pair" }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    } catch (blockError) {
+      console.error("send-message block check failed:", blockError);
+      return new Response(
+        JSON.stringify({ success: false, error: "block_check_failed", code: "block_check_failed" }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const selectCols =
       "id, match_id, sender_id, content, created_at, audio_url, audio_duration_seconds, video_url, video_duration_seconds, message_kind, structured_payload";
 
@@ -293,9 +342,6 @@ serve(async (req) => {
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-
-      const recipientId =
-        match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
 
       try {
         const { data: senderProfile } = await serviceClient
@@ -409,9 +455,6 @@ serve(async (req) => {
         );
       }
 
-      const recipientIdVoice =
-        match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
-
       try {
         const { data: senderProfile } = await serviceClient
           .from("profiles")
@@ -422,7 +465,7 @@ serve(async (req) => {
         await serviceClient.functions.invoke("send-notification", {
           headers: { Authorization: `Bearer ${serviceRoleKey}` },
           body: {
-            user_id: recipientIdVoice,
+            user_id: recipientId,
             category: "messages",
             title: senderProfile?.name || "New message",
             body: "🎤 Sent a voice message",
@@ -547,9 +590,6 @@ serve(async (req) => {
     } else {
       idempotent = true;
     }
-
-    const recipientId =
-      match.profile_id_1 === actorId ? match.profile_id_2 : match.profile_id_1;
 
     if (!idempotent) {
       try {

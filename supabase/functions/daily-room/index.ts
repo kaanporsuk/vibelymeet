@@ -132,6 +132,32 @@ function canIssueVideoDateRoomToken(session: {
   return gateDeadline > Date.now();
 }
 
+async function isPairBlocked(
+  serviceClient: ReturnType<typeof createClient>,
+  userA: string,
+  userB: string,
+): Promise<boolean> {
+  const { data: blockA, error: blockAError } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", userA)
+    .eq("blocked_id", userB)
+    .maybeSingle();
+
+  if (blockAError) throw blockAError;
+  if (blockA?.id) return true;
+
+  const { data: blockB, error: blockBError } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", userB)
+    .eq("blocked_id", userA)
+    .maybeSingle();
+
+  if (blockBError) throw blockBError;
+  return Boolean(blockB?.id);
+}
+
 async function createMeetingToken(
   roomName: string,
   userId: string,
@@ -526,6 +552,20 @@ serve(async (req) => {
           });
         }
 
+        const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+        if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "BLOCKED_PAIR",
+            error: "Blocked pair",
+            requestContext,
+            session,
+          });
+        }
+
         if (session.ended_at) {
           return createDateRoomRejectResponse({
             action,
@@ -685,6 +725,20 @@ serve(async (req) => {
             status: 403,
             code: "ACCESS_DENIED",
             error: "Access denied",
+            requestContext,
+            session,
+          });
+        }
+
+        const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+        if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "BLOCKED_PAIR",
+            error: "Blocked pair",
             requestContext,
             session,
           });
@@ -1025,6 +1079,23 @@ serve(async (req) => {
         );
       }
 
+      const peerId = call.caller_id === user.id ? call.callee_id : call.caller_id;
+      if (await isPairBlocked(serviceClient, user.id, peerId)) {
+        console.log(JSON.stringify({
+          event: "join_match_call_rejected",
+          code: "USERS_BLOCKED",
+          call_id: call.id,
+          user_id: user.id,
+        }));
+        return new Response(
+          JSON.stringify({ error: "Cannot call this user", code: "USERS_BLOCKED" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
       let token: string;
       try {
         token = await createMeetingToken(call.daily_room_name, user.id, 7200);
@@ -1078,7 +1149,7 @@ serve(async (req) => {
       // Fetch the call row first (read-only, callee-only guard)
       const { data: call } = await supabase
         .from("match_calls")
-        .select("id, callee_id, daily_room_name, daily_room_url, status, match_id")
+        .select("id, caller_id, callee_id, daily_room_name, daily_room_url, status, match_id")
         .eq("id", targetCallId)
         .eq("callee_id", user.id)
         .maybeSingle();
@@ -1115,6 +1186,22 @@ serve(async (req) => {
             status: 409,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           }
+        );
+      }
+
+      if (await isPairBlocked(serviceClient, user.id, call.caller_id)) {
+        console.log(JSON.stringify({
+          event: "answer_match_call_rejected",
+          code: "USERS_BLOCKED",
+          call_id: call.id,
+          callee_id: user.id,
+        }));
+        return new Response(
+          JSON.stringify({ error: "Cannot call this user", code: "USERS_BLOCKED" }),
+          {
+            status: 403,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
         );
       }
 

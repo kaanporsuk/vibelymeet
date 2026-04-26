@@ -139,6 +139,7 @@ export async function sendGameEvent(input: SendGameEventInput): Promise<SendGame
 
 export function formatSendGameEventError(err: SendGameEventError): string {
   if (err.kind === "transport") return err.message;
+  if (err.code === "blocked_pair") return "You can't message this person.";
   if (err.code === "event_index_out_of_order") return "Out of sync with the server. Refresh and try again.";
   if (err.code === "partner_event_required") return "Not your turn yet.";
   if (err.code === "session_already_complete") return "This game round is already complete.";

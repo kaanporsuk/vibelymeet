@@ -264,7 +264,7 @@ serve(async (req) => {
             category: "someone_vibed_you",
             title: "Someone vibed you! 💜",
             body: "Join the event to find out who",
-            data: { url: "/events" },
+            data: { url: "/events", event_id: eventIdStr, actor_id: actorId },
           },
         });
         logLifecycle({

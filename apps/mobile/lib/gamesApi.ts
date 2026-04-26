@@ -20,6 +20,7 @@ export type SendGameEventRejectionCode =
   | 'event_index_out_of_order'
   | 'match_not_found'
   | 'access_denied'
+  | 'blocked_pair'
   | 'client_session_complete_forbidden'
   | 'insert_failed'
   | 'internal_error'
@@ -40,6 +41,7 @@ const KNOWN_REJECTION_CODES = new Set<string>([
   'event_index_out_of_order',
   'match_not_found',
   'access_denied',
+  'blocked_pair',
   'client_session_complete_forbidden',
   'insert_failed',
   'internal_error',
@@ -812,6 +814,8 @@ export function formatSendGameEventError(err: SendGameEventError): string {
     case 'access_denied':
     case 'match_not_found':
       return 'Could not reach this game. Try again later.';
+    case 'blocked_pair':
+      return "You can't message this person.";
     case 'partner_event_required':
       return 'Not your turn.';
     case 'insert_failed':
