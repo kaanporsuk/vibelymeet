@@ -54,7 +54,7 @@ export const VIDEO_DATE_OPERATOR_METRIC_DEFINITIONS = [
     thresholds: { warning: 0.03, critical: 0.08, direction: "lower_is_better" },
     unit: "rate",
     limitation:
-      "Existing rows expose collision-like outcomes; true recovery rate needs the separate backend hardening migration.",
+      "After the simultaneous-swipe recovery migration, already_matched rows with a session id represent recovered same-pair sessions.",
   },
   {
     id: "survey_to_next_ready_gate_conversion",

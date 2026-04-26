@@ -1,25 +1,44 @@
-# Video Date Operator Metrics v1
+# Video Date Operator Metrics
 
-This pack defines the first operator-grade read model for the Vibely video-date loop. It uses existing backend truth first, plus one additive client analytics event for timer reconciliation.
+This pack defines the operator-grade read model for the Vibely video-date loop. It uses existing backend truth first, plus one additive client analytics event for timer reconciliation.
 
 ## Access Model
 
 - Supabase event-loop read models are operator/service-role only. The relevant migrations revoke `anon` and `authenticated` access and grant `service_role`.
 - Current admin web surfaces use authenticated Supabase clients, so they cannot read `event_loop_observability_events` or `v_event_loop_*` directly.
-- v1 therefore ships docs/query pack + shared metric definitions + timer-drift analytics. A service-role Edge Function or backend operator API is the v2 path for an in-app admin panel.
-- No Supabase migration is required for this v1.
+- The in-app operator dashboard uses the `admin-video-date-ops` Edge Function as a read bridge. The function requires bearer auth, verifies the caller is an admin with the bearer-scoped client, then creates a service-role client only after that verification.
+- The bridge returns aggregate metrics only. It does not expose raw observability rows, profile fields, names, emails, or user-level drilldowns.
+- No Supabase database migration is required for the dashboard bridge. Supabase Edge Function deployment is required when the function changes.
 
 Read this together with `docs/observability/event-loop-dashboard-normalization.md` before mixing drain, promotion, and mark-lobby aggregates.
+
+## In-App Dashboard
+
+Location:
+
+- `/kaan/dashboard`
+- Event Analytics
+- Video Date Ops
+
+The panel calls `admin-video-date-ops` for the selected event and shows both 24h and 7d windows.
+
+Returned aggregates:
+
+- Ready Gate open to first date join p50/p95/max latency
+- simultaneous swipe collision rate and recovered collision rate
+- survey completion to next Ready Gate conversion within 10 minutes
+- queue drain attempts, failures, failure rate, and top failure reasons
+- timer drift recovery source note for the PostHog-only metric
 
 ## Metric Catalog
 
 | Metric ID | Label | Source | Healthy Direction | Notes |
 | --- | --- | --- | --- | --- |
 | `ready_gate_open_to_date_join_latency` | Ready Gate open to date join latency | `event_loop_observability_events` + `video_sessions` | lower | Ready Gate open is derived from promotion rows, not a dedicated timestamp column. |
-| `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | Existing truth counts collision-like outcomes. Deploy `20260501092000_handle_swipe_presence_and_already_matched_session.sql` before treating `already_matched + video_session_id` as recovered/routable. |
+| `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | After `20260501092000_handle_swipe_presence_and_already_matched_session.sql`, `already_matched + session_id` represents a recovered/routable same-pair session. |
 | `survey_to_next_ready_gate_conversion` | Survey to next Ready Gate conversion | PostHog continuity events, plus DB approximation | higher | PostHog is the clean source for route decisions; DB approximation is useful for spot checks. |
 | `queue_drain_failure_rate` | Queue drain failure rate | `v_event_loop_drain_events` or `v_event_loop_observability_metric_streams` | lower | Use `metric_stream = 'drain_rpc_outer'` to avoid double-counting inner promotions. |
-| `timer_drift_recovered_by_server_truth` | Timer drift recovered by server truth | PostHog event `video_date_timer_drift_recovered_by_server_truth` | lower | Added in this branch; emitted only for meaningful date-phase corrections. |
+| `timer_drift_recovered_by_server_truth` | Timer drift recovered by server truth | PostHog event `video_date_timer_drift_recovered_by_server_truth` | lower | Emitted only for meaningful date-phase corrections. |
 
 Default threshold helpers live in `shared/observability/videoDateOperatorMetrics.ts`.
 
@@ -113,9 +132,9 @@ group by event_id
 order by collision_rate desc nulls last;
 ```
 
-Limitation:
+Operational read:
 
-This measures collision-like backend outcomes. After `20260501092000_handle_swipe_presence_and_already_matched_session.sql` is deployed, `already_matched` rows with a non-null `session_id` / returned `video_session_id` represent recovered same-pair sessions that clients can route back into. Rows without a session id, or `participant_has_active_session_conflict`, should still be treated as non-recovered collision/conflict signals.
+This measures collision-like backend outcomes. `already_matched` rows with a non-null `session_id` / returned `video_session_id` represent recovered same-pair sessions that clients can route back into. Rows without a session id, or `participant_has_active_session_conflict`, should still be treated as non-recovered collision/conflict signals.
 
 ## 3. Survey To Next Ready Gate Conversion
 
@@ -285,9 +304,17 @@ Implementation notes:
 
 ## Operator Checklist
 
-1. Open Supabase SQL editor with service role or equivalent operator access.
-2. Run the queue drain query first; high drain failure usually explains weak Ready Gate conversion.
-3. Run Ready Gate open to join latency for the same event window.
-4. Use PostHog continuity funnel for survey to Ready Gate routing.
-5. Use timer drift events as a client health signal, not as server truth. Server truth remains `video_sessions.date_started_at` plus `date_extra_seconds`.
-6. Confirm `20260501092000_handle_swipe_presence_and_already_matched_session.sql` is deployed before labeling `already_matched + video_session_id` as recovered/routable.
+1. Open `/kaan/dashboard` and select Event Analytics.
+2. Select the target event and inspect the Video Date Ops 24h and 7d windows.
+3. Check queue drain failures first; high drain failure usually explains weak Ready Gate conversion.
+4. Check Ready Gate open to join latency for the same event window.
+5. Use the PostHog continuity funnel for exact survey route decisions when the DB approximation and route analytics disagree.
+6. Use timer drift events as a client health signal, not as server truth. Server truth remains `video_sessions.date_started_at` plus `date_extra_seconds`.
+
+## Deploy Notes
+
+- Edge Function: `admin-video-date-ops`
+- Supabase deploy required: yes, deploy the Edge Function.
+- Supabase database migration required: no.
+- Edge Function environment: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.
+- Rebuild delta: web admin bundle changes because Event Analytics now invokes the operator bridge.

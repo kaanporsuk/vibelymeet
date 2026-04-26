@@ -145,3 +145,6 @@ verify_jwt = true
 
 [functions.admin-proof-selfie-sign]
 verify_jwt = true
+
+[functions.admin-video-date-ops]
+verify_jwt = true

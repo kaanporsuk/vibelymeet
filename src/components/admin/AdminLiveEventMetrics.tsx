@@ -74,11 +74,121 @@ interface EventPaymentExceptionItem {
   updated_at: string;
 }
 
+type VideoDateOpsStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
+
+interface AdminVideoDateOpsResponse {
+  ok: boolean;
+  error?: string;
+  generated_at?: string;
+  event_id?: string | null;
+  windows?: VideoDateOpsWindow[];
+}
+
+interface VideoDateOpsWindow {
+  id: "24h" | "7d";
+  label: string;
+  hours: number;
+  since: string;
+  ready_gate_open_to_date_join_latency: {
+    sample_count: number;
+    p50_ms: number | null;
+    p95_ms: number | null;
+    max_ms: number | null;
+    status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
+  simultaneous_swipe_recovery: {
+    total_swipe_rows: number;
+    collision_rows: number;
+    recovered_rows: number;
+    unrecovered_rows: number;
+    collision_rate: number | null;
+    recovery_rate: number | null;
+    collision_status: VideoDateOpsStatus;
+    recovery_status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
+  survey_to_next_ready_gate_conversion: {
+    surveys: number;
+    next_ready_gate_opens: number;
+    conversion_rate: number | null;
+    status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
+  queue_drain_failures: {
+    attempts: number;
+    failures: number;
+    failure_rate: number | null;
+    top_failure_reasons: Array<{ reason: string; count: number }>;
+    status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
+  timer_drift_recovered_by_server_truth: {
+    status: VideoDateOpsStatus;
+    source: "posthog";
+    event_name: string;
+    count: null;
+    rate: null;
+    note: string;
+  };
+}
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim() ? value : null;
+
+const formatRate = (value: number | null | undefined): string =>
+  typeof value === "number" && Number.isFinite(value)
+    ? `${Math.round(value * 100)}%`
+    : "n/a";
+
+const formatMs = (value: number | null | undefined): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
+  return `${Math.round(value)}ms`;
+};
+
+const statusBadgeClass = (status: VideoDateOpsStatus): string => {
+  switch (status) {
+    case "healthy":
+      return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+    case "warning":
+      return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+    case "critical":
+      return "bg-red-500/15 text-red-300 border-red-500/30";
+    case "external_only":
+      return "bg-cyan-500/15 text-cyan-300 border-cyan-500/30";
+    default:
+      return "bg-secondary text-muted-foreground border-white/10";
+  }
+};
+
+const VideoDateOpsTile = ({
+  label,
+  value,
+  detail,
+  status,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  status: VideoDateOpsStatus;
+}) => (
+  <div className="rounded-xl border border-white/10 bg-secondary/20 p-3">
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Badge className={statusBadgeClass(status)}>{status.replace("_", " ")}</Badge>
+    </div>
+    <div className="mt-2 text-xl font-semibold text-foreground">{value}</div>
+    <div className="mt-1 text-[11px] text-muted-foreground leading-relaxed">{detail}</div>
+  </div>
+);
 
 const MetricCard = ({ icon: Icon, label, value, color, warning }: MetricCardProps) => (
   <div className="glass-card p-4 rounded-2xl relative">
@@ -277,6 +387,26 @@ const AdminLiveEventMetrics = () => {
       return { tagCounts, flowCounts, totalFlow, photoAccuracyRate };
     },
     enabled: !!eventId,
+  });
+
+  const {
+    data: videoDateOps,
+    isLoading: videoDateOpsLoading,
+    error: videoDateOpsError,
+  } = useQuery({
+    queryKey: ["admin-video-date-ops", eventId],
+    queryFn: async () => {
+      if (!eventId) return null;
+      const { data, error } = await supabase.functions.invoke<AdminVideoDateOpsResponse>(
+        "admin-video-date-ops",
+        { body: { event_id: eventId } },
+      );
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Video Date Ops metrics unavailable");
+      return data;
+    },
+    enabled: !!eventId,
+    refetchInterval: 60_000,
   });
 
   const genderData = metrics
@@ -586,6 +716,135 @@ const AdminLiveEventMetrics = () => {
               color="bg-red-500/20 text-red-400"
               warning={metrics.reportsCount > 0}
             />
+          </div>
+
+          {/* Video Date Ops */}
+          <div className="glass-card p-6 rounded-2xl space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-primary" />
+                  Video Date Ops
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Service-role aggregate health for Ready Gate, swipe recovery, post-survey continuity, drain, and timer drift.
+                </p>
+              </div>
+              {videoDateOps?.generated_at && (
+                <Badge className="bg-secondary text-muted-foreground border-white/10">
+                  updated {new Date(videoDateOps.generated_at).toLocaleTimeString()}
+                </Badge>
+              )}
+            </div>
+
+            {videoDateOpsLoading && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {["24h", "7d"].map((window) => (
+                  <div key={window} className="rounded-xl border border-white/10 bg-secondary/20 p-4 space-y-3">
+                    <div className="h-4 w-24 rounded bg-secondary/60 animate-pulse" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {Array.from({ length: 5 }).map((_, index) => (
+                        <div key={index} className="h-24 rounded-xl bg-secondary/50 animate-pulse" />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {videoDateOpsError && !videoDateOpsLoading && (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+                Video Date Ops metrics are unavailable:{" "}
+                {videoDateOpsError instanceof Error ? videoDateOpsError.message : String(videoDateOpsError)}
+              </div>
+            )}
+
+            {videoDateOps?.windows && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {videoDateOps.windows.map((window) => {
+                  const latency = window.ready_gate_open_to_date_join_latency;
+                  const swipe = window.simultaneous_swipe_recovery;
+                  const survey = window.survey_to_next_ready_gate_conversion;
+                  const drain = window.queue_drain_failures;
+                  const timer = window.timer_drift_recovered_by_server_truth;
+                  const truncated = [
+                    latency.truncated,
+                    swipe.truncated,
+                    survey.truncated,
+                    drain.truncated,
+                  ].some(Boolean);
+
+                  return (
+                    <div key={window.id} className="rounded-xl border border-white/10 bg-secondary/10 p-4 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <h4 className="text-sm font-semibold text-foreground">{window.label} window</h4>
+                          <p className="text-[11px] text-muted-foreground">
+                            since {new Date(window.since).toLocaleString()}
+                          </p>
+                        </div>
+                        {truncated && (
+                          <Badge className="bg-amber-500/15 text-amber-300 border-amber-500/30">
+                            capped sample
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <VideoDateOpsTile
+                          label="Ready Gate -> join"
+                          value={`${formatMs(latency.p95_ms)} p95`}
+                          detail={
+                            latency.source_error ||
+                            `${latency.sample_count} joined sessions, ${formatMs(latency.p50_ms)} p50`
+                          }
+                          status={latency.status}
+                        />
+                        <VideoDateOpsTile
+                          label="Swipe recovery"
+                          value={formatRate(swipe.recovery_rate)}
+                          detail={
+                            swipe.source_error ||
+                            `${swipe.recovered_rows}/${swipe.collision_rows} collisions recovered, ${formatRate(swipe.collision_rate)} collision rate`
+                          }
+                          status={swipe.recovery_status}
+                        />
+                        <VideoDateOpsTile
+                          label="Survey -> next gate"
+                          value={formatRate(survey.conversion_rate)}
+                          detail={
+                            survey.source_error ||
+                            `${survey.next_ready_gate_opens}/${survey.surveys} survey completions opened a Ready Gate`
+                          }
+                          status={survey.status}
+                        />
+                        <VideoDateOpsTile
+                          label="Queue drain failures"
+                          value={formatRate(drain.failure_rate)}
+                          detail={
+                            drain.source_error ||
+                            `${drain.failures}/${drain.attempts} attempts failed${
+                              drain.top_failure_reasons.length
+                                ? `; top: ${drain.top_failure_reasons
+                                    .map((reason) => `${reason.reason} ${reason.count}`)
+                                    .join(", ")}`
+                                : ""
+                            }`
+                          }
+                          status={drain.status}
+                        />
+                        <VideoDateOpsTile
+                          label="Timer drift recovered"
+                          value="PostHog"
+                          detail={`${timer.event_name}. ${timer.note}`}
+                          status={timer.status}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Gender Ratio */}
