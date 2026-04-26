@@ -84,6 +84,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
+import { buildVideoDateTimerDriftRecoveredPayload } from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { avatarUrl } from '@/lib/imageUrl';
 import {
@@ -365,6 +366,9 @@ export default function VideoDateScreen() {
   const prejoinAttemptSeqRef = useRef(0);
   const prejoinAttemptRef = useRef<PrejoinAttemptState | null>(null);
   const phaseRef = useRef(phase);
+  const localTimeLeftRef = useRef<number | null>(null);
+  const timerDriftTrackingReadyRef = useRef(false);
+  const lastTimerDriftRecoveryKeyRef = useRef<string | null>(null);
   const latestDateRouteSessionIdRef = useRef<string | null>(null);
   const latestDateRouteUserIdRef = useRef<string | null>(null);
   const latestDateRouteEndedRef = useRef(false);
@@ -677,6 +681,17 @@ export default function VideoDateScreen() {
   latestDateRouteSessionIdRef.current = sessionId ?? null;
   latestDateRouteUserIdRef.current = user?.id ?? null;
   latestDateRouteEndedRef.current = Boolean(session?.ended_at || session?.state === 'ended' || phase === 'ended');
+
+  useEffect(() => {
+    localTimeLeftRef.current = localTimeLeft;
+  }, [localTimeLeft]);
+
+  useEffect(() => {
+    if (phase !== 'date') {
+      timerDriftTrackingReadyRef.current = false;
+      lastTimerDriftRecoveryKeyRef.current = null;
+    }
+  }, [phase]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -1172,8 +1187,52 @@ export default function VideoDateScreen() {
   );
 
   useEffect(() => {
+    if (phaseRef.current !== 'date') {
+      timerDriftTrackingReadyRef.current = false;
+      setLocalTimeLeft(serverTimeLeft);
+      return;
+    }
+
+    if (timerDriftTrackingReadyRef.current && serverTimeLeft !== null) {
+      const payload = buildVideoDateTimerDriftRecoveredPayload({
+        platform: 'native',
+        sessionId,
+        eventId: session?.event_id ?? eventId,
+        previousTimeLeftSeconds: localTimeLeftRef.current,
+        correctedTimeLeftSeconds: serverTimeLeft,
+        recoverySource: 'session_truth_sync',
+        phase: phaseRef.current,
+      });
+
+      if (payload) {
+        const recoveryKey = [
+          payload.session_id,
+          payload.drift_ms,
+          payload.drift_bucket,
+          payload.recovery_source,
+          serverTimeLeft,
+          session?.date_started_at ?? '',
+          session?.date_extra_seconds ?? '',
+        ].join(':');
+        if (lastTimerDriftRecoveryKeyRef.current !== recoveryKey) {
+          lastTimerDriftRecoveryKeyRef.current = recoveryKey;
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED_BY_SERVER_TRUTH, payload);
+          vdbg('timer_drift_recovered_by_server_truth', {
+            sessionId: sessionId ?? null,
+            eventId: payload.event_id ?? null,
+            driftMs: payload.drift_ms,
+            driftBucket: payload.drift_bucket,
+            recoverySource: payload.recovery_source,
+          });
+        }
+      }
+    }
+
     setLocalTimeLeft(serverTimeLeft);
-  }, [serverTimeLeft]);
+    if (serverTimeLeft !== null) {
+      timerDriftTrackingReadyRef.current = true;
+    }
+  }, [eventId, serverTimeLeft, session?.date_extra_seconds, session?.date_started_at, session?.event_id, sessionId]);
 
   useEffect(() => {
     if (!session || !user?.id) return;

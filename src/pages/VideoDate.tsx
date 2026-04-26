@@ -61,6 +61,7 @@ import {
   persistHandshakeDecisionWithVerification,
   type VideoDateHandshakeTruth,
 } from "@clientShared/matching/videoDateHandshakePersistence";
+import { buildVideoDateTimerDriftRecoveredPayload } from "@clientShared/observability/videoDateOperatorMetrics";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -191,7 +192,10 @@ const VideoDate = () => {
 
   const remoteContainerRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef<CallPhase>("handshake");
+  const timeLeftRef = useRef<number | null>(null);
+  const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
+  const eventIdRef = useRef<string | undefined>(undefined);
   const handshakeGraceRetryTriggeredRef = useRef(false);
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
@@ -482,6 +486,50 @@ const VideoDate = () => {
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    timeLeftRef.current = timeLeft;
+  }, [timeLeft]);
+
+  useEffect(() => {
+    eventIdRef.current = eventId;
+  }, [eventId]);
+
+  useEffect(() => {
+    if (phase !== "date") {
+      timerDriftTrackingReadyRef.current = false;
+      return;
+    }
+    if (timeLeft !== null) {
+      timerDriftTrackingReadyRef.current = true;
+    }
+  }, [phase, timeLeft]);
+
+  const trackTimerDriftRecovery = useCallback(
+    (correctedTimeLeftSeconds: number, recoverySource: "timing_fetch" | "realtime_update") => {
+      if (!timerDriftTrackingReadyRef.current) return;
+      const payload = buildVideoDateTimerDriftRecoveredPayload({
+        platform: "web",
+        sessionId: id,
+        eventId: eventIdRef.current,
+        previousTimeLeftSeconds: timeLeftRef.current,
+        correctedTimeLeftSeconds,
+        recoverySource,
+        phase: phaseRef.current,
+      });
+      if (!payload) return;
+
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED_BY_SERVER_TRUTH, payload);
+      vdbg("timer_drift_recovered_by_server_truth", {
+        sessionId: id ?? null,
+        eventId: eventIdRef.current ?? null,
+        driftMs: payload.drift_ms,
+        driftBucket: payload.drift_bucket,
+        recoverySource,
+      });
+    },
+    [id],
+  );
 
   useEffect(() => {
     videoJoinCycleRef.current = 0;
@@ -1018,14 +1066,14 @@ const VideoDate = () => {
         setHandshakeStartedAt(null);
         const dateStartedAt = typeof data.date_started_at === "string" ? data.date_started_at : null;
         setDateStartedAt(dateStartedAt);
-        setTimeLeft(
-          remainingDatePhaseSeconds({
-            dateStartedAtIso: dateStartedAt,
-            baseDateSeconds: DATE_TIME,
-            dateExtraSeconds: extraNorm,
-            nowMs: now,
-          }),
-        );
+        const correctedTimeLeft = remainingDatePhaseSeconds({
+          dateStartedAtIso: dateStartedAt,
+          baseDateSeconds: DATE_TIME,
+          dateExtraSeconds: extraNorm,
+          nowMs: now,
+        });
+        trackTimerDriftRecovery(correctedTimeLeft, "timing_fetch");
+        setTimeLeft(correctedTimeLeft);
         setPhase("date");
         setTimingReady(true);
         return;
@@ -1085,7 +1133,16 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, videoDateAccess, clearHandshakeGraceState, markDateFlowEntered, openPostDateSurvey, timingRefreshNonce]);
+  }, [
+    id,
+    user?.id,
+    videoDateAccess,
+    clearHandshakeGraceState,
+    markDateFlowEntered,
+    openPostDateSurvey,
+    timingRefreshNonce,
+    trackTimerDriftRecovery,
+  ]);
 
   // Browser foreground/online recovery mirrors native AppState reconciliation without polling storms.
   useEffect(() => {
@@ -1295,13 +1352,13 @@ const VideoDate = () => {
             setDateExtraSeconds(extraNorm);
             const dateStartedAt = typeof row.date_started_at === "string" ? row.date_started_at : null;
             setDateStartedAt(dateStartedAt);
-            setTimeLeft(
-              remainingDatePhaseSeconds({
-                dateStartedAtIso: dateStartedAt,
-                baseDateSeconds: DATE_TIME,
-                dateExtraSeconds: extraNorm,
-              }),
-            );
+            const correctedTimeLeft = remainingDatePhaseSeconds({
+              dateStartedAtIso: dateStartedAt,
+              baseDateSeconds: DATE_TIME,
+              dateExtraSeconds: extraNorm,
+            });
+            trackTimerDriftRecovery(correctedTimeLeft, "realtime_update");
+            setTimeLeft(correctedTimeLeft);
             setPhase("date");
             return;
           }
@@ -1344,7 +1401,15 @@ const VideoDate = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, videoDateAccess, clearHandshakeGraceState, markDateFlowEntered, openPostDateSurvey]);
+  }, [
+    id,
+    user?.id,
+    videoDateAccess,
+    clearHandshakeGraceState,
+    markDateFlowEntered,
+    openPostDateSurvey,
+    trackTimerDriftRecovery,
+  ]);
 
   // Progressive blur: clear over 10s when connected + track start
   useEffect(() => {
