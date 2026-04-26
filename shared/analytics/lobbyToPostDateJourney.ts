@@ -56,6 +56,7 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_EXTENSION_ATTEMPTED: 'video_date_extension_attempted',
   VIDEO_DATE_EXTENSION_SUCCEEDED: 'video_date_extension_succeeded',
   VIDEO_DATE_EXTENSION_FAILED: 'video_date_extension_failed',
+  VIDEO_DATE_TIMER_DRIFT_RECOVERED_BY_SERVER_TRUTH: 'video_date_timer_drift_recovered_by_server_truth',
   EXTEND_DATE_SUCCESS: 'extend_date_success',
   EXTEND_DATE_FAILURE: 'extend_date_failure',
   EXTEND_DATE_NO_CREDITS_IMPRESSION: 'extend_date_no_credits_impression',
