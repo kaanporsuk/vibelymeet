@@ -2,10 +2,9 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import confetti from "canvas-confetti";
-import { MessageCircle, Sparkles, Zap, Heart } from "lucide-react";
+import { MessageCircle, Sparkles, Zap, Heart, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
-import { LazyImage } from "@/components/LazyImage";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -15,17 +14,18 @@ interface MatchSuccessModalProps {
   onClose: () => void;
   /** When set, runs instead of the safe fallback (matches hub) after mutual match celebration. */
   onStartChatting?: () => void;
-  matchData?: {
+  matchData: {
     name: string;
-    age: number;
-    avatar: string;
-    sharedVibes: string[];
+    age?: number | null;
+    avatar?: string | null;
+    sharedVibes?: string[];
     /** Omit to hide the chemistry badge — only show when backed by real data. */
     vibeScore?: number;
   };
-  userData?: {
+  isMatchDataLoading?: boolean;
+  userData: {
     name: string;
-    avatar: string;
+    avatar?: string | null;
   };
 }
 
@@ -33,17 +33,9 @@ const MatchSuccessModal = ({
   isOpen,
   onClose,
   onStartChatting,
-  matchData = {
-    name: "Sarah",
-    age: 24,
-    avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-    sharedVibes: ["🦉 Night Owl", "🎨 Design", "🍕 Pizza"],
-    vibeScore: 94,
-  },
-  userData = {
-    name: "You",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
-  },
+  isMatchDataLoading = false,
+  matchData,
+  userData,
 }: MatchSuccessModalProps) => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
@@ -161,6 +153,15 @@ const MatchSuccessModal = ({
   const handleKeepVibing = () => {
     onClose();
   };
+  const sharedVibes = matchData.sharedVibes ?? [];
+  const matchAvatar = matchData.avatar?.trim() ?? "";
+  const userAvatar = userData.avatar?.trim() ?? "";
+  const userInitial = (userData.name.trim()[0] ?? "Y").toUpperCase();
+  const matchInitial = (matchData.name.trim()[0] ?? "?").toUpperCase();
+  const displayNameAndAge =
+    typeof matchData.age === "number" && matchData.age > 0
+      ? `${matchData.name}, ${matchData.age}`
+      : matchData.name;
 
   return (
     <AnimatePresence>
@@ -288,11 +289,17 @@ const MatchSuccessModal = ({
                       }}
                     />
                     <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-background">
-                      <img
-                        src={userData.avatar}
-                        alt={userData.name}
-                        className="w-full h-full object-cover"
-                      />
+                      {userAvatar ? (
+                        <img
+                          src={userAvatar}
+                          alt={userData.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-muted text-4xl font-bold text-muted-foreground">
+                          {userInitial}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -355,11 +362,17 @@ const MatchSuccessModal = ({
                       }}
                     />
                     <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-background">
-                      <img
-                        src={matchData.avatar}
-                        alt={matchData.name}
-                        className="w-full h-full object-cover"
-                      />
+                      {matchAvatar ? (
+                        <img
+                          src={matchAvatar}
+                          alt={matchData.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-muted text-4xl font-bold text-muted-foreground">
+                          {matchInitial !== "?" ? matchInitial : <User className="w-12 h-12" />}
+                        </div>
+                      )}
                     </div>
                     
                     {/* Name Badge */}
@@ -370,7 +383,7 @@ const MatchSuccessModal = ({
                       className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-background/80 backdrop-blur-sm border border-border"
                     >
                       <span className="text-sm font-semibold text-foreground">
-                        {matchData.name}, {matchData.age}
+                        {displayNameAndAge}
                       </span>
                     </motion.div>
                   </motion.div>
@@ -425,40 +438,52 @@ const MatchSuccessModal = ({
                     </div>
                     
                     <div className="flex flex-wrap gap-2">
-                      {matchData.sharedVibes.map((vibe, index) => (
-                        <motion.div
-                          key={vibe}
-                          initial={{ scale: 0 }}
-                          animate={{ scale: 1 }}
-                          transition={{ 
-                            type: "spring", 
-                            stiffness: 400, 
-                            damping: 15,
-                            delay: index * 0.1 
-                          }}
-                          className="relative"
-                        >
+                      {isMatchDataLoading ? (
+                        <>
+                          <div className="h-9 w-24 rounded-full bg-white/10 animate-pulse" />
+                          <div className="h-9 w-28 rounded-full bg-white/10 animate-pulse" />
+                          <div className="h-9 w-20 rounded-full bg-white/10 animate-pulse" />
+                        </>
+                      ) : sharedVibes.length > 0 ? (
+                        sharedVibes.map((vibe, index) => (
                           <motion.div
-                            animate={{
-                              boxShadow: [
-                                "0 0 10px rgba(255, 215, 0, 0.2)",
-                                "0 0 20px rgba(255, 215, 0, 0.4)",
-                                "0 0 10px rgba(255, 215, 0, 0.2)",
-                              ],
+                            key={vibe}
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{
+                              type: "spring",
+                              stiffness: 400,
+                              damping: 15,
+                              delay: index * 0.1
                             }}
-                            transition={{ 
-                              duration: 2, 
-                              repeat: Infinity,
-                              delay: index * 0.2 
-                            }}
-                            className="px-4 py-2 rounded-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30"
+                            className="relative"
                           >
-                            <span className="text-sm font-medium text-foreground">
-                              {vibe}
-                            </span>
+                            <motion.div
+                              animate={{
+                                boxShadow: [
+                                  "0 0 10px rgba(255, 215, 0, 0.2)",
+                                  "0 0 20px rgba(255, 215, 0, 0.4)",
+                                  "0 0 10px rgba(255, 215, 0, 0.2)",
+                                ],
+                              }}
+                              transition={{
+                                duration: 2,
+                                repeat: Infinity,
+                                delay: index * 0.2
+                              }}
+                              className="px-4 py-2 rounded-full bg-gradient-to-r from-yellow-500/20 to-orange-500/20 border border-yellow-500/30"
+                            >
+                              <span className="text-sm font-medium text-foreground">
+                                {vibe}
+                              </span>
+                            </motion.div>
                           </motion.div>
-                        </motion.div>
-                      ))}
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          You both chose to keep the vibe going.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </motion.div>
