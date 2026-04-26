@@ -6,6 +6,8 @@ Use this runbook before releases and after auth, event, lobby, swipe, Ready Gate
 
 The video-date hardening baseline is closed and documented in `docs/video-date-hardening-closure-handoff.md`. Treat that handoff as the source of truth for video-date ownership boundaries, deploy history, rollback notes, and regression commands.
 
+For seeded live/staging setup of the remaining manual two-user/device/admin checks, use `docs/qa/video-date-seeded-runtime-qa-pack.md`.
+
 ## Scripted Harness
 
 Run from the repo root:
@@ -158,3 +160,5 @@ The Playwright layer is a shell smoke only. The Maestro layer requires a device/
 - Native device/simulator verification.
 - PostHog timer-drift trend inspection.
 - Admin metric cross-check against production SQL/PostHog.
+
+Use `docs/qa/video-date-seeded-runtime-qa-pack.md` to make those manual checks repeatable.
