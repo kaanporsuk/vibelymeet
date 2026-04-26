@@ -29,6 +29,11 @@ import {
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
 import {
+  getPostDateLobbyContinuityDecision,
+  secondsUntilPostDateEventEnd,
+  type PostDateContinuityDecision,
+} from "@clientShared/matching/postDateContinuity";
+import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
 } from "@shared/matching/videoSessionFlow";
@@ -100,6 +105,7 @@ const EventLobby = () => {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
   const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] = useState(false);
+  const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
   const {
     activeSession: scopedSession,
     hydrated: sessionHydrated,
@@ -115,6 +121,7 @@ const EventLobby = () => {
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
   const lobbyEnteredEventRef = useRef<string | null>(null);
+  const postSurveyRouteTrackedRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -192,9 +199,10 @@ const EventLobby = () => {
     const pending =
       searchParams.get("pendingVideoSession") ?? searchParams.get("pendingMatch");
     if (pending) {
-      searchParams.delete("pendingVideoSession");
-      searchParams.delete("pendingMatch");
-      setSearchParams(searchParams, { replace: true });
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("pendingVideoSession");
+      nextParams.delete("pendingMatch");
+      setSearchParams(nextParams, { replace: true });
       void refetchScopedSession();
     }
   }, [searchParams, setSearchParams, refetchScopedSession]);
@@ -217,6 +225,9 @@ const EventLobby = () => {
     dateNavigationSessionIdRef.current = null;
     setActiveSessionId(null);
     setDateNavigationSessionId(null);
+    setPostSurveyReturnContext(false);
+    setCheckingNextDateAfterSurvey(false);
+    postSurveyRouteTrackedRef.current = null;
   }, [eventId]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
@@ -441,19 +452,31 @@ const EventLobby = () => {
   // Returning from video date / survey: fresh deck, no stale overlay.
   useEffect(() => {
     const st = location.state as { lobbyRefresh?: boolean } | null;
-    if (!st?.lobbyRefresh || !eventId || !user?.id) return;
+    const hasPostSurveyQuery = searchParams.get("postSurveyComplete") === "1";
+    if ((!st?.lobbyRefresh && !hasPostSurveyQuery) || !eventId || !user?.id) return;
     setCheckingNextDateAfterSurvey(true);
+    setPostSurveyReturnContext(true);
     seenProfileIds.current = new Set();
     setDeckNonce((n) => n + 1);
     dateNavigationSessionIdRef.current = null;
     setDateNavigationSessionId(null);
     clearReadyGateSession("lobby_refresh");
     void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
-    navigate(location.pathname + location.search, { replace: true, state: {} });
+    let nextSearch = location.search;
+    if (hasPostSurveyQuery) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("postSurveyComplete");
+      setSearchParams(nextParams, { replace: true });
+      const serialized = nextParams.toString();
+      nextSearch = serialized ? `?${serialized}` : "";
+    }
+    navigate(location.pathname + nextSearch, { replace: true, state: {} });
   }, [
     location.state,
     location.pathname,
     location.search,
+    searchParams,
+    setSearchParams,
     eventId,
     user?.id,
     navigate,
@@ -463,10 +486,10 @@ const EventLobby = () => {
 
   useEffect(() => {
     if (!checkingNextDateAfterSurvey) return;
-    if (queueDrainInFlight || !sessionHydrated) return;
+    if (queueDrainInFlight || !sessionHydrated || deckLoading) return;
     const timer = setTimeout(() => setCheckingNextDateAfterSurvey(false), 900);
     return () => clearTimeout(timer);
-  }, [checkingNextDateAfterSurvey, queueDrainInFlight, sessionHydrated]);
+  }, [checkingNextDateAfterSurvey, queueDrainInFlight, sessionHydrated, deckLoading]);
 
   // FAILURE 1 FIX: Realtime subscription for own registration status changes
   // Uses profile_id filter for efficiency — only fires for THIS user's row
@@ -657,6 +680,14 @@ const EventLobby = () => {
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
   const thirdProfile = sortedProfiles[2] || null;
+  const eventEndsAtForContinuity = useMemo(
+    () => (event ? addMinutes(event.eventDate, event.durationMinutes) : null),
+    [event]
+  );
+  const secondsUntilEventEnd = useMemo(
+    () => secondsUntilPostDateEventEnd(eventEndsAtForContinuity),
+    [eventEndsAtForContinuity]
+  );
 
   // Track deck loaded / exhausted
   useEffect(() => {
@@ -746,10 +777,91 @@ const EventLobby = () => {
     sameEventScopedSession?.kind === "ready_gate" &&
       activeSessionId !== sameEventScopedSession.sessionId
   );
+  const eventLiveForContinuity = Boolean(
+    event &&
+      event.status !== "ended" &&
+      (secondsUntilEventEnd == null || secondsUntilEventEnd > 0)
+  );
+  const postSurveyContinuityDecision = useMemo(
+    () =>
+      getPostDateLobbyContinuityDecision({
+        yieldingToVideoDate: yieldingToVideoDateUi,
+        yieldingToReadyGate: yieldingToReadyGateUi,
+        hasQueuedSession: queueDrainInFlight || queuedCount > 0,
+        deckLoading,
+        deckHasCandidate: Boolean(currentProfile),
+        deckError,
+        eventLive: eventLiveForContinuity,
+        secondsUntilEventEnd,
+      }),
+    [
+      currentProfile,
+      deckError,
+      deckLoading,
+      eventLiveForContinuity,
+      queueDrainInFlight,
+      queuedCount,
+      secondsUntilEventEnd,
+      yieldingToReadyGateUi,
+      yieldingToVideoDateUi,
+    ]
+  );
   const showPostSurveyQueueCheck =
-    checkingNextDateAfterSurvey && !yieldingToVideoDateUi && !yieldingToReadyGateUi;
+    checkingNextDateAfterSurvey &&
+    !yieldingToVideoDateUi &&
+    !yieldingToReadyGateUi &&
+    !(currentProfile && !deckLoading);
   const suppressDeckUiForConvergence =
     yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
+
+  useEffect(() => {
+    if (!postSurveyReturnContext || !eventId) return;
+    if (checkingNextDateAfterSurvey && postSurveyContinuityDecision.action === "refreshing_deck") return;
+    if (postSurveyRouteTrackedRef.current) return;
+    postSurveyRouteTrackedRef.current = postSurveyContinuityDecision.action;
+    const route =
+      postSurveyContinuityDecision.action === "ready_gate"
+        ? "event_lobby_ready_gate"
+        : postSurveyContinuityDecision.action === "video_date"
+          ? "date"
+          : postSurveyContinuityDecision.action === "fresh_deck"
+            ? "event_lobby_fresh_card"
+            : postSurveyContinuityDecision.action === "last_chance"
+              ? currentProfile
+                ? "event_lobby_last_chance_card"
+                : "event_lobby_last_chance_empty"
+              : postSurveyContinuityDecision.action === "event_ended"
+                ? "event_ended"
+                : "event_lobby_empty";
+
+    trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+      platform: "web",
+      event_id: eventId,
+      action: postSurveyContinuityDecision.action,
+      source: "lobby_post_survey_return",
+      queued_count: queuedCount,
+      deck_count: sortedProfiles.length,
+      seconds_until_event_end: secondsUntilEventEnd,
+    });
+    trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+      platform: "web",
+      event_id: eventId,
+      action: postSurveyContinuityDecision.action,
+      route,
+      queued_count: queuedCount,
+      deck_count: sortedProfiles.length,
+      seconds_until_event_end: secondsUntilEventEnd,
+    });
+  }, [
+    checkingNextDateAfterSurvey,
+    currentProfile,
+    eventId,
+    postSurveyContinuityDecision.action,
+    postSurveyReturnContext,
+    queuedCount,
+    secondsUntilEventEnd,
+    sortedProfiles.length,
+  ]);
 
   useEffect(() => {
     if (!eventId) return;
@@ -892,16 +1004,21 @@ const EventLobby = () => {
               {yieldingToVideoDateUi
                 ? "Joining your date..."
                 : showPostSurveyQueueCheck
-                  ? "Finding your next date..."
+                  ? postSurveyContinuityDecision.title
                   : "Opening Ready Gate..."}
             </p>
             <p className="text-sm text-white/55 mt-2">
               {yieldingToVideoDateUi
                 ? "Taking you to the same video session as your match."
                 : showPostSurveyQueueCheck
-                  ? "Checking your queue before we refresh the deck."
+                  ? postSurveyContinuityDecision.message
                 : "Syncing with your match. Almost there."}
             </p>
+            {showPostSurveyQueueCheck && (
+              <div className="mt-6 w-full">
+                <CardSkeleton decision={postSurveyContinuityDecision} compact />
+              </div>
+            )}
           </div>
         ) : user?.isPaused ? (
           <div className="flex flex-col items-center justify-center flex-1 px-4 py-8 text-center max-w-sm mx-auto w-full">
@@ -967,11 +1084,20 @@ const EventLobby = () => {
             </Button>
           </div>
         ) : deckLoading && sortedProfiles.length === 0 && !deckError ? (
-          <CardSkeleton />
+          <CardSkeleton decision={postSurveyReturnContext ? postSurveyContinuityDecision : undefined} />
         ) : isEmpty ? (
-          <LobbyEmptyState eventId={eventId} onRefresh={refetchDeck} />
+          <LobbyEmptyState
+            eventId={eventId}
+            onRefresh={refetchDeck}
+            badge={postSurveyReturnContext ? postSurveyContinuityDecision.title : undefined}
+            title={postSurveyReturnContext ? postSurveyContinuityDecision.title : undefined}
+            message={postSurveyReturnContext ? postSurveyContinuityDecision.message : undefined}
+          />
         ) : (
           <div className="w-full space-y-3">
+            {checkingNextDateAfterSurvey && postSurveyReturnContext && (
+              <PostSurveyLobbyStatus decision={postSurveyContinuityDecision} />
+            )}
             <div className="text-center px-1">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/40">Discover</p>
               <p className="text-sm text-white/70 font-medium mt-0.5">Swipe fast — vibes are live in this room</p>
@@ -1140,13 +1266,49 @@ const SwipeableCard = ({ profile, userVibes, onSwipeLeft, onSwipeRight, disabled
 
 /* ---------- Card Skeleton ---------- */
 
-const CardSkeleton = () => (
+const PostSurveyLobbyStatus = ({ decision }: { decision: PostDateContinuityDecision }) => {
+  const toneClass =
+    decision.tone === "ready"
+      ? "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
+      : decision.tone === "last_chance"
+        ? "border-amber-400/25 bg-amber-500/10 text-amber-100"
+        : "border-white/10 bg-white/[0.05] text-white/75";
+
+  return (
+    <div className={`rounded-2xl border px-3.5 py-3 text-left ${toneClass}`} aria-live="polite">
+      <div className="flex items-center gap-2">
+        <span className="relative flex h-2 w-2 shrink-0">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-35" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-current opacity-80" />
+        </span>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em]">{decision.title}</p>
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-white/55">{decision.message}</p>
+    </div>
+  );
+};
+
+const CardSkeleton = ({
+  decision,
+  compact,
+}: {
+  decision?: PostDateContinuityDecision;
+  compact?: boolean;
+}) => (
   <div
     className="relative w-full rounded-3xl overflow-hidden border border-white/[0.1] bg-zinc-900/80 shadow-[0_24px_80px_-12px_rgba(0,0,0,0.75)]"
-    style={{ aspectRatio: "3/4", maxHeight: "min(62vh, 520px)" }}
+    style={{ aspectRatio: "3/4", maxHeight: compact ? "min(34vh, 320px)" : "min(62vh, 520px)" }}
   >
     <div className="w-full h-full min-h-[280px] shimmer-effect opacity-80" />
     <div className="absolute bottom-0 left-0 right-0 h-2/5 bg-gradient-to-t from-black/90 to-transparent pointer-events-none rounded-b-3xl" />
+    {decision && (
+      <div className="absolute left-4 right-4 bottom-4 rounded-2xl border border-white/10 bg-black/45 px-3 py-2.5 text-left backdrop-blur-md">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/75">
+          {decision.title}
+        </p>
+        <p className="mt-1 text-xs leading-relaxed text-white/50">{decision.message}</p>
+      </div>
+    )}
   </div>
 );
 

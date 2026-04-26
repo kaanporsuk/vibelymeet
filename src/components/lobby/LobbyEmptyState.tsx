@@ -8,9 +8,12 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 interface LobbyEmptyStateProps {
   eventId: string | undefined;
   onRefresh: () => void;
+  badge?: string;
+  title?: string;
+  message?: string;
 }
 
-const LobbyEmptyState = ({ eventId, onRefresh }: LobbyEmptyStateProps) => {
+const LobbyEmptyState = ({ eventId, onRefresh, badge, title, message }: LobbyEmptyStateProps) => {
   const impressionRef = useRef(false);
 
   useEffect(() => {
@@ -64,13 +67,14 @@ const LobbyEmptyState = ({ eventId, onRefresh }: LobbyEmptyStateProps) => {
           <div className="space-y-2">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.06] border border-white/10 text-[10px] font-semibold uppercase tracking-wider text-white/60 mx-auto">
               <Radio className="w-3 h-3 text-neon-cyan" />
-              Deck clear
+              {badge ?? "Deck clear"}
             </div>
             <h3 className="text-xl font-display font-bold text-white tracking-tight">
-              You&apos;ve seen everyone for now
+              {title ?? "You&apos;ve seen everyone for now"}
             </h3>
             <p className="text-sm text-white/55 leading-relaxed">
-              More people may join the room — your deck refreshes every few seconds. Tap refresh if you don&apos;t want to wait.
+              {message ??
+                "More people may join the room — your deck refreshes every few seconds. Tap refresh if you don&apos;t want to wait."}
             </p>
           </div>
 

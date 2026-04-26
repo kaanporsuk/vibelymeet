@@ -6,6 +6,12 @@ import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
 } from "./videoDateExtensionSpend";
+import {
+  getPostDateLobbyContinuityDecision,
+  getPostDateSurveyContinuityDecision,
+  isPostDateEventNearlyOver,
+  secondsUntilPostDateEventEnd,
+} from "./postDateContinuity";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -13,6 +19,10 @@ const migration = readFileSync(
 );
 const preDateEndMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501091000_video_date_pre_date_end_cleanup.sql"),
+  "utf8",
+);
+const swipePresenceMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql"),
   "utf8",
 );
 
@@ -45,6 +55,57 @@ test("date remaining time is recomputed from server date_extra_seconds", () => {
   );
 });
 
+test("post-date continuity uses event timing for nearly-over state", () => {
+  const nowMs = Date.parse("2026-04-24T10:00:00.000Z");
+  const endsAt = "2026-04-24T10:04:59.000Z";
+  const seconds = secondsUntilPostDateEventEnd(endsAt, nowMs);
+  assert.equal(seconds, 299);
+  assert.equal(isPostDateEventNearlyOver(seconds), true);
+});
+
+test("post-date survey continuity prioritizes real queued sessions over deck copy", () => {
+  assert.deepEqual(
+    getPostDateSurveyContinuityDecision({
+      isDrainingQueue: false,
+      queuedCount: 1,
+      isSubmittingSurvey: false,
+      eventActive: true,
+      secondsUntilEventEnd: 600,
+      hasEventId: true,
+    }).action,
+    "ready_gate",
+  );
+});
+
+test("post-date lobby continuity distinguishes fresh cards from calm empty state", () => {
+  assert.equal(
+    getPostDateLobbyContinuityDecision({
+      yieldingToVideoDate: false,
+      yieldingToReadyGate: false,
+      hasQueuedSession: false,
+      deckLoading: false,
+      deckHasCandidate: true,
+      deckError: false,
+      eventLive: true,
+      secondsUntilEventEnd: 600,
+    }).action,
+    "fresh_deck",
+  );
+  assert.equal(
+    getPostDateLobbyContinuityDecision({
+      yieldingToVideoDate: false,
+      yieldingToReadyGate: false,
+      hasQueuedSession: false,
+      deckLoading: false,
+      deckHasCandidate: false,
+      deckError: false,
+      eventLive: true,
+      secondsUntilEventEnd: 600,
+    }).action,
+    "empty_deck",
+  );
+});
+
 test("migration adds idempotent credit extension ledger and optional key", () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.video_date_credit_extension_spends/);
   assert.match(migration, /UNIQUE \(session_id, user_id, credit_type, idempotency_key\)/);
@@ -67,6 +128,27 @@ test("migration serializes super-vibe cap checks per actor and event", () => {
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.match(migration, /handle_swipe_super_vibe_cap/);
   assert.match(migration, /SELECT COUNT\(\*\) INTO v_super_count/);
+});
+
+test("swipe presence migration keeps already-matched clients routable", () => {
+  assert.match(swipePresenceMigration, /handle_swipe_mutual_pair/);
+  assert.match(swipePresenceMigration, /last_lobby_foregrounded_at = v_now/);
+  assert.match(swipePresenceMigration, /SELECT id, ready_gate_status[\s\S]*ORDER BY started_at DESC/s);
+  assert.match(swipePresenceMigration, /'result', 'already_matched'[\s\S]*'video_session_id', v_session_id/s);
+  assert.match(swipePresenceMigration, /queue_status = 'in_ready_gate'/);
+});
+
+test("swipe presence migration serializes pair before mutual visibility check", () => {
+  const pairLockIndex = swipePresenceMigration.indexOf("handle_swipe_mutual_pair:");
+  const recordSwipeIndex = swipePresenceMigration.indexOf(
+    "INSERT INTO public.event_swipes (event_id, actor_id, target_id, swipe_type)\n  VALUES (p_event_id, p_actor_id, p_target_id, p_swipe_type)",
+  );
+  const mutualCheckIndex = swipePresenceMigration.indexOf("SELECT EXISTS (", recordSwipeIndex);
+  assert.ok(pairLockIndex >= 0, "pair lock is present");
+  assert.ok(recordSwipeIndex >= 0, "non-pass swipe insert is present");
+  assert.ok(mutualCheckIndex >= 0, "mutual check is present");
+  assert.ok(pairLockIndex < recordSwipeIndex, "pair lock must be taken before recording the swipe");
+  assert.ok(recordSwipeIndex < mutualCheckIndex, "swipe must be recorded before checking mutuality");
 });
 
 test("migration extends both_ready join window without reopening expired gates", () => {
