@@ -67,6 +67,7 @@ import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePho
 import {
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
+  shouldOpenReadyGateFromSwipePayload,
   shouldAdvanceLobbyDeckAfterSwipe,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
@@ -1459,10 +1460,7 @@ export default function EventLobbyScreen() {
       });
 
       const videoSessionId = videoSessionIdFromSwipePayload(envelope);
-      const openingReadyGate =
-        (code === 'match' || code === 'already_matched') &&
-        Boolean(videoSessionId) &&
-        envelope.immediate !== false;
+      const openingReadyGate = shouldOpenReadyGateFromSwipePayload(envelope);
       if (openingReadyGate && videoSessionId) {
         lastOpenedSessionRef.current = videoSessionId;
         logVdbgSessionStage('ready_gate_open', videoSessionId, {

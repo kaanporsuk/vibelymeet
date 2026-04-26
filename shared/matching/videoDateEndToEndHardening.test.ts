@@ -21,6 +21,10 @@ const preDateEndMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501091000_video_date_pre_date_end_cleanup.sql"),
   "utf8",
 );
+const swipeRecoveryMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql"),
+  "utf8",
+);
 
 test("credit extension parser preserves server-returned seconds and totals", () => {
   assert.deepEqual(
@@ -124,6 +128,58 @@ test("migration serializes super-vibe cap checks per actor and event", () => {
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.match(migration, /handle_swipe_super_vibe_cap/);
   assert.match(migration, /SELECT COUNT\(\*\) INTO v_super_count/);
+});
+
+test("swipe recovery migration serializes mirrored mutual swipes before mutuality check", () => {
+  assert.match(swipeRecoveryMigration, /handle_swipe_mutual_pair/);
+  assert.match(
+    swipeRecoveryMigration,
+    /PERFORM pg_advisory_xact_lock\([\s\S]*handle_swipe_mutual_pair[\s\S]*INSERT INTO public\.event_swipes[\s\S]*SELECT EXISTS/s,
+  );
+  assert.match(
+    swipeRecoveryMigration,
+    /ON CONFLICT \(event_id, participant_1_id, participant_2_id\) DO NOTHING[\s\S]*RETURNING id INTO v_session_id/s,
+  );
+});
+
+test("swipe recovery migration returns routable session id for already-matched active pair", () => {
+  assert.match(
+    swipeRecoveryMigration,
+    /IF v_session_id IS NULL THEN[\s\S]*SELECT id, ready_gate_status[\s\S]*INTO v_session_id, v_existing_status[\s\S]*AND ended_at IS NULL/s,
+  );
+  assert.match(
+    swipeRecoveryMigration,
+    /'result', 'already_matched'[\s\S]*'match_id', v_session_id[\s\S]*'video_session_id', v_session_id[\s\S]*'event_id', p_event_id[\s\S]*'immediate', v_existing_status IN/s,
+  );
+  assert.match(
+    swipeRecoveryMigration,
+    /record_event_loop_observability\([\s\S]*'already_matched'[\s\S]*v_session_id[\s\S]*'ready_gate_status', v_existing_status/s,
+  );
+});
+
+test("swipe recovery migration restores registration pointers without overriding live date states", () => {
+  assert.match(
+    swipeRecoveryMigration,
+    /queue_status = CASE[\s\S]*v_existing_status IN \('ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed'\) THEN 'in_ready_gate'[\s\S]*ELSE queue_status/s,
+  );
+  assert.match(swipeRecoveryMigration, /current_room_id = v_session_id/);
+  assert.match(
+    swipeRecoveryMigration,
+    /queue_status IS NULL OR queue_status NOT IN \('in_handshake', 'in_date', 'in_survey'\)/,
+  );
+});
+
+test("swipe recovery migration preserves conflict, immediate, queued, and pass outcomes", () => {
+  assert.match(swipeRecoveryMigration, /RETURN jsonb_build_object\('result', 'pass_recorded'\)/);
+  assert.match(swipeRecoveryMigration, /RETURN jsonb_build_object\('result', 'participant_has_active_session_conflict'\)/);
+  assert.match(
+    swipeRecoveryMigration,
+    /'result', 'match'[\s\S]*'video_session_id', v_session_id[\s\S]*'immediate', true/s,
+  );
+  assert.match(
+    swipeRecoveryMigration,
+    /'result', 'match_queued'[\s\S]*'video_session_id', v_session_id[\s\S]*'event_id', p_event_id/s,
+  );
 });
 
 test("migration extends both_ready join window without reopening expired gates", () => {
