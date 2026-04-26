@@ -10,7 +10,7 @@ import {
   type AppStateStatus,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, usePathname, router } from 'expo-router';
+import { useLocalSearchParams, usePathname, router, type Href } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,6 +57,11 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
+import {
+  getPostDateLobbyContinuityDecision,
+  secondsUntilPostDateEventEnd,
+  type PostDateContinuityDecision,
+} from '@clientShared/matching/postDateContinuity';
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
@@ -190,6 +195,8 @@ export default function EventLobbyScreen() {
   const [deckNonce, setDeckNonce] = useState(0);
   /** Mirrors web `sonner` completion toast after post-date survey (non-blocking). */
   const [postSurveyLobbyBanner, setPostSurveyLobbyBanner] = useState(false);
+  const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
+  const [postSurveyBridgeVisible, setPostSurveyBridgeVisible] = useState(false);
   /** Ready Gate forfeit / stale messages — matches web `toast` instead of blocking modal. */
   const [readyGateLobbyToast, setReadyGateLobbyToast] = useState<{ text: string; variant: 'info' | 'success' } | null>(
     null,
@@ -198,16 +205,27 @@ export default function EventLobbyScreen() {
   useEffect(() => {
     seenProfileIdsRef.current = new Set();
     setDeckNonce((n) => n + 1);
+    setPostSurveyReturnContext(false);
+    setPostSurveyBridgeVisible(false);
+    postSurveyRouteTrackedRef.current = null;
   }, [id]);
 
   useEffect(() => {
     const raw = Array.isArray(postSurveyComplete) ? postSurveyComplete[0] : postSurveyComplete;
     if (raw !== '1' || !id) return;
     setPostSurveyLobbyBanner(true);
-    router.replace(eventLobbyHref(id));
+    setPostSurveyReturnContext(true);
+    setPostSurveyBridgeVisible(true);
+    const pendingA = Array.isArray(pendingVideoSession) ? pendingVideoSession[0] : pendingVideoSession;
+    const pendingB = Array.isArray(pendingMatch) ? pendingMatch[0] : pendingMatch;
+    const nextParams = new URLSearchParams();
+    if (pendingA) nextParams.set('pendingVideoSession', pendingA);
+    if (pendingB) nextParams.set('pendingMatch', pendingB);
+    const nextQuery = nextParams.toString();
+    router.replace(`${eventLobbyHref(id)}${nextQuery ? `?${nextQuery}` : ''}` as Href);
     const tid = setTimeout(() => setPostSurveyLobbyBanner(false), 2000);
     return () => clearTimeout(tid);
-  }, [id, postSurveyComplete]);
+  }, [id, pendingMatch, pendingVideoSession, postSurveyComplete]);
 
   useEffect(() => {
     if (!readyGateLobbyToast) return;
@@ -239,6 +257,7 @@ export default function EventLobbyScreen() {
   const [endingBreak, setEndingBreak] = useState(false);
   const [userVibes, setUserVibes] = useState<string[]>([]);
   const lastOpenedSessionRef = useRef<string | null>(null);
+  const postSurveyRouteTrackedRef = useRef<string | null>(null);
   /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
@@ -1031,7 +1050,7 @@ export default function EventLobbyScreen() {
   }, [profiles.length, sortedProfiles.length]);
 
   const showSwipeToast = useCallback(
-    (result: string) => {
+    (result: string, options?: { openingReadyGate?: boolean }) => {
       switch (result) {
         case 'vibe_recorded':
         case 'swipe_recorded':
@@ -1077,6 +1096,21 @@ export default function EventLobbyScreen() {
           });
           break;
         case 'already_matched':
+          if (options?.openingReadyGate) {
+            show({
+              title: 'Ready Gate is open',
+              message: 'Taking you back to this match attempt.',
+              variant: 'success',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          } else {
+            show({
+              title: "You're already matched",
+              message: "We'll bring you to Ready Gate when this match is ready.",
+              variant: 'info',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+          }
           break;
         case 'participant_has_active_session_conflict':
           show({
@@ -1128,6 +1162,34 @@ export default function EventLobbyScreen() {
     !deckError &&
     !showConvergenceYieldUi &&
     !showQueuedStyleConvergenceUi;
+  const secondsUntilEventEnd = useMemo(
+    () => secondsUntilPostDateEventEnd(eventEndTime),
+    [eventEndTime?.getTime()]
+  );
+  const postSurveyContinuityDecision = useMemo(
+    () =>
+      getPostDateLobbyContinuityDecision({
+        yieldingToVideoDate: yieldingToVideoDateUi,
+        yieldingToReadyGate: yieldingToReadyGateUi,
+        hasQueuedSession: showQueuedStyleConvergenceUi || queuedMatchCount > 0,
+        deckLoading,
+        deckHasCandidate: hasCards,
+        deckError,
+        eventLive: isLiveWindow,
+        secondsUntilEventEnd,
+      }),
+    [
+      deckError,
+      deckLoading,
+      hasCards,
+      isLiveWindow,
+      queuedMatchCount,
+      secondsUntilEventEnd,
+      showQueuedStyleConvergenceUi,
+      yieldingToReadyGateUi,
+      yieldingToVideoDateUi,
+    ]
+  );
 
   useEffect(() => {
     if (!id || !showConvergenceYieldUi) {
@@ -1174,6 +1236,61 @@ export default function EventLobbyScreen() {
       event_id: id,
     });
   }, [baseEmptyEligible, id, isEmpty, isWaiting, mysteryMatchEnabled]);
+
+  useEffect(() => {
+    if (!postSurveyBridgeVisible) return;
+    if (deckLoading || !sessionHydrated) return;
+    const tid = setTimeout(() => setPostSurveyBridgeVisible(false), 1200);
+    return () => clearTimeout(tid);
+  }, [deckLoading, postSurveyBridgeVisible, sessionHydrated]);
+
+  useEffect(() => {
+    if (!postSurveyReturnContext || !id) return;
+    if (postSurveyBridgeVisible && postSurveyContinuityDecision.action === 'refreshing_deck') return;
+    if (postSurveyRouteTrackedRef.current) return;
+    postSurveyRouteTrackedRef.current = postSurveyContinuityDecision.action;
+    const route =
+      postSurveyContinuityDecision.action === 'ready_gate'
+        ? 'event_lobby_ready_gate'
+        : postSurveyContinuityDecision.action === 'video_date'
+          ? 'date'
+          : postSurveyContinuityDecision.action === 'fresh_deck'
+            ? 'event_lobby_fresh_card'
+            : postSurveyContinuityDecision.action === 'last_chance'
+              ? hasCards
+                ? 'event_lobby_last_chance_card'
+                : 'event_lobby_last_chance_empty'
+              : postSurveyContinuityDecision.action === 'event_ended'
+                ? 'event_ended'
+                : 'event_lobby_empty';
+    trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+      platform: 'native',
+      event_id: id,
+      action: postSurveyContinuityDecision.action,
+      source: 'lobby_post_survey_return',
+      queued_count: queuedMatchCount,
+      deck_count: sortedProfiles.length,
+      seconds_until_event_end: secondsUntilEventEnd,
+    });
+    trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+      platform: 'native',
+      event_id: id,
+      action: postSurveyContinuityDecision.action,
+      route,
+      queued_count: queuedMatchCount,
+      deck_count: sortedProfiles.length,
+      seconds_until_event_end: secondsUntilEventEnd,
+    });
+  }, [
+    hasCards,
+    id,
+    postSurveyBridgeVisible,
+    postSurveyContinuityDecision.action,
+    postSurveyReturnContext,
+    queuedMatchCount,
+    secondsUntilEventEnd,
+    sortedProfiles.length,
+  ]);
 
   if (eventLoading || (user?.id && regLoading)) {
     return (
@@ -1342,10 +1459,14 @@ export default function EventLobbyScreen() {
       });
 
       const videoSessionId = videoSessionIdFromSwipePayload(envelope);
-      if (code === 'match' && videoSessionId) {
+      const openingReadyGate =
+        (code === 'match' || code === 'already_matched') &&
+        Boolean(videoSessionId) &&
+        envelope.immediate !== false;
+      if (openingReadyGate && videoSessionId) {
         lastOpenedSessionRef.current = videoSessionId;
         logVdbgSessionStage('ready_gate_open', videoSessionId, {
-          trigger: 'swipe_match',
+          trigger: code === 'already_matched' ? 'swipe_already_matched' : 'swipe_match',
           eventId: id,
           swipeType,
           result: code,
@@ -1360,7 +1481,7 @@ export default function EventLobbyScreen() {
         refetchDeck();
       }
 
-      showSwipeToast(code);
+      showSwipeToast(code, { openingReadyGate });
       if (code === 'super_vibe_sent' || code === 'limit_reached' || code === 'match_queued') {
         refreshQueueAndSuperVibe();
       }
@@ -1533,11 +1654,19 @@ export default function EventLobbyScreen() {
         {yieldingToVideoDateUi || yieldingToReadyGateUi ? (
           <View style={styles.convergenceYieldWrap}>
             <LoadingState
-              title={yieldingToVideoDateUi ? 'Joining your date...' : 'Opening Ready Gate...'}
+              title={
+                postSurveyReturnContext
+                  ? postSurveyContinuityDecision.title
+                  : yieldingToVideoDateUi
+                    ? 'Joining your date...'
+                    : 'Opening Ready Gate...'
+              }
               message={
-                yieldingToVideoDateUi
-                  ? 'Taking you to the same video session as your match.'
-                  : 'Syncing with your match. Almost there.'
+                postSurveyReturnContext
+                  ? postSurveyContinuityDecision.message
+                  : yieldingToVideoDateUi
+                    ? 'Taking you to the same video session as your match.'
+                    : 'Syncing with your match. Almost there.'
               }
             />
           </View>
@@ -1556,6 +1685,9 @@ export default function EventLobbyScreen() {
         ) : deckLoading && !hasCards ? (
           <>
             {discoverSectionIntro}
+            {postSurveyReturnContext ? (
+              <PostSurveyLobbyBridge decision={postSurveyContinuityDecision} theme={theme} />
+            ) : null}
             <View style={styles.deckSkeletonWrap}>
             <View style={[styles.deckSkeletonCard, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
               <View style={[styles.deckSkeletonImage, { backgroundColor: theme.muted }]} />
@@ -1580,15 +1712,18 @@ export default function EventLobbyScreen() {
                 >
                   <Ionicons name="sparkles" size={40} color={theme.neonPink} />
                 </View>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>Your match is syncing</Text>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                  {postSurveyReturnContext ? postSurveyContinuityDecision.title : 'Your match is syncing'}
+                </Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in
-                    automatically.
+                    {postSurveyReturnContext
+                      ? postSurveyContinuityDecision.message
+                      : 'We’re opening Ready Gate as soon as you’re both available in this lobby. Stay here — we’ll bring you in automatically.'}
                   </Text>
                 <View style={styles.emptyCheckingRow}>
                   <Ionicons name="sync" size={14} color={theme.tint} />
                   <Text style={[styles.emptySubline, { color: theme.tint }]}>
-                    Looking for your video date...
+                    {postSurveyReturnContext ? 'Preparing Ready Gate...' : 'Looking for your video date...'}
                   </Text>
                 </View>
               </>
@@ -1621,10 +1756,13 @@ export default function EventLobbyScreen() {
                   <View style={[styles.emptyIconWrap, { backgroundColor: theme.accentSoft }]}>
                     <Ionicons name="people-outline" size={40} color={theme.tint} />
                   </View>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>You&apos;ve seen everyone for now</Text>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                    {postSurveyReturnContext ? postSurveyContinuityDecision.title : "You've seen everyone for now"}
+                  </Text>
                   <Text style={[styles.emptyMessage, { color: theme.textSecondary }]}>
-                    More people may join the room — your deck refreshes every few seconds. Refresh any time. Mystery Match
-                    is an optional in-app shortcut for a random pairing while you wait (not available on web yet).
+                    {postSurveyReturnContext
+                      ? postSurveyContinuityDecision.message
+                      : 'More people may join the room — your deck refreshes every few seconds. Refresh any time. Mystery Match is an optional in-app shortcut for a random pairing while you wait (not available on web yet).'}
                   </Text>
                   <Pressable
                     style={({ pressed }) => [styles.emptyPrimaryBtn, { backgroundColor: theme.tint }, pressed && { opacity: 0.9 }]}
@@ -1672,6 +1810,9 @@ export default function EventLobbyScreen() {
         ) : (
           <>
             {discoverSectionIntro}
+            {postSurveyBridgeVisible ? (
+              <PostSurveyLobbyBridge decision={postSurveyContinuityDecision} theme={theme} />
+            ) : null}
             <View style={styles.deckContainer}>
               {thirdProfile && (
                 <View style={[styles.stackCard, styles.stackCardBack3]} pointerEvents="none">
@@ -1816,6 +1957,39 @@ export default function EventLobbyScreen() {
     ) : null}
     {dialog}
     </>
+  );
+}
+
+function PostSurveyLobbyBridge({
+  decision,
+  theme,
+}: {
+  decision: PostDateContinuityDecision;
+  theme: (typeof Colors)[keyof typeof Colors];
+}) {
+  const accent =
+    decision.tone === 'last_chance'
+      ? '#f59e0b'
+      : decision.tone === 'ready'
+        ? theme.success
+        : theme.tint;
+
+  return (
+    <View
+      style={[
+        styles.postSurveyBridge,
+        {
+          borderColor: withAlpha(accent, 0.32),
+          backgroundColor: withAlpha(accent, 0.1),
+        },
+      ]}
+    >
+      <View style={styles.postSurveyBridgeTitleRow}>
+        <View style={[styles.postSurveyBridgeDot, { backgroundColor: accent }]} />
+        <Text style={[styles.postSurveyBridgeTitle, { color: theme.text }]}>{decision.title}</Text>
+      </View>
+      <Text style={[styles.postSurveyBridgeMessage, { color: theme.textSecondary }]}>{decision.message}</Text>
+    </View>
   );
 }
 
@@ -2118,6 +2292,35 @@ const styles = StyleSheet.create({
   sectionIntro: { marginBottom: spacing.md, alignItems: 'center' },
   sectionKicker: { fontSize: 10, fontWeight: '700', letterSpacing: 2.4, textTransform: 'uppercase' },
   sectionTitle: { fontSize: 14, fontWeight: '600', marginTop: 4, textAlign: 'center', paddingHorizontal: spacing.md },
+  postSurveyBridge: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  postSurveyBridgeTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  postSurveyBridgeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  postSurveyBridgeTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    flex: 1,
+  },
+  postSurveyBridgeMessage: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: spacing.xs,
+  },
   deckSkeletonWrap: {
     width: '100%',
     aspectRatio: 3 / 4,

@@ -3,7 +3,7 @@
  * Parity with web `PostDateSurvey` (server-owned verdict + date_feedback + `submit_user_report`).
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -22,8 +22,16 @@ import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
 import { updateParticipantStatus } from '@/lib/videoDateApi';
+import { drainMatchQueue, getQueuedMatchCount } from '@/lib/eventsApi';
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
 import { supabase } from '@/lib/supabase';
+import { videoSessionIdFromDrainPayload } from '@shared/matching/videoSessionFlow';
+import {
+  getPostDateSurveyContinuityDecision,
+  isPostDateEventNearlyOver,
+  secondsUntilPostDateEventEnd,
+  type PostDateContinuityDecision,
+} from '@clientShared/matching/postDateContinuity';
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
@@ -43,6 +51,7 @@ type Props = {
   onSubmitVerdict: (liked: boolean) => Promise<SubmitVerdictAndCheckMutualResult>;
   onMutualMatch: () => void;
   onStartChatting?: (otherProfileId?: string) => void;
+  onQueuedVideoSessionReady?: (videoSessionId: string) => void;
   onDone: () => void;
 };
 
@@ -50,6 +59,11 @@ type SurveyStep = 'verdict' | 'celebration' | 'highlights' | 'safety' | 'done';
 
 type CelebrationData = {
   sharedVibes: string[];
+};
+
+type EventContinuationSnapshot = {
+  active: boolean;
+  endsAtIso: string | null;
 };
 
 const REPORT_CATEGORIES = [
@@ -100,17 +114,75 @@ function verdictFailureUserMessage(result: Extract<SubmitVerdictAndCheckMutualRe
   }
 }
 
-async function isEventStillActive(eventId: string): Promise<boolean> {
+async function getEventContinuationSnapshot(eventId: string): Promise<EventContinuationSnapshot> {
   const { data } = await supabase
     .from('events')
     .select('event_date, duration_minutes, status')
     .eq('id', eventId)
     .maybeSingle();
-  if (!data) return false;
+  if (!data) return { active: false, endsAtIso: null };
   const endsAt = new Date(
     new Date(data.event_date as string).getTime() + (data.duration_minutes || 60) * 60000
   );
-  return new Date() < endsAt && data.status !== 'ended';
+  return {
+    active: new Date() < endsAt && data.status !== 'ended',
+    endsAtIso: endsAt.toISOString(),
+  };
+}
+
+const ContinuityStrip = ({
+  decision,
+  theme,
+}: {
+  decision: PostDateContinuityDecision;
+  theme: (typeof Colors)[keyof typeof Colors];
+}) => (
+  <View
+    style={[
+      styles.continuityStrip,
+      {
+        borderColor:
+          decision.tone === 'last_chance'
+            ? withNativeAlpha('#f59e0b', 0.38)
+            : decision.tone === 'ready'
+              ? withNativeAlpha(theme.success, 0.36)
+              : theme.border,
+        backgroundColor:
+          decision.tone === 'last_chance'
+            ? withNativeAlpha('#f59e0b', 0.12)
+            : decision.tone === 'ready'
+              ? withNativeAlpha(theme.success, 0.12)
+              : theme.surfaceSubtle,
+      },
+    ]}
+  >
+    <View style={styles.continuityTitleRow}>
+      <View
+        style={[
+          styles.continuityDot,
+          {
+            backgroundColor:
+              decision.tone === 'last_chance'
+                ? '#f59e0b'
+                : decision.tone === 'ready'
+                  ? theme.success
+                  : theme.tint,
+          },
+        ]}
+      />
+      <Text style={[styles.continuityTitle, { color: theme.text }]}>{decision.title}</Text>
+    </View>
+    <Text style={[styles.continuityMessage, { color: theme.mutedForeground }]}>{decision.message}</Text>
+  </View>
+);
+
+function withNativeAlpha(hex: string, alpha: number): string {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) return hex;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 export function PostDateSurvey({
@@ -123,12 +195,17 @@ export function PostDateSurvey({
   onSubmitVerdict,
   onMutualMatch,
   onStartChatting,
+  onQueuedVideoSessionReady,
   onDone,
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [step, setStep] = useState<SurveyStep>('verdict');
   const [submitting, setSubmitting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [isDrainingQueue, setIsDrainingQueue] = useState(false);
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [eventContinuation, setEventContinuation] = useState<EventContinuationSnapshot | null>(null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
   const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
 
@@ -151,6 +228,8 @@ export function PostDateSurvey({
   const [safetySubmitted, setSafetySubmitted] = useState(false);
 
   const finishSurveyRef = useRef<() => Promise<void>>(async () => {});
+  const finishSurveyInFlightRef = useRef(false);
+  const queuedNavigationStartedRef = useRef(false);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const shellImpressionRef = useRef(false);
   const verdictImpressionRef = useRef(false);
@@ -158,6 +237,9 @@ export function PostDateSurvey({
   useEffect(() => {
     shellImpressionRef.current = false;
     verdictImpressionRef.current = false;
+    finishSurveyInFlightRef.current = false;
+    queuedNavigationStartedRef.current = false;
+    setCelebrationData(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -169,6 +251,23 @@ export function PostDateSurvey({
       event_id: eventId,
     });
   }, [eventId, sessionId]);
+
+  useEffect(() => {
+    if (!eventId) return;
+    let cancelled = false;
+    void (async () => {
+      const [continuation, count] = await Promise.all([
+        getEventContinuationSnapshot(eventId),
+        getQueuedMatchCount(eventId, userId),
+      ]);
+      if (cancelled) return;
+      setEventContinuation(continuation);
+      setQueuedCount(count);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, userId, sessionId]);
 
   useEffect(() => {
     if (step !== 'verdict' || !sessionId || verdictImpressionRef.current) return;
@@ -196,31 +295,77 @@ export function PostDateSurvey({
   );
 
   useEffect(() => {
+    if (!eventId || step !== 'safety' || queuedNavigationStartedRef.current) return;
+    let cancelled = false;
+    setIsDrainingQueue(true);
+    void (async () => {
+      try {
+        const result = await drainMatchQueue(eventId, userId);
+        if (cancelled) return;
+        const nextSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
+        if (result?.found && nextSessionId) {
+          queuedNavigationStartedRef.current = true;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            action: 'ready_gate',
+            source: 'survey_queue_drain',
+            video_session_id: nextSessionId,
+          });
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            action: 'ready_gate',
+            route: 'event_lobby_pending_ready_gate',
+            video_session_id: nextSessionId,
+          });
+          onQueuedVideoSessionReady?.(nextSessionId);
+        }
+      } finally {
+        if (!cancelled && eventId) {
+          const count = await getQueuedMatchCount(eventId, userId);
+          if (!cancelled) setQueuedCount(count);
+        }
+        if (!cancelled) setIsDrainingQueue(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, onQueuedVideoSessionReady, step, userId]);
+
+  useEffect(() => {
     if (step !== 'celebration' || !userId || !partnerId) return;
     let cancelled = false;
 
     const fetchShared = async () => {
-      const [{ data: myVibes }, { data: partnerProfile }] = await Promise.all([
-        supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', userId),
-        supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId }),
-      ]);
-      if (cancelled) return;
+      try {
+        const [{ data: myVibes }, { data: partnerProfile }] = await Promise.all([
+          supabase.from('profile_vibes').select('vibe_tags(label)').eq('profile_id', userId),
+          supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId }),
+        ]);
+        if (cancelled) return;
 
-      const extractLabels = (rows: unknown[] | null): string[] =>
-        (rows ?? [])
-          .map((v: unknown) => {
-            const raw = (v as { vibe_tags: { label: string } | { label: string }[] | null }).vibe_tags;
-            const tag = Array.isArray(raw) ? raw[0] : raw;
-            return tag?.label ?? null;
-          })
-          .filter((l): l is string => !!l);
+        const extractLabels = (rows: unknown[] | null): string[] =>
+          (rows ?? [])
+            .map((v: unknown) => {
+              const raw = (v as { vibe_tags: { label: string } | { label: string }[] | null }).vibe_tags;
+              const tag = Array.isArray(raw) ? raw[0] : raw;
+              return tag?.label ?? null;
+            })
+            .filter((l): l is string => !!l);
 
-      const partnerRow = partnerProfile as { vibes?: string[] | null } | null;
-      const partnerLabels = Array.isArray(partnerRow?.vibes)
-        ? partnerRow.vibes.filter((label): label is string => typeof label === 'string' && label.trim().length > 0)
-        : [];
-      const shared = extractLabels(myVibes).filter((l) => partnerLabels.includes(l));
-      setCelebrationData({ sharedVibes: shared });
+        const partnerRow = partnerProfile as { vibes?: string[] | null } | null;
+        const partnerLabels = Array.isArray(partnerRow?.vibes)
+          ? partnerRow.vibes.filter((label): label is string => typeof label === 'string' && label.trim().length > 0)
+          : [];
+        const shared = extractLabels(myVibes).filter((l) => partnerLabels.includes(l));
+        setCelebrationData({ sharedVibes: shared });
+      } catch {
+        if (!cancelled) setCelebrationData({ sharedVibes: [] });
+      }
     };
 
     void fetchShared();
@@ -229,27 +374,121 @@ export function PostDateSurvey({
     };
   }, [step, userId, partnerId]);
 
+  const secondsUntilEventEnd = useMemo(
+    () => secondsUntilPostDateEventEnd(eventContinuation?.endsAtIso),
+    [eventContinuation?.endsAtIso]
+  );
+
+  const continuityDecision = useMemo(
+    () =>
+      getPostDateSurveyContinuityDecision({
+        isDrainingQueue,
+        queuedCount,
+        isSubmittingSurvey: finishing,
+        eventActive: eventContinuation?.active ?? true,
+        secondsUntilEventEnd,
+        hasEventId: Boolean(eventId),
+      }),
+    [eventId, eventContinuation?.active, finishing, isDrainingQueue, queuedCount, secondsUntilEventEnd]
+  );
+
   const finishSurvey = useCallback(async () => {
-    logJourney('survey_completed', { source: 'finish_survey' }, 'survey_completed');
-    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
+    if (finishSurveyInFlightRef.current || queuedNavigationStartedRef.current) return;
+    finishSurveyInFlightRef.current = true;
+    setFinishing(true);
+    trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_SURVEY_COMPLETE, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
-      destination: eventId ? 'lobby' : 'home',
+      decision_at_submit: continuityDecision.action,
+      queued_count: queuedCount,
+      seconds_until_event_end: secondsUntilEventEnd,
     });
-    if (eventId) {
-      const active = await isEventStillActive(eventId);
-      if (active) {
-        await updateParticipantStatus(eventId, 'browsing');
-        onDone();
+    try {
+      logJourney('survey_completed', { source: 'finish_survey' }, 'survey_completed');
+      trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        destination: eventId ? 'lobby' : 'home',
+      });
+      if (eventId) {
+        if (isDrainingQueue) {
+          await new Promise((resolve) => setTimeout(resolve, 1800));
+          if (queuedNavigationStartedRef.current) return;
+        }
+        const continuation = await getEventContinuationSnapshot(eventId);
+        setEventContinuation(continuation);
+        const active = continuation.active;
+        if (queuedNavigationStartedRef.current) return;
+        if (active) {
+          const nextSeconds = secondsUntilPostDateEventEnd(continuation.endsAtIso);
+          const action = isPostDateEventNearlyOver(nextSeconds) ? 'last_chance' : 'fresh_deck';
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            action,
+            source: 'survey_finish_event_active',
+            queued_count: queuedCount,
+            seconds_until_event_end: nextSeconds,
+          });
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            action,
+            route: 'event_lobby',
+            queued_count: queuedCount,
+            seconds_until_event_end: nextSeconds,
+          });
+          await updateParticipantStatus(eventId, 'browsing');
+          onDone();
+          return;
+        }
+        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          action: 'event_ended',
+          source: 'survey_finish_event_inactive',
+          queued_count: queuedCount,
+        });
+        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          action: 'event_ended',
+          route: 'event_ended_alert',
+        });
+        await updateParticipantStatus(eventId, 'offline');
+        Alert.alert('Event ended', 'This event has ended.', [{ text: 'OK', onPress: onDone }]);
         return;
       }
-      await updateParticipantStatus(eventId, 'offline');
-      Alert.alert('Event ended', 'This event has ended.', [{ text: 'OK', onPress: onDone }]);
-      return;
+      trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        action: 'home',
+        route: 'events_home',
+      });
+      onDone();
+    } finally {
+      if (!queuedNavigationStartedRef.current) {
+        finishSurveyInFlightRef.current = false;
+        setFinishing(false);
+      }
     }
-    onDone();
-  }, [eventId, onDone, logJourney, sessionId]);
+  }, [
+    eventId,
+    onDone,
+    logJourney,
+    sessionId,
+    isDrainingQueue,
+    continuityDecision.action,
+    queuedCount,
+    secondsUntilEventEnd,
+  ]);
 
   useEffect(() => {
     finishSurveyRef.current = finishSurvey;
@@ -339,11 +578,23 @@ export function PostDateSurvey({
   };
 
   const handleSafetyComplete = async () => {
+    if (finishing) return;
     try {
       await persistSafety();
     } catch {
       /* best-effort */
     }
+    await finishSurveyRef.current();
+  };
+
+  const handleSafetySkip = async () => {
+    if (finishing) return;
+    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      step: 'safety',
+    });
     await finishSurveyRef.current();
   };
 
@@ -400,6 +651,7 @@ export function PostDateSurvey({
       >
         <Text style={[styles.title, { color: theme.text }]}>What stood out?</Text>
         <Text style={[styles.sub, { color: theme.mutedForeground }]}>Helps us find you better matches</Text>
+        <ContinuityStrip decision={continuityDecision} theme={theme} />
         <View style={styles.tagGrid}>
           {TAGS.map((t) => (
             <Pressable
@@ -469,11 +721,13 @@ export function PostDateSurvey({
         <View style={[styles.container, { backgroundColor: theme.background, justifyContent: 'center' }]}>
           <Text style={[styles.title, { color: theme.text }]}>Thanks for keeping Vibely safe</Text>
           <Text style={[styles.sub, { color: theme.mutedForeground }]}>We&apos;ll review this promptly.</Text>
+          <ContinuityStrip decision={continuityDecision} theme={theme} />
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: theme.tint, marginTop: spacing.lg }]}
+            disabled={finishing}
             onPress={() => void handleSafetyComplete()}
           >
-            <Text style={styles.primaryBtnText}>Back to the event 💚</Text>
+            {finishing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Back to the event 💚</Text>}
           </Pressable>
         </View>
       );
@@ -487,6 +741,7 @@ export function PostDateSurvey({
       >
         <Text style={[styles.title, { color: theme.text }]}>Quick safety check</Text>
         <Text style={[styles.sub, { color: theme.mutedForeground }]}>Optional but helps the community</Text>
+        <ContinuityStrip decision={continuityDecision} theme={theme} />
 
         <Text style={[styles.qLabel, { color: theme.text }]}>Did they look like their photos?</Text>
         <View style={styles.rowWrap}>
@@ -580,22 +835,26 @@ export function PostDateSurvey({
           </View>
         )}
 
-        <Pressable style={[styles.primaryBtn, { backgroundColor: theme.tint }]} onPress={() => void handleSafetyComplete()}>
-          <Text style={styles.primaryBtnText}>Done — back to the event 💚</Text>
+        <Pressable
+          style={[styles.primaryBtn, { backgroundColor: theme.tint }, finishing && { opacity: 0.7 }]}
+          disabled={finishing}
+          onPress={() => void handleSafetyComplete()}
+        >
+          {finishing ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Done — back to the event 💚</Text>}
         </Pressable>
         <Pressable
-          onPress={() => {
-            trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SKIP, {
-              platform: 'native',
-              session_id: sessionId,
-              event_id: eventId,
-              step: 'safety',
-            });
-            void finishSurveyRef.current();
-          }}
+          disabled={finishing}
+          onPress={() => void handleSafetySkip()}
         >
-          <Text style={[styles.skip, { color: theme.mutedForeground }]}>Skip</Text>
+          <Text style={[styles.skip, { color: theme.mutedForeground }]}>
+            {finishing ? 'Returning...' : 'Skip'}
+          </Text>
         </Pressable>
+        {finishing || isDrainingQueue ? (
+          <Text style={[styles.pendingText, { color: theme.mutedForeground }]}>
+            {continuityDecision.message}
+          </Text>
+        ) : null}
       </ScrollView>
     );
   }
@@ -603,6 +862,7 @@ export function PostDateSurvey({
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <Text style={[styles.title, { color: theme.text }]}>How was your date with {partnerName}?</Text>
+      <ContinuityStrip decision={continuityDecision} theme={theme} />
       {verdictError ? (
         <Text style={[styles.errorBanner, { color: theme.danger }]} accessibilityLiveRegion="polite">
           {verdictError}
@@ -666,6 +926,35 @@ const styles = StyleSheet.create({
     ...typography.body,
     textAlign: 'center',
     marginBottom: spacing.lg,
+  },
+  continuityStrip: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  continuityTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  continuityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  continuityTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    flex: 1,
+  },
+  continuityMessage: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: spacing.xs,
   },
   errorBanner: {
     ...typography.body,
@@ -774,6 +1063,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.md,
     padding: spacing.sm,
+  },
+  pendingText: {
+    textAlign: 'center',
+    fontSize: 12,
+    marginTop: spacing.xs,
   },
   reportBox: {
     marginTop: spacing.md,

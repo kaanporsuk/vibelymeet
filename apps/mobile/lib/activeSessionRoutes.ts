@@ -31,6 +31,12 @@ export function eventLobbyHrefPostSurveyComplete(eventId: string): Href {
   return `/event/${eventId}/lobby?postSurveyComplete=1` as Href;
 }
 
+/** Opens the event lobby and lets it attach the pending Ready Gate session immediately. */
+export function eventLobbyHrefPendingVideoSession(eventId: string, videoSessionId: string): Href {
+  const enc = encodeURIComponent(videoSessionId);
+  return `/event/${eventId}/lobby?pendingVideoSession=${enc}&pendingMatch=${enc}&postSurveyComplete=1` as Href;
+}
+
 export function readyGateHref(sessionId: string): Href {
   return `/ready/${sessionId}` as Href;
 }

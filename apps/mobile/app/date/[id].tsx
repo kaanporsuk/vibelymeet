@@ -93,6 +93,7 @@ import {
 } from '@/lib/dateEntryTransitionLatch';
 import {
   eventLobbyHref,
+  eventLobbyHrefPendingVideoSession,
   eventLobbyHrefPostSurveyComplete,
   readyGateHref,
   tabsRootHref,
@@ -1956,8 +1957,14 @@ export default function VideoDateScreen() {
   const handleMutualToastComplete = useCallback(() => {
     clearHandshakeGraceState();
     setShowMutualToast(false);
-    setLocalTimeLeft(effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds));
-  }, [clearHandshakeGraceState, session?.date_extra_seconds]);
+    setLocalTimeLeft(
+      remainingDatePhaseSeconds({
+        dateStartedAtIso: session?.date_started_at,
+        baseDateSeconds: DATE_SECONDS,
+        dateExtraSeconds: session?.date_extra_seconds,
+      }),
+    );
+  }, [clearHandshakeGraceState, session?.date_extra_seconds, session?.date_started_at]);
 
   const focusKeepTheVibeAddTime = useCallback(() => {
     void AccessibilityInfo.announceForAccessibility(
@@ -3826,6 +3833,24 @@ export default function VideoDateScreen() {
       return;
     const interval = setInterval(() => {
       setLocalTimeLeft((prev) => {
+        if (phaseRef.current === 'date') {
+          const next =
+            session?.date_started_at != null
+              ? remainingDatePhaseSeconds({
+                  dateStartedAtIso: session.date_started_at,
+                  baseDateSeconds: DATE_SECONDS,
+                  dateExtraSeconds: session?.date_extra_seconds,
+                })
+              : prev === null
+                ? effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds)
+                : Math.max(0, prev - 1);
+
+          if (next <= 0) {
+            void handleCallEnd('local_end');
+          }
+          return next;
+        }
+
         if (prev === null || prev <= 1) {
           if (phaseRef.current === 'handshake') {
             vdbg('handshake_visible_countdown_elapsed', {
@@ -3851,6 +3876,8 @@ export default function VideoDateScreen() {
     sessionId,
     handleCallEnd,
     handshakeGraceSecondsRemaining,
+    session?.date_extra_seconds,
+    session?.date_started_at,
   ]);
 
   useEffect(() => {
@@ -4155,6 +4182,17 @@ export default function VideoDateScreen() {
     }
   }, [eventId, sessionId, user?.id]);
 
+  const handleSurveyQueuedVideoSessionReady = useCallback((videoSessionId: string) => {
+    if (!eventId) return;
+    const target = eventLobbyHrefPendingVideoSession(eventId, videoSessionId);
+    vdbgRedirect(target, 'survey_queue_match_ready', {
+      sessionId: sessionId ?? null,
+      eventId,
+      pendingVideoSession: videoSessionId,
+    });
+    router.replace(target);
+  }, [eventId, sessionId]);
+
   if (sessionLoading || !sessionId) {
     return (
       <View style={[styles.center, { backgroundColor: theme.background }]}>
@@ -4193,6 +4231,7 @@ export default function VideoDateScreen() {
         onSubmitVerdict={handleSurveySubmit}
         onMutualMatch={handleSurveyMutualMatch}
         onStartChatting={handleSurveyStartChatting}
+        onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
         onDone={handleSurveyDone}
       />
     );

@@ -84,6 +84,9 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_QUEUE_DRAIN_BLOCKED: 'video_date_queue_drain_blocked',
   POST_DATE_SURVEY_SKIP: 'post_date_survey_skip',
   POST_DATE_SURVEY_COMPLETE_RETURN: 'post_date_survey_complete_return',
+  POST_DATE_CONTINUITY_SURVEY_COMPLETE: 'post_date_continuity_survey_complete',
+  POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED: 'post_date_continuity_next_action_decided',
+  POST_DATE_CONTINUITY_ROUTE_TAKEN: 'post_date_continuity_route_taken',
 } as const;
 
 export type LobbyPostDateEventName =
