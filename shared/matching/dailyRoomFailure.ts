@@ -9,6 +9,7 @@ export type DailyRoomAction = (typeof DAILY_ROOM_ACTIONS)[keyof typeof DAILY_ROO
 
 export type DailyRoomFailureKind =
   | "READY_GATE_NOT_READY"
+  | "BLOCKED_PAIR"
   | "ACCESS_DENIED"
   | "SESSION_ENDED"
   | "SESSION_NOT_FOUND"
@@ -96,6 +97,7 @@ export function classifyDailyRoomFailureKind(input: {
   if (timedOut || networkError) return "network";
   if (code === "UNAUTHORIZED" || httpStatus === 401) return "auth";
   if (code === "READY_GATE_NOT_READY") return "READY_GATE_NOT_READY";
+  if (code === "BLOCKED_PAIR" || code === "blocked_pair") return "BLOCKED_PAIR";
   if (code === "ACCESS_DENIED" || httpStatus === 403) return "ACCESS_DENIED";
   if (code === "SESSION_ENDED" || httpStatus === 410) return "SESSION_ENDED";
   if (code === "SESSION_NOT_FOUND") return "SESSION_NOT_FOUND";

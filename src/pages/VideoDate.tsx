@@ -75,6 +75,9 @@ function messageForHandshakeFailure(code?: string): string {
   if (code === "READY_GATE_NOT_READY") {
     return "Almost there — finish the Ready Gate with your match first.";
   }
+  if (code === "BLOCKED_PAIR") {
+    return "This call is no longer available.";
+  }
   if (code === "SESSION_ENDED") {
     return "This date has already ended.";
   }
@@ -1122,9 +1125,13 @@ const VideoDate = () => {
         return;
       }
 
-      if (failure.kind === "ACCESS_DENIED") {
+      if (failure.kind === "BLOCKED_PAIR" || failure.kind === "ACCESS_DENIED") {
         clearDateEntryTransition(id);
-        toast.error("This date link is no longer valid.");
+        toast.error(
+          failure.kind === "BLOCKED_PAIR"
+            ? "This call is no longer available."
+            : "This date link is no longer valid.",
+        );
         const target = eventId
           ? `/event/${encodeURIComponent(eventId)}/lobby`
           : "/events";
