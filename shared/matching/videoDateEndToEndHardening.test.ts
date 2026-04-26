@@ -26,6 +26,22 @@ const swipeRecoveryMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql"),
   "utf8",
 );
+const prepareEntryMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501100000_video_date_prepare_entry_prewarm.sql"),
+  "utf8",
+);
+const dailyRoomFunction = readFileSync(
+  join(process.cwd(), "supabase/functions/daily-room/index.ts"),
+  "utf8",
+);
+const webVideoCallHook = readFileSync(
+  join(process.cwd(), "src/hooks/useVideoCall.ts"),
+  "utf8",
+);
+const nativeVideoDateRoute = readFileSync(
+  join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
+  "utf8",
+);
 
 test("credit extension parser preserves server-returned seconds and totals", () => {
   assert.deepEqual(
@@ -242,4 +258,75 @@ test("pre-date end remains terminal and reconnect-compatible", () => {
     preDateEndMigration,
     /WHEN v_reached_date_phase AND COALESCE\(p_reason, ''\) = 'reconnect_grace_expired' THEN 'idle'/,
   );
+});
+
+test("prepare_entry migration adds an atomic server-owned prewarm action", () => {
+  assert.match(prepareEntryMigration, /p_action IS DISTINCT FROM 'prepare_entry'/);
+  assert.match(prepareEntryMigration, /FOR UPDATE/);
+  assert.match(prepareEntryMigration, /reconnect_grace_ends_at IS NOT NULL[\s\S]*reconnect_grace_expired/s);
+  assert.match(prepareEntryMigration, /reconnect_grace_expired[\s\S]*current_room_id = p_session_id/s);
+  assert.match(prepareEntryMigration, /ready_gate_status[\s\S]*'both_ready'[\s\S]*ready_gate_expires_at > v_now/s);
+  assert.match(prepareEntryMigration, /state = CASE[\s\S]*'handshake'::public\.video_date_state/s);
+  assert.match(prepareEntryMigration, /queue_status = v_registration_status/);
+});
+
+test("prepare_entry rejects ended, blocked, expired, and non-participant callers", () => {
+  assert.match(prepareEntryMigration, /'code', 'SESSION_ENDED'/);
+  assert.match(prepareEntryMigration, /'code', 'ACCESS_DENIED'/);
+  assert.match(prepareEntryMigration, /FROM public\.blocked_users/);
+  assert.match(prepareEntryMigration, /'code', 'BLOCKED_PAIR'/);
+  assert.match(prepareEntryMigration, /NOT v_already_entry AND NOT v_gate_live/);
+  assert.match(prepareEntryMigration, /'code', 'READY_GATE_NOT_READY'/);
+});
+
+test("daily-room prepare_date_entry creates deterministic rooms and scoped tokens", () => {
+  assert.match(dailyRoomFunction, /action === "prepare_date_entry"/);
+  assert.match(dailyRoomFunction, /p_action: "prepare_entry"/);
+  assert.match(dailyRoomFunction, /const roomName = `date-\$\{sessionId\.replace\(\s*\/-\/g, ""\)\}`/);
+  assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, 7200\)/);
+  assert.match(dailyRoomFunction, /provider_verify_skipped/);
+  assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
+});
+
+test("prepare_entry remains idempotent for concurrent and already-entry calls", () => {
+  assert.match(prepareEntryMigration, /SELECT \* INTO v_session[\s\S]*FOR UPDATE/);
+  assert.match(
+    prepareEntryMigration,
+    /v_already_entry := \([\s\S]*handshake_started_at IS NOT NULL[\s\S]*state IN \('handshake'::public\.video_date_state, 'date'::public\.video_date_state\)[\s\S]*date_started_at IS NOT NULL/s,
+  );
+  assert.match(prepareEntryMigration, /IF NOT v_already_entry AND NOT v_gate_live THEN/);
+  assert.match(prepareEntryMigration, /handshake_started_at = COALESCE\(handshake_started_at, v_now\)/);
+  assert.match(prepareEntryMigration, /CASE WHEN v_already_entry THEN 'prepare_entry_already_active' ELSE 'prepare_entry_entered' END/);
+});
+
+test("daily-room prepare_date_entry preserves auth, participant, and delete-room boundaries", () => {
+  assert.match(dailyRoomFunction, /if \(!authHeader\)/);
+  assert.match(dailyRoomFunction, /supabase\.auth\.getUser\(\)/);
+  assert.match(dailyRoomFunction, /if \(participant1 !== user\.id && participant2 !== user\.id\)/);
+  assert.match(dailyRoomFunction, /code: "ACCESS_DENIED"/);
+  assert.match(dailyRoomFunction, /service_role_post_prepare_block_check/);
+  assert.doesNotMatch(dailyRoomFunction, /token[^;\n]*\.from\("video_sessions"\)/);
+  assert.match(dailyRoomFunction, /if \(action === "delete_room"\)[\s\S]*roomType === "video_date"[\s\S]*VIDEO_DATE_CLEANUP_OWNED_BY_CRON/s);
+});
+
+test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
+  assert.match(
+    dailyRoomFunction,
+    /if \(existingRoomName !== roomName \|\| existingRoomUrl !== roomUrl\) \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*createDailyRoom\(roomName, videoDateRoomProperties\(\)\)[\s\S]*daily_room_name: roomName, daily_room_url: roomUrl/s,
+  );
+  assert.match(
+    dailyRoomFunction,
+    /else if \(shouldSkipDailyProviderVerifyForVideoDate\(sessionForLog\)\)[\s\S]*providerVerifySkipped = true/s,
+  );
+  assert.match(
+    dailyRoomFunction,
+    /else \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*!providerRoomState\.exists \|\| providerRoomState\.expired[\s\S]*providerRoomRecreated = true/s,
+  );
+});
+
+test("web and native reject cached prewarmed token after Daily join failure and retry prepare", () => {
+  assert.match(webVideoCallHook, /rejectPreparedVideoDateEntry\(sessionId, userId, "daily_join_failed", eventId\)/);
+  assert.match(webVideoCallHook, /return startCall\(sessionId, \{ internalRetry: true \}\)/);
+  assert.match(nativeVideoDateRoute, /rejectPreparedVideoDateEntry\(sessionId, user\.id, 'daily_join_failed', eventId \|\| null\)/);
+  assert.match(nativeVideoDateRoute, /setJoinAttemptNonce\(\(n\) => n \+ 1\)/);
 });

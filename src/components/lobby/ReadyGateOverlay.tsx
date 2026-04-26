@@ -6,6 +6,7 @@ import { vdbg } from "@/lib/vdbg";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
@@ -30,6 +31,7 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
+const PREPARE_ENTRY_NAV_GRACE_MS = 900;
 
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -55,6 +57,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const terminalOutcomeRef = useRef(false);
   const timeoutForfeitSentRef = useRef(false);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
+  const bothReadyObservedAtMsRef = useRef<number | null>(null);
+  const prepareEntryHandoffStartedRef = useRef(false);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -88,8 +92,46 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current && !dateNavigationStartedRef.current) return;
-    navigateToDate("both_ready");
-  }, [navigateToDate]);
+    if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) return;
+    prepareEntryHandoffStartedRef.current = true;
+    const observedAtMs = Date.now();
+    bothReadyObservedAtMsRef.current = observedAtMs;
+    setIsTransitioning(true);
+    trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
+      platform: "web",
+      session_id: sessionId,
+      event_id: eventId,
+      source: "both_ready",
+    });
+    vdbg("ready_gate_both_ready_observed", {
+      sessionId,
+      eventId,
+      source: "both_ready",
+    });
+
+    const fallback = window.setTimeout(() => {
+      navigateToDate("both_ready_prepare_grace");
+    }, PREPARE_ENTRY_NAV_GRACE_MS);
+
+    void prepareVideoDateEntry(sessionId, {
+      eventId,
+      source: "ready_gate_both_ready",
+      bothReadyObservedAtMs: observedAtMs,
+    }).then((result) => {
+      if (dateNavigationStartedRef.current) return;
+      if (result.ok === true) {
+        window.clearTimeout(fallback);
+        navigateToDate("both_ready_prepare_success");
+        return;
+      }
+      vdbg("ready_gate_prepare_entry_failed_before_nav", {
+        sessionId,
+        eventId,
+        code: result.code,
+        retryable: result.retryable,
+      });
+    });
+  }, [eventId, navigateToDate, sessionId]);
 
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip") => {
@@ -236,7 +278,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       }
 
       if (canAttemptDaily || decision === "navigate_date") {
-        navigateToDate(source);
+        handleBothReady();
         return;
       }
 
@@ -251,7 +293,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
       void refetchSession();
     },
-    [sessionId, eventId, user?.id, navigateToDate, closeAsStale, refetchSession]
+    [sessionId, eventId, user?.id, handleBothReady, closeAsStale, refetchSession]
   );
 
   // Set status to in_ready_gate only when that will not overwrite active date truth.
@@ -301,7 +343,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               sessionId,
               queueStatus,
             });
-            navigateToDate("registration_realtime");
+            handleBothReady();
             return;
           }
           void reconcileSession("registration_realtime");
@@ -328,7 +370,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               readyGateStatus: row.ready_gate_status,
               readyGateExpiresAt: row.ready_gate_expires_at,
             });
-            navigateToDate("video_session_realtime");
+            handleBothReady();
             return;
           }
           void reconcileSession("video_session_realtime");
@@ -339,7 +381,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, eventId, user?.id, navigateToDate, reconcileSession]);
+  }, [sessionId, eventId, user?.id, handleBothReady, reconcileSession]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
@@ -361,6 +403,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     openingWaitImpressionRef.current = false;
     terminalOutcomeRef.current = false;
     timeoutForfeitSentRef.current = false;
+    bothReadyObservedAtMsRef.current = null;
+    prepareEntryHandoffStartedRef.current = false;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
     setMarkingReady(false);

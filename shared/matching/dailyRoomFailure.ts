@@ -3,6 +3,7 @@ import { isNetworkInvokeError, type FunctionInvokeErrorShape } from "../supabase
 export const DAILY_ROOM_ACTIONS = {
   CREATE: "create_date_room",
   JOIN: "join_date_room",
+  PREPARE_ENTRY: "prepare_date_entry",
 } as const;
 
 export type DailyRoomAction = (typeof DAILY_ROOM_ACTIONS)[keyof typeof DAILY_ROOM_ACTIONS];

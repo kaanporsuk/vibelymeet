@@ -15,6 +15,7 @@ import {
   type EntryStateResponse,
 } from '@shared/entryState';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
+import { clearPreparedVideoDateEntryCache } from '@clientShared/matching/videoDatePrepareEntry';
 
 type AuthState = {
   user: User | null;
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const authUserIdRef = useRef<string | null>(null);
 
   const clearAuthState = useCallback(() => {
+    clearPreparedVideoDateEntryCache();
     authUserIdRef.current = null;
     setSession(null);
     setUser(null);
@@ -191,9 +193,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const previousUserId = authUserIdRef.current;
       authUserIdRef.current = nextUserId;
       if (!nextUserId) {
+        clearPreparedVideoDateEntryCache();
         setEntryState(null);
         setEntryStateLoading(false);
       } else if (nextUserId !== previousUserId) {
+        clearPreparedVideoDateEntryCache();
         // Clear stale entry state before session/user update so the new user is never
         // routed using the previous account's resolve_entry_state result.
         setEntryState(null);
@@ -247,6 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     resetAnalytics();
+    clearPreparedVideoDateEntryCache();
     const {
       data: { session: current },
       error: sessionError,

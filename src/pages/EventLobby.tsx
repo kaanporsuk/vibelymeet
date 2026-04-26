@@ -13,6 +13,7 @@ import { useEventStatus } from "@/hooks/useEventStatus";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { useActiveSession } from "@/hooks/useActiveSession";
 import { supabase } from "@/integrations/supabase/client";
+import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { toast } from "sonner";
 import { addMinutes, differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
@@ -39,6 +40,7 @@ import {
 } from "@shared/matching/videoSessionFlow";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
+const PREPARE_ENTRY_NAV_GRACE_MS = 900;
 
 function lobbyDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -192,6 +194,32 @@ const EventLobby = () => {
       navigate(`/date/${sessionId}`, { replace: true });
     },
     [eventId, location.pathname, navigate]
+  );
+
+  const prepareAndNavigateToDateSession = useCallback(
+    (sessionId: string, source: string) => {
+      const observedAtMs = Date.now();
+      trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
+      const fallback = window.setTimeout(() => {
+        navigateToDateSession(sessionId, `${source}_prepare_grace`);
+      }, PREPARE_ENTRY_NAV_GRACE_MS);
+      void prepareVideoDateEntry(sessionId, {
+        eventId,
+        source: `event_lobby_${source}`,
+        bothReadyObservedAtMs: observedAtMs,
+      }).then((result) => {
+        if (result.ok === true) {
+          window.clearTimeout(fallback);
+          navigateToDateSession(sessionId, `${source}_prepare_done`);
+        }
+      });
+    },
+    [eventId, navigateToDateSession],
   );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
@@ -518,7 +546,7 @@ const EventLobby = () => {
               sessionId: currentRoomId,
               queueStatus,
             });
-            navigateToDateSession(currentRoomId, "registration_realtime");
+            prepareAndNavigateToDateSession(currentRoomId, "registration_realtime");
             return;
           }
 
@@ -540,7 +568,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, navigateToDateSession, openReadyGateSession]);
+  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession]);
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
@@ -570,7 +598,7 @@ const EventLobby = () => {
               readyGateStatus: session.ready_gate_status,
               readyGateExpiresAt: session.ready_gate_expires_at,
             });
-            navigateToDateSession(sessionId, "video_session_realtime");
+            prepareAndNavigateToDateSession(sessionId, "video_session_realtime");
             return;
           }
 
@@ -597,7 +625,7 @@ const EventLobby = () => {
           if (!sessionId) return;
 
           if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
-            navigateToDateSession(sessionId, "video_session_insert");
+            prepareAndNavigateToDateSession(sessionId, "video_session_insert");
             return;
           }
 
@@ -612,7 +640,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, navigateToDateSession, openReadyGateSession]);
+  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession]);
 
   // Event countdown timer
   useEffect(() => {

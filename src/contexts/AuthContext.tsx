@@ -9,6 +9,7 @@ import {
   resolveEntryState,
   type EntryStateResponse,
 } from "@shared/entryState";
+import { clearPreparedVideoDateEntryCache } from "@clientShared/matching/videoDatePrepareEntry";
 
 interface User {
   id: string;
@@ -91,11 +92,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         authUserIdRef.current = nextUserId;
         if (!nextUserId) {
+          clearPreparedVideoDateEntryCache();
           setEntryState(null);
           setEntryStateLoading(false);
           return;
         }
         if (nextUserId !== previousUserId) {
+          clearPreparedVideoDateEntryCache();
           // Drop prior user's entry decision immediately so routing cannot use it
           // while the new session is already active (see currentUserId effect refresh).
           setEntryState(null);
@@ -221,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     const userId = currentUserId;
+    clearPreparedVideoDateEntryCache();
     if (userId) {
       try {
         await supabase

@@ -83,6 +83,12 @@ import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import {
+  getPreparedVideoDateEntry,
+  preparedEntryBothReadyToFirstRemoteFrameMs,
+  preparedEntryPrepareToJoinStartMs,
+  rejectPreparedVideoDateEntry,
+} from '@/lib/videoDatePrepareEntry';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { buildVideoDateTimerDriftRecoveredPayload } from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
@@ -417,6 +423,9 @@ export default function VideoDateScreen() {
   const peerMissingTerminalImpressionRef = useRef(false);
   const localInDailyRoomRef = useRef(false);
   const bootstrapTimingsRef = useRef<Record<string, number>>({});
+  const activePreparedEntryCacheRef = useRef<ReturnType<typeof getPreparedVideoDateEntry> | null>(null);
+  const dailyJoinStartedAtMsRef = useRef<number | null>(null);
+  const preparedJoinRetryUsedRef = useRef(false);
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
@@ -753,6 +762,9 @@ export default function VideoDateScreen() {
     prejoinAttemptRef.current = null;
     dateEstablishedRef.current = false;
     bootstrapTimingsRef.current = {};
+    activePreparedEntryCacheRef.current = null;
+    dailyJoinStartedAtMsRef.current = null;
+    preparedJoinRetryUsedRef.current = false;
     firstIceConnectedLoggedRef.current = false;
     firstRemoteParticipantTimedRef.current = false;
     firstPlayableRemoteTimedRef.current = false;
@@ -1500,9 +1512,21 @@ export default function VideoDateScreen() {
     if (!firstPlayableRemoteTimedRef.current) {
       firstPlayableRemoteTimedRef.current = true;
       firstPlayableRemoteAtMsRef.current = Date.now();
+      const bothReadyToFirstRemoteFrameMs = preparedEntryBothReadyToFirstRemoteFrameMs(
+        activePreparedEntryCacheRef.current,
+        firstPlayableRemoteAtMsRef.current,
+      );
       endBootstrapTiming('first_playable_remote_media', {
         source: 'remote_track_mounted',
         participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
+        both_ready_to_first_remote_frame_ms: bothReadyToFirstRemoteFrameMs,
+      });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_FIRST_REMOTE_FRAME, {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: eventId || null,
+        source: 'remote_track_mounted',
+        bothReadyToFirstRemoteFrameMs,
       });
     }
     videoDateDailyDiagnostic('remote_track_mounted', {
@@ -1511,7 +1535,7 @@ export default function VideoDateScreen() {
       participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
       track_id: trackId,
     });
-  }, [remoteParticipant, sessionId, endBootstrapTiming]);
+  }, [remoteParticipant, sessionId, eventId, endBootstrapTiming]);
 
   useEffect(() => {
     if (!hasRemotePartner || phase !== 'handshake') return;
@@ -2651,7 +2675,8 @@ export default function VideoDateScreen() {
       currentStep = setPrejoinStep('handshake_guard');
       const hasHandshakeStarted = Boolean(truth0.handshake_started_at);
       const alreadyInHandshakeOrDate = videoSessionRowIndicatesHandshakeOrDate(truth0);
-      const handshakeAlready = alreadyInHandshakeOrDate;
+      const serverPrepareOwnsHandshake = true;
+      const handshakeAlready = alreadyInHandshakeOrDate || serverPrepareOwnsHandshake;
       vdbg('prejoin_step_prejoin_handshake_guard', {
         sessionId,
         userId: user.id,
@@ -2659,8 +2684,8 @@ export default function VideoDateScreen() {
         alreadyInHandshakeOrDate,
         truthDecision: truthDecision0,
         handshakeAlready,
-        willCallEnterHandshake: !handshakeAlready,
-        skipReason: handshakeAlready ? 'canonical_handshake_or_date' : 'not_started',
+        willCallEnterHandshake: false,
+        skipReason: alreadyInHandshakeOrDate ? 'canonical_handshake_or_date' : 'prepare_date_entry_owns_handshake',
         state: truth0.state,
         phase: truth0.phase,
         endedAt: truth0.ended_at ?? null,
@@ -2911,16 +2936,16 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           user_id: user?.id ?? null,
           event_id: truth0.event_id,
-          reason: 'handshake_already_started',
+          reason: alreadyInHandshakeOrDate ? 'handshake_already_started' : 'prepare_date_entry_owns_handshake',
         });
         videoDateDailyDiagnostic('enter_handshake_skipped', {
           session_id: sessionId,
-          note: 'handshake_already_started',
+          note: alreadyInHandshakeOrDate ? 'handshake_already_started' : 'prepare_date_entry_owns_handshake',
         });
         vdbg('prejoin_step_prejoin_enter_handshake_skipped', {
           sessionId,
           userId: user.id,
-          reason: 'handshake_already_started',
+          reason: alreadyInHandshakeOrDate ? 'handshake_already_started' : 'prepare_date_entry_owns_handshake',
           hasHandshakeStarted,
           alreadyInHandshakeOrDate,
           truthDecision: truthDecision0,
@@ -3278,6 +3303,7 @@ export default function VideoDateScreen() {
       }
 
       const tokenResult = tokenRes.data;
+      activePreparedEntryCacheRef.current = getPreparedVideoDateEntry(sessionId, user.id);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_ok', {
         session_id: sessionId,
         user_id: user?.id ?? null,
@@ -3333,10 +3359,24 @@ export default function VideoDateScreen() {
 
       try {
         currentStep = setPrejoinStep('daily_join');
+        const dailyJoinStartedAtMs = Date.now();
+        dailyJoinStartedAtMsRef.current = dailyJoinStartedAtMs;
+        const prepareToJoinStartMs = preparedEntryPrepareToJoinStartMs(
+          activePreparedEntryCacheRef.current,
+          dailyJoinStartedAtMs,
+        );
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_start', {
           session_id: sessionId,
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
+          prepare_to_join_start_ms: prepareToJoinStartMs,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_STARTED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          prepareToJoinStartMs,
+          cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
         });
         videoDateDailyDiagnostic('daily_call_join_start', {
           session_id: sessionId,
@@ -3355,6 +3395,7 @@ export default function VideoDateScreen() {
           hasToken: Boolean(tokenResult.token),
         });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+        const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         endBootstrapTiming('daily_join', { ok: true, room_name: tokenResult.room_name });
         prejoinMark('daily_join_completed');
         videoDateLaunchBreadcrumb('prejoin_pipeline_total', {
@@ -3381,6 +3422,15 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
+          join_duration_ms: joinDurationMs,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_SUCCESS, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          joinDurationMs,
+          prepareToJoinStartMs,
+          cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
         });
         const participants = call.participants();
         const allIds = participants
@@ -3476,6 +3526,7 @@ export default function VideoDateScreen() {
           setAwaitingFirstConnect(true);
         }
       } catch (err) {
+        const preparedEntryAtFailure = activePreparedEntryCacheRef.current;
         endBootstrapTiming('daily_join', {
           ok: false,
           room_name: tokenResult.room_name,
@@ -3503,6 +3554,46 @@ export default function VideoDateScreen() {
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
         });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          reason: 'daily_join_failed',
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_FAILURE, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          reason: 'daily_join_failed',
+        });
+        if (preparedEntryAtFailure && !preparedJoinRetryUsedRef.current) {
+          preparedJoinRetryUsedRef.current = true;
+          rejectPreparedVideoDateEntry(sessionId, user.id, 'daily_join_failed', eventId || null);
+          try {
+            await call.leave();
+          } catch {
+            /* best effort */
+          }
+          try {
+            call.destroy();
+          } catch {
+            /* best effort */
+          }
+          detachCallListeners('daily_join_failed_prepare_retry');
+          releaseSharedCallIfOwned(call, 'daily_join_failed_prepare_retry');
+          callRef.current = null;
+          activePreparedEntryCacheRef.current = null;
+          hasStartedJoinRef.current = false;
+          setJoining(false);
+          setIsConnecting(false);
+          setJoinAttemptNonce((n) => n + 1);
+          vdbg('prejoin_step_prejoin_daily_join_retry_after_prepared_token_rejected', {
+            sessionId,
+            userId: user.id,
+            roomName: tokenResult.room_name,
+          });
+          return;
+        }
         if (!cancelled) {
           Sentry.captureException(err, { extra: { sessionId } });
           vdbg('prejoin_state_callError', {
