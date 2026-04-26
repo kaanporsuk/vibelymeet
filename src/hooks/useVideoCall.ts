@@ -959,18 +959,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
           reconnectGraceActiveRef.current = true;
           reconnectSyncRequestedRef.current = false;
-          setDailyReconnectState("interrupted");
-          setReconnectGraceTimeLeft(Math.ceil(DAILY_TRANSPORT_RECONNECT_GRACE_MS / 1000));
-          logTransportState("daily_transport_disconnected", { reason });
-          logTransportState("reconnect_grace_started", { reason, graceMs: DAILY_TRANSPORT_RECONNECT_GRACE_MS });
-          optionsRef.current?.onPartnerTransientDisconnect?.();
-          void syncReconnectOnce(reason);
-
-          reconnectGraceTickerRef.current = setInterval(() => {
-            setReconnectGraceTimeLeft((prev) => Math.max(0, prev - 1));
-          }, 1000);
-
-          reconnectGraceTimeoutRef.current = setTimeout(() => {
+          const deadlineMs = Date.now() + DAILY_TRANSPORT_RECONNECT_GRACE_MS;
+          const remainingSeconds = () =>
+            Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
+          const expireGrace = () => {
+            if (!reconnectGraceActiveRef.current) return;
             clearReconnectGraceTimers();
             reconnectGraceActiveRef.current = false;
             reconnectSyncRequestedRef.current = false;
@@ -981,7 +974,21 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               reconnectPartnerAwayTriggeredRef.current = true;
               optionsRef.current?.onPartnerLeft?.();
             }
-          }, DAILY_TRANSPORT_RECONNECT_GRACE_MS);
+          };
+          setDailyReconnectState("interrupted");
+          setReconnectGraceTimeLeft(remainingSeconds());
+          logTransportState("daily_transport_disconnected", { reason });
+          logTransportState("reconnect_grace_started", { reason, graceMs: DAILY_TRANSPORT_RECONNECT_GRACE_MS });
+          optionsRef.current?.onPartnerTransientDisconnect?.();
+          void syncReconnectOnce(reason);
+
+          reconnectGraceTickerRef.current = setInterval(() => {
+            const next = remainingSeconds();
+            setReconnectGraceTimeLeft(next);
+            if (next <= 0) expireGrace();
+          }, 1000);
+
+          reconnectGraceTimeoutRef.current = setTimeout(expireGrace, DAILY_TRANSPORT_RECONNECT_GRACE_MS);
         };
 
         const recoverTransport = (reason: string) => {
