@@ -627,6 +627,7 @@ export function PostDateSurvey({
         partnerName={partnerName}
         partnerImage={partnerImage}
         sharedVibes={celebrationData?.sharedVibes}
+        isLoadingSharedVibes={!celebrationData}
         onStartChatting={() => {
           logJourney('chat_cta_pressed', { source: 'survey_celebration', other_profile_id: partnerId });
           if (onStartChatting) {

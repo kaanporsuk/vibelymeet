@@ -25,6 +25,7 @@ interface MatchCelebrationScreenProps {
   partnerName: string;
   partnerImage: string | null;
   sharedVibes?: string[];
+  isLoadingSharedVibes?: boolean;
   vibeScore?: number;
   onStartChatting: () => void;
   onKeepVibing: () => void;
@@ -34,6 +35,7 @@ export function MatchCelebrationScreen({
   partnerName,
   partnerImage,
   sharedVibes = [],
+  isLoadingSharedVibes = false,
   vibeScore,
   onStartChatting,
   onKeepVibing,
@@ -149,7 +151,7 @@ export function MatchCelebrationScreen({
         )}
 
         {/* Shared vibes */}
-        {sharedVibes.length > 0 && (
+        {(isLoadingSharedVibes || sharedVibes.length > 0) && (
           <Animated.View
             style={[
               styles.vibesCard,
@@ -168,17 +170,24 @@ export function MatchCelebrationScreen({
               </Text>
             </View>
             <View style={styles.vibeChips}>
-              {sharedVibes.map((v) => (
-                <View
-                  key={v}
-                  style={[
-                    styles.chip,
-                    { backgroundColor: withAlpha('#FFD700', 0.15), borderColor: withAlpha('#FFD700', 0.3) },
-                  ]}
-                >
-                  <Text style={[styles.chipText, { color: theme.text }]}>{v}</Text>
-                </View>
-              ))}
+              {isLoadingSharedVibes ? (
+                <>
+                  <View style={[styles.skeletonChip, { backgroundColor: withAlpha(theme.text, 0.12) }]} />
+                  <View style={[styles.skeletonChipWide, { backgroundColor: withAlpha(theme.text, 0.12) }]} />
+                </>
+              ) : (
+                sharedVibes.map((v) => (
+                  <View
+                    key={v}
+                    style={[
+                      styles.chip,
+                      { backgroundColor: withAlpha('#FFD700', 0.15), borderColor: withAlpha('#FFD700', 0.3) },
+                    ]}
+                  >
+                    <Text style={[styles.chipText, { color: theme.text }]}>{v}</Text>
+                  </View>
+                ))
+              )}
             </View>
           </Animated.View>
         )}
@@ -332,6 +341,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: 999,
     borderWidth: 1,
+  },
+  skeletonChip: {
+    width: 86,
+    height: 30,
+    borderRadius: 999,
+  },
+  skeletonChipWide: {
+    width: 118,
+    height: 30,
+    borderRadius: 999,
   },
   chipText: {
     fontSize: 13,

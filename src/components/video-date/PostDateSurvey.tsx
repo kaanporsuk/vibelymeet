@@ -568,6 +568,7 @@ export const PostDateSurvey = ({
           logJourney("chat_cta_pressed", { source: "survey_celebration", other_profile_id: partnerId });
           navigate(`/chat/${partnerId}`);
         }}
+        isMatchDataLoading={!celebrationData}
         matchData={{
           name: partnerName,
           age: celebrationData?.partnerAge,
