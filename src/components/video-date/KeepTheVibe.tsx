@@ -82,7 +82,13 @@ export const KeepTheVibe = ({
         minutes_added: outcome.minutesAdded ?? minutes,
         credits_state: bucketCreditsRemaining(Math.max(0, creditsSum - 1)),
       });
-      toast.success(`${outcome.minutesAdded} extra minutes added!`, { duration: 2500 });
+      const minutesLabel = Number.isInteger(outcome.minutesAdded)
+        ? String(outcome.minutesAdded)
+        : outcome.minutesAdded.toFixed(1);
+      toast.success(
+        `${minutesLabel} extra ${outcome.minutesAdded === 1 ? "minute" : "minutes"} added!`,
+        { duration: 2500 },
+      );
     } else if (outcome.ok === false) {
       trackEvent(LobbyPostDateEvents.EXTEND_DATE_FAILURE, {
         platform: "web",

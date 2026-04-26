@@ -56,6 +56,7 @@ import {
 } from '@/lib/videoDateApi';
 import {
   effectiveDateDurationSeconds,
+  remainingDatePhaseSeconds,
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
@@ -123,6 +124,14 @@ const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
 type DailyCallObject = ReturnType<typeof Daily.createCallObject>;
 type SharedDailyCallEntry = { sessionId: string; call: DailyCallObject; roomName: string | null };
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
+
+function makeExtensionIdempotencyKey(sessionId: string, type: 'extra_time' | 'extended_vibe'): string {
+  const random =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${sessionId}:${type}:${random}`;
+}
 
 type PrejoinAttemptState = {
   attemptId: number;
@@ -359,6 +368,10 @@ export default function VideoDateScreen() {
   const latestDateRouteUserIdRef = useRef<string | null>(null);
   const latestDateRouteEndedRef = useRef(false);
   const extensionSpendInFlightRef = useRef(false);
+  const extensionSpendRetryRef = useRef<{
+    type: 'extra_time' | 'extended_vibe';
+    key: string;
+  } | null>(null);
   /** True once we have ever observed a remote Daily participant (survives transient participant-left). */
   const [partnerEverJoined, setPartnerEverJoined] = useState(false);
   const prevLocalInDailyRef = useRef(false);
@@ -673,12 +686,11 @@ export default function VideoDateScreen() {
       phase === 'date' ||
       session?.state === 'date' ||
       session?.phase === 'date' ||
-      !!session?.date_started_at ||
-      (localInDailyRoom && partnerEverJoined)
+      !!session?.date_started_at
     ) {
       dateEstablishedRef.current = true;
     }
-  }, [sessionId, phase, session?.state, session?.phase, session?.date_started_at, localInDailyRoom, partnerEverJoined]);
+  }, [sessionId, phase, session?.state, session?.phase, session?.date_started_at]);
 
   const clearHandshakeGraceState = useCallback(() => {
     setHandshakeGraceExpiresAt(null);
@@ -1973,24 +1985,78 @@ export default function VideoDateScreen() {
         return { ok: false, userMessage: '', silent: true };
       }
       extensionSpendInFlightRef.current = true;
+      const retry =
+        extensionSpendRetryRef.current?.type === type ? extensionSpendRetryRef.current : null;
+      const idempotencyKey = retry?.key ?? makeExtensionIdempotencyKey(sessionId ?? 'unknown-session', type);
+      extensionSpendRetryRef.current = { type, key: idempotencyKey };
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_ATTEMPTED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        credit_type: type,
+      });
       setIsExtending(true);
       setExtendBanner(null);
       try {
         if (!sessionId) {
+          extensionSpendRetryRef.current = null;
           const msg = userMessageForExtensionSpendFailure('session_not_found');
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_FAILED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            credit_type: type,
+            reason: 'session_not_found',
+          });
           setExtendBanner({ kind: 'error', message: msg });
           return { ok: false, userMessage: msg };
         }
-        const result = await spendVideoDateCreditExtension(sessionId, type);
+        const result = await spendVideoDateCreditExtension(sessionId, type, idempotencyKey);
         void fetchUserCredits(user.id).then(setCredits);
         if (result.ok) {
+          extensionSpendRetryRef.current = null;
           trackEvent('video_date_extended', { session_id: sessionId });
-          setLocalTimeLeft((prev) => (prev ?? 0) + minutes * 60);
+          const addedSeconds = Math.max(0, Math.floor(result.addedSeconds || minutes * 60));
+          const nextExtra =
+            typeof result.dateExtraSeconds === 'number'
+              ? Math.max(0, Math.floor(result.dateExtraSeconds))
+              : Math.max(0, (session?.date_extra_seconds ?? 0) + addedSeconds);
+          setLocalTimeLeft((prev) => {
+            if (!session?.date_started_at) return (prev ?? 0) + addedSeconds;
+            return remainingDatePhaseSeconds({
+              dateStartedAtIso: session.date_started_at,
+              baseDateSeconds: DATE_SECONDS,
+              dateExtraSeconds: nextExtra,
+            });
+          });
           void refetchVideoSession();
-          setExtendBanner({ kind: 'success', minutes });
-          return { ok: true, minutesAdded: minutes };
+          const minutesAdded = addedSeconds / 60;
+          setExtendBanner({ kind: 'success', minutes: minutesAdded });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_SUCCEEDED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            credit_type: type,
+            added_seconds: addedSeconds,
+            date_extra_seconds: nextExtra,
+            idempotent: result.idempotent === true,
+          });
+          return {
+            ok: true,
+            minutesAdded,
+            secondsAdded: addedSeconds,
+            dateExtraSeconds: nextExtra,
+          };
         }
+        extensionSpendRetryRef.current = null;
         const msg = userMessageForExtensionSpendFailure(result.error);
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_EXTENSION_FAILED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          credit_type: type,
+          reason: result.error,
+        });
         setExtendBanner({ kind: 'error', message: msg });
         return { ok: false, userMessage: msg };
       } finally {
@@ -1998,7 +2064,7 @@ export default function VideoDateScreen() {
         setIsExtending(false);
       }
     },
-    [user?.id, sessionId, refetchVideoSession]
+    [user?.id, sessionId, eventId, refetchVideoSession, session?.date_extra_seconds, session?.date_started_at]
   );
 
   useEffect(() => {
@@ -4423,7 +4489,9 @@ export default function VideoDateScreen() {
           accessibilityLiveRegion="polite"
         >
           <Text style={[styles.extendBannerText, { color: theme.text }]}>
-            {extendBanner.minutes} extra minutes added!
+            {Number.isInteger(extendBanner.minutes)
+              ? String(extendBanner.minutes)
+              : extendBanner.minutes.toFixed(1)} extra {extendBanner.minutes === 1 ? 'minute' : 'minutes'} added!
           </Text>
         </View>
       ) : null}
