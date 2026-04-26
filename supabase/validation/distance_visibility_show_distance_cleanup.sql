@@ -281,6 +281,8 @@ FROM profile_payload;
 
 RESET ROLE;
 
+SET LOCAL session_replication_role = replica;
+
 DELETE FROM public.matches
 WHERE event_id = '9f4d2000-0000-4000-8000-000000000100'
    OR profile_id_1 IN (
@@ -303,6 +305,8 @@ WHERE id IN (
   '9f4d2000-0000-4000-8000-000000000002',
   '9f4d2000-0000-4000-8000-000000000003'
 );
+
+SET LOCAL session_replication_role = origin;
 
 INSERT INTO validation_results
 SELECT
