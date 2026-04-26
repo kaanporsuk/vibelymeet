@@ -56,6 +56,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Provider and store setup depth | `docs/native-external-setup-checklist.md` |
 | Phased operator detail | `docs/native-sprint6-launch-closure-runbook.md` |
 | **Web regression harness (static + manual checklist)** | `scripts/run_golden_path_smoke.sh` → `docs/golden-path-regression-runbook.md` |
+| **Native RC smoke pack (iOS/Android operator checklist)** | `docs/qa/native-rc-smoke-pack.md` |
 | **Web push / OneSignal production verification** | `docs/web-push-production-checklist.md` |
 | **Native runtime provider hardening (push boundary + iOS React source-build fix)** | `docs/native-runtime-provider-hardening.md` |
 | **Authenticated proof / rebuild policy** | `docs/authenticated-proof-and-rebuild-plan.md` |
