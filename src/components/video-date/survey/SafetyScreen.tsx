@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, ChevronRight, SkipForward, AlertTriangle } from "lucide-react";
+import { Shield, ChevronRight, SkipForward, AlertTriangle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -10,10 +10,12 @@ interface SafetyData {
 }
 
 interface SafetyScreenProps {
-  onComplete: (data: SafetyData) => void;
-  onSkip: () => void;
+  onComplete: (data: SafetyData) => void | Promise<void>;
+  onSkip: () => void | Promise<void>;
   /** Server-owned report path; `alsoBlock` is applied atomically when supported. */
   onReport: (reason: string, details: string, alsoBlock: boolean) => void | Promise<void>;
+  isBusy?: boolean;
+  pendingMessage?: string;
 }
 
 const ACCURACY_OPTIONS = [
@@ -34,6 +36,8 @@ export const SafetyScreen = ({
   onComplete,
   onSkip,
   onReport,
+  isBusy = false,
+  pendingMessage,
 }: SafetyScreenProps) => {
   const [photoAccurate, setPhotoAccurate] = useState<string | null>(null);
   const [honest, setHonest] = useState<string | null>(null);
@@ -76,8 +80,16 @@ export const SafetyScreen = ({
         <Button
           onClick={() => onComplete({ photoAccurate, honestRepresentation: honest })}
           className="mt-4"
+          disabled={isBusy}
         >
-          Back to the event 💚
+          {isBusy ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Returning...
+            </>
+          ) : (
+            "Back to the event 💚"
+          )}
         </Button>
       </motion.div>
     );
@@ -220,17 +232,42 @@ export const SafetyScreen = ({
         <Button
           onClick={handleSubmit}
           className="w-full h-11 bg-gradient-to-r from-primary to-accent hover:opacity-90 text-primary-foreground font-semibold"
+          disabled={isBusy}
         >
-          <span>Done — back to the event 💚</span>
-          <ChevronRight className="w-4 h-4 ml-1" />
+          {isBusy ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              <span>Returning...</span>
+            </>
+          ) : (
+            <>
+              <span>Done — back to the event 💚</span>
+              <ChevronRight className="w-4 h-4 ml-1" />
+            </>
+          )}
         </Button>
         <button
           onClick={onSkip}
-          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-2"
+          disabled={isBusy}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors py-2 disabled:opacity-60"
         >
-          <SkipForward className="w-3.5 h-3.5" />
-          <span>Skip</span>
+          {isBusy ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Returning...</span>
+            </>
+          ) : (
+            <>
+              <SkipForward className="w-3.5 h-3.5" />
+              <span>Skip</span>
+            </>
+          )}
         </button>
+        {pendingMessage ? (
+          <p className="text-center text-xs text-muted-foreground" aria-live="polite">
+            {pendingMessage}
+          </p>
+        ) : null}
       </div>
     </motion.div>
   );

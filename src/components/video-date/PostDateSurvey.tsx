@@ -665,6 +665,8 @@ export const PostDateSurvey = ({
                     void finishSurvey();
                   }}
                   onReport={handleReport}
+                  isBusy={isFinishingSurvey}
+                  pendingMessage={isFinishingSurvey || isDraining ? continuityDecision.message : undefined}
                 />
               )}
             </AnimatePresence>
