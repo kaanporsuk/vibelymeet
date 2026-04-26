@@ -36,6 +36,8 @@ export const useMatchQueue = ({
   const [isDraining, setIsDraining] = useState(false);
   const onReadyRef = useRef(onVideoSessionReady);
   const onQueuedExpiredRef = useRef(onQueuedSessionExpired);
+  /** Dedupe ready callbacks across drain polling plus realtime INSERT/UPDATE fan-out. */
+  const readyNotifiedIdsRef = useRef(new Set<string>());
   /** Dedupe TTL-expiry toasts per `video_sessions.id` for this hook instance. */
   const queuedExpiryNotifiedIdsRef = useRef(new Set<string>());
 
@@ -48,8 +50,15 @@ export const useMatchQueue = ({
   }, [onQueuedSessionExpired]);
 
   useEffect(() => {
+    readyNotifiedIdsRef.current.clear();
     queuedExpiryNotifiedIdsRef.current.clear();
   }, [eventId, user?.id]);
+
+  const notifyReadyOnce = useCallback((videoSessionId: string, partnerId: string) => {
+    if (readyNotifiedIdsRef.current.has(videoSessionId)) return;
+    readyNotifiedIdsRef.current.add(videoSessionId);
+    onReadyRef.current?.(videoSessionId, partnerId);
+  }, []);
 
   const refreshQueueCount = useCallback(async () => {
     if (!eventId || !user?.id) return;
@@ -87,7 +96,7 @@ export const useMatchQueue = ({
             event_id: eventId,
             session_id: sessionId,
           });
-          onReadyRef.current?.(sessionId, result.partner_id);
+          notifyReadyOnce(sessionId, result.partner_id);
         } else if (result?.queued || reason) {
           trackEvent(
             result?.queued
@@ -114,7 +123,7 @@ export const useMatchQueue = ({
 
     drainQueue();
     refreshQueueCount();
-  }, [eventId, user?.id, currentStatus, enableSurveyPhaseDrain, refreshQueueCount]);
+  }, [eventId, user?.id, currentStatus, enableSurveyPhaseDrain, refreshQueueCount, notifyReadyOnce]);
 
   useEffect(() => {
     if (!eventId || !user?.id) return;
@@ -156,7 +165,7 @@ export const useMatchQueue = ({
               session.participant_1_id === user.id
                 ? session.participant_2_id
                 : session.participant_1_id;
-            onReadyRef.current?.(session.id, partnerId);
+            notifyReadyOnce(session.id, partnerId);
           }
 
           refreshQueueCount();
@@ -187,7 +196,7 @@ export const useMatchQueue = ({
               session.participant_1_id === user.id
                 ? session.participant_2_id
                 : session.participant_1_id;
-            onReadyRef.current?.(session.id, partnerId);
+            notifyReadyOnce(session.id, partnerId);
           }
 
           refreshQueueCount();
@@ -198,7 +207,7 @@ export const useMatchQueue = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [eventId, user?.id, refreshQueueCount]);
+  }, [eventId, user?.id, refreshQueueCount, notifyReadyOnce]);
 
   return { queuedCount, refreshQueueCount, isDraining };
 };
