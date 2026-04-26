@@ -36,7 +36,7 @@ import {
   formatBirthdayUsWithZodiac,
 } from '@/lib/profileApi';
 import { avatarUrl, getImageUrl, deckCardUrl } from '@/lib/imageUrl';
-import { supabase } from '@/lib/supabase';
+import { saveCurrentDeviceLocationToProfile } from '@/lib/locationProfileUpdate';
 import { isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { type PhotoBatchLaunchAction } from '@/lib/photoBatchController';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
@@ -636,63 +636,54 @@ export default function ProfileStudio() {
     if (updatingLocation) return;
     setUpdatingLocation(true);
     try {
-      const Location = await import('expo-location');
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (perm.status !== 'granted') {
-        show({
-          title: 'Location access needed',
-          message: perm.canAskAgain === false
-            ? 'Location is off for Vibely. Enable it in Settings to update your location.'
-            : 'Allow location access so Vibely can set your city.',
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-
-      // Reverse-geocode to normalized city/country label.
-      let displayLabel = '';
-      let country = '';
-      try {
-        const { data: geoData, error: geoErr } = await supabase.functions.invoke('geocode', {
-          body: { lat, lng },
-        });
-        if (!geoErr && geoData) {
-          const city = typeof geoData.city === 'string' ? geoData.city.trim() : '';
-          country = typeof geoData.country === 'string' ? geoData.country.trim() : '';
-          displayLabel = city && country ? `${city}, ${country}` : (geoData.formatted ?? '');
+      const result = await saveCurrentDeviceLocationToProfile({ userId: user?.id });
+      if (result.status !== 'success') {
+        switch (result.status) {
+          case 'services_disabled':
+            show({
+              title: 'Location Services are off',
+              message: 'Turn on device Location Services, then return to Vibely to update your location.',
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+            return;
+          case 'permission_denied':
+            show({
+              title: 'Location access needed',
+              message: result.canAskAgain === false
+                ? 'Location is off for Vibely. Enable it in Settings to update your location.'
+                : 'Allow location access so Vibely can set your city.',
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+            return;
+          case 'geocode_failed':
+            show({
+              title: 'Location not recognized',
+              message: "We couldn't match your GPS position to a city. Try again in a moment.",
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+            return;
+          case 'backend_failed':
+            throw result.error ?? new Error(result.message ?? 'location_update_failed');
+          default:
+            show({
+              title: 'Location update failed',
+              message: 'Check Location Services and try again.',
+              variant: 'warning',
+              primaryAction: { label: 'OK', onPress: () => {} },
+            });
+            return;
         }
-      } catch { /* fall through — geocode failure prevents update */ }
-
-      if (!displayLabel || !country) {
-        show({
-          title: 'Location not recognized',
-          message: "We couldn't match your GPS position to a city. Try again in a moment.",
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
-        return;
       }
-
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('update_profile_location', {
-        p_user_id: user?.id,
-        p_location: displayLabel,
-        p_lat: lat,
-        p_lng: lng,
-        p_country: country,
-      });
-      if (rpcError) throw rpcError;
-      const result = rpcResult as { success?: boolean; error?: string } | null;
-      if (!result?.success) throw new Error(result?.error ?? 'location_update_failed');
 
       qc.invalidateQueries({ queryKey: ['my-profile'] });
+      qc.invalidateQueries({ queryKey: ['profile-location', user?.id] });
+      qc.invalidateQueries({ queryKey: ['events-discover'] });
       show({
         title: 'Location updated',
-        message: displayLabel,
+        message: result.location,
         variant: 'success',
         primaryAction: { label: 'OK', onPress: () => {} },
       });

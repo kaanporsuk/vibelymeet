@@ -4128,6 +4128,10 @@ export type Database = {
         }
         Returns: Json
       }
+      clear_my_location_data: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       complete_account_deletion_media_cleanup: {
         Args: { p_user_id: string }
         Returns: Json

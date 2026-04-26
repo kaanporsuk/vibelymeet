@@ -18,7 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import * as WebBrowser from 'expo-web-browser';
-import * as Location from 'expo-location';
 import {
   getCameraPermissionsAsync,
   getMediaLibraryPermissionsAsync,
@@ -33,6 +32,13 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { withAlpha } from '@/lib/colorUtils';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { fetchMyLocationData } from '@/lib/myLocationData';
+import {
+  clearSavedLocationData,
+  saveCurrentDeviceLocationToProfile,
+  type SaveProfileLocationResult,
+} from '@/lib/locationProfileUpdate';
+import { useLocationPermission } from '@/lib/useLocationPermission';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import {
@@ -196,36 +202,46 @@ export default function PrivacySettingsScreen() {
   });
 
   const profile = useMemo(() => normalizeProfile(rawProfile ?? undefined), [rawProfile]);
+  const locationPermission = useLocationPermission();
 
-  const [locStatus, setLocStatus] = useState<Location.PermissionStatus | null>(null);
   const [camStatus, setCamStatus] = useState<string | null>(null);
   const [micStatus, setMicStatus] = useState<string | null>(null);
   const [libStatus, setLibStatus] = useState<string | null>(null);
+  const [locationActionLoading, setLocationActionLoading] = useState(false);
+  const [clearLocationLoading, setClearLocationLoading] = useState(false);
 
-  const refreshPermissions = useCallback(async () => {
+  const { data: savedLocation, isLoading: isSavedLocationLoading, refetch: refetchSavedLocation } = useQuery({
+    queryKey: ['profile-location', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      return fetchMyLocationData();
+    },
+    enabled: !!user?.id,
+  });
+
+  const hasSavedLocation =
+    savedLocation?.location_data?.lat != null &&
+    savedLocation.location_data.lng != null;
+
+  const refreshMediaPermissions = useCallback(async () => {
     try {
-      const [loc, cam, mic, lib] = await Promise.all([
-        Location.getForegroundPermissionsAsync().catch((e) => {
-          if (__DEV__) console.warn('[privacy] location permission read failed:', e);
-          return { status: Location.PermissionStatus.DENIED as const };
-        }),
+      const [cam, mic, lib] = await Promise.all([
         getCameraPermissionsAsync(),
         getMicPermissionStatus(),
         getMediaLibraryPermissionsAsync(),
       ]);
-      setLocStatus(loc.status);
       setCamStatus(cam.status);
       setMicStatus(mic);
       setLibStatus(lib.status);
     } catch (e) {
-      if (__DEV__) console.warn('[privacy] refreshPermissions failed:', e);
+      if (__DEV__) console.warn('[privacy] refreshMediaPermissions failed:', e);
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void refreshPermissions();
-    }, [refreshPermissions])
+      void refreshMediaPermissions();
+    }, [refreshMediaPermissions])
   );
 
   const [discoverySheetOpen, setDiscoverySheetOpen] = useState(false);
@@ -239,6 +255,196 @@ export default function PrivacySettingsScreen() {
   const invalidatePrivacy = () => {
     qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
   };
+
+  const invalidateLocationSurfaces = useCallback(async () => {
+    await Promise.all([
+      refetchSavedLocation(),
+      qc.invalidateQueries({ queryKey: ['profile-location', user?.id] }),
+      qc.invalidateQueries({ queryKey: ['my-profile'] }),
+      qc.invalidateQueries({ queryKey: ['events-discover'] }),
+      qc.invalidateQueries({ queryKey: ['other-city-events', user?.id] }),
+      qc.invalidateQueries({ queryKey: ['next-registered-event'] }),
+    ]);
+  }, [qc, refetchSavedLocation, user?.id]);
+
+  const showLocationSaveResult = useCallback((result: SaveProfileLocationResult) => {
+    switch (result.status) {
+      case 'success':
+        show({
+          title: 'Location saved',
+          message: `${result.location} will power Nearby events and approximate distance.`,
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      case 'services_disabled':
+        show({
+          title: 'Location Services are off',
+          message: 'Turn on device Location Services, then return to Vibely to update your saved area.',
+          variant: 'warning',
+          primaryAction: { label: 'Open Settings', onPress: () => void locationPermission.openSettings() },
+          secondaryAction: { label: 'Not now', onPress: () => {} },
+        });
+        return;
+      case 'permission_denied':
+        show({
+          title: 'Location access needed',
+          message: result.canAskAgain === false
+            ? 'Location is off for Vibely. Enable it in Settings to update your saved area.'
+            : 'Allow location access so Vibely can update your saved area for Nearby events.',
+          variant: 'warning',
+          primaryAction: result.canAskAgain === false
+            ? { label: 'Open Settings', onPress: () => void locationPermission.openSettings() }
+            : { label: 'OK', onPress: () => {} },
+        });
+        return;
+      case 'permission_error':
+        show({
+          title: "Couldn't check location",
+          message: 'Vibely could not read your location permission right now. Try again in a moment.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      case 'gps_failed':
+        show({
+          title: "Couldn't get your location",
+          message: 'Make sure device Location Services are on and try again.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      case 'geocode_failed':
+        show({
+          title: 'Location not recognized',
+          message: "We couldn't match your GPS position to a city. Try again in a moment.",
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      case 'backend_failed':
+        show({
+          title: "Couldn't save location",
+          message: 'Your permission may be allowed, but your saved area was not updated. Try again in a moment.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      default:
+        return;
+    }
+  }, [locationPermission, show]);
+
+  const handleLocationPermissionPress = useCallback(async () => {
+    if (!user?.id || locationActionLoading) return;
+    setLocationActionLoading(true);
+    try {
+      let status = locationPermission.status;
+      let canAskAgain = locationPermission.canAskAgain;
+      let servicesEnabled = locationPermission.servicesEnabled;
+
+      if (status === 'unknown') {
+        const refreshed = await locationPermission.refresh();
+        status = refreshed.status;
+        canAskAgain = refreshed.canAskAgain;
+        servicesEnabled = refreshed.servicesEnabled;
+
+        if (status === 'unknown') {
+          show({
+            title: "Couldn't check location",
+            message: 'Vibely could not read your location permission right now. Try again in a moment.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          return;
+        }
+      }
+
+      const granted = status === 'granted';
+      const denied = status === 'denied';
+      const undetermined = status === 'undetermined';
+
+      if (servicesEnabled === false) {
+        show({
+          title: 'Location Services are off',
+          message: 'Turn on device Location Services in Settings, then return to Vibely.',
+          variant: 'warning',
+          primaryAction: { label: 'Open Settings', onPress: () => void locationPermission.openSettings() },
+          secondaryAction: { label: 'Not now', onPress: () => {} },
+        });
+        return;
+      }
+
+      if (denied && canAskAgain === false) {
+        await locationPermission.openSettings();
+        return;
+      }
+
+      if (
+        undetermined ||
+        (denied && canAskAgain !== false) ||
+        (granted && !hasSavedLocation)
+      ) {
+        const result = await saveCurrentDeviceLocationToProfile({
+          userId: user.id,
+          requestPermission: !granted,
+        });
+        await locationPermission.refresh();
+        if (result.status === 'success') await invalidateLocationSurfaces();
+        showLocationSaveResult(result);
+        return;
+      }
+
+      await locationPermission.openSettings();
+    } finally {
+      setLocationActionLoading(false);
+    }
+  }, [
+    hasSavedLocation,
+    invalidateLocationSurfaces,
+    locationActionLoading,
+    locationPermission,
+    show,
+    showLocationSaveResult,
+    user?.id,
+  ]);
+
+  const clearSavedArea = useCallback(async () => {
+    if (clearLocationLoading) return;
+    setClearLocationLoading(true);
+    try {
+      const result = await clearSavedLocationData();
+      if (result.status === 'success') {
+        await invalidateLocationSurfaces();
+        show({
+          title: 'Saved area cleared',
+          message: 'Nearby and local event visibility may be limited until you set your location again.',
+          variant: 'success',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        return;
+      }
+      show({
+        title: "Couldn't clear saved area",
+        message: 'Try again in a moment.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } finally {
+      setClearLocationLoading(false);
+    }
+  }, [clearLocationLoading, invalidateLocationSurfaces, show]);
+
+  const handleClearSavedAreaPress = useCallback(() => {
+    if (!hasSavedLocation || clearLocationLoading) return;
+    show({
+      title: 'Clear saved area?',
+      message: 'This removes your saved city and private coordinates. Nearby/local events may be limited until you set location again.',
+      variant: 'warning',
+      primaryAction: { label: 'Clear', onPress: () => void clearSavedArea() },
+      secondaryAction: { label: 'Cancel', onPress: () => {} },
+    });
+  }, [clearLocationLoading, clearSavedArea, hasSavedLocation, show]);
 
   const discoveryChip = useMemo(() => {
     const m = profile.discovery_mode;
@@ -344,11 +550,72 @@ export default function PrivacySettingsScreen() {
   }, [profile.event_attendance_visibility, theme.tint, theme.mutedForeground]);
 
   const locDescription = useMemo(() => {
-    if (locStatus === Location.PermissionStatus.GRANTED) return 'Allowed while using app';
-    if (locStatus === Location.PermissionStatus.DENIED) return 'Not allowed — tap to update';
-    if (locStatus === Location.PermissionStatus.UNDETERMINED) return 'Not set';
-    return '…';
-  }, [locStatus]);
+    if (locationPermission.isLoading) return 'Checking...';
+    if (locationPermission.status === 'unknown') return "Couldn't check location permission";
+    if (locationPermission.servicesEnabled === false) {
+      return locationPermission.granted
+        ? 'Allowed, but device Location Services are off'
+        : 'Device Location Services are off — tap to update in Settings';
+    }
+    if (locationPermission.undetermined) return 'Not asked yet — tap to allow Nearby events';
+    if (locationPermission.denied && locationPermission.canAskAgain === false) {
+      return 'Not allowed — tap to update in Settings';
+    }
+    if (locationPermission.denied) return 'Not allowed — tap to request access';
+    if (locationPermission.granted && !hasSavedLocation) return 'Allowed — saved area missing';
+    if (locationPermission.granted) return 'Allowed while using app';
+    return 'Checking...';
+  }, [
+    hasSavedLocation,
+    locationPermission.canAskAgain,
+    locationPermission.denied,
+    locationPermission.granted,
+    locationPermission.isLoading,
+    locationPermission.servicesEnabled,
+    locationPermission.status,
+    locationPermission.undetermined,
+  ]);
+
+  const locChip = useMemo(() => {
+    if (locationActionLoading || locationPermission.isLoading) {
+      return { label: 'Checking', color: theme.mutedForeground };
+    }
+    if (locationPermission.status === 'unknown') {
+      return { label: 'Check failed', color: theme.danger };
+    }
+    if (locationPermission.servicesEnabled === false) {
+      return { label: 'Services off', color: theme.danger };
+    }
+    if (locationPermission.granted && hasSavedLocation) {
+      return { label: 'Allowed', color: theme.success };
+    }
+    if (locationPermission.granted && !hasSavedLocation) {
+      return { label: 'Missing area', color: AMBER };
+    }
+    if (locationPermission.undetermined) {
+      return { label: 'Not asked', color: AMBER };
+    }
+    return { label: 'Not allowed', color: theme.danger };
+  }, [
+    hasSavedLocation,
+    locationActionLoading,
+    locationPermission.granted,
+    locationPermission.isLoading,
+    locationPermission.servicesEnabled,
+    locationPermission.status,
+    locationPermission.undetermined,
+    theme.danger,
+    theme.mutedForeground,
+    theme.success,
+  ]);
+
+  const savedAreaDescription = useMemo(() => {
+    if (isSavedLocationLoading) return 'Checking saved area...';
+    if (!hasSavedLocation) return 'No saved area. Nearby may show only global events until you set one.';
+    return savedLocation?.location
+      ? `${savedLocation.location} powers Nearby events and approximate distance.`
+      : 'Saved coordinates power Nearby events and approximate distance.';
+  }, [hasSavedLocation, isSavedLocationLoading, savedLocation?.location]);
 
   const permLabel = (status: string | null) => {
     if (status === 'granted') return { text: 'Allowed', ok: true };
@@ -513,7 +780,7 @@ export default function PrivacySettingsScreen() {
               >
                 <Ionicons name="information-circle-outline" size={14} color={AMBER} />
                 <Text style={[styles.infoNoteText, { color: AMBER }]}>
-                  Vibely never shares your exact location. City/location can still appear separately from distance.
+                  Exact/current coordinates may be stored privately for Nearby. Other people only see approximate distance.
                 </Text>
               </View>
               <SelectorRow
@@ -537,9 +804,55 @@ export default function PrivacySettingsScreen() {
                 iconColor={CYAN}
                 label="Location permission"
                 description={locDescription}
-                onPress={() => Linking.openSettings()}
-                right={<Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />}
+                onPress={() => void handleLocationPermissionPress()}
+                right={
+                  <View style={styles.rowRight}>
+                    {locationActionLoading ? (
+                      <ActivityIndicator size="small" color={theme.tint} />
+                    ) : (
+                      <ValueChip label={locChip.label} accentColor={locChip.color} />
+                    )}
+                    <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                  </View>
+                }
+                showDivider
               />
+              <SelectorRow
+                theme={theme}
+                icon="map-outline"
+                iconColor={AMBER}
+                label="Saved area"
+                description={savedAreaDescription}
+                onPress={hasSavedLocation ? handleClearSavedAreaPress : undefined}
+                right={
+                  hasSavedLocation ? (
+                    <View style={styles.rowRight}>
+                      {clearLocationLoading ? (
+                        <ActivityIndicator size="small" color={theme.tint} />
+                      ) : (
+                        <ValueChip label="Clear" accentColor={theme.danger} />
+                      )}
+                      <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
+                    </View>
+                  ) : (
+                    <Ionicons name="remove-circle-outline" size={18} color={theme.mutedForeground} />
+                  )
+                }
+              />
+              <View
+                style={[
+                  styles.infoNote,
+                  {
+                    backgroundColor: withAlpha(CYAN, 0.08),
+                    borderColor: withAlpha(CYAN, 0.2),
+                  },
+                ]}
+              >
+                <Ionicons name="information-circle-outline" size={14} color={CYAN} />
+                <Text style={[styles.infoNoteText, { color: CYAN }]}>
+                  Device permission controls fresh GPS updates. Your saved area can still power Nearby events until you update or clear it.
+                </Text>
+              </View>
             </SectionCard>
 
             <SectionLabel text="BOUNDARIES & SAFETY" theme={theme} />
