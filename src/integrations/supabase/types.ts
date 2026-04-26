@@ -3428,6 +3428,54 @@ export type Database = {
         }
         Relationships: []
       }
+      video_date_credit_extension_spends: {
+        Row: {
+          added_seconds: number
+          created_at: string
+          credit_type: string
+          date_extra_seconds_after: number
+          id: string
+          idempotency_key: string
+          session_id: string
+          user_id: string
+        }
+        Insert: {
+          added_seconds: number
+          created_at?: string
+          credit_type: string
+          date_extra_seconds_after: number
+          id?: string
+          idempotency_key: string
+          session_id: string
+          user_id: string
+        }
+        Update: {
+          added_seconds?: number
+          created_at?: string
+          credit_type?: string
+          date_extra_seconds_after?: number
+          id?: string
+          idempotency_key?: string
+          session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_date_credit_extension_spends_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_date_credit_extension_spends_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       video_sessions: {
         Row: {
           daily_room_name: string | null
@@ -4816,7 +4864,11 @@ export type Database = {
         Returns: Json
       }
       spend_video_date_credit_extension: {
-        Args: { p_credit_type: string; p_session_id: string }
+        Args: {
+          p_credit_type: string
+          p_idempotency_key?: string
+          p_session_id: string
+        }
         Returns: Json
       }
       submit_post_date_verdict: {
@@ -4879,6 +4931,14 @@ export type Database = {
         Returns: Json
       }
       video_date_transition: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260430180000_last_chance_grace_10s: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260501091000_pre_date_end_cleanup: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
