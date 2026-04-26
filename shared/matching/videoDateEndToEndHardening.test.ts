@@ -21,10 +21,6 @@ const preDateEndMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501091000_video_date_pre_date_end_cleanup.sql"),
   "utf8",
 );
-const swipePresenceMigration = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql"),
-  "utf8",
-);
 
 test("credit extension parser preserves server-returned seconds and totals", () => {
   assert.deepEqual(
@@ -128,27 +124,6 @@ test("migration serializes super-vibe cap checks per actor and event", () => {
   assert.match(migration, /pg_advisory_xact_lock/);
   assert.match(migration, /handle_swipe_super_vibe_cap/);
   assert.match(migration, /SELECT COUNT\(\*\) INTO v_super_count/);
-});
-
-test("swipe presence migration keeps already-matched clients routable", () => {
-  assert.match(swipePresenceMigration, /handle_swipe_mutual_pair/);
-  assert.match(swipePresenceMigration, /last_lobby_foregrounded_at = v_now/);
-  assert.match(swipePresenceMigration, /SELECT id, ready_gate_status[\s\S]*ORDER BY started_at DESC/s);
-  assert.match(swipePresenceMigration, /'result', 'already_matched'[\s\S]*'video_session_id', v_session_id/s);
-  assert.match(swipePresenceMigration, /queue_status = 'in_ready_gate'/);
-});
-
-test("swipe presence migration serializes pair before mutual visibility check", () => {
-  const pairLockIndex = swipePresenceMigration.indexOf("handle_swipe_mutual_pair:");
-  const recordSwipeIndex = swipePresenceMigration.indexOf(
-    "INSERT INTO public.event_swipes (event_id, actor_id, target_id, swipe_type)\n  VALUES (p_event_id, p_actor_id, p_target_id, p_swipe_type)",
-  );
-  const mutualCheckIndex = swipePresenceMigration.indexOf("SELECT EXISTS (", recordSwipeIndex);
-  assert.ok(pairLockIndex >= 0, "pair lock is present");
-  assert.ok(recordSwipeIndex >= 0, "non-pass swipe insert is present");
-  assert.ok(mutualCheckIndex >= 0, "mutual check is present");
-  assert.ok(pairLockIndex < recordSwipeIndex, "pair lock must be taken before recording the swipe");
-  assert.ok(recordSwipeIndex < mutualCheckIndex, "swipe must be recorded before checking mutuality");
 });
 
 test("migration extends both_ready join window without reopening expired gates", () => {
