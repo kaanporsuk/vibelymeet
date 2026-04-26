@@ -8,6 +8,8 @@ The video-date hardening baseline is closed and documented in `docs/video-date-h
 
 For seeded live/staging setup of the remaining manual two-user/device/admin checks, use `docs/qa/video-date-seeded-runtime-qa-pack.md`.
 
+For native release-candidate device checks before TestFlight/Play internal distribution, use `docs/qa/native-rc-smoke-pack.md`.
+
 ## Scripted Harness
 
 Run from the repo root:
@@ -54,6 +56,8 @@ cd apps/mobile && MAESTRO_RUN=1 npm run rc-smoke
 ```
 
 The Playwright layer is a shell smoke only. The Maestro layer requires a device/simulator with the RC build. Do not treat either as a substitute for the manual golden path below.
+
+For the full native RC operator sequence around that Maestro smoke, see `docs/qa/native-rc-smoke-pack.md`.
 
 ## Coverage Map
 
@@ -143,6 +147,8 @@ The Playwright layer is a shell smoke only. The Maestro layer requires a device/
 | 8.1 | Run `cd apps/mobile && npm run typecheck` | Native TypeScript passes. |
 | 8.2 | Launch RC build manually or with Maestro | App opens to the expected auth/shell state. |
 | 8.3 | Repeat Ready Gate/date/survey path on native | Routing and continuity match web behavior. |
+
+For iOS/Android RC-specific environment, build, install, push, media, and sign-off steps, use `docs/qa/native-rc-smoke-pack.md`.
 
 ## Pass Criteria
 
