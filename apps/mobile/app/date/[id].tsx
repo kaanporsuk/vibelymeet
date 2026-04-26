@@ -165,6 +165,8 @@ function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
     case 'SESSION_NOT_FOUND':
     case 'ROOM_NOT_FOUND':
       return "We couldn't open this date. Go back and try again.";
+    case 'BLOCKED_PAIR':
+      return 'This call is no longer available.';
     case 'ACCESS_DENIED':
       return "You don't have access to this date.";
     case 'network':

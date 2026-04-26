@@ -34,7 +34,7 @@ export const MATCH_CALL_EDGE_MESSAGES: Record<string, string> = {
   [MATCH_CALL_EDGE_CODES.PARTICIPANT_SUSPENDED]: "Calls aren’t available for this account right now.",
   [MATCH_CALL_EDGE_CODES.PROFILE_UNAVAILABLE]: "Calls aren’t available for this chat right now.",
   [MATCH_CALL_EDGE_CODES.TOKEN_ISSUE_FAILED]: "Could not connect — please try again in a moment.",
-  [MATCH_CALL_EDGE_CODES.USERS_BLOCKED]: "Calls aren’t available for this chat.",
+  [MATCH_CALL_EDGE_CODES.USERS_BLOCKED]: "This call is no longer available.",
 };
 
 export function messageForMatchCallEdgeCode(code: string | undefined): string | undefined {

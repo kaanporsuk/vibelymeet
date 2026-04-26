@@ -131,6 +131,7 @@ function isInvokeTimeoutError(error: unknown): boolean {
 
 function failureFromTransitionCode(code?: string): VideoCallStartFailure {
   if (code === "READY_GATE_NOT_READY") return { kind: "READY_GATE_NOT_READY", retryable: false, serverCode: code };
+  if (code === "BLOCKED_PAIR" || code === "blocked_pair") return { kind: "BLOCKED_PAIR", retryable: false, serverCode: code };
   if (code === "ACCESS_DENIED") return { kind: "ACCESS_DENIED", retryable: false, serverCode: code };
   if (code === "SESSION_ENDED") return { kind: "SESSION_ENDED", retryable: false, serverCode: code };
   if (code === "SESSION_NOT_FOUND") return { kind: "SESSION_NOT_FOUND", retryable: false, serverCode: code };

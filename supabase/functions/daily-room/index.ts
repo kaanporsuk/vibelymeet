@@ -24,6 +24,23 @@ type VideoDateRoomGateSession = {
   phase?: string | null;
 };
 
+type MatchCallMatch = {
+  id: string;
+  profile_id_1: string;
+  profile_id_2: string;
+  archived_at: string | null;
+};
+
+type MatchCallRow = {
+  id: string;
+  caller_id: string;
+  callee_id: string;
+  daily_room_name: string | null;
+  daily_room_url: string | null;
+  status: string | null;
+  match_id: string | null;
+};
+
 type ClientRequestContext = {
   client_platform: string | null;
   client_platform_version: string | null;
@@ -82,6 +99,7 @@ function createDateRoomRejectResponse(params: {
   status: number;
   code: string;
   error: string;
+  message?: string;
   requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
   detail?: string | null;
@@ -99,9 +117,69 @@ function createDateRoomRejectResponse(params: {
     extra: params.extra,
   });
   return new Response(
-    JSON.stringify({ error: params.error, code: params.code }),
+    JSON.stringify({
+      error: params.error,
+      code: params.code,
+      ...(params.message ? { message: params.message } : {}),
+    }),
     {
       status: params.status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
+function createBlockedDateRoomResponse(params: {
+  action: "create_date_room" | "join_date_room";
+  sessionId: string | null | undefined;
+  userId: string;
+  requestContext: ClientRequestContext;
+  session?: VideoDateRoomGateSession | null;
+  detail?: string | null;
+}) {
+  return createDateRoomRejectResponse({
+    action: params.action,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    status: 403,
+    code: "BLOCKED_PAIR",
+    error: "blocked_pair",
+    message: "This call is no longer available.",
+    requestContext: params.requestContext,
+    session: params.session,
+    detail: params.detail,
+  });
+}
+
+function createBlockedMatchCallResponse(params: {
+  event: string;
+  userId: string;
+  peerId?: string | null;
+  matchId?: string | null;
+  callId?: string | null;
+  detail?: string | null;
+}) {
+  console.log(
+    JSON.stringify({
+      event: params.event,
+      code: "USERS_BLOCKED",
+      user_id: params.userId,
+      peer_id: params.peerId ?? null,
+      match_id: params.matchId ?? null,
+      call_id: params.callId ?? null,
+      detail: params.detail ?? null,
+      has_token: false,
+    }),
+  );
+
+  return new Response(
+    JSON.stringify({
+      error: "blocked_pair",
+      code: "USERS_BLOCKED",
+      message: "This call is no longer available.",
+    }),
+    {
+      status: 403,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     },
   );
@@ -156,6 +234,122 @@ async function isPairBlocked(
 
   if (blockBError) throw blockBError;
   return Boolean(blockB?.id);
+}
+
+async function maybeReturnBlockedDateSessionFallback(params: {
+  serviceClient: ReturnType<typeof createClient>;
+  action: "create_date_room" | "join_date_room";
+  sessionId: unknown;
+  userId: string;
+  requestContext: ClientRequestContext;
+}): Promise<Response | null> {
+  const { serviceClient, action, sessionId, userId, requestContext } = params;
+  if (typeof sessionId !== "string" || !sessionId) return null;
+
+  const { data, error } = await serviceClient
+    .from("video_sessions")
+    .select(
+      "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+    )
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const session = (data as VideoDateRoomGateSession | null) ?? null;
+  if (!session) return null;
+  if (session.participant_1_id !== userId && session.participant_2_id !== userId) {
+    return null;
+  }
+
+  const partnerId = session.participant_1_id === userId ? session.participant_2_id : session.participant_1_id;
+  if (partnerId && await isPairBlocked(serviceClient, userId, partnerId)) {
+    return createBlockedDateRoomResponse({
+      action,
+      sessionId,
+      userId,
+      requestContext,
+      session,
+      detail: "service_role_participant_block_fallback",
+    });
+  }
+
+  return null;
+}
+
+async function maybeReturnBlockedMatchFallback(params: {
+  serviceClient: ReturnType<typeof createClient>;
+  matchId: unknown;
+  userId: string;
+  event: string;
+}): Promise<Response | null> {
+  const { serviceClient, matchId, userId, event } = params;
+  if (typeof matchId !== "string" || !matchId) return null;
+
+  const { data, error } = await serviceClient
+    .from("matches")
+    .select("id, profile_id_1, profile_id_2, archived_at")
+    .eq("id", matchId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const match = (data as MatchCallMatch | null) ?? null;
+  if (!match) return null;
+  if (match.profile_id_1 !== userId && match.profile_id_2 !== userId) {
+    return null;
+  }
+
+  const peerId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
+  if (await isPairBlocked(serviceClient, userId, peerId)) {
+    return createBlockedMatchCallResponse({
+      event,
+      userId,
+      peerId,
+      matchId,
+      detail: "service_role_participant_block_fallback",
+    });
+  }
+
+  return null;
+}
+
+async function maybeReturnBlockedMatchCallFallback(params: {
+  serviceClient: ReturnType<typeof createClient>;
+  callId: unknown;
+  userId: string;
+  event: string;
+}): Promise<Response | null> {
+  const { serviceClient, callId, userId, event } = params;
+  if (typeof callId !== "string" || !callId) return null;
+
+  const { data, error } = await serviceClient
+    .from("match_calls")
+    .select("id, caller_id, callee_id, daily_room_name, daily_room_url, status, match_id")
+    .eq("id", callId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const call = (data as MatchCallRow | null) ?? null;
+  if (!call) return null;
+  if (call.caller_id !== userId && call.callee_id !== userId) {
+    return null;
+  }
+
+  const peerId = call.caller_id === userId ? call.callee_id : call.caller_id;
+  if (await isPairBlocked(serviceClient, userId, peerId)) {
+    return createBlockedMatchCallResponse({
+      event,
+      userId,
+      peerId,
+      matchId: call.match_id,
+      callId,
+      detail: "service_role_participant_block_fallback",
+    });
+  }
+
+  return null;
 }
 
 async function createMeetingToken(
@@ -299,6 +493,29 @@ async function assertCreateMatchCallAllowed(params: {
 > {
   const { serviceClient, matchId, callerId, calleeId, archivedAt } = params;
 
+  const { data: blockA } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", callerId)
+    .eq("blocked_id", calleeId)
+    .maybeSingle();
+
+  const { data: blockB } = await serviceClient
+    .from("blocked_users")
+    .select("id")
+    .eq("blocker_id", calleeId)
+    .eq("blocked_id", callerId)
+    .maybeSingle();
+
+  if (blockA || blockB) {
+    return {
+      ok: false,
+      status: 403,
+      code: "USERS_BLOCKED",
+      message: "Cannot call this user",
+    };
+  }
+
   if (archivedAt != null) {
     return {
       ok: false,
@@ -322,29 +539,6 @@ async function assertCreateMatchCallAllowed(params: {
       status: 409,
       code: "DUPLICATE_ACTIVE_CALL",
       message: "A call is already in progress for this match",
-    };
-  }
-
-  const { data: blockA } = await serviceClient
-    .from("blocked_users")
-    .select("id")
-    .eq("blocker_id", callerId)
-    .eq("blocked_id", calleeId)
-    .maybeSingle();
-
-  const { data: blockB } = await serviceClient
-    .from("blocked_users")
-    .select("id")
-    .eq("blocker_id", calleeId)
-    .eq("blocked_id", callerId)
-    .maybeSingle();
-
-  if (blockA || blockB) {
-    return {
-      ok: false,
-      status: 403,
-      code: "USERS_BLOCKED",
-      message: "Cannot call this user",
     };
   }
 
@@ -525,6 +719,15 @@ serve(async (req) => {
         session = (data as VideoDateRoomGateSession | null) ?? null;
 
         if (!session) {
+          const blockedFallback = await maybeReturnBlockedDateSessionFallback({
+            serviceClient,
+            action,
+            sessionId,
+            userId: user.id,
+            requestContext,
+          });
+          if (blockedFallback) return blockedFallback;
+
           return createDateRoomRejectResponse({
             action,
             sessionId,
@@ -554,13 +757,10 @@ serve(async (req) => {
 
         const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
         if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
-          return createDateRoomRejectResponse({
+          return createBlockedDateRoomResponse({
             action,
             sessionId,
             userId: user.id,
-            status: 403,
-            code: "BLOCKED_PAIR",
-            error: "Blocked pair",
             requestContext,
             session,
           });
@@ -701,7 +901,16 @@ serve(async (req) => {
 
         session = (data as VideoDateRoomGateSession | null) ?? null;
 
-        if (!session || !session.daily_room_name) {
+        if (!session) {
+          const blockedFallback = await maybeReturnBlockedDateSessionFallback({
+            serviceClient,
+            action,
+            sessionId,
+            userId: user.id,
+            requestContext,
+          });
+          if (blockedFallback) return blockedFallback;
+
           return createDateRoomRejectResponse({
             action,
             sessionId,
@@ -732,13 +941,23 @@ serve(async (req) => {
 
         const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
         if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
+          return createBlockedDateRoomResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+          });
+        }
+
+        if (!session.daily_room_name) {
           return createDateRoomRejectResponse({
             action,
             sessionId,
             userId: user.id,
-            status: 403,
-            code: "BLOCKED_PAIR",
-            error: "Blocked pair",
+            status: 404,
+            code: "ROOM_NOT_FOUND",
+            error: "Room not found",
             requestContext,
             session,
           });
@@ -811,6 +1030,14 @@ serve(async (req) => {
         !match ||
         (match.profile_id_1 !== user.id && match.profile_id_2 !== user.id)
       ) {
+        const blockedFallback = await maybeReturnBlockedMatchFallback({
+          serviceClient,
+          matchId,
+          userId: user.id,
+          event: "create_match_call_rejected",
+        });
+        if (blockedFallback) return blockedFallback;
+
         console.log(
           JSON.stringify({
             event: "create_match_call_rejected",
@@ -1040,6 +1267,14 @@ serve(async (req) => {
         !call ||
         (call.caller_id !== user.id && call.callee_id !== user.id)
       ) {
+        const blockedFallback = await maybeReturnBlockedMatchCallFallback({
+          serviceClient,
+          callId: targetCallId,
+          userId: user.id,
+          event: "join_match_call_rejected",
+        });
+        if (blockedFallback) return blockedFallback;
+
         console.log(
           JSON.stringify({
             event: "join_match_call_not_found",
@@ -1054,6 +1289,17 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           },
         );
+      }
+
+      const peerId = call.caller_id === user.id ? call.callee_id : call.caller_id;
+      if (await isPairBlocked(serviceClient, user.id, peerId)) {
+        return createBlockedMatchCallResponse({
+          event: "join_match_call_rejected",
+          userId: user.id,
+          peerId,
+          matchId: call.match_id,
+          callId: call.id,
+        });
       }
 
       if (call.status !== "active") {
@@ -1074,23 +1320,6 @@ serve(async (req) => {
           }),
           {
             status: 409,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
-        );
-      }
-
-      const peerId = call.caller_id === user.id ? call.callee_id : call.caller_id;
-      if (await isPairBlocked(serviceClient, user.id, peerId)) {
-        console.log(JSON.stringify({
-          event: "join_match_call_rejected",
-          code: "USERS_BLOCKED",
-          call_id: call.id,
-          user_id: user.id,
-        }));
-        return new Response(
-          JSON.stringify({ error: "Cannot call this user", code: "USERS_BLOCKED" }),
-          {
-            status: 403,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           },
         );
@@ -1155,6 +1384,14 @@ serve(async (req) => {
         .maybeSingle();
 
       if (!call) {
+        const blockedFallback = await maybeReturnBlockedMatchCallFallback({
+          serviceClient,
+          callId: targetCallId,
+          userId: user.id,
+          event: "answer_match_call_rejected",
+        });
+        if (blockedFallback) return blockedFallback;
+
         console.log(
           JSON.stringify({
             event: "answer_match_call_not_found",
@@ -1169,6 +1406,17 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           }
         );
+      }
+
+      const peerId = call.caller_id === user.id ? call.callee_id : call.caller_id;
+      if (await isPairBlocked(serviceClient, user.id, peerId)) {
+        return createBlockedMatchCallResponse({
+          event: "answer_match_call_rejected",
+          userId: user.id,
+          peerId,
+          matchId: call.match_id,
+          callId: call.id,
+        });
       }
 
       if (call.status !== "ringing") {
@@ -1186,22 +1434,6 @@ serve(async (req) => {
             status: 409,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           }
-        );
-      }
-
-      if (await isPairBlocked(serviceClient, user.id, call.caller_id)) {
-        console.log(JSON.stringify({
-          event: "answer_match_call_rejected",
-          code: "USERS_BLOCKED",
-          call_id: call.id,
-          callee_id: user.id,
-        }));
-        return new Response(
-          JSON.stringify({ error: "Cannot call this user", code: "USERS_BLOCKED" }),
-          {
-            status: 403,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          },
         );
       }
 
