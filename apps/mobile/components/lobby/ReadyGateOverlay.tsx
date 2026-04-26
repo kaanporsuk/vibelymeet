@@ -34,6 +34,11 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
+import {
+  getReadyGateCountdownProgress,
+  getReadyGateRemainingSeconds,
+  READY_GATE_DEFAULT_TIMEOUT_SECONDS,
+} from '@clientShared/matching/readyGateCountdown';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 
@@ -41,7 +46,7 @@ const RING_SIZE = 88;
 const STROKE = 4;
 const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
-const GATE_TIMEOUT_SEC = 30;
+const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
 
 export type ReadyGateOverlayProps = {
@@ -73,6 +78,8 @@ export function ReadyGateOverlay({
   const openingPartnerWaitRef = useRef(false);
   const openingPermissionWaitRef = useRef(false);
   const terminalTimeoutRef = useRef(false);
+  const timeoutForfeitSentRef = useRef(false);
+  const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
@@ -256,6 +263,7 @@ export function ReadyGateOverlay({
     partnerReady,
     partnerName,
     snoozedByPartner,
+    expiresAt,
     markReady,
     snooze,
     forfeit,
@@ -273,6 +281,8 @@ export function ReadyGateOverlay({
     openingPartnerWaitRef.current = false;
     openingPermissionWaitRef.current = false;
     terminalTimeoutRef.current = false;
+    timeoutForfeitSentRef.current = false;
+    fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
     setMarkingReady(false);
@@ -413,20 +423,23 @@ export function ReadyGateOverlay({
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
-    const id = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 0) return 0;
-        if (prev === 1) {
-          void forfeit();
-          return 0;
-        }
-        return prev - 1;
+    const tick = () => {
+      const next = getReadyGateRemainingSeconds({
+        expiresAt,
+        fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
       });
-    }, 1000);
+      setTimeLeft(next);
+      if (next <= 0 && !timeoutForfeitSentRef.current) {
+        timeoutForfeitSentRef.current = true;
+        void forfeit();
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, forfeit]);
+  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, expiresAt, forfeit]);
 
-  const progress = timeLeft / GATE_TIMEOUT_SEC;
+  const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT_SEC);
   const dashOffset = CIRC * (1 - progress);
 
   const handleSkip = () => {

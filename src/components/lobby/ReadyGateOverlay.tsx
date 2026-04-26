@@ -15,6 +15,11 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from "@clientShared/matching/activeSession";
+import {
+  getReadyGateCountdownProgress,
+  getReadyGateRemainingSeconds,
+  READY_GATE_DEFAULT_TIMEOUT_SECONDS,
+} from "@clientShared/matching/readyGateCountdown";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -23,7 +28,7 @@ interface ReadyGateOverlayProps {
   onNavigateToDate: (sessionId: string, source: string) => void;
 }
 
-const GATE_TIMEOUT = 30;
+const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
@@ -48,6 +53,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const readyGateImpressionRef = useRef(false);
   const openingWaitImpressionRef = useRef(false);
   const terminalOutcomeRef = useRef(false);
+  const timeoutForfeitSentRef = useRef(false);
+  const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -132,6 +139,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     partnerReady,
     partnerName,
     snoozedByPartner,
+    expiresAt,
     markReady,
     skip,
     snooze,
@@ -352,6 +360,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     readyGateImpressionRef.current = false;
     openingWaitImpressionRef.current = false;
     terminalOutcomeRef.current = false;
+    timeoutForfeitSentRef.current = false;
+    fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
     setMarkingReady(false);
     setRequestingSnooze(false);
@@ -431,20 +441,25 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   useEffect(() => {
     if (isTransitioning || iAmReady || snoozedByPartner) return;
 
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          skip();
-          return 0;
-        }
-        return prev - 1;
+    const tick = () => {
+      const next = getReadyGateRemainingSeconds({
+        expiresAt,
+        fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
       });
-    }, 1000);
+      setTimeLeft(next);
+      if (next <= 0 && !timeoutForfeitSentRef.current) {
+        timeoutForfeitSentRef.current = true;
+        void skip();
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
 
     return () => clearInterval(interval);
-  }, [isTransitioning, iAmReady, snoozedByPartner, skip]);
+  }, [isTransitioning, iAmReady, snoozedByPartner, expiresAt, skip]);
 
-  const progress = timeLeft / GATE_TIMEOUT;
+  const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT);
   const ringSize = 96;
   const strokeWidth = 4;
   const radius = (ringSize - strokeWidth) / 2;
