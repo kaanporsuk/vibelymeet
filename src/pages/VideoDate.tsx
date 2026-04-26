@@ -677,6 +677,7 @@ const VideoDate = () => {
 
   useEffect(() => {
     setDateExtraSeconds(0);
+    setDateStartedAt(null);
   }, [id]);
 
   // Resolve a photo path to a displayable URL (sync via public URL)
@@ -1439,6 +1440,25 @@ const VideoDate = () => {
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
+        if (phaseRef.current === "date") {
+          const next =
+            dateStartedAt != null
+              ? remainingDatePhaseSeconds({
+                  dateStartedAtIso: dateStartedAt,
+                  baseDateSeconds: DATE_TIME,
+                  dateExtraSeconds,
+                })
+              : prev === null
+                ? effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds)
+                : Math.max(0, prev - 1);
+
+          if (next <= 0) {
+            toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+            void handleCallEnd();
+          }
+          return next;
+        }
+
         if (prev === null || prev <= 1) {
           if (phaseRef.current === "handshake") {
             vdbg("handshake_visible_countdown_elapsed", {
@@ -1465,6 +1485,8 @@ const VideoDate = () => {
     phase,
     reconnection.isTimerPaused,
     handshakeGraceSecondsRemaining,
+    dateStartedAt,
+    dateExtraSeconds,
   ]);
 
   // Auto-hide ice breaker after 20s
@@ -1763,7 +1785,20 @@ const VideoDate = () => {
 
       const payload = result as CompleteHandshakePayload | null;
       if (payload?.state === "date") {
+        const dateTruth = (truthAfter as VideoDateHandshakeTruth | null) ?? null;
+        const extraNorm = normalizedDateExtraSeconds(dateTruth?.date_extra_seconds);
+        const startedAt = typeof dateTruth?.date_started_at === "string" ? dateTruth.date_started_at : null;
+        markDateFlowEntered();
         clearHandshakeGraceState();
+        setDateExtraSeconds(extraNorm);
+        setDateStartedAt(startedAt);
+        setTimeLeft(
+          remainingDatePhaseSeconds({
+            dateStartedAtIso: startedAt,
+            baseDateSeconds: DATE_TIME,
+            dateExtraSeconds: extraNorm,
+          }),
+        );
         setShowMutualToast(true);
       } else if (payload?.waiting_for_partner === true || payload?.waiting_for_self === true) {
         const graceExpiresAt =
@@ -1822,7 +1857,7 @@ const VideoDate = () => {
     } finally {
       handshakeCompletionInFlightRef.current = false;
     }
-  }, [id, eventId, endCall, clearHandshakeGraceState]);
+  }, [id, eventId, endCall, clearHandshakeGraceState, markDateFlowEntered]);
 
   useEffect(() => {
     if (
@@ -1907,7 +1942,13 @@ const VideoDate = () => {
     markDateFlowEntered();
     setShowMutualToast(false);
     setPhase("date");
-    setTimeLeft(effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds));
+    setTimeLeft(
+      remainingDatePhaseSeconds({
+        dateStartedAtIso: dateStartedAt,
+        baseDateSeconds: DATE_TIME,
+        dateExtraSeconds,
+      }),
+    );
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_HANDSHAKE_COMPLETED_MUTUAL, {
       platform: "web",
       session_id: id,
@@ -1917,7 +1958,7 @@ const VideoDate = () => {
     setTimeout(() => setShowIceBreaker(false), 30000);
 
     // Server already transitioned to date via video_date_transition; no client-owned writes needed here.
-  }, [id, eventId, clearHandshakeGraceState, markDateFlowEntered, dateExtraSeconds]);
+  }, [id, eventId, clearHandshakeGraceState, markDateFlowEntered, dateExtraSeconds, dateStartedAt]);
 
   const handleExtend = useCallback(
     async (minutes: number, type: "extra_time" | "extended_vibe"): Promise<VideoDateExtendOutcome> => {

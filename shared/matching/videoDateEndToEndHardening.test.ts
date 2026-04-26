@@ -6,6 +6,7 @@ import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
 } from "./videoDateExtensionSpend";
+import { VIDEO_DATE_HANDSHAKE_TRUTH_SELECT } from "./videoDateHandshakePersistence";
 import {
   getPostDateLobbyContinuityDecision,
   getPostDateSurveyContinuityDecision,
@@ -53,6 +54,12 @@ test("date remaining time is recomputed from server date_extra_seconds", () => {
     }),
     300,
   );
+});
+
+test("handshake truth select carries server date timing for timer reconciliation", () => {
+  assert.match(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT, /handshake_started_at/);
+  assert.match(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT, /date_started_at/);
+  assert.match(VIDEO_DATE_HANDSHAKE_TRUTH_SELECT, /date_extra_seconds/);
 });
 
 test("post-date continuity uses event timing for nearly-over state", () => {
