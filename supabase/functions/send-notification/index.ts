@@ -23,6 +23,7 @@ const APP_URL = Deno.env.get('APP_URL') || 'https://vibelymeet.com'
  * - swipe-actions → ready_gate, someone_vibed_you
  * - useEventVibes → mutual_vibe, someone_vibed_you
  * - post-date-verdict, daily-drop-actions (reply) → new_match
+ * - post-date-verdict-reminders → post_date_feedback_reminder
  * - generate-daily-drops, daily-drop-actions (opener) → daily_drop
  * - date-suggestion-actions → date_suggestion_*
  * - date-suggestion-expiry → date_suggestion_expiring_soon
@@ -77,6 +78,7 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   reconnection: 'notify_ready_gate',
   ready_gate: 'notify_ready_gate',
   date_reminder: 'notify_date_reminder',
+  post_date_feedback_reminder: 'notify_date_reminder',
   vibe_received: 'notify_someone_vibed_you',
   super_vibe: 'notify_someone_vibed_you',
   someone_vibed_you: 'notify_someone_vibed_you',
@@ -336,6 +338,10 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
   date_suggestion_declined: { title: 'Date suggestion declined', body: (ctx) => `${ctx?.senderName ?? 'Someone'} declined` },
   date_suggestion_cancelled: { title: 'Date suggestion cancelled', body: (ctx) => `${ctx?.senderName ?? 'Someone'} cancelled the suggestion` },
   date_suggestion_expiring_soon: { title: 'Date suggestion expiring soon ⏳', body: () => 'Your date suggestion is about to expire. Open chat to respond.' },
+  post_date_feedback_reminder: {
+    title: 'Your video date is waiting for your feedback.',
+    body: () => 'Share your post-date vibe to finish the flow.',
+  },
   match_call: { title: 'Incoming call', body: () => 'Open the app to answer' },
   welcome: { title: 'Welcome to Vibely! 💜', body: () => 'Complete your profile to start matching' },
   profile_incomplete: { title: 'Almost there! 📸', body: () => 'Add photos to get 3x more matches' },
