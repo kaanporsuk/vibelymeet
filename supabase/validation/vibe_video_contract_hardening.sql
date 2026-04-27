@@ -24,6 +24,45 @@ GRANT SELECT ON validation_context TO anon, authenticated, service_role;
 
 SET LOCAL session_replication_role = replica;
 
+INSERT INTO auth.users (
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at
+)
+SELECT
+  fixture_user_id,
+  'authenticated',
+  'authenticated',
+  'vibe-video-contract-' || replace(fixture_user_id::text, '-', '') || '@example.invalid',
+  '',
+  now(),
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{}'::jsonb,
+  now(),
+  now()
+FROM (
+  VALUES
+    ('9f500000-0000-4000-8000-000000000001'::uuid),
+    ('9f500000-0000-4000-8000-000000000002'::uuid),
+    ('9f500000-0000-4000-8000-000000000003'::uuid),
+    ('9f500000-0000-4000-8000-000000000004'::uuid),
+    ('9f500000-0000-4000-8000-000000000005'::uuid),
+    ('9f500000-0000-4000-8000-000000000101'::uuid),
+    ('9f500000-0000-4000-8000-000000000102'::uuid),
+    ('9f500000-0000-4000-8000-000000000103'::uuid),
+    ('9f500000-0000-4000-8000-000000000104'::uuid),
+    ('9f500000-0000-4000-8000-000000000105'::uuid),
+    ('9f500000-0000-4000-8000-000000000106'::uuid)
+) AS fixtures(fixture_user_id)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.profiles (
   id,
   name,
@@ -59,7 +98,7 @@ INSERT INTO public.draft_media_sessions (
 ) VALUES (
   '9f500000-0000-4000-8000-000000000005',
   'vibe_video',
-  'created',
+  'uploading',
   'bunny',
   'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
   'onboarding'
@@ -265,14 +304,15 @@ SELECT
   'uploading/processing/ready/failed uid each earns exactly 15 video points',
   NOT EXISTS (
     SELECT 1
-    FROM scores, baseline
-    WHERE id IN (
+    FROM scores s
+    CROSS JOIN baseline b
+    WHERE s.id IN (
       '9f500000-0000-4000-8000-000000000103',
       '9f500000-0000-4000-8000-000000000104',
       '9f500000-0000-4000-8000-000000000105',
       '9f500000-0000-4000-8000-000000000106'
     )
-    AND score <> baseline.score + 15
+    AND s.score <> b.score + 15
   ),
   (SELECT jsonb_object_agg(id, score)::text FROM scores);
 
