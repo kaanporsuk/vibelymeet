@@ -21,6 +21,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { normalizeBunnyVideoStatus } from "@/lib/vibeVideo/webVibeVideoState";
 import { queryClient } from "@/lib/queryClient";
 import { updateMyProfile } from "@/services/profileService";
+import {
+  captureVibeVideoException,
+  trackVibeVideoEvent,
+  VIBE_VIDEO_EVENTS,
+} from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -51,6 +56,8 @@ const _subscribers = new Set<Subscriber>();
 let _activeTus: tus.Upload | null = null;
 let _pollTimerId: ReturnType<typeof setInterval> | null = null;
 let _pollAttempts = 0;
+let _lastPollStatus: string | null = null;
+let _activeRunStartedAt = 0;
 
 /** 36 × 5 s = 3 min max poll window before silently going idle */
 const POLL_MAX_ATTEMPTS = 36;
@@ -69,6 +76,7 @@ function _stopPoll(): void {
     _pollTimerId = null;
   }
   _pollAttempts = 0;
+  _lastPollStatus = null;
 }
 
 async function _pollTick(expectedVideoId: string): Promise<void> {
@@ -100,10 +108,24 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     }
 
     const st = normalizeBunnyVideoStatus(data?.bunny_video_status);
+    if (st !== _lastPollStatus) {
+      _lastPollStatus = st;
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingStatusChanged, {
+        source: "hero_video_controller",
+        status: st,
+        attempt: _pollAttempts,
+        video_guid: expectedVideoId,
+      });
+    }
 
     if (st === "ready") {
       _stopPoll();
       _setState({ phase: "ready", errorMessage: null });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.readyObserved, {
+        source: "hero_video_controller",
+        video_guid: expectedVideoId,
+        duration_ms: _activeRunStartedAt ? Date.now() - _activeRunStartedAt : null,
+      });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
@@ -111,10 +133,20 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     if (st === "failed") {
       _stopPoll();
       _setState({ phase: "failed", errorMessage: "Processing did not complete. Try uploading again." });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
+        source: "hero_video_controller",
+        video_guid: expectedVideoId,
+        status: st,
+      });
       void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
       return;
     }
-  } catch {
+  } catch (error) {
+    captureVibeVideoException(error, {
+      source: "hero_video_controller",
+      phase: "processing_poll",
+      video_guid: expectedVideoId,
+    });
     // transient network error — keep polling
   }
 
@@ -125,6 +157,16 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
       phase: "stalled",
       errorMessage: "Your video is taking longer than expected. It is still saved; refresh later or replace it.",
     });
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.uploadStalled, {
+      source: "hero_video_controller",
+      video_guid: expectedVideoId,
+      attempts: POLL_MAX_ATTEMPTS,
+    });
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingStalled, {
+      source: "hero_video_controller",
+      video_guid: expectedVideoId,
+      attempts: POLL_MAX_ATTEMPTS,
+    });
     void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
   }
 }
@@ -132,6 +174,13 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
 function _startPoll(videoId: string): void {
   _stopPoll();
   _pollAttempts = 0;
+  _lastPollStatus = null;
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingPollStarted, {
+    source: "hero_video_controller",
+    video_guid: videoId,
+    interval_ms: POLL_INTERVAL_MS,
+    max_attempts: POLL_MAX_ATTEMPTS,
+  });
   _pollTimerId = setInterval(() => {
     void _pollTick(videoId);
   }, POLL_INTERVAL_MS);
@@ -165,6 +214,11 @@ export function heroVideoStart(
 ): void {
   // Cancel existing upload if any
   if (_activeTus) {
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
+      source: "hero_video_controller",
+      upload_context: context,
+      reason: "in_flight_upload_replaced",
+    });
     try {
       _activeTus.abort();
     } catch {
@@ -175,6 +229,7 @@ export function heroVideoStart(
   _stopPoll();
 
   _setState({ phase: "uploading", uploadProgress: 0, videoId: null, errorMessage: null });
+  _activeRunStartedAt = Date.now();
 
   // Run async in background
   void _run(file, caption, context);
@@ -185,6 +240,9 @@ async function _run(
   caption?: string,
   context: HeroVideoUploadContext = "profile_studio",
 ): Promise<void> {
+  let failurePhase: "credentials" | "tus" | "processing" = "credentials";
+  let activeVideoId: string | null = null;
+
   try {
     const {
       data: { session },
@@ -192,11 +250,20 @@ async function _run(
 
     if (!session?.access_token) {
       _setState({ phase: "failed", errorMessage: "Not authenticated. Please sign in." });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
+        source: "hero_video_controller",
+        upload_context: context,
+        error_code: "not_authenticated",
+      });
       return;
     }
 
     // ── Get tus credentials from create-video-upload edge function ────────────
     let credRes: Response;
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestStarted, {
+      source: "hero_video_controller",
+      upload_context: context,
+    });
     try {
       credRes = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-video-upload`,
@@ -209,8 +276,17 @@ async function _run(
           body: JSON.stringify({ context }),
         },
       );
-    } catch {
+    } catch (error) {
       _setState({ phase: "failed", errorMessage: "Network error. Check your connection and try again." });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
+        source: "hero_video_controller",
+        upload_context: context,
+        error_code: "network_error",
+      });
+      captureVibeVideoException(error, {
+        source: "hero_video_controller",
+        phase: "credentials_request",
+      });
       return;
     }
 
@@ -224,6 +300,12 @@ async function _run(
     if (!credRes.ok || creds.success !== true) {
       const msg = String(creds.error ?? creds.message ?? `Upload service error (${credRes.status})`);
       _setState({ phase: "failed", errorMessage: msg });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
+        source: "hero_video_controller",
+        upload_context: context,
+        error_code: String(creds.code ?? `http_${credRes.status}`),
+        http_status: credRes.status,
+      });
       return;
     }
 
@@ -234,12 +316,30 @@ async function _run(
 
     if (!videoId || !signature || libraryId == null || expirationTime == null) {
       _setState({ phase: "failed", errorMessage: "Incomplete upload credentials. Please try again." });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
+        source: "hero_video_controller",
+        upload_context: context,
+        error_code: "incomplete_credentials",
+      });
       return;
     }
 
     _setState({ videoId });
+    activeVideoId = videoId;
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestSucceeded, {
+      source: "hero_video_controller",
+      upload_context: context,
+      video_guid: videoId,
+      has_library_id: libraryId != null,
+    });
 
     // ── TUS upload to Bunny ───────────────────────────────────────────────────
+    failurePhase = "tus";
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadStarted, {
+      source: "hero_video_controller",
+      upload_context: context,
+      video_guid: videoId,
+    });
     await new Promise<void>((resolve, reject) => {
       const upload = new tus.Upload(file, {
         endpoint: "https://video.bunnycdn.com/tusupload",
@@ -274,14 +374,25 @@ async function _run(
     });
 
     _activeTus = null;
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadSucceeded, {
+      source: "hero_video_controller",
+      upload_context: context,
+      video_guid: videoId,
+      duration_ms: _activeRunStartedAt ? Date.now() - _activeRunStartedAt : null,
+    });
 
     // ── Caption save (best-effort after tus) ─────────────────────────────────
+    failurePhase = "processing";
     if (caption !== undefined && caption !== null) {
       const trimmed = caption.trim();
       try {
         await updateMyProfile({ vibeCaption: trimmed.length > 0 ? trimmed : null });
-      } catch {
+      } catch (error) {
         console.warn("[HeroVideo] Caption save failed after upload; video upload continues.");
+        captureVibeVideoException(error, {
+          source: "hero_video_controller",
+          phase: "caption_save",
+        });
       }
     }
 
@@ -293,6 +404,31 @@ async function _run(
     _stopPoll();
     const msg = err instanceof Error ? err.message : "Upload failed. Please try again.";
     _setState({ phase: "failed", errorMessage: msg });
+    if (failurePhase === "credentials") {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
+        source: "hero_video_controller",
+        upload_context: context,
+        error_code: "credentials_exception",
+      });
+    } else if (failurePhase === "tus") {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadFailed, {
+        source: "hero_video_controller",
+        upload_context: context,
+        video_guid: activeVideoId,
+        error_code: "upload_exception",
+      });
+    } else {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
+        source: "hero_video_controller",
+        upload_context: context,
+        video_guid: activeVideoId,
+        error_code: "processing_exception",
+      });
+    }
+    captureVibeVideoException(err, {
+      source: "hero_video_controller",
+      phase: "upload_run",
+    });
     void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
   }
 }

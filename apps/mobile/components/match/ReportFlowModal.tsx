@@ -11,6 +11,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import { REPORT_REASONS, submitReport, type ReportReasonId } from '@/lib/reportApi';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 
 type ReportFlowModalProps = {
   visible: boolean;
@@ -19,6 +20,8 @@ type ReportFlowModalProps = {
   reportedId: string;
   reportedName: string;
   reporterId: string;
+  sourceSurface?: string;
+  reportedHasVibeVideo?: boolean;
 };
 
 export function ReportFlowModal({
@@ -28,6 +31,8 @@ export function ReportFlowModal({
   reportedId,
   reportedName,
   reporterId,
+  sourceSurface = 'native_report_flow',
+  reportedHasVibeVideo = false,
 }: ReportFlowModalProps) {
   const theme = Colors[useColorScheme()];
   const [step, setStep] = useState<'reason' | 'details' | 'action' | 'success'>('reason');
@@ -73,6 +78,14 @@ export function ReportFlowModal({
         details: details.trim() || null,
         alsoBlock,
       });
+      if (reportedHasVibeVideo) {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.profileReportSubmitted, {
+          source: sourceSurface,
+          reported_profile_id: reportedId,
+          reason,
+          also_block: alsoBlock,
+        });
+      }
       setStep('success');
       if (completionTimeoutRef.current !== null) clearTimeout(completionTimeoutRef.current);
       completionTimeoutRef.current = setTimeout(() => {

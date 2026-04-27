@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -16,6 +17,7 @@ interface VibeStudioModalProps {
   /** @deprecated Upload is now handled by the hero video controller; this prop is ignored */
   onSave?: (videoUrl: string, caption?: string) => void;
   existingVideoUrl?: string;
+  hasExistingVideo?: boolean;
   existingCaption?: string;
   uploadContext?: "onboarding" | "profile_studio";
   onConfirmed?: () => void;
@@ -35,6 +37,8 @@ const MAX_CLIP_DURATION = 20;
 export const VibeStudioModal = ({
   open,
   onOpenChange,
+  existingVideoUrl,
+  hasExistingVideo = false,
   existingCaption = "",
   uploadContext = "profile_studio",
   onConfirmed,
@@ -333,6 +337,30 @@ export const VibeStudioModal = ({
     stopCameraTracks();
     const existingTrimmed = existingCaption.trim();
     const captionForUpload = captionEdited || existingTrimmed.length > 0 ? vibeCaption.trim() : undefined;
+    const nextTrimmed = vibeCaption.trim();
+    if (hasExistingVideo || !!existingVideoUrl) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
+        source: "vibe_studio_modal",
+        upload_context: uploadContext,
+      });
+    }
+    if (!captionEdited && existingTrimmed.length > 0) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionPreserved, {
+        source: "vibe_studio_modal",
+        upload_context: uploadContext,
+      });
+    } else if (captionEdited && existingTrimmed.length > 0 && nextTrimmed.length === 0) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionCleared, {
+        source: "vibe_studio_modal",
+        upload_context: uploadContext,
+      });
+    } else if (captionEdited && nextTrimmed !== existingTrimmed) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionEdited, {
+        source: "vibe_studio_modal",
+        upload_context: uploadContext,
+        had_existing_caption: existingTrimmed.length > 0,
+      });
+    }
     heroVideoStart(file, captionForUpload, uploadContext);
     onConfirmed?.();
 
@@ -350,7 +378,7 @@ export const VibeStudioModal = ({
     void import("@/lib/analytics").then(({ trackEvent }) => {
       trackEvent('vibe_video_confirmed');
     });
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);

@@ -23,6 +23,7 @@ import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { formatDistanceToNow } from "date-fns";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { submitUserReportRpc } from "../../../shared/safety/submitUserReportRpc";
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 export interface ReportPreSelectedUser {
   id: string;
@@ -30,6 +31,7 @@ export interface ReportPreSelectedUser {
   avatar_url?: string;
   interactionType: string;
   interactionDate: string;
+  reportedHasVibeVideo?: boolean;
 }
 
 interface ReportWizardProps {
@@ -46,6 +48,7 @@ interface ReportableUser {
   avatar_url?: string;
   interactionType: string;
   interactionDate: string;
+  reportedHasVibeVideo?: boolean;
 }
 
 const reasonIcon: Record<ReportReasonId, typeof MessageCircleWarning> = {
@@ -78,6 +81,7 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
       avatar_url: preSelectedUser.avatar_url,
       interactionType: preSelectedUser.interactionType,
       interactionDate: preSelectedUser.interactionDate,
+      reportedHasVibeVideo: preSelectedUser.reportedHasVibeVideo,
     } : null
   );
   const [selectedReason, setSelectedReason] = useState<ReportReasonId | null>(null);
@@ -106,7 +110,7 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
 
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, name, avatar_url")
+        .select("id, name, avatar_url, bunny_video_uid")
         .in("id", otherIds);
 
       const profileMap = new Map((profiles || []).map(p => [p.id, p]));
@@ -120,6 +124,8 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
           avatar_url: profile?.avatar_url || undefined,
           interactionType: "Match",
           interactionDate: formatDistanceToNow(new Date(m.matched_at), { addSuffix: true }),
+          reportedHasVibeVideo:
+            typeof profile?.bunny_video_uid === "string" && profile.bunny_video_uid.trim().length > 0,
         };
       });
     },
@@ -145,6 +151,14 @@ const ReportWizard = ({ onBack, onComplete, preSelectedUser }: ReportWizardProps
       });
       if (!reportResult.ok) {
         throw new Error("error" in reportResult ? reportResult.error : "unknown");
+      }
+      if (selectedUser.reportedHasVibeVideo) {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.profileReportSubmitted, {
+          source: "web_report_wizard",
+          reported_profile_id: selectedUser.id,
+          reason: selectedReason,
+          also_block: alsoBlock,
+        });
       }
 
       setStep("success");

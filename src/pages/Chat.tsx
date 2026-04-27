@@ -374,6 +374,7 @@ const Chat = () => {
         isOnline: ou.is_online === true,
         photoVerified: ou.photo_verified || false,
         subscription_tier: ou.subscription_tier ?? null,
+        bunnyVideoUid: ou.bunny_video_uid ?? null,
       };
     }
     return {
@@ -386,6 +387,7 @@ const Chat = () => {
       isOnline: false,
       photoVerified: false,
       subscription_tier: null,
+      bunnyVideoUid: null,
     };
   }, [chatData?.otherUser, id]);
 

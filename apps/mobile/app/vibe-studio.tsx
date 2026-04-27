@@ -26,6 +26,7 @@ import { nativeHeroVideoReset } from '@/lib/nativeHeroVideoUploadController';
 import { fetchMyProfile, updateMyProfile, type ProfileRow } from '@/lib/profileApi';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
 
 const CAPTION_MAX = 50;
@@ -211,6 +212,15 @@ export default function VibeStudioScreen() {
     try {
       const nextCaption = captionDraft.slice(0, CAPTION_MAX);
       await updateMyProfile({ vibe_caption: nextCaption || null });
+      const previousCaption = profile?.vibe_caption?.trim() ?? '';
+      if (previousCaption && !nextCaption.trim()) {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionCleared, { source: 'native_vibe_studio' });
+      } else {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionEdited, {
+          source: 'native_vibe_studio',
+          had_existing_caption: previousCaption.length > 0,
+        });
+      }
       await refreshProfile();
       show({
         title: 'Caption updated',
@@ -245,6 +255,10 @@ export default function VibeStudioScreen() {
         onPress: () => {
           void (async () => {
             setIsDeleting(true);
+            trackVibeVideoEvent(VIBE_VIDEO_EVENTS.deleteRequested, {
+              source: 'native_vibe_studio',
+              state: videoInfo.state,
+            });
             try {
               await deleteVibeVideo();
             } catch (error) {
@@ -262,6 +276,10 @@ export default function VibeStudioScreen() {
 
             nativeHeroVideoReset();
             setShowFullscreen(false);
+            trackVibeVideoEvent(VIBE_VIDEO_EVENTS.deleteSucceededLocally, {
+              source: 'native_vibe_studio',
+              state: videoInfo.state,
+            });
             qc.setQueryData<ProfileRow | null>(['my-profile'], (prev) => {
               if (!prev) return prev;
               return {

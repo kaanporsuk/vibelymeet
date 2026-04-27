@@ -7,6 +7,7 @@ import { Image, StyleSheet, type StyleProp, type ViewStyle } from 'react-native'
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 
 export type VibeVideoPlayerProps = {
   sourceUri: string;
@@ -40,6 +41,8 @@ export function VibeVideoPlayer({
   style,
 }: VibeVideoPlayerProps) {
   const warnedRef = useRef(false);
+  const playbackAttemptedRef = useRef(false);
+  const playbackSucceededRef = useRef(false);
   const [showPoster, setShowPoster] = useState(!!posterUri);
   const isRemoteHls = sourceUri.startsWith('https://') || sourceUri.startsWith('http://');
 
@@ -51,15 +54,17 @@ export function VibeVideoPlayer({
     const { hostname, source } = resolveVibeVideoStreamHostnameSync();
     vibeVideoDiagVerbose('player.source_set', {
       context: diagContext,
-      sourceUri,
       isRemoteHls,
       resolvedHostname: hostname,
       hostnameSource: source,
+      hasSourceUri: !!sourceUri,
     });
   }, [diagContext, sourceUri, isRemoteHls]);
 
   useEffect(() => {
     warnedRef.current = false;
+    playbackAttemptedRef.current = false;
+    playbackSucceededRef.current = false;
   }, [sourceUri]);
 
   useEffect(() => {
@@ -69,10 +74,18 @@ export function VibeVideoPlayer({
   useEffect(() => {
     vibeVideoDiagVerbose('player.load_start', {
       context: diagContext,
-      sourceUri,
+      isRemoteHls,
+      hasSourceUri: !!sourceUri,
     });
+    if (!playbackAttemptedRef.current) {
+      playbackAttemptedRef.current = true;
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
+        source: diagContext,
+        remote_hls: isRemoteHls,
+      });
+    }
     player.replace(sourceUri);
-  }, [sourceUri, player]);
+  }, [sourceUri, player, diagContext, isRemoteHls]);
 
   useEffect(() => {
     if (playing) {
@@ -87,14 +100,20 @@ export function VibeVideoPlayer({
       const st = payload.status;
       vibeVideoDiagVerbose('player.status_change', {
         context: diagContext,
-        sourceUri,
         status: st,
       });
       if (st === 'readyToPlay') {
         vibeVideoDiagVerbose('player.ready', {
           context: diagContext,
-          sourceUri,
+          isRemoteHls,
         });
+        if (!playbackSucceededRef.current) {
+          playbackSucceededRef.current = true;
+          trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
+            source: diagContext,
+            remote_hls: isRemoteHls,
+          });
+        }
       }
       if (st !== 'error') return;
       if (warnedRef.current) return;
@@ -119,6 +138,11 @@ export function VibeVideoPlayer({
         nativeError: typeof (payload as { error?: string }).error === 'string'
           ? (payload as { error?: string }).error
           : undefined,
+      });
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
+        source: diagContext,
+        kind: urlKind,
+        stream_hostname_source: hostSource,
       });
 
       onPlayerFatalError?.();

@@ -203,8 +203,13 @@ Calls function:
 
 It does not stream the file through Supabase.
 
-### Phase 4 — Client marks local/profile state as processing
-After upload start/completion, the frontend updates profile state so the app knows a Bunny-backed video exists and is awaiting processing.
+### Phase 4 — Backend owns profile video state
+`create-video-upload` activates the current Vibe Video through server-owned media lifecycle RPCs and mirrors:
+- `profiles.bunny_video_uid`
+- `profiles.bunny_video_status`
+- legacy `profiles.vibe_video_status` where still required
+
+Clients do not directly write arbitrary UID/status values. Caption-only profile edits remain user-editable.
 
 ### Phase 5 — Bunny webhook finalizes processing state
 Function:
@@ -217,14 +222,11 @@ It expects Bunny payload fields like:
 - `Status`
 
 It maps:
-- `Status === 3` → `ready`
-- `Status === 4` → `failed`
+- `Status === 3` or `Status === 4` → `ready`
+- `Status === 5` → `failed`
 - otherwise → `processing`
 
-And updates:
-- `profiles.bunny_video_status`
-where:
-- `profiles.bunny_video_uid = VideoGuid`
+And updates media-session/profile state only when the current profile UID still matches the webhook `VideoGuid`, so stale replacement/deleted webhooks cannot resurrect or corrupt the active profile video.
 
 ### Phase 6 — Frontend polls profile state
 `VibeStudioModal` polls `profiles.bunny_video_uid` and `profiles.bunny_video_status` until the video becomes:
@@ -247,17 +249,17 @@ Function:
 ### Behavior
 1. authenticates the user via bearer token  
 2. loads current `profiles.bunny_video_uid`  
-3. if present, tries to delete the video from Bunny Stream  
-4. regardless of remote delete outcome, clears local profile state:
+3. if present, clears local profile state through the media lifecycle path:
    - `bunny_video_uid = null`
    - `bunny_video_status = "none"`
    - `vibe_caption = null`
+4. releases the active media reference and defers physical Bunny deletion to the media delete worker/retention path
 
 ### Important implication
-The local database can be cleared even if Bunny remote deletion fails.
+The local database clears immediately. The Bunny Stream asset may remain until `process-media-delete-jobs` handles the deferred delete.
 
 ### Rebuild risk
-This can create orphaned remote media if Stream credentials or deletion calls are broken.
+This can create delayed/orphaned remote media if Stream credentials, retention config, or the delete worker are broken.
 
 ---
 
@@ -476,7 +478,8 @@ Verify HLS playback succeeds at:
 ### Step 5 — Deletion test
 Verify:
 - `delete-vibe-video` clears local profile state
-- remote Bunny asset is actually deleted when credentials are valid
+- a media lifecycle reference is released and remote deletion is deferred to the worker/retention path
+- `process-media-delete-jobs` can delete the Bunny Stream asset when the asset becomes eligible
 
 ### Step 6 — Image upload test
 Verify:

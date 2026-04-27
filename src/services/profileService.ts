@@ -51,8 +51,19 @@ export interface ProfileData {
   eventDiscoveryPrefs: EventDiscoveryPrefs;
 }
 
-/** Fields excluded from generic `updateMyProfile` / `createProfile` table writes — use `update_profile_location` RPC. */
-export type ProfileUpdatePayload = Omit<Partial<ProfileData>, "location" | "locationData" | "vibeCaption"> & {
+type BackendOwnedProfileUpdateFields =
+  | "location"
+  | "locationData"
+  | "bunnyVideoUid"
+  | "bunnyVideoStatus"
+  | "vibeScore"
+  | "vibeScoreLabel"
+  | "stats"
+  | "photoVerified"
+  | "phoneVerified";
+
+/** Fields excluded from generic profile table writes are backend-owned or RPC-owned. */
+export type ProfileUpdatePayload = Omit<Partial<ProfileData>, BackendOwnedProfileUpdateFields | "vibeCaption"> & {
   vibeCaption?: string | null;
 };
 

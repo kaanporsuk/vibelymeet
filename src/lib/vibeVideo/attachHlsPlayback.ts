@@ -8,6 +8,15 @@ type AttachHlsPlaybackOptions = {
   onManifestParsed?: () => void;
 };
 
+type HlsModule = { default: typeof import("hls.js").default };
+type HlsLoader = () => Promise<HlsModule>;
+
+let hlsLoader: HlsLoader = () => import("hls.js");
+
+export function __setHlsLoaderForTest(loader: HlsLoader | null): void {
+  hlsLoader = loader ?? (() => import("hls.js"));
+}
+
 export function attachHlsPlayback(
   videoEl: HTMLVideoElement,
   src: string,
@@ -32,7 +41,7 @@ export function attachHlsPlayback(
     videoEl.src = src;
     playIfNeeded();
   } else {
-    void import("hls.js").then(({ default: Hls }) => {
+    void hlsLoader().then(({ default: Hls }) => {
       if (cancelled) return;
       if (!Hls.isSupported()) {
         onError?.("unsupported");

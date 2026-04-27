@@ -92,6 +92,7 @@ type ChatOtherUser = {
   is_online: boolean;
   photo_verified: boolean | null;
   subscription_tier: string | null;
+  bunny_video_uid: string | null;
 } | null;
 
 type ChatPresenceRow = {
@@ -127,7 +128,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
           .order("created_at", { ascending: true }),
         supabase
           .from("profiles")
-          .select("id, name, age, avatar_url, photos, photo_verified, subscription_tier")
+          .select("id, name, age, avatar_url, photos, photo_verified, subscription_tier, bunny_video_uid")
           .eq("id", otherUserId)
           .maybeSingle(),
         supabase
