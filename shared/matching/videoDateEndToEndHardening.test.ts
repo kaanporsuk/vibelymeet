@@ -138,6 +138,14 @@ const webConnectionOverlay = readFileSync(
   join(process.cwd(), "src/components/video-date/ConnectionOverlay.tsx"),
   "utf8",
 );
+const webReconnectionOverlay = readFileSync(
+  join(process.cwd(), "src/components/video-date/ReconnectionOverlay.tsx"),
+  "utf8",
+);
+const webReconnectionHook = readFileSync(
+  join(process.cwd(), "src/hooks/useReconnection.ts"),
+  "utf8",
+);
 const nativeEventLobby = readFileSync(
   join(process.cwd(), "apps/mobile/app/event/[eventId]/lobby.tsx"),
   "utf8",
@@ -649,6 +657,10 @@ test("remaining prepare-entry hardening defers in_handshake registration until D
 test("web and native use server-owned leave, reconnect, and permission recovery paths", () => {
   assert.match(dailyRoomFunction, /action === "video_date_leave"/);
   assert.match(dailyRoomFunction, /p_action: "mark_reconnect_self_away"/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_LEAVE_SIGNAL_SENT/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_LEAVE_SIGNAL_FAILED/);
+  assert.match(webVideoDatePage, /leaveSignalSentRef/);
+  assert.match(webVideoDatePage, /if \(leaveSignalSentRef\.current\) return;/);
   assert.match(
     webVideoDatePage,
     /source === "visibilitychange"[\s\S]*p_action: "mark_reconnect_return"[\s\S]*p_action: "sync_reconnect"/,
@@ -665,15 +677,33 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
 });
 
+test("web reconnect grace surfaces partner-left UX immediately", () => {
+  assert.match(webVideoCallHook, /partner_left_grace/);
+  assert.match(webVideoCallHook, /startReconnectGrace\("participant_left"\)/);
+  assert.match(webVideoCallHook, /reconnectRecoveryResetTimeoutRef/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_RECONNECT_GRACE_RECOVERED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_RECONNECT_GRACE_EXPIRED/);
+  assert.match(webVideoDatePage, /dailyReconnectState === "partner_left_grace"\s+\? "partner_away"/);
+  assert.match(webReconnectionOverlay, /Trying to reconnect/);
+  assert.match(webReconnectionOverlay, /Your match disconnected\. We'll keep the room open for a few seconds\./);
+  assert.match(webReconnectionHook, /VIDEO_DATE_RECONNECT_GRACE_STARTED/);
+  assert.match(webReconnectionHook, /VIDEO_DATE_RECONNECT_GRACE_RECOVERED/);
+  assert.match(webReconnectionHook, /VIDEO_DATE_RECONNECT_GRACE_EXPIRED/);
+});
+
 test("post-date survey retries verdicts and exposes half-verdict pending state on both clients", () => {
   assert.match(remainingHardeningMigration, /awaiting_partner_verdict/);
   assert.match(remainingHardeningMigration, /post_date_half_verdict_pending/);
   assert.match(remainingHardeningMigration, /detect_post_date_half_verdict_timeouts/);
   assert.match(webPostDateSurvey, /POST_DATE_VERDICT_SUBMIT_RETRY/);
   assert.match(webPostDateSurvey, /POST_DATE_VERDICT_SUBMIT_FAILED/);
+  assert.match(webPostDateSurvey, /lastVerdictAttempt/);
+  assert.match(webPostDateSurvey, /Try again/);
   assert.match(webPostDateSurvey, /Awaiting your match&apos;s verdict/);
   assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_SUBMIT_RETRY/);
   assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_SUBMIT_FAILED/);
+  assert.match(nativePostDateSurvey, /lastVerdictAttempt/);
+  assert.match(nativePostDateSurvey, /Try again/);
   assert.match(nativePostDateSurvey, /Awaiting your match&apos;s verdict/);
 });
 

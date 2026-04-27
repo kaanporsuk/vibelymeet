@@ -88,6 +88,8 @@ export const PostDateSurvey = ({
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [verdictError, setVerdictError] = useState<string | null>(null);
+  const [verdictRetryable, setVerdictRetryable] = useState(false);
+  const [lastVerdictAttempt, setLastVerdictAttempt] = useState<boolean | null>(null);
   const [isFinishingSurvey, setIsFinishingSurvey] = useState(false);
   const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
   // Data for the polished mutual-match celebration
@@ -436,6 +438,8 @@ export const PostDateSurvey = ({
       if (!user?.id || isSubmitting) return;
       setIsSubmitting(true);
       setVerdictError(null);
+      setVerdictRetryable(false);
+      setLastVerdictAttempt(liked);
 
       trackEvent(
         liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
@@ -497,6 +501,7 @@ export const PostDateSurvey = ({
 
         if (result && result.success === false) {
           const code = result.code ?? result.error;
+          setVerdictRetryable(!["blocked_pair", "not_participant", "session_not_found"].includes(String(code)));
           setVerdictError(
             code === "blocked_pair"
               ? "You can't submit feedback for this date."
@@ -531,11 +536,13 @@ export const PostDateSurvey = ({
         });
 
         if (result?.mutual) {
+          setVerdictRetryable(false);
           setStep("celebration");
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
         } else if (result?.awaiting_partner_verdict) {
+          setVerdictRetryable(false);
           trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_PENDING, {
             platform: "web",
             session_id: sessionId,
@@ -543,10 +550,12 @@ export const PostDateSurvey = ({
           });
           setStep("awaiting_partner");
         } else {
+          setVerdictRetryable(false);
           setStep("highlights");
         }
       } catch (err) {
         console.error("Error recording verdict:", err);
+        setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
       } finally {
         setIsSubmitting(false);
@@ -726,8 +735,23 @@ export const PostDateSurvey = ({
                     onReport={handleReportFromVerdict}
                   />
                   {verdictError && (
-                    <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">
-                      {verdictError}
+                    <div
+                      role="alert"
+                      className="space-y-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive"
+                    >
+                      <p>{verdictError}</p>
+                      {verdictRetryable && lastVerdictAttempt !== null && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={isSubmitting}
+                          onClick={() => void handleVerdict(lastVerdictAttempt)}
+                          className="h-8 rounded-full border-destructive/40 bg-background/80 text-xs text-foreground hover:bg-background"
+                        >
+                          Try again
+                        </Button>
+                      )}
                     </div>
                   )}
                   {isSubmitting && (

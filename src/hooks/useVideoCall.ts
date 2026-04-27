@@ -93,6 +93,7 @@ export type DailyReconnectState =
   | "connected"
   | "interrupted"
   | "partner_reconnecting"
+  | "partner_left_grace"
   | "recovered"
   | "failed_after_grace";
 
@@ -205,6 +206,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const reconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectGraceTickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const reconnectRecoveryResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectGraceActiveRef = useRef(false);
   const reconnectPartnerAwayTriggeredRef = useRef(false);
   const reconnectSyncRequestedRef = useRef(false);
@@ -414,6 +416,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     if (reconnectGraceTickerRef.current) {
       clearInterval(reconnectGraceTickerRef.current);
       reconnectGraceTickerRef.current = null;
+    }
+    if (reconnectRecoveryResetTimeoutRef.current) {
+      clearTimeout(reconnectRecoveryResetTimeoutRef.current);
+      reconnectRecoveryResetTimeoutRef.current = null;
     }
   }, []);
 
@@ -915,8 +921,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               event_id: truthRow.event_id ?? eventId,
               reason,
             });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_RECOVERED, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              reason,
+            });
             optionsRef.current?.onPartnerTransientRecover?.();
-            setTimeout(() => {
+            if (reconnectRecoveryResetTimeoutRef.current) {
+              clearTimeout(reconnectRecoveryResetTimeoutRef.current);
+            }
+            reconnectRecoveryResetTimeoutRef.current = setTimeout(() => {
+              reconnectRecoveryResetTimeoutRef.current = null;
               if (!reconnectGraceActiveRef.current) {
                 setDailyReconnectState("connected");
               }
@@ -945,6 +961,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             setDailyReconnectState("failed_after_grace");
             logTransportState("reconnect_grace_expired", { reason });
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_EXPIRED, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              reason,
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_EXPIRED, {
               platform: "web",
               session_id: sessionId,
               event_id: truthRow.event_id ?? eventId,
@@ -1148,12 +1170,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
             setRemotePlayback(createRemotePlaybackState());
+            if (!reconnectGraceActiveRef.current) {
+              startReconnectGrace("participant_left");
+            }
+            setDailyReconnectState("partner_left_grace");
+            if (!reconnectPartnerAwayTriggeredRef.current) {
+              reconnectPartnerAwayTriggeredRef.current = true;
+              optionsRef.current?.onPartnerLeft?.();
+            }
             if (reconnectGraceActiveRef.current) {
               logTransportState("daily_transport_reconnecting", {
                 reason: "participant_left_during_grace",
               });
-            } else {
-              optionsRef.current?.onPartnerLeft?.();
             }
           }
         });
