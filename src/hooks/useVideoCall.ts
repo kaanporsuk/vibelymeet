@@ -76,7 +76,7 @@ type DailyRoomSuccessResponse = {
 };
 
 export type VideoCallStartFailure = {
-  kind: DailyRoomFailureKind | "daily_join_failed" | "session_unavailable";
+  kind: DailyRoomFailureKind | "daily_join_failed" | "media_permission_denied" | "session_unavailable";
   retryable: boolean;
   httpStatus?: number;
   serverCode?: string;
@@ -210,6 +210,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const reconnectGraceActiveRef = useRef(false);
   const reconnectPartnerAwayTriggeredRef = useRef(false);
   const reconnectSyncRequestedRef = useRef(false);
+  const mediaPermissionDeniedRef = useRef(false);
+  const playbackBlockedRef = useRef(false);
   const activePreparedEntryCacheRef = useRef<PreparedVideoDateEntryCacheEntry | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
 
@@ -301,14 +303,24 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           if (playPromise && typeof playPromise.then === "function") {
             void playPromise
               .then(() => {
+                const recoveredFromBlock = playbackBlockedRef.current;
+                playbackBlockedRef.current = false;
                 setRemotePlayback((prev) => ({
                   ...prev,
                   playSucceeded: true,
                   playRejected: false,
                   error: undefined,
                 }));
+                if (recoveredFromBlock) {
+                  trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_RECOVERED, {
+                    platform: "web",
+                    session_id: optionsRef.current?.roomId ?? null,
+                    event_id: optionsRef.current?.eventId ?? null,
+                  });
+                }
               })
               .catch((error: unknown) => {
+                playbackBlockedRef.current = true;
                 setRemotePlayback((prev) => ({
                   ...prev,
                   playSucceeded: false,
@@ -328,6 +340,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   platform: "web",
                   session_id: optionsRef.current?.roomId ?? null,
                   event_id: optionsRef.current?.eventId ?? null,
+                });
+                trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_BLOCKED, {
+                  platform: "web",
+                  session_id: optionsRef.current?.roomId ?? null,
+                  event_id: optionsRef.current?.eventId ?? null,
+                  reason: error instanceof Error ? error.name : "play_rejected",
                 });
               });
           }
@@ -407,6 +425,77 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     clearTimeout(firstRemoteWatchdogRef.current);
     firstRemoteWatchdogRef.current = null;
   }, []);
+
+  const preflightMediaPermission = useCallback(
+    async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        mediaPermissionDeniedRef.current = true;
+        setHasPermission(false);
+        setMediaPermissionError("Camera and microphone access are not available in this browser.");
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          reason: "media_devices_unavailable",
+        });
+        return false;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        stream.getTracks().forEach((track) => track.stop());
+        setHasPermission(true);
+        setMediaPermissionError(null);
+        vdbg("daily_media_permission_preflight_succeeded", {
+          sessionId,
+          eventId: eventId ?? null,
+          userId: userId ?? null,
+        });
+        if (mediaPermissionDeniedRef.current) {
+          mediaPermissionDeniedRef.current = false;
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_RECOVERED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId ?? null,
+          });
+        }
+        return true;
+      } catch (error) {
+        mediaPermissionDeniedRef.current = true;
+        setHasPermission(false);
+        const description = describeMediaError(error);
+        setMediaPermissionError(description || "Camera or microphone permission was denied.");
+        vdbg("daily_media_permission_preflight_failed", {
+          sessionId,
+          eventId: eventId ?? null,
+          userId: userId ?? null,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
+        trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          source: "media_preflight",
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          reason: error instanceof Error ? error.name : "media_permission_error",
+        });
+        Sentry.captureMessage("video_date_media_permission_denied", {
+          level: "warning",
+          extra: {
+            sessionId,
+            eventId: eventId ?? null,
+            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          },
+        });
+        return false;
+      }
+    },
+    []
+  );
 
   const clearReconnectGraceTimers = useCallback(() => {
     if (reconnectGraceTimeoutRef.current) {
@@ -750,6 +839,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setRemotePlayback(createRemotePlaybackState());
       setPeerMissing({ terminal: false });
       firstRemoteObservedRef.current = false;
+      playbackBlockedRef.current = false;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
       const startNonce = startAttemptNonceRef.current;
@@ -801,6 +891,19 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           return {
             ok: false,
             failure: { kind: "SESSION_ENDED", retryable: false },
+          } as VideoCallStartResult;
+        }
+
+        const mediaAllowed = await preflightMediaPermission(
+          sessionId,
+          truthRow.event_id ?? eventId,
+          userId
+        );
+        if (!mediaAllowed) {
+          setIsConnecting(false);
+          return {
+            ok: false,
+            failure: { kind: "media_permission_denied", retryable: true },
           } as VideoCallStartResult;
         }
 
@@ -1534,6 +1637,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             timeoutMs: FIRST_REMOTE_TIMEOUT_MS,
             autoRecoveryCount: noRemoteAutoRecoveryCountRef.current,
           });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_WAIT_STARTED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow.event_id ?? eventId,
+            timeout_ms: FIRST_REMOTE_TIMEOUT_MS,
+            auto_recovery_count: noRemoteAutoRecoveryCountRef.current,
+          });
           firstRemoteWatchdogRef.current = setTimeout(() => {
             if (
               startAttemptNonceRef.current !== startNonce ||
@@ -1551,6 +1661,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             });
             if (noRemoteAutoRecoveryCountRef.current < 2) {
               noRemoteAutoRecoveryCountRef.current += 1;
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: truthRow.event_id ?? eventId,
+                attempt: noRemoteAutoRecoveryCountRef.current,
+              });
               void (async () => {
                 await cleanupCallObject("startCall", "no_remote_auto_recovery");
                 vdbg("daily_no_remote_watchdog_recovery", {
@@ -1568,6 +1684,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             setIsConnecting(false);
             setIsConnected(false);
             setPeerMissing({ terminal: true });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              attempt_count: noRemoteAutoRecoveryCountRef.current,
+            });
             toast.error("Your match has not joined this video room yet.");
           }, FIRST_REMOTE_TIMEOUT_MS);
         }
@@ -1646,6 +1768,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       fetchVideoDateTruth,
       logTrackMounted,
       needsTrackReattach,
+      preflightMediaPermission,
     ]
   );
 
@@ -1679,6 +1802,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const retryRemotePlayback = useCallback(() => {
     const participant = latestRemoteParticipantRef.current;
     const videoEl = remoteVideoRef.current;
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_RETRY, {
+      platform: "web",
+      session_id: optionsRef.current?.roomId ?? null,
+      event_id: optionsRef.current?.eventId ?? null,
+    });
     setRemotePlayback((prev) => ({
       ...prev,
       playRejected: false,
@@ -1708,6 +1836,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
   const clearPeerMissing = useCallback(() => {
     setPeerMissing({ terminal: false });
+  }, []);
+
+  const clearMediaPermissionError = useCallback(() => {
+    setMediaPermissionError(null);
   }, []);
 
   const endCall = useCallback(
@@ -1783,6 +1915,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     endCall,
     retryRemotePlayback,
     clearPeerMissing,
+    clearMediaPermissionError,
     toggleMute,
     toggleVideo,
     getRoomName,

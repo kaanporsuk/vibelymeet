@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 import { VideoOff, MicOff } from "lucide-react";
-import { RefObject, useRef, useEffect } from "react";
+import { RefObject, useRef, useEffect, useState } from "react";
+import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 
 interface SelfViewPIPProps {
   stream: MediaStream | null;
@@ -8,6 +10,8 @@ interface SelfViewPIPProps {
   isMuted: boolean;
   containerRef: RefObject<HTMLDivElement>;
   blurAmount?: number;
+  sessionId?: string | null;
+  eventId?: string | null;
 }
 
 export const SelfViewPIP = ({
@@ -16,8 +20,11 @@ export const SelfViewPIP = ({
   isMuted,
   containerRef,
   blurAmount = 0,
+  sessionId,
+  eventId,
 }: SelfViewPIPProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
 
   useEffect(() => {
     const el = videoRef.current;
@@ -26,14 +33,51 @@ export const SelfViewPIP = ({
       el.srcObject = stream;
       const playPromise = el.play();
       if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => {
-          /* autoplay may be blocked; muted is set so usually fine */
-        });
+        playPromise
+          .then(() => setPlaybackBlocked(false))
+          .catch((error: unknown) => {
+            setPlaybackBlocked(true);
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_BLOCKED, {
+              platform: "web",
+              session_id: sessionId ?? null,
+              event_id: eventId ?? null,
+              surface: "local_self_view",
+              reason: error instanceof Error ? error.name : "play_rejected",
+            });
+          });
       }
     } else if (!stream && el.srcObject) {
       el.srcObject = null;
+      setPlaybackBlocked(false);
     }
-  }, [stream]);
+  }, [eventId, sessionId, stream]);
+
+  const retryPlayback = () => {
+    const el = videoRef.current;
+    if (!el) return;
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_RETRY, {
+      platform: "web",
+      session_id: sessionId ?? null,
+      event_id: eventId ?? null,
+      surface: "local_self_view",
+    });
+    const playPromise = el.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      void playPromise
+        .then(() => {
+          setPlaybackBlocked(false);
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_RECOVERED, {
+            platform: "web",
+            session_id: sessionId ?? null,
+            event_id: eventId ?? null,
+            surface: "local_self_view",
+          });
+        })
+        .catch(() => {
+          setPlaybackBlocked(true);
+        });
+    }
+  };
 
   return (
     <motion.div
@@ -69,6 +113,16 @@ export const SelfViewPIP = ({
             transition: "filter 10s linear",
           }}
         />
+      )}
+
+      {playbackBlocked && !isVideoOff && (
+        <button
+          type="button"
+          onClick={retryPlayback}
+          className="absolute inset-0 flex items-center justify-center bg-black/70 px-2 text-center text-[10px] font-medium text-white"
+        >
+          Tap to resume video
+        </button>
       )}
 
       {/* Muted indicator */}

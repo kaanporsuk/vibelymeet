@@ -142,6 +142,10 @@ const webConnectionOverlay = readFileSync(
   join(process.cwd(), "src/components/video-date/ConnectionOverlay.tsx"),
   "utf8",
 );
+const webSelfViewPip = readFileSync(
+  join(process.cwd(), "src/components/video-date/SelfViewPIP.tsx"),
+  "utf8",
+);
 const webReconnectionOverlay = readFileSync(
   join(process.cwd(), "src/components/video-date/ReconnectionOverlay.tsx"),
   "utf8",
@@ -176,6 +180,10 @@ const nativeVideoDateApi = readFileSync(
 );
 const notificationDeepLinkHandler = readFileSync(
   join(process.cwd(), "apps/mobile/components/NotificationDeepLinkHandler.tsx"),
+  "utf8",
+);
+const lobbyToPostDateJourney = readFileSync(
+  join(process.cwd(), "shared/analytics/lobbyToPostDateJourney.ts"),
   "utf8",
 );
 
@@ -783,17 +791,70 @@ test("historical expire-stale bounding remains explicitly tracked instead of fal
 
 test("web and native expose clear peer-missing choices instead of toast-only timeout copy", () => {
   assert.match(webVideoCallHook, /setPeerMissing\(\{ terminal: true \}\)/);
-  assert.match(webConnectionOverlay, /Your match hasn&apos;t joined yet|Your match hasn't joined yet/);
+  assert.match(webConnectionOverlay, /Waiting for your match to join\.\.\./);
+  assert.match(webConnectionOverlay, /We're keeping the room ready/);
   assert.match(webConnectionOverlay, /Keep waiting/);
   assert.match(webConnectionOverlay, /Try reconnecting/);
-  assert.match(webConnectionOverlay, /head back to the lobby/);
+  assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
+  assert.match(webVideoCallHook, /cleanupCallObject\("startCall", "no_remote_auto_recovery"\)/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_WAIT_STARTED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_RETRY_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_NO_REMOTE_USER_EXIT/);
   assert.match(nativeVideoDateRoute, /Your match has not joined yet/);
   assert.match(nativeVideoDateRoute, /Try reconnecting/);
   assert.match(nativeVideoDateRoute, /Keep waiting/);
   assert.match(nativeVideoDateRoute, /Back to lobby/);
+});
+
+test("web video date access recovery covers permission denial and playback-blocked CTAs", () => {
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_MEDIA_PERMISSION_DENIED: 'video_date_media_permission_denied'/);
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_MEDIA_PERMISSION_RETRY: 'video_date_media_permission_retry'/);
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_MEDIA_PERMISSION_RECOVERED: 'video_date_media_permission_recovered'/);
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_PLAYBACK_BLOCKED: 'video_date_playback_blocked'/);
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_PLAYBACK_RETRY: 'video_date_playback_retry'/);
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_PLAYBACK_RECOVERED: 'video_date_playback_recovered'/);
+  assert.match(webVideoCallHook, /navigator\.mediaDevices\?\.getUserMedia/);
+  assert.match(webVideoCallHook, /preflightMediaPermission/);
+  assert.match(webVideoCallHook, /failure: \{ kind: "media_permission_denied", retryable: true \}/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_MEDIA_PERMISSION_DENIED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_MEDIA_PERMISSION_RECOVERED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_PLAYBACK_BLOCKED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_PLAYBACK_RETRY/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_PLAYBACK_RECOVERED/);
+  assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_BLOCKED/);
+  assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RETRY/);
+  assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RECOVERED/);
+  assert.match(webSelfViewPip, /Tap to resume video/);
+  assert.match(webVideoDatePage, /Camera and microphone access are needed for your video date/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_MEDIA_PERMISSION_RETRY/);
+  assert.match(webVideoDatePage, /clearMediaPermissionError\(\)/);
+  assert.match(webConnectionOverlay, /Tap to resume video\/audio/);
+  assert.match(webConnectionOverlay, /browser paused the video or audio/);
+});
+
+test("Sprint E missing observability events are typed and wired", () => {
+  for (const eventName of [
+    "REALTIME_FALLBACK_TO_POLL",
+    "MARK_VIDEO_DATE_DAILY_JOINED_FAILED",
+    "VIDEO_DATE_SYNC_RECONNECT_FAILED",
+    "STALE_ACTIVE_SESSION_DETECTED",
+    "DUPLICATE_ACTIVE_SESSION_CONFLICT",
+    "VIDEO_DATE_NO_REMOTE_WAIT_STARTED",
+    "VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT",
+    "VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED",
+    "VIDEO_DATE_NO_REMOTE_USER_EXIT",
+  ]) {
+    assert.match(lobbyToPostDateJourney, new RegExp(`${eventName}:`));
+  }
+  assert.match(readyGateOverlay, /REALTIME_FALLBACK_TO_POLL/);
+  assert.match(webVideoCallHook, /MARK_VIDEO_DATE_DAILY_JOINED_FAILED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_SYNC_RECONNECT_FAILED/);
+  assert.match(webActiveSessionHook, /STALE_ACTIVE_SESSION_DETECTED/);
+  assert.match(webSwipeActionHook, /DUPLICATE_ACTIVE_SESSION_CONFLICT/);
 });
 
 test("persistent Ready Gate polling fallback becomes user-visible without blocking the gate", () => {

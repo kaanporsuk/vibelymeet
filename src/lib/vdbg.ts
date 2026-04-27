@@ -49,6 +49,8 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "daily_remote_first_frame_rendered",
   "daily_remote_video_play_retry",
   "daily_remote_video_play_retry_skipped",
+  "daily_media_permission_preflight_succeeded",
+  "daily_media_permission_preflight_failed",
   "daily_call_leave_before",
   "daily_call_leave_after",
   "daily_call_left_meeting",
