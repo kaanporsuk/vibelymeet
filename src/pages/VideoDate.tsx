@@ -449,6 +449,7 @@ const VideoDate = () => {
     peerMissing,
     retryRemotePlayback,
     clearPeerMissing,
+    clearMediaPermissionError,
     dailyReconnectState,
     reconnectGraceTimeLeft,
   } = useVideoCall({
@@ -1290,21 +1291,20 @@ const VideoDate = () => {
       if (name) canonicalRoomNameRef.current = name;
       if (!videoJoinOutcomeByCycleRef.current.has(joinCycle)) {
         videoJoinOutcomeByCycleRef.current.add(joinCycle);
-        trackEvent(
-          result.ok ? LobbyPostDateEvents.VIDEO_DATE_JOIN_SUCCESS : LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE,
-          result.ok
-            ? {
-                platform: "web",
-                session_id: id,
-                event_id: eventId,
-              }
-            : {
-                platform: "web",
-                session_id: id,
-                event_id: eventId,
-                reason: "daily_join_failed",
-              }
-        );
+        if (result.ok) {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_JOIN_SUCCESS, {
+            platform: "web",
+            session_id: id,
+            event_id: eventId,
+          });
+        } else if ("failure" in result) {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE, {
+            platform: "web",
+            session_id: id,
+            event_id: eventId,
+            reason: result.failure.kind,
+          });
+        }
       }
       if (result.ok === true) {
         setTimingRefreshNonce((n) => n + 1);
@@ -2322,6 +2322,12 @@ const VideoDate = () => {
       session_id: id,
       event_id: eventId ?? null,
     });
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT, {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+      source: "user_tap",
+    });
     clearPeerMissing();
     setCallStartFailure(null);
     setCallStarted(false);
@@ -2344,6 +2350,12 @@ const VideoDate = () => {
         platform: "web",
         session_id: id,
         event_id: eventId ?? null,
+      });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+        source: "peer_missing_back_to_lobby",
       });
     }
     void handleLeave();
@@ -2465,24 +2477,31 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">Camera or mic is blocked</h1>
+        <h1 className="text-xl font-display font-semibold">Camera and microphone access are needed</h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          Enable camera and microphone access in your browser, then retry the video date.
+          Camera and microphone access are needed for your video date. Please allow access in your browser settings,
+          then try again.
+        </p>
+        <p className="text-xs text-muted-foreground max-w-sm">
+          In Chrome or Safari, use the camera icon in the address bar or your site settings to allow access for Vibely.
         </p>
         <div className="flex flex-col sm:flex-row gap-3">
           <Button
             type="button"
             onClick={() => {
-              trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_RETRY, {
                 platform: "web",
                 session_id: id,
                 event_id: eventId ?? null,
                 source: "retry_tap",
               });
-              void startCall(id);
+              setCallStartFailure(null);
+              setHandshakeStartFailed(false);
+              setCallStarted(false);
+              clearMediaPermissionError();
             }}
           >
-            Retry
+            Try again
           </Button>
           <Button
             type="button"
@@ -2778,6 +2797,8 @@ const VideoDate = () => {
           isMuted={isMuted}
           containerRef={remoteContainerRef}
           blurAmount={blurAmount}
+          sessionId={id}
+          eventId={eventId ?? null}
         />
       )}
 

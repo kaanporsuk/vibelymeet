@@ -66,21 +66,21 @@ export const ConnectionOverlay = ({
         <div>
           <h3 className="font-display font-semibold text-lg text-foreground mb-1">
             {peerMissingTerminal
-              ? "Your match hasn't joined yet"
+              ? "Waiting for your match to join..."
               : playbackRejected
-                ? "Tap to resume video"
+                ? "Tap to resume video/audio"
                 : isConnecting
                   ? "Connecting..."
-                  : "Waiting for partner"}
+                  : "Waiting for your match to join..."}
           </h3>
           <p className="text-sm text-muted-foreground">
             {peerMissingTerminal
-              ? "We couldn't connect them in time. You can keep waiting, try reconnecting, or head back to the lobby."
+              ? "We're keeping the room ready. If they don't arrive soon, we'll help you continue."
               : playbackRejected
-              ? "Your match is here, but the browser blocked playback."
+              ? "Your match is here, but your browser paused the video or audio."
               : isConnecting
                 ? "Setting up your video date"
-                : "Your date will start as soon as they join"}
+                : "We're keeping the room ready. If they don't arrive soon, we'll help you continue."}
           </p>
         </div>
 
@@ -91,7 +91,7 @@ export const ConnectionOverlay = ({
             className="rounded-full px-6"
           >
             <Play className="w-4 h-4 mr-2" />
-            Retry video
+            Tap to resume video/audio
           </Button>
         )}
 
