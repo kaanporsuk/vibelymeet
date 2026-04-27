@@ -51,6 +51,7 @@ import { EmailVerificationFlow } from "@/components/verification/EmailVerificati
 import { useLogout } from "@/hooks/useLogout";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
+import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -255,6 +256,7 @@ const ProfileStudio = () => {
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [showPhotoDrawer, setShowPhotoDrawer] = useState(false);
+  const heroVideoUpload = useHeroVideoUpload();
 
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -274,6 +276,7 @@ const ProfileStudio = () => {
   const [meetingPref, setMeetingPref] = useState<"events" | "dates" | "both">("both");
 
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const previousHeroVideoPhaseRef = useRef(heroVideoUpload.phase);
   /** After a successful save/remove, skip resetting shared draft state when the drawer closes (avoids racing stale `profile`). */
   const suppressProfileDraftResetRef = useRef(false);
 
@@ -385,9 +388,45 @@ const ProfileStudio = () => {
     loadProfile();
   }, [profileRefreshKey]);
 
+  useEffect(() => {
+    const previous = previousHeroVideoPhaseRef.current;
+    previousHeroVideoPhaseRef.current = heroVideoUpload.phase;
+
+    const becameTerminal =
+      heroVideoUpload.phase === "ready" ||
+      heroVideoUpload.phase === "failed" ||
+      heroVideoUpload.phase === "stalled";
+    const timedOutToIdle =
+      (previous === "uploading" || previous === "processing") && heroVideoUpload.phase === "idle";
+
+    if (becameTerminal || timedOutToIdle) {
+      setProfileRefreshKey((k) => k + 1);
+    }
+  }, [heroVideoUpload.phase]);
+
   // ── Derived data ──────────────────────────────────────────────
 
   const vibeScore = profile.vibeScore ?? 0;
+  const effectiveVibeVideo = useMemo(() => {
+    if (heroVideoUpload.phase === "ready" && heroVideoUpload.videoId) {
+      return {
+        bunnyVideoUid: heroVideoUpload.videoId,
+        bunnyVideoStatus: "ready",
+        vibeCaption: profile.vibeCaption,
+      };
+    }
+    return {
+      bunnyVideoUid: profile.bunnyVideoUid,
+      bunnyVideoStatus: profile.bunnyVideoStatus,
+      vibeCaption: profile.vibeCaption,
+    };
+  }, [
+    heroVideoUpload.phase,
+    heroVideoUpload.videoId,
+    profile.bunnyVideoUid,
+    profile.bunnyVideoStatus,
+    profile.vibeCaption,
+  ]);
 
   const vibeScoreProfileSnapshot = useMemo(
     (): VibeScoreProfileSnapshot => ({
@@ -987,11 +1026,7 @@ const ProfileStudio = () => {
           </div>
 
           <HeroVideoStatusCard
-            profile={{
-              bunnyVideoUid: profile.bunnyVideoUid,
-              bunnyVideoStatus: profile.bunnyVideoStatus,
-              vibeCaption: profile.vibeCaption,
-            }}
+            profile={effectiveVibeVideo}
             onOpenRecorder={goToVibeStudio}
             onOpenPlayer={() => setShowVibePlayer(true)}
           />
@@ -1717,9 +1752,9 @@ const ProfileStudio = () => {
 
       <VibeVideoFullscreenPlayer
         show={showVibePlayer}
-        bunnyVideoUid={profile.bunnyVideoUid}
-        bunnyVideoStatus={profile.bunnyVideoStatus}
-        vibeCaption={profile.vibeCaption}
+        bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
+        bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
+        vibeCaption={effectiveVibeVideo.vibeCaption}
         onClose={() => setShowVibePlayer(false)}
       />
 

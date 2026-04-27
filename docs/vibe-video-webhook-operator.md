@@ -26,8 +26,9 @@ https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/video-webhook?token=<BUN
 
 - **Path:** `/functions/v1/video-webhook` (Supabase Edge Function name: `video-webhook`).
 - **Query parameter:** `token` — **required**. Must match the Supabase secret **`BUNNY_VIDEO_WEBHOOK_TOKEN`** exactly (constant-time compare in `video-webhook/index.ts`).
-- **Method:** POST (Bunny default for Stream webhooks).
+- **Method:** POST (Bunny default for Stream webhooks). Other methods are rejected with **405**.
 - **JWT:** Gateway **`verify_jwt = false`** for this function (`supabase/config.toml`) so Bunny can call without a Supabase user token. **Auth is only the `token` query param.**
+- **Library guard:** when Bunny includes `VideoLibraryId`, it must match Supabase secret `BUNNY_STREAM_LIBRARY_ID`; mismatches are rejected without DB mutation.
 
 **Where the token comes from**
 
@@ -45,6 +46,7 @@ https://<SUPABASE_PROJECT_REF>.supabase.co/functions/v1/video-webhook?token=<BUN
 |---------------|---------|
 | `VideoGuid`   | Bunny video GUID — matched to `profiles.bunny_video_uid` |
 | `Status`      | Bunny numeric status — **3** or **4** → DB `ready`; **5** → DB `failed` |
+| `VideoLibraryId` | Optional Bunny library id — validated against `BUNNY_STREAM_LIBRARY_ID` when present |
 
 Other statuses leave row as **`processing`** (until a later event or manual fix).
 
@@ -56,6 +58,8 @@ Other statuses leave row as **`processing`** (until a later event or manual fix)
 |--------|----------------|--------------|
 | Supabase `video-webhook` logs: `BUNNY_VIDEO_WEBHOOK_TOKEN is not set` | Secret missing | Set secret; redeploy not required for secret-only change after set |
 | Logs: `missing or invalid token` | URL typo, wrong token, missing `?token=` | Bunny webhook URL vs Supabase secret (character-by-character) |
+| Logs: `library mismatch` | Webhook points at the wrong Bunny Stream library or Supabase secret is wrong | Bunny library id vs `BUNNY_STREAM_LIBRARY_ID` |
+| HTTP **405** from `video-webhook` | Bunny method is not POST | Bunny Stream webhook method/config |
 | HTTP **401** from `video-webhook` | Bad token | Same as above |
 | HTTP **503** from `video-webhook` | Token env empty at runtime | Secret name must be exactly `BUNNY_VIDEO_WEBHOOK_TOKEN` |
 | No logs at all on upload complete | Webhook URL wrong project / not saved in Bunny | Bunny Stream → **Webhooks** UI; correct library |

@@ -95,6 +95,7 @@ export default function VibeVideoRecordScreen() {
   const [recording, setRecording] = useState(false);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [vibeCaption, setVibeCaption] = useState('');
+  const [captionEdited, setCaptionEdited] = useState(false);
   const [captionModal, setCaptionModal] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
 
@@ -112,6 +113,7 @@ export default function VibeVideoRecordScreen() {
     if (!existing) return;
     captionSeededFromProfile.current = true;
     setVibeCaption(existing);
+    setCaptionEdited(false);
   }, [myProfile?.vibe_caption]);
 
   // Handle libraryUri param (from drawer upload)
@@ -155,11 +157,10 @@ export default function VibeVideoRecordScreen() {
     (router as { replace: (p: string) => void }).replace('/vibe-studio');
   }, [router]);
 
-  const returnToOnboarding = useCallback((videoId: string) => {
+  const returnToOnboarding = useCallback(() => {
     router.replace({
       pathname: '/(onboarding)',
       params: {
-        onboardingVideoUid: videoId,
         onboardingVideoRecorded: '1',
         onboardingVideoToken: `${Date.now()}`,
       },
@@ -245,7 +246,11 @@ export default function VibeVideoRecordScreen() {
   const doConfirm = () => {
     if (!recordedUri) return;
 
-    const caption = vibeCaption.trim() || undefined;
+    const existingCaption = myProfile?.vibe_caption?.trim() ?? '';
+    const caption =
+      captionEdited || captionSeededFromProfile.current || existingCaption.length > 0
+        ? vibeCaption.trim()
+        : undefined;
     const context = onboardingFlow ? 'onboarding' : 'profile_studio';
 
     vibeVideoDiagVerbose('upload.confirm', {
@@ -258,8 +263,7 @@ export default function VibeVideoRecordScreen() {
     trackEvent('vibe_video_confirmed');
 
     if (onboardingFlow) {
-      // Return to onboarding with a placeholder — real UID assigned server-side.
-      returnToOnboarding('pending');
+      returnToOnboarding();
     } else {
       returnToVibeStudio();
     }
@@ -272,6 +276,7 @@ export default function VibeVideoRecordScreen() {
 
   const saveCaptionFromModal = () => {
     setVibeCaption(captionDraft.slice(0, CAPTION_MAX));
+    setCaptionEdited(true);
     setCaptionModal(false);
   };
 

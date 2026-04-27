@@ -23,8 +23,18 @@ function getProjectRef(url: string | undefined): string {
   }
 }
 
+function isValidVideoGuid(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
 serve(async (req) => {
   const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
+  if (req.method !== "POST") {
+    console.warn(`[video-webhook] rejected method projectRef=${projectRef} method=${req.method}`);
+    return new Response("Method not allowed", { status: 405 });
+  }
+
   const webhookToken = Deno.env.get("BUNNY_VIDEO_WEBHOOK_TOKEN");
   if (!webhookToken || webhookToken.trim() === "") {
     console.error(`[video-webhook] BUNNY_VIDEO_WEBHOOK_TOKEN is not set projectRef=${projectRef}`);
@@ -49,13 +59,25 @@ serve(async (req) => {
     };
 
     const { VideoGuid, Status, VideoLibraryId } = body;
+    const expectedLibraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
     console.log(
       `[video-webhook] inbound projectRef=${projectRef} Status=${String(Status)} VideoLibraryId=${VideoLibraryId ?? "n/a"} VideoGuid=${VideoGuid ?? "n/a"}`,
     );
 
-    if (!VideoGuid) {
-      console.error(`[video-webhook] no VideoGuid projectRef=${projectRef} — refusing to finalize`);
+    if (!isValidVideoGuid(VideoGuid)) {
+      console.error(`[video-webhook] invalid VideoGuid projectRef=${projectRef} — refusing to finalize`);
       return new Response("ok", { status: 200 });
+    }
+
+    if (
+      expectedLibraryId &&
+      VideoLibraryId != null &&
+      String(VideoLibraryId).trim() !== expectedLibraryId.trim()
+    ) {
+      console.error(
+        `[video-webhook] library mismatch projectRef=${projectRef} videoGuid=${VideoGuid} receivedLibraryId=${VideoLibraryId}`,
+      );
+      return new Response("Forbidden", { status: 403 });
     }
 
     const supabase = createClient(

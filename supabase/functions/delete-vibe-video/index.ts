@@ -118,8 +118,9 @@ serve(async (req) => {
         dbProfileCleared: true,
         bunnyRemoteDeleteOk: null,
         bunnyRemoteDeleteHttpStatus: null,
-        possibleBunnyOrphan: false,
+        possibleBunnyOrphan: true,
         deleteDeferredToWorker: true,
+        remoteDeleteState: "deferred_to_media_delete_worker",
       },
       200,
     );

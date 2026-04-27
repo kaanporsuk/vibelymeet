@@ -68,28 +68,44 @@ const VibeStudio = () => {
     setCaptionDraft(profile?.vibeCaption ?? "");
   }, [profile?.vibeCaption]);
 
-  // When the controller reaches a terminal state (ready/failed), reload the profile
-  // so the You page reflects the latest backend truth without requiring a manual refresh.
+  // When the controller reaches terminal/timeout state, reload the profile
+  // so Studio reflects backend truth without requiring a manual refresh.
   const prevPhaseRef = useRef<string>("idle");
   useEffect(() => {
     const prev = prevPhaseRef.current;
     prevPhaseRef.current = ctrl.phase;
-    if (
-      (ctrl.phase === "ready" || ctrl.phase === "failed") &&
-      prev !== ctrl.phase
-    ) {
+    const becameTerminal =
+      (ctrl.phase === "ready" || ctrl.phase === "failed" || ctrl.phase === "stalled") &&
+      prev !== ctrl.phase;
+    const timedOutToIdle = (prev === "uploading" || prev === "processing") && ctrl.phase === "idle";
+    if (becameTerminal || timedOutToIdle) {
       setRefreshKey((k) => k + 1);
     }
   }, [ctrl.phase]);
 
+  const effectiveVibeVideo = useMemo(() => {
+    if (ctrl.phase === "ready" && ctrl.videoId) {
+      return {
+        bunnyVideoUid: ctrl.videoId,
+        bunnyVideoStatus: "ready",
+        vibeCaption: profile?.vibeCaption ?? "",
+      };
+    }
+    return {
+      bunnyVideoUid: profile?.bunnyVideoUid ?? null,
+      bunnyVideoStatus: profile?.bunnyVideoStatus ?? "none",
+      vibeCaption: profile?.vibeCaption ?? "",
+    };
+  }, [ctrl.phase, ctrl.videoId, profile?.bunnyVideoUid, profile?.bunnyVideoStatus, profile?.vibeCaption]);
+
   const videoInfo = useMemo(
     () =>
       resolveWebVibeVideoState({
-        bunnyVideoUid: profile?.bunnyVideoUid,
-        bunnyVideoStatus: profile?.bunnyVideoStatus,
-        vibeCaption: profile?.vibeCaption,
+        bunnyVideoUid: effectiveVibeVideo.bunnyVideoUid,
+        bunnyVideoStatus: effectiveVibeVideo.bunnyVideoStatus,
+        vibeCaption: effectiveVibeVideo.vibeCaption,
       }),
-    [profile?.bunnyVideoUid, profile?.bunnyVideoStatus, profile?.vibeCaption],
+    [effectiveVibeVideo],
   );
 
   const readyAwaitingPlaybackUrl = videoInfo.state === "ready" && !videoInfo.playbackUrl;
@@ -270,7 +286,7 @@ const VibeStudio = () => {
           <div className="mt-8 space-y-3">
             <h1 className="max-w-md text-3xl font-display font-bold text-white">Show your energy before the first chat.</h1>
             <p className="max-w-md text-sm leading-6 text-gray-300">
-              Record, replace, preview, and manage your Vibe Video from one dedicated surface. The backend media pipeline stays the same; this is just the studio you were missing.
+              Record, replace, preview, and manage the video people see on your profile.
             </p>
           </div>
         </div>
@@ -306,11 +322,7 @@ const VibeStudio = () => {
 
           <div className="mt-5">
             <HeroVideoStatusCard
-              profile={{
-                bunnyVideoUid: profile.bunnyVideoUid,
-                bunnyVideoStatus: profile.bunnyVideoStatus,
-                vibeCaption: profile.vibeCaption,
-              }}
+              profile={effectiveVibeVideo}
               onOpenRecorder={() => setShowComposer(true)}
               onOpenPlayer={() => setShowPlayer(true)}
             />
@@ -366,7 +378,7 @@ const VibeStudio = () => {
               Lead with a real sentence about what kind of energy, plan, or connection you&apos;re looking for.
             </div>
             <div className="rounded-2xl border border-white/8 bg-black/15 p-4">
-              If you&apos;re processing or uploading, that is still an in-progress video state, not an empty one.
+              If your video is still preparing, you can leave this screen and check back in a moment.
             </div>
             <div className="rounded-2xl border border-white/8 bg-black/15 p-4">
               Failed clips are recoverable: replace them here instead of assuming the studio has no video on file.
@@ -383,9 +395,9 @@ const VibeStudio = () => {
 
       <VibeVideoFullscreenPlayer
         show={showPlayer}
-        bunnyVideoUid={profile.bunnyVideoUid}
-        bunnyVideoStatus={profile.bunnyVideoStatus}
-        vibeCaption={profile.vibeCaption}
+        bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
+        bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
+        vibeCaption={effectiveVibeVideo.vibeCaption}
         onClose={() => setShowPlayer(false)}
       />
 

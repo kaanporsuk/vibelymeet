@@ -12,6 +12,7 @@
  *   uploading  — tus in flight (progress 0–100)
  *   processing — tus complete; polling backend for transcoding result
  *   ready      — backend confirmed ready; query cache invalidated
+ *   stalled    — backend did not reach ready/failed inside the bounded poll window
  *   failed     — tus error OR backend reported failure; retry available
  *
  * A monotonic generation counter invalidates in-flight async work after reset or a newer
@@ -24,7 +25,7 @@ import { updateMyProfile } from '@/lib/profileApi';
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-export type NativeHeroVideoPhase = 'idle' | 'uploading' | 'processing' | 'ready' | 'failed';
+export type NativeHeroVideoPhase = 'idle' | 'uploading' | 'processing' | 'ready' | 'stalled' | 'failed';
 
 export interface NativeHeroVideoControllerState {
   phase: NativeHeroVideoPhase;
@@ -198,9 +199,14 @@ async function _run(
     } else if (result === 'aborted') {
       // Signal was aborted — a new upload started or reset; do nothing
       return;
-    } else {
-      // timeout or superseded — go idle and let profile be authoritative
+    } else if (result === 'superseded') {
       _setStateIfCurrent(runId, { phase: 'idle', videoId: null, errorMessage: null });
+    } else {
+      // timeout — keep this visible as a repairable in-progress asset
+      _setStateIfCurrent(runId, {
+        phase: 'stalled',
+        errorMessage: 'Your video is taking longer than expected. It is still saved; refresh later or replace it.',
+      });
     }
 
     _invalidateProfileIfCurrent(runId);

@@ -82,13 +82,13 @@ export default function VibeStudioScreen() {
     setThumbnailError(false);
   }, [profile?.bunny_video_uid, profile?.bunny_video_status]);
 
-  // When the controller reaches a terminal state, reload profile so the page
+  // When the controller reaches a terminal/stalled state, reload profile so the page
   // reflects the latest backend truth without a manual refresh tap.
   const prevCtrlPhaseRef = useRef<string>('idle');
   useEffect(() => {
     const prev = prevCtrlPhaseRef.current;
     prevCtrlPhaseRef.current = ctrl.phase;
-    if ((ctrl.phase === 'ready' || ctrl.phase === 'failed') && prev !== ctrl.phase) {
+    if ((ctrl.phase === 'ready' || ctrl.phase === 'failed' || ctrl.phase === 'stalled') && prev !== ctrl.phase) {
       void refetch();
     }
   }, [ctrl.phase, refetch]);
@@ -99,7 +99,7 @@ export default function VibeStudioScreen() {
 
   // Effective display phase: controller overrides profile when active or terminal.
   const controllerIsActive = ctrl.phase === 'uploading' || ctrl.phase === 'processing';
-  const controllerIsTerminal = ctrl.phase === 'ready' || ctrl.phase === 'failed';
+  const controllerIsTerminal = ctrl.phase === 'ready' || ctrl.phase === 'failed' || ctrl.phase === 'stalled';
   const effectivePhase =
     controllerIsActive || controllerIsTerminal ? ctrl.phase : videoInfo.state;
 
@@ -122,7 +122,7 @@ export default function VibeStudioScreen() {
           label: 'Ready',
           title: 'Your Vibe Video is live',
           description:
-            'Preview it full-screen, keep the caption fresh, or replace it with a sharper take without changing the shared upload pipeline.',
+            'Preview it full-screen, keep the caption fresh, or replace it with a sharper take.',
           badgeBg: theme.successSoft,
           badgeText: theme.success,
           icon: 'checkmark-circle',
@@ -162,6 +162,16 @@ export default function VibeStudioScreen() {
           badgeBg: theme.dangerSoft,
           badgeText: theme.danger,
           icon: 'alert-circle',
+        };
+      case 'stalled':
+        return {
+          label: 'Still preparing',
+          title: 'Your Vibe Video is taking longer than usual',
+          description:
+            ctrl.errorMessage ?? 'Your video is still saved. Refresh later, or replace it with a new take.',
+          badgeBg: 'rgba(245, 158, 11, 0.16)',
+          badgeText: '#FBBF24',
+          icon: 'warning-outline',
         };
       case 'error':
         return {
@@ -440,12 +450,16 @@ export default function VibeStudioScreen() {
                         Good light, one sentence about your vibe, and a clear smile is enough for a strong first version.
                       </Text>
                     </>
-                  ) : effectivePhase === 'failed' || effectivePhase === 'error' ? (
+                  ) : effectivePhase === 'failed' || effectivePhase === 'stalled' || effectivePhase === 'error' ? (
                     <>
                       <Ionicons name="alert-circle-outline" size={52} color="#FBBF24" />
-                      <Text style={[styles.emptyTitle, { color: theme.text }]}>This clip needs a fresh take</Text>
+                      <Text style={[styles.emptyTitle, { color: theme.text }]}>
+                        {effectivePhase === 'stalled' ? 'Still preparing your clip' : 'This clip needs a fresh take'}
+                      </Text>
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-                        Your caption stays intact, and you can replace the video without changing any backend ownership.
+                        {effectivePhase === 'stalled'
+                          ? 'Your video is still saved. Refresh later, or replace it if you want a faster retry.'
+                          : 'Your caption stays intact, and you can replace the video with a new take.'}
                       </Text>
                     </>
                   ) : effectivePhase === 'uploading' ? (
@@ -579,7 +593,7 @@ export default function VibeStudioScreen() {
                 </View>
                 <View style={[styles.guidanceItem, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
                   <Text style={[styles.guidanceText, { color: theme.textSecondary }]}>
-                    Uploading and processing are still active video states, not empty ones, so the studio keeps that distinction honest.
+                    If your video is still preparing, you can leave this screen and check back in a moment.
                   </Text>
                 </View>
                 <View style={[styles.guidanceItem, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>

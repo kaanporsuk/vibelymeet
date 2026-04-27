@@ -52,7 +52,9 @@ export interface ProfileData {
 }
 
 /** Fields excluded from generic `updateMyProfile` / `createProfile` table writes — use `update_profile_location` RPC. */
-export type ProfileUpdatePayload = Omit<Partial<ProfileData>, "location" | "locationData">;
+export type ProfileUpdatePayload = Omit<Partial<ProfileData>, "location" | "locationData" | "vibeCaption"> & {
+  vibeCaption?: string | null;
+};
 
 // Database profile interface (snake_case)
 interface DbProfile {
