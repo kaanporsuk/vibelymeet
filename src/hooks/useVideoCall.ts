@@ -61,6 +61,7 @@ type VideoDateTruthRow = {
   phase: string | null;
   handshake_started_at: string | null;
   daily_room_name: string | null;
+  daily_room_url?: string | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
 };
@@ -502,7 +503,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     const { data, error } = await supabase
       .from("video_sessions")
       .select(
-        "id, event_id, ended_at, state, phase, handshake_started_at, daily_room_name, ready_gate_status, ready_gate_expires_at",
+        "id, event_id, ended_at, state, phase, handshake_started_at, daily_room_name, daily_room_url, ready_gate_status, ready_gate_expires_at",
       )
       .eq("id", sessionId)
       .maybeSingle();

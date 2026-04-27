@@ -15,6 +15,7 @@ export type PreparedVideoDateEntry = {
   room_name: string;
   room_url: string;
   token: string;
+  entry_attempt_id?: string | null;
   session_state?: string | null;
   session_phase?: string | null;
   handshake_started_at?: string | null;
@@ -37,6 +38,7 @@ export type PreparedVideoDateEntryCacheEntry = {
   sessionId: string;
   userId: string;
   value: PreparedVideoDateEntry;
+  entryAttemptId: string | null;
   cachedAtMs: number;
   expiresAtMs: number;
   bothReadyObservedAtMs?: number;
@@ -58,9 +60,10 @@ export type PrepareVideoDateEntryResult =
       message?: string;
       httpStatus?: number;
       retryable: boolean;
+      entryAttemptId?: string | null;
     };
 
-type InvokePrepareDateEntry = () => Promise<{
+type InvokePrepareDateEntry = (input: { entryAttemptId: string }) => Promise<{
   data?: PreparedVideoDateEntry | PrepareVideoDateEntryFailure | null;
   error?: unknown;
   response?: unknown;
@@ -77,12 +80,20 @@ type PrepareWithClientOptions = {
     timedOut?: boolean;
   }) => Promise<{ kind: string; httpStatus?: number; serverCode?: string; retryable: boolean }>;
   force?: boolean;
+  entryAttemptId?: string;
   nowMs?: number;
   bothReadyObservedAtMs?: number;
 };
 
 const preparedEntryCache = new Map<string, PreparedVideoDateEntryCacheEntry>();
 const prepareEntryInflight = new Map<string, Promise<PrepareVideoDateEntryResult>>();
+
+export function createVideoDateEntryAttemptId(nowMs: number = Date.now()): string {
+  const randomUUID = globalThis.crypto?.randomUUID?.bind(globalThis.crypto);
+  if (randomUUID) return randomUUID();
+  const random = Math.random().toString(36).slice(2, 12);
+  return `vde_${nowMs.toString(36)}_${random}`;
+}
 
 export function preparedVideoDateEntryCacheKey(sessionId: string, userId: string): string {
   return `${sessionId}:${userId}`;
@@ -107,6 +118,7 @@ export function setCachedPreparedVideoDateEntry(params: {
   sessionId: string;
   userId: string;
   value: PreparedVideoDateEntry;
+  entryAttemptId?: string | null;
   prepareStartedAtMs: number;
   prepareFinishedAtMs: number;
   bothReadyObservedAtMs?: number;
@@ -118,6 +130,7 @@ export function setCachedPreparedVideoDateEntry(params: {
     sessionId: params.sessionId,
     userId: params.userId,
     value: params.value,
+    entryAttemptId: params.entryAttemptId ?? params.value.entry_attempt_id ?? null,
     cachedAtMs: nowMs,
     expiresAtMs: nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS,
     bothReadyObservedAtMs: params.bothReadyObservedAtMs,
@@ -176,9 +189,10 @@ export async function prepareVideoDateEntryWithClient(
   }
 
   const prepareStartedAtMs = nowMs;
+  const entryAttemptId = options.entryAttemptId ?? createVideoDateEntryAttemptId(prepareStartedAtMs);
   const task = (async (): Promise<PrepareVideoDateEntryResult> => {
     try {
-      const { data, error, response } = await options.invoke();
+      const { data, error, response } = await options.invoke({ entryAttemptId });
       const prepareFinishedAtMs = Date.now();
       if (!error && hasPreparedEntryPayload(data)) {
         const bothReadyToPrepareStartMs =
@@ -187,6 +201,7 @@ export async function prepareVideoDateEntryWithClient(
             : Math.max(0, prepareStartedAtMs - options.bothReadyObservedAtMs);
         const value: PreparedVideoDateEntry = {
           ...data,
+          entry_attempt_id: data.entry_attempt_id ?? entryAttemptId,
           timings: {
             ...(data.timings ?? {}),
             bothReadyToPrepareStartMs,
@@ -197,6 +212,7 @@ export async function prepareVideoDateEntryWithClient(
           sessionId: options.sessionId,
           userId: options.userId,
           value,
+          entryAttemptId: value.entry_attempt_id ?? entryAttemptId,
           prepareStartedAtMs,
           prepareFinishedAtMs,
           bothReadyObservedAtMs: options.bothReadyObservedAtMs,
@@ -218,6 +234,7 @@ export async function prepareVideoDateEntryWithClient(
         message: readFailureMessage(data, error instanceof Error ? error.message : undefined),
         httpStatus: failure.httpStatus,
         retryable: failure.retryable,
+        entryAttemptId,
       };
     } catch (error) {
       const failure = await options.classifyFailure({ error, timedOut: false });
@@ -227,6 +244,7 @@ export async function prepareVideoDateEntryWithClient(
         message: error instanceof Error ? error.message : String(error),
         httpStatus: failure.httpStatus,
         retryable: failure.retryable,
+        entryAttemptId,
       };
     } finally {
       prepareEntryInflight.delete(key);

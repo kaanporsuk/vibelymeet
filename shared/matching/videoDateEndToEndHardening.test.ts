@@ -46,6 +46,10 @@ const remainingHardeningMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501103000_video_date_remaining_hardening.sql"),
   "utf8",
 );
+const providerAtomicEntryMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501110000_video_date_provider_atomic_entry.sql"),
+  "utf8",
+);
 const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
@@ -56,6 +60,22 @@ const expireStaleBoundingDeferralDoc = readFileSync(
 );
 const readyGateOverlay = readFileSync(
   join(process.cwd(), "src/components/lobby/ReadyGateOverlay.tsx"),
+  "utf8",
+);
+const nativeReadyGateOverlay = readFileSync(
+  join(process.cwd(), "apps/mobile/components/lobby/ReadyGateOverlay.tsx"),
+  "utf8",
+);
+const sharedActiveSession = readFileSync(
+  join(process.cwd(), "shared/matching/activeSession.ts"),
+  "utf8",
+);
+const webPrepareEntry = readFileSync(
+  join(process.cwd(), "src/lib/videoDatePrepareEntry.ts"),
+  "utf8",
+);
+const nativePrepareEntry = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/videoDatePrepareEntry.ts"),
   "utf8",
 );
 const webActiveSessionHook = readFileSync(
@@ -384,7 +404,7 @@ test("daily-room prepare_date_entry preserves auth, participant, and delete-room
 test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
   assert.match(
     dailyRoomFunction,
-    /if \(existingRoomName !== roomName \|\| existingRoomUrl !== roomUrl\) \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*createDailyRoom\(roomName, videoDateRoomProperties\(\)\)[\s\S]*daily_room_name: roomName, daily_room_url: roomUrl/s,
+    /if \(existingRoomName !== roomName \|\| existingRoomUrl !== roomUrl\) \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*createDailyRoom\(roomName, videoDateRoomProperties\(\)\)[\s\S]*persistVideoDateRoomMetadata\(serviceClient/s,
   );
   assert.match(
     dailyRoomFunction,
@@ -407,6 +427,17 @@ test("web ready-gate paths do not navigate to date before prepare-entry succeeds
   assert.doesNotMatch(eventLobby, /prepare_grace/);
   assert.match(eventLobby, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_done`\)/);
+});
+
+test("native ready-gate paths are success-gated with no timer fallback route", () => {
+  assert.doesNotMatch(nativeReadyGateOverlay, /PREPARE_ENTRY_NAV_GRACE_MS/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /both_ready_prepare_grace|prepare_grace/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /setTimeout\(\s*\(\)\s*=>[\s\S]{0,200}onNavigateToDate/s);
+  assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
+  assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
+  assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\) \{[\s\S]*navigateWithLatency\(`\$\{source\}_prepare_success`\)/s);
+  assert.match(nativeReadyGateOverlay, /setPrepareEntryStatus\('failed'\)/);
+  assert.match(nativeReadyGateOverlay, /retryPrepareEntry/);
 });
 
 test("daily-room classifies Daily provider failures without leaking raw response bodies", () => {
@@ -457,12 +488,65 @@ test("remaining hardening migration locks video_sessions writes behind server-ow
   assert.match(remainingHardeningMigration, /pg_advisory_xact_lock/);
 });
 
+test("provider-atomic entry keeps prepare_entry non-routeable until Daily proof is confirmed", () => {
+  assert.match(providerAtomicEntryMigration, /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260501110000_provider_atomic_base/s);
+  assert.match(providerAtomicEntryMigration, /IF p_action IS DISTINCT FROM 'prepare_entry' THEN[\s\S]*video_date_transition_20260501110000_provider_atomic_base/s);
+  assert.match(providerAtomicEntryMigration, /'preflight_only', true/);
+  assert.match(providerAtomicEntryMigration, /'registration_status', 'deferred_until_confirm_prepare_entry'/);
+  assert.doesNotMatch(providerAtomicEntryMigration, /queue_status = v_registration_status/);
+  assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_entered/);
+  assert.doesNotMatch(providerAtomicEntryMigration, /state = CASE[\s\S]*'handshake'::public\.video_date_state[\s\S]*WHERE id = p_session_id[\s\S]*p_action/s);
+});
+
+test("confirm_video_date_entry_prepared is service-role-only and atomically persists route truth", () => {
+  assert.match(providerAtomicEntryMigration, /CREATE OR REPLACE FUNCTION public\.confirm_video_date_entry_prepared\(/);
+  assert.match(providerAtomicEntryMigration, /SECURITY DEFINER/);
+  assert.match(providerAtomicEntryMigration, /SET search_path TO 'public'/);
+  assert.match(providerAtomicEntryMigration, /REVOKE ALL ON FUNCTION public\.confirm_video_date_entry_prepared\(uuid, text, text, text\)\s+FROM PUBLIC, anon, authenticated/s);
+  assert.match(providerAtomicEntryMigration, /GRANT EXECUTE ON FUNCTION public\.confirm_video_date_entry_prepared\(uuid, text, text, text\)\s+TO service_role/s);
+  assert.match(providerAtomicEntryMigration, /FROM public\.event_registrations[\s\S]*FOR UPDATE[\s\S]*v_registration_count IS DISTINCT FROM 2/s);
+  assert.match(providerAtomicEntryMigration, /'code', 'REGISTRATION_PERSIST_FAILED'/);
+  assert.match(providerAtomicEntryMigration, /UPDATE public\.event_registrations[\s\S]*GET DIAGNOSTICS v_update_count = ROW_COUNT[\s\S]*v_update_count IS DISTINCT FROM 2/s);
+  assert.match(providerAtomicEntryMigration, /UPDATE public\.video_sessions[\s\S]*daily_room_name = p_room_name[\s\S]*state = CASE[\s\S]*'handshake'::public\.video_date_state/s);
+  assert.match(providerAtomicEntryMigration, /'entry_attempt_id', p_entry_attempt_id/);
+});
+
+test("daily-room hard-fails room and registration persistence before returning tokens", () => {
+  assert.match(dailyRoomFunction, /persistVideoDateRoomMetadata\(serviceClient/);
+  assert.match(dailyRoomFunction, /code: "DB_ROOM_PERSIST_FAILED"/);
+  assert.match(dailyRoomFunction, /video_date_room_metadata_persist_failed/);
+  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s);
+  assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
+  assert.doesNotMatch(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
+  assert.doesNotMatch(dailyRoomFunction, /Registration status update after token success failed/);
+});
+
+test("entry_attempt_id is generated client-side and carried through Edge logs and responses", () => {
+  assert.match(webPrepareEntry, /createVideoDateEntryAttemptId\(startedAt\)/);
+  assert.match(nativePrepareEntry, /createVideoDateEntryAttemptId\(startedAt\)/);
+  assert.match(webPrepareEntry, /body: \{ action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId, entry_attempt_id: attemptId \}/);
+  assert.match(nativePrepareEntry, /body: \{ action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId, entry_attempt_id: attemptId \}/);
+  assert.match(dailyRoomFunction, /sanitizeEntryAttemptId\(body\?\.entry_attempt_id \?\? body\?\.entryAttemptId\)/);
+  assert.match(dailyRoomFunction, /entry_attempt_id: entryAttemptId/);
+  assert.match(dailyRoomFunction, /p_entry_attempt_id: params\.entryAttemptId \?\? null/);
+});
+
+test("date route truth requires provider metadata before navigating to video", () => {
+  assert.match(sharedActiveSession, /function videoSessionHasProviderRoom/);
+  assert.match(sharedActiveSession, /if \(!videoSessionHasProviderRoom\(row\)\) return false/);
+  assert.match(sharedActiveSession, /videoSessionHasProviderRoom\(row\) &&/);
+  assert.match(sharedActiveSession, /canPrepareDailyRoomFromReadyGateTruth/);
+  assert.match(webVideoDatePage, /in_ready_gate_without_provider_prepared_truth/);
+  assert.match(nativeVideoDateRoute, /in_ready_gate_without_provider_prepared_truth/);
+  assert.doesNotMatch(nativeEventLobby, /phase === 'handshake' \|\| phase === 'date'/);
+  assert.match(dailyRoomFunction, /allow Daily token only after provider-prepared handshake\/date truth is confirmed/);
+});
+
 test("remaining prepare-entry hardening defers in_handshake registration until Daily token success", () => {
   assert.match(remainingHardeningMigration, /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260501103000_prepare_entry_queue_guard/s);
   assert.match(remainingHardeningMigration, /registration_status', 'deferred_until_daily_token'/);
   assert.doesNotMatch(remainingHardeningMigration, /queue_status = v_registration_status/);
-  assert.match(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
-  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*await markVideoDateEntryPrepared/s);
+  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*confirmVideoDateEntryPrepared/s);
   assert.match(remainingHardeningMigration, /repair_stale_video_date_prepare_entries/);
   assert.match(remainingHardeningMigration, /prepare_entry_provider_failed_repair/);
   assert.match(remainingHardeningMigration, /AND current_room_id = r\.id/);

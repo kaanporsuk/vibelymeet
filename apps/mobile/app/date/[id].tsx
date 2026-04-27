@@ -1075,7 +1075,7 @@ export default function VideoDateScreen() {
       if (canAttemptDaily || truthDecision === 'navigate_date') {
         return;
       }
-      if (truthDecision === 'navigate_ready') {
+	      if (truthDecision === 'navigate_ready') {
         vdbg('date_guard_ready_gate_branch', {
           sessionId,
           userId: user.id,
@@ -1085,8 +1085,8 @@ export default function VideoDateScreen() {
           readyGateStatus: vs.ready_gate_status ?? null,
           readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
         });
-        if (isDateEntryTransitionActive(sessionId)) return;
-        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
+	        clearDateEntryTransition(sessionId);
+	        rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_ready', {
           session_id: sessionId,
           user_id: user.id,
           queue_status: reg?.queue_status ?? null,
@@ -1099,7 +1099,7 @@ export default function VideoDateScreen() {
           routed_to: 'ready',
         });
         const target = readyGateHref(sessionId);
-        vdbgRedirect(target, 'in_ready_gate_without_date_entry_latch_or_handshake', {
+	        vdbgRedirect(target, 'in_ready_gate_without_provider_prepared_truth', {
           sessionId,
           userId: user.id,
           queueStatus: reg?.queue_status ?? null,
@@ -1108,10 +1108,10 @@ export default function VideoDateScreen() {
           handshakeStarted: Boolean(vs.handshake_started_at),
           latchActive: isDateEntryTransitionActive(sessionId),
         });
-        logJourney('date_route_bounced', {
-          reason: 'in_ready_gate_without_date_entry_latch_or_handshake',
-          target,
-        });
+	        logJourney('date_route_bounced', {
+	          reason: 'in_ready_gate_without_provider_prepared_truth',
+	          target,
+	        });
         router.replace(target);
         return;
       }
@@ -1989,9 +1989,11 @@ export default function VideoDateScreen() {
       const canSyncReconnect =
         enterHandshakeSucceededRef.current ||
         videoSessionRowIndicatesHandshakeOrDate(
-          session
+              session
             ? {
                 state: session.state ?? null,
+                daily_room_name: session.daily_room_name ?? null,
+                daily_room_url: session.daily_room_url ?? null,
                 handshake_started_at: session.handshake_started_at,
               }
             : null

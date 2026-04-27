@@ -50,7 +50,7 @@ export function SessionRouteHydration() {
     void (async () => {
       const { data: vs, error } = await supabase
         .from("video_sessions")
-        .select("ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at")
+        .select("ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
         .eq("id", sessionIdFromUrl)
         .maybeSingle();
 

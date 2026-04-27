@@ -295,7 +295,7 @@ const VideoDate = () => {
         supabase
           .from("video_sessions")
           .select(
-            "event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at"
+            "event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url"
           )
           .eq("id", id)
           .maybeSingle(),
@@ -367,7 +367,7 @@ const VideoDate = () => {
       if (!id || !user?.id) return;
       const { data: sessionRow } = await supabase
         .from("video_sessions")
-        .select("event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at")
+        .select("event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, daily_room_name, daily_room_url")
         .eq("id", id)
         .maybeSingle();
 
@@ -764,7 +764,7 @@ const VideoDate = () => {
       try {
         const { data: sessionRow, error: sessionErr } = await supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, event_id, daily_room_name, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
+          .select("participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, handshake_grace_expires_at")
           .eq("id", id)
           .maybeSingle();
 
@@ -892,7 +892,7 @@ const VideoDate = () => {
           const readyGateBranch = canAttemptDaily
             ? "daily_startable_staying"
             : rgStatus === "both_ready"
-              ? "both_ready_not_startable_redirecting"
+              ? "both_ready_not_provider_prepared_redirecting"
               : "no_both_ready_redirecting";
           vdbg("date_guard_ready_gate_branch", {
             sessionId: id,
@@ -901,8 +901,8 @@ const VideoDate = () => {
             branch: readyGateBranch,
             truthDecision: canAttemptDaily ? "navigate_date" : "stay_lobby",
             canAttemptDaily,
-            routeOverride: isDateEntryTransitionActive(id) ? "date_entry_latch" : null,
-            finalRoute: canAttemptDaily || isDateEntryTransitionActive(id) ? "date" : "lobby",
+            routeOverride: null,
+            finalRoute: canAttemptDaily ? "date" : "lobby",
             readyGateStatus: rgStatus,
             readyGateExpiresAt: rgExpiresRaw,
             latchActive: isDateEntryTransitionActive(id),
@@ -910,8 +910,9 @@ const VideoDate = () => {
             phase: sessionRow.phase,
             handshakeStarted: Boolean(sessionRow.handshake_started_at),
           });
-          const allowEntry = canAttemptDaily || isDateEntryTransitionActive(id);
+          const allowEntry = canAttemptDaily;
           if (!allowEntry) {
+            clearDateEntryTransition(id);
             videoDateDebug("bouncing ready_gate session back to lobby", {
               sessionId: id,
               eventId: sessionRow.event_id,
@@ -921,7 +922,7 @@ const VideoDate = () => {
             });
             videoDateDebug("date_refresh_routing", {
               outcome: "redirect_lobby",
-              reason: "in_ready_gate_without_date_entry_latch_or_handshake",
+              reason: "in_ready_gate_without_provider_prepared_truth",
               sessionId: id,
               queueStatus: reg.queue_status,
               sessionTruth: {
@@ -935,7 +936,7 @@ const VideoDate = () => {
               target: `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`,
             });
             const target = `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`;
-            vdbgRedirect(target, "in_ready_gate_without_date_entry_latch_or_handshake", {
+            vdbgRedirect(target, "in_ready_gate_without_provider_prepared_truth", {
               sessionId: id,
               userId: user.id,
               eventId: sessionRow.event_id,
@@ -946,7 +947,7 @@ const VideoDate = () => {
               latchActive: isDateEntryTransitionActive(id),
             });
             logJourney("date_route_bounced", {
-              reason: "in_ready_gate_without_date_entry_latch_or_handshake",
+              reason: "in_ready_gate_without_provider_prepared_truth",
               target,
             });
             navigate(target, { replace: true });

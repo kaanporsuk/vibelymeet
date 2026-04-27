@@ -100,7 +100,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
 
   const { data: vs } = await supabase
     .from('video_sessions')
-    .select('event_id, ended_at, ready_gate_status, participant_1_id, participant_2_id')
+    .select('event_id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url, participant_1_id, participant_2_id')
     .eq('id', sid)
     .maybeSingle();
 

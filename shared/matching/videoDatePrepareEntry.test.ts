@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS,
   clearPreparedVideoDateEntryCache,
+  createVideoDateEntryAttemptId,
   getCachedPreparedVideoDateEntry,
   prepareVideoDateEntryWithClient,
   rejectCachedPreparedVideoDateEntry,
@@ -26,14 +27,17 @@ function successPayload() {
 test("prepareVideoDateEntryWithClient caches a successful token by session and user", async () => {
   clearPreparedVideoDateEntryCache();
   let calls = 0;
+  let sentAttemptId: string | null = null;
 
   const first = await prepareVideoDateEntryWithClient({
     sessionId: SESSION_ID,
     userId: USER_ID,
     nowMs: 1000,
+    entryAttemptId: "attempt-cache-1",
     bothReadyObservedAtMs: 900,
-    invoke: async () => {
+    invoke: async ({ entryAttemptId }) => {
       calls += 1;
+      sentAttemptId = entryAttemptId;
       return { data: successPayload() };
     },
     classifyFailure: async () => ({ kind: "unknown", retryable: false }),
@@ -42,6 +46,9 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
   assert.equal(first.ok, true);
   assert.equal(first.ok && first.cached, false);
   assert.equal(calls, 1);
+  assert.equal(sentAttemptId, "attempt-cache-1");
+  assert.equal(first.ok && first.data.entry_attempt_id, "attempt-cache-1");
+  assert.equal(first.ok && first.cacheEntry.entryAttemptId, "attempt-cache-1");
 
   const cached = await prepareVideoDateEntryWithClient({
     sessionId: SESSION_ID,
@@ -56,6 +63,7 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
 
   assert.equal(cached.ok, true);
   assert.equal(cached.ok && cached.cached, true);
+  assert.equal(cached.ok && cached.data.entry_attempt_id, "attempt-cache-1");
   assert.equal(calls, 1);
   assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 2000)?.value.token, "short-lived-client-token");
 });
@@ -191,4 +199,37 @@ test("prepareVideoDateEntryWithClient uses short TTL and refreshes after join-fa
   assert.equal(afterJoinFailure.ok && afterJoinFailure.cached, false);
   assert.equal(afterJoinFailure.ok && afterJoinFailure.data.token, "fresh-after-join-failure");
   assert.equal(calls, 2);
+});
+
+test("prepareVideoDateEntryWithClient generates and returns an entry attempt id on failure", async () => {
+  clearPreparedVideoDateEntryCache();
+  let sentAttemptId: string | null = null;
+
+  const result = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1234,
+    invoke: async ({ entryAttemptId }) => {
+      sentAttemptId = entryAttemptId;
+      return {
+        data: { success: false, code: "DB_ROOM_PERSIST_FAILED", error: "persist failed" },
+        response: new Response(JSON.stringify({ code: "DB_ROOM_PERSIST_FAILED" }), { status: 503 }),
+      };
+    },
+    classifyFailure: async () => ({
+      kind: "DB_ROOM_PERSIST_FAILED",
+      serverCode: "DB_ROOM_PERSIST_FAILED",
+      httpStatus: 503,
+      retryable: true,
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(sentAttemptId ?? "", /^vde_|^[0-9a-f-]{36}$/i);
+  assert.equal(result.ok === false && result.entryAttemptId, sentAttemptId);
+});
+
+test("createVideoDateEntryAttemptId has a stable fallback prefix", () => {
+  const id = createVideoDateEntryAttemptId(1234);
+  assert.ok(id.length > 10);
 });

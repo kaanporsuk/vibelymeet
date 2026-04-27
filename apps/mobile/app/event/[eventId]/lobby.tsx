@@ -90,7 +90,7 @@ function logVdbgSessionStage(message: string, sessionId: string, data?: Record<s
   vdbg(message, { sessionId, ...(data ?? {}) });
   void supabase
     .from('video_sessions')
-    .select('id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name')
+    .select('id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url')
     .eq('id', sessionId)
     .maybeSingle()
     .then(({ data: row, error }) => {
@@ -652,7 +652,7 @@ export default function EventLobbyScreen() {
       if (!user?.id) return;
       const { data: session } = await supabase
         .from('video_sessions')
-        .select('participant_1_id, participant_2_id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name')
+        .select('participant_1_id, participant_2_id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url')
         .eq('id', sessionId)
         .maybeSingle();
       vdbg('ready_gate_open_loaded_session', {
@@ -925,10 +925,9 @@ export default function EventLobbyScreen() {
             await openReadyGateWithSession(session.id as string, 'video_session_update');
             return;
           }
-          // If this participant's session has already moved into active video phases,
-          // route out of lobby even if ready-gate transitions were missed.
-          const phase = session.state as string | undefined;
-          if (phase === 'handshake' || phase === 'date') {
+          // If this participant's session has already moved into provider-confirmed
+          // video truth, route out of lobby even if ready-gate transitions were missed.
+          if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
             navigateToDateSession(session.id as string, 'video_session_update', 'replace');
           }
         }
@@ -961,8 +960,7 @@ export default function EventLobbyScreen() {
             await openReadyGateWithSession(sid, 'video_session_insert');
             return;
           }
-          const phase = session.state as string | undefined;
-          if (phase === 'handshake' || phase === 'date') {
+          if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
             navigateToDateSession(sid, 'video_session_insert', 'replace');
           }
         }

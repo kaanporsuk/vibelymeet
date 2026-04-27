@@ -104,6 +104,13 @@ function isDailyProviderError(error: unknown): error is DailyProviderError {
   return error instanceof DailyProviderError;
 }
 
+function sanitizeEntryAttemptId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 120) return null;
+  return /^[A-Za-z0-9_.:-]+$/.test(trimmed) ? trimmed : null;
+}
+
 function toSafeProviderCode(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -204,6 +211,7 @@ function logDailyProviderFailure(
     roomName?: string | null;
     matchId?: string | null;
     callId?: string | null;
+    entryAttemptId?: string | null;
   } = {},
 ) {
   console.error(
@@ -218,6 +226,7 @@ function logDailyProviderFailure(
       match_id: context.matchId ?? null,
       call_id: context.callId ?? null,
       action: context.action ?? null,
+      entry_attempt_id: context.entryAttemptId ?? null,
       vibely_code: error.vibelyCode,
       http_status: error.httpStatus,
     }),
@@ -231,12 +240,14 @@ function createDailyProviderFailureResponse(params: {
   userId: string;
   requestContext: ClientRequestContext;
   session?: VideoDateRoomGateSession | null;
+  entryAttemptId?: string | null;
 }) {
   logDailyProviderFailure(params.error, {
     action: params.action,
     sessionId: params.session?.id ?? params.sessionId ?? null,
     userId: params.userId,
     roomName: params.error.roomName,
+    entryAttemptId: params.entryAttemptId ?? null,
   });
   return createDateRoomRejectResponse({
     action: params.action,
@@ -250,6 +261,7 @@ function createDailyProviderFailureResponse(params: {
     session: params.session,
     detail: params.error.message,
     extra: {
+      entry_attempt_id: params.entryAttemptId ?? null,
       operation: params.error.operation,
       provider_status: params.error.status,
       provider_code: params.error.providerCode,
@@ -413,12 +425,10 @@ function createBlockedMatchCallResponse(params: {
   );
 }
 
-/** Server-owned: allow Daily token only for active handshake/date states or non-expired both_ready gate. */
+/** Server-owned: allow Daily token only after provider-prepared handshake/date truth is confirmed. */
 function canIssueVideoDateRoomToken(session: {
   ended_at: string | null;
   handshake_started_at: string | null;
-  ready_gate_status: string | null;
-  ready_gate_expires_at: string | null;
   state: string | null;
 }): boolean {
   if (session.ended_at) return false;
@@ -429,67 +439,73 @@ function canIssueVideoDateRoomToken(session: {
   ) {
     return true;
   }
-
-  if (session.ready_gate_status !== "both_ready") return false;
-
-  if (!session.ready_gate_expires_at) return false;
-  const gateDeadline = new Date(session.ready_gate_expires_at).getTime();
-  if (Number.isNaN(gateDeadline)) return false;
-  return gateDeadline > Date.now();
+  return false;
 }
 
-async function markVideoDateEntryPrepared(
+async function persistVideoDateRoomMetadata(
   serviceClient: ReturnType<typeof createClient>,
-  session: Pick<
-    VideoDateRoomGateSession,
-    "id" | "participant_1_id" | "participant_2_id" | "state" | "phase"
-  > & { event_id?: string | null; date_started_at?: string | null },
-) {
-  const eventId = session.event_id ?? null;
-  const p1 = session.participant_1_id ?? null;
-  const p2 = session.participant_2_id ?? null;
-  if (!eventId || !p1 || !p2) return;
+  params: {
+    sessionId: string;
+    roomName: string;
+    roomUrl: string;
+    userId: string;
+    action: DateRoomAction;
+    entryAttemptId?: string | null;
+  },
+): Promise<{ ok: true } | { ok: false; code: "DB_ROOM_PERSIST_FAILED"; detail: string | null }> {
+  const { data, error } = await serviceClient
+    .from("video_sessions")
+    .update({ daily_room_name: params.roomName, daily_room_url: params.roomUrl })
+    .eq("id", params.sessionId)
+    .is("ended_at", null)
+    .select("id")
+    .maybeSingle();
 
-  const queueStatus =
-    session.date_started_at || session.state === "date" || session.phase === "date"
-      ? "in_date"
-      : "in_handshake";
-
-  const timestamp = new Date().toISOString();
-  const [p1Update, p2Update] = await Promise.all([
-    serviceClient
-      .from("event_registrations")
-      .update({
-        queue_status: queueStatus,
-        current_room_id: session.id,
-        current_partner_id: p2,
-        last_active_at: timestamp,
-      })
-      .eq("event_id", eventId)
-      .eq("profile_id", p1),
-    serviceClient
-      .from("event_registrations")
-      .update({
-        queue_status: queueStatus,
-        current_room_id: session.id,
-        current_partner_id: p1,
-        last_active_at: timestamp,
-      })
-      .eq("event_id", eventId)
-      .eq("profile_id", p2),
-  ]);
-
-  const error = p1Update.error ?? p2Update.error;
-
-  if (error) {
+  if (error || !data) {
     console.log(JSON.stringify({
-      event: "prepare_date_entry_registration_update_failed",
-      session_id: session.id,
-      event_id: eventId,
-      code: error.code ?? null,
-      message: error.message,
+      event: "video_date_room_metadata_persist_failed",
+      action: params.action,
+      session_id: params.sessionId,
+      user_id: params.userId,
+      room_name: params.roomName,
+      entry_attempt_id: params.entryAttemptId ?? null,
+      code: error?.code ?? null,
+      message: error?.message ?? (!data ? "no_session_row_updated" : null),
     }));
+    return {
+      ok: false,
+      code: "DB_ROOM_PERSIST_FAILED",
+      detail: error?.message ?? "no_session_row_updated",
+    };
   }
+
+  console.log(JSON.stringify({
+    event: "video_date_room_metadata_persisted",
+    action: params.action,
+    session_id: params.sessionId,
+    user_id: params.userId,
+    room_name: params.roomName,
+    entry_attempt_id: params.entryAttemptId ?? null,
+  }));
+  return { ok: true };
+}
+
+async function confirmVideoDateEntryPrepared(
+  serviceClient: ReturnType<typeof createClient>,
+  params: {
+    sessionId: string;
+    roomName: string;
+    roomUrl: string;
+    entryAttemptId?: string | null;
+  },
+): Promise<{ data: PrepareEntryTransitionPayload | null; error: unknown }> {
+  const { data, error } = await serviceClient.rpc("confirm_video_date_entry_prepared", {
+    p_session_id: params.sessionId,
+    p_room_name: params.roomName,
+    p_room_url: params.roomUrl,
+    p_entry_attempt_id: params.entryAttemptId ?? null,
+  });
+  return { data: (data ?? null) as PrepareEntryTransitionPayload | null, error };
 }
 
 async function isPairBlocked(
@@ -788,6 +804,7 @@ type PrepareEntryTransitionPayload = {
   success?: boolean;
   code?: string;
   error?: string;
+  preflight_only?: boolean;
   state?: string | null;
   phase?: string | null;
   event_id?: string | null;
@@ -796,6 +813,9 @@ type PrepareEntryTransitionPayload = {
   handshake_started_at?: string | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
+  daily_room_name?: string | null;
+  daily_room_url?: string | null;
+  entry_attempt_id?: string | null;
 };
 
 function statusForPrepareEntryCode(code?: string): number {
@@ -803,6 +823,7 @@ function statusForPrepareEntryCode(code?: string): number {
   if (code === "SESSION_NOT_FOUND") return 404;
   if (code === "SESSION_ENDED") return 410;
   if (code === "BLOCKED_PAIR" || code === "ACCESS_DENIED" || code === "READY_GATE_NOT_READY") return 403;
+  if (code === "DB_ROOM_PERSIST_FAILED" || code === "REGISTRATION_PERSIST_FAILED") return 503;
   return 500;
 }
 
@@ -946,6 +967,7 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action, sessionId, matchId, callType, callId } = body;
+    const entryAttemptId = sanitizeEntryAttemptId(body?.entry_attempt_id ?? body?.entryAttemptId);
     actionForLog = typeof action === "string" ? action : null;
 
     // All actions require auth
@@ -1140,6 +1162,7 @@ serve(async (req) => {
         const { data: prepareData, error: prepareError } = await supabase.rpc("video_date_transition", {
           p_session_id: sessionId,
           p_action: "prepare_entry",
+          p_reason: entryAttemptId ? `entry_attempt:${entryAttemptId}` : null,
         });
         timings.prepare_rpc_ms = Date.now() - prepareStartedAt;
 
@@ -1171,6 +1194,7 @@ serve(async (req) => {
             requestContext,
             session: sessionForLog,
             detail: prepareError ? prepareError.message : null,
+            extra: { entry_attempt_id: entryAttemptId },
           });
         }
 
@@ -1186,6 +1210,7 @@ serve(async (req) => {
             error: "Access denied",
             requestContext,
             session: sessionForLog,
+            extra: { entry_attempt_id: entryAttemptId },
           });
         }
 
@@ -1220,6 +1245,7 @@ serve(async (req) => {
             requestContext,
             session: sessionForLog,
             detail: sessionError ? sessionError.message : null,
+            extra: { entry_attempt_id: entryAttemptId },
           });
         }
 
@@ -1235,6 +1261,7 @@ serve(async (req) => {
             error: "Session has ended",
             requestContext,
             session: sessionForLog,
+            extra: { entry_attempt_id: entryAttemptId },
           });
         }
 
@@ -1246,9 +1273,9 @@ serve(async (req) => {
         let providerRoomRecreated = false;
         let providerVerifySkipped = false;
 
-        // Provider-idempotent prepare-entry contract: session state is row-locked in
-        // video_date_transition('prepare_entry'), then this function uses a
-        // deterministic room name, treats Daily "already exists" as success, and
+        // Provider-idempotent prepare-entry contract: video_date_transition('prepare_entry')
+        // validates the row without making it routeable, then this function uses
+        // a deterministic room name, treats Daily "already exists" as success, and
         // writes the same room_name/room_url values idempotently. Holding a DB
         // advisory lock across outbound Daily HTTP would require a long-lived DB
         // transaction from the Edge Function, so the bounded safe contract is
@@ -1273,11 +1300,28 @@ serve(async (req) => {
             await createDailyRoom(roomName, videoDateRoomProperties());
             reusedRoom = false;
           }
-          await serviceClient
-            .from("video_sessions")
-            .update({ daily_room_name: roomName, daily_room_url: roomUrl })
-            .eq("id", sessionId)
-            .is("ended_at", null);
+          const persisted = await persistVideoDateRoomMetadata(serviceClient, {
+            sessionId,
+            roomName,
+            roomUrl,
+            userId: user.id,
+            action: actionName,
+            entryAttemptId,
+          });
+          if (!persisted.ok) {
+            return createDateRoomRejectResponse({
+              action: actionName,
+              sessionId,
+              userId: user.id,
+              status: statusForPrepareEntryCode(persisted.code),
+              code: persisted.code,
+              error: "Could not persist video room metadata",
+              requestContext,
+              session: sessionForLog,
+              detail: persisted.detail,
+              extra: { entry_attempt_id: entryAttemptId, operation: "persist_room_metadata" },
+            });
+          }
         } else if (shouldSkipDailyProviderVerifyForVideoDate(sessionForLog)) {
           providerVerifySkipped = true;
           console.log(JSON.stringify({
@@ -1302,11 +1346,28 @@ serve(async (req) => {
               await deleteDailyRoom(roomName);
             }
             await createDailyRoom(roomName, videoDateRoomProperties());
-            await serviceClient
-              .from("video_sessions")
-              .update({ daily_room_name: roomName, daily_room_url: roomUrl })
-              .eq("id", sessionId)
-              .is("ended_at", null);
+            const persisted = await persistVideoDateRoomMetadata(serviceClient, {
+              sessionId,
+              roomName,
+              roomUrl,
+              userId: user.id,
+              action: actionName,
+              entryAttemptId,
+            });
+            if (!persisted.ok) {
+              return createDateRoomRejectResponse({
+                action: actionName,
+                sessionId,
+                userId: user.id,
+                status: statusForPrepareEntryCode(persisted.code),
+                code: persisted.code,
+                error: "Could not persist video room metadata",
+                requestContext,
+                session: sessionForLog,
+                detail: persisted.detail,
+                extra: { entry_attempt_id: entryAttemptId, operation: "persist_room_metadata" },
+              });
+            }
             reusedRoom = false;
             providerRoomRecreated = true;
           }
@@ -1316,23 +1377,52 @@ serve(async (req) => {
         const tokenStartedAt = Date.now();
         const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
         timings.token_ms = Date.now() - tokenStartedAt;
-        timings.total_ms = Date.now() - totalStartedAt;
-        await markVideoDateEntryPrepared(serviceClient, {
-          ...(sessionRow as VideoDateRoomGateSession),
-          event_id: (sessionRow as { event_id?: string | null }).event_id ?? null,
-          date_started_at: (sessionRow as { date_started_at?: string | null }).date_started_at ?? null,
+        const confirmStartedAt = Date.now();
+        const { data: confirmPayload, error: confirmError } = await confirmVideoDateEntryPrepared(serviceClient, {
+          sessionId,
+          roomName,
+          roomUrl,
+          entryAttemptId,
         });
+        timings.confirm_prepare_ms = Date.now() - confirmStartedAt;
+        timings.total_ms = Date.now() - totalStartedAt;
+        if (confirmError || confirmPayload?.success !== true) {
+          const code = confirmPayload?.code ?? (confirmError ? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN");
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: statusForPrepareEntryCode(code),
+            code,
+            error: confirmPayload?.error ?? "Could not persist date routing state",
+            requestContext,
+            session: sessionForLog,
+            detail: confirmError instanceof Error ? confirmError.message : confirmError ? String(confirmError) : null,
+            extra: { entry_attempt_id: entryAttemptId, operation: "confirm_prepare_entry" },
+          });
+        }
+        sessionForLog = {
+          ...(sessionRow as VideoDateRoomGateSession),
+          daily_room_name: confirmPayload.daily_room_name ?? roomName,
+          daily_room_url: confirmPayload.daily_room_url ?? roomUrl,
+          state: confirmPayload.state ?? null,
+          phase: confirmPayload.phase ?? null,
+          handshake_started_at: confirmPayload.handshake_started_at ?? null,
+          ready_gate_status: confirmPayload.ready_gate_status ?? null,
+          ready_gate_expires_at: confirmPayload.ready_gate_expires_at ?? null,
+        };
 
         console.log(JSON.stringify({
           event: "prepare_date_entry_ok",
           session_id: sessionId,
           user_id: user.id,
+          entry_attempt_id: entryAttemptId,
           room_name: roomName,
           reused_room: reusedRoom,
           provider_room_recreated: providerRoomRecreated,
           provider_verify_skipped: providerVerifySkipped,
-          state: preparePayload.state ?? null,
-          phase: preparePayload.phase ?? null,
+          state: confirmPayload.state ?? null,
+          phase: confirmPayload.phase ?? null,
           timings,
         }));
 
@@ -1342,9 +1432,10 @@ serve(async (req) => {
             room_name: roomName,
             room_url: roomUrl,
             token,
-            session_state: preparePayload.state ?? null,
-            session_phase: preparePayload.phase ?? null,
-            handshake_started_at: preparePayload.handshake_started_at ?? null,
+            session_state: confirmPayload.state ?? null,
+            session_phase: confirmPayload.phase ?? null,
+            handshake_started_at: confirmPayload.handshake_started_at ?? null,
+            entry_attempt_id: entryAttemptId,
             reused_room: reusedRoom,
             provider_room_recreated: providerRoomRecreated,
             provider_verify_skipped: providerVerifySkipped,
@@ -1361,6 +1452,7 @@ serve(async (req) => {
             userId: user.id,
             requestContext,
             session: sessionForLog,
+            entryAttemptId,
           });
         }
         return createDateRoomRejectResponse({
@@ -1373,6 +1465,7 @@ serve(async (req) => {
           requestContext,
           session: sessionForLog,
           detail: error instanceof Error ? error.message : String(error),
+          extra: { entry_attempt_id: entryAttemptId },
         });
       }
     }
@@ -1485,10 +1578,28 @@ serve(async (req) => {
             eject_at_room_exp: true,
           });
 
-          await serviceClient
-            .from("video_sessions")
-            .update({ daily_room_name: roomName, daily_room_url: roomUrl })
-            .eq("id", sessionId);
+          const persisted = await persistVideoDateRoomMetadata(serviceClient, {
+            sessionId,
+            roomName,
+            roomUrl,
+            userId: user.id,
+            action,
+            entryAttemptId,
+          });
+          if (!persisted.ok) {
+            return createDateRoomRejectResponse({
+              action,
+              sessionId,
+              userId: user.id,
+              status: statusForPrepareEntryCode(persisted.code),
+              code: persisted.code,
+              error: "Could not persist video room metadata",
+              requestContext,
+              session,
+              detail: persisted.detail,
+              extra: { entry_attempt_id: entryAttemptId, operation: "persist_room_metadata" },
+            });
+          }
           reusedRoom = false;
         } else if (shouldSkipDailyProviderVerifyForVideoDate(session)) {
           providerVerifySkipped = true;
@@ -1523,21 +1634,55 @@ serve(async (req) => {
               exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
               eject_at_room_exp: true,
             });
-            await serviceClient
-              .from("video_sessions")
-              .update({ daily_room_name: roomName, daily_room_url: roomUrl })
-              .eq("id", sessionId);
+            const persisted = await persistVideoDateRoomMetadata(serviceClient, {
+              sessionId,
+              roomName,
+              roomUrl,
+              userId: user.id,
+              action,
+              entryAttemptId,
+            });
+            if (!persisted.ok) {
+              return createDateRoomRejectResponse({
+                action,
+                sessionId,
+                userId: user.id,
+                status: statusForPrepareEntryCode(persisted.code),
+                code: persisted.code,
+                error: "Could not persist video room metadata",
+                requestContext,
+                session,
+                detail: persisted.detail,
+                extra: { entry_attempt_id: entryAttemptId, operation: "persist_room_metadata" },
+              });
+            }
             reusedRoom = false;
             providerRoomRecreated = true;
           }
         }
 
         const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
-        await markVideoDateEntryPrepared(serviceClient, {
-          ...session,
-          event_id: (session as { event_id?: string | null }).event_id ?? null,
-          date_started_at: (session as { date_started_at?: string | null }).date_started_at ?? null,
+        const { data: confirmPayload, error: confirmError } = await confirmVideoDateEntryPrepared(serviceClient, {
+          sessionId,
+          roomName,
+          roomUrl,
+          entryAttemptId,
         });
+        if (confirmError || confirmPayload?.success !== true) {
+          const code = confirmPayload?.code ?? (confirmError ? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN");
+          return createDateRoomRejectResponse({
+            action,
+            sessionId,
+            userId: user.id,
+            status: statusForPrepareEntryCode(code),
+            code,
+            error: confirmPayload?.error ?? "Could not persist date routing state",
+            requestContext,
+            session,
+            detail: confirmError instanceof Error ? confirmError.message : confirmError ? String(confirmError) : null,
+            extra: { entry_attempt_id: entryAttemptId, operation: "confirm_prepare_entry" },
+          });
+        }
 
         return new Response(
           JSON.stringify({
@@ -1547,6 +1692,7 @@ serve(async (req) => {
             reused_room: reusedRoom,
             provider_room_recreated: providerRoomRecreated,
             provider_verify_skipped: providerVerifySkipped,
+            entry_attempt_id: entryAttemptId,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -1559,6 +1705,7 @@ serve(async (req) => {
             userId: user.id,
             requestContext,
             session,
+            entryAttemptId,
           });
         }
         return createDateRoomRejectResponse({
@@ -1571,6 +1718,7 @@ serve(async (req) => {
           requestContext,
           session,
           detail: error instanceof Error ? error.message : String(error),
+          extra: { entry_attempt_id: entryAttemptId },
         });
       }
     }

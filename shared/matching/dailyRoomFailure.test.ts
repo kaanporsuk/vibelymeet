@@ -41,3 +41,21 @@ test("classifies provider rejected Daily requests as non-retryable", async () =>
   assert.equal(failure.kind, "DAILY_REQUEST_REJECTED");
   assert.equal(failure.retryable, false);
 });
+
+test("classifies provider-atomic persistence failures as retryable", async () => {
+  const roomPersist = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    data: { code: "DB_ROOM_PERSIST_FAILED" },
+    response: new Response(JSON.stringify({ code: "DB_ROOM_PERSIST_FAILED" }), { status: 503 }),
+  });
+  assert.equal(roomPersist.kind, "DB_ROOM_PERSIST_FAILED");
+  assert.equal(roomPersist.retryable, true);
+
+  const registrationPersist = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    data: { code: "REGISTRATION_PERSIST_FAILED" },
+    response: new Response(JSON.stringify({ code: "REGISTRATION_PERSIST_FAILED" }), { status: 503 }),
+  });
+  assert.equal(registrationPersist.kind, "REGISTRATION_PERSIST_FAILED");
+  assert.equal(registrationPersist.retryable, true);
+});
