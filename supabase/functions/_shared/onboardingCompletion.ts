@@ -8,6 +8,7 @@
 
 import {
   getOnboardingStageForStep,
+  sanitizeOnboardingData,
   type OnboardingData,
   type OnboardingStage,
 } from "./onboardingTypes";
@@ -110,7 +111,7 @@ export async function saveOnboardingDraft(
       p_user_id: userId,
       p_step: step,
       p_stage: stage,
-      p_data: data as unknown as Record<string, unknown>,
+      p_data: sanitizeOnboardingData(data) as unknown as Record<string, unknown>,
       p_schema_version: 2,
       p_platform: platform,
     });
@@ -191,7 +192,8 @@ export interface CompletionDeps {
 export async function executeOnboardingCompletion(
   deps: CompletionDeps,
 ): Promise<CompletionResult> {
-  const { supabase, userId, data, platform, authMethod, startedAt } = deps;
+  const { supabase, userId, platform, authMethod, startedAt } = deps;
+  const data = sanitizeOnboardingData(deps.data);
 
   try {
     const { data: rpcResult, error: rpcError } = await supabase.rpc(

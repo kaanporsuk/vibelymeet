@@ -51,6 +51,15 @@ export function HeroVideoStatusCard({
         }
       : null,
   );
+  const controllerInfo = resolveWebVibeVideoState(
+    ctrl.videoId
+      ? {
+          bunny_video_uid: ctrl.videoId,
+          bunny_video_status: ctrl.phase,
+          vibe_caption: profile?.vibeCaption,
+        }
+      : null,
+  );
 
   // Reset thumbnail error when the video UID changes
   useEffect(() => {
@@ -64,14 +73,14 @@ export function HeroVideoStatusCard({
   const controllerIsActive =
     ctrl.phase === "uploading" || ctrl.phase === "processing";
   const controllerIsTerminal =
-    ctrl.phase === "ready" || ctrl.phase === "failed";
+    ctrl.phase === "ready" || ctrl.phase === "failed" || ctrl.phase === "stalled";
 
   const effectivePhase =
     controllerIsActive || controllerIsTerminal ? ctrl.phase : backendInfo.state;
 
   // ── Ready ──────────────────────────────────────────────────────────────────
   if (effectivePhase === "ready") {
-    const info = backendInfo;
+    const info = ctrl.phase === "ready" && controllerInfo.uid ? controllerInfo : backendInfo;
     const isPlayable = info.canPlay && !!info.playbackUrl;
     return (
       <div className={cn("rounded-2xl overflow-hidden bg-white/5 border border-white/10", className)}>
@@ -225,6 +234,31 @@ export function HeroVideoStatusCard({
     );
   }
 
+  // ── Stalled ────────────────────────────────────────────────────────────────
+  if (effectivePhase === "stalled") {
+    return (
+      <div className={cn("rounded-2xl bg-white/5 border border-amber-500/25 p-5", className)}>
+        <div className="flex items-start gap-3 mb-3">
+          <AlertCircle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">Still preparing your Vibe Video</p>
+            <p className="text-xs text-gray-400 mt-0.5 break-words">
+              {ctrl.errorMessage ?? "This is taking longer than usual. Your video is still on file."}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenRecorder}
+          className="flex items-center gap-1.5 text-xs font-semibold text-amber-200 hover:text-amber-100 transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Replace video
+        </button>
+      </div>
+    );
+  }
+
   // ── Profile-sourced in-pipeline states (uploading/processing from backend
   //    when controller is idle — e.g. after page reload mid-processing) ────────
   if (backendInfo.state === "uploading" || backendInfo.state === "processing") {
@@ -239,10 +273,18 @@ export function HeroVideoStatusCard({
                 : "Processing your Vibe Video"}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Preparing for playback. Refresh to check the latest status.
+              Preparing for playback. If it stays here, open Studio to replace or delete it.
             </p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onOpenRecorder}
+          className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-violet-200 hover:text-violet-100 transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Open Studio
+        </button>
       </div>
     );
   }

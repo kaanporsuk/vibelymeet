@@ -4,8 +4,6 @@
  * authoritative backend score contract.
  */
 
-import { normalizeBunnyVideoStatus } from "@/lib/vibeVideo/webVibeVideoState";
-
 export type VibeScoreActionId =
   | "vibes"
   | "photos"
@@ -128,8 +126,7 @@ export function getIncompleteVibeScoreActions(profile: VibeScoreProfileSnapshot)
   }
 
   const videoUid = profile.bunnyVideoUid?.trim();
-  const videoStatus = normalizeBunnyVideoStatus(profile.bunnyVideoStatus);
-  if (!videoUid || videoStatus !== "ready") {
+  if (!videoUid) {
     out.push({
       id: "vibe_video",
       label: "Add Vibe Video",

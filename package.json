@@ -19,6 +19,7 @@
     "proof:vibe-upload-processing": "node scripts/fresh-vibe-upload-processing-proof.mjs",
     "launch:preflight": "node scripts/native-launch-preflight.mjs",
     "test:auth-redirect-contract": "tsx scripts/auth-redirect-contract.test.ts",
+    "test:vibe-video-contract": "tsx scripts/vibe-video-contract.test.ts && tsx supabase/functions/_shared/onboardingTypes.test.ts",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",
     "audit:surfaces": "node scripts/surface-inventory-audit.mjs",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts"

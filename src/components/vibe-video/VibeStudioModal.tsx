@@ -17,6 +17,8 @@ interface VibeStudioModalProps {
   onSave?: (videoUrl: string, caption?: string) => void;
   existingVideoUrl?: string;
   existingCaption?: string;
+  uploadContext?: "onboarding" | "profile_studio";
+  onConfirmed?: () => void;
 }
 
 const COACH_TIPS = [
@@ -34,6 +36,8 @@ export const VibeStudioModal = ({
   open,
   onOpenChange,
   existingCaption = "",
+  uploadContext = "profile_studio",
+  onConfirmed,
 }: VibeStudioModalProps) => {
   // Stages: idle → recording → preview (local)
   // After confirm, modal closes immediately; controller owns the upload/processing states.
@@ -48,6 +52,7 @@ export const VibeStudioModal = ({
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [vibeCaption, setVibeCaption] = useState(existingCaption);
+  const [captionEdited, setCaptionEdited] = useState(false);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
@@ -326,7 +331,10 @@ export const VibeStudioModal = ({
     }
 
     stopCameraTracks();
-    heroVideoStart(file, vibeCaption.trim() || undefined);
+    const existingTrimmed = existingCaption.trim();
+    const captionForUpload = captionEdited || existingTrimmed.length > 0 ? vibeCaption.trim() : undefined;
+    heroVideoStart(file, captionForUpload, uploadContext);
+    onConfirmed?.();
 
     // Close modal immediately — user returns to You page while upload runs in background
     onOpenChange(false);
@@ -336,12 +344,13 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
-    setVibeCaption("");
+    setVibeCaption(existingCaption);
+    setCaptionEdited(false);
 
     void import("@/lib/analytics").then(({ trackEvent }) => {
       trackEvent('vibe_video_confirmed');
     });
-  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, onOpenChange, stopCameraTracks]);
+  }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption]);
 
   const handleClose = useCallback(() => {
     onOpenChange(false);
@@ -358,7 +367,9 @@ export const VibeStudioModal = ({
     setRecordedVideoUrl(null);
     setRecordedBlob(null);
     setUploadedFile(null);
-  }, [onOpenChange, recordedVideoUrl, stopCameraTracks]);
+    setVibeCaption(existingCaption);
+    setCaptionEdited(false);
+  }, [onOpenChange, recordedVideoUrl, stopCameraTracks, existingCaption]);
 
   const toggleMic = useCallback(() => {
     if (streamRef.current) {
@@ -475,11 +486,12 @@ export const VibeStudioModal = ({
     };
   }, [stage, recordedVideoUrl]);
 
-  // Reset caption when opening studio
+  // Seed the editor from the current profile caption when opening studio.
   useEffect(() => {
     if (!open) return;
-    setVibeCaption("");
-  }, [open]);
+    setVibeCaption(existingCaption);
+    setCaptionEdited(false);
+  }, [open, existingCaption]);
 
   const progress = ((RECORDING_DURATION - countdown) / RECORDING_DURATION) * 100;
 
@@ -600,7 +612,10 @@ export const VibeStudioModal = ({
                       <input
                         type="text"
                         value={vibeCaption}
-                        onChange={(e) => setVibeCaption(e.target.value)}
+                        onChange={(e) => {
+                          setCaptionEdited(true);
+                          setVibeCaption(e.target.value);
+                        }}
                         placeholder="Seeking a partner in crime..."
                         maxLength={50}
                         className="w-full px-4 py-3 rounded-xl bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary"

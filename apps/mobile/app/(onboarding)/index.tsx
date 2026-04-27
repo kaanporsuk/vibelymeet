@@ -15,6 +15,7 @@ import {
   ONBOARDING_LEGACY_STORAGE_KEYS,
   writeLocalDraftCache,
   readLocalDraftCache,
+  normalizeBunnyVideoUid,
 } from '@shared/onboardingTypes';
 
 const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
@@ -203,17 +204,18 @@ export default function OnboardingV2Screen() {
     const rawRecorded = Array.isArray(params.onboardingVideoRecorded) ? params.onboardingVideoRecorded[0] : params.onboardingVideoRecorded;
     const rawToken = Array.isArray(params.onboardingVideoToken) ? params.onboardingVideoToken[0] : params.onboardingVideoToken;
 
-    const videoUid = typeof rawUid === 'string' ? rawUid.trim() : '';
+    const videoUid = normalizeBunnyVideoUid(rawUid);
     const videoRecorded = rawRecorded === '1';
     const token = typeof rawToken === 'string' ? rawToken : null;
 
-    if (!videoRecorded || !videoUid || !token) return;
+    if (!videoRecorded || !token) return;
     if (handledVideoTokenRef.current === token) return;
     handledVideoTokenRef.current = token;
 
     updateField('vibeVideoRecorded', true);
-    // Hint for draft / analytics only; finalize reads profiles.bunny_video_uid when present.
-    updateField('bunnyVideoUid', videoUid);
+    if (videoUid) {
+      updateField('bunnyVideoUid', videoUid);
+    }
 
     const vibeStepIndex = needsEmailCollection ? 13 : 12;
     if (currentStep === vibeStepIndex) {
@@ -303,9 +305,8 @@ export default function OnboardingV2Screen() {
 
     try {
       setCompletionError(null);
-      // finalize_onboarding copies `bunnyVideoUid` from the payload onto profiles.bunny_video_uid.
-      // The authoritative uid is already on the profile after create-video-upload; drafts can lag or
-      // go empty and would otherwise clear the column. Align the payload with the profile snapshot.
+      // finalize_onboarding preserves the profile's current real Bunny UID. Drafts can lag while
+      // the background uploader is creating the server-side video object.
       let dataForFinalize = data;
       if (data.vibeVideoRecorded) {
         const { data: profileRow } = await supabase
@@ -313,10 +314,7 @@ export default function OnboardingV2Screen() {
           .select('bunny_video_uid')
           .eq('id', session.user.id)
           .maybeSingle();
-        const canonical =
-          typeof profileRow?.bunny_video_uid === 'string'
-            ? profileRow.bunny_video_uid.trim()
-            : '';
+        const canonical = normalizeBunnyVideoUid(profileRow?.bunny_video_uid);
         if (canonical) {
           dataForFinalize = { ...data, bunnyVideoUid: canonical };
         }

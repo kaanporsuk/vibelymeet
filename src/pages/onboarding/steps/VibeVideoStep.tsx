@@ -8,11 +8,12 @@ import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
 interface VibeVideoStepProps {
   onNext: () => void;
   onSkip: () => void;
+  onVideoStarted?: () => void;
 }
 
 const MAX_DURATION_S = 20;
 
-export const VibeVideoStep = ({ onNext, onSkip }: VibeVideoStepProps) => {
+export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepProps) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [showRecorder, setShowRecorder] = useState(false);
 
@@ -45,7 +46,8 @@ export const VibeVideoStep = ({ onNext, onSkip }: VibeVideoStepProps) => {
     }
 
     // Hand off to controller — upload runs in the background.
-    heroVideoStart(file);
+    heroVideoStart(file, undefined, "onboarding");
+    onVideoStarted?.();
     onNext();
   };
 
@@ -109,9 +111,11 @@ export const VibeVideoStep = ({ onNext, onSkip }: VibeVideoStepProps) => {
         open={showRecorder}
         onOpenChange={(open) => {
           setShowRecorder(open);
-          // If the modal closes after a confirm, heroVideoStart was already called
-          // inside VibeStudioModal. Advance onboarding.
-          if (!open) onNext();
+        }}
+        uploadContext="onboarding"
+        onConfirmed={() => {
+          onVideoStarted?.();
+          onNext();
         }}
       />
     </>

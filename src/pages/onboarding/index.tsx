@@ -19,6 +19,7 @@ import {
   hasConfirmedOnboardingLocation,
   writeLocalDraftCache,
   readLocalDraftCache,
+  normalizeBunnyVideoUid,
 } from "@shared/onboardingTypes";
 import {
   type SupabaseClient,
@@ -301,10 +302,23 @@ const Onboarding = () => {
     setCompletionError(null);
 
     try {
+      let dataForFinalize = data;
+      if (data.vibeVideoRecorded && session.user.id) {
+        const { data: profileRow } = await supabase
+          .from("profiles")
+          .select("bunny_video_uid")
+          .eq("id", session.user.id)
+          .maybeSingle();
+        const canonical = normalizeBunnyVideoUid(profileRow?.bunny_video_uid);
+        if (canonical) {
+          dataForFinalize = { ...data, bunnyVideoUid: canonical };
+        }
+      }
+
       const result = await executeOnboardingCompletion({
         supabase: onboardingSupabase,
         userId: session.user.id,
-        data,
+        data: dataForFinalize,
         clearLocalDraft: async () => {
           localStorage.removeItem(ONBOARDING_STORAGE_KEY);
         },
@@ -476,6 +490,7 @@ const Onboarding = () => {
           <VibeVideoStep
             onNext={goNext}
             onSkip={goNext}
+            onVideoStarted={() => updateField("vibeVideoRecorded", true)}
           />
         );
       }
@@ -501,6 +516,7 @@ const Onboarding = () => {
         <VibeVideoStep
           onNext={goNext}
           onSkip={goNext}
+          onVideoStarted={() => updateField("vibeVideoRecorded", true)}
         />
       );
     }

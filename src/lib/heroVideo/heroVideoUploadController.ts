@@ -12,6 +12,7 @@
  *   uploading  — tus in flight (progress 0–100)
  *   processing — tus complete; polling backend for transcoding result
  *   ready      — backend confirmed ready; profile cache invalidated
+ *   stalled    — backend did not reach ready/failed inside the bounded poll window
  *   failed     — tus error OR backend reported failure; retry available
  */
 
@@ -23,7 +24,7 @@ import { updateMyProfile } from "@/services/profileService";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
-export type HeroVideoPhase = "idle" | "uploading" | "processing" | "ready" | "failed";
+export type HeroVideoPhase = "idle" | "uploading" | "processing" | "ready" | "stalled" | "failed";
 
 export interface HeroVideoControllerState {
   phase: HeroVideoPhase;
@@ -35,6 +36,7 @@ export interface HeroVideoControllerState {
 }
 
 type Subscriber = (state: HeroVideoControllerState) => void;
+export type HeroVideoUploadContext = "onboarding" | "profile_studio";
 
 // ─── Module-level state ───────────────────────────────────────────────────────
 
@@ -116,10 +118,13 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     // transient network error — keep polling
   }
 
-  // Timeout: go idle and let the profile be the authoritative display
+  // Timeout: keep the video visible as an in-progress asset and offer repair copy.
   if (_pollAttempts >= POLL_MAX_ATTEMPTS) {
     _stopPoll();
-    _setState({ phase: "idle", videoId: null, errorMessage: null });
+    _setState({
+      phase: "stalled",
+      errorMessage: "Your video is taking longer than expected. It is still saved; refresh later or replace it.",
+    });
     void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
   }
 }
@@ -153,7 +158,11 @@ export function heroVideoGetState(): HeroVideoControllerState {
  * @param file    - Blob or File to upload
  * @param caption - Optional vibe caption saved after tus completes
  */
-export function heroVideoStart(file: File | Blob, caption?: string): void {
+export function heroVideoStart(
+  file: File | Blob,
+  caption?: string,
+  context: HeroVideoUploadContext = "profile_studio",
+): void {
   // Cancel existing upload if any
   if (_activeTus) {
     try {
@@ -168,10 +177,14 @@ export function heroVideoStart(file: File | Blob, caption?: string): void {
   _setState({ phase: "uploading", uploadProgress: 0, videoId: null, errorMessage: null });
 
   // Run async in background
-  void _run(file, caption);
+  void _run(file, caption, context);
 }
 
-async function _run(file: File | Blob, caption?: string): Promise<void> {
+async function _run(
+  file: File | Blob,
+  caption?: string,
+  context: HeroVideoUploadContext = "profile_studio",
+): Promise<void> {
   try {
     const {
       data: { session },
@@ -193,7 +206,7 @@ async function _run(file: File | Blob, caption?: string): Promise<void> {
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ context: "profile_studio" }),
+          body: JSON.stringify({ context }),
         },
       );
     } catch {
@@ -264,9 +277,9 @@ async function _run(file: File | Blob, caption?: string): Promise<void> {
 
     // ── Caption save (best-effort after tus) ─────────────────────────────────
     if (caption !== undefined && caption !== null) {
-      const trimmed = caption.trim() || null;
+      const trimmed = caption.trim();
       try {
-        await updateMyProfile({ vibeCaption: trimmed ?? undefined });
+        await updateMyProfile({ vibeCaption: trimmed.length > 0 ? trimmed : null });
       } catch {
         console.warn("[HeroVideo] Caption save failed after upload; video upload continues.");
       }

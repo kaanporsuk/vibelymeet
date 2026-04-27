@@ -95,6 +95,23 @@ export const DEFAULT_ONBOARDING_DATA: Readonly<OnboardingData> = {
   communityAgreed: false,
 };
 
+const BUNNY_STREAM_GUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function normalizeBunnyVideoUid(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const uid = value.trim();
+  if (!uid || uid.toLowerCase() === "pending") return null;
+  return BUNNY_STREAM_GUID_RE.test(uid) ? uid : null;
+}
+
+export function sanitizeOnboardingData(data: OnboardingData): OnboardingData {
+  return {
+    ...data,
+    bunnyVideoUid: normalizeBunnyVideoUid(data.bunnyVideoUid),
+  };
+}
+
 // ─── Local cache helpers (non-authoritative) ─────────────────────────────────
 // Local storage / AsyncStorage is used only as an optimistic cache to reduce
 // latency on the current device. The server draft is always the source of truth.
@@ -119,7 +136,7 @@ export function writeLocalDraftCache(
   data: OnboardingData,
 ): void {
   try {
-    const cache: LocalDraftCache = { userId, step, data, ts: Date.now() };
+    const cache: LocalDraftCache = { userId, step, data: sanitizeOnboardingData(data), ts: Date.now() };
     void storage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(cache));
   } catch {
     // Best-effort
@@ -156,7 +173,7 @@ export function readLocalDraftCache(
     }
     if (typeof d.country === "string") data.country = d.country;
     if (typeof d.vibeVideoRecorded === "boolean") data.vibeVideoRecorded = d.vibeVideoRecorded;
-    if (typeof d.bunnyVideoUid === "string" || d.bunnyVideoUid === null) data.bunnyVideoUid = d.bunnyVideoUid;
+    data.bunnyVideoUid = normalizeBunnyVideoUid(d.bunnyVideoUid);
     if (typeof d.communityAgreed === "boolean") data.communityAgreed = d.communityAgreed;
 
     return { step: parsed.step, data };

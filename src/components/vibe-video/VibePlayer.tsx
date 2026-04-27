@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
+import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 
 // IntersectionObserver-based iOS hardware decoder management
 
@@ -97,6 +98,46 @@ export const VibePlayer = ({
     }
   }, [isMuted]);
 
+  const reportPlaybackError = useCallback((kind: string = "element") => {
+    setHasError(true);
+    setIsLoading(false);
+    Sentry.addBreadcrumb({
+      category: "vibe-video-playback",
+      message: backendReportsReady ? "inline_player_error_backend_ready" : "inline_player_error",
+      level: "error",
+      data: { surface: "vibe_player", kind },
+    });
+  }, [backendReportsReady]);
+
+  useEffect(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl || !shouldLoad || !videoUrl) return;
+
+    setIsLoading(true);
+    return attachHlsPlayback(videoEl, videoUrl, {
+      autoPlay: false,
+      onError: (kind, detail) => {
+        reportPlaybackError(kind);
+        if (detail && typeof window !== "undefined" && window.localStorage.getItem("__vibely_diag") === "1") {
+          console.warn("[VibeVideo] inline hls playback error", detail);
+        }
+      },
+    });
+  }, [videoUrl, shouldLoad, reportPlaybackError]);
+
+  useEffect(() => {
+    const videoEl = videoRef.current;
+    if (!videoEl) return;
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    videoEl.addEventListener("play", onPlay);
+    videoEl.addEventListener("pause", onPause);
+    return () => {
+      videoEl.removeEventListener("play", onPlay);
+      videoEl.removeEventListener("pause", onPause);
+    };
+  }, []);
+
   const handleToggleMute = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsMuted(!isMuted);
@@ -120,16 +161,7 @@ export const VibePlayer = ({
     setIsLoading(false);
   };
 
-  const handleError = () => {
-    setHasError(true);
-    setIsLoading(false);
-    Sentry.addBreadcrumb({
-      category: "vibe-video-playback",
-      message: backendReportsReady ? "inline_player_error_backend_ready" : "inline_player_error",
-      level: "error",
-      data: { surface: "vibe_player" },
-    });
-  };
+  const handleError = () => reportPlaybackError();
 
   const handleCanPlay = () => {
     setIsLoading(false);
@@ -183,7 +215,6 @@ export const VibePlayer = ({
       {/* Video */}
       <video
         ref={videoRef}
-        src={shouldLoad ? videoUrl : undefined}
         className="w-full h-full object-cover"
         loop
         muted={isMuted}
