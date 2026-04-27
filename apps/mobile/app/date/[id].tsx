@@ -40,7 +40,7 @@ import {
   completeHandshake,
   syncVideoDateReconnect,
   markReconnectPartnerAway,
-  markReconnectSelfAway,
+  signalVideoDateLeave,
   markReconnectReturn,
   updateParticipantStatus,
   fetchPartnerProfile,
@@ -132,6 +132,9 @@ import {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
 const PREJOIN_STEP_TIMEOUT_MS = 12000;
+const NATIVE_BACKGROUND_GRACE_MS = 12_000;
+const NATIVE_BACKGROUND_GRACE_SECONDS = Math.ceil(NATIVE_BACKGROUND_GRACE_MS / 1000);
+const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -373,6 +376,8 @@ export default function VideoDateScreen() {
   const [reconnectionGrace, setReconnectionGrace] = useState(0);
   const [isPartnerDisconnected, setIsPartnerDisconnected] = useState(false);
   const [isTimerPaused, setIsTimerPaused] = useState(false);
+  const [nativeBackgroundStatus, setNativeBackgroundStatus] = useState<'none' | 'grace' | 'recovered'>('none');
+  const [nativeBackgroundGraceSeconds, setNativeBackgroundGraceSeconds] = useState(0);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
@@ -437,7 +442,11 @@ export default function VideoDateScreen() {
   const peerMissingTerminalImpressionRef = useRef(false);
   const localInDailyRoomRef = useRef(false);
   const appStateBackgroundTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appStateBackgroundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRecoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appStateAwaySessionRef = useRef<string | null>(null);
+  const appStateExpiredSessionRef = useRef<string | null>(null);
+  const appStateBackgroundStartedAtRef = useRef<number | null>(null);
   const bootstrapTimingsRef = useRef<Record<string, number>>({});
   const activePreparedEntryCacheRef = useRef<ReturnType<typeof getPreparedVideoDateEntry> | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
@@ -1877,18 +1886,84 @@ export default function VideoDateScreen() {
       clearTimeout(appStateBackgroundTimerRef.current);
       appStateBackgroundTimerRef.current = null;
     };
+    const clearBackgroundInterval = () => {
+      if (!appStateBackgroundIntervalRef.current) return;
+      clearInterval(appStateBackgroundIntervalRef.current);
+      appStateBackgroundIntervalRef.current = null;
+    };
+    const clearRecoveredBannerTimer = () => {
+      if (!appStateRecoveredTimerRef.current) return;
+      clearTimeout(appStateRecoveredTimerRef.current);
+      appStateRecoveredTimerRef.current = null;
+    };
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
         clearBackgroundTimeout();
+        clearBackgroundInterval();
         if (appStateAwaySessionRef.current === sessionId) {
           appStateAwaySessionRef.current = null;
-          void markReconnectReturn(sessionId);
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
-            platform: 'native',
-            session_id: sessionId,
-            event_id: eventId || null,
-            source: 'app_foreground',
-          });
+          const backgroundElapsedMs =
+            appStateBackgroundStartedAtRef.current == null
+              ? 0
+              : Date.now() - appStateBackgroundStartedAtRef.current;
+          appStateBackgroundStartedAtRef.current = null;
+          const timerAlreadyExpired = appStateExpiredSessionRef.current === sessionId;
+          const expiredInBackground =
+            timerAlreadyExpired || backgroundElapsedMs >= NATIVE_BACKGROUND_GRACE_MS;
+          if (expiredInBackground) {
+            appStateExpiredSessionRef.current = null;
+            vdbg('native_background_foreground_after_expiry', {
+              sessionId,
+              eventId: eventId || null,
+              backgroundElapsedMs,
+            });
+            setNativeBackgroundStatus('none');
+            setNativeBackgroundGraceSeconds(0);
+            if (!timerAlreadyExpired) {
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_EXPIRED, {
+                platform: 'native',
+                session_id: sessionId,
+                event_id: eventId || null,
+                source: 'app_foreground_after_background_timeout',
+                grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+                elapsed_ms: backgroundElapsedMs,
+              });
+            }
+            void (async () => {
+              await cleanupDailyAndLocalState();
+              await endVideoDate(sessionId, 'app_background_timeout');
+            })();
+          } else {
+            void markReconnectReturn(sessionId);
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_RECOVERED, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              source: 'app_foreground',
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              source: 'app_foreground',
+            });
+            vdbg('native_background_recovered', {
+              sessionId,
+              eventId: eventId || null,
+              hasCall: Boolean(callRef.current),
+            });
+            setNativeBackgroundStatus('recovered');
+            setNativeBackgroundGraceSeconds(0);
+            clearRecoveredBannerTimer();
+            appStateRecoveredTimerRef.current = setTimeout(() => {
+              setNativeBackgroundStatus('none');
+              appStateRecoveredTimerRef.current = null;
+            }, NATIVE_BACKGROUND_RECOVERED_BANNER_MS);
+            if (!callRef.current && phaseRef.current !== 'ended') {
+              hasStartedJoinRef.current = false;
+              setJoinAttemptNonce((n) => n + 1);
+            }
+          }
         }
         videoDateSessionDiagnostic('app_foreground_refetch_start', {
           session_id: sessionId,
@@ -1918,33 +1993,89 @@ export default function VideoDateScreen() {
           appStateAwaySessionRef.current !== sessionId
         ) {
           appStateAwaySessionRef.current = sessionId;
-          void markReconnectSelfAway(sessionId, 'app_background');
+          appStateBackgroundStartedAtRef.current = Date.now();
+          setNativeBackgroundStatus('grace');
+          setNativeBackgroundGraceSeconds(NATIVE_BACKGROUND_GRACE_SECONDS);
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            source: 'app_background',
+            grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+          });
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_STARTED, {
             platform: 'native',
             session_id: sessionId,
             event_id: eventId || null,
             source: 'app_background',
+            grace_ms: NATIVE_BACKGROUND_GRACE_MS,
           });
+          vdbg('native_background_grace_started', {
+            sessionId,
+            eventId: eventId || null,
+            graceMs: NATIVE_BACKGROUND_GRACE_MS,
+          });
+          void (async () => {
+            const ok = await signalVideoDateLeave(sessionId, 'app_background');
+            if (!ok) {
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED, {
+                platform: 'native',
+                session_id: sessionId,
+                event_id: eventId || null,
+                source: 'app_background',
+              });
+            }
+            await cleanupDailyAndLocalState();
+            hasStartedJoinRef.current = false;
+          })();
           clearBackgroundTimeout();
+          clearBackgroundInterval();
+          appStateBackgroundIntervalRef.current = setInterval(() => {
+            setNativeBackgroundGraceSeconds((prev) => Math.max(0, prev - 1));
+          }, 1000);
           appStateBackgroundTimerRef.current = setTimeout(() => {
             if (appStateAwaySessionRef.current !== sessionId || phaseRef.current === 'ended') return;
+            clearBackgroundInterval();
+            appStateExpiredSessionRef.current = sessionId;
+            appStateBackgroundStartedAtRef.current = null;
+            setNativeBackgroundStatus('none');
+            setNativeBackgroundGraceSeconds(0);
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_NATIVE_BACKGROUND_EXPIRED, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              source: 'app_background_timeout',
+              grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+            });
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_EXPIRED, {
               platform: 'native',
               session_id: sessionId,
               event_id: eventId || null,
               source: 'app_background_timeout',
+              grace_ms: NATIVE_BACKGROUND_GRACE_MS,
             });
-            void endVideoDate(sessionId, 'app_background_timeout');
-          }, 30_000);
+            vdbg('native_background_grace_expired', {
+              sessionId,
+              eventId: eventId || null,
+              graceMs: NATIVE_BACKGROUND_GRACE_MS,
+            });
+            void (async () => {
+              await cleanupDailyAndLocalState();
+              await endVideoDate(sessionId, 'app_background_timeout');
+            })();
+          }, NATIVE_BACKGROUND_GRACE_MS);
         }
         requestReconnectSyncRef.current('app_background');
       }
     });
     return () => {
       clearBackgroundTimeout();
+      clearBackgroundInterval();
+      clearRecoveredBannerTimer();
+      appStateBackgroundStartedAtRef.current = null;
       sub.remove();
     };
-  }, [eventId, sessionId, refetchVideoSession]);
+  }, [cleanupDailyAndLocalState, eventId, sessionId, refetchVideoSession]);
 
   useEffect(() => {
     if (!sessionId || phase === 'ended') return;
@@ -4924,6 +5055,29 @@ export default function VideoDateScreen() {
         <ReconnectionOverlay isVisible partnerName={partnerName} graceTimeLeft={reconnectionGrace} />
       )}
 
+      {nativeBackgroundStatus !== 'none' && (
+        <View
+          style={[
+            styles.nativeBackgroundBanner,
+            {
+              backgroundColor:
+                nativeBackgroundStatus === 'recovered' ? theme.tintSoft : theme.glassSurface,
+              borderColor: nativeBackgroundStatus === 'recovered' ? theme.tint : theme.glassBorder,
+            },
+          ]}
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={[styles.nativeBackgroundTitle, { color: theme.text }]}>
+            {nativeBackgroundStatus === 'recovered' ? 'Reconnected' : 'Pausing your date'}
+          </Text>
+          <Text style={[styles.nativeBackgroundText, { color: theme.mutedForeground }]}>
+            {nativeBackgroundStatus === 'recovered'
+              ? 'You are back in the room.'
+              : `We paused your call while Vibely is backgrounded. Return within ${nativeBackgroundGraceSeconds}s to reconnect.`}
+          </Text>
+        </View>
+      )}
+
       {showMutualToast && <MutualVibeToast onComplete={handleMutualToastComplete} />}
 
       <Animated.View
@@ -5142,6 +5296,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   extendBannerText: { textAlign: 'center', fontSize: 14, fontWeight: '600' },
+  nativeBackgroundBanner: {
+    position: 'absolute',
+    top: 156,
+    left: 16,
+    right: 16,
+    zIndex: 58,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  nativeBackgroundTitle: { textAlign: 'center', fontSize: 14, fontWeight: '700' },
+  nativeBackgroundText: { marginTop: 3, textAlign: 'center', fontSize: 12, lineHeight: 17 },
   button: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16 },
   remoteContainer: { ...StyleSheet.absoluteFillObject },

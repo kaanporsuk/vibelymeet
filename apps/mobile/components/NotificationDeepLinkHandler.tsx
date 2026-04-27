@@ -91,7 +91,8 @@ const LOBBY_IDLE_STATUSES = new Set(['browsing', 'idle', 'offline']);
  * If payload targets /date/:id, align with backend truth:
  * ended session → event lobby (or home); still in_ready_gate → /ready/:id;
  * queued session + registration still browsing/idle → stamp foreground, drain, re-check, then /ready, /date, or lobby;
- * otherwise keep /date.
+ * otherwise fail closed to lobby/tabs. Date notifications must not bypass
+ * provider-prepared truth.
  */
 async function reconcileHrefWithRegistration(href: string, userId: string): Promise<Href> {
   const m = href.match(/^\/date\/([^/?#]+)/);
@@ -104,19 +105,19 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     .eq('id', sid)
     .maybeSingle();
 
-  if (!vs) return href as Href;
+  if (!vs) return tabsRootHref();
 
   if (vs.ended_at != null) {
     if (vs.event_id) return eventLobbyHref(vs.event_id as string);
     return tabsRootHref();
   }
 
-  if (!vs.event_id) return href as Href;
+  if (!vs.event_id) return tabsRootHref();
 
   const p1 = vs.participant_1_id as string | null | undefined;
   const p2 = vs.participant_2_id as string | null | undefined;
   const isParticipant = userId === p1 || userId === p2;
-  if (!isParticipant) return href as Href;
+  if (!isParticipant) return tabsRootHref();
 
   const fetchReg = async () => {
     const { data: reg } = await supabase
@@ -205,8 +206,9 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     return eventLobbyHref(vs.event_id as string);
   }
 
-  emitDecision('navigate_date', null, 'date');
-  return videoDateHref(sid);
+  clearDateEntryTransition(sid);
+  emitDecision('stay_lobby', 'unknown_video_truth_decision', 'lobby');
+  return eventLobbyHref(vs.event_id as string);
 }
 
 /** Keeps notificationRouteRef in sync for foreground suppression. */
