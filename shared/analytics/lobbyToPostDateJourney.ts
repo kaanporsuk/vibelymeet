@@ -105,8 +105,12 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_HANDSHAKE_COMPLETED_MUTUAL: 'video_date_handshake_completed_mutual',
   VIDEO_DATE_HANDSHAKE_NOT_MUTUAL: 'video_date_handshake_not_mutual',
   VIDEO_DATE_RECONNECT_GRACE_STARTED: 'video_date_reconnect_grace_started',
+  VIDEO_DATE_RECONNECT_GRACE_RECOVERED: 'video_date_reconnect_grace_recovered',
+  VIDEO_DATE_RECONNECT_GRACE_EXPIRED: 'video_date_reconnect_grace_expired',
   VIDEO_DATE_RECONNECT_RETURNED: 'video_date_reconnect_returned',
   VIDEO_DATE_RECONNECT_EXPIRED: 'video_date_reconnect_expired',
+  VIDEO_DATE_LEAVE_SIGNAL_SENT: 'video_date_leave_signal_sent',
+  VIDEO_DATE_LEAVE_SIGNAL_FAILED: 'video_date_leave_signal_failed',
   MUTUAL_VIBE_OUTCOME: 'mutual_vibe_outcome',
 
   // --- Post-date survey shell ---

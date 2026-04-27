@@ -54,6 +54,7 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "daily_call_left_meeting",
   "daily_call_destroy",
   "daily_room_delete_skipped",
+  "video_date_leave_signal_sent",
   "post_date_survey_opened",
   "journey_date_route_entered",
   "journey_survey_opened",

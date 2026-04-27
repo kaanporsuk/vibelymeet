@@ -226,6 +226,7 @@ const VideoDate = () => {
   } | null>(null);
   const explicitEndRequestedRef = useRef(false);
   const leaveSignalTokenRef = useRef<string | null>(null);
+  const leaveSignalSentRef = useRef(false);
   const foregroundReconcileInFlightRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const videoJoinCycleRef = useRef(0);
@@ -1590,6 +1591,10 @@ const VideoDate = () => {
 
   // Beforeunload/pagehide — warn and mark self away. Cleanup cron, not browser unload, owns deletion.
   useEffect(() => {
+    leaveSignalSentRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
     if (!id || !user?.id || videoDateAccess !== "allowed") return;
     let visibilityLeaveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1601,8 +1606,10 @@ const VideoDate = () => {
 
     const sendLeaveSignal = (source: "beforeunload" | "pagehide" | "visibilitychange") => {
       if (showFeedback || explicitEndRequestedRef.current) return;
+      if (leaveSignalSentRef.current) return;
       const token = leaveSignalTokenRef.current;
       if (!token) return;
+      leaveSignalSentRef.current = true;
       try {
         void fetch(`${SUPABASE_URL}/functions/v1/daily-room`, {
           method: "POST",
@@ -1617,14 +1624,28 @@ const VideoDate = () => {
             sessionId: id,
             reason: `web_${source}`,
           }),
+        }).catch(() => {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_FAILED, {
+            platform: "web",
+            session_id: id,
+            event_id: eventId ?? null,
+            source,
+          });
         });
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_STARTED, {
+        vdbg("video_date_leave_signal_sent", {
+          sessionId: id,
+          userId: user.id,
+          eventId: eventId ?? null,
+          source,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_SENT, {
           platform: "web",
           session_id: id,
           event_id: eventId ?? null,
           source,
         });
       } catch {
+        leaveSignalSentRef.current = false;
         /* best-effort during browser teardown */
       }
     };
@@ -1667,6 +1688,7 @@ const VideoDate = () => {
         clearVisibilityLeaveTimer();
         visibilityLeaveTimer = setTimeout(() => sendLeaveSignal("visibilitychange"), 1200);
       } else {
+        leaveSignalSentRef.current = false;
         clearVisibilityLeaveTimer();
       }
     };
@@ -2371,7 +2393,10 @@ const VideoDate = () => {
   const transportReconnectVisible =
     dailyReconnectState === "interrupted" ||
     dailyReconnectState === "partner_reconnecting" ||
+    dailyReconnectState === "partner_left_grace" ||
     dailyReconnectState === "failed_after_grace";
+  const reconnectOverlayMode =
+    dailyReconnectState === "partner_left_grace" ? "partner_away" : "network_interrupted";
   const anyReconnectVisible = transportReconnectVisible || reconnection.isPartnerDisconnected;
 
   if (!id || videoDateAccess === "not_found") {
@@ -2738,7 +2763,7 @@ const VideoDate = () => {
           isVisible={anyReconnectVisible}
           partnerName={partner.name}
           graceTimeLeft={transportReconnectVisible ? reconnectGraceTimeLeft : reconnection.graceTimeLeft}
-          mode={transportReconnectVisible ? "network_interrupted" : "partner_away"}
+          mode={transportReconnectVisible ? reconnectOverlayMode : "partner_away"}
         />
 
         {/* Bottom gradient */}

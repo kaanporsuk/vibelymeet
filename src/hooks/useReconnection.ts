@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { VIDEO_DATE_RECONNECT_SYNC_OUTCOMES } from "@clientShared/matching/videoDateDiagnostics";
 import { nextConvergenceDelayMs } from "@clientShared/matching/convergenceScheduling";
 
@@ -171,7 +172,7 @@ export const useReconnection = ({
           if (r.ended_reason === "reconnect_grace_expired" && !graceExpiredFiredRef.current) {
             graceExpiredFiredRef.current = true;
             if (graceWindowStartedRef.current) {
-              trackEvent("video_date_reconnect_grace_expired", {
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_EXPIRED, {
                 session_id: sessionId,
                 phase,
               });
@@ -255,7 +256,11 @@ export const useReconnection = ({
     // Disconnected → connected again: clear our away slot (partner may have reported us while we were gone).
     if (!prev && sessionId && phase !== "ended") {
       if (graceWindowStartedRef.current) {
-        trackEvent("video_date_reconnect_returned", {
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
+          session_id: sessionId,
+          phase,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_RECOVERED, {
           session_id: sessionId,
           phase,
         });
@@ -295,7 +300,7 @@ export const useReconnection = ({
 
     graceWindowStartedRef.current = true;
     setInReconnectGraceUi(true);
-    trackEvent("video_date_reconnect_grace_started", {
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_STARTED, {
       session_id: sessionId,
       phase,
     });

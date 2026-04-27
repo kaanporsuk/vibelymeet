@@ -16,12 +16,16 @@ export const ReconnectionOverlay = ({
 }: ReconnectionOverlayProps) => {
   const title =
     mode === "network_interrupted"
-      ? "Connection interrupted - reconnecting..."
-      : `Reconnecting with ${partnerName}...`;
+      ? "Trying to reconnect..."
+      : "Trying to reconnect...";
   const subtitle =
     mode === "network_interrupted"
-      ? "Your match may be reconnecting. We'll keep the date open for a moment."
-      : "Hang tight - they might be back! We'll keep the date open for a moment.";
+      ? "Connection interrupted. We'll keep the room open for a few seconds."
+      : "Your match disconnected. We'll keep the room open for a few seconds.";
+  const ariaLabel =
+    mode === "network_interrupted"
+      ? "Trying to reconnect"
+      : `Trying to reconnect with ${partnerName}`;
   return (
     <AnimatePresence>
       {isVisible && (
@@ -30,6 +34,7 @@ export const ReconnectionOverlay = ({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="absolute inset-0 z-40 flex items-center justify-center"
+          aria-label={ariaLabel}
         >
           <div className="absolute inset-0 bg-background/80 backdrop-blur-md" />
 

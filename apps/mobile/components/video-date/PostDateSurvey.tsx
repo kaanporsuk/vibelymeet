@@ -207,6 +207,8 @@ export function PostDateSurvey({
   const [queuedCount, setQueuedCount] = useState(0);
   const [eventContinuation, setEventContinuation] = useState<EventContinuationSnapshot | null>(null);
   const [verdictError, setVerdictError] = useState<string | null>(null);
+  const [verdictRetryable, setVerdictRetryable] = useState(false);
+  const [lastVerdictAttempt, setLastVerdictAttempt] = useState<boolean | null>(null);
   const [celebrationData, setCelebrationData] = useState<CelebrationData | null>(null);
 
   const [tagSel, setTagSel] = useState({
@@ -561,6 +563,8 @@ export function PostDateSurvey({
     if (submitting) return;
     setSubmitting(true);
     setVerdictError(null);
+    setVerdictRetryable(false);
+    setLastVerdictAttempt(liked);
     trackEvent(liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP, {
       platform: 'native',
       session_id: sessionId,
@@ -591,6 +595,7 @@ export function PostDateSurvey({
         await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** (attempt - 1)));
       }
       if (!result) {
+        setVerdictRetryable(true);
         setVerdictError("Couldn't save your answer. Tap to retry.");
         return;
       }
@@ -602,9 +607,14 @@ export function PostDateSurvey({
           reason: result.reason,
           code: result.reason === 'backend' ? result.code : undefined,
         });
+        setVerdictRetryable(
+          result.reason !== 'backend' ||
+            !['blocked_pair', 'not_participant', 'session_not_found'].includes(result.code),
+        );
         setVerdictError(verdictFailureUserMessage(result));
         return;
       }
+      setVerdictRetryable(false);
       trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
         platform: 'native',
         session_id: sessionId,
@@ -643,6 +653,7 @@ export function PostDateSurvey({
         event_id: eventId,
         reason: 'exception',
       });
+      setVerdictRetryable(true);
       setVerdictError("Couldn't save your answer. Tap to retry.");
     } finally {
       setSubmitting(false);
@@ -992,9 +1003,24 @@ export function PostDateSurvey({
       <Text style={[styles.title, { color: theme.text }]}>How was your date with {partnerName}?</Text>
       <ContinuityStrip decision={continuityDecision} theme={theme} />
       {verdictError ? (
-        <Text style={[styles.errorBanner, { color: theme.danger }]} accessibilityLiveRegion="polite">
-          {verdictError}
-        </Text>
+        <View style={styles.errorWrap}>
+          <Text style={[styles.errorBanner, { color: theme.danger }]} accessibilityLiveRegion="polite">
+            {verdictError}
+          </Text>
+          {verdictRetryable && lastVerdictAttempt !== null ? (
+            <Pressable
+              disabled={submitting}
+              onPress={() => void handleVerdict(lastVerdictAttempt)}
+              style={[
+                styles.retryBtn,
+                { borderColor: theme.danger, backgroundColor: theme.surface },
+                submitting && { opacity: 0.7 },
+              ]}
+            >
+              <Text style={[styles.retryBtnText, { color: theme.text }]}>Try again</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
       {partnerImage ? (
         <Image source={{ uri: partnerImage }} style={styles.avatar} />
@@ -1087,8 +1113,22 @@ const styles = StyleSheet.create({
   errorBanner: {
     ...typography.body,
     textAlign: 'center',
-    marginBottom: spacing.lg,
     paddingHorizontal: spacing.md,
+  },
+  errorWrap: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  retryBtn: {
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  retryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   avatar: {
     width: 96,
