@@ -237,14 +237,67 @@ test("web and native upload controllers expose an explicit stalled phase", () =>
 
 test("UID-only Vibe Score and onboarding UID preservation remain source-backed", () => {
   const migration = read("supabase/migrations/20260501101000_vibe_video_contract_hardening.sql");
+  const repairMigration = read("supabase/migrations/20260501123000_vibe_video_backend_contract_repair.sql");
+  const repairValidation = read("supabase/validation/vibe_video_backend_contract_repair.sql");
   const webIncomplete = read("src/lib/vibeScoreIncompleteActions.ts");
   const nativeIncomplete = read("apps/mobile/lib/vibeScoreIncompleteActions.ts");
 
   assert.match(migration, /bunny_video_uid IS NOT NULL/);
   assert.match(migration, /length\(trim\(v_profile\.bunny_video_uid\)\) > 0/);
   assert.doesNotMatch(migration, /bunny_video_status\s*=\s*'ready'/);
+  assert.match(repairMigration, /bunny_video_uid IS NOT NULL/);
+  assert.match(repairMigration, /length\(trim\(v_profile\.bunny_video_uid\)\) > 0/);
+  assert.doesNotMatch(repairMigration, /bunny_video_status\s*=\s*'ready'/);
+  assert.match(repairMigration, /FOR r IN[\s\S]*WHERE bunny_video_uid IS NOT NULL[\s\S]*vibe_score = \(v_result->>'score'\)::integer/);
+  assert.match(repairValidation, /Score Uploading/);
+  assert.match(repairValidation, /Score Processing/);
+  assert.match(repairValidation, /Score Ready/);
+  assert.match(repairValidation, /Score Failed/);
+  assert.match(repairValidation, /delete_clears_uid_and_removes_video_score_credit/);
   assert.match(webIncomplete, /bunnyVideoUid\?\.trim\(\)/);
   assert.match(nativeIncomplete, /bunny_video_uid\?\.trim\(\)/);
+});
+
+test("create-video-upload requires durable media-session state before credentials are returned", () => {
+  const edge = read("supabase/functions/create-video-upload/index.ts");
+
+  const sessionCreateIdx = edge.indexOf('"create_media_session"');
+  const profileActivateIdx = edge.indexOf('"activate_profile_vibe_video"');
+  assert.ok(sessionCreateIdx >= 0, "create_media_session call missing");
+  assert.ok(profileActivateIdx >= 0, "activate_profile_vibe_video call missing");
+  assert.ok(
+    sessionCreateIdx < profileActivateIdx,
+    "media session must be durable before profile UID activation",
+  );
+
+  assert.match(edge, /media_session_create_failed/);
+  assert.match(edge, /cleanupCreatedVideo\(libraryId, apiKey, videoId, user\.id, projectRef, "session_creation_failed"\)/);
+  assert.match(edge, /create_video_upload_media_session_create_rejected/);
+  assert.match(edge, /create_video_upload_media_session_uploading_mark_failed_but_repairable/);
+  assert.match(edge, /repairableLifecycleState/);
+  assert.match(edge, /if \(sessionError\) \{[\s\S]*?media_session_create_failed[\s\S]*?return json/);
+});
+
+test("stale Vibe Video repair classifies stuck states without deleting provider media", () => {
+  const migration = read("supabase/migrations/20260501123000_vibe_video_backend_contract_repair.sql");
+  const validation = read("supabase/validation/vibe_video_backend_contract_repair.sql");
+
+  assert.match(migration, /classify_stale_vibe_video_uploads/);
+  assert.match(migration, /mark_stale_vibe_video_uploads_failed/);
+  assert.match(migration, /profile_processing_without_active_session/);
+  assert.match(migration, /session_uploading_stale/);
+  assert.match(migration, /session_processing_stale/);
+  assert.match(migration, /dms\.status IN \('created', 'uploading', 'processing'\)/);
+  assert.match(migration, /SET bunny_video_status = 'failed'/);
+  assert.match(migration, /btrim\(p\.bunny_video_uid\) = c\.provider_id/);
+  assert.match(migration, /preserves bunny_video_uid for score\/history/);
+  assert.doesNotMatch(migration, /deleteBunnyStreamVideo|DELETE https:\/\/video\.bunnycdn\.com|clear_profile_vibe_video/);
+
+  assert.match(validation, /stale_classifier_finds_only_stale_current_profile_uids/);
+  assert.match(validation, /stale_repair_marks_stale_failed_preserves_uid_and_skips_fresh/);
+  assert.match(validation, /v_fresh_status = 'processing'/);
+  assert.match(validation, /v_stale_uploading_score = v_baseline_score \+ 15/);
+  assert.match(validation, /v_stale_processing_score = v_baseline_score \+ 15/);
 });
 
 test("backend-owned Vibe Video field guardrails and validation SQL are present", () => {
@@ -270,7 +323,16 @@ test("webhook validation rejects unsafe payloads before profile mutation", () =>
   assert.match(webhook, /constantTimeCompare\(token, webhookToken\)/);
   assert.match(webhook, /isValidVideoGuid\(VideoGuid\)/);
   assert.match(webhook, /VideoLibraryId/);
+  assert.match(webhook, /from\("draft_media_sessions"\)/);
+  assert.match(webhook, /eq\("media_type", "vibe_video"\)/);
+  assert.match(webhook, /eq\("provider_id", VideoGuid\)/);
+  assert.match(webhook, /video_webhook_session_not_found_modern_asset_ignored/);
   assert.match(webhook, /eq\("bunny_video_uid", VideoGuid\)/);
+  assert.ok(
+    webhook.indexOf("video_webhook_session_not_found_modern_asset_ignored") <
+      webhook.indexOf("video_webhook_legacy_profile_update_succeeded"),
+    "modern session lookup must happen before legacy profile fallback",
+  );
   assert.doesNotMatch(webhook, /console\.log\(`\[video-webhook\]/);
 });
 

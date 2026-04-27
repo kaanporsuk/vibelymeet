@@ -184,6 +184,34 @@ serve(async (req) => {
       return new Response("error", { status: 500 });
     }
 
+    const { data: existingSessions, error: sessionLookupError } = await supabase
+      .from("draft_media_sessions")
+      .select("id,status,user_id,created_at")
+      .eq("media_type", "vibe_video")
+      .eq("provider_id", VideoGuid)
+      .limit(1);
+
+    if (sessionLookupError) {
+      logVibeVideo("error", "video_webhook_session_lookup_failed", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        mapped_status: mappedStatus,
+        error_code: sessionLookupError.code ?? "session_lookup_error",
+      });
+      return new Response("error", { status: 500 });
+    }
+
+    if ((existingSessions?.length ?? 0) > 0) {
+      logVibeVideo("warn", "video_webhook_session_not_found_modern_asset_ignored", {
+        project_ref: projectRef,
+        video_guid: VideoGuid,
+        mapped_status: mappedStatus,
+        reason: "existing_session_not_active",
+        session_status: existingSessions?.[0]?.status ?? null,
+      });
+      return new Response("ok", { status: 200 });
+    }
+
     // ── Narrow legacy fallback: only for pre-session uploads ──────────────────
     const { data: updated, error } = await supabase
       .from("profiles")
