@@ -25,7 +25,7 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
-import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
+import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import {
   clearPendingNotificationDeepLink,
   queueNotificationDeepLinkPath,
@@ -185,6 +185,7 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
     return eventLobbyHref(vs.event_id as string);
   }
   if (canAttemptDaily || truthDecision === 'navigate_date') {
+    markVideoDateEntryPipelineStarted(sid);
     emitDecision('navigate_date', null, 'date');
     return videoDateHref(sid);
   }

@@ -176,6 +176,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackState>(() => createRemotePlaybackState());
   const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
   const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
+  const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -190,7 +191,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastLocalMountedTrackKeyRef = useRef<string>("");
   const lastRemoteMountedTrackKeyRef = useRef<string>("");
   const firstRemoteWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const noRemoteAutoRecoveryUsedRef = useRef(false);
+  const noRemoteAutoRecoveryCountRef = useRef(0);
   const startAttemptNonceRef = useRef(0);
   const startCallInFlightSessionRef = useRef<string | null>(null);
   const activeCallSessionIdRef = useRef<string | null>(null);
@@ -314,6 +315,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   videoTrackId: videoTrack?.id ?? null,
                   audioTrackId: audioTrack?.id ?? null,
                   error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+                });
+                trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE, {
+                  platform: "web",
+                  session_id: optionsRef.current?.roomId ?? null,
+                  event_id: optionsRef.current?.eventId ?? null,
                 });
               });
           }
@@ -727,13 +733,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnecting(true);
       setIsConnected(false);
       setHasPermission(null);
+      setMediaPermissionError(null);
       setRemotePlayback(createRemotePlaybackState());
       firstRemoteObservedRef.current = false;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
       const startNonce = startAttemptNonceRef.current;
       if (!opts?.internalRetry) {
-        noRemoteAutoRecoveryUsedRef.current = false;
+        noRemoteAutoRecoveryCountRef.current = 0;
       }
 
       try {
@@ -873,6 +880,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             error: error ? { code: error.code, message: error.message } : null,
             reason,
           });
+          if (error) {
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_SYNC_RECONNECT_FAILED, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              reason,
+              code: error.code ?? null,
+            });
+          }
         };
 
         const clearReconnectGrace = (reason: string, recovered: boolean) => {
@@ -885,6 +901,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           if (recovered) {
             setDailyReconnectState("recovered");
             logTransportState("daily_transport_recovered", { reason });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              reason,
+            });
             optionsRef.current?.onPartnerTransientRecover?.();
             setTimeout(() => {
               if (!reconnectGraceActiveRef.current) {
@@ -914,6 +936,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             setReconnectGraceTimeLeft(0);
             setDailyReconnectState("failed_after_grace");
             logTransportState("reconnect_grace_expired", { reason });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_EXPIRED, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              reason,
+            });
             if (!reconnectPartnerAwayTriggeredRef.current) {
               reconnectPartnerAwayTriggeredRef.current = true;
               optionsRef.current?.onPartnerLeft?.();
@@ -923,6 +951,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setReconnectGraceTimeLeft(remainingSeconds());
           logTransportState("daily_transport_disconnected", { reason });
           logTransportState("reconnect_grace_started", { reason, graceMs: DAILY_TRANSPORT_RECONNECT_GRACE_MS });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_STARTED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow.event_id ?? eventId,
+            reason,
+          });
           optionsRef.current?.onPartnerTransientDisconnect?.();
           void syncReconnectOnce(reason);
 
@@ -1219,6 +1253,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             errorMsg: errorMsg ?? null,
             error: rawError ?? null,
           });
+          setHasPermission(false);
+          setMediaPermissionError(errorMsg ?? "Camera or microphone permission was denied.");
+          trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow.event_id ?? eventId,
+          });
           Sentry.captureMessage("daily_camera_error", { level: "error", extra: { event } });
         });
 
@@ -1348,6 +1389,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           payload: joinedData ?? null,
           error: joinedError ? { code: joinedError.code, message: joinedError.message } : null,
         });
+        if (joinedError || (joinedData as { ok?: boolean } | null)?.ok !== true) {
+          trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow.event_id ?? eventId,
+            code: joinedError?.code ?? ((joinedData as { error?: string } | null)?.error ?? null),
+          });
+        }
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
@@ -1431,7 +1480,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             userId,
             roomName: roomData.room_name,
             timeoutMs: FIRST_REMOTE_TIMEOUT_MS,
-            autoRecoveryUsed: noRemoteAutoRecoveryUsedRef.current,
+            autoRecoveryCount: noRemoteAutoRecoveryCountRef.current,
           });
           firstRemoteWatchdogRef.current = setTimeout(() => {
             if (
@@ -1446,10 +1495,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               eventId: truthRow.event_id ?? eventId,
               userId,
               roomName: roomData.room_name,
-              autoRecoveryUsed: noRemoteAutoRecoveryUsedRef.current,
+              autoRecoveryCount: noRemoteAutoRecoveryCountRef.current,
             });
-            if (!noRemoteAutoRecoveryUsedRef.current) {
-              noRemoteAutoRecoveryUsedRef.current = true;
+            if (noRemoteAutoRecoveryCountRef.current < 2) {
+              noRemoteAutoRecoveryCountRef.current += 1;
               void (async () => {
                 await cleanupCallObject("startCall", "no_remote_auto_recovery");
                 vdbg("daily_no_remote_watchdog_recovery", {
@@ -1458,6 +1507,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                   userId,
                   roomName: roomData.room_name,
                   result: "rejoin_scheduled",
+                  attempt: noRemoteAutoRecoveryCountRef.current,
                 });
                 void startCall(sessionId, { internalRetry: true });
               })();
@@ -1663,6 +1713,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     isMuted,
     isVideoOff,
     hasPermission,
+    mediaPermissionError,
     networkTier,
     remotePlayback,
     dailyReconnectState,

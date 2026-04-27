@@ -26,7 +26,7 @@ import { useReconnection } from "@/hooks/useReconnection";
 import { useVideoDateDupTabGuard } from "@/hooks/useVideoDateDupTabGuard";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
-import { supabase } from "@/integrations/supabase/client";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
@@ -225,6 +225,7 @@ const VideoDate = () => {
     key: string;
   } | null>(null);
   const explicitEndRequestedRef = useRef(false);
+  const leaveSignalTokenRef = useRef<string | null>(null);
   const foregroundReconcileInFlightRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const videoJoinCycleRef = useRef(0);
@@ -433,6 +434,7 @@ const VideoDate = () => {
     isConnected,
     isMuted,
     isVideoOff,
+    mediaPermissionError,
     localVideoRef,
     remoteVideoRef,
     localStream,
@@ -507,6 +509,20 @@ const VideoDate = () => {
   useEffect(() => {
     eventIdRef.current = eventId;
   }, [eventId]);
+
+  useEffect(() => {
+    let mounted = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (mounted) leaveSignalTokenRef.current = data.session?.access_token ?? null;
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      leaveSignalTokenRef.current = session?.access_token ?? null;
+    });
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (phase !== "date") {
@@ -1201,6 +1217,25 @@ const VideoDate = () => {
       });
       void (async () => {
         try {
+          if (source === "visibilitychange") {
+            const { data: returnData, error: returnError } = await supabase
+              .rpc("video_date_transition", { p_session_id: id, p_action: "mark_reconnect_return" });
+            vdbg("video_date_foreground_return_result", {
+              sessionId: id,
+              source,
+              ok: !returnError,
+              payload: returnData ?? null,
+              error: returnError ? { code: returnError.code, message: returnError.message } : null,
+            });
+            if (!returnError) {
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
+                platform: "web",
+                session_id: id,
+                event_id: eventId ?? null,
+                source: "visibilitychange",
+              });
+            }
+          }
           const { data, error } = await supabase
             .rpc("video_date_transition", { p_session_id: id, p_action: "sync_reconnect" });
           vdbg("video_date_foreground_reconcile_result", {
@@ -1225,7 +1260,7 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
     };
-  }, [id, showFeedback, videoDateAccess]);
+  }, [eventId, id, showFeedback, videoDateAccess]);
 
   // Start Daily only when timing/handshake bootstrap succeeded (or session already in progress).
   useEffect(() => {
@@ -1550,15 +1585,53 @@ const VideoDate = () => {
     };
   }, []);
 
-  // Beforeunload — warn only. Server reconnect grace, not browser unload, owns recovery/terminal state.
+  // Beforeunload/pagehide — warn and mark self away. Cleanup cron, not browser unload, owns deletion.
   useEffect(() => {
     if (!id || !user?.id || videoDateAccess !== "allowed") return;
+    let visibilityLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearVisibilityLeaveTimer = () => {
+      if (!visibilityLeaveTimer) return;
+      clearTimeout(visibilityLeaveTimer);
+      visibilityLeaveTimer = null;
+    };
+
+    const sendLeaveSignal = (source: "beforeunload" | "pagehide" | "visibilitychange") => {
+      if (showFeedback || explicitEndRequestedRef.current) return;
+      const token = leaveSignalTokenRef.current;
+      if (!token) return;
+      try {
+        void fetch(`${SUPABASE_URL}/functions/v1/daily-room`, {
+          method: "POST",
+          keepalive: true,
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_PUBLISHABLE_KEY,
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            action: "video_date_leave",
+            sessionId: id,
+            reason: `web_${source}`,
+          }),
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_STARTED, {
+          platform: "web",
+          session_id: id,
+          event_id: eventId ?? null,
+          source,
+        });
+      } catch {
+        /* best-effort during browser teardown */
+      }
+    };
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isConnected && !showFeedback && !explicitEndRequestedRef.current) {
         e.preventDefault();
         e.returnValue = "You're in a video date. Are you sure you want to leave?";
       }
+      sendLeaveSignal("beforeunload");
 
       // Provider room cleanup is owned by video-date-room-cleanup after the session is terminal.
       // Do not delete here: the DB intentionally preserves daily_room_name until cleanup succeeds.
@@ -1582,9 +1655,28 @@ const VideoDate = () => {
           .forEach((t) => t.stop());
       }
     };
+    const handlePageHide = () => {
+      clearVisibilityLeaveTimer();
+      sendLeaveSignal("pagehide");
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearVisibilityLeaveTimer();
+        visibilityLeaveTimer = setTimeout(() => sendLeaveSignal("visibilitychange"), 1200);
+      } else {
+        clearVisibilityLeaveTimer();
+      }
+    };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      clearVisibilityLeaveTimer();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [id, user?.id, eventId, isConnected, showFeedback, videoDateAccess]);
 
   // Record user's explicit handshake decision.
@@ -2298,6 +2390,45 @@ const VideoDate = () => {
     );
   }
 
+  if (mediaPermissionError) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
+        <User className="w-14 h-14 text-muted-foreground" />
+        <h1 className="text-xl font-display font-semibold">Camera or mic is blocked</h1>
+        <p className="text-muted-foreground text-sm max-w-sm">
+          Enable camera and microphone access in your browser, then retry the video date.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button
+            type="button"
+            onClick={() => {
+              trackEvent(LobbyPostDateEvents.CAMERA_PERMISSION_DENIED, {
+                platform: "web",
+                session_id: id,
+                event_id: eventId ?? null,
+                source: "retry_tap",
+              });
+              void startCall(id);
+            }}
+          >
+            Retry
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const target = eventId ? `/event/${encodeURIComponent(eventId)}/lobby` : "/events";
+              vdbgRedirect(target, "camera_permission_denied_exit", { sessionId: id ?? null, eventId: eventId ?? null });
+              navigate(target);
+            }}
+          >
+            Back to lobby
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (handshakeStartFailed) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
@@ -2542,6 +2673,7 @@ const VideoDate = () => {
         <AnimatePresence>
           {(isConnecting || !isConnected || remotePlayback.playRejected) &&
             !showFeedback &&
+            !mediaPermissionError &&
             !anyReconnectVisible && (
               <ConnectionOverlay
                 isConnecting={isConnecting}

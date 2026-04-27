@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 
+import { Button } from "@/components/ui/button";
 import { VerdictScreen } from "./survey/VerdictScreen";
 import { HighlightsScreen } from "./survey/HighlightsScreen";
 import { SafetyScreen } from "./survey/SafetyScreen";
@@ -41,7 +42,7 @@ interface PostDateSurveyProps {
   eventId?: string;
 }
 
-type SurveyStep = "verdict" | "celebration" | "highlights" | "safety";
+type SurveyStep = "verdict" | "celebration" | "awaiting_partner" | "highlights" | "safety";
 const SURVEY_DRAIN_SOFT_WAIT_MS = 1800;
 
 function sleep(ms: number): Promise<void> {
@@ -86,6 +87,7 @@ export const PostDateSurvey = ({
   const [step, setStep] = useState<SurveyStep>("verdict");
   const [showEventEnded, setShowEventEnded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [verdictError, setVerdictError] = useState<string | null>(null);
   const [isFinishingSurvey, setIsFinishingSurvey] = useState(false);
   const [surveyStatus, setSurveyStatus] = useState<string>("in_survey");
   // Data for the polished mutual-match celebration
@@ -433,6 +435,7 @@ export const PostDateSurvey = ({
     async (liked: boolean) => {
       if (!user?.id || isSubmitting) return;
       setIsSubmitting(true);
+      setVerdictError(null);
 
       trackEvent(
         liked ? LobbyPostDateEvents.KEEP_THE_VIBE_YES_TAP : LobbyPostDateEvents.KEEP_THE_VIBE_NO_TAP,
@@ -444,11 +447,43 @@ export const PostDateSurvey = ({
       );
 
       try {
-        const { data, error } = await supabase.functions.invoke("post-date-verdict", {
-          body: { session_id: sessionId, liked },
-        });
+        let data: unknown = null;
+        let lastError: unknown = null;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            const response = await supabase.functions.invoke("post-date-verdict", {
+              body: { session_id: sessionId, liked },
+            });
+            if (response.error) throw response.error;
+            data = response.data;
+            lastError = null;
+            if (attempt > 1) {
+              trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_SUCCESS_AFTER_RETRY, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: eventId,
+                attempt,
+              });
+            }
+            break;
+          } catch (err) {
+            lastError = err;
+            trackEvent(
+              attempt < 3
+                ? LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_RETRY
+                : LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED,
+              {
+                platform: "web",
+                session_id: sessionId,
+                event_id: eventId,
+                attempt,
+              },
+            );
+            if (attempt < 3) await sleep(350 * 2 ** (attempt - 1));
+          }
+        }
 
-        if (error) throw error;
+        if (lastError) throw lastError;
 
         const result = data as {
           success?: boolean;
@@ -456,11 +491,13 @@ export const PostDateSurvey = ({
           code?: string;
           mutual?: boolean;
           verdict_recorded?: boolean;
+          awaiting_partner_verdict?: boolean;
+          partner_verdict_recorded?: boolean;
         } | null;
 
         if (result && result.success === false) {
           const code = result.code ?? result.error;
-          toast.error(
+          setVerdictError(
             code === "blocked_pair"
               ? "You can't submit feedback for this date."
               : code === "not_participant"
@@ -498,12 +535,19 @@ export const PostDateSurvey = ({
           if (navigator.vibrate) {
             navigator.vibrate([50, 100, 50, 100, 100]);
           }
+        } else if (result?.awaiting_partner_verdict) {
+          trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_PENDING, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+          });
+          setStep("awaiting_partner");
         } else {
           setStep("highlights");
         }
       } catch (err) {
         console.error("Error recording verdict:", err);
-        toast.error("Something went wrong. Please try again.");
+        setVerdictError("Couldn't save your answer. Tap to retry.");
       } finally {
         setIsSubmitting(false);
       }
@@ -674,13 +718,40 @@ export const PostDateSurvey = ({
           <div className="glass-card p-6 overflow-hidden">
             <AnimatePresence mode="wait">
               {step === "verdict" && (
-                <VerdictScreen
-                  key="verdict"
-                  partnerName={partnerName}
-                  partnerImage={partnerImage}
-                  onVerdict={handleVerdict}
-                  onReport={handleReportFromVerdict}
-                />
+                <motion.div key="verdict" className="space-y-3">
+                  <VerdictScreen
+                    partnerName={partnerName}
+                    partnerImage={partnerImage}
+                    onVerdict={handleVerdict}
+                    onReport={handleReportFromVerdict}
+                  />
+                  {verdictError && (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive">
+                      {verdictError}
+                    </div>
+                  )}
+                  {isSubmitting && (
+                    <p className="text-center text-xs text-muted-foreground">Saving your answer...</p>
+                  )}
+                </motion.div>
+              )}
+
+              {step === "awaiting_partner" && (
+                <motion.div
+                  key="awaiting_partner"
+                  initial={{ opacity: 0, x: 40 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -40 }}
+                  className="flex flex-col items-center space-y-5 py-6 text-center"
+                >
+                  <h2 className="text-xl font-display font-bold text-foreground">Awaiting your match&apos;s verdict</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Your answer is saved. We&apos;ll only create a match if your date also vibes.
+                  </p>
+                  <Button type="button" onClick={() => setStep("highlights")} className="rounded-full px-6">
+                    Continue
+                  </Button>
+                </motion.div>
               )}
 
               {step === "highlights" && (

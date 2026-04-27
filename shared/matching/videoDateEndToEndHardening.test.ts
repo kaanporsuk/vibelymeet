@@ -42,6 +42,10 @@ const activeLookupIndexesMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501102000_video_sessions_active_lookup_indexes.sql"),
   "utf8",
 );
+const remainingHardeningMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501103000_video_date_remaining_hardening.sql"),
+  "utf8",
+);
 const readyGateOverlay = readFileSync(
   join(process.cwd(), "src/components/lobby/ReadyGateOverlay.tsx"),
   "utf8",
@@ -54,8 +58,24 @@ const webVideoCallHook = readFileSync(
   join(process.cwd(), "src/hooks/useVideoCall.ts"),
   "utf8",
 );
+const webVideoDatePage = readFileSync(
+  join(process.cwd(), "src/pages/VideoDate.tsx"),
+  "utf8",
+);
 const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
+  "utf8",
+);
+const webPostDateSurvey = readFileSync(
+  join(process.cwd(), "src/components/video-date/PostDateSurvey.tsx"),
+  "utf8",
+);
+const nativePostDateSurvey = readFileSync(
+  join(process.cwd(), "apps/mobile/components/video-date/PostDateSurvey.tsx"),
+  "utf8",
+);
+const notificationDeepLinkHandler = readFileSync(
+  join(process.cwd(), "apps/mobile/components/NotificationDeepLinkHandler.tsx"),
   "utf8",
 );
 
@@ -389,4 +409,63 @@ test("web and native reject cached prewarmed token after Daily join failure and 
   assert.match(webVideoCallHook, /return startCall\(sessionId, \{ internalRetry: true \}\)/);
   assert.match(nativeVideoDateRoute, /rejectPreparedVideoDateEntry\(sessionId, user\.id, 'daily_join_failed', eventId \|\| null\)/);
   assert.match(nativeVideoDateRoute, /setJoinAttemptNonce\(\(n\) => n \+ 1\)/);
+});
+
+test("remaining hardening migration locks video_sessions writes behind server-owned paths", () => {
+  assert.match(remainingHardeningMigration, /DROP POLICY IF EXISTS "Participants can create video sessions"/);
+  assert.match(remainingHardeningMigration, /DROP POLICY IF EXISTS "Participants can update own feedback"/);
+  assert.match(remainingHardeningMigration, /REVOKE INSERT, UPDATE, DELETE ON TABLE public\.video_sessions FROM anon, authenticated/);
+  assert.match(remainingHardeningMigration, /CREATE OR REPLACE FUNCTION public\.get_or_seed_video_session_vibe_questions/);
+  assert.match(remainingHardeningMigration, /CREATE TRIGGER enforce_one_active_video_session_before_write/);
+  assert.match(remainingHardeningMigration, /participant_has_active_session_conflict/);
+  assert.match(remainingHardeningMigration, /pg_advisory_xact_lock/);
+});
+
+test("remaining prepare-entry hardening defers in_handshake registration until Daily token success", () => {
+  assert.match(remainingHardeningMigration, /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260501103000_prepare_entry_queue_guard/s);
+  assert.match(remainingHardeningMigration, /registration_status', 'deferred_until_daily_token'/);
+  assert.doesNotMatch(remainingHardeningMigration, /queue_status = v_registration_status/);
+  assert.match(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
+  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, 7200\);[\s\S]*await markVideoDateEntryPrepared/s);
+  assert.match(remainingHardeningMigration, /repair_stale_video_date_prepare_entries/);
+  assert.match(remainingHardeningMigration, /prepare_entry_provider_failed_repair/);
+  assert.match(remainingHardeningMigration, /AND current_room_id = r\.id/);
+  assert.doesNotMatch(remainingHardeningMigration, /OR queue_status = 'in_handshake'/);
+  assert.match(remainingHardeningMigration, /stale_prepare_entry_registration_unlinked/);
+  assert.match(remainingHardeningMigration, /Historical expire_stale_video_sessions body remains delegated\/unbounded/);
+});
+
+test("web and native use server-owned leave, reconnect, and permission recovery paths", () => {
+  assert.match(dailyRoomFunction, /action === "video_date_leave"/);
+  assert.match(dailyRoomFunction, /p_action: "mark_reconnect_self_away"/);
+  assert.match(
+    webVideoDatePage,
+    /source === "visibilitychange"[\s\S]*p_action: "mark_reconnect_return"[\s\S]*p_action: "sync_reconnect"/,
+  );
+  assert.match(webVideoDatePage, /setTimeout\(\(\) => sendLeaveSignal\("visibilitychange"\), 1200\)/);
+  assert.match(webVideoCallHook, /CAMERA_PERMISSION_DENIED/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
+  assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
+  assert.match(nativeVideoDateRoute, /markReconnectSelfAway\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /app_background_timeout/);
+});
+
+test("post-date survey retries verdicts and exposes half-verdict pending state on both clients", () => {
+  assert.match(remainingHardeningMigration, /awaiting_partner_verdict/);
+  assert.match(remainingHardeningMigration, /post_date_half_verdict_pending/);
+  assert.match(remainingHardeningMigration, /detect_post_date_half_verdict_timeouts/);
+  assert.match(webPostDateSurvey, /POST_DATE_VERDICT_SUBMIT_RETRY/);
+  assert.match(webPostDateSurvey, /POST_DATE_VERDICT_SUBMIT_FAILED/);
+  assert.match(webPostDateSurvey, /Awaiting your match&apos;s verdict/);
+  assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_SUBMIT_RETRY/);
+  assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_SUBMIT_FAILED/);
+  assert.match(nativePostDateSurvey, /Awaiting your match&apos;s verdict/);
+});
+
+test("notification date deep links mark the date-entry latch before routing to date", () => {
+  assert.match(notificationDeepLinkHandler, /markVideoDateEntryPipelineStarted/);
+  assert.match(
+    notificationDeepLinkHandler,
+    /if \(canAttemptDaily \|\| truthDecision === 'navigate_date'\) \{[\s\S]*markVideoDateEntryPipelineStarted\(sid\)[\s\S]*return videoDateHref\(sid\);/s,
+  );
 });
