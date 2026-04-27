@@ -4,6 +4,8 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import { bucketVideoDateLatencyMs } from "@clientShared/observability/videoDateOperatorMetrics";
 import {
   type SwipeSessionStageResult,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
@@ -85,6 +87,47 @@ export const useSwipeAction = ({
         });
         const sessionId = videoSessionIdFromSwipePayload(raw);
         const opensReadyGate = shouldOpenReadyGateFromSwipePayload(raw);
+        const conflictDetected =
+          outcome === "already_matched" || outcome === "participant_has_active_session_conflict";
+        const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
+        if (conflictDetected) {
+          trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_CONFLICT_DETECTED, {
+            platform: "web",
+            event_id: eventId,
+            session_id: sessionId ?? null,
+            source_surface: "event_lobby",
+            source_action: "swipe_result",
+            reason_code: outcome,
+            outcome: sessionId ? "blocked" : "failure",
+          });
+          if (sessionId && opensReadyGate) {
+            trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_RECOVERY_ATTEMPTED, {
+              platform: "web",
+              event_id: eventId,
+              session_id: sessionId,
+              source_surface: "event_lobby",
+              source_action: "open_existing_ready_gate_from_swipe",
+              reason_code: outcome,
+              attempt_count: 1,
+              outcome: "no_op",
+            });
+          } else {
+            const recoveryDurationMs =
+              recoveryStartedAtMs == null ? null : Math.max(0, Date.now() - recoveryStartedAtMs);
+            trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_RECOVERY_FAILED, {
+              platform: "web",
+              event_id: eventId,
+              session_id: sessionId ?? null,
+              source_surface: "event_lobby",
+              source_action: "swipe_result_no_recoverable_session",
+              reason_code: outcome,
+              attempt_count: 1,
+              duration_ms: recoveryDurationMs,
+              latency_bucket: bucketVideoDateLatencyMs(recoveryDurationMs),
+              outcome: "failure",
+            });
+          }
+        }
 
         switch (raw.result) {
           case "match":
@@ -130,8 +173,22 @@ export const useSwipeAction = ({
               toast.success("Ready Gate is open. Taking you back to this match attempt.", {
                 duration: 2800,
               });
+              const recoveryDurationMs =
+                recoveryStartedAtMs == null ? null : Math.max(0, Date.now() - recoveryStartedAtMs);
               onVideoSessionReady?.(sessionId);
               onMatch?.(sessionId);
+              trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_RECOVERY_SUCCEEDED, {
+                platform: "web",
+                event_id: eventId,
+                session_id: sessionId,
+                source_surface: "event_lobby",
+                source_action: "open_existing_ready_gate_from_swipe",
+                reason_code: "already_matched",
+                attempt_count: 1,
+                duration_ms: recoveryDurationMs,
+                latency_bucket: bucketVideoDateLatencyMs(recoveryDurationMs),
+                outcome: "success",
+              });
             }
             return raw;
 

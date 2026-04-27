@@ -10,6 +10,11 @@ import {
   rejectPreparedVideoDateEntry,
 } from "@/lib/videoDatePrepareEntry";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import {
+  buildReadyGateToDateLatencyPayload,
+  bucketVideoDateLatencyMs,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
 import type { DailyRoomFailureKind } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
 
@@ -224,12 +229,36 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       source,
       bothReadyToFirstRemoteFrameMs,
     });
+    if (optionsRef.current?.roomId) {
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId: optionsRef.current.roomId,
+        platform: "web",
+        eventId: optionsRef.current.eventId ?? null,
+        sourceSurface: "video_date_daily",
+        checkpoint: "first_remote_frame",
+        nowMs,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: "first_remote_frame",
+          sourceAction: source,
+          outcome: "success",
+          durationMs: bothReadyToFirstRemoteFrameMs,
+        }),
+      );
+    }
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_FIRST_REMOTE_FRAME, {
       platform: "web",
       session_id: optionsRef.current?.roomId ?? null,
       event_id: optionsRef.current?.eventId ?? null,
+      source_surface: "video_date_daily",
+      source_action: source,
       source,
       bothReadyToFirstRemoteFrameMs,
+      duration_ms: bothReadyToFirstRemoteFrameMs,
+      latency_bucket: bucketVideoDateLatencyMs(bothReadyToFirstRemoteFrameMs),
     });
   }, []);
 
@@ -527,9 +556,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             platform: "web",
             session_id: sessionId,
             event_id: truthRow?.event_id ?? eventId,
+            source_surface: "video_date_daily",
+            source_action: "daily_token_failure",
             code: lastFailure.kind,
+            reason_code: lastFailure.kind,
             retryable: true,
             attempt: attempt + 1,
+            attempt_count: attempt + 1,
           });
           const delayMs = CREATE_DATE_ROOM_RETRY_DELAYS_MS[attempt];
           if (delayMs == null) break;
@@ -562,11 +595,22 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             platform: "web",
             session_id: sessionId,
             event_id: truthRow?.event_id ?? eventId,
+            source_surface: "video_date_daily",
+            source_action: "daily_token_success",
             reused_room: successfulRoomData.reused_room === true,
             provider_room_recreated: successfulRoomData.provider_room_recreated === true,
             provider_verify_skipped: successfulRoomData.provider_verify_skipped === true,
             cached: result.cached,
             attempt: attempt + 1,
+            attempt_count: attempt + 1,
+            duration_ms: result.cacheEntry
+              ? Math.max(0, result.cacheEntry.prepareFinishedAtMs - result.cacheEntry.prepareStartedAtMs)
+              : null,
+            latency_bucket: bucketVideoDateLatencyMs(
+              result.cacheEntry
+                ? Math.max(0, result.cacheEntry.prepareFinishedAtMs - result.cacheEntry.prepareStartedAtMs)
+                : null,
+            ),
           });
           return {
             ok: true,
@@ -598,9 +642,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           platform: "web",
           session_id: sessionId,
           event_id: truthRow?.event_id ?? eventId,
+          source_surface: "video_date_daily",
+          source_action: "daily_token_failure",
           code: result.code,
+          reason_code: result.code,
           retryable: result.retryable,
           attempt: attempt + 1,
+          attempt_count: attempt + 1,
         });
 
         if (!lastFailure?.retryable) {
@@ -922,11 +970,29 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 roomName: roomData.room_name,
                 source: "participant_joined",
               });
+              const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+                sessionId,
+                platform: "web",
+                eventId: truthRow.event_id ?? eventId,
+                sourceSurface: "video_date_daily",
+                checkpoint: "remote_seen",
+              });
+              const latencyPayload = buildReadyGateToDateLatencyPayload({
+                context: latencyContext,
+                checkpoint: "remote_seen",
+                sourceAction: "participant_joined",
+                outcome: "success",
+              });
+              trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, latencyPayload);
               trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
                 platform: "web",
                 session_id: sessionId,
                 event_id: truthRow.event_id ?? eventId,
+                source_surface: "video_date_daily",
+                source_action: "participant_joined",
                 source: "participant_joined",
+                duration_ms: latencyPayload.bothReadyToRemoteSeenMs,
+                latency_bucket: latencyPayload.latency_bucket,
               });
             }
             setIsConnected(true);
@@ -975,6 +1041,30 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 userId,
                 roomName: roomData.room_name,
                 source: "participant_updated",
+              });
+              const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+                sessionId,
+                platform: "web",
+                eventId: truthRow.event_id ?? eventId,
+                sourceSurface: "video_date_daily",
+                checkpoint: "remote_seen",
+              });
+              const latencyPayload = buildReadyGateToDateLatencyPayload({
+                context: latencyContext,
+                checkpoint: "remote_seen",
+                sourceAction: "participant_updated",
+                outcome: "success",
+              });
+              trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, latencyPayload);
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: truthRow.event_id ?? eventId,
+                source_surface: "video_date_daily",
+                source_action: "participant_updated",
+                source: "participant_updated",
+                duration_ms: latencyPayload.bothReadyToRemoteSeenMs,
+                latency_bucket: latencyPayload.latency_bucket,
               });
             }
             const remoteKey = getTrackIdsKey(event.participant, true);
@@ -1146,6 +1236,25 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const dailyJoinStartedAtMs = Date.now();
         dailyJoinStartedAtMsRef.current = dailyJoinStartedAtMs;
         const prepareToJoinStartMs = Math.max(0, dailyJoinStartedAtMs - roomResult.cacheEntry.prepareFinishedAtMs);
+        const joinStartLatencyContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId: truthRow.event_id ?? eventId,
+          sourceSurface: "video_date_daily",
+          checkpoint: "daily_join_started",
+          nowMs: dailyJoinStartedAtMs,
+          attemptCount: opts?.internalRetry ? 2 : 1,
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: joinStartLatencyContext,
+            checkpoint: "daily_join_started",
+            sourceAction: opts?.internalRetry ? "daily_join_retry_started" : "daily_join_started",
+            outcome: "success",
+            attemptCount: opts?.internalRetry ? 2 : 1,
+          }),
+        );
         vdbg("daily_join_start", {
           sessionId,
           eventId: truthRow.event_id ?? eventId,
@@ -1159,7 +1268,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           platform: "web",
           session_id: sessionId,
           event_id: truthRow.event_id ?? eventId,
+          source_surface: "video_date_daily",
+          source_action: opts?.internalRetry ? "daily_join_retry_started" : "daily_join_started",
           prepareToJoinStartMs,
+          duration_ms: prepareToJoinStartMs,
+          latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
+          attempt_count: opts?.internalRetry ? 2 : 1,
           cached_prepare_entry: roomResult.cached,
         });
         await callObject.join({ url: roomData.room_url, token: roomData.token });
@@ -1173,11 +1287,38 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           roomName: roomData.room_name,
           joinDurationMs,
         });
+        const joinSuccessLatencyContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId: truthRow.event_id ?? eventId,
+          sourceSurface: "video_date_daily",
+          checkpoint: "daily_join_success",
+          nowMs: Date.now(),
+          attemptCount: opts?.internalRetry ? 2 : 1,
+        });
+        const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
+          context: joinSuccessLatencyContext,
+          checkpoint: "daily_join_success",
+          sourceAction: "daily_join_success",
+          outcome: "success",
+          durationMs: joinSuccessLatencyContext.readyGateOpenedAtMs == null
+            ? joinDurationMs
+            : undefined,
+          attemptCount: opts?.internalRetry ? 2 : 1,
+        });
+        trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, joinSuccessPayload);
+        trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_COMPLETED, joinSuccessPayload);
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_SUCCESS, {
           platform: "web",
           session_id: sessionId,
           event_id: truthRow.event_id ?? eventId,
+          source_surface: "video_date_daily",
+          source_action: "daily_join_success",
           joinDurationMs,
+          duration_ms: joinDurationMs,
+          latency_bucket: bucketVideoDateLatencyMs(joinDurationMs),
+          attempt_count: opts?.internalRetry ? 2 : 1,
+          bothReadyToDailyJoinMs: joinSuccessPayload.bothReadyToDailyJoinMs,
           prepareToJoinStartMs,
           cached_prepare_entry: roomResult.cached,
         });
@@ -1248,11 +1389,29 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               roomName: roomData.room_name,
               source: "post_join_snapshot",
             });
+            const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+              sessionId,
+              platform: "web",
+              eventId: truthRow.event_id ?? eventId,
+              sourceSurface: "video_date_daily",
+              checkpoint: "remote_seen",
+            });
+            const latencyPayload = buildReadyGateToDateLatencyPayload({
+              context: latencyContext,
+              checkpoint: "remote_seen",
+              sourceAction: "post_join_snapshot",
+              outcome: "success",
+            });
+            trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, latencyPayload);
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
               platform: "web",
               session_id: sessionId,
               event_id: truthRow.event_id ?? eventId,
+              source_surface: "video_date_daily",
+              source_action: "post_join_snapshot",
               source: "post_join_snapshot",
+              duration_ms: latencyPayload.bothReadyToRemoteSeenMs,
+              latency_bucket: latencyPayload.latency_bucket,
             });
           }
           setIsConnected(true);
@@ -1325,8 +1484,30 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           platform: "web",
           session_id: sessionId,
           event_id: eventId,
+          source_surface: "video_date_daily",
+          source_action: "daily_join_failure",
           reason: "daily_join_failed",
+          reason_code: "daily_join_failed",
         });
+        const failureContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId,
+          sourceSurface: "video_date_daily",
+          checkpoint: "daily_join_failure",
+          attemptCount: opts?.internalRetry ? 2 : 1,
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: failureContext,
+            checkpoint: "daily_join_failure",
+            sourceAction: "daily_join_failure",
+            outcome: "failure",
+            reasonCode: "daily_join_failed",
+            attemptCount: opts?.internalRetry ? 2 : 1,
+          }),
+        );
         await cleanupCallObject("startCall", "start_failure");
         if (preparedEntryAtFailure && userId && !opts?.internalRetry) {
           rejectPreparedVideoDateEntry(sessionId, userId, "daily_join_failed", eventId);

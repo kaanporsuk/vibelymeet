@@ -41,6 +41,7 @@ import { useMysteryMatch } from '@/lib/useMysteryMatch';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
+import { bucketVideoDateLatencyMs } from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1461,6 +1462,47 @@ export default function EventLobbyScreen() {
 
       const videoSessionId = videoSessionIdFromSwipePayload(envelope);
       const openingReadyGate = shouldOpenReadyGateFromSwipePayload(envelope);
+      const conflictDetected =
+        outcome === 'already_matched' || outcome === 'participant_has_active_session_conflict';
+      const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
+      if (conflictDetected) {
+        trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_CONFLICT_DETECTED, {
+          platform: 'native',
+          event_id: id,
+          session_id: videoSessionId ?? null,
+          source_surface: 'event_lobby',
+          source_action: 'swipe_result',
+          reason_code: outcome,
+          outcome: videoSessionId ? 'blocked' : 'failure',
+        });
+        if (videoSessionId && openingReadyGate) {
+          trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_RECOVERY_ATTEMPTED, {
+            platform: 'native',
+            event_id: id,
+            session_id: videoSessionId,
+            source_surface: 'event_lobby',
+            source_action: 'open_existing_ready_gate_from_swipe',
+            reason_code: outcome,
+            attempt_count: 1,
+            outcome: 'no_op',
+          });
+        } else {
+          const recoveryDurationMs =
+            recoveryStartedAtMs == null ? null : Math.max(0, Date.now() - recoveryStartedAtMs);
+          trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_RECOVERY_FAILED, {
+            platform: 'native',
+            event_id: id,
+            session_id: videoSessionId ?? null,
+            source_surface: 'event_lobby',
+            source_action: 'swipe_result_no_recoverable_session',
+            reason_code: outcome,
+            attempt_count: 1,
+            duration_ms: recoveryDurationMs,
+            latency_bucket: bucketVideoDateLatencyMs(recoveryDurationMs),
+            outcome: 'failure',
+          });
+        }
+      }
       if (openingReadyGate && videoSessionId) {
         lastOpenedSessionRef.current = videoSessionId;
         logVdbgSessionStage('ready_gate_open', videoSessionId, {
@@ -1476,6 +1518,22 @@ export default function EventLobbyScreen() {
           avatar_url: current?.avatar_url,
         });
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
+        if (outcome === 'already_matched') {
+          const recoveryDurationMs =
+            recoveryStartedAtMs == null ? null : Math.max(0, Date.now() - recoveryStartedAtMs);
+          trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_RECOVERY_SUCCEEDED, {
+            platform: 'native',
+            event_id: id,
+            session_id: videoSessionId,
+            source_surface: 'event_lobby',
+            source_action: 'open_existing_ready_gate_from_swipe',
+            reason_code: 'already_matched',
+            attempt_count: 1,
+            duration_ms: recoveryDurationMs,
+            latency_bucket: bucketVideoDateLatencyMs(recoveryDurationMs),
+            outcome: 'success',
+          });
+        }
         refetchDeck();
       }
 

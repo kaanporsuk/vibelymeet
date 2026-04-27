@@ -22,6 +22,10 @@ import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import {
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
 import { useQueryClient } from "@tanstack/react-query";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { claimDateNavigation } from "@/lib/dateNavigationGuard";
@@ -199,14 +203,52 @@ const EventLobby = () => {
   const prepareAndNavigateToDateSession = useCallback(
     (sessionId: string, source: string) => {
       const observedAtMs = Date.now();
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId,
+        sourceSurface: "event_lobby",
+        checkpoint: "both_ready_observed",
+        nowMs: observedAtMs,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: "both_ready_observed",
+          sourceAction: source,
+          outcome: "success",
+        }),
+      );
       trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
         source,
+        source_surface: "event_lobby",
+        source_action: source,
       });
+      const navigateAfterPrepare = (nextSource: string) => {
+        const navigationContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId,
+          sourceSurface: "event_lobby",
+          checkpoint: "navigation_started",
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: navigationContext,
+            checkpoint: "navigation_started",
+            sourceAction: nextSource,
+            outcome: "success",
+          }),
+        );
+        navigateToDateSession(sessionId, nextSource);
+      };
       const fallback = window.setTimeout(() => {
-        navigateToDateSession(sessionId, `${source}_prepare_grace`);
+        navigateAfterPrepare(`${source}_prepare_grace`);
       }, PREPARE_ENTRY_NAV_GRACE_MS);
       void prepareVideoDateEntry(sessionId, {
         eventId,
@@ -215,7 +257,7 @@ const EventLobby = () => {
       }).then((result) => {
         if (result.ok === true) {
           window.clearTimeout(fallback);
-          navigateToDateSession(sessionId, `${source}_prepare_done`);
+          navigateAfterPrepare(`${source}_prepare_done`);
         }
       });
     },

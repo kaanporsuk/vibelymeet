@@ -41,6 +41,11 @@ import {
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
+import {
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+  startReadyGateToDateLatencyContext,
+} from '@clientShared/observability/videoDateOperatorMetrics';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -73,6 +78,7 @@ export function ReadyGateOverlay({
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const closedRef = useRef(false);
+  const dateNavigationStartedRef = useRef(false);
   const invalidSessionNotifiedRef = useRef(false);
   const rgImpressionRef = useRef(false);
   const permissionBlockedRef = useRef(false);
@@ -129,15 +135,56 @@ export function ReadyGateOverlay({
         session_id: sessionId,
         event_id: eventId,
         source,
+        source_surface: 'ready_gate_overlay',
+        source_action: 'both_ready_observed',
       });
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId,
+        sourceSurface: 'ready_gate_overlay',
+        checkpoint: 'both_ready_observed',
+        nowMs: observedAtMs,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: 'both_ready_observed',
+          sourceAction: source,
+          outcome: 'success',
+        }),
+      );
       vdbg('ready_gate_both_ready_observed', {
         sessionId,
         eventId,
         source,
       });
 
-      const fallback = setTimeout(() => {
+      const navigateWithLatency = (navigateSource: string) => {
+        if (dateNavigationStartedRef.current) return;
+        dateNavigationStartedRef.current = true;
+        const navContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId,
+          sourceSurface: 'ready_gate_overlay',
+          checkpoint: 'navigation_started',
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: navContext,
+            checkpoint: 'navigation_started',
+            sourceAction: navigateSource,
+            outcome: 'success',
+          }),
+        );
         onNavigateToDate(sessionId);
+      };
+
+      const fallback = setTimeout(() => {
+        navigateWithLatency(`${source}_prepare_grace`);
       }, PREPARE_ENTRY_NAV_GRACE_MS);
 
       void prepareVideoDateEntry(sessionId, {
@@ -147,7 +194,7 @@ export function ReadyGateOverlay({
       }).then((result) => {
         if (result.ok === true) {
           clearTimeout(fallback);
-          onNavigateToDate(sessionId);
+          navigateWithLatency(`${source}_prepare_success`);
           return;
         }
         if (result.ok === false) {
@@ -248,12 +295,16 @@ export function ReadyGateOverlay({
       session_id: sessionId,
       event_id: eventId,
       source: 'both_ready',
+      source_surface: 'ready_gate_overlay',
+      source_action: 'both_ready',
     });
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_BOTH_READY, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
       source: 'both_ready',
+      source_surface: 'ready_gate_overlay',
+      source_action: 'both_ready',
     });
     vdbg('lobby_navigate_to_date', {
       trigger: 'ready_gate_overlay_both_ready',
@@ -306,6 +357,7 @@ export function ReadyGateOverlay({
 
   useEffect(() => {
     closedRef.current = false;
+    dateNavigationStartedRef.current = false;
     invalidSessionNotifiedRef.current = false;
     rgImpressionRef.current = false;
     permissionBlockedRef.current = false;
@@ -324,10 +376,27 @@ export function ReadyGateOverlay({
     setHasMediaPermission(null);
     if (!rgImpressionRef.current) {
       rgImpressionRef.current = true;
+      const latencyContext = startReadyGateToDateLatencyContext({
+        platform: 'native',
+        sessionId,
+        eventId,
+        sourceSurface: 'ready_gate_overlay',
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_STARTED,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: 'ready_gate_impression',
+          sourceAction: 'impression',
+          outcome: 'success',
+        }),
+      );
       trackEvent(LobbyPostDateEvents.READY_GATE_IMPRESSION, {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,
+        source_surface: 'ready_gate_overlay',
+        source_action: 'impression',
       });
     }
   }, [sessionId, eventId]);
@@ -610,15 +679,35 @@ export function ReadyGateOverlay({
                   label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                   onPress={() => {
                     if (markingReady) return;
+                    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+                      sessionId,
+                      platform: 'native',
+                      eventId,
+                      sourceSurface: 'ready_gate_overlay',
+                      checkpoint: 'ready_tap',
+                    });
+                    trackEvent(
+                      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+                      buildReadyGateToDateLatencyPayload({
+                        context: latencyContext,
+                        checkpoint: 'ready_tap',
+                        sourceAction: 'ready_tap',
+                        outcome: 'success',
+                      }),
+                    );
                     trackEvent(LobbyPostDateEvents.READY_GATE_READY_TAP, {
                       platform: 'native',
                       session_id: sessionId,
                       event_id: eventId,
+                      source_surface: 'ready_gate_overlay',
+                      source_action: 'ready_tap',
                     });
                     trackEvent(LobbyPostDateEvents.VIDEO_DATE_READY_GATE_READY, {
                       platform: 'native',
                       session_id: sessionId,
                       event_id: eventId,
+                      source_surface: 'ready_gate_overlay',
+                      source_action: 'ready_tap',
                     });
                     setMarkingReady(true);
                     void (async () => {

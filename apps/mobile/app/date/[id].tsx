@@ -90,7 +90,12 @@ import {
   rejectPreparedVideoDateEntry,
 } from '@/lib/videoDatePrepareEntry';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
-import { buildVideoDateTimerDriftRecoveredPayload } from '@clientShared/observability/videoDateOperatorMetrics';
+import {
+  buildReadyGateToDateLatencyPayload,
+  buildVideoDateTimerDriftRecoveredPayload,
+  bucketVideoDateLatencyMs,
+  recordReadyGateToDateLatencyCheckpoint,
+} from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { avatarUrl } from '@/lib/imageUrl';
 import {
@@ -567,6 +572,30 @@ export default function VideoDateScreen() {
               participant_id: dailyParticipantId(p) ?? 'unknown',
               room_name: roomName,
             });
+            const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+              sessionId: sessionId ?? '',
+              platform: 'native',
+              eventId: eventId || null,
+              sourceSurface: 'video_date_daily',
+              checkpoint: 'remote_seen',
+            });
+            const latencyPayload = buildReadyGateToDateLatencyPayload({
+              context: latencyContext,
+              checkpoint: 'remote_seen',
+              sourceAction: 'participant_joined',
+              outcome: 'success',
+            });
+            trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, latencyPayload);
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
+              platform: 'native',
+              session_id: sessionId ?? null,
+              event_id: eventId || null,
+              source_surface: 'video_date_daily',
+              source_action: 'participant_joined',
+              source: 'participant_joined',
+              duration_ms: latencyPayload.bothReadyToRemoteSeenMs,
+              latency_bucket: latencyPayload.latency_bucket,
+            });
           }
           if (__DEV__) vdbg('first_remote_participant_seen', { sessionId: sessionId ?? null, userId: user?.id ?? null, source: 'participant_joined' });
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner joined', level: 'info' });
@@ -603,6 +632,38 @@ export default function VideoDateScreen() {
           setLocalParticipant(p);
           applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
         } else {
+          if (!firstRemoteParticipantTimedRef.current) {
+            firstRemoteParticipantTimedRef.current = true;
+            endBootstrapTiming('first_remote_participant', {
+              source: 'participant_updated',
+              participant_id: dailyParticipantId(p) ?? 'unknown',
+              room_name: roomName,
+            });
+            const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+              sessionId: sessionId ?? '',
+              platform: 'native',
+              eventId: eventId || null,
+              sourceSurface: 'video_date_daily',
+              checkpoint: 'remote_seen',
+            });
+            const latencyPayload = buildReadyGateToDateLatencyPayload({
+              context: latencyContext,
+              checkpoint: 'remote_seen',
+              sourceAction: 'participant_updated',
+              outcome: 'success',
+            });
+            trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, latencyPayload);
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
+              platform: 'native',
+              session_id: sessionId ?? null,
+              event_id: eventId || null,
+              source_surface: 'video_date_daily',
+              source_action: 'participant_updated',
+              source: 'participant_updated',
+              duration_ms: latencyPayload.bothReadyToRemoteSeenMs,
+              latency_bucket: latencyPayload.latency_bucket,
+            });
+          }
           setPartnerEverJoined(true);
           setRemoteParticipant(p);
         }
@@ -820,6 +881,31 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     vdbg('date_mount', { sessionId: sessionId ?? null, userId: user?.id ?? null });
+    if (sessionId) {
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId: eventId || null,
+        sourceSurface: 'video_date_route',
+        checkpoint: 'date_route_entered',
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: 'date_route_entered',
+          sourceAction: 'route_mount',
+          outcome: 'success',
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROUTE_ENTERED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId || null,
+        source_surface: 'video_date_route',
+        source_action: 'route_mount',
+      });
+    }
     beginBootstrapTiming('date_route_entered', { source: 'mount' });
     endBootstrapTiming('date_route_entered', { source: 'mount' });
     logJourney('date_route_entered', { source: 'mount' }, 'date_route_entered');
@@ -1212,7 +1298,7 @@ export default function VideoDateScreen() {
         eventId: session?.event_id ?? eventId,
         previousTimeLeftSeconds: localTimeLeftRef.current,
         correctedTimeLeftSeconds: serverTimeLeft,
-        recoverySource: 'session_truth_sync',
+        recoverySource: 'sync_reconnect',
         phase: phaseRef.current,
       });
 
@@ -1228,7 +1314,12 @@ export default function VideoDateScreen() {
         ].join(':');
         if (lastTimerDriftRecoveryKeyRef.current !== recoveryKey) {
           lastTimerDriftRecoveryKeyRef.current = recoveryKey;
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED_BY_SERVER_TRUTH, payload);
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_DETECTED, {
+            ...payload,
+            outcome: 'no_op',
+            reason_code: 'client_server_timer_mismatch',
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED, payload);
           vdbg('timer_drift_recovered_by_server_truth', {
             sessionId: sessionId ?? null,
             eventId: payload.event_id ?? null,
@@ -1521,12 +1612,35 @@ export default function VideoDateScreen() {
         participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
         both_ready_to_first_remote_frame_ms: bothReadyToFirstRemoteFrameMs,
       });
+      if (sessionId) {
+        const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId: eventId || null,
+          sourceSurface: 'video_date_daily',
+          checkpoint: 'first_remote_frame',
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: latencyContext,
+            checkpoint: 'first_remote_frame',
+            sourceAction: 'remote_track_mounted',
+            outcome: 'success',
+            durationMs: bothReadyToFirstRemoteFrameMs,
+          }),
+        );
+      }
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_FIRST_REMOTE_FRAME, {
         platform: 'native',
         session_id: sessionId ?? null,
         event_id: eventId || null,
+        source_surface: 'video_date_daily',
+        source_action: 'remote_track_mounted',
         source: 'remote_track_mounted',
         bothReadyToFirstRemoteFrameMs,
+        duration_ms: bothReadyToFirstRemoteFrameMs,
+        latency_bucket: bucketVideoDateLatencyMs(bothReadyToFirstRemoteFrameMs),
       });
     }
     videoDateDailyDiagnostic('remote_track_mounted', {
@@ -3076,8 +3190,10 @@ export default function VideoDateScreen() {
         willCallDailyRoom: !cancelled,
       });
       let tokenRes;
+      let dailyTokenStartedAtMs = Date.now();
       try {
         currentStep = setPrejoinStep('daily_room');
+        dailyTokenStartedAtMs = Date.now();
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_start', {
           session_id: sessionId,
           user_id: user?.id ?? null,
@@ -3111,6 +3227,7 @@ export default function VideoDateScreen() {
         });
       } catch (error) {
         const timedOut = error instanceof VideoDateRequestTimeoutError;
+        const tokenDurationMs = Date.now() - dailyTokenStartedAtMs;
         endBootstrapTiming('daily_room_acquire', {
           source: 'prejoin',
           ok: false,
@@ -3133,6 +3250,18 @@ export default function VideoDateScreen() {
         videoDateDailyDiagnostic('token_fetch_failure', {
           session_id: sessionId,
           reason: timedOut ? 'timeout' : 'exception',
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: 'daily_token_failure',
+          reason_code: timedOut ? 'timeout' : 'exception',
+          code: timedOut ? 'timeout' : 'exception',
+          duration_ms: tokenDurationMs,
+          latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
+          attempt_count: 1,
         });
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_fail', {
           session_id: sessionId,
@@ -3242,6 +3371,7 @@ export default function VideoDateScreen() {
         }
       }
       if (!tokenRes.ok) {
+        const tokenDurationMs = Date.now() - dailyTokenStartedAtMs;
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
           userId: user.id,
@@ -3256,6 +3386,19 @@ export default function VideoDateScreen() {
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
           server_code: tokenRes.serverCode != null ? String(tokenRes.serverCode) : null,
+        });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: 'daily_token_failure',
+          reason_code: String(tokenRes.code),
+          code: String(tokenRes.code),
+          retryable: tokenRes.code === 'READY_GATE_NOT_READY',
+          duration_ms: tokenDurationMs,
+          latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
+          attempt_count: 1,
         });
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_fail', {
           session_id: sessionId,
@@ -3303,6 +3446,17 @@ export default function VideoDateScreen() {
       }
 
       const tokenResult = tokenRes.data;
+      const tokenDurationMs = Date.now() - dailyTokenStartedAtMs;
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId || null,
+        source_surface: 'video_date_daily',
+        source_action: 'daily_token_success',
+        duration_ms: tokenDurationMs,
+        latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
+        attempt_count: 1,
+      });
       activePreparedEntryCacheRef.current = getPreparedVideoDateEntry(sessionId, user.id);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_ok', {
         session_id: sessionId,
@@ -3365,6 +3519,25 @@ export default function VideoDateScreen() {
           activePreparedEntryCacheRef.current,
           dailyJoinStartedAtMs,
         );
+        const joinStartLatencyContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId: eventId || null,
+          sourceSurface: 'video_date_daily',
+          checkpoint: 'daily_join_started',
+          nowMs: dailyJoinStartedAtMs,
+          attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: joinStartLatencyContext,
+            checkpoint: 'daily_join_started',
+            sourceAction: preparedJoinRetryUsedRef.current ? 'daily_join_retry_started' : 'daily_join_started',
+            outcome: 'success',
+            attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+          }),
+        );
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_start', {
           session_id: sessionId,
           user_id: user?.id ?? null,
@@ -3375,7 +3548,12 @@ export default function VideoDateScreen() {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: preparedJoinRetryUsedRef.current ? 'daily_join_retry_started' : 'daily_join_started',
           prepareToJoinStartMs,
+          duration_ms: prepareToJoinStartMs,
+          latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
+          attempt_count: preparedJoinRetryUsedRef.current ? 2 : 1,
           cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
         });
         videoDateDailyDiagnostic('daily_call_join_start', {
@@ -3424,11 +3602,35 @@ export default function VideoDateScreen() {
           room_name: tokenResult.room_name,
           join_duration_ms: joinDurationMs,
         });
+        const joinSuccessLatencyContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId: eventId || null,
+          sourceSurface: 'video_date_daily',
+          checkpoint: 'daily_join_success',
+          nowMs: Date.now(),
+          attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+        });
+        const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
+          context: joinSuccessLatencyContext,
+          checkpoint: 'daily_join_success',
+          sourceAction: 'daily_join_success',
+          outcome: 'success',
+          attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+        });
+        trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, joinSuccessPayload);
+        trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_COMPLETED, joinSuccessPayload);
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_SUCCESS, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: 'daily_join_success',
           joinDurationMs,
+          duration_ms: joinDurationMs,
+          latency_bucket: bucketVideoDateLatencyMs(joinDurationMs),
+          attempt_count: preparedJoinRetryUsedRef.current ? 2 : 1,
+          bothReadyToDailyJoinMs: joinSuccessPayload.bothReadyToDailyJoinMs,
           prepareToJoinStartMs,
           cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
         });
@@ -3493,6 +3695,30 @@ export default function VideoDateScreen() {
               participant_id: dailyParticipantId(remotes[0] as DailyParticipant) ?? 'unknown',
               room_name: tokenResult.room_name,
             });
+            const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+              sessionId,
+              platform: 'native',
+              eventId: eventId || null,
+              sourceSurface: 'video_date_daily',
+              checkpoint: 'remote_seen',
+            });
+            const latencyPayload = buildReadyGateToDateLatencyPayload({
+              context: latencyContext,
+              checkpoint: 'remote_seen',
+              sourceAction: 'post_join_snapshot',
+              outcome: 'success',
+            });
+            trackEvent(LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT, latencyPayload);
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_SEEN, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              source_surface: 'video_date_daily',
+              source_action: 'post_join_snapshot',
+              source: 'post_join_snapshot',
+              duration_ms: latencyPayload.bothReadyToRemoteSeenMs,
+              latency_bucket: latencyPayload.latency_bucket,
+            });
           }
           clearFirstConnectWatchdog();
           vdbg('prejoin_state_awaitingFirstConnect', {
@@ -3554,17 +3780,42 @@ export default function VideoDateScreen() {
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
         });
+        const failureContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId: eventId || null,
+          sourceSurface: 'video_date_daily',
+          checkpoint: 'daily_join_failure',
+          attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: failureContext,
+            checkpoint: 'daily_join_failure',
+            sourceAction: 'daily_join_failure',
+            outcome: 'failure',
+            reasonCode: 'daily_join_failed',
+            attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+          }),
+        );
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_JOIN_FAILURE, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: 'daily_join_failure',
           reason: 'daily_join_failed',
+          reason_code: 'daily_join_failed',
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_FAILURE, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: 'daily_join_failure',
           reason: 'daily_join_failed',
+          reason_code: 'daily_join_failed',
         });
         if (preparedEntryAtFailure && !preparedJoinRetryUsedRef.current) {
           preparedJoinRetryUsedRef.current = true;
