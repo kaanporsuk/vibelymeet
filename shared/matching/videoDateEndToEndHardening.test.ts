@@ -58,6 +58,10 @@ const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
 );
+const pendingVerdictObservabilityMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501113000_post_date_pending_verdict_observability.sql"),
+  "utf8",
+);
 const expireStaleBoundingDeferralDoc = readFileSync(
   join(process.cwd(), "docs/video-date-expire-stale-bounding-deferral.md"),
   "utf8",
@@ -164,6 +168,10 @@ const webPostDateSurvey = readFileSync(
 );
 const nativePostDateSurvey = readFileSync(
   join(process.cwd(), "apps/mobile/components/video-date/PostDateSurvey.tsx"),
+  "utf8",
+);
+const nativeVideoDateApi = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/videoDateApi.ts"),
   "utf8",
 );
 const notificationDeepLinkHandler = readFileSync(
@@ -671,7 +679,10 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
   assert.match(webVideoCallHook, /We're reconnecting your date state/);
   assert.match(webVideoCallHook, /mark_video_date_daily_joined_retry_after_failure/);
-  assert.match(nativeVideoDateRoute, /markReconnectSelfAway\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateApi, /action: 'video_date_leave'/);
+  assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
   assert.match(nativeVideoDateRoute, /We're reconnecting your date state/);
   assert.match(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
@@ -695,24 +706,39 @@ test("post-date survey retries verdicts and exposes half-verdict pending state o
   assert.match(remainingHardeningMigration, /awaiting_partner_verdict/);
   assert.match(remainingHardeningMigration, /post_date_half_verdict_pending/);
   assert.match(remainingHardeningMigration, /detect_post_date_half_verdict_timeouts/);
+  assert.match(pendingVerdictObservabilityMigration, /post_date_half_verdict_saved/);
+  assert.match(pendingVerdictObservabilityMigration, /post_date_pending_verdict_completed/);
+  assert.match(pendingVerdictObservabilityMigration, /FOR UPDATE/);
+  assert.match(pendingVerdictObservabilityMigration, /ON CONFLICT \(session_id, user_id\)/);
+  assert.match(pendingVerdictObservabilityMigration, /check_mutual_vibe_and_match\(p_session_id\)/);
+  assert.match(pendingVerdictObservabilityMigration, /partner_verdict_recorded/);
   assert.match(webPostDateSurvey, /POST_DATE_VERDICT_SUBMIT_RETRY/);
   assert.match(webPostDateSurvey, /POST_DATE_VERDICT_SUBMIT_FAILED/);
+  assert.match(webPostDateSurvey, /POST_DATE_VERDICT_PENDING_PARTNER/);
+  assert.match(webPostDateSurvey, /POST_DATE_HALF_VERDICT_SAVED/);
+  assert.match(webPostDateSurvey, /POST_DATE_PENDING_VERDICT_COMPLETED/);
   assert.match(webPostDateSurvey, /lastVerdictAttempt/);
   assert.match(webPostDateSurvey, /Try again/);
   assert.match(webPostDateSurvey, /Awaiting your match&apos;s verdict/);
   assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_SUBMIT_RETRY/);
   assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_SUBMIT_FAILED/);
+  assert.match(nativePostDateSurvey, /POST_DATE_VERDICT_PENDING_PARTNER/);
+  assert.match(nativePostDateSurvey, /POST_DATE_HALF_VERDICT_SAVED/);
+  assert.match(nativePostDateSurvey, /POST_DATE_PENDING_VERDICT_COMPLETED/);
   assert.match(nativePostDateSurvey, /lastVerdictAttempt/);
   assert.match(nativePostDateSurvey, /Try again/);
   assert.match(nativePostDateSurvey, /Awaiting your match&apos;s verdict/);
 });
 
-test("notification date deep links mark the date-entry latch before routing to date", () => {
+test("notification date deep links require provider-prepared truth before routing to date", () => {
   assert.match(notificationDeepLinkHandler, /markVideoDateEntryPipelineStarted/);
   assert.match(
     notificationDeepLinkHandler,
     /if \(canAttemptDaily \|\| truthDecision === 'navigate_date'\) \{[\s\S]*markVideoDateEntryPipelineStarted\(sid\)[\s\S]*return videoDateHref\(sid\);/s,
   );
+  assert.match(notificationDeepLinkHandler, /if \(!vs\) return tabsRootHref\(\);/);
+  assert.match(notificationDeepLinkHandler, /if \(!isParticipant\) return tabsRootHref\(\);/);
+  assert.match(notificationDeepLinkHandler, /unknown_video_truth_decision/);
 });
 
 test("active-session resolvers emit canonical stale-session analytics for stale registration pointers", () => {
@@ -786,10 +812,20 @@ test("native video dates configure supported Expo Audio mode without expo-av", (
 });
 
 test("native AppState background path remains statically covered for away, return, and timeout", () => {
-  assert.match(nativeVideoDateRoute, /markReconnectSelfAway\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /NATIVE_BACKGROUND_GRACE_MS = 12_000/);
+  assert.match(nativeVideoDateRoute, /appStateBackgroundStartedAtRef/);
+  assert.match(nativeVideoDateRoute, /backgroundElapsedMs >= NATIVE_BACKGROUND_GRACE_MS/);
+  assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /cleanupDailyAndLocalState\(\)/);
   assert.match(nativeVideoDateRoute, /markReconnectReturn\(sessionId\)/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_RECOVERED/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_EXPIRED/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED/);
+  assert.match(nativeVideoDateRoute, /Pausing your date/);
+  assert.match(nativeVideoDateRoute, /Reconnected/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
-  assert.match(nativeVideoDateRoute, /setTimeout\(\(\) => \{[\s\S]*endVideoDate\(sessionId, 'app_background_timeout'\)[\s\S]*\}, 30_000\)/);
+  assert.match(nativeVideoDateRoute, /setTimeout\(\(\) => \{[\s\S]*endVideoDate\(sessionId, 'app_background_timeout'\)[\s\S]*\}, NATIVE_BACKGROUND_GRACE_MS\)/);
 });
 
 test("half-verdict timeout detector is scheduled through optional pg_cron", () => {

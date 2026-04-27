@@ -535,6 +535,15 @@ export const PostDateSurvey = ({
           outcome: result?.mutual ? "mutual" : "not_mutual",
         });
 
+        if (result?.partner_verdict_recorded && !result?.awaiting_partner_verdict) {
+          trackEvent(LobbyPostDateEvents.POST_DATE_PENDING_VERDICT_COMPLETED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            outcome: result?.mutual ? "mutual" : "not_mutual",
+          });
+        }
+
         if (result?.mutual) {
           setVerdictRetryable(false);
           setStep("celebration");
@@ -543,6 +552,16 @@ export const PostDateSurvey = ({
           }
         } else if (result?.awaiting_partner_verdict) {
           setVerdictRetryable(false);
+          trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_PENDING_PARTNER, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+          });
+          trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_SAVED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+          });
           trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_PENDING, {
             platform: "web",
             session_id: sessionId,

@@ -634,9 +634,27 @@ export function PostDateSurvey({
         event_id: eventId,
         outcome: result.mutual ? 'mutual' : 'not_mutual',
       });
+      if (result.partner_verdict_recorded && !result.awaiting_partner_verdict) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_PENDING_VERDICT_COMPLETED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          outcome: result.mutual ? 'mutual' : 'not_mutual',
+        });
+      }
       if (result.mutual) {
         setStep('celebration');
       } else if (result.awaiting_partner_verdict) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_PENDING_PARTNER, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+        });
+        trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_SAVED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+        });
         trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_PENDING, {
           platform: 'native',
           session_id: sessionId,

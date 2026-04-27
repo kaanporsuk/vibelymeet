@@ -615,6 +615,39 @@ export async function markReconnectSelfAway(sessionId: string, reason = 'app_bac
   });
 }
 
+export async function signalVideoDateLeave(sessionId: string, reason = 'app_background'): Promise<boolean> {
+  const args = {
+    action: 'video_date_leave',
+    sessionId,
+    reason,
+  };
+  vdbg('daily_room_before', { action: 'video_date_leave', args });
+  try {
+    const { data, error } = await supabase.functions.invoke('daily-room', {
+      body: args,
+    });
+    const ok = !error && (data as { success?: boolean } | null)?.success !== false;
+    vdbg('daily_room_after', {
+      action: 'video_date_leave',
+      ok,
+      sessionId,
+      reason,
+      error: error ? { name: error.name, message: error.message } : null,
+      code: (data as { code?: string } | null)?.code ?? null,
+    });
+    return ok;
+  } catch (error) {
+    vdbg('daily_room_after', {
+      action: 'video_date_leave',
+      ok: false,
+      sessionId,
+      reason,
+      error: error instanceof Error ? { name: error.name, message: error.message } : 'exception',
+    });
+    return false;
+  }
+}
+
 export async function markReconnectReturn(sessionId: string): Promise<void> {
   const args = {
     p_session_id: sessionId,
