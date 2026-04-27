@@ -4,6 +4,11 @@ import { trackEvent } from '@/lib/analytics';
 import { vdbg } from '@/lib/vdbg';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import {
+  buildReadyGateToDateLatencyPayload,
+  bucketVideoDateLatencyMs,
+  recordReadyGateToDateLatencyCheckpoint,
+} from '@clientShared/observability/videoDateOperatorMetrics';
+import {
   DAILY_ROOM_ACTIONS,
   classifyDailyRoomInvokeFailure,
 } from '@clientShared/matching/dailyRoomFailure';
@@ -44,12 +49,56 @@ export async function prepareVideoDateEntry(
   }
 
   const startedAt = Date.now();
+  const sourceSurface = 'video_date_entry';
+  const attemptCount = options.force ? 2 : 1;
+  const trackLatencyCheckpoint = (
+    checkpoint:
+      | 'enter_handshake_started'
+      | 'enter_handshake_success'
+      | 'enter_handshake_failure'
+      | 'daily_token_started'
+      | 'daily_token_success'
+      | 'daily_token_failure',
+    sourceAction: string,
+    outcome: 'success' | 'failure',
+    reasonCode?: string | null,
+    durationMs?: number | null,
+  ) => {
+    const context = recordReadyGateToDateLatencyCheckpoint({
+      sessionId,
+      platform: 'native',
+      eventId: options.eventId ?? null,
+      sourceSurface,
+      checkpoint,
+      nowMs: Date.now(),
+      attemptCount,
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context,
+        checkpoint,
+        sourceAction,
+        outcome,
+        reasonCode,
+        durationMs,
+        attemptCount,
+      }),
+    );
+  };
+
+  trackLatencyCheckpoint('enter_handshake_started', 'prepare_date_entry_started', 'success');
+  trackLatencyCheckpoint('daily_token_started', 'daily_token_request_started', 'success');
+
   trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_STARTED, {
     platform: 'native',
     session_id: sessionId,
     event_id: options.eventId ?? null,
     source: options.source ?? null,
+    source_surface: sourceSurface,
+    source_action: 'prepare_date_entry_started',
     force: options.force === true,
+    attempt_count: attemptCount,
   });
   Sentry.addBreadcrumb({
     category: 'video-date',
@@ -90,13 +139,21 @@ export async function prepareVideoDateEntry(
 
   if (result.ok === true) {
     const durationMs = Date.now() - startedAt;
+    const tokenDurationMs = result.data.timings?.prepareDurationMs ?? durationMs;
+    trackLatencyCheckpoint('enter_handshake_success', 'prepare_date_entry_success', 'success', null, tokenDurationMs);
+    trackLatencyCheckpoint('daily_token_success', 'daily_token_success', 'success', null, tokenDurationMs);
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SUCCESS, {
       platform: 'native',
       session_id: sessionId,
       event_id: options.eventId ?? null,
       source: options.source ?? null,
+      source_surface: sourceSurface,
+      source_action: 'prepare_date_entry_success',
       cached: result.cached,
       prepareDurationMs: result.data.timings?.prepareDurationMs ?? durationMs,
+      duration_ms: tokenDurationMs,
+      latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
+      attempt_count: attemptCount,
       bothReadyToPrepareStartMs: result.data.timings?.bothReadyToPrepareStartMs ?? null,
       reused_room: result.data.reused_room === true,
       provider_room_recreated: result.data.provider_room_recreated === true,
@@ -140,10 +197,18 @@ export async function prepareVideoDateEntry(
     session_id: sessionId,
     event_id: options.eventId ?? null,
     source: options.source ?? null,
+    source_surface: sourceSurface,
+    source_action: 'prepare_date_entry_failure',
     code: result.code,
+    reason_code: result.code,
     retryable: result.retryable,
     httpStatus: result.httpStatus ?? null,
+    duration_ms: Date.now() - startedAt,
+    latency_bucket: bucketVideoDateLatencyMs(Date.now() - startedAt),
+    attempt_count: attemptCount,
   });
+  trackLatencyCheckpoint('enter_handshake_failure', 'prepare_date_entry_failure', 'failure', result.code);
+  trackLatencyCheckpoint('daily_token_failure', 'daily_token_failure', 'failure', result.code);
   Sentry.addBreadcrumb({
     category: 'video-date',
     message: 'prepare_date_entry_failure',

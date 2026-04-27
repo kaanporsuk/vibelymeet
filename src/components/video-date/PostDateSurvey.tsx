@@ -108,6 +108,14 @@ export const PostDateSurvey = ({
       session_id: sessionId,
       event_id: eventId,
     });
+    trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_STARTED, {
+      platform: "web",
+      session_id: sessionId,
+      event_id: eventId,
+      source_surface: "post_date_survey",
+      source_action: "survey_opened",
+      outcome: "no_op",
+    });
   }, [isOpen, sessionId, eventId]);
 
   useEffect(() => {
@@ -213,6 +221,25 @@ export const PostDateSurvey = ({
         source: "survey_queue_drain",
         video_session_id: videoSessionId,
       });
+      trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "post_date_survey",
+        source_action: "survey_queue_drain",
+        outcome: "success",
+        reason_code: "queue_drain_found",
+        next_session_id: videoSessionId,
+      });
+      trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CONVERSION, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "post_date_survey",
+        source_action: "ready_gate_from_survey_drain",
+        outcome: "success",
+        next_session_id: videoSessionId,
+      });
       toast("Your next date is ready — head to the event lobby 💚", { duration: 2000 });
       if (eventId) {
         const target = `${buildEventLobbyPendingSessionUrl(eventId, videoSessionId)}&postSurveyComplete=1`;
@@ -294,6 +321,17 @@ export const PostDateSurvey = ({
           queued_count: queuedCount,
           seconds_until_event_end: secondsUntilEventEnd,
         });
+        trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "post_date_survey",
+          source_action: "survey_finish_event_active",
+          outcome: "no_op",
+          reason_code: nextAction,
+          queued_count: queuedCount,
+          seconds_until_event_end: secondsUntilEventEnd,
+        });
         logJourney("survey_completed", { source: "finish_survey_active_event" }, "survey_completed");
         trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_COMPLETE_RETURN, {
           platform: "web",
@@ -341,6 +379,17 @@ export const PostDateSurvey = ({
           event_id: eventId,
           action: "event_ended",
           source: "survey_finish_event_inactive",
+          queued_count: queuedCount,
+          seconds_until_event_end: secondsUntilEventEnd,
+        });
+        trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "post_date_survey",
+          source_action: "survey_finish_event_inactive",
+          outcome: "blocked",
+          reason_code: "event_ended",
           queued_count: queuedCount,
           seconds_until_event_end: secondsUntilEventEnd,
         });

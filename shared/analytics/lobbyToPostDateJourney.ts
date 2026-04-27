@@ -34,6 +34,11 @@ export const LobbyPostDateEvents = {
   READY_GATE_BOTH_READY_OBSERVED: 'ready_gate_both_ready_observed',
   VIDEO_DATE_BOTH_READY: 'video_date_both_ready',
 
+  // --- Ready Gate → date join latency envelope ---
+  READY_GATE_TO_DATE_LATENCY_STARTED: 'ready_gate_to_date_latency_started',
+  READY_GATE_TO_DATE_LATENCY_CHECKPOINT: 'ready_gate_to_date_latency_checkpoint',
+  READY_GATE_TO_DATE_LATENCY_COMPLETED: 'ready_gate_to_date_latency_completed',
+
   // --- Video date join / peer-missing ---
   VIDEO_DATE_ROUTE_ENTERED: 'video_date_route_entered',
   VIDEO_DATE_PREPARE_ENTRY_STARTED: 'video_date_prepare_entry_started',
@@ -60,6 +65,12 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP: 'video_date_peer_missing_keep_waiting_tap',
   VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP: 'video_date_peer_missing_back_to_lobby_tap',
 
+  // --- Simultaneous swipe active-session recovery ---
+  SIMULTANEOUS_SWIPE_CONFLICT_DETECTED: 'simultaneous_swipe_conflict_detected',
+  SIMULTANEOUS_SWIPE_RECOVERY_ATTEMPTED: 'simultaneous_swipe_recovery_attempted',
+  SIMULTANEOUS_SWIPE_RECOVERY_SUCCEEDED: 'simultaneous_swipe_recovery_succeeded',
+  SIMULTANEOUS_SWIPE_RECOVERY_FAILED: 'simultaneous_swipe_recovery_failed',
+
   // --- In-date extension credits (KeepTheVibe UI during date phase) ---
   EXTEND_DATE_CTA_IMPRESSION: 'extend_date_cta_impression',
   /** Single extension button (+2 min / +5 min / get credits row). */
@@ -67,6 +78,10 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_EXTENSION_ATTEMPTED: 'video_date_extension_attempted',
   VIDEO_DATE_EXTENSION_SUCCEEDED: 'video_date_extension_succeeded',
   VIDEO_DATE_EXTENSION_FAILED: 'video_date_extension_failed',
+  VIDEO_DATE_TIMER_DRIFT_DETECTED: 'video_date_timer_drift_detected',
+  // Canonical recovered event uses the legacy stable PostHog name to avoid metric splits.
+  VIDEO_DATE_TIMER_DRIFT_RECOVERED: 'video_date_timer_drift_recovered_by_server_truth',
+  VIDEO_DATE_TIMER_DRIFT_RECOVERY_FAILED: 'video_date_timer_drift_recovery_failed',
   VIDEO_DATE_TIMER_DRIFT_RECOVERED_BY_SERVER_TRUTH: 'video_date_timer_drift_recovered_by_server_truth',
   EXTEND_DATE_SUCCESS: 'extend_date_success',
   EXTEND_DATE_FAILURE: 'extend_date_failure',
@@ -96,6 +111,9 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_QUEUE_DRAIN_BLOCKED: 'video_date_queue_drain_blocked',
   POST_DATE_SURVEY_SKIP: 'post_date_survey_skip',
   POST_DATE_SURVEY_COMPLETE_RETURN: 'post_date_survey_complete_return',
+  SURVEY_NEXT_GATE_CHECK_STARTED: 'survey_next_gate_check_started',
+  SURVEY_NEXT_GATE_CHECK_RESULT: 'survey_next_gate_check_result',
+  SURVEY_NEXT_GATE_CONVERSION: 'survey_next_gate_conversion',
   POST_DATE_CONTINUITY_SURVEY_COMPLETE: 'post_date_continuity_survey_complete',
   POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED: 'post_date_continuity_next_action_decided',
   POST_DATE_CONTINUITY_ROUTE_TAKEN: 'post_date_continuity_route_taken',

@@ -13,6 +13,11 @@ import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSe
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+  startReadyGateToDateLatencyContext,
+} from "@clientShared/observability/videoDateOperatorMetrics";
+import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from "@clientShared/matching/activeSession";
@@ -67,17 +72,37 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       closedRef.current = true;
       setIsTransitioning(true);
       readyGateDebug("success-path navigation to date", { sessionId, source });
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId,
+        sourceSurface: "ready_gate_overlay",
+        checkpoint: "navigation_started",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: "navigation_started",
+          sourceAction: source,
+          outcome: "success",
+        }),
+      );
       trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
         source,
+        source_surface: "ready_gate_overlay",
+        source_action: source,
       });
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_BOTH_READY, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
         source,
+        source_surface: "ready_gate_overlay",
+        source_action: source,
       });
       vdbg("lobby_navigate_to_date", {
         trigger: `ready_gate_overlay_${source}`,
@@ -97,11 +122,30 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     const observedAtMs = Date.now();
     bothReadyObservedAtMsRef.current = observedAtMs;
     setIsTransitioning(true);
+    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+      sessionId,
+      platform: "web",
+      eventId,
+      sourceSurface: "ready_gate_overlay",
+      checkpoint: "both_ready_observed",
+      nowMs: observedAtMs,
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context: latencyContext,
+        checkpoint: "both_ready_observed",
+        sourceAction: "both_ready_observed",
+        outcome: "success",
+      }),
+    );
     trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY_OBSERVED, {
       platform: "web",
       session_id: sessionId,
       event_id: eventId,
       source: "both_ready",
+      source_surface: "ready_gate_overlay",
+      source_action: "both_ready_observed",
     });
     vdbg("ready_gate_both_ready_observed", {
       sessionId,
@@ -412,10 +456,27 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     setTimeLeft(GATE_TIMEOUT);
     if (!readyGateImpressionRef.current) {
       readyGateImpressionRef.current = true;
+      const latencyContext = startReadyGateToDateLatencyContext({
+        platform: "web",
+        sessionId,
+        eventId,
+        sourceSurface: "ready_gate_overlay",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_STARTED,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: "ready_gate_impression",
+          sourceAction: "impression",
+          outcome: "success",
+        }),
+      );
       trackEvent(LobbyPostDateEvents.READY_GATE_IMPRESSION, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
+        source_surface: "ready_gate_overlay",
+        source_action: "impression",
       });
     }
   }, [sessionId, eventId]);
@@ -644,15 +705,35 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   whileTap={{ scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze) return;
+                    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+                      sessionId,
+                      platform: "web",
+                      eventId,
+                      sourceSurface: "ready_gate_overlay",
+                      checkpoint: "ready_tap",
+                    });
+                    trackEvent(
+                      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+                      buildReadyGateToDateLatencyPayload({
+                        context: latencyContext,
+                        checkpoint: "ready_tap",
+                        sourceAction: "ready_tap",
+                        outcome: "success",
+                      }),
+                    );
                     trackEvent(LobbyPostDateEvents.READY_GATE_READY_TAP, {
                       platform: "web",
                       session_id: sessionId,
                       event_id: eventId,
+                      source_surface: "ready_gate_overlay",
+                      source_action: "ready_tap",
                     });
                     trackEvent(LobbyPostDateEvents.VIDEO_DATE_READY_GATE_READY, {
                       platform: "web",
                       session_id: sessionId,
                       event_id: eventId,
+                      source_surface: "ready_gate_overlay",
+                      source_action: "ready_tap",
                     });
                     setMarkingReady(true);
                     void (async () => {

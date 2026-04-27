@@ -250,6 +250,14 @@ export function PostDateSurvey({
       session_id: sessionId,
       event_id: eventId,
     });
+    trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_STARTED, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      source_surface: 'post_date_survey',
+      source_action: 'survey_opened',
+      outcome: 'no_op',
+    });
   }, [eventId, sessionId]);
 
   useEffect(() => {
@@ -305,6 +313,32 @@ export function PostDateSurvey({
         const nextSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
         if (result?.found && nextSessionId) {
           queuedNavigationStartedRef.current = true;
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
+            platform: 'native',
+            event_id: eventId,
+            session_id: nextSessionId,
+            source_surface: 'post_date_survey',
+            source_action: 'survey_queue_drain',
+          });
+          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: 'post_date_survey',
+            source_action: 'survey_queue_drain',
+            outcome: 'success',
+            reason_code: 'queue_drain_found',
+            next_session_id: nextSessionId,
+          });
+          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CONVERSION, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: 'post_date_survey',
+            source_action: 'ready_gate_from_survey_drain',
+            outcome: 'success',
+            next_session_id: nextSessionId,
+          });
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
             platform: 'native',
             session_id: sessionId,
@@ -322,6 +356,14 @@ export function PostDateSurvey({
             video_session_id: nextSessionId,
           });
           onQueuedVideoSessionReady?.(nextSessionId);
+        } else {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND, {
+            platform: 'native',
+            event_id: eventId,
+            source_surface: 'post_date_survey',
+            source_action: 'survey_queue_drain',
+            reason_code: result?.queued ? 'queued_not_promoted' : 'no_queued_session',
+          });
         }
       } finally {
         if (!cancelled && eventId) {
@@ -424,6 +466,17 @@ export function PostDateSurvey({
         if (active) {
           const nextSeconds = secondsUntilPostDateEventEnd(continuation.endsAtIso);
           const action = isPostDateEventNearlyOver(nextSeconds) ? 'last_chance' : 'fresh_deck';
+          trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: 'post_date_survey',
+            source_action: 'survey_finish_event_active',
+            outcome: 'no_op',
+            reason_code: action,
+            queued_count: queuedCount,
+            seconds_until_event_end: nextSeconds,
+          });
           trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
             platform: 'native',
             session_id: sessionId,
@@ -452,6 +505,16 @@ export function PostDateSurvey({
           event_id: eventId,
           action: 'event_ended',
           source: 'survey_finish_event_inactive',
+          queued_count: queuedCount,
+        });
+        trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: 'post_date_survey',
+          source_action: 'survey_finish_event_inactive',
+          outcome: 'blocked',
+          reason_code: 'event_ended',
           queued_count: queuedCount,
         });
         trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {

@@ -61,7 +61,11 @@ import {
   persistHandshakeDecisionWithVerification,
   type VideoDateHandshakeTruth,
 } from "@clientShared/matching/videoDateHandshakePersistence";
-import { buildVideoDateTimerDriftRecoveredPayload } from "@clientShared/observability/videoDateOperatorMetrics";
+import {
+  buildReadyGateToDateLatencyPayload,
+  buildVideoDateTimerDriftRecoveredPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -506,7 +510,7 @@ const VideoDate = () => {
   }, [phase, timeLeft]);
 
   const trackTimerDriftRecovery = useCallback(
-    (correctedTimeLeftSeconds: number, recoverySource: "timing_fetch" | "realtime_update") => {
+    (correctedTimeLeftSeconds: number, recoverySource: "session_reload" | "realtime" | "foreground_reconcile") => {
       if (!timerDriftTrackingReadyRef.current) return;
       const payload = buildVideoDateTimerDriftRecoveredPayload({
         platform: "web",
@@ -519,7 +523,12 @@ const VideoDate = () => {
       });
       if (!payload) return;
 
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED_BY_SERVER_TRUTH, payload);
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_DETECTED, {
+        ...payload,
+        outcome: "no_op",
+        reason_code: "client_server_timer_mismatch",
+      });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_TIMER_DRIFT_RECOVERED, payload);
       vdbg("timer_drift_recovered_by_server_truth", {
         sessionId: id ?? null,
         eventId: eventIdRef.current ?? null,
@@ -647,10 +656,30 @@ const VideoDate = () => {
 
   useEffect(() => {
     vdbg("date_mount", { sessionId: id ?? null, userId: user?.id ?? null });
+    if (id) {
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId: id,
+        platform: "web",
+        eventId: eventId ?? null,
+        sourceSurface: "video_date_route",
+        checkpoint: "date_route_entered",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: "date_route_entered",
+          sourceAction: "route_mount",
+          outcome: "success",
+        }),
+      );
+    }
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROUTE_ENTERED, {
       platform: "web",
       session_id: id,
       event_id: eventId,
+      source_surface: "video_date_route",
+      source_action: "route_mount",
     });
     logJourney("date_route_entered", { source: "mount" }, "date_route_entered");
     if (!id || !user?.id) return;
@@ -1073,7 +1102,7 @@ const VideoDate = () => {
           dateExtraSeconds: extraNorm,
           nowMs: now,
         });
-        trackTimerDriftRecovery(correctedTimeLeft, "timing_fetch");
+        trackTimerDriftRecovery(correctedTimeLeft, "session_reload");
         setTimeLeft(correctedTimeLeft);
         setPhase("date");
         setTimingReady(true);
@@ -1358,7 +1387,7 @@ const VideoDate = () => {
               baseDateSeconds: DATE_TIME,
               dateExtraSeconds: extraNorm,
             });
-            trackTimerDriftRecovery(correctedTimeLeft, "realtime_update");
+            trackTimerDriftRecovery(correctedTimeLeft, "realtime");
             setTimeLeft(correctedTimeLeft);
             setPhase("date");
             return;
