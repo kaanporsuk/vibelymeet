@@ -46,8 +46,28 @@ const remainingHardeningMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501103000_video_date_remaining_hardening.sql"),
   "utf8",
 );
+const halfVerdictTimeoutCronMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
+  "utf8",
+);
+const expireStaleBoundingDeferralDoc = readFileSync(
+  join(process.cwd(), "docs/video-date-expire-stale-bounding-deferral.md"),
+  "utf8",
+);
 const readyGateOverlay = readFileSync(
   join(process.cwd(), "src/components/lobby/ReadyGateOverlay.tsx"),
+  "utf8",
+);
+const webActiveSessionHook = readFileSync(
+  join(process.cwd(), "src/hooks/useActiveSession.ts"),
+  "utf8",
+);
+const nativeActiveSessionHook = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/useActiveSession.ts"),
+  "utf8",
+);
+const webSwipeActionHook = readFileSync(
+  join(process.cwd(), "src/hooks/useSwipeAction.ts"),
   "utf8",
 );
 const eventLobby = readFileSync(
@@ -64,6 +84,22 @@ const webVideoDatePage = readFileSync(
 );
 const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
+  "utf8",
+);
+const webConnectionOverlay = readFileSync(
+  join(process.cwd(), "src/components/video-date/ConnectionOverlay.tsx"),
+  "utf8",
+);
+const nativeEventLobby = readFileSync(
+  join(process.cwd(), "apps/mobile/app/event/[eventId]/lobby.tsx"),
+  "utf8",
+);
+const nativeSafeAudioMode = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/safeAudioMode.ts"),
+  "utf8",
+);
+const nativePackageJson = readFileSync(
+  join(process.cwd(), "apps/mobile/package.json"),
   "utf8",
 );
 const webPostDateSurvey = readFileSync(
@@ -319,7 +355,7 @@ test("daily-room prepare_date_entry creates deterministic rooms and scoped token
   assert.match(dailyRoomFunction, /action === "prepare_date_entry"/);
   assert.match(dailyRoomFunction, /p_action: "prepare_entry"/);
   assert.match(dailyRoomFunction, /const roomName = `date-\$\{sessionId\.replace\(\s*\/-\/g, ""\)\}`/);
-  assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, 7200\)/);
+  assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\)/);
   assert.match(dailyRoomFunction, /provider_verify_skipped/);
   assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
 });
@@ -426,7 +462,7 @@ test("remaining prepare-entry hardening defers in_handshake registration until D
   assert.match(remainingHardeningMigration, /registration_status', 'deferred_until_daily_token'/);
   assert.doesNotMatch(remainingHardeningMigration, /queue_status = v_registration_status/);
   assert.match(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
-  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, 7200\);[\s\S]*await markVideoDateEntryPrepared/s);
+  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*await markVideoDateEntryPrepared/s);
   assert.match(remainingHardeningMigration, /repair_stale_video_date_prepare_entries/);
   assert.match(remainingHardeningMigration, /prepare_entry_provider_failed_repair/);
   assert.match(remainingHardeningMigration, /AND current_room_id = r\.id/);
@@ -446,8 +482,12 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoCallHook, /CAMERA_PERMISSION_DENIED/);
   assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
+  assert.match(webVideoCallHook, /We're reconnecting your date state/);
+  assert.match(webVideoCallHook, /mark_video_date_daily_joined_retry_after_failure/);
   assert.match(nativeVideoDateRoute, /markReconnectSelfAway\(sessionId, 'app_background'\)/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
+  assert.match(nativeVideoDateRoute, /We're reconnecting your date state/);
+  assert.match(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
 });
 
 test("post-date survey retries verdicts and exposes half-verdict pending state on both clients", () => {
@@ -468,4 +508,87 @@ test("notification date deep links mark the date-entry latch before routing to d
     notificationDeepLinkHandler,
     /if \(canAttemptDaily \|\| truthDecision === 'navigate_date'\) \{[\s\S]*markVideoDateEntryPipelineStarted\(sid\)[\s\S]*return videoDateHref\(sid\);/s,
   );
+});
+
+test("active-session resolvers emit canonical stale-session analytics for stale registration pointers", () => {
+  for (const source of [webActiveSessionHook, nativeActiveSessionHook]) {
+    assert.match(source, /STALE_ACTIVE_SESSION_DETECTED/);
+    assert.match(source, /staleActiveSessionEventKeyRef/);
+    assert.match(source, /registration_points_to_missing_session|registration_session_query_failed/);
+    assert.match(source, /registration_points_to_ended_session/);
+    assert.match(source, /different_event_registration_room/);
+  }
+});
+
+test("duplicate active-session conflicts use the canonical audit event on web and native", () => {
+  assert.match(webSwipeActionHook, /DUPLICATE_ACTIVE_SESSION_CONFLICT/);
+  assert.match(webSwipeActionHook, /outcome === "participant_has_active_session_conflict"/);
+  assert.match(nativeEventLobby, /DUPLICATE_ACTIVE_SESSION_CONFLICT/);
+  assert.match(nativeEventLobby, /outcome === 'participant_has_active_session_conflict'/);
+});
+
+test("video-date Daily room and token TTL use explicit finite constants separate from match calls", () => {
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 14_400/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
+  assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 7_200/);
+  assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\)/);
+  assert.match(dailyRoomFunction, /createMeetingToken\(\s*session\.daily_room_name,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS/s);
+  assert.match(dailyRoomFunction, /exp: Math\.floor\(Date\.now\(\) \/ 1000\) \+ DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
+});
+
+test("prepare-entry documents its deterministic provider-idempotent concurrency contract", () => {
+  assert.match(dailyRoomFunction, /Provider-idempotent prepare-entry contract/);
+  assert.match(dailyRoomFunction, /deterministic room name/);
+  assert.match(dailyRoomFunction, /already exists/);
+  assert.match(dailyRoomFunction, /same-value DB writes/);
+});
+
+test("historical expire-stale bounding remains explicitly tracked instead of falsely closed", () => {
+  assert.match(remainingHardeningMigration, /Historical expire_stale_video_sessions body remains delegated\/unbounded/);
+  assert.match(expireStaleBoundingDeferralDoc, /tracked operational risk, not a closed item/);
+  assert.match(expireStaleBoundingDeferralDoc, /DB-executed migration rehearsal/);
+  assert.match(expireStaleBoundingDeferralDoc, /FOR UPDATE SKIP LOCKED/);
+});
+
+test("web and native expose clear peer-missing choices instead of toast-only timeout copy", () => {
+  assert.match(webVideoCallHook, /setPeerMissing\(\{ terminal: true \}\)/);
+  assert.match(webConnectionOverlay, /Your match hasn&apos;t joined yet|Your match hasn't joined yet/);
+  assert.match(webConnectionOverlay, /Keep waiting/);
+  assert.match(webConnectionOverlay, /Try reconnecting/);
+  assert.match(webConnectionOverlay, /head back to the lobby/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_RETRY_TAP/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP/);
+  assert.match(nativeVideoDateRoute, /Your match has not joined yet/);
+  assert.match(nativeVideoDateRoute, /Try reconnecting/);
+  assert.match(nativeVideoDateRoute, /Keep waiting/);
+  assert.match(nativeVideoDateRoute, /Back to lobby/);
+});
+
+test("persistent Ready Gate polling fallback becomes user-visible without blocking the gate", () => {
+  assert.match(readyGateOverlay, /REALTIME_FALLBACK_TO_POLL/);
+  assert.match(readyGateOverlay, /setTimeout\(\(\) => \{[\s\S]*setShowRealtimeFallbackCopy\(true\)[\s\S]*\}, 6_000\)/);
+  assert.match(readyGateOverlay, /Syncing your date status/);
+});
+
+test("native video dates configure supported Expo Audio mode without expo-av", () => {
+  assert.doesNotMatch(nativePackageJson, /"expo-av"/);
+  assert.doesNotMatch(nativeSafeAudioMode, /from ['"]expo-av['"]|require\(['"]expo-av['"]\)/);
+  assert.match(nativeSafeAudioMode, /from 'expo-audio'/);
+  assert.match(nativeSafeAudioMode, /setAudioModeAsync/);
+  assert.match(nativeSafeAudioMode, /shouldRouteThroughEarpiece: false/);
+  assert.match(nativeVideoDateRoute, /setSafeAudioMode\(\{[\s\S]*playsInSilentModeIOS: true[\s\S]*allowsRecordingIOS: true/s);
+});
+
+test("native AppState background path remains statically covered for away, return, and timeout", () => {
+  assert.match(nativeVideoDateRoute, /markReconnectSelfAway\(sessionId, 'app_background'\)/);
+  assert.match(nativeVideoDateRoute, /markReconnectReturn\(sessionId\)/);
+  assert.match(nativeVideoDateRoute, /app_background_timeout/);
+  assert.match(nativeVideoDateRoute, /setTimeout\(\(\) => \{[\s\S]*endVideoDate\(sessionId, 'app_background_timeout'\)[\s\S]*\}, 30_000\)/);
+});
+
+test("half-verdict timeout detector is scheduled through optional pg_cron", () => {
+  assert.match(halfVerdictTimeoutCronMigration, /post-date-half-verdict-timeout-detection/);
+  assert.match(halfVerdictTimeoutCronMigration, /cron\.schedule/);
+  assert.match(halfVerdictTimeoutCronMigration, /detect_post_date_half_verdict_timeouts\(interval ''24 hours'', 100\)/);
 });

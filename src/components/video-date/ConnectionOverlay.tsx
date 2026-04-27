@@ -1,22 +1,29 @@
 import { motion } from "framer-motion";
 import { Loader2, ArrowLeft, Play, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { RemotePlaybackState } from "@/hooks/useVideoCall";
+import type { PeerMissingState, RemotePlaybackState } from "@/hooks/useVideoCall";
 
 interface ConnectionOverlayProps {
   isConnecting: boolean;
   remotePlayback?: RemotePlaybackState;
+  peerMissing?: PeerMissingState;
   onRetryRemotePlayback?: () => void;
+  onRetryPeerMissing?: () => void;
+  onKeepWaitingPeerMissing?: () => void;
   onLeave: () => void;
 }
 
 export const ConnectionOverlay = ({
   isConnecting,
   remotePlayback,
+  peerMissing,
   onRetryRemotePlayback,
+  onRetryPeerMissing,
+  onKeepWaitingPeerMissing,
   onLeave,
 }: ConnectionOverlayProps) => {
   const playbackRejected = Boolean(remotePlayback?.playRejected);
+  const peerMissingTerminal = Boolean(peerMissing?.terminal);
 
   return (
     <motion.div
@@ -58,10 +65,18 @@ export const ConnectionOverlay = ({
 
         <div>
           <h3 className="font-display font-semibold text-lg text-foreground mb-1">
-            {playbackRejected ? "Tap to resume video" : isConnecting ? "Connecting..." : "Waiting for partner"}
+            {peerMissingTerminal
+              ? "Your match hasn't joined yet"
+              : playbackRejected
+                ? "Tap to resume video"
+                : isConnecting
+                  ? "Connecting..."
+                  : "Waiting for partner"}
           </h3>
           <p className="text-sm text-muted-foreground">
-            {playbackRejected
+            {peerMissingTerminal
+              ? "We couldn't connect them in time. You can keep waiting, try reconnecting, or head back to the lobby."
+              : playbackRejected
               ? "Your match is here, but the browser blocked playback."
               : isConnecting
                 ? "Setting up your video date"
@@ -78,6 +93,30 @@ export const ConnectionOverlay = ({
             <Play className="w-4 h-4 mr-2" />
             Retry video
           </Button>
+        )}
+
+        {peerMissingTerminal && (
+          <div className="flex flex-col gap-2">
+            {onRetryPeerMissing && (
+              <Button
+                type="button"
+                onClick={onRetryPeerMissing}
+                className="rounded-full px-6"
+              >
+                Try reconnecting
+              </Button>
+            )}
+            {onKeepWaitingPeerMissing && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onKeepWaitingPeerMissing}
+                className="rounded-full px-6"
+              >
+                Keep waiting
+              </Button>
+            )}
+          </div>
         )}
 
         <Button

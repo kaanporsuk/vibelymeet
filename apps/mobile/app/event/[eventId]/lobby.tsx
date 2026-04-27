@@ -1466,6 +1466,17 @@ export default function EventLobbyScreen() {
         outcome === 'already_matched' || outcome === 'participant_has_active_session_conflict';
       const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
       if (conflictDetected) {
+        if (outcome === 'participant_has_active_session_conflict') {
+          trackEvent(LobbyPostDateEvents.DUPLICATE_ACTIVE_SESSION_CONFLICT, {
+            platform: 'native',
+            event_id: id,
+            session_id: videoSessionId ?? null,
+            source_surface: 'event_lobby',
+            source_action: 'swipe_result',
+            reason_code: outcome,
+            outcome: videoSessionId ? 'blocked' : 'failure',
+          });
+        }
         trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_CONFLICT_DETECTED, {
           platform: 'native',
           event_id: id,

@@ -91,6 +91,17 @@ export const useSwipeAction = ({
           outcome === "already_matched" || outcome === "participant_has_active_session_conflict";
         const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
         if (conflictDetected) {
+          if (outcome === "participant_has_active_session_conflict") {
+            trackEvent(LobbyPostDateEvents.DUPLICATE_ACTIVE_SESSION_CONFLICT, {
+              platform: "web",
+              event_id: eventId,
+              session_id: sessionId ?? null,
+              source_surface: "event_lobby",
+              source_action: "swipe_result",
+              reason_code: outcome,
+              outcome: sessionId ? "blocked" : "failure",
+            });
+          }
           trackEvent(LobbyPostDateEvents.SIMULTANEOUS_SWIPE_CONFLICT_DETECTED, {
             platform: "web",
             event_id: eventId,

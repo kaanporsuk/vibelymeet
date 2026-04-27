@@ -1,6 +1,6 @@
 /**
  * Full-window vibe video — parity with web fullscreen HLS player on ProfileStudio.
- * Uses `VibeVideoPlayer` (expo-video). setSafeAudioMode is a no-op until native AV is linked.
+ * Uses `VibeVideoPlayer` (expo-video). setSafeAudioMode routes through expo-audio, not expo-av.
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import {

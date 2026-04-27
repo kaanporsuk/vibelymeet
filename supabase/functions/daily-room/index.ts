@@ -10,6 +10,12 @@ const corsHeaders = {
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
+const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 7_200;
+const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 7_200;
+// Video dates can be extended with credits; keep provider credentials finite
+// while covering the normal 5-minute flow plus generous extension/reconnect room.
+const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 
 type DateRoomAction = "create_date_room" | "join_date_room" | "prepare_date_entry" | "video_date_leave";
 
@@ -773,7 +779,7 @@ function videoDateRoomProperties(): Record<string, unknown> {
     enable_knocking: false,
     start_video_off: false,
     start_audio_off: false,
-    exp: Math.floor(Date.now() / 1000) + 7200,
+    exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
     eject_at_room_exp: true,
   };
 }
@@ -1240,6 +1246,13 @@ serve(async (req) => {
         let providerRoomRecreated = false;
         let providerVerifySkipped = false;
 
+        // Provider-idempotent prepare-entry contract: session state is row-locked in
+        // video_date_transition('prepare_entry'), then this function uses a
+        // deterministic room name, treats Daily "already exists" as success, and
+        // writes the same room_name/room_url values idempotently. Holding a DB
+        // advisory lock across outbound Daily HTTP would require a long-lived DB
+        // transaction from the Edge Function, so the bounded safe contract is
+        // deterministic provider idempotency plus same-value DB writes.
         const roomStartedAt = Date.now();
         if (existingRoomName !== roomName || existingRoomUrl !== roomUrl) {
           const providerRoomState = await getDailyRoomProviderState(roomName);
@@ -1301,7 +1314,7 @@ serve(async (req) => {
         timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
 
         const tokenStartedAt = Date.now();
-        const token = await createMeetingToken(roomName, user.id, 7200);
+        const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
         timings.token_ms = Date.now() - tokenStartedAt;
         timings.total_ms = Date.now() - totalStartedAt;
         await markVideoDateEntryPrepared(serviceClient, {
@@ -1468,7 +1481,7 @@ serve(async (req) => {
             enable_knocking: false,
             start_video_off: false,
             start_audio_off: false,
-            exp: Math.floor(Date.now() / 1000) + 7200,
+            exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
             eject_at_room_exp: true,
           });
 
@@ -1507,7 +1520,7 @@ serve(async (req) => {
               enable_knocking: false,
               start_video_off: false,
               start_audio_off: false,
-              exp: Math.floor(Date.now() / 1000) + 7200,
+              exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,
               eject_at_room_exp: true,
             });
             await serviceClient
@@ -1519,7 +1532,7 @@ serve(async (req) => {
           }
         }
 
-        const token = await createMeetingToken(roomName, user.id, 7200);
+        const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
         await markVideoDateEntryPrepared(serviceClient, {
           ...session,
           event_id: (session as { event_id?: string | null }).event_id ?? null,
@@ -1667,7 +1680,7 @@ serve(async (req) => {
         const token = await createMeetingToken(
           session.daily_room_name,
           user.id,
-          7200
+          DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS
         );
 
         return new Response(
@@ -1784,14 +1797,14 @@ serve(async (req) => {
         enable_screenshare: false,
         start_video_off: callTypeValue === "voice",
         start_audio_off: false,
-        exp: Math.floor(Date.now() / 1000) + 7200,
+        exp: Math.floor(Date.now() / 1000) + DAILY_MATCH_CALL_ROOM_TTL_SECONDS,
         eject_at_room_exp: false,
       });
 
       const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
       let callerToken: string;
       try {
-        callerToken = await createMeetingToken(roomName, user.id, 7200);
+        callerToken = await createMeetingToken(roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
       } catch (tokenErr) {
         await deleteDailyRoom(roomName);
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
@@ -2020,7 +2033,7 @@ serve(async (req) => {
 
       let token: string;
       try {
-        token = await createMeetingToken(call.daily_room_name, user.id, 7200);
+        token = await createMeetingToken(call.daily_room_name, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
         if (isDailyProviderError(tokenErr)) {
@@ -2168,7 +2181,7 @@ serve(async (req) => {
 
       let token: string;
       try {
-        token = await createMeetingToken(call.daily_room_name, user.id, 7200);
+        token = await createMeetingToken(call.daily_room_name, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
         if (isDailyProviderError(tokenErr)) {

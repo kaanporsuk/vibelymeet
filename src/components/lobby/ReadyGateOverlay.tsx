@@ -130,6 +130,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>("idle");
   const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailureState>(null);
+  const [showRealtimeFallbackCopy, setShowRealtimeFallbackCopy] = useState(false);
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -143,6 +144,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const prepareEntryHandoffStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
+  const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -588,6 +590,15 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     const intervalId = setInterval(() => {
       if (!realtimeFallbackLoggedRef.current) {
         realtimeFallbackLoggedRef.current = true;
+        if (realtimeFallbackCopyTimerRef.current) {
+          clearTimeout(realtimeFallbackCopyTimerRef.current);
+        }
+        realtimeFallbackCopyTimerRef.current = setTimeout(() => {
+          realtimeFallbackCopyTimerRef.current = null;
+          if (!dateNavigationStartedRef.current && mountedRef.current) {
+            setShowRealtimeFallbackCopy(true);
+          }
+        }, 6_000);
         trackEvent(LobbyPostDateEvents.REALTIME_FALLBACK_TO_POLL, {
           platform: "web",
           session_id: sessionId,
@@ -597,7 +608,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       }
       void reconcileSession("poll");
     }, 2000);
-    return () => clearInterval(intervalId);
+    return () => {
+      clearInterval(intervalId);
+      if (realtimeFallbackCopyTimerRef.current) {
+        clearTimeout(realtimeFallbackCopyTimerRef.current);
+        realtimeFallbackCopyTimerRef.current = null;
+      }
+    };
   }, [sessionId, eventId, user?.id, reconcileSession]);
 
   useEffect(() => {
@@ -612,6 +629,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     openingWaitImpressionRef.current = false;
     terminalOutcomeRef.current = false;
     timeoutForfeitSentRef.current = false;
+    realtimeFallbackLoggedRef.current = false;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
@@ -621,6 +639,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     setRequestingSnooze(false);
     setPrepareEntryStatus("idle");
     setPrepareEntryFailure(null);
+    setShowRealtimeFallbackCopy(false);
     setTimeLeft(GATE_TIMEOUT);
     if (!readyGateImpressionRef.current) {
       readyGateImpressionRef.current = true;
@@ -899,6 +918,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Action area */}
+          {showRealtimeFallbackCopy && !isTransitioning && (
+            <p className="text-center text-xs text-muted-foreground">
+              Syncing your date status...
+            </p>
+          )}
 
           {/* Action area */}
           {!iAmReady ? (

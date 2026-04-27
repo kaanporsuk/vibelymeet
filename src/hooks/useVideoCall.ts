@@ -44,6 +44,10 @@ export type RemotePlaybackState = {
   error?: string;
 };
 
+export type PeerMissingState = {
+  terminal: boolean;
+};
+
 const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
@@ -174,6 +178,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [networkTier, setNetworkTier] = useState<VideoCallNetworkTier>("good");
   const [remotePlayback, setRemotePlayback] = useState<RemotePlaybackState>(() => createRemotePlaybackState());
+  const [peerMissing, setPeerMissing] = useState<PeerMissingState>({ terminal: false });
   const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
   const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
   const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
@@ -470,6 +475,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsConnecting(false);
       setNetworkTier("good");
       setRemotePlayback(createRemotePlaybackState());
+      setPeerMissing({ terminal: false });
       clearReconnectGraceTimers();
       reconnectGraceActiveRef.current = false;
       reconnectPartnerAwayTriggeredRef.current = false;
@@ -735,6 +741,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setHasPermission(null);
       setMediaPermissionError(null);
       setRemotePlayback(createRemotePlaybackState());
+      setPeerMissing({ terminal: false });
       firstRemoteObservedRef.current = false;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
@@ -1031,6 +1038,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
             setIsConnected(true);
             setIsConnecting(false);
+            setPeerMissing({ terminal: false });
             toast.success("Connected! Your video date is live 🎉");
             optionsRef.current?.onPartnerJoined?.();
             attachTracks(event.participant, remoteVideoRef.current, false);
@@ -1396,6 +1404,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             event_id: truthRow.event_id ?? eventId,
             code: joinedError?.code ?? ((joinedData as { error?: string } | null)?.error ?? null),
           });
+          toast.info("We're reconnecting your date state...", { duration: 3000 });
+          window.setTimeout(() => {
+            void supabase
+              .rpc("mark_video_date_daily_joined", joinedArgs)
+              .then(({ data: retryData, error: retryError }) => {
+                vdbg("mark_video_date_daily_joined_retry_after_failure", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  ok: !retryError && (retryData as { ok?: boolean } | null)?.ok === true,
+                  error: retryError ? { code: retryError.code, message: retryError.message } : null,
+                });
+              });
+          }, 1_500);
         }
 
         const localParticipant = callObject.participants().local;
@@ -1465,6 +1487,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
           setIsConnected(true);
           setIsConnecting(false);
+          setPeerMissing({ terminal: false });
           toast.success("Connected! Your video date is live 🎉");
           optionsRef.current?.onPartnerJoined?.();
           attachTracks(remoteParticipants[0], remoteVideoRef.current, false);
@@ -1515,6 +1538,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
             setIsConnecting(false);
             setIsConnected(false);
+            setPeerMissing({ terminal: true });
             toast.error("Your match has not joined this video room yet.");
           }, FIRST_REMOTE_TIMEOUT_MS);
         }
@@ -1653,6 +1677,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     attachTracks(participant, videoEl, false);
   }, [attachTracks]);
 
+  const clearPeerMissing = useCallback(() => {
+    setPeerMissing({ terminal: false });
+  }, []);
+
   const endCall = useCallback(
     async (reason = "manual_end") => {
       const roomName = roomNameRef.current;
@@ -1716,6 +1744,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     mediaPermissionError,
     networkTier,
     remotePlayback,
+    peerMissing,
     dailyReconnectState,
     reconnectGraceTimeLeft,
     localVideoRef,
@@ -1724,6 +1753,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     startCall,
     endCall,
     retryRemotePlayback,
+    clearPeerMissing,
     toggleMute,
     toggleVideo,
     getRoomName,

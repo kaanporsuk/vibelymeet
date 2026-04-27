@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { trackEvent } from "@/lib/analytics";
+import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -144,6 +146,7 @@ export function useActiveSession(
   const [hydrated, setHydrated] = useState(false);
   const mounted = useRef(true);
   const lastHydrationDebugKey = useRef<string | null>(null);
+  const staleActiveSessionEventKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -174,6 +177,32 @@ export function useActiveSession(
       }
     }
   }, [eventFilter]);
+
+  const emitStaleActiveSessionDetected = useCallback(
+    (payload: {
+      reason: string;
+      eventId?: string | null;
+      sessionId?: string | null;
+      queueStatus?: string | null;
+      currentPartnerPresent?: boolean | null;
+    }) => {
+      const key = `${payload.reason}:${payload.eventId ?? "none"}:${payload.sessionId ?? "none"}:${payload.queueStatus ?? "none"}`;
+      if (staleActiveSessionEventKeyRef.current === key) return;
+      staleActiveSessionEventKeyRef.current = key;
+      trackEvent(LobbyPostDateEvents.STALE_ACTIVE_SESSION_DETECTED, {
+        platform: "web",
+        source_surface: "use_active_session",
+        scoped_event_id: eventFilter,
+        event_id: payload.eventId ?? null,
+        session_id: payload.sessionId ?? null,
+        queue_status: payload.queueStatus ?? null,
+        current_partner_present: payload.currentPartnerPresent ?? null,
+        reason: payload.reason,
+        reason_code: payload.reason,
+      });
+    },
+    [eventFilter]
+  );
 
   const check = useCallback(async () => {
     if (!userId) {
@@ -223,6 +252,13 @@ export function useActiveSession(
     }
 
     if (eventFilter && reg.event_id !== eventFilter) {
+      emitStaleActiveSessionDetected({
+        reason: "different_event_registration_room",
+        eventId: reg.event_id as string | null,
+        sessionId: reg.current_room_id as string | null,
+        queueStatus: reg.queue_status as string | null,
+        currentPartnerPresent: Boolean(reg.current_partner_id),
+      });
       commitActiveSession(null, "different_event");
       return;
     }
@@ -249,6 +285,13 @@ export function useActiveSession(
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_session_missing");
       } else {
+        emitStaleActiveSessionDetected({
+          reason: "registration_points_to_missing_session",
+          eventId: reg.event_id as string | null,
+          sessionId: reg.current_room_id as string | null,
+          queueStatus: reg.queue_status as string | null,
+          currentPartnerPresent: Boolean(reg.current_partner_id),
+        });
         commitActiveSession(null, "session_missing_or_ended");
       }
       return;
@@ -273,6 +316,13 @@ export function useActiveSession(
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_registration_ended");
       } else {
+        emitStaleActiveSessionDetected({
+          reason: "registration_points_to_ended_session",
+          eventId: reg.event_id as string | null,
+          sessionId: session.id as string | null,
+          queueStatus: qs as string | null,
+          currentPartnerPresent: Boolean(reg.current_partner_id),
+        });
         commitActiveSession(null, "session_missing_or_ended");
       }
       return;
@@ -292,6 +342,13 @@ export function useActiveSession(
         if (directSession) {
           commitActiveSession(directSession, "direct_video_session_fallback_after_registration_not_startable");
         } else {
+          emitStaleActiveSessionDetected({
+            reason: "registration_session_not_startable",
+            eventId: reg.event_id as string | null,
+            sessionId: session.id as string | null,
+            queueStatus: qs as string | null,
+            currentPartnerPresent: Boolean(reg.current_partner_id),
+          });
           commitActiveSession(null, "session_not_startable");
         }
       }
@@ -307,9 +364,16 @@ export function useActiveSession(
     } else if (qs === "in_survey") {
       commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
     } else {
+      emitStaleActiveSessionDetected({
+        reason: "unsupported_registration_status",
+        eventId: reg.event_id as string | null,
+        sessionId: session.id as string | null,
+        queueStatus: qs as string | null,
+        currentPartnerPresent: Boolean(reg.current_partner_id),
+      });
       commitActiveSession(null, "unsupported_registration_status");
     }
-  }, [userId, eventFilter, commitActiveSession]);
+  }, [userId, eventFilter, commitActiveSession, emitStaleActiveSessionDetected]);
 
   useEffect(() => {
     void check();
