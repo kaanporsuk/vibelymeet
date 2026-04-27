@@ -94,6 +94,12 @@ function messageForHandshakeFailure(code?: string): string {
   if (code === "SESSION_ENDED") {
     return "This date has already ended.";
   }
+  if (code === "DAILY_AUTH_FAILED" || code === "DAILY_CREDENTIALS_INVALID") {
+    return "Video provider authentication failed. Please try again later.";
+  }
+  if (code === "DAILY_REQUEST_REJECTED") {
+    return "Could not prepare this video room. Go back and try again.";
+  }
   return "Could not start your video date. Go back and try again.";
 }
 
@@ -101,6 +107,9 @@ function messageForRetryableStartFailure(failure: VideoCallStartFailure | null):
   if (!failure) return "We’re still connecting your video date. Please try again.";
   if (failure.kind === "network") return "Your connection dropped while starting the date. Try again.";
   if (failure.kind === "DAILY_PROVIDER_ERROR") {
+    return "The video service is still spinning up. Try again in a moment.";
+  }
+  if (failure.kind === "DAILY_PROVIDER_UNAVAILABLE" || failure.kind === "DAILY_RATE_LIMIT") {
     return "The video service is still spinning up. Try again in a moment.";
   }
   if (failure.kind === "daily_join_failed") {

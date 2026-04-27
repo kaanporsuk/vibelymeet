@@ -36,11 +36,85 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
-const PREPARE_ENTRY_NAV_GRACE_MS = 900;
+const PREPARE_ENTRY_SLOW_WAIT_MS = 3_000;
+const PREPARE_ENTRY_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
+
+type PrepareEntryStatus = "idle" | "preparing" | "slow" | "retrying" | "failed";
+
+type PrepareEntryFailureState = {
+  code: string;
+  message: string;
+  retryable: boolean;
+  httpStatus?: number;
+} | null;
 
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[ReadyGateOverlay] ${message}`, data ?? {});
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function shouldRetryPrepareEntryFailure(result: {
+  code?: string;
+  httpStatus?: number;
+  retryable?: boolean;
+}): boolean {
+  if (result.retryable === true) return true;
+  if (result.code === "READY_GATE_NOT_READY" || result.code === "RPC_ERROR") return true;
+  if (
+    result.code === "DAILY_RATE_LIMIT" ||
+    result.code === "DAILY_PROVIDER_UNAVAILABLE" ||
+    result.code === "DAILY_PROVIDER_ERROR"
+  ) {
+    return true;
+  }
+  return typeof result.httpStatus === "number" && result.httpStatus >= 500;
+}
+
+function prepareEntryFailureMessage(code?: string): string {
+  switch (code) {
+    case "UNAUTHORIZED":
+      return "Please sign in again, then try once more.";
+    case "ACCESS_DENIED":
+      return "You do not have access to this date.";
+    case "BLOCKED_PAIR":
+      return "This call is no longer available.";
+    case "SESSION_ENDED":
+      return "This date has already ended.";
+    case "DAILY_AUTH_FAILED":
+    case "DAILY_CREDENTIALS_INVALID":
+      return "Video provider authentication failed. Please try again later.";
+    case "DAILY_REQUEST_REJECTED":
+      return "The video room could not be prepared. Please try again later.";
+    case "DAILY_RATE_LIMIT":
+    case "DAILY_PROVIDER_UNAVAILABLE":
+    case "DAILY_PROVIDER_ERROR":
+      return "The video service is still setting up. Please try again in a moment.";
+    default:
+      return "We could not prepare the video room. Please try again.";
+  }
+}
+
+function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: PrepareEntryFailureState) {
+  if (status === "failed") {
+    return {
+      title: "Could not prepare the room",
+      body: failure?.message ?? "We could not prepare the video room. Please try again.",
+    };
+  }
+  if (status === "slow" || status === "retrying") {
+    return {
+      title: "Preparing your video date...",
+      body: "Still setting up the room. This can take a few seconds.",
+    };
+  }
+  return {
+    title: "Preparing your video date...",
+    body: "This should only take a moment.",
+  };
 }
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
@@ -54,8 +128,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
+  const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>("idle");
+  const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailureState>(null);
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
+  const mountedRef = useRef(true);
   const invalidCloseToastRef = useRef(false);
   const readyGateImpressionRef = useRef(false);
   const openingWaitImpressionRef = useRef(false);
@@ -64,6 +141,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
+  const prepareEntryRunIdRef = useRef(0);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -119,9 +197,18 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     if (closedRef.current && !dateNavigationStartedRef.current) return;
     if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) return;
     prepareEntryHandoffStartedRef.current = true;
+    const runId = prepareEntryRunIdRef.current + 1;
+    prepareEntryRunIdRef.current = runId;
+    const isCurrentPrepareRun = () =>
+      mountedRef.current &&
+      prepareEntryRunIdRef.current === runId &&
+      !closedRef.current &&
+      !dateNavigationStartedRef.current;
     const observedAtMs = Date.now();
     bothReadyObservedAtMsRef.current = observedAtMs;
     setIsTransitioning(true);
+    setPrepareEntryStatus("preparing");
+    setPrepareEntryFailure(null);
     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
       sessionId,
       platform: "web",
@@ -153,29 +240,97 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       source: "both_ready",
     });
 
-    const fallback = window.setTimeout(() => {
-      navigateToDate("both_ready_prepare_grace");
-    }, PREPARE_ENTRY_NAV_GRACE_MS);
-
-    void prepareVideoDateEntry(sessionId, {
-      eventId,
-      source: "ready_gate_both_ready",
-      bothReadyObservedAtMs: observedAtMs,
-    }).then((result) => {
-      if (dateNavigationStartedRef.current) return;
-      if (result.ok === true) {
-        window.clearTimeout(fallback);
-        navigateToDate("both_ready_prepare_success");
-        return;
-      }
-      vdbg("ready_gate_prepare_entry_failed_before_nav", {
+    const slowWaitTimer = window.setTimeout(() => {
+      if (!isCurrentPrepareRun()) return;
+      setPrepareEntryStatus("slow");
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "ready_gate_overlay",
+        source_action: "prepare_entry_slow_wait",
+        elapsed_ms: PREPARE_ENTRY_SLOW_WAIT_MS,
+      });
+      vdbg("ready_gate_prepare_entry_slow_wait", {
         sessionId,
         eventId,
-        code: result.code,
-        retryable: result.retryable,
+        elapsedMs: PREPARE_ENTRY_SLOW_WAIT_MS,
       });
-    });
+    }, PREPARE_ENTRY_SLOW_WAIT_MS);
+
+    void (async () => {
+      try {
+        for (let attempt = 0; attempt <= PREPARE_ENTRY_RETRY_DELAYS_MS.length; attempt += 1) {
+          if (!isCurrentPrepareRun()) return;
+          setPrepareEntryStatus(attempt === 0 ? "preparing" : "retrying");
+          const result = await prepareVideoDateEntry(sessionId, {
+            eventId,
+            source: attempt === 0 ? "ready_gate_both_ready" : "ready_gate_both_ready_retry",
+            force: attempt > 0,
+            bothReadyObservedAtMs: observedAtMs,
+          });
+          if (!isCurrentPrepareRun()) return;
+          if (result.ok === true) {
+            window.clearTimeout(slowWaitTimer);
+            setPrepareEntryStatus("idle");
+            navigateToDate("both_ready_prepare_success");
+            return;
+          }
+
+          const retryable = shouldRetryPrepareEntryFailure(result);
+          const exhausted = !retryable || attempt >= PREPARE_ENTRY_RETRY_DELAYS_MS.length;
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: "ready_gate_overlay",
+            source_action: "prepare_entry_failed_no_nav",
+            code: result.code,
+            reason_code: result.code,
+            httpStatus: result.httpStatus ?? null,
+            retryable,
+            attempt: attempt + 1,
+            attempt_count: attempt + 1,
+            exhausted,
+          });
+          vdbg("ready_gate_prepare_entry_failed_no_nav", {
+            sessionId,
+            eventId,
+            code: result.code,
+            httpStatus: result.httpStatus ?? null,
+            retryable,
+            attempt: attempt + 1,
+            exhausted,
+          });
+
+          if (exhausted) {
+            window.clearTimeout(slowWaitTimer);
+            setPrepareEntryStatus("failed");
+            setPrepareEntryFailure({
+              code: result.code,
+              message: prepareEntryFailureMessage(result.code),
+              retryable,
+              httpStatus: result.httpStatus,
+            });
+            return;
+          }
+
+          setPrepareEntryStatus("retrying");
+          await sleep(PREPARE_ENTRY_RETRY_DELAYS_MS[attempt]);
+        }
+      } finally {
+        window.clearTimeout(slowWaitTimer);
+      }
+    })();
   }, [eventId, navigateToDate, sessionId]);
+
+  const retryPrepareEntry = useCallback(() => {
+    if (dateNavigationStartedRef.current) return;
+    prepareEntryHandoffStartedRef.current = false;
+    setPrepareEntryFailure(null);
+    setPrepareEntryStatus("preparing");
+    handleBothReady();
+  }, [handleBothReady]);
 
   const handleForfeited = useCallback(
     (reason: "timeout" | "skip") => {
@@ -449,10 +604,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     timeoutForfeitSentRef.current = false;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
+    prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
     setMarkingReady(false);
     setRequestingSnooze(false);
+    setPrepareEntryStatus("idle");
+    setPrepareEntryFailure(null);
     setTimeLeft(GATE_TIMEOUT);
     if (!readyGateImpressionRef.current) {
       readyGateImpressionRef.current = true;
@@ -480,6 +638,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       });
     }
   }, [sessionId, eventId]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      prepareEntryRunIdRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (isTransitioning || !iAmReady || partnerReady || snoozedByPartner) return;
@@ -570,6 +735,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const radius = (ringSize - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - progress);
+  const transitionCopy = prepareEntryTransitionCopy(prepareEntryStatus, prepareEntryFailure);
 
   return (
     <motion.div
@@ -594,12 +760,40 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                 animate={{ scale: [1, 1.2, 1] }}
                 transition={{ duration: 1.5, repeat: Infinity }}
               >
-                <Sparkles className="w-12 h-12 text-primary mx-auto" />
+                {prepareEntryStatus === "failed" ? (
+                  <X className="w-12 h-12 text-destructive mx-auto" />
+                ) : (
+                  <Sparkles className="w-12 h-12 text-primary mx-auto" />
+                )}
               </motion.div>
               <p className="text-lg font-display font-semibold text-foreground">
-                Joining your date...
+                {transitionCopy.title}
               </p>
-              <p className="text-sm text-muted-foreground">This should only take a moment.</p>
+              <p className="text-sm text-muted-foreground max-w-xs mx-auto">{transitionCopy.body}</p>
+              {prepareEntryStatus === "failed" && (
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  {prepareEntryFailure?.retryable && (
+                    <button
+                      onClick={retryPrepareEntry}
+                      className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium"
+                    >
+                      Try again
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (dateNavigationStartedRef.current) return;
+                      closedRef.current = true;
+                      skip();
+                      setStatus("browsing");
+                      onClose();
+                    }}
+                    className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground"
+                  >
+                    Back to lobby
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

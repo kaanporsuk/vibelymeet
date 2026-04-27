@@ -34,6 +34,22 @@ const dailyRoomFunction = readFileSync(
   join(process.cwd(), "supabase/functions/daily-room/index.ts"),
   "utf8",
 );
+const videoDateRoomCleanupFunction = readFileSync(
+  join(process.cwd(), "supabase/functions/video-date-room-cleanup/index.ts"),
+  "utf8",
+);
+const activeLookupIndexesMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501102000_video_sessions_active_lookup_indexes.sql"),
+  "utf8",
+);
+const readyGateOverlay = readFileSync(
+  join(process.cwd(), "src/components/lobby/ReadyGateOverlay.tsx"),
+  "utf8",
+);
+const eventLobby = readFileSync(
+  join(process.cwd(), "src/pages/EventLobby.tsx"),
+  "utf8",
+);
 const webVideoCallHook = readFileSync(
   join(process.cwd(), "src/hooks/useVideoCall.ts"),
   "utf8",
@@ -322,6 +338,50 @@ test("daily-room prepare_date_entry verifies or recreates unsafe provider room s
     dailyRoomFunction,
     /else \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*!providerRoomState\.exists \|\| providerRoomState\.expired[\s\S]*providerRoomRecreated = true/s,
   );
+});
+
+test("web ready-gate paths do not navigate to date before prepare-entry succeeds", () => {
+  assert.doesNotMatch(readyGateOverlay, /PREPARE_ENTRY_NAV_GRACE_MS/);
+  assert.doesNotMatch(readyGateOverlay, /both_ready_prepare_grace/);
+  assert.match(readyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
+  assert.match(readyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
+  assert.match(readyGateOverlay, /navigateToDate\("both_ready_prepare_success"\)/);
+
+  assert.doesNotMatch(eventLobby, /PREPARE_ENTRY_NAV_GRACE_MS/);
+  assert.doesNotMatch(eventLobby, /prepare_grace/);
+  assert.match(eventLobby, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
+  assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_done`\)/);
+});
+
+test("daily-room classifies Daily provider failures without leaking raw response bodies", () => {
+  assert.match(dailyRoomFunction, /status === 401 \|\| status === 403[\s\S]*DAILY_AUTH_FAILED/s);
+  assert.match(dailyRoomFunction, /status === 429[\s\S]*DAILY_RATE_LIMIT/s);
+  assert.match(dailyRoomFunction, /status >= 500[\s\S]*DAILY_PROVIDER_UNAVAILABLE/s);
+  assert.match(dailyRoomFunction, /status >= 400[\s\S]*DAILY_REQUEST_REJECTED/s);
+  assert.match(dailyRoomFunction, /event: "daily_provider_error"/);
+  assert.match(dailyRoomFunction, /provider_status: params\.error\.status/);
+  assert.doesNotMatch(dailyRoomFunction, /Daily API error \$\{res\.status\}: \$\{errText\}/);
+});
+
+test("video_sessions active lookup indexes are additive partial indexes", () => {
+  assert.match(
+    activeLookupIndexesMigration,
+    /CREATE INDEX IF NOT EXISTS idx_video_sessions_participant_1_active\s+ON public\.video_sessions\(participant_1_id\)\s+WHERE ended_at IS NULL;/,
+  );
+  assert.match(
+    activeLookupIndexesMigration,
+    /CREATE INDEX IF NOT EXISTS idx_video_sessions_participant_2_active\s+ON public\.video_sessions\(participant_2_id\)\s+WHERE ended_at IS NULL;/,
+  );
+});
+
+test("video-date room cleanup checks Daily presence before destructive delete", () => {
+  assert.match(videoDateRoomCleanupFunction, /\/rooms\/\$\{encodeURIComponent\(roomName\)\}\/presence/);
+  assert.match(videoDateRoomCleanupFunction, /cleanup_deferred_active_participants/);
+  assert.match(videoDateRoomCleanupFunction, /cleanup_deferred_provider_check_failed/);
+  assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && presence\.activeCount > 0\)[\s\S]*continue;/s);
+  assert.match(videoDateRoomCleanupFunction, /if \(!presence\.ok\)[\s\S]*cleanup_deferred_provider_check_failed[\s\S]*continue;/s);
+  assert.doesNotMatch(videoDateRoomCleanupFunction, /cleanup_hard_delete_after_provider_check_failed/);
+  assert.doesNotMatch(videoDateRoomCleanupFunction, /HARD_DELETE_FALLBACK_MS/);
 });
 
 test("web and native reject cached prewarmed token after Daily join failure and retry prepare", () => {
