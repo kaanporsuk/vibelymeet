@@ -62,6 +62,22 @@ const pendingVerdictObservabilityMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501113000_post_date_pending_verdict_observability.sql"),
   "utf8",
 );
+const pendingVerdictReminderMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501114000_post_date_pending_verdict_reminders.sql"),
+  "utf8",
+);
+const postDateVerdictRemindersFunction = readFileSync(
+  join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
+  "utf8",
+);
+const sendNotificationFunction = readFileSync(
+  join(process.cwd(), "supabase/functions/send-notification/index.ts"),
+  "utf8",
+);
+const supabaseConfig = readFileSync(
+  join(process.cwd(), "supabase/config.toml"),
+  "utf8",
+);
 const expireStaleBoundingDeferralDoc = readFileSync(
   join(process.cwd(), "docs/video-date-expire-stale-bounding-deferral.md"),
   "utf8",
@@ -893,4 +909,63 @@ test("half-verdict timeout detector is scheduled through optional pg_cron", () =
   assert.match(halfVerdictTimeoutCronMigration, /post-date-half-verdict-timeout-detection/);
   assert.match(halfVerdictTimeoutCronMigration, /cron\.schedule/);
   assert.match(halfVerdictTimeoutCronMigration, /detect_post_date_half_verdict_timeouts\(interval ''24 hours'', 100\)/);
+});
+
+test("pending post-date verdict reminder automation is server-owned and idempotent", () => {
+  assert.match(pendingVerdictReminderMigration, /CREATE TABLE IF NOT EXISTS public\.post_date_pending_verdicts/);
+  assert.match(pendingVerdictReminderMigration, /session_id uuid PRIMARY KEY/);
+  assert.match(pendingVerdictReminderMigration, /reminder_eligible_at timestamptz NOT NULL DEFAULT \(now\(\) \+ interval '5 minutes'\)/);
+  assert.match(pendingVerdictReminderMigration, /reminder_sent_at timestamptz/);
+  assert.match(pendingVerdictReminderMigration, /stale_at timestamptz/);
+  assert.match(pendingVerdictReminderMigration, /completed_at timestamptz/);
+  assert.match(pendingVerdictReminderMigration, /ALTER TABLE public\.post_date_pending_verdicts ENABLE ROW LEVEL SECURITY/);
+  assert.match(pendingVerdictReminderMigration, /REVOKE ALL ON TABLE public\.post_date_pending_verdicts FROM anon/);
+  assert.match(pendingVerdictReminderMigration, /CREATE POLICY "Admins can view pending post-date verdicts"/);
+  assert.match(pendingVerdictReminderMigration, /claim_post_date_pending_verdict_reminders/);
+  assert.match(pendingVerdictReminderMigration, /FOR UPDATE OF pd SKIP LOCKED/);
+  assert.match(pendingVerdictReminderMigration, /pd\.reminder_sent_at IS NULL/);
+  assert.match(pendingVerdictReminderMigration, /NOT EXISTS \([\s\S]*df\.user_id = pd\.missing_user_id/);
+  assert.match(pendingVerdictReminderMigration, /NOT public\.is_blocked\(pd\.submitted_by, pd\.missing_user_id\)/);
+  assert.match(pendingVerdictReminderMigration, /FROM public\.user_reports ur[\s\S]*ur\.reporter_id = pd\.submitted_by[\s\S]*ur\.reported_id = pd\.missing_user_id/);
+  assert.match(pendingVerdictReminderMigration, /status = 'reminded'/);
+  assert.match(pendingVerdictReminderMigration, /GRANT EXECUTE ON FUNCTION public\.claim_post_date_pending_verdict_reminders\(integer\) TO service_role/);
+});
+
+test("pending post-date verdict stale and completion state stays observable", () => {
+  assert.match(pendingVerdictReminderMigration, /mark_post_date_pending_verdicts_stale/);
+  assert.match(pendingVerdictReminderMigration, /first_detected_at < now\(\) - COALESCE\(p_older_than, interval '24 hours'\)/);
+  assert.match(pendingVerdictReminderMigration, /status = 'stale'/);
+  assert.match(pendingVerdictReminderMigration, /post_date_pending_verdict_stale/);
+  assert.match(pendingVerdictReminderMigration, /detect_post_date_half_verdict_timeouts/);
+  assert.match(pendingVerdictReminderMigration, /RETURN public\.mark_post_date_pending_verdicts_stale\(p_older_than, p_limit\)/);
+  assert.match(pendingVerdictReminderMigration, /INSERT INTO public\.post_date_pending_verdicts/);
+  assert.match(pendingVerdictReminderMigration, /ON CONFLICT \(session_id\) DO UPDATE/);
+  assert.match(pendingVerdictReminderMigration, /UPDATE public\.post_date_pending_verdicts[\s\S]*completed_at = COALESCE\(completed_at, now\(\)\)[\s\S]*status = 'completed'/);
+  assert.match(pendingVerdictReminderMigration, /post_date_pending_verdict_completed/);
+  assert.match(pendingVerdictReminderMigration, /CREATE OR REPLACE FUNCTION public\.check_mutual_vibe_and_match/);
+  assert.match(pendingVerdictReminderMigration, /reported_pair/);
+  assert.match(pendingVerdictReminderMigration, /neither blocked nor reported/);
+  assert.match(lobbyToPostDateJourney, /POST_DATE_PENDING_VERDICT_REMINDER_SENT/);
+  assert.match(lobbyToPostDateJourney, /POST_DATE_PENDING_VERDICT_REMINDER_FAILED/);
+  assert.match(lobbyToPostDateJourney, /POST_DATE_PENDING_VERDICT_STALE/);
+});
+
+test("post-date verdict reminder Edge worker is CRON_SECRET guarded and sends neutral payloads", () => {
+  assert.match(supabaseConfig, /\[functions\.post-date-verdict-reminders\]\s+verify_jwt = false/);
+  assert.match(pendingVerdictReminderMigration, /post-date-verdict-reminders/);
+  assert.match(pendingVerdictReminderMigration, /cron\.schedule\(/);
+  assert.match(pendingVerdictReminderMigration, /\/functions\/v1\/post-date-verdict-reminders/);
+  assert.match(postDateVerdictRemindersFunction, /Deno\.env\.get\("CRON_SECRET"\)/);
+  assert.match(postDateVerdictRemindersFunction, /incoming !== `Bearer \$\{cronSecret\}`/);
+  assert.match(postDateVerdictRemindersFunction, /claim_post_date_pending_verdict_reminders/);
+  assert.match(postDateVerdictRemindersFunction, /mark_post_date_pending_verdicts_stale/);
+  assert.match(postDateVerdictRemindersFunction, /record_post_date_pending_verdict_reminder_result/);
+  assert.match(postDateVerdictRemindersFunction, /category: "post_date_feedback_reminder"/);
+  assert.match(postDateVerdictRemindersFunction, /Your video date is waiting for your feedback\./);
+  assert.match(postDateVerdictRemindersFunction, /Share your post-date vibe to finish the flow\./);
+  assert.match(postDateVerdictRemindersFunction, /deepLink = `\/date\/\$\{row\.session_id\}`/);
+  assert.match(sendNotificationFunction, /post_date_feedback_reminder: 'notify_date_reminder'/);
+  assert.match(sendNotificationFunction, /post_date_feedback_reminder: \{[\s\S]*Your video date is waiting for your feedback\./);
+  assert.doesNotMatch(postDateVerdictRemindersFunction, /\bliked\b/);
+  assert.doesNotMatch(postDateVerdictRemindersFunction, /data:\s*\{[\s\S]*submitted_by/);
 });
