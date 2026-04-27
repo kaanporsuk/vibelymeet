@@ -1,5 +1,5 @@
 export const VIDEO_DATE_HANDSHAKE_TRUTH_SELECT =
-  "id, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds";
+  "id, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at, participant_1_liked, participant_2_liked, participant_1_decided_at, participant_2_decided_at, state, phase, ended_at, ended_reason, handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, daily_room_name, daily_room_url";
 
 export type HandshakeDecisionAction = "vibe" | "pass";
 
@@ -21,6 +21,8 @@ export type VideoDateHandshakeTruth = {
   handshake_grace_expires_at?: string | null;
   date_started_at?: string | null;
   date_extra_seconds?: number | null;
+  daily_room_name?: string | null;
+  daily_room_url?: string | null;
 };
 
 export type VideoDateTransitionPayload = {

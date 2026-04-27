@@ -15,6 +15,8 @@ export type DailyRoomFailureKind =
   | "SESSION_ENDED"
   | "SESSION_NOT_FOUND"
   | "ROOM_NOT_FOUND"
+  | "DB_ROOM_PERSIST_FAILED"
+  | "REGISTRATION_PERSIST_FAILED"
   | "DAILY_AUTH_FAILED"
   | "DAILY_CREDENTIALS_INVALID"
   | "DAILY_RATE_LIMIT"
@@ -108,6 +110,8 @@ export function classifyDailyRoomFailureKind(input: {
   if (code === "SESSION_ENDED" || httpStatus === 410) return "SESSION_ENDED";
   if (code === "SESSION_NOT_FOUND") return "SESSION_NOT_FOUND";
   if (code === "ROOM_NOT_FOUND") return "ROOM_NOT_FOUND";
+  if (code === "DB_ROOM_PERSIST_FAILED") return "DB_ROOM_PERSIST_FAILED";
+  if (code === "REGISTRATION_PERSIST_FAILED") return "REGISTRATION_PERSIST_FAILED";
   if (code === "DAILY_AUTH_FAILED") return "DAILY_AUTH_FAILED";
   if (code === "DAILY_CREDENTIALS_INVALID") return "DAILY_CREDENTIALS_INVALID";
   if (code === "DAILY_RATE_LIMIT" || httpStatus === 429) return "DAILY_RATE_LIMIT";
@@ -130,7 +134,7 @@ export function classifyDailyRoomFailureKind(input: {
 }
 
 export function isRetryableDailyRoomFailure(kind: DailyRoomFailureKind): boolean {
-  return kind === "network" || kind === "DAILY_PROVIDER_ERROR" || kind === "DAILY_PROVIDER_UNAVAILABLE" || kind === "DAILY_RATE_LIMIT";
+  return kind === "network" || kind === "DAILY_PROVIDER_ERROR" || kind === "DAILY_PROVIDER_UNAVAILABLE" || kind === "DAILY_RATE_LIMIT" || kind === "DB_ROOM_PERSIST_FAILED" || kind === "REGISTRATION_PERSIST_FAILED";
 }
 
 export async function classifyDailyRoomInvokeFailure(

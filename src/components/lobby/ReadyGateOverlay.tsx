@@ -407,7 +407,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           .maybeSingle(),
         supabase
           .from("video_sessions")
-          .select("participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at")
+          .select("participant_1_id, participant_2_id, ended_at, state, phase, ready_gate_status, ready_gate_expires_at, handshake_started_at, daily_room_name, daily_room_url")
           .eq("id", sessionId)
           .maybeSingle(),
       ]);

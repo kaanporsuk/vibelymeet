@@ -484,6 +484,8 @@ export type VideoSessionDateEntryTruth = {
   ended_at: string | null;
   ended_reason?: string | null;
   event_id: string | null;
+  daily_room_name?: string | null;
+  daily_room_url?: string | null;
   handshake_started_at: string | null;
   handshake_grace_expires_at?: string | null;
   date_started_at?: string | null;

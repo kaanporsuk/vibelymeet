@@ -53,7 +53,29 @@ const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
-const PREPARE_ENTRY_NAV_GRACE_MS = 900;
+const PREPARE_ENTRY_SLOW_WAIT_MS = 4_000;
+const PREPARE_ENTRY_RETRY_DELAYS_MS = [700, 1_600] as const;
+
+type PrepareEntryStatus = 'idle' | 'preparing' | 'slow' | 'retrying' | 'failed';
+type PrepareEntryFailure = {
+  code: string;
+  retryable: boolean;
+  httpStatus?: number;
+};
+
+function prepareEntryFailureMessage(code: string): string {
+  if (code === 'UNAUTHORIZED' || code === 'auth') return 'Please sign in again, then try once more.';
+  if (code === 'SESSION_ENDED') return 'This Ready Gate has already ended.';
+  if (code === 'ACCESS_DENIED' || code === 'BLOCKED_PAIR') return 'This date is no longer available.';
+  if (code === 'DAILY_AUTH_FAILED' || code === 'DAILY_CREDENTIALS_INVALID') {
+    return 'Video setup is unavailable right now. Please try again later.';
+  }
+  return 'Could not prepare this date. Please try again.';
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export type ReadyGateOverlayProps = {
   sessionId: string;
@@ -95,6 +117,8 @@ export function ReadyGateOverlay({
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
+  const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>('idle');
+  const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailure | null>(null);
 
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
@@ -121,8 +145,9 @@ export function ReadyGateOverlay({
     (source: string) => {
       if (closedRef.current || prepareEntryHandoffStartedRef.current) return;
       prepareEntryHandoffStartedRef.current = true;
-      closedRef.current = true;
       setIsTransitioning(true);
+      setPrepareEntryStatus('preparing');
+      setPrepareEntryFailure(null);
       const observedAtMs = Date.now();
       bothReadyObservedAtMsRef.current = observedAtMs;
       rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_observed', {
@@ -164,6 +189,9 @@ export function ReadyGateOverlay({
       const navigateWithLatency = (navigateSource: string) => {
         if (dateNavigationStartedRef.current) return;
         dateNavigationStartedRef.current = true;
+        closedRef.current = true;
+        setPrepareEntryStatus('idle');
+        setPrepareEntryFailure(null);
         const navContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
           platform: 'native',
@@ -183,30 +211,96 @@ export function ReadyGateOverlay({
         onNavigateToDate(sessionId);
       };
 
-      const fallback = setTimeout(() => {
-        navigateWithLatency(`${source}_prepare_grace`);
-      }, PREPARE_ENTRY_NAV_GRACE_MS);
+      const slowWaitTimer = setTimeout(() => {
+        if (dateNavigationStartedRef.current || !prepareEntryHandoffStartedRef.current) return;
+        setPrepareEntryStatus('slow');
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: 'ready_gate_overlay',
+          source_action: 'prepare_entry_slow_wait',
+          elapsed_ms: PREPARE_ENTRY_SLOW_WAIT_MS,
+        });
+        vdbg('ready_gate_prepare_entry_slow_wait', {
+          sessionId,
+          eventId,
+          elapsedMs: PREPARE_ENTRY_SLOW_WAIT_MS,
+        });
+      }, PREPARE_ENTRY_SLOW_WAIT_MS);
 
-      void prepareVideoDateEntry(sessionId, {
-        eventId,
-        source: `ready_gate_${source}`,
-        bothReadyObservedAtMs: observedAtMs,
-      }).then((result) => {
-        if (result.ok === true) {
-          clearTimeout(fallback);
-          navigateWithLatency(`${source}_prepare_success`);
-          return;
+      void (async () => {
+        try {
+          for (let attempt = 0; attempt <= PREPARE_ENTRY_RETRY_DELAYS_MS.length; attempt += 1) {
+            if (dateNavigationStartedRef.current || closedRef.current) return;
+            setPrepareEntryStatus(attempt === 0 ? 'preparing' : 'retrying');
+            const result = await prepareVideoDateEntry(sessionId, {
+              eventId,
+              source: attempt === 0 ? `ready_gate_${source}` : `ready_gate_${source}_retry`,
+              force: attempt > 0,
+              bothReadyObservedAtMs: observedAtMs,
+            });
+            if (dateNavigationStartedRef.current || closedRef.current) return;
+            if (result.ok === true) {
+              clearTimeout(slowWaitTimer);
+              navigateWithLatency(`${source}_prepare_success`);
+              return;
+            }
+
+            const exhausted = !result.retryable || attempt >= PREPARE_ENTRY_RETRY_DELAYS_MS.length;
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              source_surface: 'ready_gate_overlay',
+              source_action: 'prepare_entry_failed_no_nav',
+              code: result.code,
+              reason_code: result.code,
+              httpStatus: result.httpStatus ?? null,
+              retryable: result.retryable,
+              attempt: attempt + 1,
+              attempt_count: attempt + 1,
+              exhausted,
+              entry_attempt_id: result.entryAttemptId ?? null,
+            });
+            rcBreadcrumb(RC_CATEGORY.readyGate, 'prepare_date_entry_failed_before_nav', {
+              event_id: eventId,
+              session_id: sessionId,
+              source,
+              code: result.code,
+              retryable: result.retryable,
+              exhausted,
+              entry_attempt_id: result.entryAttemptId ?? null,
+            });
+            vdbg('ready_gate_prepare_entry_failed_no_nav', {
+              sessionId,
+              eventId,
+              code: result.code,
+              retryable: result.retryable,
+              attempt: attempt + 1,
+              exhausted,
+              entryAttemptId: result.entryAttemptId ?? null,
+            });
+
+            if (exhausted) {
+              clearTimeout(slowWaitTimer);
+              setIsTransitioning(false);
+              setPrepareEntryStatus('failed');
+              setPrepareEntryFailure({
+                code: result.code,
+                retryable: result.retryable,
+                httpStatus: result.httpStatus,
+              });
+              prepareEntryHandoffStartedRef.current = false;
+              return;
+            }
+
+            await sleep(PREPARE_ENTRY_RETRY_DELAYS_MS[attempt]);
+          }
+        } finally {
+          clearTimeout(slowWaitTimer);
         }
-        if (result.ok === false) {
-          rcBreadcrumb(RC_CATEGORY.readyGate, 'prepare_date_entry_failed_before_nav', {
-            event_id: eventId,
-            session_id: sessionId,
-            source,
-            code: result.code,
-            retryable: result.retryable,
-          });
-        }
-      });
+      })();
     },
     [eventId, onNavigateToDate, sessionId],
   );
@@ -374,6 +468,8 @@ export function ReadyGateOverlay({
     setRequestingSnooze(false);
     setPermissionsResolved(false);
     setHasMediaPermission(null);
+    setPrepareEntryStatus('idle');
+    setPrepareEntryFailure(null);
     if (!rgImpressionRef.current) {
       rgImpressionRef.current = true;
       const latencyContext = startReadyGateToDateLatencyContext({
@@ -558,6 +654,26 @@ export function ReadyGateOverlay({
   };
 
   const displayName = partnerName || 'someone';
+  const retryPrepareEntry = () => {
+    if (dateNavigationStartedRef.current) return;
+    prepareEntryHandoffStartedRef.current = false;
+    setPrepareEntryFailure(null);
+    setPrepareEntryStatus('preparing');
+    setIsTransitioning(true);
+    startPrepareEntryHandoff('manual_retry');
+  };
+  const prepareTitle =
+    prepareEntryStatus === 'retrying'
+      ? 'Still preparing...'
+      : prepareEntryStatus === 'slow'
+        ? 'Almost ready...'
+        : 'Joining your date...';
+  const prepareSubtitle =
+    prepareEntryStatus === 'retrying'
+      ? 'The video room needed another try.'
+      : prepareEntryStatus === 'slow'
+        ? 'Video setup is taking a little longer than usual.'
+        : 'This should only take a moment.';
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={handleSkip}>
@@ -590,14 +706,34 @@ export function ReadyGateOverlay({
               Checking camera and microphone...
             </Text>
           </Card>
-        ) : isTransitioning || isBothReady ? (
+        ) : prepareEntryStatus === 'failed' && prepareEntryFailure ? (
+          <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
+            <Ionicons name="alert-circle-outline" size={34} color={theme.textSecondary} />
+            <Text style={[styles.title, { color: theme.text, marginTop: spacing.md }]}>Could not start yet</Text>
+            <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+              {prepareEntryFailureMessage(prepareEntryFailure.code)}
+            </Text>
+            {prepareEntryFailure.retryable ? (
+              <VibelyButton
+                label="Try again"
+                onPress={retryPrepareEntry}
+                variant="primary"
+                size="lg"
+                style={styles.readyBtn}
+              />
+            ) : null}
+            <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
+              <Text style={[styles.skipText, { color: theme.textSecondary }]}>Back to lobby</Text>
+            </Pressable>
+          </Card>
+        ) : isTransitioning || isBothReady || prepareEntryStatus !== 'idle' ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <ActivityIndicator size="large" color={theme.tint} />
             <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>
-              Joining your date...
+              {prepareTitle}
             </Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary, marginTop: spacing.sm, marginBottom: 0 }]}>
-              This should only take a moment.
+              {prepareSubtitle}
             </Text>
           </Card>
         ) : (

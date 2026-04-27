@@ -79,7 +79,7 @@ async function findDirectVideoSessionFallback(
   const query = supabase
     .from('video_sessions')
     .select(
-      'id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at'
+      'id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url'
     )
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .is('ended_at', null)
@@ -226,7 +226,7 @@ export function useActiveSession(
 
       const { data: session, error: sessionError } = await supabase
         .from('video_sessions')
-        .select('id, ended_at, handshake_started_at, state, phase, ready_gate_status, ready_gate_expires_at')
+        .select('id, ended_at, handshake_started_at, state, phase, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url')
         .eq('id', reg.current_room_id)
         .maybeSingle();
 

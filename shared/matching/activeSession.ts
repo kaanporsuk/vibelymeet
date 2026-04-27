@@ -21,6 +21,9 @@ export type ActiveSessionBase = {
 export type VideoSessionTruthRouteDecision = "navigate_date" | "navigate_ready" | "stay_lobby" | "ended";
 
 type VideoSessionDailyRoomTruth = {
+  daily_room_name?: string | null;
+  daily_room_url?: string | null;
+  date_started_at?: string | null;
   ended_at?: string | null;
   handshake_started_at?: string | null;
   ready_gate_expires_at?: string | number | null;
@@ -40,25 +43,51 @@ function readyGateExpiryMs(
 }
 
 /**
- * Canonical client mirror of the Daily room server gate.
+ * True only when local DB truth proves Daily room metadata is persisted.
+ * A routeable video date must have this proof before `/date/:id` may try to join.
+ */
+export function videoSessionHasProviderRoom(
+  row: Pick<VideoSessionDailyRoomTruth, "daily_room_name" | "daily_room_url"> | null,
+): boolean {
+  return Boolean(row?.daily_room_name && row?.daily_room_url);
+}
+
+/**
+ * True when Ready Gate may call the provider preparation path. This is not a
+ * route-to-date signal; it only means the session is eligible to attempt
+ * provider preparation from Ready Gate.
+ */
+export function canPrepareDailyRoomFromReadyGateTruth(
+  row: VideoSessionDailyRoomTruth | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!row || row.ended_at) return false;
+  if (canAttemptDailyRoomFromVideoSessionTruth(row, nowMs)) return true;
+  if (row.ready_gate_status !== "both_ready") return false;
+  const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
+  return expiresMs != null && expiresMs > nowMs;
+}
+
+/**
+ * Canonical client mirror of the Daily room server gate for date-route entry.
  * Legacy `phase` is intentionally ignored: mixed rows can still carry
  * `phase = "handshake"` while the canonical state remains `ready_gate`.
  */
 export function canAttemptDailyRoomFromVideoSessionTruth(
   row: VideoSessionDailyRoomTruth | null,
-  nowMs: number = Date.now(),
+  _nowMs: number = Date.now(),
 ): boolean {
   if (!row || row.ended_at) return false;
+  if (!videoSessionHasProviderRoom(row)) return false;
   if (
     row.state === "handshake" ||
     row.state === "date" ||
-    row.handshake_started_at
+    row.handshake_started_at ||
+    row.date_started_at
   ) {
     return true;
   }
-  if (row.ready_gate_status !== "both_ready") return false;
-  const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
-  return expiresMs != null && expiresMs > nowMs;
+  return false;
 }
 
 /** Prefer in-date / handshake / survey over ready gate when multiple rows exist (stale data guard). */
@@ -81,20 +110,27 @@ export function pickRegistrationForActiveSession<
  */
 export function videoSessionRowIndicatesHandshakeOrDate(
   row: {
+    daily_room_name?: string | null;
+    daily_room_url?: string | null;
+    date_started_at?: string | null;
     state?: string | null;
     handshake_started_at?: string | null;
   } | null
 ): boolean {
   return Boolean(
     row &&
+      videoSessionHasProviderRoom(row) &&
       (row.state === "handshake" ||
         row.state === "date" ||
-        row.handshake_started_at)
+        row.handshake_started_at ||
+        row.date_started_at)
   );
 }
 
 export function videoSessionRowIsEnded(
   row: {
+    daily_room_name?: string | null;
+    daily_room_url?: string | null;
     ended_at?: string | null;
     state?: string | null;
     phase?: string | null;
@@ -122,6 +158,8 @@ export function videoSessionRowReadyGateEligible(
 
 export function decideVideoSessionRouteFromTruth(
   row: {
+    daily_room_name?: string | null;
+    daily_room_url?: string | null;
     ended_at?: string | null;
     state?: string | null;
     phase?: string | null;
@@ -142,12 +180,14 @@ export function decideVideoSessionRouteFromTruth(
 /** Best-effort queue_status aligned with session row when registration still says `in_ready_gate`. */
 export function inferVideoQueueStatusFromSessionTruth(
   row: {
+    daily_room_name?: string | null;
+    daily_room_url?: string | null;
     state?: string | null;
     phase?: string | null;
     date_started_at?: string | null;
   } | null
 ): "in_date" | "in_handshake" {
   if (!row) return "in_handshake";
-  if (row.state === "date" || row.phase === "date" || row.date_started_at) return "in_date";
+  if (videoSessionHasProviderRoom(row) && (row.state === "date" || row.phase === "date" || row.date_started_at)) return "in_date";
   return "in_handshake";
 }

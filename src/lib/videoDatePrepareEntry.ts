@@ -14,6 +14,7 @@ import {
 } from "@clientShared/matching/dailyRoomFailure";
 import {
   PREPARE_VIDEO_DATE_ENTRY_ACTION,
+  createVideoDateEntryAttemptId,
   getBothReadyToFirstRemoteFrameMs,
   getCachedPreparedVideoDateEntry,
   getPrepareToJoinStartMs,
@@ -49,6 +50,7 @@ export async function prepareVideoDateEntry(
   }
 
   const startedAt = Date.now();
+  const entryAttemptId = createVideoDateEntryAttemptId(startedAt);
   const sourceSurface = "video_date_entry";
   const attemptCount = options.force ? 2 : 1;
   const trackLatencyCheckpoint = (
@@ -99,6 +101,7 @@ export async function prepareVideoDateEntry(
     source_action: "prepare_date_entry_started",
     force: options.force === true,
     attempt_count: attemptCount,
+    entry_attempt_id: entryAttemptId,
   });
   Sentry.addBreadcrumb({
     category: "video-date",
@@ -109,6 +112,7 @@ export async function prepareVideoDateEntry(
       eventId: options.eventId ?? null,
       source: options.source ?? null,
       force: options.force === true,
+      entryAttemptId,
     },
   });
   vdbg("video_date_prepare_entry_started", {
@@ -116,16 +120,18 @@ export async function prepareVideoDateEntry(
     eventId: options.eventId ?? null,
     source: options.source ?? null,
     force: options.force === true,
+    entryAttemptId,
   });
 
   const result = await prepareVideoDateEntryWithClient({
     sessionId,
     userId,
     force: options.force,
+    entryAttemptId,
     bothReadyObservedAtMs: options.bothReadyObservedAtMs,
-    invoke: () =>
+    invoke: ({ entryAttemptId: attemptId }) =>
       supabase.functions.invoke("daily-room", {
-        body: { action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId },
+        body: { action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId, entry_attempt_id: attemptId },
       }),
     classifyFailure: ({ data, error, response, timedOut }) =>
       classifyDailyRoomInvokeFailure({
@@ -158,6 +164,7 @@ export async function prepareVideoDateEntry(
       reused_room: result.data.reused_room === true,
       provider_room_recreated: result.data.provider_room_recreated === true,
       provider_verify_skipped: result.data.provider_verify_skipped === true,
+      entry_attempt_id: result.data.entry_attempt_id ?? entryAttemptId,
     });
     if (result.cached) {
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREWARMED_TOKEN_USED, {
@@ -183,6 +190,7 @@ export async function prepareVideoDateEntry(
         eventId: options.eventId ?? null,
         roomName: result.data.room_name,
         cached: result.cached,
+        entryAttemptId: result.data.entry_attempt_id ?? entryAttemptId,
       },
     });
     vdbg("video_date_prepare_entry_success", {
@@ -192,6 +200,7 @@ export async function prepareVideoDateEntry(
       roomName: result.data.room_name,
       cached: result.cached,
       timings: result.data.timings ?? null,
+      entryAttemptId: result.data.entry_attempt_id ?? entryAttemptId,
     });
     return result;
   }
@@ -210,6 +219,7 @@ export async function prepareVideoDateEntry(
     duration_ms: Date.now() - startedAt,
     latency_bucket: bucketVideoDateLatencyMs(Date.now() - startedAt),
     attempt_count: attemptCount,
+    entry_attempt_id: result.entryAttemptId ?? entryAttemptId,
   });
   trackLatencyCheckpoint("enter_handshake_failure", "prepare_date_entry_failure", "failure", result.code);
   trackLatencyCheckpoint("daily_token_failure", "daily_token_failure", "failure", result.code);
@@ -223,6 +233,7 @@ export async function prepareVideoDateEntry(
       code: result.code,
       retryable: result.retryable,
       httpStatus: result.httpStatus ?? null,
+      entryAttemptId: result.entryAttemptId ?? entryAttemptId,
     },
   });
   vdbg("video_date_prepare_entry_failure", {
@@ -233,6 +244,7 @@ export async function prepareVideoDateEntry(
     retryable: result.retryable,
     httpStatus: result.httpStatus ?? null,
     message: result.message ?? null,
+    entryAttemptId: result.entryAttemptId ?? entryAttemptId,
   });
   return result;
 }
