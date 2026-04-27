@@ -240,12 +240,14 @@ Repo-verified:
 - Profile/event/avatar image URLs use `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`.
 - Optional image path prefix is supported by `EXPO_PUBLIC_BUNNY_CDN_PATH_PREFIX`.
 - Vibe Video HLS/thumbnail playback uses `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME`.
+- If that env var and the persisted Edge hostname are both missing, native uses an explicit last-resort Stream fallback and emits telemetry (`cdn_hostname_fallback_used`) so misconfiguration is visible.
 - Native Vibe Video uses `expo-video`; `expo-av` is not the playback path.
 
 Manual closure:
 
 - [ ] Bunny image CDN hostname matches web.
 - [ ] Bunny Stream CDN hostname matches web.
+- [ ] No production telemetry shows `stream_hostname_source=fallback` after release config is set.
 - [ ] Pull-zone hotlink/token rules allow native playback.
 - [ ] Profile/event images load on iOS and Android.
 - [ ] Vibe Video playback works on iOS and Android.
@@ -333,4 +335,3 @@ Do not record:
 
 - API keys, DSNs, tokens, JWTs, refresh tokens, or full provider secret screenshots.
 - Personal account credentials.
-

@@ -86,5 +86,7 @@ This bootstrap does **not** fake closure for manual/provider/device work:
 - RevenueCat dashboard/store setup
 - OneSignal mobile dashboard setup
 - EAS/device validation
+- Vibe Video provider dashboard verification: Bunny Stream webhook URL/token/library, hotlink/token playback rules, failed-processing webhook, and deferred media delete worker purge
+- native iOS/Android Vibe Video playback with production env set and no `stream_hostname_source=fallback` telemetry
 
 `npm run proof:smoke-bootstrap` itself still does not perform the long binary upload/replace cycle; that closure now lives in the dedicated `npm run proof:vibe-upload-processing` harness.

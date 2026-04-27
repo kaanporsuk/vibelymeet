@@ -21,6 +21,7 @@ import { HeroVideoStatusCard } from "@/components/hero-video/HeroVideoStatusCard
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 
@@ -182,6 +183,15 @@ const VibeStudio = () => {
     try {
       const nextCaption = captionDraft.slice(0, CAPTION_MAX);
       await updateMyProfile({ vibeCaption: nextCaption });
+      const previousCaption = profile.vibeCaption.trim();
+      if (previousCaption && !nextCaption.trim()) {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionCleared, { source: "vibe_studio_page" });
+      } else {
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionEdited, {
+          source: "vibe_studio_page",
+          had_existing_caption: previousCaption.length > 0,
+        });
+      }
       setProfile((prev) => (prev ? { ...prev, vibeCaption: nextCaption } : prev));
       toast.success("Caption saved.");
       refreshProfile();
@@ -205,6 +215,10 @@ const VibeStudio = () => {
     if (!confirmed) return;
 
     setIsDeleting(true);
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.deleteRequested, {
+      source: "vibe_studio_page",
+      state: videoInfo.state,
+    });
     try {
       const {
         data: { session },
@@ -225,6 +239,11 @@ const VibeStudio = () => {
       }
 
       setShowPlayer(false);
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.deleteSucceededLocally, {
+        source: "vibe_studio_page",
+        state: videoInfo.state,
+        possible_bunny_orphan: result.possibleBunnyOrphan === true,
+      });
       toast.success(deletingPipelineVideo ? "In-progress Vibe Video removed." : "Vibe Video deleted.");
       refreshProfile();
     } catch (error) {
@@ -390,6 +409,7 @@ const VibeStudio = () => {
       <VibeStudioModal
         open={showComposer}
         onOpenChange={setShowComposer}
+        hasExistingVideo={!!effectiveVibeVideo.bunnyVideoUid}
         existingCaption={profile.vibeCaption}
       />
 

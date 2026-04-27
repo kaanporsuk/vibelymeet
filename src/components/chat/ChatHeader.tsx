@@ -55,6 +55,7 @@ interface ChatUser {
   isOnline: boolean;
   photoVerified?: boolean;
   subscription_tier?: string | null;
+  bunnyVideoUid?: string | null;
 }
 
 export type ChatHeaderActivityLine = { text: string; variant: "online" | "muted" };
@@ -460,6 +461,9 @@ export const ChatHeader = ({
               avatar_url: user.avatar_url,
               interactionType: "Match",
               interactionDate: "Recent",
+              reportedHasVibeVideo:
+                typeof user.bunnyVideoUid === "string" &&
+                user.bunnyVideoUid.trim().length > 0,
             }}
           />
         </SheetContent>

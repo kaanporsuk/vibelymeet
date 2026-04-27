@@ -4,6 +4,7 @@ import { Volume2, VolumeX, Pencil, Play, Loader2 } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { cn } from "@/lib/utils";
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 // IntersectionObserver-based iOS hardware decoder management
 
@@ -41,6 +42,8 @@ export const VibePlayer = ({
   const [shouldLoad, setShouldLoad] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const playbackAttemptedRef = useRef(false);
+  const playbackSucceededRef = useRef(false);
 
   // Reset state when videoUrl changes
   useEffect(() => {
@@ -48,6 +51,8 @@ export const VibePlayer = ({
     setHasError(false);
     setIsLoading(true);
     setIsPlaying(false);
+    playbackAttemptedRef.current = false;
+    playbackSucceededRef.current = false;
   }, [videoUrl]);
 
   // iOS Safari has a hard limit on ~4 simultaneous buffering <video> elements.
@@ -77,6 +82,14 @@ export const VibePlayer = ({
 
   const attemptPlay = useCallback(() => {
     if (videoRef.current && isLoaded && !hasError) {
+      if (!playbackAttemptedRef.current) {
+        playbackAttemptedRef.current = true;
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
+          source: "vibe_player_inline",
+          autoplay: true,
+          backend_reports_ready: backendReportsReady,
+        });
+      }
       videoRef.current.play().then(() => {
         setIsPlaying(true);
       }).catch((err) => {
@@ -84,7 +97,7 @@ export const VibePlayer = ({
         setIsPlaying(false);
       });
     }
-  }, [isLoaded, hasError]);
+  }, [isLoaded, hasError, backendReportsReady]);
 
   useEffect(() => {
     if (autoPlay && isLoaded && shouldLoad) {
@@ -101,6 +114,11 @@ export const VibePlayer = ({
   const reportPlaybackError = useCallback((kind: string = "element") => {
     setHasError(true);
     setIsLoading(false);
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
+      source: "vibe_player_inline",
+      kind,
+      backend_reports_ready: backendReportsReady,
+    });
     Sentry.addBreadcrumb({
       category: "vibe-video-playback",
       message: backendReportsReady ? "inline_player_error_backend_ready" : "inline_player_error",
@@ -128,7 +146,16 @@ export const VibePlayer = ({
   useEffect(() => {
     const videoEl = videoRef.current;
     if (!videoEl) return;
-    const onPlay = () => setIsPlaying(true);
+    const onPlay = () => {
+      setIsPlaying(true);
+      if (!playbackSucceededRef.current) {
+        playbackSucceededRef.current = true;
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
+          source: "vibe_player_inline",
+          backend_reports_ready: backendReportsReady,
+        });
+      }
+    };
     const onPause = () => setIsPlaying(false);
     videoEl.addEventListener("play", onPlay);
     videoEl.addEventListener("pause", onPause);
@@ -136,7 +163,7 @@ export const VibePlayer = ({
       videoEl.removeEventListener("play", onPlay);
       videoEl.removeEventListener("pause", onPause);
     };
-  }, []);
+  }, [backendReportsReady]);
 
   const handleToggleMute = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -150,6 +177,14 @@ export const VibePlayer = ({
       videoRef.current.pause();
       setIsPlaying(false);
     } else {
+      if (!playbackAttemptedRef.current) {
+        playbackAttemptedRef.current = true;
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
+          source: "vibe_player_inline",
+          autoplay: false,
+          backend_reports_ready: backendReportsReady,
+        });
+      }
       videoRef.current.play().then(() => {
         setIsPlaying(true);
       }).catch(console.error);

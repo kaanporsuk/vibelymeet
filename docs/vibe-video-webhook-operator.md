@@ -14,6 +14,8 @@ Deletion behavior changed in Sprint 2:
 
 If step 3–4 never happens, native and web stay on **`processing`** until timeout/poll gives up or an operator fixes the webhook.
 
+`profiles.bunny_video_uid`, `profiles.bunny_video_status`, and legacy `profiles.vibe_video_status` are backend-owned mirrors. Normal clients should not write UID/status directly; use `create-video-upload`, `video-webhook`, `delete-vibe-video`, or trusted server RPCs. `vibe_caption` remains user-editable.
+
 ---
 
 ## Exact webhook URL (Bunny dashboard)
@@ -65,7 +67,7 @@ Other statuses leave row as **`processing`** (until a later event or manual fix)
 | No logs at all on upload complete | Webhook URL wrong project / not saved in Bunny | Bunny Stream → **Webhooks** UI; correct library |
 | Profile stuck **`processing`** forever | Webhook not firing OR Bunny never sends Status 3 | Bunny library **encoding status**; Supabase **Functions → video-webhook** logs; DB `bunny_video_uid` matches Bunny GUID |
 
-**Supabase:** Dashboard → **Edge Functions** → **video-webhook** → Logs (filter by `[video-webhook]`).
+**Supabase:** Dashboard → **Edge Functions** → **video-webhook** → Logs (filter JSON payloads with `"scope":"vibe_video"` and events such as `video_webhook_received`, `video_webhook_rejected`, `video_webhook_status_mapped`, `video_webhook_media_session_update_succeeded`, and `video_webhook_stale_legacy_profile_ignored`).
 
 **Bunny:** Stream → your **library** → **Webhooks** — confirm URL, method POST, events for encode complete/fail.
 
@@ -87,6 +89,28 @@ Other statuses leave row as **`processing`** (until a later event or manual fix)
 | Playback URL null, dev warns missing hostname | `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` / persisted hostname — see mobile runbook |
 | HLS error / black player, hostname OK | Bunny **CDN hotlink / referrer / token** — compare browser vs app |
 | Delete succeeds in UI but asset remains in Bunny immediately afterward | **Expected in Sprint 2** when the asset is only soft-deleted/released. Check `media_assets` / `media_delete_jobs` and run `process-media-delete-jobs` manually if you are validating purge behavior before cron is enabled. |
+
+---
+
+## Telemetry and structured logs
+
+Client product funnel events are emitted through web/native Vibe Video telemetry helpers and mirrored as Sentry breadcrumbs. Do not add raw signed URLs, auth headers, local file paths, or TUS signatures to event props.
+
+Key client events:
+
+- Upload funnel: `vibe_video_credentials_request_started`, `vibe_video_credentials_request_succeeded`, `vibe_video_credentials_request_failed`, `vibe_video_tus_upload_started`, `vibe_video_tus_upload_succeeded`, `vibe_video_tus_upload_failed`, `vibe_video_upload_stalled`
+- Processing funnel: `vibe_video_processing_poll_started`, `vibe_video_processing_status_changed`, `vibe_video_processing_stalled`, `vibe_video_ready_observed`, `vibe_video_failed_observed`
+- Playback funnel: `vibe_video_playback_attempted`, `vibe_video_playback_succeeded`, `vibe_video_playback_failed`
+- Management: `vibe_video_delete_requested`, `vibe_video_delete_succeeded_locally`, `vibe_video_replace_started`, `vibe_video_caption_preserved`, `vibe_video_caption_edited`, `vibe_video_caption_cleared`
+- Trust-safety hook: `vibe_video_profile_report_submitted` when a native public profile report is submitted for a profile with a Vibe Video UID.
+
+Edge Functions use structured JSON logs via `supabase/functions/_shared/vibe-video-logs.ts`:
+
+- `create-video-upload`: request, auth, Bunny create, profile mirror write, media-session create, replacement/deferred cleanup.
+- `video-webhook`: received, token/library validation, status mapping, media-session update, stale ignore, legacy fallback update.
+- `delete-vibe-video`: requested, auth, profile clear, deferred delete worker handoff, orphan-risk state.
+
+Full event map: `docs/branch-deltas/vibe-video-final-hardening-telemetry-qa.md`.
 
 ---
 

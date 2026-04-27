@@ -28,15 +28,17 @@
 
 1. If `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` is set → all HLS/thumbnail URLs use it (aligned with web build).
 2. Otherwise → use persisted `bunny_stream_cdn_hostname` from `create-video-upload`.
-3. If env and persisted values differ → **`__DEV__` warns** (`CDN hostname mismatch`). Production still prefers env when present.
+3. If neither exists → use the explicit last-resort production fallback `vz-5585ddfc-604.b-cdn.net`.
+4. If env and persisted values differ → **`__DEV__` warns** (`CDN hostname mismatch`). Production still prefers env when present.
 
-No invented hostnames in code.
+Fallback use is telemetry-visible: `resolveVibeVideoStreamHostnameSync()` emits a sparse production diagnostic hint and `vibe_video_cdn_hostname_fallback_used` with `kind: "cdn_hostname_fallback_used"`. Treat fallback hits in production as a config hygiene issue to investigate, not as the intended steady state.
 
 ## Failure classes → how to tell them apart
 
 | Class | User-visible hint | Engineering signal |
 |-------|-------------------|-------------------|
-| **Missing stream hostname** | Fullscreen / card “Video unavailable”; no thumbnail URL | Console `[VibeVideo] Cannot build playback URL` / `No stream CDN hostname`; `resolveVibeVideoStreamHostnameSync().source === 'none'` |
+| **Missing configured stream hostname** | Playback may use the fallback hostname instead of intended env/persisted host | `resolveVibeVideoStreamHostnameSync().source === 'fallback'`; investigate env/persisted hostname |
+| **Fallback stream hostname used** | Usually playback still works, but config drift may be hidden | `playback.hostname.fallback_used`; `vibe_video_cdn_hostname_fallback_used`; `stream_hostname_source === 'fallback'` |
 | **Env vs persisted mismatch** | Playback may 403 if wrong zone | `__DEV__` `[VibeVideo] CDN hostname mismatch` |
 | **Bunny 403 / hotlink / referrer** | Fullscreen playback error + “Try again”; HLS error | `vibeVideoDiagVerbose('player.status_error')` (context `fullscreen`); test same URL in Safari vs app |
 | **Manifest missing / 404** | Same as playback failure | Network trace to `.../playlist.m3u8`; Bunny library video state |
@@ -63,6 +65,14 @@ No invented hostnames in code.
 - `app/vibe-video-record.tsx` — post-capture preview
 
 On iOS silent mode, audio may be muted until a future native rebuild adds audio-session configuration.
+
+## Telemetry and trust-safety hooks
+
+Native Vibe Video telemetry lives in `apps/mobile/lib/vibeVideoTelemetry.ts` and emits PostHog events plus Sentry breadcrumbs. Event props are sanitized; do not add local file paths, auth headers, signed URLs, or tokens.
+
+Native emits upload, processing, playback, delete, replace, caption, fallback, and profile-report events. The native public profile report flow passes `reportedHasVibeVideo` into `ReportFlowModal`; successful reports for profiles with a Vibe Video UID emit `vibe_video_profile_report_submitted`.
+
+Vibe Video display for other users must continue to use `fetchUserProfile()` / `get_profile_for_viewer` or authorized match surfaces so block/report/privacy rules are preserved. There is no automated video scanning in this sprint; moderator review still happens through existing user report/admin profile tooling.
 
 ## Rebuild / deploy delta
 

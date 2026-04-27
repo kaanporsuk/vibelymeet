@@ -8,6 +8,7 @@ import {
   normalizeBunnyVideoStatus,
 } from "@/lib/vibeVideo/webVibeVideoState";
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
 type Props = {
   show: boolean;
@@ -23,6 +24,7 @@ type Props = {
  */
 export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatus, vibeCaption, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const playbackSucceededRef = useRef(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
 
   const norm = normalizeBunnyVideoStatus(bunnyVideoStatus);
@@ -30,11 +32,17 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
 
   useEffect(() => {
     setPlaybackFailed(false);
+    playbackSucceededRef.current = false;
     if (!show || !isReady || !bunnyVideoUid) return;
 
     const src = getWebVibeVideoPlaybackUrl(bunnyVideoUid);
     if (!src) {
       setPlaybackFailed(true);
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
+        source: "vibe_player_fullscreen",
+        kind: "missing_src",
+        has_uid: true,
+      });
       Sentry.addBreadcrumb({
         category: "vibe-video-playback",
         message: "fullscreen_missing_cdn_or_uid",
@@ -47,10 +55,32 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     const videoEl = videoRef.current;
     if (!videoEl) return;
 
-    return attachHlsPlayback(videoEl, src, {
+    trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
+      source: "vibe_player_fullscreen",
+      autoplay: true,
+      video_guid: bunnyVideoUid,
+    });
+
+    const reportSucceeded = () => {
+      if (playbackSucceededRef.current) return;
+      playbackSucceededRef.current = true;
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
+        source: "vibe_player_fullscreen",
+        video_guid: bunnyVideoUid,
+      });
+    };
+    videoEl.addEventListener("play", reportSucceeded);
+
+    const cleanupHls = attachHlsPlayback(videoEl, src, {
       autoPlay: true,
+      onManifestParsed: reportSucceeded,
       onError: (kind, detail) => {
         setPlaybackFailed(true);
+        trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
+          source: "vibe_player_fullscreen",
+          kind,
+          video_guid: bunnyVideoUid,
+        });
         Sentry.addBreadcrumb({
           category: "vibe-video-playback",
           message: kind === "fatal" ? "fullscreen_hls_fatal" : "fullscreen_video_element_error",
@@ -59,6 +89,10 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
         });
       },
     });
+    return () => {
+      videoEl.removeEventListener("play", reportSucceeded);
+      cleanupHls();
+    };
   }, [show, bunnyVideoUid, bunnyVideoStatus, isReady]);
 
   const poster = bunnyVideoUid ? getWebVibeVideoThumbnailUrl(bunnyVideoUid) : null;

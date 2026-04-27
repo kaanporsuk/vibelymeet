@@ -105,8 +105,8 @@ export function FullscreenVibeVideoModal({
   const handlePlaybackIssue = useCallback(() => {
     vibeVideoDiagVerbose('fullscreen.playback_error', {
       bunnyVideoUid: uid || null,
-      playbackUrl,
       resolvedHostname: streamHostname,
+      hasPlaybackUrl: !!playbackUrl,
       errorKind: 'playback',
     });
     setPlaybackSurfaceError(true);
@@ -122,18 +122,18 @@ export function FullscreenVibeVideoModal({
     vibeVideoDiagVerbose('fullscreen.playback_input', {
       bunnyVideoUid: uid || null,
       resolvedHostname: streamHostname,
-      playbackUrl,
-      expectedPatternUrl,
+      hasPlaybackUrl: !!playbackUrl,
+      hasExpectedPatternUrl: !!expectedPatternUrl,
       patternMatch: !!(playbackUrl && expectedPatternUrl && playbackUrl === expectedPatternUrl),
     });
     if (errorKind === 'none') return;
     vibeVideoDiagVerbose('fullscreen.error_surface', {
       bunnyVideoUid: uid || null,
-      playbackUrl,
       resolvedHostname: streamHostname,
+      hasPlaybackUrl: !!playbackUrl,
       errorKind,
       configMissing,
-      expectedPatternUrl,
+      hasExpectedPatternUrl: !!expectedPatternUrl,
     });
   }, [visible, errorKind, uid, playbackUrl, streamHostname, configMissing, expectedPatternUrl]);
 

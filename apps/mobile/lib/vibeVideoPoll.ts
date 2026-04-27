@@ -35,8 +35,10 @@ export async function pollVibeVideoUntilTerminal(options: {
   maxAttempts?: number;
   intervalMs?: number;
   signal?: AbortSignal;
+  onStatus?: (status: string, attempt: number) => void;
 }): Promise<VibePollTerminal> {
-  const { expectedVideoId, maxAttempts = 30, intervalMs = 5000, signal } = options;
+  const { expectedVideoId, maxAttempts = 30, intervalMs = 5000, signal, onStatus } = options;
+  let lastStatus: string | null = null;
 
   vibeVideoDiagVerbose('poll.start', { expectedVideoId, maxAttempts, intervalMs });
 
@@ -100,11 +102,21 @@ export async function pollVibeVideoUntilTerminal(options: {
       return 'superseded';
     }
     if (rowUid !== expectedVideoId) {
-      vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'superseded', rowUid, attempt });
+      vibeVideoDiagVerbose('poll.terminal', {
+        expectedVideoId,
+        result: 'superseded',
+        reason: 'profile_bunny_video_uid_replaced',
+        rowUid,
+        attempt,
+      });
       return 'superseded';
     }
 
     const st = normalizeBunnyVideoStatus(data?.bunny_video_status as string | null | undefined);
+    if (st !== lastStatus) {
+      lastStatus = st;
+      onStatus?.(st, attempt + 1);
+    }
     if (st === 'ready') {
       vibeVideoDiagVerbose('poll.terminal', { expectedVideoId, result: 'ready', attempt });
       return 'ready';

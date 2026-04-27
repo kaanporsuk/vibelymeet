@@ -34,7 +34,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { fonts } from '@/constants/theme';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
-import { trackEvent } from '@/lib/analytics';
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
 import { useQuery } from '@tanstack/react-query';
 import { fetchMyProfile } from '@/lib/profileApi';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
@@ -252,15 +252,38 @@ export default function VibeVideoRecordScreen() {
         ? vibeCaption.trim()
         : undefined;
     const context = onboardingFlow ? 'onboarding' : 'profile_studio';
+    const nextCaption = vibeCaption.trim();
 
     vibeVideoDiagVerbose('upload.confirm', {
       source: uploadSourceRef.current,
-      uriTail: recordedUri.slice(-80),
+      hasRecordedUri: !!recordedUri,
       onboardingFlow,
     });
 
+    if (myProfile?.bunny_video_uid?.trim()) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
+        source: 'native_vibe_video_record',
+        upload_context: context,
+      });
+    }
+    if (!captionEdited && existingCaption.length > 0) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionPreserved, {
+        source: 'native_vibe_video_record',
+        upload_context: context,
+      });
+    } else if (captionEdited && existingCaption.length > 0 && nextCaption.length === 0) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionCleared, {
+        source: 'native_vibe_video_record',
+        upload_context: context,
+      });
+    } else if (captionEdited && nextCaption !== existingCaption) {
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.captionEdited, {
+        source: 'native_vibe_video_record',
+        upload_context: context,
+        had_existing_caption: existingCaption.length > 0,
+      });
+    }
     nativeHeroVideoStart(recordedUri, caption, context);
-    trackEvent('vibe_video_confirmed');
 
     if (onboardingFlow) {
       returnToOnboarding();

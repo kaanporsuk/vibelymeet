@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.168.0/crypto/mod.ts";
+import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -41,14 +42,21 @@ async function cleanupCreatedVideo(
       },
     );
 
-    console.error(
-      `[create-video-upload] cleaned failed lifecycle video userId=${userId} videoId=${videoId} reason=${reason} bunnyStatus=${deleteResponse.status} projectRef=${projectRef}`,
-    );
+    logVibeVideo("warn", "create_video_upload_cleanup_created_video", {
+      user_id: userId,
+      video_guid: videoId,
+      reason,
+      bunny_status: deleteResponse.status,
+      project_ref: projectRef,
+    });
   } catch (cleanupErr) {
-    console.error(
-      `[create-video-upload] cleanup failed after lifecycle error userId=${userId} videoId=${videoId} reason=${reason} projectRef=${projectRef}`,
-      cleanupErr,
-    );
+    logVibeVideo("error", "create_video_upload_cleanup_failed", {
+      user_id: userId,
+      video_guid: videoId,
+      reason,
+      project_ref: projectRef,
+      error_code: cleanupErr instanceof Error ? cleanupErr.name : "unknown",
+    });
   }
 }
 
@@ -56,11 +64,26 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    logVibeVideo("warn", "create_video_upload_rejected", {
+      reason: "method_not_allowed",
+      method: req.method,
+    });
+    return json({ success: false, error: "Method not allowed", code: "method_not_allowed" }, 405);
+  }
 
   try {
     const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
+    logVibeVideo("info", "create_video_upload_request_received", {
+      project_ref: projectRef,
+      method: req.method,
+    });
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
+      logVibeVideo("warn", "create_video_upload_rejected", {
+        project_ref: projectRef,
+        reason: "auth_header_missing",
+      });
       return json({ success: false, error: "No authorization header", code: "auth_header_missing" }, 401);
     }
 
@@ -81,17 +104,30 @@ serve(async (req) => {
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
+      logVibeVideo("warn", "create_video_upload_rejected", {
+        project_ref: projectRef,
+        reason: "unauthorized",
+      });
       return json({ success: false, error: "Unauthorized", code: "unauthorized" }, 401);
     }
+    logVibeVideo("info", "create_video_upload_auth_resolved", {
+      project_ref: projectRef,
+      user_id: user.id,
+      upload_context: uploadContext,
+    });
 
     const libraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
     const apiKey = Deno.env.get("BUNNY_STREAM_API_KEY");
     const cdnHostname = Deno.env.get("BUNNY_STREAM_CDN_HOSTNAME");
 
     if (!libraryId || !apiKey || !cdnHostname) {
-      console.error(
-        `[create-video-upload] missing_bunny_secret userId=${user.id} projectRef=${projectRef} hasLibraryId=${!!libraryId} hasApiKey=${!!apiKey} hasCdnHostname=${!!cdnHostname}`,
-      );
+      logVibeVideo("error", "create_video_upload_missing_bunny_config", {
+        user_id: user.id,
+        project_ref: projectRef,
+        has_library_id: !!libraryId,
+        has_api_key: !!apiKey,
+        has_cdn_hostname: !!cdnHostname,
+      });
       return json(
         { success: false, error: "Bunny credentials not configured", code: "missing_bunny_secret" },
         503,
@@ -110,9 +146,11 @@ serve(async (req) => {
       .eq("id", user.id)
       .maybeSingle();
     if (profileReadError) {
-      console.error(
-        `[create-video-upload] profile lookup failed userId=${user.id} projectRef=${projectRef} err=${profileReadError.message}`,
-      );
+      logVibeVideo("error", "create_video_upload_profile_lookup_failed", {
+        user_id: user.id,
+        project_ref: projectRef,
+        error_code: profileReadError.code ?? "profile_lookup_failed",
+      });
       return json(
         { success: false, error: "Failed to read profile state", code: "profile_lookup_failed" },
         500,
@@ -120,9 +158,10 @@ serve(async (req) => {
     }
 
     if (!profileRow) {
-      console.error(
-        `[create-video-upload] profile_missing userId=${user.id} projectRef=${projectRef}`,
-      );
+      logVibeVideo("warn", "create_video_upload_profile_missing", {
+        user_id: user.id,
+        project_ref: projectRef,
+      });
       return json(
         { success: false, error: "Profile is missing for current user", code: "profile_missing" },
         409,
@@ -130,9 +169,13 @@ serve(async (req) => {
     }
 
     if (profileRow.name == null || profileRow.age == null || profileRow.gender == null) {
-      console.error(
-        `[create-video-upload] profile_incomplete userId=${user.id} projectRef=${projectRef} hasName=${profileRow.name != null} hasAge=${profileRow.age != null} hasGender=${profileRow.gender != null}`,
-      );
+      logVibeVideo("warn", "create_video_upload_profile_incomplete", {
+        user_id: user.id,
+        project_ref: projectRef,
+        has_name: profileRow.name != null,
+        has_age: profileRow.age != null,
+        has_gender: profileRow.gender != null,
+      });
       return json(
         {
           success: false,
@@ -160,13 +203,13 @@ serve(async (req) => {
 
     if (!createResponse.ok) {
       const errorText = await createResponse.text();
-      console.error(
-        "[create-video-upload] Bunny create failed:",
-        JSON.stringify({
-          httpStatus: createResponse.status,
-          bodySnippet: errorText.slice(0, 500),
-        }),
-      );
+      logVibeVideo("error", "create_video_upload_bunny_create_failed", {
+        user_id: user.id,
+        project_ref: projectRef,
+        http_status: createResponse.status,
+        error_code: "bunny_create_failed",
+        body_snippet_length: errorText.length,
+      });
       return json(
         { success: false, error: "Failed to create video on Bunny", code: "bunny_create_failed" },
         502,
@@ -174,9 +217,12 @@ serve(async (req) => {
     }
 
     const { guid: videoId } = await createResponse.json();
-    console.log(
-      `[create-video-upload] created bunny video userId=${user.id} videoId=${videoId} libraryId=${libraryId} projectRef=${projectRef}`,
-    );
+    logVibeVideo("info", "create_video_upload_bunny_video_created", {
+      user_id: user.id,
+      video_guid: videoId,
+      library_id: libraryId,
+      project_ref: projectRef,
+    });
 
     const { data: lifecycleResult, error: lifecycleError } = await adminSupabase.rpc(
       "activate_profile_vibe_video",
@@ -188,9 +234,11 @@ serve(async (req) => {
     );
 
     if (lifecycleError) {
-      console.error(
-        `[create-video-upload] lifecycle activation failed userId=${user.id} videoId=${videoId} err=${lifecycleError.message}`,
-      );
+      logVibeVideo("error", "create_video_upload_profile_uid_write_failed", {
+        user_id: user.id,
+        video_guid: videoId,
+        error_code: lifecycleError.code ?? "rpc_error",
+      });
       await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_error");
       return json(
         { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
@@ -200,9 +248,11 @@ serve(async (req) => {
 
     const lr = lifecycleResult as Record<string, unknown> | null;
     if (lr?.success !== true) {
-      console.error(
-        `[create-video-upload] lifecycle activation rejected userId=${user.id} videoId=${videoId} error=${lr?.error}`,
-      );
+      logVibeVideo("error", "create_video_upload_profile_uid_write_rejected", {
+        user_id: user.id,
+        video_guid: videoId,
+        error_code: typeof lr?.error === "string" ? lr.error : "rpc_rejected",
+      });
       await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_rejected");
       return json(
         { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
@@ -234,9 +284,11 @@ serve(async (req) => {
     );
 
     if (sessionError) {
-      console.error(
-        `[create-video-upload] session creation failed userId=${user.id} videoId=${videoId} err=${sessionError.message}`,
-      );
+      logVibeVideo("error", "create_video_upload_media_session_create_failed", {
+        user_id: user.id,
+        video_guid: videoId,
+        error_code: sessionError.code ?? "session_creation_failed",
+      });
     }
 
     const sr = sessionResult as Record<string, unknown> | null;
@@ -245,24 +297,35 @@ serve(async (req) => {
     const replacedProviderId = sr?.replaced_provider_id ?? null;
 
     if (sr && sr.success !== true) {
-      console.error(
-        `[create-video-upload] session RPC returned failure userId=${user.id} videoId=${videoId} error=${sr.error}`,
-      );
+      logVibeVideo("error", "create_video_upload_media_session_create_rejected", {
+        user_id: user.id,
+        video_guid: videoId,
+        error_code: typeof sr.error === "string" ? sr.error : "session_rpc_failed",
+      });
     }
 
     if (replacedProviderId && replacedProviderId !== existingVideoId) {
-      console.log(
-        `[create-video-upload] orphan draft session video deferred to lifecycle worker userId=${user.id} orphanVideoId=${replacedProviderId}`,
-      );
+      logVibeVideo("warn", "create_video_upload_old_video_cleanup_deferred", {
+        user_id: user.id,
+        video_guid: String(replacedProviderId),
+        reason: "replaced_provider_not_profile_uid",
+      });
     }
 
-    console.log(
-      `[create-video-upload] session created userId=${user.id} sessionId=${sessionId} replacedSessionId=${replacedSessionId} context=${uploadContext}`,
-    );
+    logVibeVideo("info", "create_video_upload_media_session_created", {
+      user_id: user.id,
+      video_guid: videoId,
+      media_session_id: typeof sessionId === "string" ? sessionId : null,
+      replaced_media_session_id: typeof replacedSessionId === "string" ? replacedSessionId : null,
+      upload_context: uploadContext,
+    });
 
-    console.log(
-      `[create-video-upload] lifecycle activated userId=${user.id} videoId=${videoId} replacedExistingVideoId=${existingVideoId ?? "none"} projectRef=${projectRef}`,
-    );
+    logVibeVideo("info", "create_video_upload_profile_uid_write_succeeded", {
+      user_id: user.id,
+      video_guid: videoId,
+      replaced_existing_video: !!existingVideoId,
+      project_ref: projectRef,
+    });
 
     return json(
       {
@@ -277,7 +340,9 @@ serve(async (req) => {
       200,
     );
   } catch (err) {
-    console.error("[create-video-upload] Unexpected error:", err);
+    logVibeVideo("error", "create_video_upload_unexpected_error", {
+      error_code: err instanceof Error ? err.name : "unknown",
+    });
     return json({ success: false, error: "Internal server error", code: "internal" }, 500);
   }
 });

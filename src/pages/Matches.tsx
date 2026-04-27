@@ -684,6 +684,9 @@ const Matches = () => {
               avatar_url: reportTarget.image,
               interactionType: "Match",
               interactionDate: reportTarget.time || "Recent",
+              reportedHasVibeVideo:
+                typeof reportTarget.bunnyVideoUid === "string" &&
+                reportTarget.bunnyVideoUid.trim().length > 0,
             } : undefined}
           />
         </SheetContent>
