@@ -40,6 +40,7 @@ import {
   completeHandshake,
   syncVideoDateReconnect,
   markReconnectPartnerAway,
+  markReconnectSelfAway,
   markReconnectReturn,
   updateParticipantStatus,
   fetchPartnerProfile,
@@ -434,6 +435,8 @@ export default function VideoDateScreen() {
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerMissingTerminalImpressionRef = useRef(false);
   const localInDailyRoomRef = useRef(false);
+  const appStateBackgroundTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appStateAwaySessionRef = useRef<string | null>(null);
   const bootstrapTimingsRef = useRef<Record<string, number>>({});
   const activePreparedEntryCacheRef = useRef<ReturnType<typeof getPreparedVideoDateEntry> | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
@@ -1848,11 +1851,27 @@ export default function VideoDateScreen() {
     await handleCallEnd('local_end');
   }, [handleCallEnd]);
 
-  /** Foreground/background: trigger immediate reconnect syncs on app lifecycle transitions. */
+  /** Foreground/background: make app backgrounding server-observable and bounded. */
   useEffect(() => {
     if (!sessionId) return;
+    const clearBackgroundTimeout = () => {
+      if (!appStateBackgroundTimerRef.current) return;
+      clearTimeout(appStateBackgroundTimerRef.current);
+      appStateBackgroundTimerRef.current = null;
+    };
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') {
+        clearBackgroundTimeout();
+        if (appStateAwaySessionRef.current === sessionId) {
+          appStateAwaySessionRef.current = null;
+          void markReconnectReturn(sessionId);
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_RETURNED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            source: 'app_foreground',
+          });
+        }
         videoDateSessionDiagnostic('app_foreground_refetch_start', {
           session_id: sessionId,
           room_name: roomNameRef.current ?? null,
@@ -1875,11 +1894,39 @@ export default function VideoDateScreen() {
         return;
       }
       if (next === 'background' || next === 'inactive') {
+        if (
+          localInDailyRoomRef.current &&
+          phaseRef.current !== 'ended' &&
+          appStateAwaySessionRef.current !== sessionId
+        ) {
+          appStateAwaySessionRef.current = sessionId;
+          void markReconnectSelfAway(sessionId, 'app_background');
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_GRACE_STARTED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            source: 'app_background',
+          });
+          clearBackgroundTimeout();
+          appStateBackgroundTimerRef.current = setTimeout(() => {
+            if (appStateAwaySessionRef.current !== sessionId || phaseRef.current === 'ended') return;
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECONNECT_EXPIRED, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              source: 'app_background_timeout',
+            });
+            void endVideoDate(sessionId, 'app_background_timeout');
+          }, 30_000);
+        }
         requestReconnectSyncRef.current('app_background');
       }
     });
-    return () => sub.remove();
-  }, [sessionId, refetchVideoSession]);
+    return () => {
+      clearBackgroundTimeout();
+      sub.remove();
+    };
+  }, [eventId, sessionId, refetchVideoSession]);
 
   useEffect(() => {
     if (!sessionId || phase === 'ended') return;
@@ -1978,6 +2025,13 @@ export default function VideoDateScreen() {
             mode,
             outcome: VIDEO_DATE_RECONNECT_SYNC_OUTCOMES.RPC_ERROR,
             syncHelperReturnedNullBecause: 'supabase_rpc_reported_error',
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_SYNC_RECONNECT_FAILED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            reason,
+            mode,
           });
           scheduleBackoff('rpc_error');
           return;
@@ -3670,6 +3724,13 @@ export default function VideoDateScreen() {
             if (__DEV__) {
               vdbg('mark_video_date_daily_joined_after', { sessionId, userId: user.id, ok });
             }
+            if (!ok) {
+              trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
+                platform: 'native',
+                session_id: sessionId,
+                event_id: eventId || null,
+              });
+            }
             if (ok) void refetchVideoSession();
           })
           .catch((err) => {
@@ -3680,6 +3741,12 @@ export default function VideoDateScreen() {
                 error: err instanceof Error ? err.message : String(err),
               });
             }
+            trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              reason: 'exception',
+            });
           });
         const local = participants?.local;
         if (local) {

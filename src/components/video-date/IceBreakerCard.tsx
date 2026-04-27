@@ -50,11 +50,12 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
         setQuestions(stored);
       } else {
         const shuffled = [...VIBE_PROMPTS].sort(() => Math.random() - 0.5);
-        await supabase
-          .from("video_sessions")
-          .update({ vibe_questions: shuffled as any })
-          .eq("id", sessionId);
-        setQuestions(shuffled);
+        const { data: seeded } = await supabase.rpc("get_or_seed_video_session_vibe_questions", {
+          p_session_id: sessionId,
+          p_questions: shuffled,
+        });
+        const rpcQuestions = (seeded as { questions?: unknown } | null)?.questions;
+        setQuestions(Array.isArray(rpcQuestions) && rpcQuestions.length > 0 ? (rpcQuestions as string[]) : shuffled);
       }
     };
 

@@ -142,6 +142,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
+  const realtimeFallbackLoggedRef = useRef(false);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -585,6 +586,15 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
     const intervalId = setInterval(() => {
+      if (!realtimeFallbackLoggedRef.current) {
+        realtimeFallbackLoggedRef.current = true;
+        trackEvent(LobbyPostDateEvents.REALTIME_FALLBACK_TO_POLL, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source: "ready_gate_overlay",
+        });
+      }
       void reconcileSession("poll");
     }, 2000);
     return () => clearInterval(intervalId);

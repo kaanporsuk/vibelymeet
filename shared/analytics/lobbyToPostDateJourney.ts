@@ -57,11 +57,16 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_DAILY_JOIN_SUCCESS: 'video_date_daily_join_success',
   VIDEO_DATE_DAILY_JOIN_FAILURE: 'video_date_daily_join_failure',
   VIDEO_DATE_DAILY_JOINED: 'video_date_daily_joined',
+  MARK_VIDEO_DATE_DAILY_JOINED_FAILED: 'mark_video_date_daily_joined_failed',
   VIDEO_DATE_FIRST_REMOTE_FRAME: 'video_date_first_remote_frame',
   VIDEO_DATE_REMOTE_SEEN: 'video_date_remote_seen',
+  VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE: 'video_date_remote_playback_requires_gesture',
   VIDEO_DATE_JOIN_ATTEMPT: 'video_date_join_attempt',
   VIDEO_DATE_JOIN_SUCCESS: 'video_date_join_success',
   VIDEO_DATE_JOIN_FAILURE: 'video_date_join_failure',
+  VIDEO_DATE_SYNC_RECONNECT_FAILED: 'video_date_sync_reconnect_failed',
+  REALTIME_FALLBACK_TO_POLL: 'realtime_fallback_to_poll',
+  CAMERA_PERMISSION_DENIED: 'camera_permission_denied',
   VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION: 'video_date_peer_missing_terminal_impression',
   VIDEO_DATE_PEER_MISSING_RETRY_TAP: 'video_date_peer_missing_retry_tap',
   VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP: 'video_date_peer_missing_keep_waiting_tap',
@@ -72,6 +77,8 @@ export const LobbyPostDateEvents = {
   SIMULTANEOUS_SWIPE_RECOVERY_ATTEMPTED: 'simultaneous_swipe_recovery_attempted',
   SIMULTANEOUS_SWIPE_RECOVERY_SUCCEEDED: 'simultaneous_swipe_recovery_succeeded',
   SIMULTANEOUS_SWIPE_RECOVERY_FAILED: 'simultaneous_swipe_recovery_failed',
+  STALE_ACTIVE_SESSION_DETECTED: 'stale_active_session_detected',
+  DUPLICATE_ACTIVE_SESSION_CONFLICT: 'duplicate_active_session_conflict',
 
   // --- In-date extension credits (KeepTheVibe UI during date phase) ---
   EXTEND_DATE_CTA_IMPRESSION: 'extend_date_cta_impression',
@@ -105,6 +112,11 @@ export const LobbyPostDateEvents = {
   // --- Post-date survey shell ---
   POST_DATE_SURVEY_IMPRESSION: 'post_date_survey_impression',
   POST_DATE_SURVEY_SUBMIT: 'post_date_survey_submit',
+  POST_DATE_VERDICT_SUBMIT_FAILED: 'post_date_verdict_submit_failed',
+  POST_DATE_VERDICT_SUBMIT_RETRY: 'post_date_verdict_submit_retry',
+  POST_DATE_VERDICT_SUBMIT_SUCCESS_AFTER_RETRY: 'post_date_verdict_submit_success_after_retry',
+  POST_DATE_HALF_VERDICT_PENDING: 'post_date_half_verdict_pending',
+  POST_DATE_HALF_VERDICT_TIMEOUT: 'post_date_half_verdict_timeout',
   VIDEO_DATE_SURVEY_OPENED: 'video_date_survey_opened',
   VIDEO_DATE_SURVEY_SUBMITTED: 'video_date_survey_submitted',
   VIDEO_DATE_SURVEY_ABANDONED: 'video_date_survey_abandoned',
@@ -119,6 +131,12 @@ export const LobbyPostDateEvents = {
   POST_DATE_CONTINUITY_SURVEY_COMPLETE: 'post_date_continuity_survey_complete',
   POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED: 'post_date_continuity_next_action_decided',
   POST_DATE_CONTINUITY_ROUTE_TAKEN: 'post_date_continuity_route_taken',
+
+  // --- Provider / cleanup diagnostics ---
+  DAILY_AUTH_FAILED: 'daily_auth_failed',
+  CLEANUP_DEFERRED_ACTIVE_PARTICIPANTS: 'cleanup_deferred_active_participants',
+  CLEANUP_DEFERRED_PROVIDER_CHECK_FAILED: 'cleanup_deferred_provider_check_failed',
+  DELETE_DAILY_ROOM_FAILED_NATIVE: 'delete_daily_room_failed_native',
 } as const;
 
 export type LobbyPostDateEventName =

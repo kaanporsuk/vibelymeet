@@ -55,7 +55,7 @@ type Props = {
   onDone: () => void;
 };
 
-type SurveyStep = 'verdict' | 'celebration' | 'highlights' | 'safety' | 'done';
+type SurveyStep = 'verdict' | 'celebration' | 'awaiting_partner' | 'highlights' | 'safety' | 'done';
 
 type CelebrationData = {
   sharedVibes: string[];
@@ -567,8 +567,41 @@ export function PostDateSurvey({
       event_id: eventId,
     });
     try {
-      const result = await onSubmitVerdict(liked);
+      let result: SubmitVerdictAndCheckMutualResult | null = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        result = await onSubmitVerdict(liked);
+        if (result.ok || attempt === 3) {
+          if (result.ok && attempt > 1) {
+            trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_SUCCESS_AFTER_RETRY, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId,
+              attempt,
+            });
+          }
+          break;
+        }
+        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_RETRY, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          attempt,
+          reason: result.reason,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** (attempt - 1)));
+      }
+      if (!result) {
+        setVerdictError("Couldn't save your answer. Tap to retry.");
+        return;
+      }
       if (!result.ok) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          reason: result.reason,
+          code: result.reason === 'backend' ? result.code : undefined,
+        });
         setVerdictError(verdictFailureUserMessage(result));
         return;
       }
@@ -593,11 +626,24 @@ export function PostDateSurvey({
       });
       if (result.mutual) {
         setStep('celebration');
+      } else if (result.awaiting_partner_verdict) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_HALF_VERDICT_PENDING, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+        });
+        setStep('awaiting_partner');
       } else {
         setStep('highlights');
       }
     } catch {
-      setVerdictError('Something went wrong. Please try again.');
+      trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        reason: 'exception',
+      });
+      setVerdictError("Couldn't save your answer. Tap to retry.");
     } finally {
       setSubmitting(false);
     }
@@ -705,6 +751,24 @@ export function PostDateSurvey({
   }
 
   if (step === 'done') return null;
+
+  if (step === 'awaiting_partner') {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <Text style={[styles.title, { color: theme.text }]}>Awaiting your match&apos;s verdict</Text>
+        <Text style={[styles.sub, { color: theme.mutedForeground }]}>
+          Your answer is saved. We&apos;ll only create a match if your date also vibes.
+        </Text>
+        <ContinuityStrip decision={continuityDecision} theme={theme} />
+        <Pressable
+          style={[styles.primaryBtn, { backgroundColor: theme.tint, marginTop: spacing.lg }]}
+          onPress={() => setStep('highlights')}
+        >
+          <Text style={styles.primaryBtnText}>Continue</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (step === 'highlights') {
     return (

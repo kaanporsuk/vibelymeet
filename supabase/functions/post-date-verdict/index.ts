@@ -14,6 +14,8 @@ type VerdictRpcResult = {
   already_matched?: boolean;
   verdict_recorded?: boolean;
   persistent_match_created?: boolean | null;
+  awaiting_partner_verdict?: boolean;
+  partner_verdict_recorded?: boolean;
 };
 
 function logLifecycle(payload: {
@@ -103,7 +105,7 @@ serve(async (req) => {
       session_id: sessionId,
       user_id: actorUserId,
       category: "post_date_verdict",
-      result: payload?.mutual ? "mutual" : "recorded",
+      result: payload?.awaiting_partner_verdict ? "pending_partner" : payload?.mutual ? "mutual" : "recorded",
       error_reason: null,
     });
 

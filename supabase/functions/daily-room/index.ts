@@ -11,13 +11,14 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
 const DAILY_API_URL = "https://api.daily.co/v1";
 
-type DateRoomAction = "create_date_room" | "join_date_room" | "prepare_date_entry";
+type DateRoomAction = "create_date_room" | "join_date_room" | "prepare_date_entry" | "video_date_leave";
 
 type VideoDateRoomGateSession = {
   id: string;
   participant_1_id: string | null;
   participant_2_id: string | null;
   daily_room_name?: string | null;
+  daily_room_url?: string | null;
   ended_at: string | null;
   handshake_started_at: string | null;
   ready_gate_status: string | null;
@@ -429,6 +430,60 @@ function canIssueVideoDateRoomToken(session: {
   const gateDeadline = new Date(session.ready_gate_expires_at).getTime();
   if (Number.isNaN(gateDeadline)) return false;
   return gateDeadline > Date.now();
+}
+
+async function markVideoDateEntryPrepared(
+  serviceClient: ReturnType<typeof createClient>,
+  session: Pick<
+    VideoDateRoomGateSession,
+    "id" | "participant_1_id" | "participant_2_id" | "state" | "phase"
+  > & { event_id?: string | null; date_started_at?: string | null },
+) {
+  const eventId = session.event_id ?? null;
+  const p1 = session.participant_1_id ?? null;
+  const p2 = session.participant_2_id ?? null;
+  if (!eventId || !p1 || !p2) return;
+
+  const queueStatus =
+    session.date_started_at || session.state === "date" || session.phase === "date"
+      ? "in_date"
+      : "in_handshake";
+
+  const timestamp = new Date().toISOString();
+  const [p1Update, p2Update] = await Promise.all([
+    serviceClient
+      .from("event_registrations")
+      .update({
+        queue_status: queueStatus,
+        current_room_id: session.id,
+        current_partner_id: p2,
+        last_active_at: timestamp,
+      })
+      .eq("event_id", eventId)
+      .eq("profile_id", p1),
+    serviceClient
+      .from("event_registrations")
+      .update({
+        queue_status: queueStatus,
+        current_room_id: session.id,
+        current_partner_id: p1,
+        last_active_at: timestamp,
+      })
+      .eq("event_id", eventId)
+      .eq("profile_id", p2),
+  ]);
+
+  const error = p1Update.error ?? p2Update.error;
+
+  if (error) {
+    console.log(JSON.stringify({
+      event: "prepare_date_entry_registration_update_failed",
+      session_id: session.id,
+      event_id: eventId,
+      code: error.code ?? null,
+      message: error.message,
+    }));
+  }
 }
 
 async function isPairBlocked(
@@ -918,6 +973,59 @@ serve(async (req) => {
     }
     userIdForLog = user.id;
 
+    // ── ACTION: video_date_leave ──
+    // Authenticated, non-destructive leave/away signal for unload/background paths.
+    // This records reconnect state through the server-owned state machine; room
+    // deletion remains cron-owned for video dates.
+    if (action === "video_date_leave") {
+      const actionName: DateRoomAction = "video_date_leave";
+      if (typeof sessionId !== "string" || !sessionId) {
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 400,
+          code: "MISSING_SESSION_ID",
+          error: "Missing or invalid sessionId",
+          requestContext,
+        });
+      }
+
+      const reason =
+        typeof body.reason === "string" && body.reason.trim()
+          ? body.reason.trim().slice(0, 80)
+          : "video_date_leave";
+      const { data, error } = await supabase.rpc("video_date_transition", {
+        p_session_id: sessionId,
+        p_action: "mark_reconnect_self_away",
+        p_reason: reason,
+      });
+      if (error || (data as { success?: boolean } | null)?.success === false) {
+        const payload = (data ?? null) as { code?: string; error?: string } | null;
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: payload?.code === "SESSION_ENDED" ? 410 : payload?.code === "ACCESS_DENIED" ? 403 : 409,
+          code: payload?.code ?? "VIDEO_DATE_LEAVE_FAILED",
+          error: payload?.error ?? "Could not mark video date leave",
+          requestContext,
+          detail: error ? error.message : null,
+        });
+      }
+
+      console.log(JSON.stringify({
+        event: "video_date_leave_recorded",
+        session_id: sessionId,
+        user_id: user.id,
+        reason,
+      }));
+      return new Response(
+        JSON.stringify({ success: true, code: "OK", data }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── ACTION: delete_room ──
     // Requires auth. Caller must be a verified participant of the room (video_session or match_call).
     if (action === "delete_room") {
@@ -1090,7 +1198,7 @@ serve(async (req) => {
         const { data: sessionRow, error: sessionError } = await serviceClient
           .from("video_sessions")
           .select(
-            "id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -1196,6 +1304,11 @@ serve(async (req) => {
         const token = await createMeetingToken(roomName, user.id, 7200);
         timings.token_ms = Date.now() - tokenStartedAt;
         timings.total_ms = Date.now() - totalStartedAt;
+        await markVideoDateEntryPrepared(serviceClient, {
+          ...(sessionRow as VideoDateRoomGateSession),
+          event_id: (sessionRow as { event_id?: string | null }).event_id ?? null,
+          date_started_at: (sessionRow as { date_started_at?: string | null }).date_started_at ?? null,
+        });
 
         console.log(JSON.stringify({
           event: "prepare_date_entry_ok",
@@ -1258,7 +1371,7 @@ serve(async (req) => {
         const { data } = await supabase
           .from("video_sessions")
           .select(
-            "id, participant_1_id, participant_2_id, daily_room_name, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -1359,7 +1472,7 @@ serve(async (req) => {
             eject_at_room_exp: true,
           });
 
-          await supabase
+          await serviceClient
             .from("video_sessions")
             .update({ daily_room_name: roomName, daily_room_url: roomUrl })
             .eq("id", sessionId);
@@ -1397,7 +1510,7 @@ serve(async (req) => {
               exp: Math.floor(Date.now() / 1000) + 7200,
               eject_at_room_exp: true,
             });
-            await supabase
+            await serviceClient
               .from("video_sessions")
               .update({ daily_room_name: roomName, daily_room_url: roomUrl })
               .eq("id", sessionId);
@@ -1407,6 +1520,11 @@ serve(async (req) => {
         }
 
         const token = await createMeetingToken(roomName, user.id, 7200);
+        await markVideoDateEntryPrepared(serviceClient, {
+          ...session,
+          event_id: (session as { event_id?: string | null }).event_id ?? null,
+          date_started_at: (session as { date_started_at?: string | null }).date_started_at ?? null,
+        });
 
         return new Response(
           JSON.stringify({

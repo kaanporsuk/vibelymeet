@@ -11,7 +11,7 @@ import {
 } from "@shared/matching/videoSessionFlow";
 
 /**
- * Web `/ready/:readyId` entry: parity with native standalone Ready Gate (`app/ready/[id].tsx`).
+ * Web `/ready/:readyId` entry: safe reconciliation fallback, not a standalone Ready Gate surface.
  * Validates session row, participation, not ended, and `in_ready_gate` before sending the user
  * to the event lobby (canonical web surface for Ready Gate UI). Invalid/stale links get a safe
  * fallback (events home or lobby) instead of blindly treating the param as an event id.

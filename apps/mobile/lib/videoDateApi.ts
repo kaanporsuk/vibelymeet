@@ -7,7 +7,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
+import { trackEvent } from '@/lib/analytics';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
 import {
@@ -595,6 +597,22 @@ export async function markReconnectPartnerAway(sessionId: string): Promise<void>
   });
 }
 
+export async function markReconnectSelfAway(sessionId: string, reason = 'app_background'): Promise<void> {
+  const args = {
+    p_session_id: sessionId,
+    p_action: 'mark_reconnect_self_away',
+    p_reason: reason,
+  };
+  vdbg('video_date_transition_before', { action: 'mark_reconnect_self_away', args });
+  const { data, error } = await supabase.rpc('video_date_transition', args);
+  vdbg('video_date_transition_after', {
+    action: 'mark_reconnect_self_away',
+    ok: !error,
+    payload: data ?? null,
+    error: error ? { code: error.code, message: error.message } : null,
+  });
+}
+
 export async function markReconnectReturn(sessionId: string): Promise<void> {
   const args = {
     p_session_id: sessionId,
@@ -630,8 +648,9 @@ export async function endVideoDate(sessionId: string, reason?: string): Promise<
 
 /** Tell backend to delete the Daily room (best-effort). Same as web. */
 export async function deleteDailyRoom(roomName: string): Promise<void> {
-  try {
-    const args = { action: 'delete_room', roomName };
+  const args = { action: 'delete_room', roomName };
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
     vdbg('daily_room_before', { action: 'delete_room', args });
     const { error } = await supabase.functions.invoke('daily-room', {
       body: args,
@@ -640,17 +659,26 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
       action: 'delete_room',
       ok: !error,
       roomName,
+      attempt,
       error: error ? { name: error.name, message: error.message } : null,
     });
+    if (!error) return;
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
   } catch {
     vdbg('daily_room_after', {
       action: 'delete_room',
       ok: false,
       roomName,
+      attempt,
       error: 'exception',
     });
-    // best-effort
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
   }
+  }
+  trackEvent(LobbyPostDateEvents.DELETE_DAILY_ROOM_FAILED_NATIVE, {
+    platform: 'native',
+    room_name: roomName,
+  });
 }
 
 /** Record the current user's explicit handshake decision. Partner is never notified. */
@@ -936,34 +964,17 @@ export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[
   if (stored && Array.isArray(stored) && stored.length > 0) return stored;
 
   const shuffled = fisherYatesShuffle(VIBE_PROMPTS);
-
-  // Only update if vibe_questions is currently null (prevents race between two clients)
-  const { data: updated, error: updateError } = await supabase
-    .from('video_sessions')
-    .update({ vibe_questions: shuffled })
-    .eq('id', sessionId)
-    .is('vibe_questions', null)
-    .select('vibe_questions')
-    .maybeSingle();
-
-  if (updateError) {
-    if (__DEV__) console.warn('[videoDateApi] failed to seed vibe_questions:', updateError.message);
+  const { data: seeded, error: seedError } = await supabase.rpc('get_or_seed_video_session_vibe_questions', {
+    p_session_id: sessionId,
+    p_questions: shuffled,
+  });
+  if (seedError) {
+    if (__DEV__) console.warn('[videoDateApi] failed to seed vibe_questions:', seedError.message);
+    return shuffled;
   }
 
-  // If another client seeded first, fetch what they wrote
-  if (!updated?.vibe_questions) {
-    const { data: refetched } = await supabase
-      .from('video_sessions')
-      .select('vibe_questions')
-      .eq('id', sessionId)
-      .maybeSingle();
-    const refetchedQuestions = refetched?.vibe_questions as string[] | null;
-    if (refetchedQuestions && Array.isArray(refetchedQuestions) && refetchedQuestions.length > 0) {
-      return refetchedQuestions;
-    }
-  }
-
-  return (updated?.vibe_questions as string[]) ?? shuffled;
+  const seededQuestions = (seeded as { questions?: unknown } | null)?.questions;
+  return Array.isArray(seededQuestions) && seededQuestions.length > 0 ? (seededQuestions as string[]) : shuffled;
 }
 
 /** Discriminated outcome for `post-date-verdict` (explicit backend failure vs network vs success paths). */
@@ -974,6 +985,8 @@ export type SubmitVerdictAndCheckMutualResult =
       match_id?: string;
       persistent_match_created?: boolean | null;
       already_matched?: boolean;
+      awaiting_partner_verdict?: boolean;
+      partner_verdict_recorded?: boolean;
     }
   | { ok: false; reason: 'backend'; code: string; message?: string }
   | { ok: false; reason: 'network' }
@@ -989,6 +1002,8 @@ type PostDateVerdictResponseBody = {
   persistent_match_created?: boolean | null;
   already_matched?: boolean;
   verdict_recorded?: boolean;
+  awaiting_partner_verdict?: boolean;
+  partner_verdict_recorded?: boolean;
 };
 
 function verdictBreadcrumb(
@@ -1080,6 +1095,8 @@ export async function submitVerdictAndCheckMutual(
     match_id: typeof row.match_id === 'string' ? row.match_id : undefined,
     persistent_match_created: row.persistent_match_created,
     already_matched: typeof row.already_matched === 'boolean' ? row.already_matched : undefined,
+    awaiting_partner_verdict: row.awaiting_partner_verdict === true,
+    partner_verdict_recorded: row.partner_verdict_recorded === true,
   };
 }
 
