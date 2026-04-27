@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   parseSpendVideoDateCreditExtensionPayload,
@@ -48,6 +48,10 @@ const remainingHardeningMigration = readFileSync(
 );
 const providerAtomicEntryMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501110000_video_date_provider_atomic_entry.sql"),
+  "utf8",
+);
+const backendIntegrityMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501112000_video_sessions_rls_write_lockdown.sql"),
   "utf8",
 );
 const halfVerdictTimeoutCronMigration = readFileSync(
@@ -106,6 +110,30 @@ const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
   "utf8",
 );
+
+function readMigrationRange(fromVersionInclusive: string): string {
+  const dir = join(process.cwd(), "supabase/migrations");
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".sql") && name.slice(0, 14) >= fromVersionInclusive)
+    .sort()
+    .map((name) => readFileSync(join(dir, name), "utf8"))
+    .join("\n\n");
+}
+
+function listFiles(root: string): string[] {
+  const base = join(process.cwd(), root);
+  const out: string[] = [];
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+    const path = join(base, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listFiles(join(root, entry.name)));
+    } else if (/\.(ts|tsx|js|jsx)$/.test(entry.name) && !/\.test\.(ts|tsx|js|jsx)$/.test(entry.name)) {
+      out.push(path);
+    }
+  }
+  return out;
+}
 const webConnectionOverlay = readFileSync(
   join(process.cwd(), "src/components/video-date/ConnectionOverlay.tsx"),
   "utf8",
@@ -488,6 +516,38 @@ test("remaining hardening migration locks video_sessions writes behind server-ow
   assert.match(remainingHardeningMigration, /pg_advisory_xact_lock/);
 });
 
+test("backend integrity migration reasserts video_sessions client write lockdown", () => {
+  assert.match(backendIntegrityMigration, /ALTER TABLE public\.video_sessions ENABLE ROW LEVEL SECURITY/);
+  assert.match(backendIntegrityMigration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER\s+ON TABLE public\.video_sessions\s+FROM anon/s);
+  assert.match(backendIntegrityMigration, /REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER\s+ON TABLE public\.video_sessions\s+FROM authenticated/s);
+  assert.match(backendIntegrityMigration, /DROP POLICY IF EXISTS "Participants can create video sessions"/);
+  assert.match(backendIntegrityMigration, /DROP POLICY IF EXISTS "Participants can update own feedback"/);
+  assert.doesNotMatch(backendIntegrityMigration, /DROP POLICY IF EXISTS "Participants can view own sessions"/);
+  assert.doesNotMatch(backendIntegrityMigration, /CREATE POLICY[\s\S]*ON public\.video_sessions[\s\S]*FOR (INSERT|UPDATE|DELETE|ALL)/);
+});
+
+test("no later migrations re-grant client writes or write policies on video_sessions", () => {
+  const postLockdownMigrations = readMigrationRange("20260501103000");
+  assert.doesNotMatch(
+    postLockdownMigrations,
+    /GRANT\s+(?:INSERT|UPDATE|DELETE)(?:[\s\S]{0,120})ON TABLE public\.video_sessions(?:[\s\S]{0,120})TO\s+(?:anon|authenticated)/i,
+  );
+  assert.doesNotMatch(
+    postLockdownMigrations,
+    /CREATE POLICY\s+"[^"]+"\s+ON public\.video_sessions\s+FOR\s+(?:INSERT|UPDATE|DELETE|ALL)/i,
+  );
+});
+
+test("production clients do not directly mutate video_sessions", () => {
+  const directVideoSessionMutation = /\.from\(['"]video_sessions['"]\)[\s\S]{0,260}\.(?:insert|update|delete)\s*\(/;
+  const offenders = ["src", "apps/mobile", "shared"]
+    .flatMap(listFiles)
+    .filter((path) => directVideoSessionMutation.test(readFileSync(path, "utf8")))
+    .map((path) => path.replace(`${process.cwd()}/`, ""));
+
+  assert.deepEqual(offenders, []);
+});
+
 test("provider-atomic entry keeps prepare_entry non-routeable until Daily proof is confirmed", () => {
   assert.match(providerAtomicEntryMigration, /ALTER FUNCTION public\.video_date_transition\(uuid, text, text\)\s+RENAME TO video_date_transition_20260501110000_provider_atomic_base/s);
   assert.match(providerAtomicEntryMigration, /IF p_action IS DISTINCT FROM 'prepare_entry' THEN[\s\S]*video_date_transition_20260501110000_provider_atomic_base/s);
@@ -496,6 +556,37 @@ test("provider-atomic entry keeps prepare_entry non-routeable until Daily proof 
   assert.doesNotMatch(providerAtomicEntryMigration, /queue_status = v_registration_status/);
   assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_entered/);
   assert.doesNotMatch(providerAtomicEntryMigration, /state = CASE[\s\S]*'handshake'::public\.video_date_state[\s\S]*WHERE id = p_session_id[\s\S]*p_action/s);
+});
+
+test("client presence RPC cannot create server-owned video date route statuses", () => {
+  assert.match(backendIntegrityMigration, /CREATE OR REPLACE FUNCTION public\.update_participant_status/);
+  assert.match(backendIntegrityMigration, /v_status NOT IN \(\s+'browsing',\s+'idle',\s+'in_ready_gate',\s+'in_survey',\s+'offline'\s+\) THEN\s+RETURN;/s);
+  assert.doesNotMatch(backendIntegrityMigration, /v_status NOT IN \([\s\S]*'in_handshake'[\s\S]*\) THEN/);
+  assert.doesNotMatch(backendIntegrityMigration, /v_status NOT IN \([\s\S]*'in_date'[\s\S]*\) THEN/);
+  assert.match(backendIntegrityMigration, /REVOKE ALL ON FUNCTION public\.update_participant_status\(uuid, text\)\s+FROM PUBLIC, anon/s);
+  assert.match(backendIntegrityMigration, /GRANT EXECUTE ON FUNCTION public\.update_participant_status\(uuid, text\)\s+TO authenticated/s);
+});
+
+test("queue_status reaches in_handshake only after provider confirm succeeds", () => {
+  assert.match(providerAtomicEntryMigration, /'registration_status', 'deferred_until_confirm_prepare_entry'/);
+  assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_preflight_ok[\s\S]{0,1200}queue_status = 'in_handshake'/);
+  assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_preflight_ok[\s\S]{0,1200}queue_status = v_queue_status/);
+  assert.match(
+    providerAtomicEntryMigration,
+    /v_queue_status := CASE[\s\S]*ELSE 'in_handshake'[\s\S]*UPDATE public\.event_registrations[\s\S]*queue_status = v_queue_status/s,
+  );
+  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s);
+  assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
+  const tokenCreate = dailyRoomFunction.indexOf(
+    "const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);",
+  );
+  const confirmCall = dailyRoomFunction.indexOf("confirmVideoDateEntryPrepared(serviceClient", tokenCreate);
+  const confirmFailure = dailyRoomFunction.indexOf("if (confirmError || confirmPayload?.success !== true)", confirmCall);
+  const successResponse = dailyRoomFunction.indexOf("token,", confirmFailure);
+  assert.ok(tokenCreate > 0);
+  assert.ok(confirmCall > tokenCreate);
+  assert.ok(confirmFailure > confirmCall);
+  assert.ok(successResponse > confirmFailure);
 });
 
 test("confirm_video_date_entry_prepared is service-role-only and atomically persists route truth", () => {
