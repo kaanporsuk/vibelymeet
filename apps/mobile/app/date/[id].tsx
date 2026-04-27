@@ -187,12 +187,19 @@ function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
     case 'SESSION_NOT_FOUND':
     case 'ROOM_NOT_FOUND':
       return "We couldn't open this date. Go back and try again.";
+    case 'DAILY_AUTH_FAILED':
+    case 'DAILY_CREDENTIALS_INVALID':
+      return 'Video provider authentication failed. Please try again later.';
+    case 'DAILY_REQUEST_REJECTED':
+      return "We couldn't prepare this video room. Please try again.";
     case 'BLOCKED_PAIR':
       return 'This call is no longer available.';
     case 'ACCESS_DENIED':
       return "You don't have access to this date.";
     case 'network':
     case 'DAILY_PROVIDER_ERROR':
+    case 'DAILY_PROVIDER_UNAVAILABLE':
+    case 'DAILY_RATE_LIMIT':
     default:
       return 'Could not start video. Please try again.';
   }

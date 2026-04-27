@@ -50,6 +50,225 @@ type ClientRequestContext = {
   client_runtime_version: string | null;
 };
 
+type DailyProviderOperation = "create_room" | "create_token" | "lookup_room" | "delete_room";
+
+type DailyProviderErrorCode =
+  | "DAILY_AUTH_FAILED"
+  | "DAILY_RATE_LIMIT"
+  | "DAILY_PROVIDER_UNAVAILABLE"
+  | "DAILY_REQUEST_REJECTED"
+  | "DAILY_PROVIDER_ERROR";
+
+class DailyProviderError extends Error {
+  readonly operation: DailyProviderOperation;
+  readonly status: number | null;
+  readonly providerCode: string | null;
+  readonly roomName: string | null;
+  readonly vibelyCode: DailyProviderErrorCode;
+  readonly httpStatus: number;
+  readonly clientMessage: string;
+
+  constructor(params: {
+    operation: DailyProviderOperation;
+    status: number | null;
+    providerCode?: string | null;
+    roomName?: string | null;
+    vibelyCode: DailyProviderErrorCode;
+    httpStatus: number;
+    clientMessage: string;
+  }) {
+    super(
+      params.status == null
+        ? `Daily ${params.operation} failed`
+        : `Daily ${params.operation} failed with status ${params.status}`,
+    );
+    this.name = "DailyProviderError";
+    this.operation = params.operation;
+    this.status = params.status;
+    this.providerCode = params.providerCode ?? null;
+    this.roomName = params.roomName ?? null;
+    this.vibelyCode = params.vibelyCode;
+    this.httpStatus = params.httpStatus;
+    this.clientMessage = params.clientMessage;
+  }
+}
+
+function isDailyProviderError(error: unknown): error is DailyProviderError {
+  return error instanceof DailyProviderError;
+}
+
+function toSafeProviderCode(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 80) return null;
+  return /^[A-Za-z0-9_.:-]+$/.test(trimmed) ? trimmed : null;
+}
+
+async function readDailyProviderErrorBody(res: Response): Promise<{
+  text: string;
+  providerCode: string | null;
+}> {
+  const text = await res.clone().text().catch(() => "");
+  if (!text) return { text: "", providerCode: null };
+  try {
+    const parsed = JSON.parse(text) as {
+      code?: unknown;
+      error_code?: unknown;
+      error?: unknown;
+      info?: unknown;
+      message?: unknown;
+    };
+    return {
+      text,
+      providerCode:
+        toSafeProviderCode(parsed.code) ??
+        toSafeProviderCode(parsed.error_code) ??
+        toSafeProviderCode(parsed.error) ??
+        toSafeProviderCode(parsed.info) ??
+        toSafeProviderCode(parsed.message),
+    };
+  } catch {
+    return { text, providerCode: null };
+  }
+}
+
+function classifyDailyProviderStatus(status: number): {
+  vibelyCode: DailyProviderErrorCode;
+  httpStatus: number;
+  clientMessage: string;
+} {
+  if (status === 401 || status === 403) {
+    return {
+      vibelyCode: "DAILY_AUTH_FAILED",
+      httpStatus: 502,
+      clientMessage: "Video provider authentication failed.",
+    };
+  }
+  if (status === 429) {
+    return {
+      vibelyCode: "DAILY_RATE_LIMIT",
+      httpStatus: 503,
+      clientMessage: "Video service is rate limited. Please try again shortly.",
+    };
+  }
+  if (status >= 500) {
+    return {
+      vibelyCode: "DAILY_PROVIDER_UNAVAILABLE",
+      httpStatus: 503,
+      clientMessage: "Video service temporarily unavailable.",
+    };
+  }
+  if (status >= 400) {
+    return {
+      vibelyCode: "DAILY_REQUEST_REJECTED",
+      httpStatus: 502,
+      clientMessage: "Video provider rejected the room request.",
+    };
+  }
+  return {
+    vibelyCode: "DAILY_PROVIDER_ERROR",
+    httpStatus: 503,
+    clientMessage: "Video service temporarily unavailable.",
+  };
+}
+
+async function dailyProviderErrorFromResponse(
+  res: Response,
+  operation: DailyProviderOperation,
+  roomName?: string | null,
+): Promise<DailyProviderError> {
+  const { providerCode } = await readDailyProviderErrorBody(res);
+  const classification = classifyDailyProviderStatus(res.status);
+  return new DailyProviderError({
+    operation,
+    status: res.status,
+    providerCode,
+    roomName,
+    ...classification,
+  });
+}
+
+function logDailyProviderFailure(
+  error: DailyProviderError,
+  context: {
+    action?: string | null;
+    sessionId?: string | null;
+    userId?: string | null;
+    roomName?: string | null;
+    matchId?: string | null;
+    callId?: string | null;
+  } = {},
+) {
+  console.error(
+    JSON.stringify({
+      event: "daily_provider_error",
+      operation: error.operation,
+      status: error.status,
+      providerCode: error.providerCode,
+      room_name: context.roomName ?? error.roomName,
+      session_id: context.sessionId ?? null,
+      user_id: context.userId ?? null,
+      match_id: context.matchId ?? null,
+      call_id: context.callId ?? null,
+      action: context.action ?? null,
+      vibely_code: error.vibelyCode,
+      http_status: error.httpStatus,
+    }),
+  );
+}
+
+function createDailyProviderFailureResponse(params: {
+  error: DailyProviderError;
+  action: DateRoomAction;
+  sessionId: string | null | undefined;
+  userId: string;
+  requestContext: ClientRequestContext;
+  session?: VideoDateRoomGateSession | null;
+}) {
+  logDailyProviderFailure(params.error, {
+    action: params.action,
+    sessionId: params.session?.id ?? params.sessionId ?? null,
+    userId: params.userId,
+    roomName: params.error.roomName,
+  });
+  return createDateRoomRejectResponse({
+    action: params.action,
+    sessionId: params.sessionId,
+    userId: params.userId,
+    status: params.error.httpStatus,
+    code: params.error.vibelyCode,
+    error: params.error.clientMessage,
+    message: params.error.clientMessage,
+    requestContext: params.requestContext,
+    session: params.session,
+    detail: params.error.message,
+    extra: {
+      operation: params.error.operation,
+      provider_status: params.error.status,
+      provider_code: params.error.providerCode,
+    },
+  });
+}
+
+function createGenericDailyProviderFailureResponse(error: DailyProviderError, action: string | null, userId: string | null) {
+  logDailyProviderFailure(error, {
+    action,
+    userId,
+    roomName: error.roomName,
+  });
+  return new Response(
+    JSON.stringify({
+      error: error.clientMessage,
+      code: error.vibelyCode,
+      message: error.clientMessage,
+    }),
+    {
+      status: error.httpStatus,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
 function getClientRequestContext(req: Request): ClientRequestContext {
   return {
     client_platform: req.headers.get("x-supabase-client-platform"),
@@ -357,7 +576,8 @@ async function maybeReturnBlockedMatchCallFallback(params: {
 async function createMeetingToken(
   roomName: string,
   userId: string,
-  expSeconds: number
+  expSeconds: number,
+  retries = 2,
 ): Promise<string> {
   const res = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
@@ -374,8 +594,27 @@ async function createMeetingToken(
       },
     }),
   });
-  const data = await res.json();
-  if (!data.token) throw new Error("Failed to create meeting token");
+
+  if (res.status === 429 && retries > 0) {
+    await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+    return createMeetingToken(roomName, userId, expSeconds, retries - 1);
+  }
+
+  if (!res.ok) {
+    throw await dailyProviderErrorFromResponse(res, "create_token", roomName);
+  }
+
+  const data = await res.json().catch(() => null) as { token?: unknown } | null;
+  if (typeof data?.token !== "string" || !data.token) {
+    throw new DailyProviderError({
+      operation: "create_token",
+      status: res.status,
+      roomName,
+      vibelyCode: "DAILY_PROVIDER_ERROR",
+      httpStatus: 503,
+      clientMessage: "Video service temporarily unavailable.",
+    });
+  }
   return data.token;
 }
 
@@ -399,19 +638,15 @@ async function createDailyRoom(
   }
 
   if (res.status === 400) {
-    const errBody = await res.json().catch(() => ({}));
-    if (
-      errBody?.info?.includes("already exists") ||
-      errBody?.error?.includes("already exists")
-    ) {
+    const errBody = await readDailyProviderErrorBody(res);
+    if (errBody.text.toLowerCase().includes("already exists")) {
       return { url: `https://${DAILY_DOMAIN}/${roomName}`, name: roomName };
     }
-    throw new Error(`Daily room creation failed: ${JSON.stringify(errBody)}`);
+    throw await dailyProviderErrorFromResponse(res, "create_room", roomName);
   }
 
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Daily API error ${res.status}: ${errText}`);
+    throw await dailyProviderErrorFromResponse(res, "create_room", roomName);
   }
 
   const room = await res.json();
@@ -429,16 +664,20 @@ function shouldSkipDailyProviderVerifyForVideoDate(session: VideoDateRoomGateSes
   return ageMs >= 0 && ageMs < 120_000;
 }
 
-async function getDailyRoomProviderState(roomName: string): Promise<{ exists: boolean; expired: boolean }> {
+async function getDailyRoomProviderState(roomName: string, retries = 2): Promise<{ exists: boolean; expired: boolean }> {
   const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
   });
 
+  if (res.status === 429 && retries > 0) {
+    await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+    return getDailyRoomProviderState(roomName, retries - 1);
+  }
+
   if (res.status === 404) return { exists: false, expired: false };
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`Daily room lookup failed ${res.status}: ${errText}`);
+    throw await dailyProviderErrorFromResponse(res, "lookup_room", roomName);
   }
 
   const room = (await res.json().catch(() => null)) as { config?: { exp?: number } } | null;
@@ -447,13 +686,26 @@ async function getDailyRoomProviderState(roomName: string): Promise<{ exists: bo
   return { exists: true, expired };
 }
 
-async function deleteDailyRoom(roomName: string): Promise<void> {
+async function deleteDailyRoom(
+  roomName: string,
+  options: { throwOnProviderError?: boolean } = {},
+  retries = 2,
+): Promise<void> {
   try {
-    await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
+    const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
     });
-  } catch {
+    if (res.status === 429 && retries > 0) {
+      await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
+      return deleteDailyRoom(roomName, options, retries - 1);
+    }
+    if (res.ok || res.status === 404) return;
+    const providerError = await dailyProviderErrorFromResponse(res, "delete_room", roomName);
+    if (options.throwOnProviderError) throw providerError;
+    logDailyProviderFailure(providerError, { roomName });
+  } catch (error) {
+    if (options.throwOnProviderError) throw error;
     // Best-effort
   }
 }
@@ -620,6 +872,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response("ok", { headers: corsHeaders });
 
+  let actionForLog: string | null = null;
+  let userIdForLog: string | null = null;
+
   try {
     const authHeader = req.headers.get("Authorization");
     const requestContext = getClientRequestContext(req);
@@ -630,6 +885,7 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action, sessionId, matchId, callType, callId } = body;
+    actionForLog = typeof action === "string" ? action : null;
 
     // All actions require auth
     if (!authHeader) {
@@ -660,6 +916,7 @@ serve(async (req) => {
         },
       );
     }
+    userIdForLog = user.id;
 
     // ── ACTION: delete_room ──
     // Requires auth. Caller must be a verified participant of the room (video_session or match_call).
@@ -734,7 +991,7 @@ serve(async (req) => {
         );
       }
 
-      await deleteDailyRoom(roomName);
+      await deleteDailyRoom(roomName, { throwOnProviderError: true });
       return new Response(
         JSON.stringify({ success: true }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -970,6 +1227,16 @@ serve(async (req) => {
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       } catch (error) {
+        if (isDailyProviderError(error)) {
+          return createDailyProviderFailureResponse({
+            error,
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session: sessionForLog,
+          });
+        }
         return createDateRoomRejectResponse({
           action: actionName,
           sessionId,
@@ -1153,6 +1420,16 @@ serve(async (req) => {
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } catch (error) {
+        if (isDailyProviderError(error)) {
+          return createDailyProviderFailureResponse({
+            error,
+            action,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+          });
+        }
         return createDateRoomRejectResponse({
           action,
           sessionId,
@@ -1284,6 +1561,16 @@ serve(async (req) => {
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       } catch (error) {
+        if (isDailyProviderError(error)) {
+          return createDailyProviderFailureResponse({
+            error,
+            action,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+          });
+        }
         return createDateRoomRejectResponse({
           action,
           sessionId,
@@ -1390,6 +1677,14 @@ serve(async (req) => {
       } catch (tokenErr) {
         await deleteDailyRoom(roomName);
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        if (isDailyProviderError(tokenErr)) {
+          logDailyProviderFailure(tokenErr, {
+            action: "create_match_call",
+            matchId,
+            userId: user.id,
+            roomName,
+          });
+        }
         console.error(
           JSON.stringify({
             event: "create_match_call_token_failed",
@@ -1610,6 +1905,15 @@ serve(async (req) => {
         token = await createMeetingToken(call.daily_room_name, user.id, 7200);
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        if (isDailyProviderError(tokenErr)) {
+          logDailyProviderFailure(tokenErr, {
+            action: "join_match_call",
+            callId: call.id,
+            matchId: call.match_id,
+            userId: user.id,
+            roomName: call.daily_room_name,
+          });
+        }
         console.error(
           JSON.stringify({
             event: "join_match_call_token_failed",
@@ -1749,6 +2053,15 @@ serve(async (req) => {
         token = await createMeetingToken(call.daily_room_name, user.id, 7200);
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+        if (isDailyProviderError(tokenErr)) {
+          logDailyProviderFailure(tokenErr, {
+            action: "answer_match_call",
+            callId: call.id,
+            matchId: call.match_id,
+            userId: user.id,
+            roomName: call.daily_room_name,
+          });
+        }
         console.error(
           JSON.stringify({
             event: "answer_match_call_token_failed_after_transition",
@@ -1807,6 +2120,13 @@ serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
+    if (isDailyProviderError(error)) {
+      return createGenericDailyProviderFailureResponse(
+        error,
+        actionForLog,
+        userIdForLog,
+      );
+    }
     const detail = error instanceof Error ? error.message : String(error);
     console.error(
       JSON.stringify({

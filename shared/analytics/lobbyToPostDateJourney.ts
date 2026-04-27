@@ -42,6 +42,8 @@ export const LobbyPostDateEvents = {
   // --- Video date join / peer-missing ---
   VIDEO_DATE_ROUTE_ENTERED: 'video_date_route_entered',
   VIDEO_DATE_PREPARE_ENTRY_STARTED: 'video_date_prepare_entry_started',
+  VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT: 'video_date_prepare_entry_slow_wait',
+  VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV: 'video_date_prepare_entry_failed_no_nav',
   VIDEO_DATE_PREPARE_ENTRY_SUCCESS: 'video_date_prepare_entry_success',
   VIDEO_DATE_PREPARE_ENTRY_FAILURE: 'video_date_prepare_entry_failure',
   VIDEO_DATE_PREWARMED_TOKEN_CACHED: 'video_date_prewarmed_token_cached',

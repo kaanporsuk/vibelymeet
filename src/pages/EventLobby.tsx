@@ -44,7 +44,6 @@ import {
 } from "@shared/matching/videoSessionFlow";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
-const PREPARE_ENTRY_NAV_GRACE_MS = 900;
 
 function lobbyDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -247,18 +246,34 @@ const EventLobby = () => {
         );
         navigateToDateSession(sessionId, nextSource);
       };
-      const fallback = window.setTimeout(() => {
-        navigateAfterPrepare(`${source}_prepare_grace`);
-      }, PREPARE_ENTRY_NAV_GRACE_MS);
       void prepareVideoDateEntry(sessionId, {
         eventId,
         source: `event_lobby_${source}`,
         bothReadyObservedAtMs: observedAtMs,
       }).then((result) => {
         if (result.ok === true) {
-          window.clearTimeout(fallback);
           navigateAfterPrepare(`${source}_prepare_done`);
+          return;
         }
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "event_lobby",
+          source_action: "prepare_entry_failed_no_nav",
+          code: result.code,
+          reason_code: result.code,
+          httpStatus: result.httpStatus ?? null,
+          retryable: result.retryable,
+        });
+        vdbg("event_lobby_prepare_entry_failed_no_nav", {
+          sessionId,
+          eventId,
+          source,
+          code: result.code,
+          httpStatus: result.httpStatus ?? null,
+          retryable: result.retryable,
+        });
       });
     },
     [eventId, navigateToDateSession],
