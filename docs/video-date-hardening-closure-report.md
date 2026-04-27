@@ -4,16 +4,17 @@ Date: 2026-04-27
 
 ## Executive verdict
 
-Video Date hardening Sprints A-F are complete, merged to `main`, and deployed for the web/backend production path.
+Video Date hardening Sprints A-F are complete, merged to `main`, and deployed for the web/backend production path. The post-closure room-cleanup scheduler repair in PR #551 is also merged and deployed.
 
 Final recommendation: production-ready for the web/backend Video Date flow, with native binary distribution still requiring the normal external release confirmation if a fresh iOS/Android build has not already been cut and installed by testers.
 
 Evidence from the closure pass:
 
-- Local `main`: `bae2ba050 fix(video-date): automate pending verdict reminders`
+- Local `main`: `10af6dd7d fix(video-date): repair room cleanup cron scheduler`
 - Remote DB dry-run: `Remote database is up to date.`
-- Vercel status for Sprint F merge commit: success
+- Vercel status for current main / PR #551 merge commit: success
 - Pending-verdict cron: active pg_cron job with recent pg_net `200` responses
+- Video-date room cleanup cron: active pg_cron job with recent pg_net `200` responses
 - Relevant Edge Functions: deployed and active
 
 ## Sprints A-F summary
@@ -26,6 +27,7 @@ Evidence from the closure pass:
 | D | #547 | `20a5d9f174aba539627a4d21a06337aceea7f04c` | Native AppState background policy, half-verdict pending state, notification deep-link fail-closed routing |
 | E | #548 | `1c3e282ec086a359b575e75fa9baffd2901b8796` | Camera/mic denial UX, playback blocked CTA, no-remote UX, observability |
 | F | #549 | `bae2ba050ea25e630b461bb675dfe083d43ee225` | Pending-verdict reminder automation, stale pending verdict marking, notification safety |
+| Scheduler repair | #551 | `10af6dd7dc43fbc54b5d4150b8a411172ed6cea2` | Forward-only repair for `video-date-room-cleanup` pg_cron using Vault-backed `project_url` / `cron_secret` |
 
 ## Exact landed scope
 
@@ -48,6 +50,7 @@ Evidence from the closure pass:
 - Pending-partner verdict reminder automation.
 - Stale pending verdict marking after the configured stale window.
 - Reported/blocked pair suppression for reminders and mutual match creation.
+- Vault-backed `video-date-room-cleanup` scheduler auth/URL repair.
 
 ## Migrations applied
 
@@ -58,6 +61,9 @@ The closure pass confirmed these migration versions exist in the remote Supabase
 - `20260501112000_video_sessions_rls_write_lockdown`
 - `20260501113000_post_date_pending_verdict_observability`
 - `20260501114000_post_date_pending_verdict_reminders`
+- `20260501115000_video_date_room_cleanup_cron_vault`
+
+The `20260501115000` repair is forward-only. The original `video-date-room-cleanup` scheduler was created from `current_setting('app.supabase_url', true)` and `current_setting('app.cron_secret', true)`. Those DB settings were absent in production, causing a null scheduler URL and empty `Authorization: Bearer ` header. PR #551 rescheduled the same job with the proven Vault-backed `project_url` / `cron_secret` pattern used by `post-date-verdict-reminders`.
 
 Final DB check:
 
@@ -84,14 +90,14 @@ Relevant Video Date functions are deployed and active on project `schdyxcunwcvdd
 
 ## Web deploy status
 
-Vercel reported success for Sprint F merge commit `bae2ba050ea25e630b461bb675dfe083d43ee225`.
+Vercel reported success for current main / PR #551 merge commit `10af6dd7dc43fbc54b5d4150b8a411172ed6cea2`.
 
 Status evidence:
 
 - Context: `Vercel`
 - State: `success`
 - Description: `Deployment has completed`
-- Deployment URL: `https://vercel.com/okp805/vibelymeet/GHGxNTiP32R6GNjjgHRwXg1RURrX`
+- Deployment URL: `https://vercel.com/okp805/vibelymeet/81AMKcFBQYJFyJ2wsWWJ3RtHbvNd`
 
 ## Native release status
 
@@ -137,7 +143,8 @@ High-level rollback map:
 - Provider entry regressions: roll forward around `daily-room`, `confirm_video_date_entry_prepared`, and provider-prepared route truth. Avoid restoring client-owned routeability.
 - RLS/session ownership regressions: roll forward with explicit grants/policies. Do not reintroduce broad authenticated DML on `video_sessions`.
 - Survey/outcome regressions: keep `date_feedback` as canonical verdict truth; repair pending rows rather than deleting verdict data.
-- Reminder automation regressions: disable the pg_cron job first, then adjust `post-date-verdict-reminders` or `send-notification`.
+- Reminder automation regressions: disable the `post-date-verdict-reminders` pg_cron job first, then adjust `post-date-verdict-reminders` or `send-notification`.
+- Video-date room cleanup scheduler regressions: disable the `video-date-room-cleanup` pg_cron job first. Do not edit old migrations; repair with a forward migration.
 
 Disable pending-verdict reminder cron if needed:
 
@@ -147,11 +154,22 @@ from cron.job
 where jobname = 'post-date-verdict-reminders';
 ```
 
-## Operator runbook: pending-verdict reminder cron
+Disable video-date room cleanup cron if needed:
 
-Purpose: send one neutral reminder to the missing partner when exactly one post-date verdict is pending, and mark long-pending rows stale.
+```sql
+select cron.unschedule(jobid)
+from cron.job
+where jobname = 'video-date-room-cleanup';
+```
 
-Runtime pieces:
+## Operator runbook: Video Date cron jobs
+
+Purpose:
+
+- `post-date-verdict-reminders`: send one neutral reminder to the missing partner when exactly one post-date verdict is pending, and mark long-pending rows stale.
+- `video-date-room-cleanup`: delete terminal Video Date Daily rooms only after the cleanup buffer, while deferring deletion if Daily reports active participants or if the provider participant check is inconclusive.
+
+Pending-verdict reminder runtime pieces:
 
 - Table: `public.post_date_pending_verdicts`
 - Function: `post-date-verdict-reminders`
@@ -160,25 +178,32 @@ Runtime pieces:
 - Auth: Edge Function has `verify_jwt=false` and is internally protected by `CRON_SECRET`
 - DB scheduler secret source: Vault secret named `cron_secret`
 
-Verify cron exists:
+Room cleanup runtime pieces:
+
+- Table: `public.video_sessions`
+- Function: `video-date-room-cleanup`
+- Schedule: `video-date-room-cleanup`, `*/5 * * * *`
+- Auth: Edge Function has `verify_jwt=false` and is internally protected by `CRON_SECRET`
+- DB scheduler secret source: Vault secrets named `project_url` and `cron_secret`
+- Repair migration: `20260501115000_video_date_room_cleanup_cron_vault`
+
+Verify cron jobs exist:
 
 ```sql
 select jobid, jobname, schedule, active
 from cron.job
-where jobname = 'post-date-verdict-reminders';
+where jobname in ('post-date-verdict-reminders', 'video-date-room-cleanup')
+order by jobname;
 ```
 
 Verify recent scheduler runs:
 
 ```sql
-select runid, status, return_message, start_time, end_time
-from cron.job_run_details
-where jobid = (
-  select jobid
-  from cron.job
-  where jobname = 'post-date-verdict-reminders'
-)
-order by start_time desc
+select j.jobname, d.runid, d.status, d.return_message, d.start_time, d.end_time
+from cron.job j
+join cron.job_run_details d using (jobid)
+where j.jobname in ('post-date-verdict-reminders', 'video-date-room-cleanup')
+order by d.start_time desc
 limit 5;
 ```
 
@@ -198,14 +223,24 @@ Expected healthy state:
 - Recent `net._http_response.status_code = 200`
 - `timed_out = false`
 - `has_error = false`
+- For `video-date-room-cleanup`, no null URL / empty Bearer failures after migration `20260501115000`
+
+Post-PR #551 verification evidence:
+
+- Latest `video-date-room-cleanup` cron runs succeeded.
+- Latest cleanup `net._http_response.status_code = 200`.
+- Latest cleanup `timed_out = false`.
+- Latest cleanup `has_error = false`.
+- No null URL / empty Bearer failures were observed for the cleanup scheduler after migration `20260501115000`.
 
 If scheduler HTTP responses are `401`:
 
 1. Confirm the Edge Function secret `CRON_SECRET` exists.
 2. Confirm Vault secret `cron_secret` exists and has a value.
-3. Align Vault `cron_secret` to the same value expected by the Edge Function.
-4. Wait for the next five-minute scheduler tick.
-5. Re-check `cron.job_run_details` and `net._http_response`.
+3. For URL failures, confirm Vault secret `project_url` exists and has a value.
+4. Align Vault `cron_secret` to the same value expected by the Edge Function.
+5. Wait for the next five-minute scheduler tick.
+6. Re-check `cron.job_run_details` and `net._http_response`.
 
 Do not print secret values in logs, tickets, docs, or chat.
 
@@ -228,7 +263,7 @@ grep -n "project_id" supabase/config.toml
 supabase migration list --linked
 supabase db query --linked --output table \
   "select version from supabase_migrations.schema_migrations
-   where version in ('20260501102000','20260501110000','20260501112000','20260501113000','20260501114000')
+   where version in ('20260501102000','20260501110000','20260501112000','20260501113000','20260501114000','20260501115000')
    order by version;"
 ```
 
@@ -242,7 +277,7 @@ supabase functions list --project-ref schdyxcunwcvddlcshwd \
 Vercel merge commit status:
 
 ```bash
-gh api repos/kaanporsuk/vibelymeet/commits/bae2ba050ea25e630b461bb675dfe083d43ee225/status \
+gh api repos/kaanporsuk/vibelymeet/commits/10af6dd7dc43fbc54b5d4150b8a411172ed6cea2/status \
   --jq '{state: .state, statuses: [.statuses[] | {context, state, description, target_url, updated_at}]}'
 ```
 
@@ -252,13 +287,15 @@ Cron and pg_net:
 supabase db query --linked --output table \
   "select jobid, jobname, schedule, active
    from cron.job
-   where jobname = 'post-date-verdict-reminders';"
+   where jobname in ('post-date-verdict-reminders', 'video-date-room-cleanup')
+   order by jobname;"
 
 supabase db query --linked --output table \
-  "select runid, status, return_message, start_time, end_time
-   from cron.job_run_details
-   where jobid = (select jobid from cron.job where jobname = 'post-date-verdict-reminders')
-   order by start_time desc
+  "select j.jobname, d.runid, d.status, d.return_message, d.start_time, d.end_time
+   from cron.job j
+   join cron.job_run_details d using (jobid)
+   where j.jobname in ('post-date-verdict-reminders', 'video-date-room-cleanup')
+   order by d.start_time desc
    limit 5;"
 
 supabase db query --linked --output table \
