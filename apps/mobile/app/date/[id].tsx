@@ -84,6 +84,7 @@ import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import {
   getPreparedVideoDateEntry,
   preparedEntryBothReadyToFirstRemoteFrameMs,
@@ -458,6 +459,23 @@ export default function VideoDateScreen() {
   const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
   const [preJoinFailed, setPreJoinFailed] = useState(false);
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
+
+  useEffect(() => {
+    void setSafeAudioMode({
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: false,
+    });
+    return () => {
+      void setSafeAudioMode({
+        playsInSilentModeIOS: false,
+        allowsRecordingIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+    };
+  }, []);
 
   const logJourney = useCallback(
     (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
@@ -1525,12 +1543,12 @@ export default function VideoDateScreen() {
       });
       setIsConnecting(false);
       vdbg('prejoin_state_callError', {
-        value: 'Your match has not joined this video room yet.',
+        value: 'Your match has not joined yet.',
         sessionId,
         userId: user?.id ?? null,
         step: 'peer_missing_timeout',
       });
-      setCallError('Your match has not joined this video room yet.');
+      setCallError('Your match has not joined yet.');
     }, FIRST_CONNECT_TIMEOUT_MS);
 
     return () => clearFirstConnectWatchdog();
@@ -3725,11 +3743,20 @@ export default function VideoDateScreen() {
               vdbg('mark_video_date_daily_joined_after', { sessionId, userId: user.id, ok });
             }
             if (!ok) {
+              setCallError("We're reconnecting your date state...");
               trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
                 platform: 'native',
                 session_id: sessionId,
                 event_id: eventId || null,
               });
+              setTimeout(() => {
+                void markVideoDateDailyJoined(sessionId).then((retryOk) => {
+                  if (retryOk) {
+                    setCallError(null);
+                    void refetchVideoSession();
+                  }
+                });
+              }, 1500);
             }
             if (ok) void refetchVideoSession();
           })
@@ -3747,6 +3774,15 @@ export default function VideoDateScreen() {
               event_id: eventId || null,
               reason: 'exception',
             });
+            setCallError("We're reconnecting your date state...");
+            setTimeout(() => {
+              void markVideoDateDailyJoined(sessionId).then((retryOk) => {
+                if (retryOk) {
+                  setCallError(null);
+                  void refetchVideoSession();
+                }
+              });
+            }, 1500);
           });
         const local = participants?.local;
         if (local) {
@@ -4853,17 +4889,17 @@ export default function VideoDateScreen() {
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>
-                Your match has not joined this video room yet.
+                Your match has not joined yet.
               </Text>
               <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
-                We could not connect them in time. You can try again, keep waiting here, or go back to the lobby.
+                We could not connect them in time. You can keep waiting, try reconnecting, or head back to the lobby.
               </Text>
               <View style={styles.initialTimeoutActions}>
                 <Pressable
                   onPress={() => void handleRetryInitialConnect()}
                   style={({ pressed }) => [styles.initialRetryBtn, { backgroundColor: theme.tint }, pressed && styles.initialBtnPressed]}
                 >
-                  <Text style={styles.initialRetryText}>Try again</Text>
+                  <Text style={styles.initialRetryText}>Try reconnecting</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => void handlePeerMissingKeepWaiting()}

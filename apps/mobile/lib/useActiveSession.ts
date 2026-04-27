@@ -9,12 +9,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
+import { trackEvent } from '@/lib/analytics';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   inferVideoQueueStatusFromSessionTruth,
   pickRegistrationForActiveSession,
 } from '@clientShared/matching/activeSession';
+import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
@@ -144,6 +146,7 @@ export function useActiveSession(
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const mounted = useRef(true);
+  const staleActiveSessionEventKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -151,6 +154,32 @@ export function useActiveSession(
       mounted.current = false;
     };
   }, []);
+
+  const emitStaleActiveSessionDetected = useCallback(
+    (payload: {
+      reason: string;
+      eventId?: string | null;
+      sessionId?: string | null;
+      queueStatus?: string | null;
+      currentPartnerPresent?: boolean | null;
+    }) => {
+      const key = `${payload.reason}:${payload.eventId ?? 'none'}:${payload.sessionId ?? 'none'}:${payload.queueStatus ?? 'none'}`;
+      if (staleActiveSessionEventKeyRef.current === key) return;
+      staleActiveSessionEventKeyRef.current = key;
+      trackEvent(LobbyPostDateEvents.STALE_ACTIVE_SESSION_DETECTED, {
+        platform: 'native',
+        source_surface: 'use_active_session',
+        scoped_event_id: eventFilter,
+        event_id: payload.eventId ?? null,
+        session_id: payload.sessionId ?? null,
+        queue_status: payload.queueStatus ?? null,
+        current_partner_present: payload.currentPartnerPresent ?? null,
+        reason: payload.reason,
+        reason_code: payload.reason,
+      });
+    },
+    [eventFilter]
+  );
 
   const check = useCallback(async () => {
     if (!userId) {
@@ -181,6 +210,13 @@ export function useActiveSession(
 
     if (reg?.current_room_id) {
       if (eventFilter && reg.event_id !== eventFilter) {
+        emitStaleActiveSessionDetected({
+          reason: 'different_event_registration_room',
+          eventId: reg.event_id as string | null,
+          sessionId: reg.current_room_id as string | null,
+          queueStatus: reg.queue_status as string | null,
+          currentPartnerPresent: Boolean(reg.current_partner_id),
+        });
         if (mounted.current) {
           setActiveSession(null);
           setHydrated(true);
@@ -279,9 +315,32 @@ export function useActiveSession(
                 ready_gate_status: truth.ready_gate_status ?? null,
                 can_attempt_daily: canAttemptDaily,
               });
+              emitStaleActiveSessionDetected({
+                reason: 'registration_points_to_ended_session',
+                eventId: reg.event_id as string | null,
+                sessionId: session.id as string,
+                queueStatus: qs as string | null,
+                currentPartnerPresent: Boolean(reg.current_partner_id),
+              });
             }
           }
+        } else {
+          emitStaleActiveSessionDetected({
+            reason: 'unsupported_registration_status',
+            eventId: reg.event_id as string | null,
+            sessionId: session.id as string,
+            queueStatus: reg.queue_status as string | null,
+            currentPartnerPresent: Boolean(reg.current_partner_id),
+          });
         }
+      } else {
+        emitStaleActiveSessionDetected({
+          reason: sessionError ? 'registration_session_query_failed' : 'registration_points_to_missing_session',
+          eventId: reg.event_id as string | null,
+          sessionId: reg.current_room_id as string | null,
+          queueStatus: reg.queue_status as string | null,
+          currentPartnerPresent: Boolean(reg.current_partner_id),
+        });
       }
       // Stale current_room_id or registration not in an active gate/date phase: try queued `syncing` below.
       const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
@@ -352,7 +411,7 @@ export function useActiveSession(
       setActiveSession(null);
       setHydrated(true);
     }
-  }, [userId, eventFilter]);
+  }, [userId, eventFilter, emitStaleActiveSessionDetected]);
 
   useEffect(() => {
     void check();

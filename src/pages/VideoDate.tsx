@@ -445,7 +445,9 @@ const VideoDate = () => {
     getRoomName,
     networkTier,
     remotePlayback,
+    peerMissing,
     retryRemotePlayback,
+    clearPeerMissing,
     dailyReconnectState,
     reconnectGraceTimeLeft,
   } = useVideoCall({
@@ -2282,6 +2284,49 @@ const VideoDate = () => {
   }, [endCall, handleCallEnd, clearHandshakeGraceState]);
 
   useEffect(() => {
+    if (!peerMissing.terminal || !id) return;
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION, {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+    });
+  }, [eventId, id, peerMissing.terminal]);
+
+  const handlePeerMissingRetry = useCallback(() => {
+    if (!id) return;
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_RETRY_TAP, {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+    });
+    clearPeerMissing();
+    setCallStartFailure(null);
+    setCallStarted(false);
+  }, [clearPeerMissing, eventId, id]);
+
+  const handlePeerMissingKeepWaiting = useCallback(() => {
+    if (id) {
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+      });
+    }
+    clearPeerMissing();
+  }, [clearPeerMissing, eventId, id]);
+
+  const handlePeerMissingLeave = useCallback(() => {
+    if (id) {
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+      });
+    }
+    void handleLeave();
+  }, [eventId, handleLeave, id]);
+
+  useEffect(() => {
     if (phase === "date" || phase === "ended") {
       clearHandshakeGraceState();
     }
@@ -2678,8 +2723,11 @@ const VideoDate = () => {
               <ConnectionOverlay
                 isConnecting={isConnecting}
                 remotePlayback={remotePlayback}
+                peerMissing={peerMissing}
                 onRetryRemotePlayback={retryRemotePlayback}
-                onLeave={handleLeave}
+                onRetryPeerMissing={handlePeerMissingRetry}
+                onKeepWaitingPeerMissing={handlePeerMissingKeepWaiting}
+                onLeave={peerMissing.terminal ? handlePeerMissingLeave : handleLeave}
               />
             )}
         </AnimatePresence>
