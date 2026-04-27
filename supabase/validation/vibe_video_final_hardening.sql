@@ -66,7 +66,15 @@ BEGIN
     'processing',
     'processing',
     'original caption'
-  );
+  )
+  ON CONFLICT (id) DO UPDATE
+  SET name = EXCLUDED.name,
+      age = EXCLUDED.age,
+      gender = EXCLUDED.gender,
+      bunny_video_uid = EXCLUDED.bunny_video_uid,
+      bunny_video_status = EXCLUDED.bunny_video_status,
+      vibe_video_status = EXCLUDED.vibe_video_status,
+      vibe_caption = EXCLUDED.vibe_caption;
 
   INSERT INTO public.draft_media_sessions (
     user_id,
