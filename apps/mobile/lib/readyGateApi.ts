@@ -167,17 +167,18 @@ export function useReadyGate(
     await fetchSession();
   }, [sessionId, userId, fetchSession]);
 
-  const forfeit = useCallback(async () => {
-    if (!sessionId) return;
+  const forfeit = useCallback(async (): Promise<boolean> => {
+    if (!sessionId) return false;
     const { error } = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: 'forfeit' });
     if (error) {
       rcBreadcrumb(RC_CATEGORY.readyGate, 'forfeit_rpc_error', {
         code: error.code ?? null,
         message_snippet: String(error.message ?? '').slice(0, 120),
       });
-      return;
+      return false;
     }
     await fetchSession();
+    return true;
   }, [sessionId, fetchSession]);
 
   const snooze = useCallback(async () => {

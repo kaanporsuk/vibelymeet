@@ -131,6 +131,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>("idle");
   const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailureState>(null);
   const [showRealtimeFallbackCopy, setShowRealtimeFallbackCopy] = useState(false);
+  const [terminalActionPending, setTerminalActionPending] = useState(false);
+  const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
   const closedRef = useRef(false);
   const dateNavigationStartedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -145,6 +147,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const terminalActionInFlightRef = useRef(false);
 
   const navigateToDate = useCallback(
     (source: string) => {
@@ -339,6 +342,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     (reason: "timeout" | "skip") => {
       if (closedRef.current || dateNavigationStartedRef.current) return;
       closedRef.current = true;
+      terminalActionInFlightRef.current = false;
+      setTerminalActionPending(false);
+      setTerminalActionError(null);
       readyGateDebug("terminal ready-gate close", { sessionId, reason });
       if (!terminalOutcomeRef.current) {
         terminalOutcomeRef.current = true;
@@ -393,6 +399,42 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
+
+  const runTerminalAction = useCallback(
+    async (dismissVariant: "skip_this_one" | "cancel_go_back" | "prepare_failed_back") => {
+      if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;
+      terminalActionInFlightRef.current = true;
+      setTerminalActionPending(true);
+      setTerminalActionError(null);
+      trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        dismiss_variant: dismissVariant,
+      });
+      try {
+        const ok = await skip();
+        if (!ok) {
+          throw new Error("ready_gate_forfeit_failed");
+        }
+        if (!mountedRef.current || dateNavigationStartedRef.current) return;
+        handleForfeited("skip");
+      } catch (error) {
+        terminalActionInFlightRef.current = false;
+        if (!mountedRef.current || dateNavigationStartedRef.current) return;
+        const message = "We couldn't step away. Check your connection and try again.";
+        setTerminalActionPending(false);
+        setTerminalActionError(message);
+        readyGateDebug("terminal ready-gate action failed", {
+          sessionId,
+          dismissVariant,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        toast.error(message, { duration: 3200 });
+      }
+    },
+    [eventId, handleForfeited, sessionId, skip],
+  );
 
   const reconcileSession = useCallback(
     async (source: string) => {
@@ -630,6 +672,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     terminalOutcomeRef.current = false;
     timeoutForfeitSentRef.current = false;
     realtimeFallbackLoggedRef.current = false;
+    terminalActionInFlightRef.current = false;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
@@ -640,6 +683,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     setPrepareEntryStatus("idle");
     setPrepareEntryFailure(null);
     setShowRealtimeFallbackCopy(false);
+    setTerminalActionPending(false);
+    setTerminalActionError(null);
     setTimeLeft(GATE_TIMEOUT);
     if (!readyGateImpressionRef.current) {
       readyGateImpressionRef.current = true;
@@ -738,7 +783,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
   // Countdown timer (only when user hasn't pressed ready yet)
   useEffect(() => {
-    if (isTransitioning || iAmReady || snoozedByPartner) return;
+    if (isTransitioning || iAmReady || snoozedByPartner || terminalActionPending) return;
 
     const tick = () => {
       const next = getReadyGateRemainingSeconds({
@@ -756,7 +801,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     const interval = setInterval(tick, 1000);
 
     return () => clearInterval(interval);
-  }, [isTransitioning, iAmReady, snoozedByPartner, expiresAt, skip]);
+  }, [isTransitioning, iAmReady, snoozedByPartner, terminalActionPending, expiresAt, skip]);
 
   const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT);
   const ringSize = 96;
@@ -804,6 +849,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   {prepareEntryFailure?.retryable && (
                     <button
                       onClick={retryPrepareEntry}
+                      disabled={terminalActionPending}
                       className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium"
                     >
                       Try again
@@ -811,17 +857,17 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   )}
                   <button
                     onClick={() => {
-                      if (dateNavigationStartedRef.current) return;
-                      closedRef.current = true;
-                      skip();
-                      setStatus("browsing");
-                      onClose();
+                      void runTerminalAction("prepare_failed_back");
                     }}
-                    className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground"
+                    disabled={terminalActionPending}
+                    className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground disabled:opacity-50"
                   >
-                    Back to lobby
+                    {terminalActionPending ? "Leaving..." : "Back to lobby"}
                   </button>
                 </div>
+              )}
+              {terminalActionError && (
+                <p className="text-xs text-destructive max-w-xs mx-auto">{terminalActionError}</p>
               )}
             </div>
           </motion.div>
@@ -925,6 +971,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               Syncing your date status...
             </p>
           )}
+          {terminalActionError && !isTransitioning && (
+            <p className="text-center text-xs text-destructive">
+              {terminalActionError}
+            </p>
+          )}
 
           {/* Action area */}
           {!iAmReady ? (
@@ -934,7 +985,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                 <motion.button
                   whileTap={{ scale: 0.92 }}
                   onClick={() => {
-                    if (markingReady || requestingSnooze) return;
+                    if (markingReady || requestingSnooze || terminalActionPending) return;
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
                       sessionId,
                       platform: "web",
@@ -974,7 +1025,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                       }
                     })();
                   }}
-                  disabled={markingReady || requestingSnooze}
+                  disabled={markingReady || requestingSnooze || terminalActionPending}
                   className="relative"
                 >
                   <svg
@@ -1019,7 +1070,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               <div className="flex items-center justify-center gap-2">
                 <button
                   onClick={() => {
-                    if (requestingSnooze || markingReady) return;
+                    if (requestingSnooze || markingReady || terminalActionPending) return;
                     trackEvent(LobbyPostDateEvents.READY_GATE_SNOOZE_TAP, {
                       platform: "web",
                       session_id: sessionId,
@@ -1034,7 +1085,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                       }
                     })();
                   }}
-                  disabled={requestingSnooze || markingReady}
+                  disabled={requestingSnooze || markingReady || terminalActionPending}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {requestingSnooze ? "Snoozing..." : "Snooze — give me 2 min"}
@@ -1042,22 +1093,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                 <span className="text-muted-foreground/70">·</span>
                 <button
                   onClick={() => {
-                    if (dateNavigationStartedRef.current || markingReady || requestingSnooze) return;
-                    trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
-                      platform: "web",
-                      session_id: sessionId,
-                      event_id: eventId,
-                      dismiss_variant: "skip_this_one",
-                    });
-                    closedRef.current = true;
-                    skip();
-                    setStatus("browsing");
-                    onClose();
+                    void runTerminalAction("skip_this_one");
                   }}
-                  disabled={markingReady || requestingSnooze}
+                  disabled={markingReady || requestingSnooze || terminalActionPending}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
-                  Step away
+                  {terminalActionPending ? "Leaving..." : "Step away"}
                 </button>
               </div>
             </div>
@@ -1075,22 +1116,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               </motion.div>
               <button
                 onClick={() => {
-                  if (dateNavigationStartedRef.current || requestingSnooze || markingReady) return;
-                  trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
-                    platform: "web",
-                    session_id: sessionId,
-                    event_id: eventId,
-                    dismiss_variant: "cancel_go_back",
-                  });
-                  closedRef.current = true;
-                  skip();
-                  setStatus("browsing");
-                  onClose();
+                  void runTerminalAction("cancel_go_back");
                 }}
-                disabled={requestingSnooze || markingReady}
+                disabled={requestingSnooze || markingReady || terminalActionPending}
                 className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
-                Step away
+                {terminalActionPending ? "Leaving..." : "Step away"}
               </button>
             </div>
           )}
