@@ -58,6 +58,10 @@ const eventParticipantHeartbeatMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501134000_event_participant_server_stamped_heartbeat.sql"),
   "utf8",
 );
+const videoDateObservabilityV1Migration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501135000_video_date_observability_v1.sql"),
+  "utf8",
+);
 const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
@@ -1179,6 +1183,50 @@ test("web video date access recovery covers permission denial and playback-block
   assert.match(webVideoDatePage, /clearMediaPermissionError\(\)/);
   assert.match(webConnectionOverlay, /Tap to resume video\/audio/);
   assert.match(webConnectionOverlay, /browser paused the video or audio/);
+});
+
+test("observability v1 logs ready-gate transitions without owning semantics", () => {
+  assert.match(
+    videoDateObservabilityV1Migration,
+    /ALTER FUNCTION public\.ready_gate_transition\(uuid, text, text\)\s+RENAME TO ready_gate_transition_20260501135000_observability_base/s,
+  );
+  assert.match(
+    videoDateObservabilityV1Migration,
+    /v_result := public\.ready_gate_transition_20260501135000_observability_base\(\s*p_session_id,\s*p_action,\s*p_reason\s*\)/s,
+  );
+  assert.match(videoDateObservabilityV1Migration, /'ready_gate_transition'/);
+  assert.match(videoDateObservabilityV1Migration, /WHEN p_action = 'mark_ready' AND v_status_after = 'both_ready' THEN 'both_ready'/);
+  assert.match(videoDateObservabilityV1Migration, /WHEN p_action = 'mark_ready' THEN 'mark_ready'/);
+  assert.match(videoDateObservabilityV1Migration, /WHEN p_action = 'snooze' THEN 'snooze'/);
+  assert.match(videoDateObservabilityV1Migration, /WHEN p_action = 'forfeit' THEN 'forfeit'/);
+  assert.match(videoDateObservabilityV1Migration, /WHEN p_action = 'sync' AND v_status_after = 'expired' THEN 'sync_expired'/);
+  assert.match(videoDateObservabilityV1Migration, /'status_before', v_before\.ready_gate_status/);
+  assert.match(videoDateObservabilityV1Migration, /'status_after', v_status_after/);
+  assert.match(videoDateObservabilityV1Migration, /'state_before', v_before\.state::text/);
+  assert.match(videoDateObservabilityV1Migration, /'state_after', v_after\.state::text/);
+  assert.match(videoDateObservabilityV1Migration, /'ready_gate_expires_at_before', v_before\.ready_gate_expires_at/);
+  assert.match(videoDateObservabilityV1Migration, /'ready_gate_expires_at_after', v_after\.ready_gate_expires_at/);
+  assert.match(videoDateObservabilityV1Migration, /RETURN v_result;/);
+  assert.match(videoDateObservabilityV1Migration, /REVOKE ALL ON FUNCTION public\.ready_gate_transition_20260501135000_observability_base\(uuid, text, text\)\s+FROM PUBLIC, anon, authenticated/);
+  assert.match(videoDateObservabilityV1Migration, /GRANT EXECUTE ON FUNCTION public\.ready_gate_transition\(uuid, text, text\) TO anon, authenticated, service_role/);
+  assert.doesNotMatch(videoDateObservabilityV1Migration, /RAISE\s+EXCEPTION/i);
+});
+
+test("observability v1 exposes a service-role-only ordered session timeline", () => {
+  assert.match(videoDateObservabilityV1Migration, /CREATE OR REPLACE FUNCTION public\.get_video_date_session_timeline\(p_session_id uuid\)/);
+  assert.match(videoDateObservabilityV1Migration, /RETURNS TABLE \([\s\S]*timeline_seq bigint[\s\S]*occurred_at timestamptz[\s\S]*detail jsonb/s);
+  assert.match(videoDateObservabilityV1Migration, /WHERE eo\.session_id = p_session_id/);
+  assert.match(videoDateObservabilityV1Migration, /'ready_gate_transition'/);
+  assert.match(videoDateObservabilityV1Migration, /'video_date_transition'/);
+  assert.match(videoDateObservabilityV1Migration, /'post_date_pending_verdict_completed'/);
+  assert.match(videoDateObservabilityV1Migration, /'video_sessions'/);
+  assert.match(videoDateObservabilityV1Migration, /'participant_1_daily_joined'/);
+  assert.match(videoDateObservabilityV1Migration, /'participant_2_daily_joined'/);
+  assert.match(videoDateObservabilityV1Migration, /'date_started'/);
+  assert.match(videoDateObservabilityV1Migration, /row_number\(\) OVER \(ORDER BY tr\.occurred_at ASC, tr\.sort_order ASC, tr\.operation ASC\)/);
+  assert.match(videoDateObservabilityV1Migration, /ORDER BY tr\.occurred_at ASC, tr\.sort_order ASC, tr\.operation ASC/);
+  assert.match(videoDateObservabilityV1Migration, /REVOKE ALL ON FUNCTION public\.get_video_date_session_timeline\(uuid\) FROM PUBLIC, anon, authenticated/);
+  assert.match(videoDateObservabilityV1Migration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_session_timeline\(uuid\) TO service_role/);
 });
 
 test("Sprint E missing observability events are typed and wired", () => {
