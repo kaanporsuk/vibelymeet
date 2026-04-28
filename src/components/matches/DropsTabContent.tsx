@@ -12,6 +12,7 @@ import {
 } from '@/lib/dailyDropSchedule';
 import { VibeTag } from '@/components/VibeTag';
 import { VibeVideoThumbnail } from '@/components/vibe-video/VibeVideoThumbnail';
+import { resolveWebVibeVideoState } from '@/lib/vibeVideo/webVibeVideoState';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 
 function formatTimeRemaining(seconds: number) {
@@ -302,6 +303,12 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
     photos: partner.photos,
     avatar_url: partner.avatar_url,
   });
+  const vibeVideoInfo = resolveWebVibeVideoState({
+    bunny_video_uid: partner.bunny_video_uid,
+    bunny_video_status: partner.bunny_video_status,
+    vibe_caption: partner.vibe_caption,
+  });
+  const showVibeVideoBadge = vibeVideoInfo.state === 'ready' && vibeVideoInfo.canPlay;
 
   return (
     <div className="glass-card overflow-hidden rounded-2xl">
@@ -330,7 +337,7 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
           <p className="text-sm text-muted-foreground line-clamp-3">{partner.about_me}</p>
         )}
 
-        {partner.bunny_video_uid && partner.bunny_video_status === 'ready' && (
+        {showVibeVideoBadge && (
           <div className="flex items-center gap-2 text-xs text-primary">
             <Sparkles className="w-3.5 h-3.5" />
             Has a Vibe Video

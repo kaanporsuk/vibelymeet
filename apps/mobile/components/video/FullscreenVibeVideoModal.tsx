@@ -55,7 +55,7 @@ export function FullscreenVibeVideoModal({
   const [hasCompletedInitialPlayback, setHasCompletedInitialPlayback] = useState(false);
 
   const { hostname: streamHostname } = resolveVibeVideoStreamHostnameSync();
-  const configMissing = !streamHostname.trim();
+  const configMissing = !streamHostname;
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
   const expectedPatternUrl =
     uid && streamHostname ? `https://${streamHostname}/${uid}/playlist.m3u8` : null;

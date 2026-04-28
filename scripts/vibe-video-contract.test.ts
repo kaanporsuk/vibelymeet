@@ -410,12 +410,72 @@ test("native Vibe Video playback stays on expo-video and never imports expo-av",
   assert.match(read("apps/mobile/components/video/VibeVideoPlayer.tsx"), /from 'expo-video'/);
 });
 
-test("native Bunny CDN fallback remains explicit and telemetry-visible", () => {
-  const playbackUrl = read("apps/mobile/lib/vibeVideoPlaybackUrl.ts");
+test("web Vibe Video surfaces use resolver-owned readiness and owner error states", () => {
+  const drops = read("src/components/matches/DropsTabContent.tsx");
+  const card = read("src/components/hero-video/HeroVideoStatusCard.tsx");
+  const fullscreen = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
+  const thumbnail = read("src/components/vibe-video/VibeVideoThumbnail.tsx");
+  const wizard = read("src/components/wizard/ProfileWizard.tsx");
 
-  assert.match(playbackUrl, /STREAM_CDN_FALLBACK_HOST/);
-  assert.match(playbackUrl, /playback\.hostname\.fallback_used/);
+  assert.match(drops, /resolveWebVibeVideoState/);
+  assert.match(drops, /showVibeVideoBadge = vibeVideoInfo\.state === 'ready' && vibeVideoInfo\.canPlay/);
+  assert.doesNotMatch(drops, /partner\.bunny_video_uid && partner\.bunny_video_status === 'ready'/);
+
+  assert.match(card, /backendInfo\.state === "error"/);
+  assert.match(card, /Vibe Video needs attention/);
+  assert.match(card, /Video saved, playback needs attention/);
+  assert.match(card, /NEEDS CHECK/);
+  assert.doesNotMatch(card, /None \/ error/);
+
+  assert.match(fullscreen, /resolveWebVibeVideoState/);
+  assert.doesNotMatch(fullscreen, /normalizeBunnyVideoStatus/);
+  assert.doesNotMatch(fullscreen, /getWebVibeVideoPlaybackUrl/);
+  assert.match(thumbnail, /callers must pass resolver-ready URLs/);
+  assert.match(thumbnail, /canPreviewVideo/);
+  assert.match(thumbnail, /safeVideoUrl/);
+
+  assert.match(wizard, /loadedHasVideo = !!profile\.bunnyVideoUid\?\.trim\(\);/);
+  assert.doesNotMatch(wizard, /profile\.bunnyVideoUid \|\| profile\.bunnyVideoStatus === "ready"/);
+});
+
+test("native Stream CDN missing config is explicit and not hidden by a hardcoded fallback", () => {
+  const playbackUrl = read("apps/mobile/lib/vibeVideoPlaybackUrl.ts");
+  const fullscreenModal = read("apps/mobile/components/video/FullscreenVibeVideoModal.tsx");
+  const runbook = read("apps/mobile/docs/native-vibe-video-runbook.md");
+
+  assert.doesNotMatch(playbackUrl, /STREAM_CDN_FALLBACK_HOST/);
+  assert.doesNotMatch(playbackUrl, /vz-5585ddfc-604\.b-cdn\.net/);
+  assert.doesNotMatch(playbackUrl, /source: 'fallback'/);
+  assert.doesNotMatch(playbackUrl, /playback\.hostname\.fallback_used/);
+  assert.match(playbackUrl, /export type StreamHostnameSource = 'env' \| 'persisted' \| 'missing';/);
+  assert.match(playbackUrl, /hostname: string \| null/);
+  assert.match(playbackUrl, /playback\.hostname\.missing/);
+  assert.match(playbackUrl, /kind: 'cdn_hostname_missing'/);
+  assert.match(playbackUrl, /stream_hostname_source: 'missing'/);
   assert.match(playbackUrl, /VIBE_VIDEO_EVENTS\.cdnHostnameFallbackUsed/);
   assert.match(playbackUrl, /let cachedCdnHostname: string \| null = null/);
-  assert.doesNotMatch(playbackUrl, /cachedCdnHostname\s*=\s*STREAM_CDN_FALLBACK_NORMALIZED/);
+  assert.match(playbackUrl, /if \(!uid \|\| !hostname\) return null/);
+  assert.match(fullscreenModal, /const configMissing = !streamHostname;/);
+  assert.doesNotMatch(fullscreenModal, /streamHostname\.trim\(\)/);
+  assert.match(runbook, /Do not mask missing config with a hardcoded Stream hostname/);
+  assert.match(runbook, /kind: "cdn_hostname_missing"/);
+});
+
+test("native upload flow preserves real source telemetry and 15-second duration copy", () => {
+  const controller = read("apps/mobile/lib/nativeHeroVideoUploadController.ts");
+  const record = read("apps/mobile/app/vibe-video-record.tsx");
+  const onboardingStep = read("apps/mobile/components/onboarding/steps/VibeVideoStep.tsx");
+
+  assert.match(controller, /type VibeVideoUploadSource/);
+  assert.match(controller, /uploadSource\?: VibeVideoUploadSource/);
+  assert.match(controller, /resolvedUploadSource/);
+  assert.match(controller, /upload_source: uploadSource/);
+  assert.match(controller, /\{ signal: uploadAc\.signal, uploadSource \}/);
+  assert.doesNotMatch(controller, /uploadSource: 'unknown'/);
+
+  assert.match(record, /nativeHeroVideoStart\(recordedUri, caption, context, uploadSourceRef\.current\)/);
+  assert.match(record, /videoMaxDuration: MAX_DURATION_SEC/);
+  assert.doesNotMatch(record, /videoMaxDuration: 20/);
+  assert.match(onboardingStep, /Up to 15 seconds/);
+  assert.doesNotMatch(onboardingStep, /30-second intro videos/);
 });

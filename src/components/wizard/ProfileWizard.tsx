@@ -168,8 +168,8 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
           loadedVibes = profile.vibes || [];
           setVibes(loadedVibes);
           
-          // Video step: complete if user has uploaded (UID present), matching score semantics
-          loadedHasVideo = !!(profile.bunnyVideoUid || profile.bunnyVideoStatus === "ready");
+          // Video step: complete if user has uploaded (UID present), matching score semantics.
+          loadedHasVideo = !!profile.bunnyVideoUid?.trim();
           setHasVideo(loadedHasVideo);
         }
 
@@ -571,7 +571,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                     {vibeSkipped ? (
                       <div className="text-center space-y-3 py-4">
                         <p className="text-sm text-muted-foreground">
-                          📹 Profiles with a Vibe Video get 5x more matches
+                          📹 Profiles with a Vibe Video get more attention
                         </p>
                         <button
                           onClick={() => setVibeSkipped(false)}
@@ -588,7 +588,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
                         <div className="text-center space-y-2">
                           <h3 className="text-lg font-semibold text-foreground">Record Your Vibe Video</h3>
                           <p className="text-sm text-muted-foreground max-w-xs">
-                            A 15-second video introduction helps you stand out and get 3x more matches!
+                            A 15-second video introduction helps people feel your energy before they match.
                           </p>
                         </div>
                         <Button 
