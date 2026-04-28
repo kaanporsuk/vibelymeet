@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type AppStateStatus,
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -22,7 +24,10 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
 import { deleteVibeVideo, DeleteVibeVideoError } from '@/lib/vibeVideoApi';
-import { nativeHeroVideoReset } from '@/lib/nativeHeroVideoUploadController';
+import {
+  nativeHeroVideoReset,
+  nativeHeroVideoResumePollingForProfile,
+} from '@/lib/nativeHeroVideoUploadController';
 import { fetchMyProfile, updateMyProfile, type ProfileRow } from '@/lib/profileApi';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
@@ -68,6 +73,16 @@ export default function VibeStudioScreen() {
 
   // Subscribe to the module-level upload controller so live progress is shown here.
   const ctrl = useNativeHeroVideoUpload();
+  const profileRef = useRef<ProfileRow | null | undefined>(profile);
+  const ctrlRef = useRef(ctrl);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    ctrlRef.current = ctrl;
+  }, [ctrl]);
 
   useFocusEffect(
     useCallback(() => {
@@ -97,6 +112,66 @@ export default function VibeStudioScreen() {
   const videoInfo = useMemo(() => resolveVibeVideoState(profile ?? null), [profile]);
   const readyAwaitingPlaybackUrl = videoInfo.state === 'ready' && !videoInfo.canPlay;
   const captionChanged = captionDraft !== (profile?.vibe_caption ?? '');
+
+  const refreshProfile = useCallback(async (options?: {
+    resumeIfNonTerminal?: boolean;
+    source?: 'app_state_active' | 'manual_retry' | 'manual_refresh';
+  }) => {
+    await qc.invalidateQueries({ queryKey: ['my-profile'] });
+    const result = await refetch();
+    const nextProfile = result.data ?? profileRef.current ?? null;
+    if (options?.resumeIfNonTerminal && nextProfile) {
+      nativeHeroVideoResumePollingForProfile(nextProfile, {
+        source: options.source ?? 'manual_refresh',
+      });
+    }
+    return result;
+  }, [qc, refetch]);
+
+  const shouldAttemptForegroundResume = useCallback(() => {
+    const currentCtrl = ctrlRef.current;
+    if (
+      currentCtrl.phase === 'uploading' ||
+      currentCtrl.phase === 'processing' ||
+      currentCtrl.phase === 'stalled'
+    ) {
+      return true;
+    }
+
+    const currentInfo = resolveVibeVideoState(profileRef.current ?? null);
+    return currentInfo.state === 'uploading' || currentInfo.state === 'processing';
+  }, []);
+
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const onChange = (nextState: AppStateStatus) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextState;
+      if (nextState !== 'active' || previousState === 'active') return;
+      if (!shouldAttemptForegroundResume()) return;
+
+      const currentCtrl = ctrlRef.current;
+      const currentInfo = resolveVibeVideoState(profileRef.current ?? null);
+      trackVibeVideoEvent(VIBE_VIDEO_EVENTS.appStateResumePoll, {
+        source: 'native_vibe_studio',
+        controller_phase: currentCtrl.phase,
+        profile_state: currentInfo.state,
+        has_profile_video: !!currentInfo.uid,
+      });
+
+      void refreshProfile({
+        resumeIfNonTerminal: true,
+        source: 'app_state_active',
+      }).catch((error) => {
+        vibeVideoDiagVerbose('vibe_studio.app_state_resume_refetch_failed', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    };
+
+    const subscription = AppState.addEventListener('change', onChange);
+    return () => subscription.remove();
+  }, [refreshProfile, shouldAttemptForegroundResume]);
 
   // Effective display phase: controller overrides profile when active or terminal.
   const controllerIsActive = ctrl.phase === 'uploading' || ctrl.phase === 'processing';
@@ -166,10 +241,10 @@ export default function VibeStudioScreen() {
         };
       case 'stalled':
         return {
-          label: 'Still preparing',
-          title: 'Your Vibe Video is taking longer than usual',
+          label: 'Taking longer',
+          title: 'Taking longer than expected',
           description:
-            ctrl.errorMessage ?? 'Your video is still saved. Refresh later, or replace it with a new take.',
+            ctrl.errorMessage ?? 'Your video is still saved. Retry to check the latest status, or replace it with a new take.',
           badgeBg: 'rgba(245, 158, 11, 0.16)',
           badgeText: '#FBBF24',
           icon: 'warning-outline',
@@ -199,11 +274,6 @@ export default function VibeStudioScreen() {
 
   const openRecorder = () => {
     router.push('/vibe-video-record');
-  };
-
-  const refreshProfile = async () => {
-    await qc.invalidateQueries({ queryKey: ['my-profile'] });
-    await refetch();
   };
 
   const handleSaveCaption = async () => {
@@ -362,6 +432,7 @@ export default function VibeStudioScreen() {
 
   const showPreviewCard = effectivePhase === 'ready' && videoInfo.canPlay;
   const statusIconColor = tone.badgeText;
+  const refreshActionLabel = effectivePhase === 'stalled' ? 'Retry' : 'Refresh';
 
   return (
     <>
@@ -414,11 +485,14 @@ export default function VibeStudioScreen() {
                 </View>
 
                 <Pressable
-                  onPress={() => void refreshProfile()}
+                  onPress={() => void refreshProfile({
+                    resumeIfNonTerminal: true,
+                    source: effectivePhase === 'stalled' ? 'manual_retry' : 'manual_refresh',
+                  })}
                   style={[styles.refreshBtn, { borderColor: theme.glassBorder, backgroundColor: theme.surfaceSubtle }]}
                 >
                   <Ionicons name="refresh" size={16} color={theme.text} />
-                  <Text style={[styles.refreshBtnText, { color: theme.text }]}>Refresh</Text>
+                  <Text style={[styles.refreshBtnText, { color: theme.text }]}>{refreshActionLabel}</Text>
                 </Pressable>
               </View>
 
@@ -472,11 +546,11 @@ export default function VibeStudioScreen() {
                     <>
                       <Ionicons name="alert-circle-outline" size={52} color="#FBBF24" />
                       <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                        {effectivePhase === 'stalled' ? 'Still preparing your clip' : 'This clip needs a fresh take'}
+                        {effectivePhase === 'stalled' ? 'Taking longer than expected' : 'This clip needs a fresh take'}
                       </Text>
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
                         {effectivePhase === 'stalled'
-                          ? 'Your video is still saved. Refresh later, or replace it if you want a faster retry.'
+                          ? 'Your video is still saved. Retry to check the latest status, or replace it if you want a fresh take.'
                           : 'Your caption stays intact, and you can replace the video with a new take.'}
                       </Text>
                     </>
