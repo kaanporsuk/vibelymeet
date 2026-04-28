@@ -66,6 +66,10 @@ const pendingVerdictReminderMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501114000_post_date_pending_verdict_reminders.sql"),
   "utf8",
 );
+const checkMutualVibeLockdownMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501131000_lock_down_check_mutual_vibe_and_match.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -495,6 +499,18 @@ test("web ready-gate paths do not navigate to date before prepare-entry succeeds
   assert.doesNotMatch(eventLobby, /prepare_grace/);
   assert.match(eventLobby, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
   assert.match(eventLobby, /navigateAfterPrepare\(`\$\{source\}_prepare_done`\)/);
+  assert.match(
+    eventLobby,
+    /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV[\s\S]*openReadyGateSession\(sessionId, `\$\{source\}_prepare_failed_ready_gate_recovery`\)/,
+  );
+});
+
+test("web lobby opens returned swipe session id immediately", () => {
+  assert.match(webSwipeActionHook, /onVideoSessionReady\?\.\(sessionId\)/);
+  assert.match(
+    eventLobby,
+    /onVideoSessionReady:\s*\(videoSessionId\)\s*=>\s*\{[\s\S]*openReadyGateSession\(videoSessionId, "swipe_result"\)[\s\S]*refetchScopedSession\(\)/,
+  );
 });
 
 test("native ready-gate paths are success-gated with no timer fallback route", () => {
@@ -948,6 +964,26 @@ test("pending post-date verdict stale and completion state stays observable", ()
   assert.match(lobbyToPostDateJourney, /POST_DATE_PENDING_VERDICT_REMINDER_SENT/);
   assert.match(lobbyToPostDateJourney, /POST_DATE_PENDING_VERDICT_REMINDER_FAILED/);
   assert.match(lobbyToPostDateJourney, /POST_DATE_PENDING_VERDICT_STALE/);
+});
+
+test("check_mutual_vibe_and_match blocks direct nonparticipant execution", () => {
+  assert.match(checkMutualVibeLockdownMigration, /CREATE OR REPLACE FUNCTION public\.check_mutual_vibe_and_match/);
+  assert.match(checkMutualVibeLockdownMigration, /v_actor uuid := auth\.uid\(\)/);
+  assert.match(checkMutualVibeLockdownMigration, /v_service_role boolean := auth\.role\(\) = 'service_role'/);
+  assert.match(checkMutualVibeLockdownMigration, /WHERE id = p_session_id\s+FOR UPDATE/s);
+  assert.match(
+    checkMutualVibeLockdownMigration,
+    /IF NOT v_service_role[\s\S]*v_session\.participant_1_id IS DISTINCT FROM v_actor[\s\S]*v_session\.participant_2_id IS DISTINCT FROM v_actor[\s\S]*'error', 'not_participant'/,
+  );
+  assert.match(
+    checkMutualVibeLockdownMigration,
+    /REVOKE ALL ON FUNCTION public\.check_mutual_vibe_and_match\(uuid\) FROM authenticated/,
+  );
+  assert.match(
+    checkMutualVibeLockdownMigration,
+    /GRANT EXECUTE ON FUNCTION public\.check_mutual_vibe_and_match\(uuid\) TO service_role/,
+  );
+  assert.match(pendingVerdictReminderMigration, /v_inner := public\.check_mutual_vibe_and_match\(p_session_id\)/);
 });
 
 test("post-date verdict reminder Edge worker is CRON_SECRET guarded and sends neutral payloads", () => {

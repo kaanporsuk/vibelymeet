@@ -276,9 +276,10 @@ const EventLobby = () => {
           httpStatus: result.httpStatus ?? null,
           retryable: result.retryable,
         });
+        openReadyGateSession(sessionId, `${source}_prepare_failed_ready_gate_recovery`);
       });
     },
-    [eventId, navigateToDateSession],
+    [eventId, navigateToDateSession, openReadyGateSession],
   );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)
@@ -324,7 +325,8 @@ const EventLobby = () => {
   // Swipe action — show Ready Gate on immediate match
   const { swipe, isProcessing } = useSwipeAction({
     eventId: eventId || "",
-    onVideoSessionReady: () => {
+    onVideoSessionReady: (videoSessionId) => {
+      openReadyGateSession(videoSessionId, "swipe_result");
       void refetchScopedSession();
     },
     onVideoSessionQueued: () => {
