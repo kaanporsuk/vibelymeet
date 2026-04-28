@@ -42,6 +42,11 @@ export interface HeroVideoControllerState {
 
 type Subscriber = (state: HeroVideoControllerState) => void;
 export type HeroVideoUploadContext = "onboarding" | "profile_studio";
+type HotImportMeta = ImportMeta & {
+  hot?: {
+    dispose: (callback: () => void) => void;
+  };
+};
 
 // ─── Module-level state ───────────────────────────────────────────────────────
 
@@ -58,6 +63,9 @@ let _pollTimerId: ReturnType<typeof setInterval> | null = null;
 let _pollAttempts = 0;
 let _lastPollStatus: string | null = null;
 let _activeRunStartedAt = 0;
+let _visibilityListenerAttached = false;
+let _visibilityChangeHandler: (() => void) | null = null;
+let _visibilityResumeInFlight = false;
 
 /** 36 × 5 s = 3 min max poll window before silently going idle */
 const POLL_MAX_ATTEMPTS = 36;
@@ -184,6 +192,53 @@ function _startPoll(videoId: string): void {
   _pollTimerId = setInterval(() => {
     void _pollTick(videoId);
   }, POLL_INTERVAL_MS);
+}
+
+function _handleVisibilityChange(): void {
+  if (typeof document === "undefined") return;
+  if (document.visibilityState !== "visible") return;
+  if (_state.phase !== "stalled" || !_state.videoId) return;
+  if (_visibilityResumeInFlight || _pollTimerId !== null) return;
+
+  const videoId = _state.videoId;
+  _visibilityResumeInFlight = true;
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.pollStalledVisible, {
+    source: "hero_video_controller",
+    video_guid: videoId,
+  });
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.visibilityResumePoll, {
+    source: "hero_video_controller",
+    video_guid: videoId,
+  });
+
+  void _pollTick(videoId).finally(() => {
+    _visibilityResumeInFlight = false;
+  });
+}
+
+function _ensureVisibilityListener(): void {
+  if (_visibilityListenerAttached || _visibilityChangeHandler || typeof document === "undefined") return;
+  _visibilityChangeHandler = _handleVisibilityChange;
+  _visibilityListenerAttached = true;
+  document.addEventListener("visibilitychange", _visibilityChangeHandler);
+}
+
+_ensureVisibilityListener();
+
+function _removeVisibilityListener(): void {
+  if (typeof document !== "undefined" && _visibilityChangeHandler) {
+    document.removeEventListener("visibilitychange", _visibilityChangeHandler);
+  }
+  _visibilityChangeHandler = null;
+  _visibilityListenerAttached = false;
+  _visibilityResumeInFlight = false;
+}
+
+const hot = (import.meta as HotImportMeta).hot;
+if (hot) {
+  hot.dispose(() => {
+    _removeVisibilityListener();
+  });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

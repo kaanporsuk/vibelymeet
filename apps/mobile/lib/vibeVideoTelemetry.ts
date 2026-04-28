@@ -18,6 +18,7 @@ export const VIBE_VIDEO_EVENTS = {
   playbackSucceeded: 'vibe_video_playback_succeeded',
   playbackFailed: 'vibe_video_playback_failed',
   cdnHostnameFallbackUsed: 'vibe_video_cdn_hostname_fallback_used',
+  cdnHostnamePersistenceMismatch: 'vibe_video_cdn_hostname_persistence_mismatch',
   deleteRequested: 'vibe_video_delete_requested',
   deleteSucceededLocally: 'vibe_video_delete_succeeded_locally',
   replaceStarted: 'vibe_video_replace_started',

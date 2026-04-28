@@ -240,6 +240,32 @@ test("web and native upload controllers expose an explicit stalled phase", () =>
   assert.match(nativePoll, /profile_bunny_video_uid_replaced/);
 });
 
+test("web stalled Vibe Video polling resumes once when the tab becomes visible", () => {
+  const webController = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const webTelemetry = read("src/lib/vibeVideo/vibeVideoTelemetry.ts");
+
+  assert.match(webTelemetry, /vibe_video_poll_stalled_visible/);
+  assert.match(webTelemetry, /vibe_video_visibility_resume_poll/);
+  assert.match(webController, /let _visibilityChangeHandler: \(\(\) => void\) \| null = null/);
+  assert.match(webController, /_visibilityListenerAttached \|\| _visibilityChangeHandler/);
+  assert.match(webController, /_visibilityChangeHandler = _handleVisibilityChange/);
+  assert.match(webController, /document\.addEventListener\("visibilitychange", _visibilityChangeHandler\)/);
+  assert.match(webController, /document\.removeEventListener\("visibilitychange", _visibilityChangeHandler\)/);
+  assert.match(webController, /_visibilityChangeHandler = null/);
+  assert.match(webController, /_visibilityListenerAttached = false/);
+  assert.match(webController, /_visibilityResumeInFlight = false/);
+  assert.match(webController, /type HotImportMeta = ImportMeta/);
+  assert.match(webController, /const hot = \(import\.meta as HotImportMeta\)\.hot/);
+  assert.match(webController, /if \(hot\) \{[\s\S]*?hot\.dispose\(\(\) => \{[\s\S]*?_removeVisibilityListener\(\)/);
+  assert.match(webController, /document\.visibilityState !== "visible"/);
+  assert.match(webController, /_state\.phase !== "stalled" \|\| !_state\.videoId/);
+  assert.match(webController, /_visibilityResumeInFlight \|\| _pollTimerId !== null/);
+  assert.match(webController, /_visibilityResumeInFlight = true/);
+  assert.match(webController, /VIBE_VIDEO_EVENTS\.pollStalledVisible/);
+  assert.match(webController, /VIBE_VIDEO_EVENTS\.visibilityResumePoll/);
+  assert.match(webController, /void _pollTick\(videoId\)\.finally\(\(\) => \{[\s\S]*?_visibilityResumeInFlight = false/);
+});
+
 test("UID-only Vibe Score and onboarding UID preservation remain source-backed", () => {
   const migration = read("supabase/migrations/20260501101000_vibe_video_contract_hardening.sql");
   const repairMigration = read("supabase/migrations/20260501123000_vibe_video_backend_contract_repair.sql");
@@ -600,6 +626,41 @@ test("Vibe Video telemetry events are wired on web and native", () => {
   assert.match(edgeLogs, /JSON\.stringify/);
   assert.match(edgeLogs, /SENSITIVE_KEY_PATTERN/);
   assert.doesNotMatch(edgeLogs, /\|file\|/);
+});
+
+test("Vibe Video CDN hostname telemetry covers missing web config and native persisted-host mismatch", () => {
+  const webState = read("src/lib/vibeVideo/webVibeVideoState.ts");
+  const webTelemetry = read("src/lib/vibeVideo/vibeVideoTelemetry.ts");
+  const nativePlaybackUrl = read("apps/mobile/lib/vibeVideoPlaybackUrl.ts");
+  const nativeTelemetry = read("apps/mobile/lib/vibeVideoTelemetry.ts");
+  const mismatchStart = nativePlaybackUrl.indexOf("function trackCdnHostnamePersistenceMismatch");
+  const mismatchEnd = nativePlaybackUrl.indexOf("/**", mismatchStart);
+  const mismatchFunction = nativePlaybackUrl.slice(mismatchStart, mismatchEnd);
+
+  assert.match(webTelemetry, /vibe_video_cdn_hostname_fallback_used/);
+  assert.match(webState, /let webCdnHostnameFallbackReported = false/);
+  assert.match(webState, /function trackWebCdnHostnameFallbackUsed/);
+  assert.match(webState, /if \(webCdnHostnameFallbackReported\) return/);
+  assert.match(webState, /VIBE_VIDEO_EVENTS\.cdnHostnameFallbackUsed/);
+  assert.match(webState, /kind: "cdn_hostname_missing"/);
+  assert.match(webState, /stream_hostname_source: "missing"/);
+  assert.match(webState, /reason: "env_missing" \| "normalized_empty"/);
+  assert.match(webState, /if \(!hostname\) \{/);
+  assert.match(webState, /return hostname/);
+
+  assert.match(nativeTelemetry, /vibe_video_cdn_hostname_persistence_mismatch/);
+  assert.match(nativePlaybackUrl, /let reportedEnvPersistedMismatch = false/);
+  assert.match(nativePlaybackUrl, /function trackCdnHostnamePersistenceMismatch/);
+  assert.match(nativePlaybackUrl, /if \(reportedEnvPersistedMismatch\) return/);
+  assert.match(nativePlaybackUrl, /VIBE_VIDEO_EVENTS\.cdnHostnamePersistenceMismatch/);
+  assert.match(nativePlaybackUrl, /kind: 'env_persisted_hostname_mismatch'/);
+  assert.match(nativePlaybackUrl, /stream_hostname_source: 'env'/);
+  assert.match(nativePlaybackUrl, /env_hostname_present: true/);
+  assert.match(nativePlaybackUrl, /persisted_hostname_present: true/);
+  assert.match(nativePlaybackUrl, /trackCdnHostnamePersistenceMismatch\('native_playback_hostname_resolver'\)/);
+  assert.match(nativePlaybackUrl, /trackCdnHostnamePersistenceMismatch\('native_playback_hostname_persist'\)/);
+  assert.doesNotMatch(mismatchFunction, /\b(env|persisted|hostname|url):/);
+  assert.doesNotMatch(mismatchFunction, /https?:\/\//);
 });
 
 test("native Vibe Video playback stays on expo-video and never imports expo-av", () => {
