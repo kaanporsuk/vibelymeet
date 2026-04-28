@@ -21,6 +21,7 @@ import AdminReportsPanel from "@/components/admin/AdminReportsPanel";
 import AdminExportPanel from "@/components/admin/AdminExportPanel";
 import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
 import AdminLiveEventMetrics from "@/components/admin/AdminLiveEventMetrics";
+import AdminVideoDateTimelinePanel from "@/components/admin/AdminVideoDateTimelinePanel";
 import AdminActivityLog from "@/components/admin/AdminActivityLog";
 import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
 import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
@@ -34,7 +35,7 @@ import { AdminGhostBootstrapPanel } from "@/components/admin/AdminGhostBootstrap
 import AdminMediaLifecyclePanel from "@/components/admin/AdminMediaLifecyclePanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -124,6 +125,7 @@ const AdminDashboard = () => {
                 {activePanel === 'reports' && 'User Reports'}
                 {activePanel === 'export' && 'Data Export'}
                 {activePanel === 'event-analytics' && 'Event Analytics'}
+                {activePanel === 'video-date-timeline' && 'Video Date Timeline'}
                 {activePanel === 'activity-log' && 'Activity Log'}
                 {activePanel === 'engagement' && 'Engagement Analytics'}
                 {activePanel === 'campaigns' && 'Push Campaigns'}
@@ -142,6 +144,7 @@ const AdminDashboard = () => {
                 {activePanel === 'reports' && 'Review and act on user reports'}
                 {activePanel === 'export' && 'Download platform data as CSV/PDF'}
                 {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
+                {activePanel === 'video-date-timeline' && 'Inspect a session timeline by video session UUID'}
                 {activePanel === 'activity-log' && 'Track all admin moderation actions'}
                 {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
                 {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
@@ -209,6 +212,7 @@ const AdminDashboard = () => {
           {activePanel === 'reports' && <AdminReportsPanel />}
           {activePanel === 'export' && <AdminExportPanel />}
           {activePanel === 'event-analytics' && <AdminLiveEventMetrics />}
+          {activePanel === 'video-date-timeline' && <AdminVideoDateTimelinePanel />}
           {activePanel === 'activity-log' && <AdminActivityLog />}
           {activePanel === 'engagement' && <AdminEngagementAnalytics />}
           {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}

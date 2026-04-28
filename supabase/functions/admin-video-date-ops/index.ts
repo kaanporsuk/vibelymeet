@@ -4,11 +4,15 @@ import {
   VIDEO_DATE_OPS_WINDOWS,
   classifyHigherIsBetter,
   classifyLowerIsBetter,
+  hasVideoDateTimelineRole,
+  isValidUuid,
+  safeVideoDateTimelineRows,
   safeRate,
   summarizeLatencyMs,
   summarizeQueueDrain,
   summarizeSwipeRecovery,
   type MetricStatus,
+  type VideoDateSessionTimelineRow,
   type VideoDateOpsWindowDefinition,
 } from "../_shared/admin-video-date-ops.ts";
 
@@ -58,7 +62,9 @@ type QueryResult<T> = {
 };
 
 type AdminVideoDateOpsRequest = {
+  action?: string | null;
   event_id?: string | null;
+  session_id?: string | null;
 };
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -67,10 +73,26 @@ const jsonResponse = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+const typedErrorResponse = (code: string, message: string, status: number) =>
+  jsonResponse({ ok: false, code, error: message }, status);
+
 function parseEventId(body: unknown): string | null {
   if (!body || typeof body !== "object") return null;
   const eventId = (body as AdminVideoDateOpsRequest).event_id;
   return typeof eventId === "string" && eventId.trim() ? eventId : null;
+}
+
+function parseSessionId(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const sessionId = (body as AdminVideoDateOpsRequest).session_id;
+  return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : null;
+}
+
+function parseAction(body: unknown): "metrics" | "get_session_timeline" {
+  if (!body || typeof body !== "object") return "metrics";
+  return (body as AdminVideoDateOpsRequest).action === "get_session_timeline"
+    ? "get_session_timeline"
+    : "metrics";
 }
 
 function isReadyGateOpen(row: EventLoopRow): boolean {
@@ -475,26 +497,60 @@ async function buildWindowMetrics(
   };
 }
 
+async function getSessionTimeline(service: SupabaseClientLike, sessionId: string) {
+  const { data: sessionRow, error: sessionError } = await service
+    .from("video_sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) {
+    console.error("admin-video-date-ops timeline session lookup:", sessionError.message);
+    return { ok: false as const, status: 500, code: "internal_error", error: "Timeline lookup failed" };
+  }
+
+  if (!sessionRow) {
+    return { ok: false as const, status: 404, code: "not_found", error: "Video session not found" };
+  }
+
+  const { data, error } = await service.rpc("get_video_date_session_timeline", {
+    p_session_id: sessionId,
+  });
+
+  if (error) {
+    console.error("admin-video-date-ops timeline rpc:", error.message);
+    return { ok: false as const, status: 500, code: "internal_error", error: "Timeline unavailable" };
+  }
+
+  return {
+    ok: true as const,
+    rows: safeVideoDateTimelineRows((data ?? []) as VideoDateSessionTimelineRow[]),
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
-    return jsonResponse({ ok: false, error: "Method not allowed" }, 405);
+    return typedErrorResponse("method_not_allowed", "Method not allowed", 405);
   }
 
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
+      return typedErrorResponse("unauthorized", "Unauthorized", 401);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     if (!supabaseUrl || !anonKey) {
-      return jsonResponse({ ok: false, error: "Function is not configured" }, 500);
+      return typedErrorResponse("internal_error", "Function is not configured", 500);
     }
+
+    const body = await req.json().catch(() => ({}));
+    const action = parseAction(body);
 
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -502,27 +558,52 @@ serve(async (req) => {
 
     const { data: userData, error: userError } = await userClient.auth.getUser();
     if (userError || !userData?.user) {
-      return jsonResponse({ ok: false, error: "Unauthorized" }, 401);
+      return typedErrorResponse("unauthorized", "Unauthorized", 401);
     }
 
-    const { data: adminRow, error: adminError } = await userClient
+    const allowedRoles = action === "get_session_timeline"
+      ? ["admin", "moderator"]
+      : ["admin"];
+    const { data: roleRows, error: roleError } = await userClient
       .from("user_roles")
       .select("role")
       .eq("user_id", userData.user.id)
-      .eq("role", "admin")
-      .maybeSingle();
+      .in("role", allowedRoles);
 
-    if (adminError || !adminRow) {
-      return jsonResponse({ ok: false, error: "Forbidden" }, 403);
+    const hasAccess = action === "get_session_timeline"
+      ? hasVideoDateTimelineRole(roleRows)
+      : (roleRows ?? []).some((row) => row.role === "admin");
+
+    if (roleError || !hasAccess) {
+      return typedErrorResponse("forbidden", "Forbidden", 403);
     }
 
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!serviceKey) {
-      return jsonResponse({ ok: false, error: "Function is not configured" }, 500);
+      return typedErrorResponse("internal_error", "Function is not configured", 500);
     }
 
     const service = createClient(supabaseUrl, serviceKey);
-    const body = await req.json().catch(() => ({}));
+
+    if (action === "get_session_timeline") {
+      const sessionId = parseSessionId(body);
+      if (!isValidUuid(sessionId)) {
+        return typedErrorResponse("invalid_session_id", "A valid video session UUID is required", 400);
+      }
+
+      const timeline = await getSessionTimeline(service, sessionId);
+      if (!timeline.ok) {
+        return typedErrorResponse(timeline.code, timeline.error, timeline.status);
+      }
+
+      return jsonResponse({
+        ok: true,
+        generated_at: new Date().toISOString(),
+        session_id: sessionId,
+        rows: timeline.rows,
+      });
+    }
+
     const eventId = parseEventId(body);
 
     const windows = await Promise.all(
@@ -537,6 +618,6 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("admin-video-date-ops:", error);
-    return jsonResponse({ ok: false, error: "Internal server error" }, 500);
+    return typedErrorResponse("internal_error", "Internal server error", 500);
   }
 });
