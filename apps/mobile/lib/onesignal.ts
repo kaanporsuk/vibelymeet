@@ -10,12 +10,69 @@ import { Platform } from 'react-native';
 import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
 import { getOsPushPermissionState } from '@/lib/osPushPermission';
+import type { PushSdkHealth, PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
 const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
+const PLAYER_ID_SYNC_ATTEMPTS = 8;
+const PLAYER_ID_INITIAL_RETRY_MS = 500;
+const PLAYER_ID_MAX_RETRY_MS = 3000;
 
 let initialized = false;
 let overLimitTagWritesSuppressed = false;
 let lastAppliedTagDigest: string | null = null;
+let activeIdentityUserId: string | null = null;
+let identityGeneration = 0;
+
+function syncResult(
+  code: PushSyncResult['code'],
+  playerId: string | null = null,
+  message?: string,
+): PushSyncResult {
+  return { code, synced: code === 'synced', playerId, message };
+}
+
+function playerIdRetryDelay(attempt: number): number {
+  return Math.min(PLAYER_ID_MAX_RETRY_MS, Math.round(PLAYER_ID_INITIAL_RETRY_MS * Math.pow(1.65, attempt)));
+}
+
+export function getNativeOneSignalClientSnapshot(): {
+  appIdConfigured: boolean;
+  initialized: boolean;
+  sdkStatus: PushSdkHealth;
+} {
+  const appIdConfigured = APP_ID.trim().length > 0;
+  return {
+    appIdConfigured,
+    initialized,
+    sdkStatus: !appIdConfigured ? 'app_id_missing' : initialized ? 'ready' : 'pending',
+  };
+}
+
+export function getOneSignalIdentityGeneration(): number {
+  return identityGeneration;
+}
+
+export function isCurrentOneSignalIdentity(userId: string, generation: number): boolean {
+  return activeIdentityUserId === userId && identityGeneration === generation;
+}
+
+export async function getCurrentNativePlayerId(): Promise<string | null> {
+  if (!APP_ID) return null;
+  try {
+    return await OneSignal.User.pushSubscription.getIdAsync();
+  } catch {
+    return null;
+  }
+}
+
+export async function getCurrentNativePushSubscribed(): Promise<boolean | null> {
+  if (!APP_ID) return null;
+  try {
+    return await OneSignal.User.pushSubscription.getOptedInAsync();
+  } catch {
+    return null;
+  }
+}
 
 /** Dev-only: OneSignal subscription snapshot — not authoritative for durable backend registration. */
 export async function logOneSignalPushDiagnostics(context: string): Promise<void> {
@@ -51,53 +108,78 @@ export function initOneSignal(): void {
   }
 }
 
-export function bindOneSignalExternalUser(userId: string): void {
-  if (!APP_ID || !userId) return;
+export function bindOneSignalExternalUser(userId: string): number {
+  if (activeIdentityUserId !== userId) {
+    identityGeneration += 1;
+    activeIdentityUserId = userId;
+  }
+  const generation = identityGeneration;
+  if (!APP_ID || !userId) return generation;
   try {
     OneSignal.login(userId);
   } catch (e) {
     console.warn('[Vibely] OneSignal login failed:', e);
   }
+  return generation;
 }
 
 /** Login + subscription id + Supabase upsert (no OS permission prompt). */
-async function pushSubscriptionToBackend(userId: string): Promise<boolean> {
+async function pushSubscriptionToBackend(userId: string): Promise<PushSyncResult> {
   pushSyncDevLog('pushSubscriptionToBackend:start', { userId });
-  bindOneSignalExternalUser(userId);
-  let subscriptionId: string | null = await OneSignal.User.pushSubscription.getIdAsync();
-  if (!subscriptionId) {
-    await new Promise((r) => setTimeout(r, 1500));
+  if (!APP_ID) return syncResult('app_id_missing');
+  const generation = bindOneSignalExternalUser(userId);
+  if (!initialized) initOneSignal();
+
+  let subscriptionId: string | null = null;
+  for (let i = 0; i < PLAYER_ID_SYNC_ATTEMPTS; i += 1) {
     subscriptionId = await OneSignal.User.pushSubscription.getIdAsync();
+    if (subscriptionId) break;
+    await new Promise((r) => setTimeout(r, playerIdRetryDelay(i)));
   }
-  if (!subscriptionId) return false;
+
+  if (!isCurrentOneSignalIdentity(userId, generation)) {
+    return syncResult('stale_identity', subscriptionId);
+  }
+  if (!subscriptionId) return syncResult('no_player_id_after_retry');
+  const subscribed = await getCurrentNativePushSubscribed();
+  if (!isCurrentOneSignalIdentity(userId, generation)) {
+    return syncResult('stale_identity', subscriptionId);
+  }
+
   const { error } = await supabase.from('notification_preferences').upsert(
     {
       user_id: userId,
       mobile_onesignal_player_id: subscriptionId,
-      mobile_onesignal_subscribed: true,
+      mobile_onesignal_subscribed: subscribed === true,
     },
     { onConflict: 'user_id' }
   );
   if (error) {
     console.warn('[Vibely] Failed to save mobile push id:', error);
-    return false;
+    return syncResult('upsert_failed', subscriptionId, error.message);
+  }
+  if (!isCurrentOneSignalIdentity(userId, generation)) {
+    return syncResult('stale_identity', subscriptionId);
+  }
+  if (subscribed !== true) {
+    return syncResult('sdk_not_ready', subscriptionId, 'OneSignal native subscription is not opted in yet.');
   }
   pushSyncDevLog('pushSubscriptionToBackend:ok', { userId, subscriptionId });
-  return true;
+  return syncResult('synced', subscriptionId);
 }
 
 /**
  * Sync OneSignal subscription ID to notification_preferences after permission is already granted.
  * Does not call requestPermission — use after OS permission is granted (e.g. syncBackendAfterPushGrant).
  */
-export async function syncPushSubscriptionToBackend(userId: string): Promise<boolean> {
-  if (!APP_ID) return false;
+export async function syncPushSubscriptionToBackend(userId: string): Promise<PushSyncResult> {
+  if (!APP_ID) return syncResult('app_id_missing');
   pushSyncDevLog('syncPushSubscriptionToBackend', { userId });
   try {
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] syncPushSubscriptionToBackend error:', e);
-    return false;
+    return syncResult('upsert_failed', null, e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -105,15 +187,15 @@ export async function syncPushSubscriptionToBackend(userId: string): Promise<boo
  * Register this device's push subscription with the backend when OS permission is already granted.
  * Does not prompt — call only after expo OS permission is granted.
  */
-export async function registerPushWithBackend(userId: string): Promise<boolean> {
-  if (!APP_ID) return false;
+export async function registerPushWithBackend(userId: string): Promise<PushSyncResult> {
+  if (!APP_ID) return syncResult('app_id_missing');
   pushSyncDevLog('registerPushWithBackend (sync-only, no OS prompt)', { userId });
   try {
-    if ((await getOsPushPermissionState()) !== 'granted') return false;
+    if ((await getOsPushPermissionState()) !== 'granted') return syncResult('permission_denied');
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] registerPushWithBackend error:', e);
-    return false;
+    return syncResult('upsert_failed', null, e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -121,19 +203,21 @@ export async function registerPushWithBackend(userId: string): Promise<boolean> 
  * Re-register with backend only if OS permission is already granted (no prompt).
  * Use on login so returning users get player ID refreshed without nagging deniers.
  */
-export async function syncPushWithBackendIfPermissionGranted(userId: string): Promise<boolean> {
-  if (!APP_ID) return false;
+export async function syncPushWithBackendIfPermissionGranted(userId: string): Promise<PushSyncResult> {
+  if (!APP_ID) return syncResult('app_id_missing');
   pushSyncDevLog('syncPushWithBackendIfPermissionGranted', { userId });
   try {
-    if ((await getOsPushPermissionState()) !== 'granted') return false;
+    if ((await getOsPushPermissionState()) !== 'granted') return syncResult('permission_denied');
     return await pushSubscriptionToBackend(userId);
   } catch (e) {
     console.warn('[Vibely] syncPushWithBackendIfPermissionGranted error:', e);
-    return false;
+    return syncResult('upsert_failed', null, e instanceof Error ? e.message : String(e));
   }
 }
 
 export function logoutOneSignal(): void {
+  identityGeneration += 1;
+  activeIdentityUserId = null;
   try {
     OneSignal.logout();
   } catch {}

@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { trackEvent } from "@/lib/analytics";
+import { removeExternalUserId } from "@/lib/onesignal";
 import {
   getAuthProvider,
   getEntryStateOnboardingStatus,
@@ -225,6 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const userId = currentUserId;
     clearPreparedVideoDateEntryCache();
+    removeExternalUserId();
     if (userId) {
       try {
         await supabase

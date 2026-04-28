@@ -90,10 +90,10 @@ export function PushPermissionPrompt() {
         return;
       }
 
-      const ok = await requestWebPushPermissionAndSync(user.id);
-      vibelyOsLog("PushPermissionPrompt:requestWebPushPermissionAndSync", { ok });
+      const result = await requestWebPushPermissionAndSync(user.id);
+      vibelyOsLog("PushPermissionPrompt:requestWebPushPermissionAndSync", { code: result.code, synced: result.synced });
 
-      if (ok) {
+      if (result.synced) {
         window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
         trackEvent("push_permission_granted");
         toast.success("Notifications enabled! 🔔");
@@ -107,6 +107,8 @@ export function PushPermissionPrompt() {
         });
       } else if (Notification.permission === "denied") {
         toast.message("Notifications are blocked in your browser. You can enable them in site settings.");
+      } else if (result.code === "no_player_id_after_retry") {
+        toast.error("Notifications are allowed, but this browser is still finishing setup. Try Retry in Settings.");
       } else {
         toast.error("Couldn’t finish enabling notifications. Try again from Settings → Notifications.");
       }

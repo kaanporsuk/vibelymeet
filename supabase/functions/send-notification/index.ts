@@ -698,7 +698,17 @@ Deno.serve(async (req) => {
       playerIds.push(prefs.mobile_onesignal_player_id)
     }
     if (playerIds.length === 0) {
-      await logNotification(user_id, category, title, body, data, false, 'no_player_id')
+      const diagnosticData = {
+        ...(data || {}),
+        push_delivery_diagnostic: {
+          web_player_id_present: Boolean(prefs.onesignal_player_id),
+          web_subscribed: prefs.onesignal_subscribed === true,
+          mobile_player_id_present: Boolean(prefs.mobile_onesignal_player_id),
+          mobile_subscribed: prefs.mobile_onesignal_subscribed === true,
+          push_enabled: prefs.push_enabled !== false,
+        },
+      }
+      await logNotification(user_id, category, title, body, diagnosticData, false, 'no_player_id')
       emitLifecycle('suppressed', 'no_player_id')
       return new Response(JSON.stringify({ success: false, reason: 'no_player_id' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }

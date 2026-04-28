@@ -13,8 +13,8 @@ export const NotificationStep = ({ userId, onNext }: NotificationStepProps) => {
   const [granted, setGranted] = useState(false);
 
   const handleEnable = async () => {
-    const ok = await requestWebPushPermissionAndSync(userId);
-    if (ok) {
+    const result = await requestWebPushPermissionAndSync(userId);
+    if (result.synced) {
       setGranted(true);
       setTimeout(onNext, 1000);
     } else {

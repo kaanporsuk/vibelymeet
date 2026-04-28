@@ -29,6 +29,7 @@ import { useDashboardMatches } from "@/hooks/useMatches";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { useScheduleHub } from "@/hooks/useScheduleHub";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
 import { useNotifications } from "@/contexts/NotificationContext";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
@@ -121,18 +122,20 @@ const Dashboard = () => {
   const { data: matches = [], isLoading: matchesLoading, refetch: refetchMatches } = useDashboardMatches();
   const { reminderSources } = useScheduleHub();
   const { nextReminder, imminentReminders } = useDateReminders(reminderSources);
-  const { isGranted, isBrowserPermissionGranted, scheduleDateReminder, refreshSubscriptionState } =
+  const { isBrowserPermissionGranted, scheduleDateReminder, refreshSubscriptionState } =
     usePushNotifications();
+  const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth();
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
-    const ok = await requestWebPushPermissionAndSync(user.id);
+    const result = await requestWebPushPermissionAndSync(user.id);
     await refreshSubscriptionState();
-    if (ok) {
+    await refreshPushDeliveryHealth();
+    if (result.synced) {
       window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
     }
-    return ok;
-  }, [user?.id, refreshSubscriptionState]);
+    return result.synced;
+  }, [user?.id, refreshPushDeliveryHealth, refreshSubscriptionState]);
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
   const { data: unreadMessageCount = 0, refetch: refetchUnread } = useQuery({
@@ -475,7 +478,7 @@ const Dashboard = () => {
               <MiniDateCountdown reminder={nextReminder} onClick={() => navigate("/schedule")} />
             )}
             <NotificationPermissionButton
-              isGranted={isGranted}
+              isGranted={pushDeliveryHealth.backendDeliverable}
               onClick={handleNotificationClick}
               unreadCount={unreadCount}
             />
@@ -570,7 +573,7 @@ const Dashboard = () => {
                   navigate("/schedule");
                 }}
                 onEnableNotifications={() => setShowNotificationFlow(true)}
-                notificationsEnabled={isGranted}
+                notificationsEnabled={pushDeliveryHealth.backendDeliverable}
               />
             ))}
           </section>

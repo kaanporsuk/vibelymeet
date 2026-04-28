@@ -23,6 +23,7 @@ import { GlassHeaderBar } from '@/components/ui';
 import { spacing, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { usePushDeliveryHealth } from '@/lib/usePushDeliveryHealth';
 import { syncBackendAfterPushGrant } from '@/lib/requestPushPermissions';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences, type NotificationPrefs } from '@/lib/useNotificationPreferences';
@@ -253,6 +254,12 @@ export default function NotificationsSettingsScreen() {
     refresh,
     openSettings,
   } = usePushPermission();
+  const {
+    health: pushDeliveryHealth,
+    sync: retryPushSync,
+    refresh: refreshPushDeliveryHealth,
+    isSyncing: pushSyncing,
+  } = usePushDeliveryHealth(user?.id);
   const [pauseModalVisible, setPauseModalVisible] = useState(false);
   const [pauseKind, setPauseKind] = useState<PauseKind | null>(null);
   const [pauseBusy, setPauseBusy] = useState(false);
@@ -326,15 +333,23 @@ export default function NotificationsSettingsScreen() {
   }, [isPaused, activePauseKind, remainingShort]);
 
   const handleEnablePush = async () => {
+    if (!user?.id) return;
+    if (pushDeliveryHealth.status === 'needs_sync' || pushDeliveryHealth.status === 'allowed_finishing_setup') {
+      await retryPushSync();
+      await refreshPushDeliveryHealth();
+      return;
+    }
     const result = await requestPermission();
     if (result.osDenied) {
       await refresh();
+      await refreshPushDeliveryHealth();
       return;
     }
-    if (result.granted && user?.id) {
+    if (result.granted) {
       await syncBackendAfterPushGrant(user.id);
     }
     await refresh();
+    await refreshPushDeliveryHealth();
   };
 
   const handleSelectPauseDuration = useCallback(
@@ -457,7 +472,7 @@ export default function NotificationsSettingsScreen() {
   );
 
   const renderStatusCard = () => {
-    if (osDenied) {
+    if (pushDeliveryHealth.status === 'blocked' || osDenied) {
       return (
         <NotificationDeniedRecoverySurface
           onOpenSettings={openSettings}
@@ -499,6 +514,27 @@ export default function NotificationsSettingsScreen() {
       );
     }
 
+    if (pushDeliveryHealth.status !== 'enabled') {
+      const iconName = pushDeliveryHealth.status === 'unsupported' ? 'alert-circle-outline' : 'sync-circle-outline';
+      return (
+        <View style={[styles.statusCard, { backgroundColor: withAlpha(AMBER, 0.08), borderColor: withAlpha(AMBER, 0.25) }]}>
+          <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(AMBER, 0.15) }]}>
+            <Ionicons name={iconName as keyof typeof Ionicons.glyphMap} size={28} color={AMBER} />
+          </View>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
+          <Text style={{ fontSize: 17, fontWeight: '700', color: AMBER }}>{pushDeliveryHealth.label}</Text>
+          <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 4, textAlign: 'center' }}>
+            {pushDeliveryHealth.description}
+          </Text>
+          {pushDeliveryHealth.canRetrySync ? (
+            <Pressable onPress={handleEnablePush} disabled={pushSyncing} style={{ marginTop: 10 }}>
+              <Text style={{ color: AMBER, fontWeight: '600', fontSize: 13 }}>{pushSyncing ? 'Retrying...' : 'Retry setup'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      );
+    }
+
     return (
       <View style={[styles.statusCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: theme.glassBorder }]}>
         <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.tint, 0.15) }]}>
@@ -536,7 +572,7 @@ export default function NotificationsSettingsScreen() {
         contentContainerStyle={[styles.scrollInner, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {!osDenied && !pushOsGranted ? (
+        {pushDeliveryHealth.status !== 'enabled' && pushDeliveryHealth.status !== 'blocked' ? (
           <View
             style={[
               styles.alertBanner,
@@ -545,14 +581,18 @@ export default function NotificationsSettingsScreen() {
           >
             <Ionicons name="alert-circle" size={22} color="#EAB308" style={styles.alertIcon} />
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.alertTitle, { color: theme.text }]}>Push notifications are off</Text>
+              <Text style={[styles.alertTitle, { color: theme.text }]}>{pushDeliveryHealth.label}</Text>
               <Text style={[styles.alertDesc, { color: theme.mutedForeground }]}>
-                You&apos;ll miss matches, messages, and date invitations
+                {pushDeliveryHealth.description}
               </Text>
             </View>
-            <Pressable onPress={handleEnablePush} style={styles.enableBtn}>
-              <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Enable Push Notifications</Text>
-            </Pressable>
+            {pushDeliveryHealth.status !== 'unsupported' ? (
+              <Pressable onPress={handleEnablePush} disabled={pushSyncing} style={styles.enableBtn}>
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>
+                  {pushOsGranted ? 'Retry Setup' : 'Enable Push Notifications'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 

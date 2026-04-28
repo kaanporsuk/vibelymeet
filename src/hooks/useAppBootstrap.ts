@@ -1,8 +1,8 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
-import { setExternalUserId, removeExternalUserId, getPlayerId, isSubscribed } from "@/lib/onesignal";
+import { setExternalUserId, removeExternalUserId } from "@/lib/onesignal";
+import { syncWebPushRegistrationToBackend } from "@/lib/requestWebPushPermission";
 import { identifyUser, resetAnalytics, setUserProperties } from "@/lib/analytics";
 
 export const useAppBootstrap = () => {
@@ -33,20 +33,7 @@ export const useAppBootstrap = () => {
     const syncOneSignal = async () => {
       try {
         setExternalUserId(userId);
-        const playerId = await getPlayerId();
-        const subscribed = await isSubscribed();
-        if (playerId) {
-          await supabase
-            .from("notification_preferences")
-            .upsert(
-              {
-                user_id: userId,
-                onesignal_player_id: playerId,
-                onesignal_subscribed: subscribed,
-              },
-              { onConflict: "user_id" }
-            );
-        }
+        await syncWebPushRegistrationToBackend(userId);
       } catch (e) {
         console.error("OneSignal sync error:", e);
       }
@@ -71,4 +58,3 @@ export const useAppBootstrap = () => {
     });
   }, [user]);
 };
-
