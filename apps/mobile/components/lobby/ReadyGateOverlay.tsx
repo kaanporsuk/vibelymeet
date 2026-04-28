@@ -55,6 +55,8 @@ const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
 const PREPARE_ENTRY_SLOW_WAIT_MS = 4_000;
 const PREPARE_ENTRY_RETRY_DELAYS_MS = [700, 1_600] as const;
+const TIMEOUT_FORFEIT_RETRY_DELAY_MS = 5_000;
+const TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS = 2;
 
 type PrepareEntryStatus = 'idle' | 'preparing' | 'slow' | 'retrying' | 'failed';
 type PrepareEntryFailure = {
@@ -108,6 +110,8 @@ export function ReadyGateOverlay({
   const openingPermissionWaitRef = useRef(false);
   const terminalTimeoutRef = useRef(false);
   const timeoutForfeitSentRef = useRef(false);
+  const timeoutForfeitRetryAtMsRef = useRef(0);
+  const timeoutForfeitAttemptCountRef = useRef(0);
   const terminalActionInFlightRef = useRef(false);
   const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
@@ -476,6 +480,8 @@ export function ReadyGateOverlay({
     openingPermissionWaitRef.current = false;
     terminalTimeoutRef.current = false;
     timeoutForfeitSentRef.current = false;
+    timeoutForfeitRetryAtMsRef.current = 0;
+    timeoutForfeitAttemptCountRef.current = 0;
     terminalActionInFlightRef.current = false;
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
@@ -640,40 +646,22 @@ export function ReadyGateOverlay({
     };
   }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, userId]);
 
-  useEffect(() => {
-    if (isTransitioning || iAmReady || markingReady || snoozedByPartner || terminalActionPending) return;
-    const tick = () => {
-      const next = getReadyGateRemainingSeconds({
-        expiresAt,
-        fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
-      });
-      setTimeLeft(next);
-      if (next <= 0 && !timeoutForfeitSentRef.current) {
-        timeoutForfeitSentRef.current = true;
-        void forfeit();
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, terminalActionPending, expiresAt, forfeit]);
-
-  const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT_SEC);
-  const dashOffset = CIRC * (1 - progress);
-
-  const handleSkip = useCallback(async () => {
+  const handleSkip = useCallback(async (reason: 'timeout' | 'skip' = 'skip') => {
     if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;
+    const isTimeoutAutoForfeit = reason === 'timeout';
     terminalActionInFlightRef.current = true;
-    pendingForfeitReasonRef.current = 'skip';
+    pendingForfeitReasonRef.current = reason;
     setTerminalActionPending(true);
     setTerminalActionError(null);
-    const dismissVariant = iAmReady ? 'cancel_go_back' : 'skip_this_one';
-    trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
-      platform: 'native',
-      session_id: sessionId,
-      event_id: eventId,
-      dismiss_variant: dismissVariant,
-    });
+    const dismissVariant = isTimeoutAutoForfeit ? 'timeout_auto_forfeit' : iAmReady ? 'cancel_go_back' : 'skip_this_one';
+    if (!isTimeoutAutoForfeit) {
+      trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        dismiss_variant: dismissVariant,
+      });
+    }
     try {
       const ok = await forfeit();
       if (!ok) throw new Error('ready_gate_forfeit_failed');
@@ -686,12 +674,18 @@ export function ReadyGateOverlay({
         outcome: 'success',
         reason: 'forfeit',
       });
-      await handleForfeited('skip');
+      await handleForfeited(reason);
     } catch (e) {
       terminalActionInFlightRef.current = false;
       pendingForfeitReasonRef.current = null;
+      if (isTimeoutAutoForfeit) {
+        timeoutForfeitSentRef.current = false;
+        timeoutForfeitRetryAtMsRef.current = Date.now() + TIMEOUT_FORFEIT_RETRY_DELAY_MS;
+      }
       if (closedRef.current || dateNavigationStartedRef.current) return;
-      const message = "We couldn't step away. Check your connection and try again.";
+      const message = isTimeoutAutoForfeit
+        ? "We couldn't step away automatically. Check your connection and tap Step away."
+        : "We couldn't step away. Check your connection and try again.";
       setTerminalActionPending(false);
       setTerminalActionError(message);
       rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeit_failed_kept_open', {
@@ -712,6 +706,35 @@ export function ReadyGateOverlay({
       });
     }
   }, [eventId, forfeit, handleForfeited, iAmReady, sessionId]);
+
+  useEffect(() => {
+    if (isTransitioning || iAmReady || markingReady || snoozedByPartner || terminalActionPending) return;
+    const tick = () => {
+      const next = getReadyGateRemainingSeconds({
+        expiresAt,
+        fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
+      });
+      setTimeLeft(next);
+      if (next <= 0 && !timeoutForfeitSentRef.current) {
+        const now = Date.now();
+        if (
+          timeoutForfeitAttemptCountRef.current >= TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS ||
+          timeoutForfeitRetryAtMsRef.current > now
+        ) {
+          return;
+        }
+        timeoutForfeitSentRef.current = true;
+        timeoutForfeitAttemptCountRef.current += 1;
+        void handleSkip('timeout');
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, terminalActionPending, expiresAt, handleSkip]);
+
+  const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT_SEC);
+  const dashOffset = CIRC * (1 - progress);
 
   const displayName = partnerName || 'someone';
   const retryPrepareEntry = () => {
@@ -940,8 +963,11 @@ export function ReadyGateOverlay({
                     setMarkingReady(true);
                     void (async () => {
                       try {
-                        await markReady();
+                        setTerminalActionError(null);
+                        const ok = await markReady();
+                        if (!ok) throw new Error('ready_gate_mark_ready_failed');
                       } catch (e) {
+                        setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
                         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_mark_ready_exception', {
                           message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
                         });
@@ -970,7 +996,14 @@ export function ReadyGateOverlay({
                       setRequestingSnooze(true);
                       void (async () => {
                         try {
-                          await snooze();
+                          setTerminalActionError(null);
+                          const ok = await snooze();
+                          if (!ok) throw new Error('ready_gate_snooze_failed');
+                        } catch (e) {
+                          setTerminalActionError("We couldn't snooze this match. Check your connection and try again.");
+                          rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_snooze_exception', {
+                            message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+                          });
                         } finally {
                           setRequestingSnooze(false);
                         }

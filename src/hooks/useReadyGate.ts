@@ -39,6 +39,7 @@ type ReadyGateRealtimeRow = {
 };
 
 const TERMINAL_READY_GATE_STATUS_VALUES: readonly ReadyGateStatus[] = TERMINAL_READY_GATE_STATUSES;
+type ReadyGateTransitionAction = "mark_ready" | "forfeit" | "snooze";
 
 function isTerminalReadyGateStatus(status: ReadyGateStatus): status is TerminalReadyGateStatus {
   return TERMINAL_READY_GATE_STATUS_VALUES.includes(status);
@@ -185,26 +186,15 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
   // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
   // so we avoid duplicate 2s timers alongside the overlay reconcile loop.
 
-  // Mark self as ready (server-owned transition)
-  const markReady = useCallback(async () => {
-    if (!sessionId || !user?.id) return;
-
-    await supabase.rpc("ready_gate_transition", {
-      p_session_id: sessionId,
-      p_action: "mark_ready",
-    });
-  }, [sessionId, user?.id]);
-
-  // Skip — forfeit (server-owned transition)
-  const skip = useCallback(async (): Promise<boolean> => {
+  const runReadyGateTransition = useCallback(async (action: ReadyGateTransitionAction): Promise<boolean> => {
     if (!sessionId || !user?.id) return false;
 
     const { error } = await supabase.rpc("ready_gate_transition", {
       p_session_id: sessionId,
-      p_action: "forfeit",
+      p_action: action,
     });
     if (error) {
-      readyGateDebug("forfeit transition failed", {
+      readyGateDebug(`${action} transition failed`, {
         sessionId,
         code: error.code ?? null,
         message: error.message,
@@ -214,15 +204,20 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     return true;
   }, [sessionId, user?.id]);
 
-  // Snooze — request 2 more minutes (server-owned transition)
-  const snooze = useCallback(async () => {
-    if (!sessionId || !user?.id) return;
+  // Mark self as ready (server-owned transition)
+  const markReady = useCallback(async (): Promise<boolean> => (
+    runReadyGateTransition("mark_ready")
+  ), [runReadyGateTransition]);
 
-    await supabase.rpc("ready_gate_transition", {
-      p_session_id: sessionId,
-      p_action: "snooze",
-    });
-  }, [sessionId, user?.id]);
+  // Skip — forfeit (server-owned transition)
+  const skip = useCallback(async (): Promise<boolean> => {
+    return runReadyGateTransition("forfeit");
+  }, [runReadyGateTransition]);
+
+  // Snooze — request 2 more minutes (server-owned transition)
+  const snooze = useCallback(async (): Promise<boolean> => (
+    runReadyGateTransition("snooze")
+  ), [runReadyGateTransition]);
 
   return {
     ...state,

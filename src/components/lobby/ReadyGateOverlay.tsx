@@ -38,8 +38,15 @@ const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const PREPARE_ENTRY_SLOW_WAIT_MS = 3_000;
 const PREPARE_ENTRY_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
+const TIMEOUT_FORFEIT_RETRY_DELAY_MS = 5_000;
+const TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS = 2;
 
 type PrepareEntryStatus = "idle" | "preparing" | "slow" | "retrying" | "failed";
+type ReadyGateTerminalAction =
+  | "skip_this_one"
+  | "cancel_go_back"
+  | "prepare_failed_back"
+  | "timeout_auto_forfeit";
 
 type PrepareEntryFailureState = {
   code: string;
@@ -141,6 +148,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const openingWaitImpressionRef = useRef(false);
   const terminalOutcomeRef = useRef(false);
   const timeoutForfeitSentRef = useRef(false);
+  const timeoutForfeitRetryAtMsRef = useRef(0);
+  const timeoutForfeitAttemptCountRef = useRef(0);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
@@ -401,17 +410,20 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   });
 
   const runTerminalAction = useCallback(
-    async (dismissVariant: "skip_this_one" | "cancel_go_back" | "prepare_failed_back") => {
+    async (dismissVariant: ReadyGateTerminalAction) => {
       if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;
+      const isTimeoutAutoForfeit = dismissVariant === "timeout_auto_forfeit";
       terminalActionInFlightRef.current = true;
       setTerminalActionPending(true);
       setTerminalActionError(null);
-      trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
-        platform: "web",
-        session_id: sessionId,
-        event_id: eventId,
-        dismiss_variant: dismissVariant,
-      });
+      if (!isTimeoutAutoForfeit) {
+        trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          dismiss_variant: dismissVariant,
+        });
+      }
       try {
         const ok = await skip();
         if (!ok) {
@@ -427,11 +439,17 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           outcome: "success",
           reason: "forfeit",
         });
-        handleForfeited("skip");
+        handleForfeited(isTimeoutAutoForfeit ? "timeout" : "skip");
       } catch (error) {
         terminalActionInFlightRef.current = false;
+        if (isTimeoutAutoForfeit) {
+          timeoutForfeitSentRef.current = false;
+          timeoutForfeitRetryAtMsRef.current = Date.now() + TIMEOUT_FORFEIT_RETRY_DELAY_MS;
+        }
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
-        const message = "We couldn't step away. Check your connection and try again.";
+        const message = isTimeoutAutoForfeit
+          ? "We couldn't step away automatically. Check your connection and tap Step away."
+          : "We couldn't step away. Check your connection and try again.";
         setTerminalActionPending(false);
         setTerminalActionError(message);
         readyGateDebug("terminal ready-gate action failed", {
@@ -691,6 +709,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     openingWaitImpressionRef.current = false;
     terminalOutcomeRef.current = false;
     timeoutForfeitSentRef.current = false;
+    timeoutForfeitRetryAtMsRef.current = 0;
+    timeoutForfeitAttemptCountRef.current = 0;
     realtimeFallbackLoggedRef.current = false;
     terminalActionInFlightRef.current = false;
     bothReadyObservedAtMsRef.current = null;
@@ -812,8 +832,16 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       });
       setTimeLeft(next);
       if (next <= 0 && !timeoutForfeitSentRef.current) {
+        const now = Date.now();
+        if (
+          timeoutForfeitAttemptCountRef.current >= TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS ||
+          timeoutForfeitRetryAtMsRef.current > now
+        ) {
+          return;
+        }
         timeoutForfeitSentRef.current = true;
-        void skip();
+        timeoutForfeitAttemptCountRef.current += 1;
+        void runTerminalAction("timeout_auto_forfeit");
       }
     };
 
@@ -821,7 +849,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     const interval = setInterval(tick, 1000);
 
     return () => clearInterval(interval);
-  }, [isTransitioning, iAmReady, snoozedByPartner, terminalActionPending, expiresAt, skip]);
+  }, [isTransitioning, iAmReady, snoozedByPartner, terminalActionPending, expiresAt, runTerminalAction]);
 
   const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT);
   const ringSize = 96;
@@ -1039,7 +1067,19 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     setMarkingReady(true);
                     void (async () => {
                       try {
-                        await markReady();
+                        setTerminalActionError(null);
+                        const ok = await markReady();
+                        if (!ok) {
+                          throw new Error("ready_gate_mark_ready_failed");
+                        }
+                      } catch (error) {
+                        const message = "We couldn't mark you ready. Check your connection and try again.";
+                        setTerminalActionError(message);
+                        readyGateDebug("mark ready failed", {
+                          sessionId,
+                          message: error instanceof Error ? error.message : String(error),
+                        });
+                        toast.error(message, { duration: 3200 });
                       } finally {
                         setMarkingReady(false);
                       }
@@ -1099,7 +1139,19 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     setRequestingSnooze(true);
                     void (async () => {
                       try {
-                        await snooze();
+                        setTerminalActionError(null);
+                        const ok = await snooze();
+                        if (!ok) {
+                          throw new Error("ready_gate_snooze_failed");
+                        }
+                      } catch (error) {
+                        const message = "We couldn't snooze this match. Check your connection and try again.";
+                        setTerminalActionError(message);
+                        readyGateDebug("snooze failed", {
+                          sessionId,
+                          message: error instanceof Error ? error.message : String(error),
+                        });
+                        toast.error(message, { duration: 3200 });
                       } finally {
                         setRequestingSnooze(false);
                       }
