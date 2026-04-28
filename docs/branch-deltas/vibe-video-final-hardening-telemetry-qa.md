@@ -102,3 +102,25 @@ Operational gap:
 - No native binary rebuild is required by these changes alone.
 - Edge Function deploy is required for new structured logs.
 - Supabase migration deploy is required for backend-owned field guardrails.
+
+## Backend Contract Repair Delta
+
+Additional repo-side hardening now lives in:
+
+- `supabase/migrations/20260501123000_vibe_video_backend_contract_repair.sql`
+- `supabase/validation/vibe_video_backend_contract_repair.sql`
+
+Contract changes:
+
+- `public.calculate_vibe_score(uuid)` is reasserted as UID-only for Vibe Video credit: any non-empty `profiles.bunny_video_uid` gives +15, regardless of `bunny_video_status`.
+- Existing profiles with non-empty `bunny_video_uid` are backfilled through the reasserted scorer so persisted `profiles.vibe_score` catches up after deploy.
+- `public.classify_stale_vibe_video_uploads(int, int)` gives service-role operators a read-only list of stale current-profile Vibe Video upload states before repair.
+- `public.mark_stale_vibe_video_uploads_failed(int, int)` now uses the same conservative candidate rules, marks stale `created` / `uploading` / `processing` sessions and profile mirrors as `failed`, preserves `bunny_video_uid` for score/history, and does not delete Bunny media.
+- `create-video-upload` now requires a durable `draft_media_sessions` row before returning TUS credentials. If session creation fails, the freshly-created Bunny Stream object is cleaned up and the credential request fails with `media_session_create_failed`.
+- `video-webhook` now checks for any existing Vibe Video `draft_media_sessions` row before using the legacy profile fallback after `session_not_found`. Modern terminal/stale session events are logged as `video_webhook_session_not_found_modern_asset_ignored` instead of silently hiding lifecycle gaps.
+
+Deploy impact:
+
+- Deploy the new Supabase migration before relying on stale repair helpers.
+- Redeploy `create-video-upload` and `video-webhook` after the migration is applied.
+- No Supabase cloud deploy was performed from this working copy.

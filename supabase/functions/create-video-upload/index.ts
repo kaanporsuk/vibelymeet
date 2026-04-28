@@ -224,42 +224,6 @@ serve(async (req) => {
       project_ref: projectRef,
     });
 
-    const { data: lifecycleResult, error: lifecycleError } = await adminSupabase.rpc(
-      "activate_profile_vibe_video",
-      {
-        p_user_id: user.id,
-        p_video_id: videoId,
-        p_video_status: "uploading",
-      },
-    );
-
-    if (lifecycleError) {
-      logVibeVideo("error", "create_video_upload_profile_uid_write_failed", {
-        user_id: user.id,
-        video_guid: videoId,
-        error_code: lifecycleError.code ?? "rpc_error",
-      });
-      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_error");
-      return json(
-        { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
-        500,
-      );
-    }
-
-    const lr = lifecycleResult as Record<string, unknown> | null;
-    if (lr?.success !== true) {
-      logVibeVideo("error", "create_video_upload_profile_uid_write_rejected", {
-        user_id: user.id,
-        video_guid: videoId,
-        error_code: typeof lr?.error === "string" ? lr.error : "rpc_rejected",
-      });
-      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_rejected");
-      return json(
-        { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
-        500,
-      );
-    }
-
     // ── TUS signature ────────────────────────────────────────────────────────
     const expirationTime = Math.floor(Date.now() / 1000) + 3600;
     const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
@@ -289,6 +253,11 @@ serve(async (req) => {
         video_guid: videoId,
         error_code: sessionError.code ?? "session_creation_failed",
       });
+      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "session_creation_failed");
+      return json(
+        { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
+        500,
+      );
     }
 
     const sr = sessionResult as Record<string, unknown> | null;
@@ -296,12 +265,17 @@ serve(async (req) => {
     const replacedSessionId = sr?.replaced_session_id ?? null;
     const replacedProviderId = sr?.replaced_provider_id ?? null;
 
-    if (sr && sr.success !== true) {
+    if (sr?.success !== true) {
       logVibeVideo("error", "create_video_upload_media_session_create_rejected", {
         user_id: user.id,
         video_guid: videoId,
-        error_code: typeof sr.error === "string" ? sr.error : "session_rpc_failed",
+        error_code: typeof sr?.error === "string" ? sr.error : "session_rpc_failed",
       });
+      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "session_rpc_failed");
+      return json(
+        { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
+        500,
+      );
     }
 
     if (replacedProviderId && replacedProviderId !== existingVideoId) {
@@ -320,9 +294,81 @@ serve(async (req) => {
       upload_context: uploadContext,
     });
 
+    const { data: lifecycleResult, error: lifecycleError } = await adminSupabase.rpc(
+      "activate_profile_vibe_video",
+      {
+        p_user_id: user.id,
+        p_video_id: videoId,
+        p_video_status: "uploading",
+      },
+    );
+
+    if (lifecycleError) {
+      logVibeVideo("error", "create_video_upload_profile_uid_write_failed", {
+        user_id: user.id,
+        video_guid: videoId,
+        media_session_id: typeof sessionId === "string" ? sessionId : null,
+        error_code: lifecycleError.code ?? "rpc_error",
+      });
+      await adminSupabase.rpc("update_media_session_status", {
+        p_provider_id: videoId,
+        p_new_status: "failed",
+        p_error_detail: "profile_update_failed",
+      });
+      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_error");
+      return json(
+        { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
+        500,
+      );
+    }
+
+    const lr = lifecycleResult as Record<string, unknown> | null;
+    if (lr?.success !== true) {
+      logVibeVideo("error", "create_video_upload_profile_uid_write_rejected", {
+        user_id: user.id,
+        video_guid: videoId,
+        media_session_id: typeof sessionId === "string" ? sessionId : null,
+        error_code: typeof lr?.error === "string" ? lr.error : "rpc_rejected",
+      });
+      await adminSupabase.rpc("update_media_session_status", {
+        p_provider_id: videoId,
+        p_new_status: "failed",
+        p_error_detail: "profile_update_rejected",
+      });
+      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_rejected");
+      return json(
+        { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
+        500,
+      );
+    }
+
+    let sessionStatus = "created";
+    const { data: sessionUploadResult, error: sessionUploadError } = await adminSupabase.rpc(
+      "update_media_session_status",
+      {
+        p_provider_id: videoId,
+        p_new_status: "uploading",
+        p_error_detail: null,
+      },
+    );
+    const sur = sessionUploadResult as Record<string, unknown> | null;
+    if (sessionUploadError || sur?.success !== true) {
+      logVibeVideo("warn", "create_video_upload_media_session_uploading_mark_failed_but_repairable", {
+        user_id: user.id,
+        video_guid: videoId,
+        media_session_id: typeof sessionId === "string" ? sessionId : null,
+        error_code: sessionUploadError?.code ?? (typeof sur?.error === "string" ? sur.error : "session_status_update_failed"),
+        repairable_lifecycle_state: true,
+      });
+    } else {
+      sessionStatus = "uploading";
+    }
+
     logVibeVideo("info", "create_video_upload_profile_uid_write_succeeded", {
       user_id: user.id,
       video_guid: videoId,
+      media_session_id: typeof sessionId === "string" ? sessionId : null,
+      media_session_status: sessionStatus,
       replaced_existing_video: !!existingVideoId,
       project_ref: projectRef,
     });
@@ -336,6 +382,8 @@ serve(async (req) => {
         signature,
         cdnHostname,
         sessionId,
+        sessionStatus,
+        repairableLifecycleState: sessionStatus !== "uploading",
       },
       200,
     );
