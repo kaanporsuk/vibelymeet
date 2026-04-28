@@ -12,6 +12,7 @@ import {
   requestOsPushPermission,
   type OsPushPermissionState,
 } from '@/lib/osPushPermission';
+import type { PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
 export const VIBELY_PUSH_PERMISSION_ASKED_KEY = 'vibely_push_permission_asked';
 
@@ -174,24 +175,30 @@ async function getPromptableOsState(context: string): Promise<OsPushPermissionSt
 }
 
 export type PushPromptResult =
-  | { outcome: 'granted' }
+  | { outcome: 'granted'; sync: PushSyncResult }
   | { outcome: 'already_denied' }
   | { outcome: 'denied_after_sheet' }
   | { outcome: 'no_app_id' };
 
 /** Shared success path after OS permission is granted (prefs + OneSignal subscription; no prompts). */
-export async function syncBackendAfterPushGrant(userId: string): Promise<void> {
+export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyncResult> {
   if (__DEV__) pushPermDevLog('syncBackendAfterPushGrant', { userId });
+  if (!APP_ID) {
+    return { code: 'app_id_missing', synced: false, playerId: null };
+  }
   const stored = await AsyncStorage.getItem(PAUSED_UNTIL_KEY);
   const isPaused = !!(stored && new Date(stored) > new Date());
   if (!isPaused) {
     disablePush(false);
   }
-  await supabase.from('notification_preferences').upsert(
+  const { error } = await supabase.from('notification_preferences').upsert(
     { user_id: userId, push_enabled: true },
     { onConflict: 'user_id' }
   );
-  await syncPushSubscriptionToBackend(userId);
+  if (error) {
+    return { code: 'upsert_failed', synced: false, playerId: null, message: error.message };
+  }
+  return await syncPushSubscriptionToBackend(userId);
 }
 
 export async function requestPushPermissionsAfterPrompt(userId: string): Promise<PushPromptResult> {
@@ -212,16 +219,16 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
     return { outcome: 'already_denied' };
   }
   if (os === 'granted') {
-    await syncBackendAfterPushGrant(userId);
-    return { outcome: 'granted' };
+    const sync = await syncBackendAfterPushGrant(userId);
+    return { outcome: 'granted', sync };
   }
 
   setDashboardPushOsPermissionRequestInFlight(true);
   try {
     const { granted } = await requestOsPushPermission();
     if (granted) {
-      await syncBackendAfterPushGrant(userId);
-      return { outcome: 'granted' };
+      const sync = await syncBackendAfterPushGrant(userId);
+      return { outcome: 'granted', sync };
     }
   } finally {
     setDashboardPushOsPermissionRequestInFlight(false);

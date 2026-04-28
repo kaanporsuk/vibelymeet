@@ -18,7 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { hrefForActiveSession } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
-import { usePushPermission } from '@/lib/usePushPermission';
+import { usePushDeliveryHealth } from '@/lib/usePushDeliveryHealth';
 import { useScheduleHub } from '@/lib/useScheduleHub';
 import { dateSuggestionApply } from '@/lib/dateSuggestionApply';
 import { VibeScheduleGrid } from '@/components/schedule/VibeScheduleGrid';
@@ -111,7 +111,7 @@ export default function ScheduleScreen() {
   } = useScheduleHub();
   const { imminentReminders, soonReminders } = useDateReminders(reminderSources);
   const upcomingReminders = [...imminentReminders, ...soonReminders];
-  const { isGranted: pushGranted } = usePushPermission();
+  const { health: pushDeliveryHealth } = usePushDeliveryHealth(user?.id);
   const { activeSession } = useActiveSession(user?.id);
   const [banner, setBanner] = useState<'success' | 'error' | null>(null);
   const [rollLoading, setRollLoading] = useState(false);
@@ -203,7 +203,7 @@ export default function ScheduleScreen() {
           style={({ pressed }) => [styles.bellWrap, pressed && { opacity: 0.8 }]}
         >
           <View style={styles.bellCircle}>
-            <Ionicons name={pushGranted ? 'notifications' : 'notifications-outline'} size={20} color="#FFFFFF" />
+            <Ionicons name={pushDeliveryHealth.backendDeliverable ? 'notifications' : 'notifications-outline'} size={20} color="#FFFFFF" />
             {unreadCount > 0 && <View style={styles.bellBadge} />}
           </View>
         </Pressable>
@@ -240,7 +240,7 @@ export default function ScheduleScreen() {
                   void handleJoinDate(r);
                 }}
                 onEnableNotifications={() => router.push('/settings/notifications')}
-                notificationsEnabled={pushGranted}
+                notificationsEnabled={pushDeliveryHealth.backendDeliverable}
               />
             ))}
           </View>

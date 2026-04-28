@@ -6,9 +6,11 @@ declare global {
 
 import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
+import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 
-const PLAYER_ID_POLL_ATTEMPTS = 8;
-const PLAYER_ID_POLL_MS = 1000;
+const PLAYER_ID_POLL_ATTEMPTS = 10;
+const PLAYER_ID_INITIAL_POLL_MS = 500;
+const PLAYER_ID_MAX_POLL_MS = 4000;
 
 /** OneSignal domain restriction throws e.g. "This web push config can only be used on https://vibelymeet.com". */
 function isOneSignalDomainError(e: unknown): boolean {
@@ -26,6 +28,8 @@ let legacySwCleanupRan = false;
 
 /** Last user id passed to OneSignal.login — avoids duplicate login spam on re-renders / token refresh. */
 let lastLoggedInUserId: string | null = null;
+let activeIdentityUserId: string | null = null;
+let identityGeneration = 0;
 
 function ensureDeferredArray() {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
@@ -99,23 +103,38 @@ function dispatchInitSettled() {
   }
 }
 
-export type OneSignalWebBootstrap = 'unsupported_host' | 'pending' | 'ready' | 'init_failed';
+export type OneSignalWebBootstrap = PushSdkHealth;
 
 export type OneSignalWebClientSnapshot = {
+  appIdConfigured: boolean;
   /** Host/protocol allowlisted in code for OneSignal.init (not the same as SDK init success). */
   originAllowed: boolean;
   initEnqueued: boolean;
   /** Deferred init callback has run (check sdkUsable for success). */
   initResolved: boolean;
   sdkUsable: boolean;
+  sdkStatus: PushSdkHealth;
 };
 
 export function getOneSignalWebClientSnapshot(): OneSignalWebClientSnapshot {
+  const appIdConfigured = Boolean((import.meta.env.VITE_ONESIGNAL_APP_ID as string | undefined)?.trim());
+  const originAllowed = typeof window !== "undefined" && isOneSignalWebOriginAllowed();
+  const sdkStatus: PushSdkHealth = !appIdConfigured
+    ? "app_id_missing"
+    : !originAllowed
+      ? "unsupported_host"
+      : !initEnqueued || !initResolvedFlag
+        ? "pending"
+        : sdkUsable
+          ? "ready"
+          : "init_failed";
   return {
-    originAllowed: typeof window !== "undefined" && isOneSignalWebOriginAllowed(),
+    appIdConfigured,
+    originAllowed,
     initEnqueued,
     initResolved: initResolvedFlag,
     sdkUsable,
+    sdkStatus,
   };
 }
 
@@ -123,12 +142,17 @@ export function getOneSignalWebClientSnapshot(): OneSignalWebClientSnapshot {
 export async function waitForOneSignalInitResult(): Promise<{
   initEnqueued: boolean;
   sdkUsable: boolean;
+  sdkStatus: PushSdkHealth;
 }> {
   if (!initEnqueued || !initFinished) {
-    return { initEnqueued: false, sdkUsable: false };
+    return {
+      initEnqueued: false,
+      sdkUsable: false,
+      sdkStatus: getOneSignalWebClientSnapshot().sdkStatus,
+    };
   }
   await initFinished;
-  return { initEnqueued: true, sdkUsable };
+  return { initEnqueued: true, sdkUsable, sdkStatus: getOneSignalWebClientSnapshot().sdkStatus };
 }
 
 export const initOneSignal = () => {
@@ -166,6 +190,14 @@ export const initOneSignal = () => {
           window.location.href = url;
         }
       });
+
+      try {
+        OneSignal.User?.PushSubscription?.addEventListener?.("change", () => {
+          window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+        });
+      } catch {
+        /* subscription change events are best-effort */
+      }
     } catch (e) {
       sdkUsable = false;
       vibelyOsLog("onesignal:init failed", {
@@ -223,7 +255,20 @@ export const promptForPush = (): Promise<boolean> => {
   });
 };
 
-export const getPlayerId = (): Promise<string | null> => {
+export type GetPlayerIdOptions = {
+  attempts?: number;
+  initialDelayMs?: number;
+  maxDelayMs?: number;
+};
+
+function playerIdPollDelay(attempt: number, initialDelayMs: number, maxDelayMs: number): number {
+  return Math.min(maxDelayMs, Math.round(initialDelayMs * Math.pow(1.65, attempt)));
+}
+
+export const getPlayerId = (options: GetPlayerIdOptions = {}): Promise<string | null> => {
+  const attempts = options.attempts ?? PLAYER_ID_POLL_ATTEMPTS;
+  const initialDelayMs = options.initialDelayMs ?? PLAYER_ID_INITIAL_POLL_MS;
+  const maxDelayMs = options.maxDelayMs ?? PLAYER_ID_MAX_POLL_MS;
   return new Promise((resolve) => {
     if (!initEnqueued || !initFinished) {
       vibelyOsLog("getPlayerId:early_exit", { initEnqueued, hasInitFinished: Boolean(initFinished) });
@@ -238,14 +283,14 @@ export const getPlayerId = (): Promise<string | null> => {
         return;
       }
       try {
-        for (let i = 0; i < PLAYER_ID_POLL_ATTEMPTS; i++) {
+        for (let i = 0; i < attempts; i++) {
           const id = await OneSignal.User.PushSubscription.id;
           vibelyOsLog("getPlayerId:poll", { attempt: i + 1, hasId: Boolean(id) });
           if (id) {
             resolve(id);
             return;
           }
-          await new Promise((r) => setTimeout(r, PLAYER_ID_POLL_MS));
+          await new Promise((r) => setTimeout(r, playerIdPollDelay(i, initialDelayMs, maxDelayMs)));
         }
         vibelyOsLog("getPlayerId:exhausted", {});
         resolve(null);
@@ -283,41 +328,59 @@ export const isSubscribed = (): Promise<boolean> => {
   });
 };
 
+export function getOneSignalIdentityGeneration(): number {
+  return identityGeneration;
+}
+
+export function isCurrentOneSignalIdentity(userId: string, generation: number): boolean {
+  return activeIdentityUserId === userId && identityGeneration === generation;
+}
+
 /**
  * Link Supabase user to OneSignal. Waits for init; skips if already linked to this id (no TOKEN_REFRESHED spam).
  */
-export const setExternalUserId = (userId: string) => {
-  if (!initEnqueued || !initFinished) return;
-  if (lastLoggedInUserId === userId) return;
+export const setExternalUserId = (userId: string): number => {
+  if (activeIdentityUserId !== userId) {
+    identityGeneration += 1;
+    activeIdentityUserId = userId;
+  }
+  const generation = identityGeneration;
+  if (!initEnqueued || !initFinished) return generation;
+  if (lastLoggedInUserId === userId) return generation;
 
   ensureDeferredArray();
   window.OneSignalDeferred!.push(async (OneSignal: any) => {
     const ok = await afterInit();
     if (!ok) return;
+    if (!isCurrentOneSignalIdentity(userId, generation)) return;
     if (lastLoggedInUserId === userId) return;
-    lastLoggedInUserId = userId;
     try {
       await OneSignal.login(userId);
+      if (!isCurrentOneSignalIdentity(userId, generation)) return;
+      lastLoggedInUserId = userId;
     } catch (e) {
       console.warn("OneSignal login failed:", e);
       lastLoggedInUserId = null;
     }
   });
+  return generation;
 };
 
 /**
  * Clear OneSignal user. Sync-clear local link state so login isn't re-skipped, then SDK logout.
  */
 export const removeExternalUserId = () => {
+  identityGeneration += 1;
+  activeIdentityUserId = null;
+  const generation = identityGeneration;
   if (!initEnqueued || !initFinished) return;
-  const hadLinked = lastLoggedInUserId !== null;
   lastLoggedInUserId = null;
-  if (!hadLinked) return;
 
   ensureDeferredArray();
   window.OneSignalDeferred!.push(async (OneSignal: any) => {
     const ok = await afterInit();
     if (!ok) return;
+    if (generation !== identityGeneration) return;
     try {
       await OneSignal.logout();
     } catch (e) {

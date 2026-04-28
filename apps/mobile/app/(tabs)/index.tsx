@@ -49,6 +49,7 @@ import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisi
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
 import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBanner';
 import { usePushPermission } from '@/lib/usePushPermission';
+import { usePushDeliveryHealth } from '@/lib/usePushDeliveryHealth';
 import { PushPermissionPrompt } from '@/components/notifications/PushPermissionPrompt';
 import {
   isDashboardPushOsPermissionRequestInFlight,
@@ -147,6 +148,7 @@ export default function DashboardScreen() {
     permissionStateHydrated: pushPermissionStateHydrated,
     refresh: refreshPushPermission,
   } = usePushPermission();
+  const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth(user?.id);
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
   const pushPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prepromptScheduledThisSessionRef = useRef(false);
@@ -912,6 +914,7 @@ export default function DashboardScreen() {
             userId={user?.id}
             onCompleted={() => {
               void refreshPushPermission('dashboard_prompt_completed');
+              void refreshPushDeliveryHealth();
             }}
           />
 
@@ -936,7 +939,7 @@ export default function DashboardScreen() {
                   void handleDateJoinReminder(reminder);
                 }}
                 onEnableNotifications={() => router.push('/settings/notifications')}
-                notificationsEnabled={pushGranted}
+                notificationsEnabled={pushDeliveryHealth.backendDeliverable}
               />
             ))}
 

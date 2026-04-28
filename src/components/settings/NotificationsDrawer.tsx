@@ -34,7 +34,7 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -88,8 +88,8 @@ function formatQuietWindowHuman(startDb: string, endDb: string): string {
 
 export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerProps) {
   const { user } = useUserProfile();
-  const { refreshSubscriptionState } = usePushNotifications();
-  const { prefs, isLoading, isSaving, isPushSubscribed, isPaused, toggle, savePrefs, setPauseUntil } =
+  const { health, sync: retryPushSync, refresh: refreshPushHealth, isSyncing } = usePushDeliveryHealth();
+  const { prefs, isLoading, isSaving, isPaused, toggle, savePrefs, setPauseUntil } =
     useNotificationPreferences();
   const [pauseOptionsOpen, setPauseOptionsOpen] = useState(false);
 
@@ -105,11 +105,18 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
 
   const handleEnablePush = async () => {
     if (!user?.id) return;
-    const ok = await requestWebPushPermissionAndSync(user.id);
-    await refreshSubscriptionState();
-    if (ok) {
+    const result =
+      health.status === "needs_sync" || health.status === "allowed_finishing_setup"
+        ? await retryPushSync()
+        : await requestWebPushPermissionAndSync(user.id);
+    await refreshPushHealth();
+    if (result?.synced) {
       window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
       toast.success("Push notifications enabled! 🔔");
+    } else if (result?.code === "no_player_id_after_retry") {
+      toast.error("Notifications are allowed, but this browser is still finishing setup. Try again in a moment.");
+    } else if (result?.code === "upsert_failed") {
+      toast.error("Couldn’t save this browser for push. Please retry.");
     }
   };
 
@@ -149,7 +156,6 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     toast.success("Notifications resumed");
   };
 
-  const browserDenied = typeof Notification !== "undefined" && Notification.permission === "denied";
   const disabled = !prefs.push_enabled || isPaused;
 
   const ToggleRow = ({
@@ -200,24 +206,26 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
 
         <div className="px-4 pb-4 space-y-3 overflow-y-auto max-h-[65vh]">
           {/* Push Status Card */}
-          {!isPushSubscribed && !browserDenied && (
+          {health.status !== "enabled" && health.status !== "blocked" && (
             <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
               <div className="flex items-center gap-2 mb-1">
                 <AlertTriangle className="w-4 h-4 text-amber-500" />
-                <p className="text-sm font-medium text-foreground">Push notifications are off</p>
+                <p className="text-sm font-medium text-foreground">{health.label}</p>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">You'll miss matches, messages, and date invitations</p>
-              <Button variant="gradient" size="sm" onClick={handleEnablePush}>
-                Enable Push Notifications
-              </Button>
+              <p className="text-xs text-muted-foreground mb-3">{health.description}</p>
+              {health.status !== "unsupported" && (
+                <Button variant="gradient" size="sm" onClick={handleEnablePush} disabled={isSyncing}>
+                  {health.status === "disabled" ? "Enable Push Notifications" : "Retry Setup"}
+                </Button>
+              )}
             </div>
           )}
 
-          {browserDenied && (
+          {health.status === "blocked" && (
             <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/30">
               <div className="flex items-center gap-2 mb-1">
                 <Lock className="w-4 h-4 text-destructive" />
-                <p className="text-sm font-medium text-foreground">Blocked by your browser</p>
+                <p className="text-sm font-medium text-foreground">{health.label}</p>
               </div>
               <p className="text-xs text-muted-foreground">
                 Tap the lock icon in your address bar → Notifications → Allow

@@ -13,6 +13,7 @@ import { useDateReminders } from "@/hooks/useDateReminders";
 import { useScheduleHub } from "@/hooks/useScheduleHub";
 import { dateSuggestionApply } from "@/hooks/useDateSuggestionActions";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
 import { toast } from "sonner";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
@@ -32,7 +33,8 @@ const SchedulePage = () => {
     refetch: refetchScheduleHub,
   } = useScheduleHub();
   const { imminentReminders, soonReminders } = useDateReminders(reminderSources);
-  const { isGranted, refreshSubscriptionState } = usePushNotifications();
+  const { refreshSubscriptionState } = usePushNotifications();
+  const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [activeDateSessionId, setActiveDateSessionId] = useState<string | null>(null);
 
@@ -71,13 +73,14 @@ const SchedulePage = () => {
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
-    const ok = await requestWebPushPermissionAndSync(user.id);
+    const result = await requestWebPushPermissionAndSync(user.id);
     await refreshSubscriptionState();
-    if (ok) {
+    await refreshPushDeliveryHealth();
+    if (result.synced) {
       window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
     }
-    return ok;
-  }, [user?.id, refreshSubscriptionState]);
+    return result.synced;
+  }, [user?.id, refreshPushDeliveryHealth, refreshSubscriptionState]);
 
   const handleAcceptProposal = useCallback(async (item: ScheduleHubItem) => {
     try {
@@ -140,7 +143,7 @@ const SchedulePage = () => {
           </h1>
         </div>
         <NotificationPermissionButton
-          isGranted={isGranted}
+          isGranted={pushDeliveryHealth.backendDeliverable}
           onClick={() => setShowNotificationFlow(true)}
         />
       </header>
@@ -195,7 +198,7 @@ const SchedulePage = () => {
                   navigate("/schedule");
                 }}
                 onEnableNotifications={() => setShowNotificationFlow(true)}
-                notificationsEnabled={isGranted}
+                notificationsEnabled={pushDeliveryHealth.backendDeliverable}
               />
             ))}
           </div>

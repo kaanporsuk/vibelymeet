@@ -24,6 +24,7 @@ interface ScheduledNotification {
 
 function computeOneSignalBootstrap(): OneSignalWebBootstrap {
   const s = getOneSignalWebClientSnapshot();
+  if (!s.appIdConfigured) return 'app_id_missing';
   if (!s.originAllowed || !s.initEnqueued) return 'unsupported_host';
   if (!s.initResolved) return 'pending';
   return s.sdkUsable ? 'ready' : 'init_failed';
