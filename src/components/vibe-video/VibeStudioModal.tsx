@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
 
 interface VibeStudioModalProps {
   open: boolean;
@@ -31,8 +32,7 @@ const COACH_TIPS = [
   "What's your weekend obsession?",
 ];
 
-const RECORDING_DURATION = 15;
-const MAX_CLIP_DURATION = 20;
+const RECORDING_DURATION = MAX_VIBE_VIDEO_DURATION_S;
 
 export const VibeStudioModal = ({
   open,
@@ -449,9 +449,9 @@ export const VibeStudioModal = ({
     // Duration check — reject files over the limit. No canvas re-encoding.
     try {
       const duration = await getVideoDuration(file);
-      if (duration > MAX_CLIP_DURATION) {
+      if (duration > MAX_VIBE_VIDEO_DURATION_S) {
         URL.revokeObjectURL(url);
-        toast.error(`Video must be ${MAX_CLIP_DURATION} seconds or shorter.`);
+        toast.error(`Video must be ${MAX_VIBE_VIDEO_DURATION_S} seconds or shorter.`);
         return;
       }
     } catch {
@@ -645,12 +645,12 @@ export const VibeStudioModal = ({
                           setVibeCaption(e.target.value);
                         }}
                         placeholder="Seeking a partner in crime..."
-                        maxLength={50}
+                        maxLength={MAX_VIBE_CAPTION_LEN}
                         className="w-full px-4 py-3 rounded-xl bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-2 focus:ring-primary"
                         autoFocus
                       />
                       <p className="text-xs text-muted-foreground text-center">
-                        {vibeCaption.length}/50 characters
+                        {vibeCaption.length}/{MAX_VIBE_CAPTION_LEN} characters
                       </p>
                       <div className="flex gap-3">
                         <Button
@@ -812,7 +812,7 @@ export const VibeStudioModal = ({
                   </motion.button>
 
                   <p className="text-sm text-muted-foreground">
-                    Tap to record (15 seconds)
+                    Tap to record ({MAX_VIBE_VIDEO_DURATION_S} seconds)
                   </p>
 
                   {/* Upload Button */}

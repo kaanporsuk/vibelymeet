@@ -4,14 +4,13 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
 import VibeStudioModal from "@/components/vibe-video/VibeStudioModal";
+import { MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
 
 interface VibeVideoStepProps {
   onNext: () => void;
   onSkip: () => void;
   onVideoStarted?: () => void;
 }
-
-const MAX_DURATION_S = 20;
 
 export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepProps) => {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -37,8 +36,8 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepP
         video.onerror = () => { URL.revokeObjectURL(url); reject(new Error("unreadable")); };
         video.src = url;
       });
-      if (duration > MAX_DURATION_S) {
-        toast.error(`Video must be ${MAX_DURATION_S} seconds or shorter.`);
+      if (duration > MAX_VIBE_VIDEO_DURATION_S) {
+        toast.error(`Video must be ${MAX_VIBE_VIDEO_DURATION_S} seconds or shorter.`);
         return;
       }
     } catch {
@@ -95,7 +94,7 @@ export const VibeVideoStep = ({ onNext, onSkip, onVideoStarted }: VibeVideoStepP
             onClick={() => fileRef.current?.click()}
             className="w-full py-6"
           >
-            Upload a video (up to {MAX_DURATION_S}s)
+            Upload a video (up to {MAX_VIBE_VIDEO_DURATION_S}s)
           </Button>
 
           <button
