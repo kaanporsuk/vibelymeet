@@ -10,6 +10,18 @@ const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DELETE_GRACE_MS = 120_000;
 
+type VideoDateCleanupRow = {
+  id: string;
+  daily_room_name: string | null;
+  ended_at: string | null;
+  ended_reason: string | null;
+  date_started_at: string | null;
+  participant_1_joined_at: string | null;
+  participant_2_joined_at: string | null;
+  state: string | null;
+  phase: string | null;
+};
+
 type DailyPresenceCheck =
   | { ok: true; exists: true; activeCount: number }
   | { ok: true; exists: false; activeCount: 0 }
@@ -120,16 +132,27 @@ async function deleteDailyRoom(roomName: string): Promise<boolean> {
 async function markRoomCleaned(
   supabase: ReturnType<typeof createClient>,
   sessionId: string,
+  roomName: string,
+  endedAt: string | null,
 ): Promise<boolean> {
-  const { error } = await supabase
+  if (!endedAt) return false;
+  const { data, error } = await supabase
     .from("video_sessions")
     .update({ daily_room_name: null, daily_room_url: null })
-    .eq("id", sessionId);
+    .eq("id", sessionId)
+    .eq("daily_room_name", roomName)
+    .eq("ended_at", endedAt)
+    .select("id")
+    .maybeSingle();
   if (error) {
     console.error("video-date-room-cleanup update:", error);
     return false;
   }
-  return true;
+  return Boolean(data?.id);
+}
+
+function hasTerminalCleanupState(row: VideoDateCleanupRow): boolean {
+  return Boolean(row.ended_at) && (row.state === "ended" || row.phase === "ended");
 }
 
 serve(async (req) => {
@@ -157,7 +180,9 @@ serve(async (req) => {
 
   const { data: rows, error } = await supabase
     .from("video_sessions")
-    .select("id, daily_room_name, ended_at")
+    .select(
+      "id, daily_room_name, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase",
+    )
     .not("ended_at", "is", null)
     .not("daily_room_name", "is", null)
     .lte("ended_at", cutoffIso)
@@ -176,16 +201,38 @@ serve(async (req) => {
   let alreadyCleaned = 0;
   let deferredActiveParticipants = 0;
   let deferredProviderCheckFailed = 0;
-  for (const row of rows ?? []) {
-    const name = row.daily_room_name as string | null;
-    const endedAt = row.ended_at as string | null;
+  let deferredUnsafeState = 0;
+  let deleteFailed = 0;
+  for (const row of (rows ?? []) as VideoDateCleanupRow[]) {
+    const name = row.daily_room_name;
+    const endedAt = row.ended_at;
     if (!name) continue;
     const endedAtMs = endedAt ? new Date(endedAt).getTime() : Number.NaN;
     const ageMs = Number.isFinite(endedAtMs) ? nowMs - endedAtMs : 0;
 
+    if (!hasTerminalCleanupState(row)) {
+      deferredUnsafeState++;
+      console.log(
+        JSON.stringify({
+          event: "cleanup_deferred_non_terminal_state",
+          session_id: row.id,
+          room_name: name,
+          state: row.state,
+          phase: row.phase,
+          ended_at: endedAt,
+          ended_reason: row.ended_reason,
+          date_started_at: row.date_started_at,
+          participant_1_joined_at: row.participant_1_joined_at,
+          participant_2_joined_at: row.participant_2_joined_at,
+          ended_age_ms: ageMs,
+        }),
+      );
+      continue;
+    }
+
     const presence = await getDailyRoomPresence(name);
     if (presence.ok && !presence.exists) {
-      const marked = await markRoomCleaned(supabase, row.id as string);
+      const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
       if (marked) alreadyCleaned++;
       console.log(
         JSON.stringify({
@@ -193,6 +240,7 @@ serve(async (req) => {
           session_id: row.id,
           room_name: name,
           ended_at: endedAt,
+          ended_reason: row.ended_reason,
           ended_age_ms: ageMs,
         }),
       );
@@ -208,6 +256,10 @@ serve(async (req) => {
           room_name: name,
           active_count: presence.activeCount,
           ended_at: endedAt,
+          ended_reason: row.ended_reason,
+          date_started_at: row.date_started_at,
+          participant_1_joined_at: row.participant_1_joined_at,
+          participant_2_joined_at: row.participant_2_joined_at,
           ended_age_ms: ageMs,
         }),
       );
@@ -225,6 +277,7 @@ serve(async (req) => {
           providerCode: presence.providerCode,
           reason: presence.reason,
           ended_at: endedAt,
+          ended_reason: row.ended_reason,
           ended_age_ms: ageMs,
         }),
       );
@@ -234,8 +287,20 @@ serve(async (req) => {
     const ok = await deleteDailyRoom(name);
     if (ok) {
       // Clear the room reference so this row is not re-processed.
-      const marked = await markRoomCleaned(supabase, row.id as string);
+      const marked = await markRoomCleaned(supabase, row.id, name, endedAt);
       if (marked) deleted++;
+    } else {
+      deleteFailed++;
+      console.log(
+        JSON.stringify({
+          event: "cleanup_delete_failed",
+          session_id: row.id,
+          room_name: name,
+          ended_at: endedAt,
+          ended_reason: row.ended_reason,
+          ended_age_ms: ageMs,
+        }),
+      );
     }
   }
 
@@ -247,6 +312,8 @@ serve(async (req) => {
       already_cleaned: alreadyCleaned,
       deferred_active_participants: deferredActiveParticipants,
       deferred_provider_check_failed: deferredProviderCheckFailed,
+      deferred_unsafe_state: deferredUnsafeState,
+      delete_failed: deleteFailed,
     }),
   );
 
@@ -258,6 +325,8 @@ serve(async (req) => {
       already_cleaned: alreadyCleaned,
       deferred_active_participants: deferredActiveParticipants,
       deferred_provider_check_failed: deferredProviderCheckFailed,
+      deferred_unsafe_state: deferredUnsafeState,
+      delete_failed: deleteFailed,
     }),
     { headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );
