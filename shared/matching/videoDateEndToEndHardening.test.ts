@@ -170,6 +170,18 @@ const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
   "utf8",
 );
+const adminVideoDateOpsFunction = readFileSync(
+  join(process.cwd(), "supabase/functions/admin-video-date-ops/index.ts"),
+  "utf8",
+);
+const adminVideoDateTimelinePanel = readFileSync(
+  join(process.cwd(), "src/components/admin/AdminVideoDateTimelinePanel.tsx"),
+  "utf8",
+);
+const adminDashboardPage = readFileSync(
+  join(process.cwd(), "src/pages/admin/AdminDashboard.tsx"),
+  "utf8",
+);
 
 function readMigrationRange(fromVersionInclusive: string): string {
   const dir = join(process.cwd(), "supabase/migrations");
@@ -1292,6 +1304,29 @@ test("Daily provider observability is fail-soft and redacts token material", () 
   assert.doesNotMatch(helperBody, /\btoken\b/i);
 
   assert.match(dailyRoomFunction, /operation: "create_date_room_token_issued"[\s\S]*detail: \{[\s\S]*provider_room_reused/s);
+});
+
+test("operator timeline UI uses admin Edge Function instead of direct browser RPC", () => {
+  assert.match(adminDashboardPage, /video-date-timeline/);
+  assert.match(adminDashboardPage, /<AdminVideoDateTimelinePanel \/>/);
+  assert.match(adminVideoDateTimelinePanel, /functions\.invoke<AdminVideoDateTimelineResponse>\(\s*"admin-video-date-ops"/);
+  assert.match(adminVideoDateTimelinePanel, /action: "get_session_timeline"/);
+  assert.match(adminVideoDateTimelinePanel, /redactVideoDateTimelineDetail/);
+  assert.match(adminVideoDateTimelinePanel, /extractVideoDateTimelineTraceIds/);
+  assert.doesNotMatch(adminVideoDateTimelinePanel, /rpc\(["']get_video_date_session_timeline/);
+});
+
+test("admin-video-date-ops gates service-role timeline access behind role and session validation", () => {
+  assert.match(adminVideoDateOpsFunction, /action === "get_session_timeline"/);
+  assert.match(adminVideoDateOpsFunction, /isValidUuid\(sessionId\)/);
+  assert.match(adminVideoDateOpsFunction, /typedErrorResponse\("invalid_session_id"/);
+  assert.match(adminVideoDateOpsFunction, /hasVideoDateTimelineRole\(roleRows\)/);
+  assert.match(adminVideoDateOpsFunction, /\.in\("role", allowedRoles\)/);
+  assert.match(adminVideoDateOpsFunction, /const service = createClient\(supabaseUrl, serviceKey\)/);
+  assert.match(adminVideoDateOpsFunction, /service\.rpc\("get_video_date_session_timeline"/);
+  assert.match(adminVideoDateOpsFunction, /typedErrorResponse\(timeline\.code, timeline\.error, timeline\.status\)/);
+  assert.match(adminVideoDateOpsFunction, /code: "not_found"/);
+  assert.match(adminVideoDateOpsFunction, /safeVideoDateTimelineRows/);
 });
 
 test("Sprint E missing observability events are typed and wired", () => {

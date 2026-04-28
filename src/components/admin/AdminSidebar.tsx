@@ -19,10 +19,11 @@ import {
   LifeBuoy,
   Layers,
   Archive,
+  GitBranch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -41,6 +42,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
     { id: 'events' as const, label: 'Events', icon: Calendar },
     { id: 'tier-config' as const, label: 'Tier Config', icon: Layers },
     { id: 'event-analytics' as const, label: 'Event Analytics', icon: BarChart3 },
+    { id: 'video-date-timeline' as const, label: 'Date Timeline', icon: GitBranch },
     { id: 'engagement' as const, label: 'Engagement', icon: TrendingUp },
     { id: 'campaigns' as const, label: 'Push Campaigns', icon: Bell },
     { id: 'photo-verification' as const, label: 'Photo Verification', icon: ShieldCheck },

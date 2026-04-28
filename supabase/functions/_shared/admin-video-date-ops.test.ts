@@ -4,7 +4,12 @@ import {
   VIDEO_DATE_OPS_WINDOWS,
   classifyHigherIsBetter,
   classifyLowerIsBetter,
+  extractVideoDateTimelineTraceIds,
+  hasVideoDateTimelineRole,
+  isValidUuid,
   percentile,
+  redactVideoDateTimelineDetail,
+  safeVideoDateTimelineRows,
   safeRate,
   summarizeLatencyMs,
   summarizeQueueDrain,
@@ -77,4 +82,88 @@ test("status classifiers keep threshold semantics explicit", () => {
   assert.equal(classifyHigherIsBetter(0.7, 0.35, 0.2), "healthy");
   assert.equal(classifyHigherIsBetter(0.3, 0.35, 0.2), "warning");
   assert.equal(classifyHigherIsBetter(0.1, 0.35, 0.2), "critical");
+});
+
+test("video date timeline role helper allows admins and moderators only", () => {
+  assert.equal(hasVideoDateTimelineRole([{ role: "admin" }]), true);
+  assert.equal(hasVideoDateTimelineRole([{ role: "moderator" }]), true);
+  assert.equal(hasVideoDateTimelineRole([{ role: "user" }]), false);
+  assert.equal(hasVideoDateTimelineRole([]), false);
+});
+
+test("video date timeline session ids must be UUIDs", () => {
+  assert.equal(isValidUuid("8b1e4e8c-2141-4c33-b978-a751d37e4c9b"), true);
+  assert.equal(isValidUuid("date-8b1e4e8c21414c33b978a751d37e4c9b"), false);
+  assert.equal(isValidUuid("not-a-session"), false);
+  assert.equal(isValidUuid(null), false);
+});
+
+test("video date timeline payload redaction removes sensitive keys and token-like strings", () => {
+  assert.deepEqual(
+    redactVideoDateTimelineDetail({
+      action: "prepare_date_entry",
+      token: "should-not-render",
+      accessToken: "should-not-render",
+      apiKey: "should-not-render",
+      nested: {
+        Authorization: "Bearer abc",
+        request_headers: {
+          "x-provider-secret": "should-not-render",
+        },
+        daily_api_key: "secret",
+        video_date_trace_id: "trace-1",
+        harmless: ["eyJabc.def.ghi", "ok"],
+      },
+    }),
+    {
+      action: "prepare_date_entry",
+      token: "[REDACTED]",
+      accessToken: "[REDACTED]",
+      apiKey: "[REDACTED]",
+      nested: {
+        Authorization: "[REDACTED]",
+        request_headers: "[REDACTED]",
+        daily_api_key: "[REDACTED]",
+        video_date_trace_id: "trace-1",
+        harmless: ["[REDACTED]", "ok"],
+      },
+    },
+  );
+});
+
+test("video date timeline rows are ordered and trace ids are extractable", () => {
+  const rows = safeVideoDateTimelineRows([
+    {
+      timeline_seq: 2,
+      occurred_at: "2026-04-28T22:24:11Z",
+      source: "event_loop_observability_events",
+      operation: "create_date_room_token_issued",
+      outcome: "success",
+      reason_code: "token_issued",
+      event_id: "event-1",
+      actor_id: "actor-1",
+      session_id: "session-1",
+      detail: { token: "secret", entry_attempt_id: "attempt-1", video_date_trace_id: "attempt-1" },
+    },
+    {
+      timeline_seq: 1,
+      occurred_at: "2026-04-28T22:24:10Z",
+      source: "event_loop_observability_events",
+      operation: "ready_gate_transition",
+      outcome: "success",
+      reason_code: "mark_ready",
+      event_id: "event-1",
+      actor_id: "actor-1",
+      session_id: "session-1",
+      detail: { action: "mark_ready" },
+    },
+  ]);
+
+  assert.equal(rows[0].operation, "ready_gate_transition");
+  assert.equal(rows[1].operation, "create_date_room_token_issued");
+  assert.deepEqual(extractVideoDateTimelineTraceIds(rows[1].detail), {
+    entryAttemptId: "attempt-1",
+    videoDateTraceId: "attempt-1",
+  });
+  assert.equal((rows[1].detail as Record<string, unknown>).token, "[REDACTED]");
 });

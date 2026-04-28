@@ -13,6 +13,95 @@ export const VIDEO_DATE_OPS_WINDOWS = [
 
 export type MetricStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
 
+export type VideoDateTimelineRole = "admin" | "moderator";
+
+export const VIDEO_DATE_TIMELINE_ALLOWED_ROLES = [
+  "admin",
+  "moderator",
+] as const satisfies readonly VideoDateTimelineRole[];
+
+export type VideoDateSessionTimelineRow = {
+  timeline_seq: number;
+  occurred_at: string;
+  source: string;
+  operation: string;
+  outcome: string;
+  reason_code: string | null;
+  event_id: string | null;
+  actor_id: string | null;
+  session_id: string;
+  detail: unknown;
+};
+
+const UUID_SHAPE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SENSITIVE_TIMELINE_KEY_PATTERN =
+  /(^|[_-])(authorization|auth|header|headers|auth_header|authorization_header|bearer|jwt|token|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|service[_-]?role|secret|password|supabase[_-]?service[_-]?role[_-]?key|daily[_-]?api[_-]?key|meeting[_-]?token|room[_-]?token)$/i;
+
+const JWT_LIKE_VALUE = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+export function isValidUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_SHAPE.test(value.trim());
+}
+
+export function hasVideoDateTimelineRole(
+  rows: Array<{ role?: string | null }> | null | undefined,
+): boolean {
+  return (rows ?? []).some((row) =>
+    VIDEO_DATE_TIMELINE_ALLOWED_ROLES.includes(row.role as VideoDateTimelineRole),
+  );
+}
+
+export function redactVideoDateTimelineDetail(value: unknown, depth = 0): unknown {
+  if (depth > 8) return "[Max depth]";
+  if (Array.isArray(value)) {
+    return value.map((item) => redactVideoDateTimelineDetail(item, depth + 1));
+  }
+  if (!value || typeof value !== "object") {
+    if (typeof value === "string" && (JWT_LIKE_VALUE.test(value) || value.startsWith("Bearer "))) {
+      return "[REDACTED]";
+    }
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, innerValue]) => [
+      key,
+      SENSITIVE_TIMELINE_KEY_PATTERN.test(key)
+        ? "[REDACTED]"
+        : redactVideoDateTimelineDetail(innerValue, depth + 1),
+    ]),
+  );
+}
+
+export function safeVideoDateTimelineRows(rows: VideoDateSessionTimelineRow[]): VideoDateSessionTimelineRow[] {
+  return [...rows]
+    .sort((a, b) => {
+      const seqA = Number.isFinite(a.timeline_seq) ? a.timeline_seq : Number.MAX_SAFE_INTEGER;
+      const seqB = Number.isFinite(b.timeline_seq) ? b.timeline_seq : Number.MAX_SAFE_INTEGER;
+      if (seqA !== seqB) return seqA - seqB;
+      return new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime();
+    })
+    .map((row) => ({
+      ...row,
+      detail: redactVideoDateTimelineDetail(row.detail),
+    }));
+}
+
+export function extractVideoDateTimelineTraceIds(detail: unknown): {
+  entryAttemptId: string | null;
+  videoDateTraceId: string | null;
+} {
+  if (!detail || typeof detail !== "object") {
+    return { entryAttemptId: null, videoDateTraceId: null };
+  }
+  const record = detail as Record<string, unknown>;
+  const entryAttemptId = typeof record.entry_attempt_id === "string" ? record.entry_attempt_id : null;
+  const videoDateTraceId = typeof record.video_date_trace_id === "string" ? record.video_date_trace_id : null;
+  return { entryAttemptId, videoDateTraceId };
+}
+
 export type LatencySummary = {
   sample_count: number;
   p50_ms: number | null;
