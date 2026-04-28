@@ -31,6 +31,18 @@ test("classifies Daily rate limits as retryable", async () => {
   assert.equal(isRetryableDailyRoomFailure("DAILY_RATE_LIMIT"), true);
 });
 
+test("classifies Daily provider unavailable responses as retryable", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    data: { code: "DAILY_PROVIDER_UNAVAILABLE" },
+    response: new Response(JSON.stringify({ code: "DAILY_PROVIDER_UNAVAILABLE" }), { status: 503 }),
+  });
+
+  assert.equal(failure.kind, "DAILY_PROVIDER_UNAVAILABLE");
+  assert.equal(failure.retryable, true);
+  assert.equal(isRetryableDailyRoomFailure("DAILY_PROVIDER_UNAVAILABLE"), true);
+});
+
 test("classifies provider rejected Daily requests as non-retryable", async () => {
   const failure = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,

@@ -458,7 +458,7 @@ test("prepare_entry rejects ended, blocked, expired, and non-participant callers
 test("daily-room prepare_date_entry creates deterministic rooms and scoped tokens", () => {
   assert.match(dailyRoomFunction, /action === "prepare_date_entry"/);
   assert.match(dailyRoomFunction, /p_action: "prepare_entry"/);
-  assert.match(dailyRoomFunction, /const roomName = `date-\$\{sessionId\.replace\(\s*\/-\/g, ""\)\}`/);
+  assert.match(dailyRoomFunction, /function videoDateRoomNameForSession\(sessionId: string\): string/);
   assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\)/);
   assert.match(dailyRoomFunction, /provider_verify_skipped/);
   assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
@@ -486,18 +486,43 @@ test("daily-room prepare_date_entry preserves auth, participant, and delete-room
 });
 
 test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
-  assert.match(
-    dailyRoomFunction,
-    /if \(existingRoomName !== roomName \|\| existingRoomUrl !== roomUrl\) \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*createDailyRoom\(roomName, videoDateRoomProperties\(\)\)[\s\S]*persistVideoDateRoomMetadata\(serviceClient/s,
+  assert.match(dailyRoomFunction, /async function ensureVideoDateProviderRoomForToken/);
+  assert.match(dailyRoomFunction, /const providerRoomState = await getDailyRoomProviderState\(roomName\)/);
+  assert.match(dailyRoomFunction, /if \(!providerRoomState\.exists \|\| providerRoomState\.expired\) \{/);
+  assert.match(dailyRoomFunction, /video_date_provider_room_missing_or_expired_recovering/);
+  assert.match(dailyRoomFunction, /await createDailyRoom\(roomName, videoDateRoomProperties\(\)\)/);
+  assert.match(dailyRoomFunction, /providerRoomRecovered = Boolean\(existingRoomName\) \|\| providerRoomState\.expired/);
+  assert.match(dailyRoomFunction, /providerVerifySkipped: false/);
+  assert.doesNotMatch(dailyRoomFunction, /shouldSkipDailyProviderVerifyForVideoDate/);
+  assert.doesNotMatch(dailyRoomFunction, /provider_verify_skipped",/);
+
+  const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
+  const prepareTokenIndex = dailyRoomFunction.indexOf(
+    "const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);",
+    prepareIndex,
   );
-  assert.match(
-    dailyRoomFunction,
-    /else if \(shouldSkipDailyProviderVerifyForVideoDate\(sessionForLog\)\)[\s\S]*providerVerifySkipped = true/s,
-  );
-  assert.match(
-    dailyRoomFunction,
-    /else \{[\s\S]*getDailyRoomProviderState\(roomName\)[\s\S]*!providerRoomState\.exists \|\| providerRoomState\.expired[\s\S]*providerRoomRecreated = true/s,
-  );
+  const prepareVerifyIndex = dailyRoomFunction.indexOf("ensureVideoDateProviderRoomForToken", prepareIndex);
+  assert.ok(prepareVerifyIndex > prepareIndex);
+  assert.ok(prepareTokenIndex > prepareVerifyIndex);
+});
+
+test("legacy join_date_room verifies or recovers provider room before token issuance", () => {
+  const joinIndex = dailyRoomFunction.indexOf('if (action === "join_date_room")');
+  const nextActionIndex = dailyRoomFunction.indexOf("if (action === \"create_match_call\")", joinIndex);
+  const joinBlock = dailyRoomFunction.slice(joinIndex, nextActionIndex);
+
+  assert.match(joinBlock, /daily_room_name, daily_room_url/);
+  assert.match(joinBlock, /if \(session\.ended_at\)[\s\S]*code: "SESSION_ENDED"/);
+  assert.match(joinBlock, /if \(!canIssueVideoDateRoomToken\(session\)\)[\s\S]*code: "READY_GATE_NOT_READY"/);
+  assert.match(joinBlock, /if \(!session\.daily_room_name\)[\s\S]*code: "ROOM_NOT_FOUND"/);
+  assert.match(joinBlock, /const roomProof = await ensureVideoDateProviderRoomForToken/);
+  assert.match(joinBlock, /createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS/s);
+  assert.doesNotMatch(joinBlock, /createMeetingToken\(\s*session\.daily_room_name/);
+
+  const joinVerifyIndex = joinBlock.indexOf("ensureVideoDateProviderRoomForToken");
+  const joinTokenIndex = joinBlock.indexOf("createMeetingToken(");
+  assert.ok(joinVerifyIndex >= 0);
+  assert.ok(joinTokenIndex > joinVerifyIndex);
 });
 
 test("web ready-gate paths do not navigate to date before prepare-entry succeeds", () => {
@@ -716,10 +741,13 @@ test("confirm_video_date_entry_prepared is service-role-only and atomically pers
 });
 
 test("daily-room hard-fails room and registration persistence before returning tokens", () => {
-  assert.match(dailyRoomFunction, /persistVideoDateRoomMetadata\(serviceClient/);
+  assert.match(dailyRoomFunction, /persistVideoDateRoomMetadata\(params\.serviceClient/);
   assert.match(dailyRoomFunction, /code: "DB_ROOM_PERSIST_FAILED"/);
   assert.match(dailyRoomFunction, /video_date_room_metadata_persist_failed/);
-  assert.match(dailyRoomFunction, /const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s);
+  assert.match(
+    dailyRoomFunction,
+    /ensureVideoDateProviderRoomForToken[\s\S]*const token = await createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\);[\s\S]*confirmVideoDateEntryPrepared\(serviceClient/s,
+  );
   assert.match(dailyRoomFunction, /confirmPayload\?\.code \?\? \(confirmError \? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN"\)/);
   assert.doesNotMatch(dailyRoomFunction, /markVideoDateEntryPrepared\(serviceClient/);
   assert.doesNotMatch(dailyRoomFunction, /Registration status update after token success failed/);
@@ -888,7 +916,7 @@ test("video-date Daily room and token TTL use explicit finite constants separate
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400/);
   assert.match(dailyRoomFunction, /DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 7_200/);
   assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\)/);
-  assert.match(dailyRoomFunction, /createMeetingToken\(\s*session\.daily_room_name,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS/s);
+  assert.match(dailyRoomFunction, /createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS/s);
   assert.match(dailyRoomFunction, /exp: Math\.floor\(Date\.now\(\) \/ 1000\) \+ DAILY_VIDEO_DATE_ROOM_TTL_SECONDS/);
 });
 
