@@ -28,6 +28,7 @@ import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
+import { getProfilePreviewVibeVideoSections } from "@/lib/vibeVideo/profilePreviewVisibility";
 
 interface ProfilePreviewProps {
   profile: {
@@ -50,9 +51,10 @@ interface ProfilePreviewProps {
     tagline?: string;
   };
   onClose: () => void;
+  isOwnProfile?: boolean;
 }
 
-export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
+export const ProfilePreview = ({ profile, onClose, isOwnProfile = false }: ProfilePreviewProps) => {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showActionHint, setShowActionHint] = useState(true);
@@ -87,16 +89,7 @@ export const ProfilePreview = ({ profile, onClose }: ProfilePreviewProps) => {
 
   // Create content sections interspersed with photos (Hinge-style)
   const contentSections = [
-    ...(vibeVideo.state === "ready" && vibeVideo.playbackUrl
-      ? [{ type: "video" as const, data: vibeVideo.playbackUrl }]
-      : []),
-    ...(vibeVideo.state === "processing" || vibeVideo.state === "uploading"
-      ? [{ type: "vibe_pipeline" as const }]
-      : []),
-    ...(vibeVideo.state === "failed" ? [{ type: "vibe_failed" as const }] : []),
-    ...(vibeVideo.state === "ready" && !vibeVideo.playbackUrl
-      ? [{ type: "vibe_cdn" as const }]
-      : []),
+    ...getProfilePreviewVibeVideoSections(vibeVideo, isOwnProfile),
     ...(profile.aboutMe ? [{ type: 'aboutMe' as const, data: profile.aboutMe }] : []),
     // Photo 2
     ...(profile.vibes.length > 0 ? [{ type: 'vibes' as const, data: profile.vibes }] : []),

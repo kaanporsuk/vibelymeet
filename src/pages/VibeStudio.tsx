@@ -22,10 +22,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import { MAX_VIBE_CAPTION_LEN } from "@/lib/vibeVideo/constants";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
-
-const CAPTION_MAX = 50;
 
 type StatusTone = {
   pillClassName: string;
@@ -181,7 +180,7 @@ const VibeStudio = () => {
     if (!profile || !captionChanged) return;
     setIsSavingCaption(true);
     try {
-      const nextCaption = captionDraft.slice(0, CAPTION_MAX);
+      const nextCaption = captionDraft.slice(0, MAX_VIBE_CAPTION_LEN);
       await updateMyProfile({ vibeCaption: nextCaption });
       const previousCaption = profile.vibeCaption.trim();
       if (previousCaption && !nextCaption.trim()) {
@@ -366,17 +365,17 @@ const VibeStudio = () => {
               </p>
             </div>
             <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-semibold text-gray-400">
-              {captionDraft.length}/{CAPTION_MAX}
+              {captionDraft.length}/{MAX_VIBE_CAPTION_LEN}
             </span>
           </div>
 
           <div className="mt-4 space-y-3">
             <Textarea
               value={captionDraft}
-              onChange={(event) => setCaptionDraft(event.target.value.slice(0, CAPTION_MAX))}
+              onChange={(event) => setCaptionDraft(event.target.value.slice(0, MAX_VIBE_CAPTION_LEN))}
               placeholder="What are you vibing on right now?"
               className="min-h-[120px] resize-none border-white/10 bg-black/20 text-white placeholder:text-gray-500"
-              maxLength={CAPTION_MAX}
+              maxLength={MAX_VIBE_CAPTION_LEN}
             />
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs leading-5 text-gray-500">
