@@ -25,14 +25,127 @@ function getProjectRef(url: string | undefined): string {
   }
 }
 
-async function cleanupCreatedVideo(
-  libraryId: string,
-  apiKey: string,
+type AdminSupabaseClient = ReturnType<typeof createClient>;
+
+type OrphanCleanupContext = Record<string, string | number | boolean | null>;
+
+type CleanupCreatedVideoArgs = {
+  adminSupabase: AdminSupabaseClient;
+  libraryId: string;
+  apiKey: string;
+  videoId: string;
+  userId: string;
+  projectRef: string;
+  reason: string;
+  context?: OrphanCleanupContext;
+  requireDurableBeforeImmediate?: boolean;
+};
+
+async function enqueueDurableOrphanCleanup(
+  adminSupabase: AdminSupabaseClient,
   videoId: string,
   userId: string,
   projectRef: string,
   reason: string,
-) {
+  context: OrphanCleanupContext,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const { data, error } = await adminSupabase.rpc(
+      "enqueue_vibe_video_orphan_delete",
+      {
+        p_user_id: userId,
+        p_video_id: videoId,
+        p_reason: reason,
+        p_context: context,
+      },
+    );
+
+    if (error) {
+      logVibeVideo("error", "create_video_upload_durable_orphan_cleanup_failed", {
+        user_id: userId,
+        video_guid: videoId,
+        reason,
+        project_ref: projectRef,
+        error_code: error.code ?? "orphan_cleanup_rpc_failed",
+      });
+      return null;
+    }
+
+    const result = data as Record<string, unknown> | null;
+    if (result?.success === true) {
+      logVibeVideo("warn", "create_video_upload_durable_orphan_cleanup_enqueued", {
+        user_id: userId,
+        video_guid: videoId,
+        reason,
+        project_ref: projectRef,
+        skipped: result.skipped === true,
+        skip_reason: typeof result.reason === "string" ? result.reason : null,
+      });
+      return result;
+    }
+
+    logVibeVideo("error", "create_video_upload_durable_orphan_cleanup_failed", {
+      user_id: userId,
+      video_guid: videoId,
+      reason,
+      project_ref: projectRef,
+      error_code: typeof result?.error === "string" ? result.error : "orphan_cleanup_not_enqueued",
+    });
+    return result;
+  } catch (cleanupErr) {
+    logVibeVideo("error", "create_video_upload_durable_orphan_cleanup_failed", {
+      user_id: userId,
+      video_guid: videoId,
+      reason,
+      project_ref: projectRef,
+      error_code: cleanupErr instanceof Error ? cleanupErr.name : "unknown",
+    });
+    return null;
+  }
+}
+
+async function cleanupCreatedVideo({
+  adminSupabase,
+  libraryId,
+  apiKey,
+  videoId,
+  userId,
+  projectRef,
+  reason,
+  context = {},
+  requireDurableBeforeImmediate = false,
+}: CleanupCreatedVideoArgs) {
+  const durableCleanup = await enqueueDurableOrphanCleanup(
+    adminSupabase,
+    videoId,
+    userId,
+    projectRef,
+    reason,
+    context,
+  );
+
+  if (durableCleanup?.skipped === true) {
+    logVibeVideo("warn", "create_video_upload_cleanup_created_video_skipped", {
+      user_id: userId,
+      video_guid: videoId,
+      reason,
+      project_ref: projectRef,
+      skip_reason: typeof durableCleanup.reason === "string" ? durableCleanup.reason : "durable_cleanup_skipped",
+    });
+    return;
+  }
+
+  if (durableCleanup?.success !== true && requireDurableBeforeImmediate) {
+    logVibeVideo("error", "create_video_upload_cleanup_created_video_skipped", {
+      user_id: userId,
+      video_guid: videoId,
+      reason,
+      project_ref: projectRef,
+      skip_reason: "durable_cleanup_required",
+    });
+    return;
+  }
+
   try {
     const deleteResponse = await fetch(
       `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`,
@@ -72,8 +185,16 @@ serve(async (req) => {
     return json({ success: false, error: "Method not allowed", code: "method_not_allowed" }, 405);
   }
 
+  const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
+  let createdVideoId: string | null = null;
+  let uploadCredentialsReturned = false;
+  let cleanupFailurePath = "post_bunny_create_unexpected";
+  let cleanupUserId: string | null = null;
+  let cleanupLibraryId: string | null = null;
+  let cleanupApiKey: string | null = null;
+  let cleanupAdminSupabase: AdminSupabaseClient | null = null;
+
   try {
-    const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
     logVibeVideo("info", "create_video_upload_request_received", {
       project_ref: projectRef,
       method: req.method,
@@ -115,6 +236,7 @@ serve(async (req) => {
       user_id: user.id,
       upload_context: uploadContext,
     });
+    cleanupUserId = user.id;
 
     const libraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
     const apiKey = Deno.env.get("BUNNY_STREAM_API_KEY");
@@ -133,11 +255,14 @@ serve(async (req) => {
         503,
       );
     }
+    cleanupLibraryId = libraryId;
+    cleanupApiKey = apiKey;
 
     const adminSupabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    cleanupAdminSupabase = adminSupabase;
 
     // ── Profile gate ─────────────────────────────────────────────────────────
     const { data: profileRow, error: profileReadError } = await adminSupabase
@@ -216,7 +341,9 @@ serve(async (req) => {
       );
     }
 
+    cleanupFailurePath = "bunny_create_response_parse";
     const { guid: videoId } = await createResponse.json();
+    createdVideoId = videoId;
     logVibeVideo("info", "create_video_upload_bunny_video_created", {
       user_id: user.id,
       video_guid: videoId,
@@ -225,6 +352,7 @@ serve(async (req) => {
     });
 
     // ── TUS signature ────────────────────────────────────────────────────────
+    cleanupFailurePath = "tus_signature_generation";
     const expirationTime = Math.floor(Date.now() / 1000) + 3600;
     const signatureInput = `${libraryId}${apiKey}${expirationTime}${videoId}`;
     const encoder = new TextEncoder();
@@ -236,6 +364,7 @@ serve(async (req) => {
     // ── Create draft media session (server-owned upload tracking) ────────────
     // Uses adminSupabase (service_role) — the RPC is granted to service_role
     // only.  Edge Function authenticates the user; the RPC trusts the caller.
+    cleanupFailurePath = "create_media_session";
     const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(
       "create_media_session",
       {
@@ -253,7 +382,19 @@ serve(async (req) => {
         video_guid: videoId,
         error_code: sessionError.code ?? "session_creation_failed",
       });
-      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "session_creation_failed");
+      await cleanupCreatedVideo({
+        adminSupabase,
+        libraryId,
+        apiKey,
+        videoId,
+        userId: user.id,
+        projectRef,
+        reason: "session_creation_failed",
+        context: {
+          failure_path: "create_media_session_error",
+          upload_context: uploadContext,
+        },
+      });
       return json(
         { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
         500,
@@ -271,7 +412,19 @@ serve(async (req) => {
         video_guid: videoId,
         error_code: typeof sr?.error === "string" ? sr.error : "session_rpc_failed",
       });
-      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "session_rpc_failed");
+      await cleanupCreatedVideo({
+        adminSupabase,
+        libraryId,
+        apiKey,
+        videoId,
+        userId: user.id,
+        projectRef,
+        reason: "session_rpc_failed",
+        context: {
+          failure_path: "create_media_session_rejected",
+          upload_context: uploadContext,
+        },
+      });
       return json(
         { success: false, error: "Failed to create durable upload session", code: "media_session_create_failed" },
         500,
@@ -294,6 +447,7 @@ serve(async (req) => {
       upload_context: uploadContext,
     });
 
+    cleanupFailurePath = "activate_profile_vibe_video";
     const { data: lifecycleResult, error: lifecycleError } = await adminSupabase.rpc(
       "activate_profile_vibe_video",
       {
@@ -315,7 +469,20 @@ serve(async (req) => {
         p_new_status: "failed",
         p_error_detail: "profile_update_failed",
       });
-      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_error");
+      await cleanupCreatedVideo({
+        adminSupabase,
+        libraryId,
+        apiKey,
+        videoId,
+        userId: user.id,
+        projectRef,
+        reason: "rpc_error",
+        context: {
+          failure_path: "activate_profile_vibe_video_error",
+          session_id: typeof sessionId === "string" ? sessionId : null,
+          upload_context: uploadContext,
+        },
+      });
       return json(
         { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
         500,
@@ -335,7 +502,20 @@ serve(async (req) => {
         p_new_status: "failed",
         p_error_detail: "profile_update_rejected",
       });
-      await cleanupCreatedVideo(libraryId, apiKey, videoId, user.id, projectRef, "rpc_rejected");
+      await cleanupCreatedVideo({
+        adminSupabase,
+        libraryId,
+        apiKey,
+        videoId,
+        userId: user.id,
+        projectRef,
+        reason: "rpc_rejected",
+        context: {
+          failure_path: "activate_profile_vibe_video_rejected",
+          session_id: typeof sessionId === "string" ? sessionId : null,
+          upload_context: uploadContext,
+        },
+      });
       return json(
         { success: false, error: "Failed to persist upload state", code: "profile_update_failed" },
         500,
@@ -343,6 +523,7 @@ serve(async (req) => {
     }
 
     let sessionStatus = "created";
+    cleanupFailurePath = "mark_media_session_uploading";
     const { data: sessionUploadResult, error: sessionUploadError } = await adminSupabase.rpc(
       "update_media_session_status",
       {
@@ -373,6 +554,7 @@ serve(async (req) => {
       project_ref: projectRef,
     });
 
+    uploadCredentialsReturned = true;
     return json(
       {
         success: true,
@@ -388,6 +570,29 @@ serve(async (req) => {
       200,
     );
   } catch (err) {
+    if (
+      createdVideoId &&
+      !uploadCredentialsReturned &&
+      cleanupAdminSupabase &&
+      cleanupUserId &&
+      cleanupLibraryId &&
+      cleanupApiKey
+    ) {
+      await cleanupCreatedVideo({
+        adminSupabase: cleanupAdminSupabase,
+        libraryId: cleanupLibraryId,
+        apiKey: cleanupApiKey,
+        videoId: createdVideoId,
+        userId: cleanupUserId,
+        projectRef,
+        reason: cleanupFailurePath,
+        context: {
+          failure_path: cleanupFailurePath,
+        },
+        requireDurableBeforeImmediate: true,
+      });
+    }
+
     logVibeVideo("error", "create_video_upload_unexpected_error", {
       error_code: err instanceof Error ? err.name : "unknown",
     });

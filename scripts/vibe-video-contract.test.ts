@@ -265,6 +265,7 @@ test("UID-only Vibe Score and onboarding UID preservation remain source-backed",
 
 test("create-video-upload requires durable media-session state before credentials are returned", () => {
   const edge = read("supabase/functions/create-video-upload/index.ts");
+  const orphanMigration = read("supabase/migrations/20260501130000_vibe_video_upload_orphan_cleanup.sql");
 
   const sessionCreateIdx = edge.indexOf('"create_media_session"');
   const profileActivateIdx = edge.indexOf('"activate_profile_vibe_video"');
@@ -276,11 +277,65 @@ test("create-video-upload requires durable media-session state before credential
   );
 
   assert.match(edge, /media_session_create_failed/);
-  assert.match(edge, /cleanupCreatedVideo\(libraryId, apiKey, videoId, user\.id, projectRef, "session_creation_failed"\)/);
+  assert.match(edge, /enqueue_vibe_video_orphan_delete/);
+  assert.match(edge, /create_video_upload_durable_orphan_cleanup_enqueued/);
+  assert.match(edge, /failure_path: "create_media_session_error"/);
+  assert.match(edge, /failure_path: "create_media_session_rejected"/);
+  assert.match(edge, /failure_path: "activate_profile_vibe_video_error"/);
+  assert.match(edge, /failure_path: "activate_profile_vibe_video_rejected"/);
+  assert.ok(
+    edge.indexOf("enqueueDurableOrphanCleanup") < edge.indexOf('method: "DELETE"'),
+    "durable orphan cleanup must be enqueued before best-effort Bunny DELETE",
+  );
   assert.match(edge, /create_video_upload_media_session_create_rejected/);
   assert.match(edge, /create_video_upload_media_session_uploading_mark_failed_but_repairable/);
   assert.match(edge, /repairableLifecycleState/);
+  assert.match(edge, /uploadCredentialsReturned = true/);
+  assert.match(edge, /createdVideoId &&[\s\S]*?!uploadCredentialsReturned[\s\S]*?cleanupCreatedVideo/);
   assert.match(edge, /if \(sessionError\) \{[\s\S]*?media_session_create_failed[\s\S]*?return json/);
+
+  assert.match(orphanMigration, /CREATE OR REPLACE FUNCTION public\.enqueue_vibe_video_orphan_delete/);
+  assert.match(orphanMigration, /SECURITY DEFINER/);
+  assert.match(orphanMigration, /is_valid_bunny_video_uid/);
+  assert.match(orphanMigration, /pg_advisory_xact_lock/);
+  assert.match(orphanMigration, /ensure_vibe_video_asset/);
+  assert.match(orphanMigration, /media_references[\s\S]*is_active = true/);
+  assert.match(orphanMigration, /active_reference_exists/);
+  assert.match(orphanMigration, /status = 'purge_ready'/);
+  assert.match(orphanMigration, /enqueue_media_delete\(v_asset_id, 'orphan_sweep'\)/);
+  assert.match(orphanMigration, /REVOKE ALL ON FUNCTION public\.enqueue_vibe_video_orphan_delete/);
+  assert.match(orphanMigration, /GRANT EXECUTE ON FUNCTION public\.enqueue_vibe_video_orphan_delete[\s\S]*TO service_role/);
+});
+
+test("create-video-upload keeps durable orphan cleanup as source of truth when immediate Bunny DELETE fails", () => {
+  const edge = read("supabase/functions/create-video-upload/index.ts");
+  const cleanupStart = edge.indexOf("async function cleanupCreatedVideo");
+  const serveStart = edge.indexOf("serve(async", cleanupStart);
+  const cleanupFunction = edge.slice(cleanupStart, serveStart);
+  const durableAttemptIdx = cleanupFunction.indexOf("const durableCleanup = await enqueueDurableOrphanCleanup");
+  const immediateDeleteIdx = cleanupFunction.indexOf("const deleteResponse = await fetch");
+  const immediateDeleteFailureIdx = cleanupFunction.indexOf("create_video_upload_cleanup_failed", immediateDeleteIdx);
+  const cleanupContextBlocks = edge.match(/context: \{[\s\S]*?\},/g)?.join("\n") ?? "";
+
+  assert.ok(cleanupStart >= 0, "cleanupCreatedVideo helper missing");
+  assert.ok(durableAttemptIdx >= 0, "durable orphan cleanup attempt missing");
+  assert.ok(immediateDeleteIdx >= 0, "best-effort Bunny DELETE missing");
+  assert.ok(
+    durableAttemptIdx < immediateDeleteIdx,
+    "durable orphan cleanup must be attempted before immediate Bunny DELETE",
+  );
+  assert.match(edge, /createdVideoId = videoId/);
+  assert.match(edge, /createdVideoId &&[\s\S]*?!uploadCredentialsReturned[\s\S]*?cleanupCreatedVideo/);
+  assert.match(cleanupFunction, /durableCleanup\?\.skipped === true[\s\S]*?return;/);
+  assert.match(cleanupFunction, /durableCleanup\?\.success !== true && requireDurableBeforeImmediate[\s\S]*?return;/);
+  assert.match(cleanupFunction, /bunny_status: deleteResponse\.status/);
+  assert.doesNotMatch(cleanupFunction, /deleteResponse\.ok/);
+  assert.ok(
+    immediateDeleteFailureIdx > immediateDeleteIdx,
+    "immediate DELETE failure must be logged after durable cleanup has already been attempted",
+  );
+  assert.doesNotMatch(cleanupFunction.slice(immediateDeleteFailureIdx), /\bthrow\b|return json/);
+  assert.doesNotMatch(cleanupContextBlocks, /signature|expirationTime|cdnHostname|libraryId|apiKey|AccessKey/);
 });
 
 test("stale Vibe Video repair classifies stuck states without deleting provider media", () => {
