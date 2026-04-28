@@ -69,6 +69,9 @@ import {
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
+const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
+
+type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
 
 function normalizedDateExtraSeconds(raw: unknown): number {
   return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.floor(raw)) : 0;
@@ -227,6 +230,7 @@ const VideoDate = () => {
   const explicitEndRequestedRef = useRef(false);
   const leaveSignalTokenRef = useRef<string | null>(null);
   const leaveSignalSentRef = useRef(false);
+  const lifecycleHiddenStartedAtRef = useRef<number | null>(null);
   const foregroundReconcileInFlightRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const videoJoinCycleRef = useRef(0);
@@ -1221,6 +1225,7 @@ const VideoDate = () => {
 
     const reconcile = (source: "visibilitychange" | "online") => {
       if (source === "visibilitychange" && document.visibilityState !== "visible") return;
+      if (phaseRef.current === "ended" || surveyOpenedRef.current || explicitEndRequestedRef.current) return;
       const now = Date.now();
       if (foregroundReconcileInFlightRef.current) return;
       if (now - lastForegroundReconcileAtRef.current < 4_000) return;
@@ -1600,23 +1605,25 @@ const VideoDate = () => {
     };
   }, []);
 
-  // Beforeunload/pagehide — warn and mark self away. Cleanup cron, not browser unload, owns deletion.
+  // Browser lifecycle — warn on unload, but only mark tab/background away after a native-like grace.
   useEffect(() => {
     leaveSignalSentRef.current = false;
+    lifecycleHiddenStartedAtRef.current = null;
   }, [id]);
 
   useEffect(() => {
     if (!id || !user?.id || videoDateAccess !== "allowed") return;
-    let visibilityLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+    let lifecycleAwayTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const clearVisibilityLeaveTimer = () => {
-      if (!visibilityLeaveTimer) return;
-      clearTimeout(visibilityLeaveTimer);
-      visibilityLeaveTimer = null;
+    const clearLifecycleAwayTimer = () => {
+      if (!lifecycleAwayTimer) return;
+      clearTimeout(lifecycleAwayTimer);
+      lifecycleAwayTimer = null;
     };
 
-    const sendLeaveSignal = (source: "beforeunload" | "pagehide" | "visibilitychange") => {
-      if (showFeedback || explicitEndRequestedRef.current) return;
+    const sendLeaveSignal = (source: WebLifecycleLeaveSource) => {
+      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current) return;
+      if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
       const token = leaveSignalTokenRef.current;
       if (!token) return;
@@ -1661,6 +1668,40 @@ const VideoDate = () => {
       }
     };
 
+    const scheduleLifecycleAway = (
+      source: Extract<WebLifecycleLeaveSource, "visibilitychange" | "pagehide" | "freeze">,
+    ) => {
+      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current) return;
+      if (phaseRef.current === "ended") return;
+      if (leaveSignalSentRef.current) return;
+      const startedAt = lifecycleHiddenStartedAtRef.current ?? Date.now();
+      lifecycleHiddenStartedAtRef.current = startedAt;
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
+      const delayMs = Math.max(0, WEB_LIFECYCLE_AWAY_GRACE_MS - elapsedMs);
+      clearLifecycleAwayTimer();
+      lifecycleAwayTimer = setTimeout(() => sendLeaveSignal(source), delayMs);
+      vdbg("web_lifecycle_away_scheduled", {
+        sessionId: id,
+        userId: user.id,
+        eventId: eventId ?? null,
+        source,
+        delayMs,
+        graceMs: WEB_LIFECYCLE_AWAY_GRACE_MS,
+      });
+    };
+
+    const sendLifecycleAwayIfGraceElapsed = (source: Extract<WebLifecycleLeaveSource, "pagehide" | "freeze">) => {
+      const startedAt = lifecycleHiddenStartedAtRef.current ?? Date.now();
+      lifecycleHiddenStartedAtRef.current = startedAt;
+      const elapsedMs = Math.max(0, Date.now() - startedAt);
+      if (elapsedMs >= WEB_LIFECYCLE_AWAY_GRACE_MS) {
+        clearLifecycleAwayTimer();
+        sendLeaveSignal(source);
+        return;
+      }
+      scheduleLifecycleAway(source);
+    };
+
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isConnected && !showFeedback && !explicitEndRequestedRef.current) {
         e.preventDefault();
@@ -1690,28 +1731,37 @@ const VideoDate = () => {
           .forEach((t) => t.stop());
       }
     };
-    const handlePageHide = () => {
-      clearVisibilityLeaveTimer();
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        sendLifecycleAwayIfGraceElapsed("pagehide");
+        return;
+      }
+      clearLifecycleAwayTimer();
       sendLeaveSignal("pagehide");
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        clearVisibilityLeaveTimer();
-        visibilityLeaveTimer = setTimeout(() => sendLeaveSignal("visibilitychange"), 1200);
+        scheduleLifecycleAway("visibilitychange");
       } else {
         leaveSignalSentRef.current = false;
-        clearVisibilityLeaveTimer();
+        lifecycleHiddenStartedAtRef.current = null;
+        clearLifecycleAwayTimer();
       }
+    };
+    const handleFreeze = () => {
+      sendLifecycleAwayIfGraceElapsed("freeze");
     };
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("freeze", handleFreeze);
     return () => {
-      clearVisibilityLeaveTimer();
+      clearLifecycleAwayTimer();
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("freeze", handleFreeze);
     };
   }, [id, user?.id, eventId, isConnected, showFeedback, videoDateAccess]);
 

@@ -951,7 +951,8 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
     webVideoDatePage,
     /source === "visibilitychange"[\s\S]*p_action: "mark_reconnect_return"[\s\S]*p_action: "sync_reconnect"/,
   );
-  assert.match(webVideoDatePage, /setTimeout\(\(\) => sendLeaveSignal\("visibilitychange"\), 1200\)/);
+  assert.match(webVideoDatePage, /WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000/);
+  assert.match(webVideoDatePage, /setTimeout\(\(\) => sendLeaveSignal\(source\), delayMs\)/);
   assert.match(webVideoCallHook, /CAMERA_PERMISSION_DENIED/);
   assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
@@ -964,6 +965,19 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
   assert.match(nativeVideoDateRoute, /We're reconnecting your date state/);
   assert.match(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
+});
+
+test("web lifecycle background path delays false-away and handles freeze/pagehide safely", () => {
+  assert.match(webVideoDatePage, /WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000/);
+  assert.match(webVideoDatePage, /lifecycleHiddenStartedAtRef/);
+  assert.match(webVideoDatePage, /scheduleLifecycleAway\("visibilitychange"\)/);
+  assert.match(webVideoDatePage, /document\.addEventListener\("freeze", handleFreeze\)/);
+  assert.match(webVideoDatePage, /sendLifecycleAwayIfGraceElapsed\("freeze"\)/);
+  assert.match(webVideoDatePage, /if \(event\.persisted\) \{[\s\S]*sendLifecycleAwayIfGraceElapsed\("pagehide"\)/);
+  assert.match(webVideoDatePage, /if \(phaseRef\.current === "ended"\) return/);
+  assert.match(webVideoDatePage, /surveyOpenedRef\.current/);
+  assert.match(webVideoDatePage, /clearLifecycleAwayTimer\(\)/);
+  assert.doesNotMatch(webVideoDatePage, /setTimeout\(\(\) => sendLeaveSignal\("visibilitychange"\), 1200\)/);
 });
 
 test("web reconnect grace surfaces partner-left UX immediately", () => {
