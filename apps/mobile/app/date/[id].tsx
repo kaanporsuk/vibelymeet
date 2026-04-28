@@ -3653,12 +3653,16 @@ export default function VideoDateScreen() {
           code: tokenRes.code ?? null,
           httpStatus: tokenRes.httpStatus ?? null,
           serverCode: tokenRes.serverCode ?? null,
+          entryAttemptId: tokenRes.entry_attempt_id ?? null,
+          videoDateTraceId: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
         videoDateDailyDiagnostic('token_fetch_failure', {
           session_id: sessionId,
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
           server_code: tokenRes.serverCode != null ? String(tokenRes.serverCode) : null,
+          entry_attempt_id: tokenRes.entry_attempt_id ?? null,
+          video_date_trace_id: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
           platform: 'native',
@@ -3672,11 +3676,15 @@ export default function VideoDateScreen() {
           duration_ms: tokenDurationMs,
           latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
           attempt_count: 1,
+          entry_attempt_id: tokenRes.entry_attempt_id ?? null,
+          video_date_trace_id: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_fail', {
           session_id: sessionId,
           code: String(tokenRes.code),
           http_status: tokenRes.httpStatus ?? null,
+          entry_attempt_id: tokenRes.entry_attempt_id ?? null,
+          video_date_trace_id: tokenRes.video_date_trace_id ?? tokenRes.entry_attempt_id ?? null,
         });
         addVideoDateBreadcrumb('create_date_room failed', 'error', {
           sessionId,
@@ -3719,6 +3727,12 @@ export default function VideoDateScreen() {
       }
 
       const tokenResult = tokenRes.data;
+      activePreparedEntryCacheRef.current = getPreparedVideoDateEntry(sessionId, user.id);
+      const entryAttemptId = tokenResult.entry_attempt_id ?? activePreparedEntryCacheRef.current?.entryAttemptId ?? null;
+      const videoDateTraceId =
+        tokenResult.video_date_trace_id ??
+        activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
+        entryAttemptId;
       const tokenDurationMs = Date.now() - dailyTokenStartedAtMs;
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
         platform: 'native',
@@ -3729,16 +3743,21 @@ export default function VideoDateScreen() {
         duration_ms: tokenDurationMs,
         latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
         attempt_count: 1,
+        entry_attempt_id: entryAttemptId,
+        video_date_trace_id: videoDateTraceId,
       });
-      activePreparedEntryCacheRef.current = getPreparedVideoDateEntry(sessionId, user.id);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'create_date_room_ok', {
         session_id: sessionId,
         user_id: user?.id ?? null,
         room_name: tokenResult.room_name,
+        entry_attempt_id: entryAttemptId,
+        video_date_trace_id: videoDateTraceId,
       });
       videoDateDailyDiagnostic('token_fetch_success', {
         session_id: sessionId,
         room_name: tokenResult.room_name,
+        entry_attempt_id: entryAttemptId,
+        video_date_trace_id: videoDateTraceId,
       });
 
       if (sharedDailyCallEntry && sharedDailyCallEntry.sessionId !== sessionId) {
@@ -3816,6 +3835,8 @@ export default function VideoDateScreen() {
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
           prepare_to_join_start_ms: prepareToJoinStartMs,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_STARTED, {
           platform: 'native',
@@ -3828,10 +3849,14 @@ export default function VideoDateScreen() {
           latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
           attempt_count: preparedJoinRetryUsedRef.current ? 2 : 1,
           cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         videoDateDailyDiagnostic('daily_call_join_start', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         beginBootstrapTiming('daily_join', { room_name: tokenResult.room_name });
         beginBootstrapTiming('first_ice_connected', { room_name: tokenResult.room_name });
@@ -3844,6 +3869,8 @@ export default function VideoDateScreen() {
           roomName: tokenResult.room_name,
           hasRoomUrl: Boolean(tokenResult.room_url),
           hasToken: Boolean(tokenResult.token),
+          entryAttemptId,
+          videoDateTraceId,
         });
         await call.join({ url: tokenResult.room_url, token: tokenResult.token });
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
@@ -3860,6 +3887,8 @@ export default function VideoDateScreen() {
           ok: true,
           cancelled,
           roomName: tokenResult.room_name,
+          entryAttemptId,
+          videoDateTraceId,
         });
         if (cancelled) {
           vdbg('prejoin_step_prejoin_daily_join_completed_after_cancellation', {
@@ -3874,6 +3903,8 @@ export default function VideoDateScreen() {
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
           join_duration_ms: joinDurationMs,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         const joinSuccessLatencyContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -3906,6 +3937,8 @@ export default function VideoDateScreen() {
           bothReadyToDailyJoinMs: joinSuccessPayload.bothReadyToDailyJoinMs,
           prepareToJoinStartMs,
           cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         const participants = call.participants();
         const allIds = participants
@@ -3942,6 +3975,8 @@ export default function VideoDateScreen() {
                 platform: 'native',
                 session_id: sessionId,
                 event_id: eventId || null,
+                entry_attempt_id: entryAttemptId,
+                video_date_trace_id: videoDateTraceId,
               });
               setTimeout(() => {
                 void markVideoDateDailyJoined(sessionId).then((retryOk) => {
@@ -3967,6 +4002,8 @@ export default function VideoDateScreen() {
               session_id: sessionId,
               event_id: eventId || null,
               reason: 'exception',
+              entry_attempt_id: entryAttemptId,
+              video_date_trace_id: videoDateTraceId,
             });
             setCallError("We're reconnecting your date state...");
             setTimeout(() => {
@@ -4068,6 +4105,8 @@ export default function VideoDateScreen() {
           ok: false,
           roomName: tokenResult.room_name,
           error: err instanceof Error ? err.message : String(err),
+          entryAttemptId: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
+          videoDateTraceId: preparedEntryAtFailure?.value.video_date_trace_id ?? videoDateTraceId,
         });
         vdbg('prejoin_step_prejoin_error', {
           sessionId,
@@ -4111,6 +4150,8 @@ export default function VideoDateScreen() {
           source_action: 'daily_join_failure',
           reason: 'daily_join_failed',
           reason_code: 'daily_join_failed',
+          entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
+          video_date_trace_id: preparedEntryAtFailure?.value.video_date_trace_id ?? videoDateTraceId,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_FAILURE, {
           platform: 'native',
@@ -4120,6 +4161,8 @@ export default function VideoDateScreen() {
           source_action: 'daily_join_failure',
           reason: 'daily_join_failed',
           reason_code: 'daily_join_failed',
+          entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
+          video_date_trace_id: preparedEntryAtFailure?.value.video_date_trace_id ?? videoDateTraceId,
         });
         if (preparedEntryAtFailure && !preparedJoinRetryUsedRef.current) {
           preparedJoinRetryUsedRef.current = true;

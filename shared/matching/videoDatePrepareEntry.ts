@@ -16,6 +16,7 @@ export type PreparedVideoDateEntry = {
   room_url: string;
   token: string;
   entry_attempt_id?: string | null;
+  video_date_trace_id?: string | null;
   session_state?: string | null;
   session_phase?: string | null;
   handshake_started_at?: string | null;
@@ -199,9 +200,11 @@ export async function prepareVideoDateEntryWithClient(
           options.bothReadyObservedAtMs == null
             ? null
             : Math.max(0, prepareStartedAtMs - options.bothReadyObservedAtMs);
+        const traceId = data.video_date_trace_id ?? data.entry_attempt_id ?? entryAttemptId;
         const value: PreparedVideoDateEntry = {
           ...data,
-          entry_attempt_id: data.entry_attempt_id ?? entryAttemptId,
+          entry_attempt_id: data.entry_attempt_id ?? traceId,
+          video_date_trace_id: traceId,
           timings: {
             ...(data.timings ?? {}),
             bothReadyToPrepareStartMs,

@@ -68,13 +68,17 @@ export const VIDEO_DATE_JOURNEY_TRACE_MAP: readonly VideoDateJourneyTracePoint[]
   {
     stage: "prepare_entry_started",
     primarySignals: [LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_STARTED],
-    correlationKeys: [...basePayloadKeys, "entry_attempt_id"],
+    correlationKeys: [...basePayloadKeys, "entry_attempt_id", "video_date_trace_id"],
     notes: "Daily preparation request started before route navigation or date bootstrap.",
   },
   {
     stage: "prepare_entry_success",
-    primarySignals: [LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SUCCESS, "prepare_date_entry_ok"],
-    correlationKeys: [...basePayloadKeys, "entry_attempt_id"],
+    primarySignals: [
+      LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SUCCESS,
+      "prepare_date_entry_ok",
+      "create_date_room_token_issued",
+    ],
+    correlationKeys: [...basePayloadKeys, "entry_attempt_id", "video_date_trace_id"],
     notes: "Daily provider room was verified or recovered and a date entry was prepared.",
   },
   {
@@ -83,25 +87,25 @@ export const VIDEO_DATE_JOURNEY_TRACE_MAP: readonly VideoDateJourneyTracePoint[]
       LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILURE,
       LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV,
     ],
-    correlationKeys: [...basePayloadKeys, "reason_code", "retryable"],
+    correlationKeys: [...basePayloadKeys, "entry_attempt_id", "video_date_trace_id", "reason_code", "retryable"],
     notes: "Daily preparation failed before navigation or during date bootstrap.",
   },
   {
     stage: "daily_join_started",
     primarySignals: [LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_STARTED],
-    correlationKeys: [...basePayloadKeys, "entry_attempt_id"],
+    correlationKeys: [...basePayloadKeys, "entry_attempt_id", "video_date_trace_id"],
     notes: "Client started joining the verified Daily room.",
   },
   {
     stage: "daily_join_success",
     primarySignals: [LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_SUCCESS, LobbyPostDateEvents.VIDEO_DATE_DAILY_JOINED],
-    correlationKeys: [...basePayloadKeys, "entry_attempt_id"],
+    correlationKeys: [...basePayloadKeys, "entry_attempt_id", "video_date_trace_id"],
     notes: "Client joined Daily and attempted to persist joined evidence.",
   },
   {
     stage: "daily_join_failure",
     primarySignals: [LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_FAILURE, LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE],
-    correlationKeys: [...basePayloadKeys, "reason_code", "retryable"],
+    correlationKeys: [...basePayloadKeys, "entry_attempt_id", "video_date_trace_id", "reason_code", "retryable"],
     notes: "Daily token or join failed without logging tokens or provider secrets.",
   },
   {

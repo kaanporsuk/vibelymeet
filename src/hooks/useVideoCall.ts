@@ -70,6 +70,8 @@ type DailyRoomSuccessResponse = {
   room_name: string;
   room_url: string;
   token: string;
+  entry_attempt_id?: string | null;
+  video_date_trace_id?: string | null;
   reused_room?: boolean;
   provider_room_recreated?: boolean;
   provider_verify_skipped?: boolean;
@@ -685,6 +687,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             room_name: result.data.room_name,
             room_url: result.data.room_url,
           };
+          const entryAttemptId = successfulRoomData.entry_attempt_id ?? result.cacheEntry.entryAttemptId ?? null;
+          const videoDateTraceId = successfulRoomData.video_date_trace_id ?? entryAttemptId;
           vdbg("daily_room_after", {
             action: "prepare_date_entry",
             ok: true,
@@ -698,6 +702,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             providerVerifySkipped: successfulRoomData.provider_verify_skipped ?? null,
             cached: result.cached,
             attempt: attempt + 1,
+            entryAttemptId,
+            videoDateTraceId,
           });
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
             platform: "web",
@@ -711,6 +717,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             cached: result.cached,
             attempt: attempt + 1,
             attempt_count: attempt + 1,
+            entry_attempt_id: entryAttemptId,
+            video_date_trace_id: videoDateTraceId,
             duration_ms: result.cacheEntry
               ? Math.max(0, result.cacheEntry.prepareFinishedAtMs - result.cacheEntry.prepareStartedAtMs)
               : null,
@@ -745,6 +753,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           classifiedCode: result.code,
           retryable: result.retryable,
           attempt: attempt + 1,
+          entryAttemptId: result.entryAttemptId ?? null,
+          videoDateTraceId: result.entryAttemptId ?? null,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_FAILURE, {
           platform: "web",
@@ -757,6 +767,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           retryable: result.retryable,
           attempt: attempt + 1,
           attempt_count: attempt + 1,
+          entry_attempt_id: result.entryAttemptId ?? null,
+          video_date_trace_id: result.entryAttemptId ?? null,
         });
 
         if (!lastFailure?.retryable) {
@@ -930,6 +942,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         const roomData = roomResult.roomData;
         activePreparedEntryCacheRef.current = roomResult.cacheEntry;
+        const entryAttemptId = roomData.entry_attempt_id ?? roomResult.cacheEntry.entryAttemptId ?? null;
+        const videoDateTraceId = roomData.video_date_trace_id ?? entryAttemptId;
 
         roomNameRef.current = roomData.room_name;
 
@@ -943,6 +957,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: truthRow.event_id ?? eventId,
           userId,
           roomName: roomData.room_name,
+          entryAttemptId,
+          videoDateTraceId,
           reusedCallObject: false,
         });
 
@@ -971,10 +987,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           vdbg(message, {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
-            userId,
-            roomName: roomData.room_name,
-            localParticipantId: latestLocalParticipantRef.current?.session_id ?? null,
-            remoteParticipantCount: getRemoteParticipantCount(),
+          userId,
+          roomName: roomData.room_name,
+          localParticipantId: latestLocalParticipantRef.current?.session_id ?? null,
+          entryAttemptId,
+          videoDateTraceId,
+          remoteParticipantCount: getRemoteParticipantCount(),
             dailyMeetingState: getMeetingState(),
             videoSessionState: optionsRef.current?.videoSessionState ?? null,
             localJoined: activeCallSessionIdRef.current === sessionId,
@@ -1444,6 +1462,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           hasToken: Boolean(roomData.token),
           prepareToJoinStartMs,
           cachedPrepareEntry: roomResult.cached,
+          entryAttemptId,
+          videoDateTraceId,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_STARTED, {
           platform: "web",
@@ -1456,6 +1476,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
           attempt_count: opts?.internalRetry ? 2 : 1,
           cached_prepare_entry: roomResult.cached,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         await callObject.join({ url: roomData.room_url, token: roomData.token });
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
@@ -1467,6 +1489,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           userId,
           roomName: roomData.room_name,
           joinDurationMs,
+          entryAttemptId,
+          videoDateTraceId,
         });
         const joinSuccessLatencyContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -1502,11 +1526,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           bothReadyToDailyJoinMs: joinSuccessPayload.bothReadyToDailyJoinMs,
           prepareToJoinStartMs,
           cached_prepare_entry: roomResult.cached,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOINED, {
           platform: "web",
           session_id: sessionId,
           event_id: truthRow.event_id ?? eventId,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
         });
 
         const joinedArgs = { p_session_id: sessionId };
@@ -1535,6 +1563,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             session_id: sessionId,
             event_id: truthRow.event_id ?? eventId,
             code: joinedError?.code ?? ((joinedData as { error?: string } | null)?.error ?? null),
+            entry_attempt_id: entryAttemptId,
+            video_date_trace_id: videoDateTraceId,
           });
           toast.info("We're reconnecting your date state...", { duration: 3000 });
           window.setTimeout(() => {
@@ -1704,6 +1734,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           userId,
           roomName: roomNameRef.current,
           error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          entryAttemptId: preparedEntryAtFailure?.entryAttemptId ?? null,
+          videoDateTraceId: preparedEntryAtFailure?.value.video_date_trace_id ?? preparedEntryAtFailure?.entryAttemptId ?? null,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOIN_FAILURE, {
           platform: "web",
@@ -1713,6 +1745,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           source_action: "daily_join_failure",
           reason: "daily_join_failed",
           reason_code: "daily_join_failed",
+          entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? null,
+          video_date_trace_id: preparedEntryAtFailure?.value.video_date_trace_id ?? preparedEntryAtFailure?.entryAttemptId ?? null,
         });
         const failureContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,

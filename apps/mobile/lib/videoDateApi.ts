@@ -70,6 +70,8 @@ export type RoomTokenResult = {
   room_name: string;
   room_url: string;
   token: string;
+  entry_attempt_id?: string | null;
+  video_date_trace_id?: string | null;
 };
 
 /** Classified create_date_room failure (no secrets). */
@@ -82,6 +84,8 @@ export type GetDailyRoomTokenResult =
       code: RoomTokenFailureCode;
       httpStatus?: number;
       serverCode?: string;
+      entry_attempt_id?: string | null;
+      video_date_trace_id?: string | null;
     };
 
 export type EnterHandshakeResult =
@@ -382,6 +386,11 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
       duration_ms: Date.now() - invokeStarted,
       ok: result.ok,
       cached: result.ok === true ? result.cached : false,
+      entry_attempt_id: result.ok === true ? result.data.entry_attempt_id ?? null : result.entryAttemptId ?? null,
+      video_date_trace_id:
+        result.ok === true
+          ? result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? null
+          : result.entryAttemptId ?? null,
     },
   });
 
@@ -392,6 +401,8 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
       roomName: result.data.room_name,
       hasToken: true,
       cached: result.cached,
+      entryAttemptId: result.data.entry_attempt_id ?? null,
+      videoDateTraceId: result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? null,
     });
     return {
       ok: true,
@@ -399,6 +410,8 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
         room_name: result.data.room_name,
         room_url: result.data.room_url,
         token: result.data.token,
+        entry_attempt_id: result.data.entry_attempt_id ?? null,
+        video_date_trace_id: result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? null,
       },
     };
   }
@@ -417,6 +430,8 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
     code: result.code as RoomTokenFailureCode,
     httpStatus: result.httpStatus,
     serverCode: result.code,
+    entry_attempt_id: result.entryAttemptId ?? null,
+    video_date_trace_id: result.entryAttemptId ?? null,
   };
 }
 
