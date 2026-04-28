@@ -400,6 +400,7 @@ export default function VideoDateScreen() {
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
   const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
+  const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
   /** True during grace when the server says the local user's decision is still pending. */
   const [handshakeGraceWaitingForSelf, setHandshakeGraceWaitingForSelf] = useState(false);
 
@@ -566,6 +567,11 @@ export default function VideoDateScreen() {
   useEffect(() => {
     localInDailyRoomRef.current = localInDailyRoom;
   }, [localInDailyRoom]);
+
+  useEffect(() => {
+    setDateEntryPermissionEligible(false);
+  }, [sessionId, user?.id]);
+
   const boundCallRef = useRef<DailyCallObject | null>(null);
   const boundHandlersRef = useRef<{
     onParticipantJoined: (event: { participant?: DailyParticipant }) => void;
@@ -999,7 +1005,13 @@ export default function VideoDateScreen() {
       if (cancelled) return;
       vdbg('date_entry_truth_row', { sessionId, userId: user.id, row: vs ?? null });
       if (!vs) {
+        setDateEntryPermissionEligible(false);
         vdbg('date_guard_blocked', { sessionId, userId: user.id, reason: 'missing_session_truth_row' });
+        return;
+      }
+      if (!getVideoSessionPartnerIdForUser(vs, user.id)) {
+        setDateEntryPermissionEligible(false);
+        vdbg('date_guard_blocked', { sessionId, userId: user.id, reason: 'not_participant' });
         return;
       }
       const regQuery = supabase
@@ -1052,6 +1064,7 @@ export default function VideoDateScreen() {
         readyGateExpiresAt: vs.ready_gate_expires_at ?? null,
       });
       if (truthDecision === 'ended') {
+        setDateEntryPermissionEligible(false);
         const { data: verdict } = await supabase
           .from('date_feedback')
           .select('id')
@@ -1114,9 +1127,11 @@ export default function VideoDateScreen() {
         return;
       }
       if (canAttemptDaily || truthDecision === 'navigate_date') {
+        setDateEntryPermissionEligible(true);
         return;
       }
 	      if (truthDecision === 'navigate_ready') {
+        setDateEntryPermissionEligible(false);
         vdbg('date_guard_ready_gate_branch', {
           sessionId,
           userId: user.id,
@@ -1156,6 +1171,7 @@ export default function VideoDateScreen() {
         router.replace(target);
         return;
       }
+      setDateEntryPermissionEligible(false);
       clearDateEntryTransition(sessionId);
       rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
         session_id: sessionId,
@@ -2707,6 +2723,7 @@ export default function VideoDateScreen() {
       hasStartedJoin: hasStartedJoinRef.current,
       sessionError: sessionError ?? null,
       phase: currentPhase,
+      dateEntryPermissionEligible,
     };
     rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'date_prejoin_effect_started', {
       session_id: sessionId ?? null,
@@ -2729,6 +2746,7 @@ export default function VideoDateScreen() {
       !user?.id ||
       !session ||
       session.ended_at ||
+      !dateEntryPermissionEligible ||
       (joining && hasStartedJoinRef.current) ||
       callRef.current ||
       hasStartedJoinRef.current
@@ -4233,6 +4251,7 @@ export default function VideoDateScreen() {
     pathname,
     session?.id,
     session?.ended_at,
+    dateEntryPermissionEligible,
     sessionError,
     requestPermissions,
     clearFirstConnectWatchdog,

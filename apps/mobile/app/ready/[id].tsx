@@ -62,6 +62,7 @@ export default function ReadyGateScreen() {
   const [markingReady, setMarkingReady] = useState(false);
   const [requestingSnooze, setRequestingSnooze] = useState(false);
   const [sessionLookupDone, setSessionLookupDone] = useState(false);
+  const [permissionRequestEligible, setPermissionRequestEligible] = useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
   const invalidSessionLoggedRef = useRef(false);
@@ -189,13 +190,14 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     setSessionLookupDone(false);
+    setPermissionRequestEligible(false);
     redirectExplainedRef.current = false;
     setPermissionsResolved(false);
     setHasMediaPermission(null);
-  }, [sessionId]);
+  }, [sessionId, user?.id]);
 
   useEffect(() => {
-    if (!sessionId || !user?.id) return;
+    if (!sessionId || !user?.id || !permissionRequestEligible) return;
     let cancelled = false;
     void (async () => {
       const ok = await requestMediaPermissions();
@@ -205,7 +207,7 @@ export default function ReadyGateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id]);
+  }, [permissionRequestEligible, sessionId, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -221,6 +223,7 @@ export default function ReadyGateScreen() {
     };
     const load = async () => {
       let revealReadyUi = false;
+      setPermissionRequestEligible(false);
       try {
         const { data: session } = await supabase
           .from('video_sessions')
@@ -280,6 +283,7 @@ export default function ReadyGateScreen() {
         }
 
         setEventId(session.event_id);
+        setPermissionRequestEligible(true);
         revealReadyUi = true;
         const partnerId =
           session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
