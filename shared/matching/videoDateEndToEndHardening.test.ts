@@ -98,6 +98,10 @@ const nativeReadyGateOverlay = readFileSync(
   join(process.cwd(), "apps/mobile/components/lobby/ReadyGateOverlay.tsx"),
   "utf8",
 );
+const nativeReadyRoute = readFileSync(
+  join(process.cwd(), "apps/mobile/app/ready/[id].tsx"),
+  "utf8",
+);
 const webReadyGateHook = readFileSync(
   join(process.cwd(), "src/hooks/useReadyGate.ts"),
   "utf8",
@@ -827,6 +831,35 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.match(nativeVideoDateRoute, /\.eq\('event_id', regEventId\)/);
   assert.match(nativeVideoDateRoute, /pendingPostDateSurveyDue/);
   assert.match(nativeVideoDateRoute, /if \(pendingPostDateSurveyDue\) \{/);
+});
+
+test("native ready and date routes validate before requesting camera and microphone", () => {
+  assert.match(nativeReadyRoute, /permissionRequestEligible/);
+  assert.match(nativeReadyRoute, /if \(!sessionId \|\| !user\?\.id \|\| !permissionRequestEligible\) return;/);
+  assert.match(nativeReadyRoute, /setPermissionRequestEligible\(false\);[\s\S]*setPermissionsResolved\(false\);/);
+  assert.match(nativeReadyRoute, /const isParticipant =[\s\S]*if \(!isParticipant\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.match(nativeReadyRoute, /if \(session\.ended_at\) \{[\s\S]*return;[\s\S]*\}/);
+  assert.match(nativeReadyRoute, /setEventId\(session\.event_id\);\s*setPermissionRequestEligible\(true\);\s*revealReadyUi = true;/);
+
+  const readyPermissionEffectIndex = nativeReadyRoute.indexOf(
+    "if (!sessionId || !user?.id || !permissionRequestEligible) return;",
+  );
+  const readyParticipantCheckIndex = nativeReadyRoute.indexOf("const isParticipant =");
+  const readyPermissionEligibleIndex = nativeReadyRoute.indexOf("setPermissionRequestEligible(true);");
+  assert.ok(readyPermissionEffectIndex >= 0);
+  assert.ok(readyParticipantCheckIndex >= 0);
+  assert.ok(readyPermissionEligibleIndex > readyParticipantCheckIndex);
+
+  assert.match(nativeVideoDateRoute, /dateEntryPermissionEligible/);
+  assert.match(nativeVideoDateRoute, /if \(!getVideoSessionPartnerIdForUser\(vs, user\.id\)\) \{[\s\S]*setDateEntryPermissionEligible\(false\);/);
+  assert.match(nativeVideoDateRoute, /if \(truthDecision === 'ended'\) \{[\s\S]*setDateEntryPermissionEligible\(false\);[\s\S]*pendingPostDateSurveyDue[\s\S]*setShowFeedback\(true\);/);
+  assert.match(nativeVideoDateRoute, /if \(canAttemptDaily \|\| truthDecision === 'navigate_date'\) \{\s*setDateEntryPermissionEligible\(true\);/);
+  assert.match(nativeVideoDateRoute, /session\.ended_at \|\|\s*!dateEntryPermissionEligible \|\|/);
+
+  const dateRouteAllowsPromptIndex = nativeVideoDateRoute.indexOf("setDateEntryPermissionEligible(true);");
+  const datePrejoinPermissionIndex = nativeVideoDateRoute.indexOf("const ok = await requestPermissions();");
+  assert.ok(dateRouteAllowsPromptIndex >= 0);
+  assert.ok(datePrejoinPermissionIndex > dateRouteAllowsPromptIndex);
 });
 
 test("remaining prepare-entry hardening defers in_handshake registration until Daily token success", () => {
