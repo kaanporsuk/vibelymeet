@@ -132,7 +132,7 @@ If they drift, Vibely can register subscriptions in one app while sending throug
 
 OneSignal v16 web push requires a root-served service worker script. The browser will request:
 
-- `https://vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
+- `https://www.vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
 
 The repo now provides a **shim** at:
 
@@ -145,7 +145,7 @@ which imports the official CDN worker:
 A healthy deploy must ensure that `OneSignalSDK.sw.js` is actually served from the site root so this request does **not** 404. Final delivery still depends on:
 
 - OneSignal dashboard app identity
-- allowed origins/domains (must include `https://vibelymeet.com`)
+- allowed origins/domains (must include `https://www.vibelymeet.com`; apex may redirect to `www`)
 - any service-worker/origin linkage configured in the OneSignal dashboard.
 
 ---
@@ -441,7 +441,7 @@ The repo proves the code contract, but not the provider-side setup.
 ## What the repo does not prove strongly
 - exact live OneSignal app/dashboard identity
 - whether frontend app ID and backend env app ID currently match in production
-- whether the OneSignal app is correctly configured for `vibelymeet.com`
+- whether the OneSignal app is correctly configured for `www.vibelymeet.com`
 - whether the generic webhook path is actively wired to OneSignal or another source
 - whether OneSignal delivery metrics are fully represented in local analytics tables
 
@@ -561,4 +561,3 @@ To rebuild it correctly, you need more than the code:
 - clear understanding that app-level logs and provider-level telemetry are not currently the same pipeline
 
 This sheet is the provider-level control point for that reality.
-

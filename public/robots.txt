@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /api
-Sitemap: https://vibelymeet.com/sitemap.xml
+Sitemap: https://www.vibelymeet.com/sitemap.xml

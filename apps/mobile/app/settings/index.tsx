@@ -261,7 +261,7 @@ export default function SettingsScreen() {
                 icon={<Ionicons name="people-outline" size={18} color={theme.textSecondary} />}
                 title="Community Guidelines"
                 subtitle="How we keep Vibely safe and respectful"
-                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/community-guidelines').catch(() => {})}
+                onPress={() => WebBrowser.openBrowserAsync('https://www.vibelymeet.com/community-guidelines').catch(() => {})}
               />
               <SettingsRow
                 icon={<Ionicons name="sparkles-outline" size={18} color={theme.tint} />}
@@ -279,13 +279,13 @@ export default function SettingsScreen() {
                 icon={<Ionicons name="shield-checkmark-outline" size={18} color={theme.textSecondary} />}
                 title="Privacy Policy"
                 subtitle="How we collect, use, and protect your data"
-                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/privacy').catch(() => {})}
+                onPress={() => WebBrowser.openBrowserAsync('https://www.vibelymeet.com/privacy').catch(() => {})}
               />
               <SettingsRow
                 icon={<Ionicons name="document-text-outline" size={18} color={theme.textSecondary} />}
                 title="Terms of Service"
                 subtitle="Rules and agreements for using Vibely"
-                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/terms').catch(() => {})}
+                onPress={() => WebBrowser.openBrowserAsync('https://www.vibelymeet.com/terms').catch(() => {})}
               />
             </View>
           </Card>

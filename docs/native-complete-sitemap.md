@@ -101,7 +101,7 @@
 - **Layout:** Stack **header shown** (Expo default title area)
 - **Steps:** 0 Welcome → 1 Identity (name) → 2 Details (gender required; tagline, job, about_me optional)
 - **Submit:** `createProfile` → `refreshOnboarding` → `/(tabs)`
-- **Step 2 footer:** Link **“Add photos on the web”** → `https://vibelymeet.com/profile`
+- **Step 2 footer:** Link **“Add photos on the web”** → `https://www.vibelymeet.com/profile`
 - **Alert:** Error on failure
 - **Note:** No multi-step photo/onboarding parity with web; profile row existence completes onboarding.
 
@@ -112,7 +112,7 @@
 - **Header:** `GlassHeaderBar` — `DashboardGreeting`, bell → notification flow or `/settings/notifications`, avatar → `/profile`
 - **RefreshControl:** `tintColor={theme.tint}`
 - **Sections:** DeletionRecoveryBanner; PhoneVerificationNudge; DateReminderCards (Join → `/date/:sessionId` if active session else `/chat/:partnerProfileId`); Live event CTA → lobby or event detail; Next event countdown; premium other-cities nudge; matches strip → `/chat/:id`; events rail → `/events/:id`
-- **Web fallbacks:** `Linking.openURL('https://vibelymeet.com/schedule')` (upcoming dates empty). Reminder join now prefers active session deep-link (`/date/:sessionId`) and otherwise falls back to chat/schedule flows.
+- **Web fallbacks:** `Linking.openURL('https://www.vibelymeet.com/schedule')` (upcoming dates empty). Reminder join now prefers active session deep-link (`/date/:sessionId`) and otherwise falls back to chat/schedule flows.
 - **Modals:** `NotificationPermissionFlow`
 - **Animations:** `PulsingLiveDot` (Animated loop)
 - **Realtime:** None on dashboard itself; hooks refetch on focus/refresh
@@ -126,7 +126,7 @@
 - **RefreshControl** + skeletons / ErrorState
 - **Card tap:** `router.push(/events/${id})`
 - **Premium gates:** `router.push('/premium')`
-- **Location:** `Linking.openURL('https://vibelymeet.com/profile')` for web profile to add location
+- **Location:** `Linking.openURL('https://www.vibelymeet.com/profile')` for web profile to add location
 
 ---
 
@@ -202,7 +202,7 @@
 - **IncomingCallOverlay / ActiveCallOverlay** — app-level `MatchCallProvider` + global `match_calls` INSERT/UPDATE listeners for `caller_id` / `callee_id`
 - **Sheets:** `DateSuggestionSheet`, `ReactionPicker` on long-press
 - **Alerts:** Offline, voice permission, video from library, call errors, unmatch/block, “Coming soon” for camera photo
-- **Quick action:** Opens `https://vibelymeet.com/matches`
+- **Quick action:** Opens `https://www.vibelymeet.com/matches`
 
 ---
 
@@ -225,7 +225,7 @@
 - **Route:** `/settings/referrals`
 - **File:** `app/settings/referrals.tsx`
 - **Entry points:** Settings "Invite friends", Matches empty-state CTA, Profile tab "Bring Friends to Vibely".
-- **Behavior:** Shows canonical invite link (`https://vibelymeet.com/invite?ref=<uuid>`), supports share-sheet + copy, displays current `profiles.referred_by` status when available, and keeps advanced event invite sharing on event detail surfaces.
+- **Behavior:** Shows canonical invite link (`https://www.vibelymeet.com/invite?ref=<uuid>`), supports share-sheet + copy, displays current `profiles.referred_by` status when available, and keeps advanced event invite sharing on event detail surfaces.
 
 ---
 
@@ -362,7 +362,7 @@ Account → `EmailVerificationFlow` modal.
 Dashboard mini countdown → `/schedule` → native join paths to date/chat.
 
 ### 4.16 How it works
-Settings → link to **`https://vibelymeet.com/how-it-works`** OR in-app `/how-it-works` if navigated from code.
+Settings → link to **`https://www.vibelymeet.com/how-it-works`** OR in-app `/how-it-works` if navigated from code.
 
 ---
 
@@ -399,9 +399,9 @@ Settings → link to **`https://vibelymeet.com/how-it-works`** OR in-app `/how-i
 
 | File | URL | Reason |
 |------|-----|--------|
-| `chat/[id].tsx` | `https://vibelymeet.com/matches` | Quick action |
+| `chat/[id].tsx` | `https://www.vibelymeet.com/matches` | Quick action |
 | `settings/support.tsx` | — | In-app Support & Feedback hub |
-| `settings/privacy.tsx` | `vibelymeet.com/settings` (×2), `/privacy` | Manage privacy on web |
+| `settings/privacy.tsx` | `www.vibelymeet.com/settings` (×2), `/privacy` | Manage privacy on web |
 | `settings/index.tsx` | Billing portal `data.url` (Stripe) | Manage subscription |
 | `settings/index.tsx` | `/community-guidelines`, `/how-it-works`, `/settings`, `/privacy`, `/terms` | Legal / full settings on web |
 | `settings/notifications.tsx` | `/settings` | Advanced notification prefs |

@@ -119,7 +119,7 @@ import { safeVideoPlayerCall } from '@/lib/expoVideoSafe';
 import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../shared/chat/vibeClipAnalytics';
 import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
 
-const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
+const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com';
 
 /** When true, Games chip includes "Open in browser" alongside native game starts. */
 const GAMES_WEB_FALLBACK = true;

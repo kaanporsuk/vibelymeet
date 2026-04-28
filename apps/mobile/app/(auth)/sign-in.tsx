@@ -83,7 +83,7 @@ type Country = { name: string; code: string; flag: string; suggested?: boolean }
 const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
 
 /** Canonical web origin for legal pages (matches `EXPO_PUBLIC_WEB_APP_URL` usage elsewhere). */
-const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
+const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
 
 function firstRouteParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {

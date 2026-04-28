@@ -12,7 +12,7 @@
 1. **SDK load** — `index.html` loads deferred `OneSignalSDK.page.js` (CDN v16).  
    - `index.html` **L29**
 
-2. **App bootstrap** — `src/main.tsx` calls `initOneSignal()` only when `origin === https://vibelymeet.com` **or** `localhost` (avoids OneSignal domain error on other hosts).  
+2. **App bootstrap** — `src/main.tsx` calls `initOneSignal()` only on the canonical `https://www.vibelymeet.com` origin, the apex redirect host, or `localhost` (avoids OneSignal domain error on other hosts).
    - `src/main.tsx` **L66–76**
 
 3. **OneSignal init (deferred queue)** — `initOneSignal` pushes a callback onto `window.OneSignalDeferred` that runs `OneSignal.init({ appId, notifyButton: false, allowLocalhostAsSecureOrigin: true, serviceWorkerParam: { scope: '/' } })` and registers a **click** listener to set `window.location.href` from `event.notification?.data?.url`.  

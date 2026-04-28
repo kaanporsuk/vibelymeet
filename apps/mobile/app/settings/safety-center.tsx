@@ -225,7 +225,7 @@ export default function SafetyCenterScreen() {
 
         <Text style={[styles.sectionHeader, { color: theme.mutedForeground }]}>LEARN MORE</Text>
         <Pressable
-          onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/community-guidelines')}
+          onPress={() => WebBrowser.openBrowserAsync('https://www.vibelymeet.com/community-guidelines')}
           style={({ pressed }) => [
             styles.learnMoreRow,
             { backgroundColor: 'rgba(255,255,255,0.05)', opacity: pressed ? 0.88 : 1 },
@@ -240,7 +240,7 @@ export default function SafetyCenterScreen() {
           <Ionicons name="chevron-forward" size={18} color={theme.mutedForeground} />
         </Pressable>
         <Pressable
-          onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/privacy')}
+          onPress={() => WebBrowser.openBrowserAsync('https://www.vibelymeet.com/privacy')}
           style={({ pressed }) => [
             styles.learnMoreRow,
             { backgroundColor: 'rgba(255,255,255,0.05)', opacity: pressed ? 0.88 : 1 },

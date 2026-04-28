@@ -41,7 +41,7 @@ const TermsOfService = () => {
           <h2>3. Your Account</h2>
           <p>
             Provide accurate information. You are responsible for your account security. You can delete your account anytime via Settings → Delete My Account or at{" "}
-            <Link to="/delete-account" className="text-neon-violet hover:underline">vibelymeet.com/delete-account</Link>.
+            <Link to="/delete-account" className="text-neon-violet hover:underline">www.vibelymeet.com/delete-account</Link>.
           </p>
         </section>
 

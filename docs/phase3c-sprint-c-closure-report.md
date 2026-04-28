@@ -22,10 +22,10 @@ All major code-inferable gaps for matches, chat, and monetization are closed wit
 - **reportApi.ts**: `submitReport()` and `REPORT_REASONS`. Entry points: match row long-press → Report, chat overflow → Report, profile → Report.
 
 ### D) Drops tab completion
-- Drops tab unchanged: “Daily Drop” card with copy and **“Open Daily Drop on web”** → `https://vibelymeet.com/matches`. No native Daily Drop flow; web handoff is explicit.
+- Drops tab unchanged: “Daily Drop” card with copy and **“Open Daily Drop on web”** → `https://www.vibelymeet.com/matches`. No native Daily Drop flow; web handoff is explicit.
 
 ### E) Chat date proposals / scheduling
-- **“Propose date”** and **“Games”** quick actions above the composer: open `https://vibelymeet.com/schedule` and `https://vibelymeet.com/matches` respectively. No in-thread proposal cards or native proposal creation; scheduling remains web-led with clear handoff.
+- **“Propose date”** and **“Games”** quick actions above the composer: open `https://www.vibelymeet.com/schedule` and `https://www.vibelymeet.com/matches` respectively. No in-thread proposal cards or native proposal creation; scheduling remains web-led with clear handoff.
 
 ### F) Credits flow return handling
 - **Credits screen**: `useFocusEffect` refetches `user_credits` when the screen gains focus (return from browser). Copy updated to: “Return to this screen after payment — your balance will refresh automatically.” No deep-link or URL params; refetch on focus is the return handling.

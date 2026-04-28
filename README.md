@@ -35,7 +35,7 @@ Copy `.env.example` to `.env.local` for web; use `apps/mobile` env patterns for 
 
 ## Domains & hosting
 
-Production web is deployed with production env (e.g. Vercel) targeting **`vibelymeet.com`**. Push uses OneSignal; see [`docs/web-push-production-checklist.md`](docs/web-push-production-checklist.md).
+Production web is deployed with production env (e.g. Vercel) targeting **`www.vibelymeet.com`**. The apex domain redirects to `www`. Push uses OneSignal; see [`docs/web-push-production-checklist.md`](docs/web-push-production-checklist.md).
 
 ## License
 

@@ -32,8 +32,8 @@
 
 - **Step list:** Verification is a glass card with header (shield icon + "Verification"), subline "Get a verified badge and stand out", and three rows:
   - **Email:** label "Email", description "Verified", checkmark icon (no action).
-  - **Photo:** label "Photo verification", description "Verify on web", chevron; press opens vibelymeet.com/profile.
-  - **Phone:** label "Phone number", description "Verify on web", chevron; press opens vibelymeet.com/settings.
+  - **Photo:** label "Photo verification", description "Verify on web", chevron; press opens www.vibelymeet.com/profile.
+  - **Phone:** label "Phone number", description "Verify on web", chevron; press opens www.vibelymeet.com/settings.
 - Rows use consistent spacing, label/description typography, and optional trailing icon (checkmark vs chevron). No backend or profile fields used; entry points are web links.
 
 ### 6. Section titles, sublabels, spacing

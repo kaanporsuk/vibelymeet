@@ -82,7 +82,7 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 | Web route | Web component | Native | Notes |
 |-----------|---------------|--------|--------|
 | Vibe video | (profile) | `app/(tabs)/profile/index` + record flow | In v1: create-video-upload, tus, delete-vibe-video (EF); record, upload, state, delete |
-| `/schedule` | Schedule | Web handoff (explicit) | Profile card "My Vibe Schedule" → open vibelymeet.com/schedule |
+| `/schedule` | Schedule | Web handoff (explicit) | Profile card "My Vibe Schedule" → open www.vibelymeet.com/schedule |
 | `/credits`, `/credits/success` | Credits, CreditsSuccess | Native pack selection + create-credits-checkout → Stripe in browser | Balance native; payment opens Stripe URL; success/cancel on web |
 | `/subscription/success`, `/subscription/cancel` | SubscriptionSuccess, SubscriptionCancel | Web / in-app browser | RevenueCat handles natively |
 | `/event-payment/success` | EventPaymentSuccess | Web / link-out | Stripe callback |

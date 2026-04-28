@@ -306,7 +306,7 @@ Resend powers transactional and engagement email sends.
 
 ### Hardcoded runtime assumptions
 - outbound sender examples include `Vibely <no-reply@vibelymeet.com>`
-- templates include hardcoded links to `https://vibelymeet.com`
+- templates use the canonical web origin `https://www.vibelymeet.com`
 
 ### Outside-repo state that must exist
 - Resend account

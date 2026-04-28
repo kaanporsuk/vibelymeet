@@ -12,7 +12,7 @@ All major code-inferable onboarding, trust, and settings gaps are closed within 
 - **Audit**: Native had 2 steps (name → gender/tagline/job/about). Web has 8 steps (welcome, identity, location, details, about, vibes, looking for, photos/video).
 - **Implemented**:
   - Onboarding screen restyled with theme tokens (Colors, spacing, radius), VibelyButton, Card.
-  - Explicit **“Add photos & more on web”** card with copy and **“Complete on web”** CTA opening `https://vibelymeet.com/profile`.
+  - Explicit **“Add photos & more on web”** card with copy and **“Complete on web”** CTA opening `https://www.vibelymeet.com/profile`.
   - No silent dead ends; handoff to web is clear and intentional.
 
 ### B) Notification permission flow
@@ -22,7 +22,7 @@ All major code-inferable onboarding, trust, and settings gaps are closed within 
 - OneSignal/provider stack unchanged; `registerPushWithBackend` still used after grant.
 
 ### C) Phone verification nudge
-- **PhoneVerificationNudge** component with variants: wizard, match, event, empty. Copy aligned with web; CTA is **“Verify on Web”** (or “Verify Phone” for event) opening `https://vibelymeet.com/settings`.
+- **PhoneVerificationNudge** component with variants: wizard, match, event, empty. Copy aligned with web; CTA is **“Verify on Web”** (or “Verify Phone” for event) opening `https://www.vibelymeet.com/settings`.
 - **Dashboard**: Nudge shown when profile `phone_verified` is false; dismiss persisted to AsyncStorage (`vibely_phone_nudge_dashboard_dismissed`). No native OTP flow; verification remains web-only.
 
 ### D) Deletion recovery banner
@@ -32,7 +32,7 @@ All major code-inferable onboarding, trust, and settings gaps are closed within 
 
 ### E) Events location prompt
 - **Logic**: `useQuery` for `profiles.location_data`; banner shown when no `location_data` (or no lat/lng) and not dismissed.
-- **LocationPromptBanner**: “Set your location to see events near you” with “Not now” and **“Set location”** opening `https://vibelymeet.com/profile`. Events list is not blocked when location is missing.
+- **LocationPromptBanner**: “Set your location to see events near you” with “Not now” and **“Set location”** opening `https://www.vibelymeet.com/profile`. Events list is not blocked when location is missing.
 
 ### F) Profile verification / Safety Hub
 - **Profile**: Existing Verification section and photo/phone verified badges unchanged.

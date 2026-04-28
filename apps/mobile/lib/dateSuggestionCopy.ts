@@ -133,7 +133,7 @@ export function labelForPlaceMode(key: string): string {
 export const DATE_SAFETY_NOTE =
   "Meet in public first, tell a friend where you're going, and trust your instincts.";
 
-const DEFAULT_APP_URL = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com';
+const DEFAULT_APP_URL = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com';
 
 export function buildShareDateText(params: {
   partnerFirstName: string;

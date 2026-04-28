@@ -12,7 +12,7 @@ const PLAYER_ID_POLL_ATTEMPTS = 10;
 const PLAYER_ID_INITIAL_POLL_MS = 500;
 const PLAYER_ID_MAX_POLL_MS = 4000;
 
-/** OneSignal domain restriction throws e.g. "This web push config can only be used on https://vibelymeet.com". */
+/** OneSignal domain restriction throws e.g. "This web push config can only be used on https://www.vibelymeet.com". */
 function isOneSignalDomainError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
   return /can only be used on|WrongSiteUrl|SdkInitError/i.test(msg);

@@ -138,7 +138,7 @@
 | No inviter linked | Share + copy CTA, "No invite linked yet" guidance |
 | Existing inviter linked | Share + copy CTA, existing `referred_by` visibility |
 
-**Behavior:** Uses canonical `https://vibelymeet.com/invite?ref=` links, preserves existing `/invite` redirect flow, and surfaces current `profiles.referred_by` status.
+**Behavior:** Uses canonical `https://www.vibelymeet.com/invite?ref=` links, preserves existing `/invite` redirect flow, and surfaces current `profiles.referred_by` status.
 
 ---
 

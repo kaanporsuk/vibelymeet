@@ -15,7 +15,7 @@ export default function CommunityStep({ onAgree }: { onAgree: () => void }) {
       <Text style={{ color: theme.text }}>💬 Be respectful — Consent matters, always.</Text>
       <Text style={{ color: theme.text }}>🚫 Zero tolerance — Harassment, hate speech, fraud = ban.</Text>
       <VibelyButton label="I agree, let's go" onPress={onAgree} variant="gradient" />
-      <Pressable onPress={() => Linking.openURL('https://vibelymeet.com/community-guidelines')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Read full guidelines</Text></Pressable>
+      <Pressable onPress={() => Linking.openURL('https://www.vibelymeet.com/community-guidelines')}><Text style={{ color: theme.textSecondary, textAlign: 'center' }}>Read full guidelines</Text></Pressable>
     </View>
   );
 }
