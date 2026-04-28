@@ -19,7 +19,11 @@
  * nativeHeroVideoStart(), so late TUS/poll callbacks cannot resurrect stale phases.
  */
 
-import { getCreateVideoUploadCredentials, uploadVibeVideoToBunny } from '@/lib/vibeVideoApi';
+import {
+  getCreateVideoUploadCredentials,
+  uploadVibeVideoToBunny,
+  type VibeVideoUploadSource,
+} from '@/lib/vibeVideoApi';
 import { pollVibeVideoUntilTerminal } from '@/lib/vibeVideoPoll';
 import { updateMyProfile } from '@/lib/profileApi';
 import {
@@ -95,6 +99,12 @@ function _invalidateProfileIfCurrent(runId: number): void {
   _invalidateProfile();
 }
 
+function inferNativeUploadSource(videoUri: string): VibeVideoUploadSource {
+  const scheme = videoUri.trim().split(':')[0]?.toLowerCase();
+  if (scheme === 'ph' || scheme === 'assets-library') return 'library';
+  return 'unknown';
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Subscribe to state changes. Returns an unsubscribe function. */
@@ -115,13 +125,16 @@ export function nativeHeroVideoGetState(): NativeHeroVideoControllerState {
  * @param videoUri  - local file:// or ph:// URI
  * @param caption   - optional vibe caption saved after tus completes
  * @param context   - 'onboarding' | 'profile_studio'
+ * @param uploadSource - camera/library/drawer source for telemetry and upload preparation diagnostics
  */
 export function nativeHeroVideoStart(
   videoUri: string,
   caption?: string,
   context?: 'onboarding' | 'profile_studio',
+  uploadSource?: VibeVideoUploadSource,
 ): void {
   const uploadContext = context ?? 'profile_studio';
+  const resolvedUploadSource = uploadSource ?? inferNativeUploadSource(videoUri);
   const replacingInFlight = _state.phase !== 'idle' || !!_state.videoId;
 
   // Cancel existing upload/poll if any
@@ -137,6 +150,7 @@ export function nativeHeroVideoStart(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.replaceStarted, {
       source: 'native_hero_video_controller',
       upload_context: uploadContext,
+      upload_source: resolvedUploadSource,
       reason: 'in_flight_upload_replaced',
     });
   }
@@ -144,13 +158,14 @@ export function nativeHeroVideoStart(
   _activeRunStartedAt = Date.now();
   _setState({ phase: 'uploading', uploadProgress: 0, videoId: null, errorMessage: null });
 
-  void _run(videoUri, caption, uploadContext, _uploadAbort, _pollAbort, runId);
+  void _run(videoUri, caption, uploadContext, resolvedUploadSource, _uploadAbort, _pollAbort, runId);
 }
 
 async function _run(
   videoUri: string,
   caption: string | undefined,
   context: 'onboarding' | 'profile_studio',
+  uploadSource: VibeVideoUploadSource,
   uploadAc: AbortController,
   pollAc: AbortController,
   runId: number,
@@ -162,6 +177,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestStarted, {
       source: 'native_hero_video_controller',
       upload_context: context,
+      upload_source: uploadSource,
     });
     const creds = await getCreateVideoUploadCredentials({ context });
     if (!_isCurrent(runId)) return;
@@ -171,6 +187,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestSucceeded, {
       source: 'native_hero_video_controller',
       upload_context: context,
+      upload_source: uploadSource,
       video_guid: creds.videoId,
       has_library_id: true,
     });
@@ -181,6 +198,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadStarted, {
       source: 'native_hero_video_controller',
       upload_context: context,
+      upload_source: uploadSource,
       video_guid: creds.videoId,
     });
     await uploadVibeVideoToBunny(
@@ -193,7 +211,7 @@ async function _run(
           _setStateIfCurrent(runId, { uploadProgress: Math.round((bytesUploaded / bytesTotal) * 100) });
         }
       },
-      { signal: uploadAc.signal, uploadSource: 'unknown' },
+      { signal: uploadAc.signal, uploadSource },
     );
 
     if (!_isCurrent(runId)) return;
@@ -201,6 +219,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadSucceeded, {
       source: 'native_hero_video_controller',
       upload_context: context,
+      upload_source: uploadSource,
       video_guid: creds.videoId,
       duration_ms: _activeRunStartedAt ? Date.now() - _activeRunStartedAt : null,
     });
@@ -215,6 +234,7 @@ async function _run(
         captureVibeVideoException(error, {
           source: 'native_hero_video_controller',
           phase: 'caption_save',
+          upload_source: uploadSource,
         });
       }
     }
@@ -231,6 +251,7 @@ async function _run(
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingPollStarted, {
       source: 'native_hero_video_controller',
       upload_context: context,
+      upload_source: uploadSource,
       video_guid: creds.videoId,
       interval_ms: 5000,
       max_attempts: 36,
@@ -244,6 +265,7 @@ async function _run(
         trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingStatusChanged, {
           source: 'native_hero_video_controller',
           upload_context: context,
+          upload_source: uploadSource,
           video_guid: creds.videoId,
           status,
           attempt,
@@ -258,6 +280,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.readyObserved, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         video_guid: creds.videoId,
         duration_ms: _activeRunStartedAt ? Date.now() - _activeRunStartedAt : null,
       });
@@ -269,6 +292,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         video_guid: creds.videoId,
       });
     } else if (result === 'aborted') {
@@ -285,12 +309,14 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.uploadStalled, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         video_guid: creds.videoId,
         attempts: 36,
       });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingStalled, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         video_guid: creds.videoId,
         attempts: 36,
       });
@@ -313,12 +339,14 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.credentialsRequestFailed, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         error_code: 'credentials_exception',
       });
     } else if (failurePhase === 'tus') {
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.tusUploadFailed, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         video_guid: activeVideoId,
         error_code: 'upload_exception',
       });
@@ -326,6 +354,7 @@ async function _run(
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.failedObserved, {
         source: 'native_hero_video_controller',
         upload_context: context,
+        upload_source: uploadSource,
         video_guid: activeVideoId,
         error_code: 'processing_poll_exception',
       });
@@ -333,6 +362,7 @@ async function _run(
     captureVibeVideoException(err, {
       source: 'native_hero_video_controller',
       phase: 'upload_run',
+      upload_source: uploadSource,
     });
     _invalidateProfileIfCurrent(runId);
   }

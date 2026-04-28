@@ -21,7 +21,7 @@ export default function VibeVideoStep({ onNext }: { onNext: () => void }) {
   return (
     <View style={styles.root}>
       <Text style={[styles.h1, { color: theme.text }]}>Stand out with a Vibe Video</Text>
-      <Text style={[styles.sub, { color: theme.textSecondary }]}>30-second intro videos get more engagement.</Text>
+      <Text style={[styles.sub, { color: theme.textSecondary }]}>Up to 15 seconds to show your energy before you match.</Text>
       <View style={[styles.mock, { borderColor: theme.border, backgroundColor: theme.surfaceSubtle }]}>
         <Text style={{ color: theme.textSecondary }}>Open the camera studio to record or upload your intro.</Text>
       </View>

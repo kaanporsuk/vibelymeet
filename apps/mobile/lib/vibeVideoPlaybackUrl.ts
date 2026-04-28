@@ -1,15 +1,14 @@
 /**
  * Canonical Bunny Stream hostname + URL construction for native Vibe Video.
  * Playback hostname: EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME (trimmed) when set; else AsyncStorage
- * `bunny_stream_cdn_hostname` from create-video-upload; else explicit last-resort production
- * Stream pull-zone fallback with telemetry.
+ * `bunny_stream_cdn_hostname` from create-video-upload; else no playback URL is constructed.
  * Same URL shape as web.
  *
  * Policy: when env is set, playback/thumbnail URLs use env (matches release builds / web).
  * Edge `cdnHostname` is persisted for devices without env. If env and persisted differ,
  * __DEV__ warns (CDN misconfiguration / stale cache); production uses env only.
- * A non-empty hostname is always available for URL construction. Fallback use emits a sparse
- * production hint + telemetry event so release misconfiguration is visible.
+ * Missing hostname emits a sparse production hint + telemetry event so release misconfiguration
+ * is visible instead of silently masking provider/CDN drift with a hardcoded host.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { vibeVideoDiagProdHint, vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
@@ -17,9 +16,6 @@ import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry
 
 export const BUNNY_STREAM_CDN_STORAGE_KEY = 'bunny_stream_cdn_hostname';
 export const BUNNY_STREAM_CDN_STORAGE_KEY_PREFIX = 'bunny_stream_cdn_hostname:';
-
-/** Production Bunny Stream CDN hostname — last-resort fallback when env and storage are empty. */
-export const STREAM_CDN_FALLBACK_HOST = 'vz-5585ddfc-604.b-cdn.net';
 
 export const STREAM_CDN_HOSTNAME = (() => {
   const raw = process.env.EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME ?? '';
@@ -54,26 +50,24 @@ export function normalizeStreamCdnHostname(input: string): string {
   return h.trim().toLowerCase();
 }
 
-const STREAM_CDN_FALLBACK_NORMALIZED = normalizeStreamCdnHostname(STREAM_CDN_FALLBACK_HOST);
-
 /**
  * Persisted edge hostname (AsyncStorage) — null until init/persist finds a real persisted host.
- * Keep fallback out of this cache so fallback resolution remains observable.
  */
 let cachedCdnHostname: string | null = null;
 
 let warnedMissingHostForPlayback = false;
 let warnedInitMissing = false;
-let warnedFallbackResolution = false;
+let warnedMissingResolution = false;
 
-export type StreamHostnameSource = 'env' | 'persisted' | 'fallback';
+export type StreamHostnameSource = 'env' | 'persisted' | 'missing';
 
 export type StreamHostnameResolution = {
-  /** Hostname used for `https://${hostname}/${uid}/playlist.m3u8` — always non-empty. */
-  hostname: string;
+  /** Hostname used for `https://${hostname}/${uid}/playlist.m3u8`; null when config is missing. */
+  hostname: string | null;
   source: StreamHostnameSource;
   /** True when env and persisted cache are both non-empty and differ after normalization. */
   envPersistedMismatch: boolean;
+  missingReason: string | null;
 };
 
 /**
@@ -82,8 +76,7 @@ export type StreamHostnameResolution = {
  * Hostname resolution priority:
  * 1. EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME env var (build-time, most reliable)
  * 2. AsyncStorage persisted value from last create-video-upload Edge call
- * 3. Explicit last-resort fallback (STREAM_CDN_FALLBACK_HOST) with telemetry/breadcrumbs
- * A non-empty hostname is always returned.
+ * 3. Missing: return null and emit diagnostics/telemetry
  */
 export function resolveVibeVideoStreamHostnameSync(): StreamHostnameResolution {
   const envRaw = STREAM_CDN_HOSTNAME;
@@ -102,27 +95,28 @@ export function resolveVibeVideoStreamHostnameSync(): StreamHostnameResolution {
   }
 
   if (env) {
-    return { hostname: env, source: 'env', envPersistedMismatch };
+    return { hostname: env, source: 'env', envPersistedMismatch, missingReason: null };
   }
   if (persisted) {
-    return { hostname: persisted, source: 'persisted', envPersistedMismatch: false };
+    return { hostname: persisted, source: 'persisted', envPersistedMismatch: false, missingReason: null };
   }
-  if (!warnedFallbackResolution) {
-    warnedFallbackResolution = true;
+  if (!warnedMissingResolution) {
+    warnedMissingResolution = true;
     vibeVideoDiagProdHint(
-      'playback.hostname.fallback_used',
+      'playback.hostname.missing',
       'EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME and persisted edge hostname are both missing',
     );
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.cdnHostnameFallbackUsed, {
       source: 'native_playback_hostname_resolver',
-      kind: 'cdn_hostname_fallback_used',
-      stream_hostname_source: 'fallback',
+      kind: 'cdn_hostname_missing',
+      stream_hostname_source: 'missing',
     });
   }
   return {
-    hostname: STREAM_CDN_FALLBACK_NORMALIZED,
-    source: 'fallback',
+    hostname: null,
+    source: 'missing',
     envPersistedMismatch: false,
+    missingReason: 'missing_env_and_persisted_hostname',
   };
 }
 
@@ -186,16 +180,16 @@ export async function initStreamCdnHostname(): Promise<void> {
     cachedCdnHostname = null;
   }
   vibeVideoDiagVerbose('playback.hostname.init', {
-    source: cachedCdnHostname ? 'persisted' : 'fallback',
+    source: cachedCdnHostname ? 'persisted' : 'missing',
     projectRef: SUPABASE_PROJECT_REF,
-    hostname: cachedCdnHostname ?? STREAM_CDN_FALLBACK_NORMALIZED,
+    hostname: cachedCdnHostname,
     storageKey: getProjectScopedStorageKey(),
   });
 
   if (__DEV__ && !STREAM_CDN_HOSTNAME && !warnedInitMissing) {
     warnedInitMissing = true;
     console.warn(
-      '[VibeVideo] EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME unset — using persisted or default Stream CDN hostname.',
+      '[VibeVideo] EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME unset. Playback needs a persisted Edge cdnHostname before URLs can be built.',
     );
   }
 }
@@ -203,13 +197,13 @@ export async function initStreamCdnHostname(): Promise<void> {
 // Per-UID set so playback.url.resolved only logs once per session in dev.
 const loggedPlaybackUids = new Set<string>();
 
-/** Canonical playback URL; null only when uid is missing (hostname is always resolved). */
+/** Canonical playback URL; null when uid or configured/persisted hostname is missing. */
 export function getVibeVideoPlaybackUrl(bunnyVideoUid: string | null | undefined): string | null {
-  const { hostname, source } = resolveVibeVideoStreamHostnameSync();
+  const { hostname, source, missingReason } = resolveVibeVideoStreamHostnameSync();
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';
   if (__DEV__ && uid && !hostname && !warnedMissingHostForPlayback) {
     warnedMissingHostForPlayback = true;
-    console.warn('[VibeVideo] Cannot build playback URL: missing video uid or hostname resolution failed.');
+    console.warn('[VibeVideo] Cannot build playback URL: missing Stream CDN hostname.', { missingReason });
   }
   if (!uid || !hostname) return null;
   const url = `https://${hostname}/${uid}/playlist.m3u8`;
@@ -226,7 +220,7 @@ export function getVibeVideoPlaybackUrl(bunnyVideoUid: string | null | undefined
   return url;
 }
 
-/** Canonical thumbnail URL; null only when uid is missing. */
+/** Canonical thumbnail URL; null when uid or configured/persisted hostname is missing. */
 export function getVibeVideoThumbnailUrl(bunnyVideoUid: string | null | undefined): string | null {
   const { hostname } = resolveVibeVideoStreamHostnameSync();
   const uid = typeof bunnyVideoUid === 'string' ? bunnyVideoUid.trim() : '';

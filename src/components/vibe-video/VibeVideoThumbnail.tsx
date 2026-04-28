@@ -4,6 +4,7 @@ import { Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface VibeVideoThumbnailProps {
+  /** Presentational only: callers must pass resolver-ready URLs, not raw UID/status guesses. */
   thumbnailUrl: string;
   videoUrl: string;
   hasVibeVideo?: boolean;
@@ -23,6 +24,10 @@ export const VibeVideoThumbnail = ({
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const safeThumbnailUrl = thumbnailUrl.trim();
+  const safeVideoUrl = videoUrl.trim();
+  const canPreviewVideo = hasVibeVideo && safeVideoUrl.length > 0;
+  const hasThumbnail = safeThumbnailUrl.length > 0;
 
   const sizeClasses = {
     sm: "w-12 h-12",
@@ -33,7 +38,7 @@ export const VibeVideoThumbnail = ({
   const isActive = isHovering || isLongPressing;
 
   useEffect(() => {
-    if (!hasVibeVideo) return;
+    if (!canPreviewVideo) return;
 
     if (isActive && videoRef.current) {
       videoRef.current.play().catch(() => {});
@@ -41,11 +46,11 @@ export const VibeVideoThumbnail = ({
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
     }
-  }, [isActive, hasVibeVideo]);
+  }, [isActive, canPreviewVideo]);
 
   // Long press handlers for mobile
   const handleTouchStart = () => {
-    if (!hasVibeVideo) return;
+    if (!canPreviewVideo) return;
     longPressTimerRef.current = setTimeout(() => {
       setIsLongPressing(true);
     }, 300);
@@ -69,14 +74,14 @@ export const VibeVideoThumbnail = ({
   return (
     <div
       className={cn("relative", sizeClasses[size], className)}
-      onMouseEnter={() => hasVibeVideo && setIsHovering(true)}
+      onMouseEnter={() => canPreviewVideo && setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={handleTouchEnd}
     >
-      {/* Cyan glow ring for users with Vibe Video */}
-      {hasVibeVideo && (
+      {/* Cyan glow ring for resolver-playable Vibe Video previews */}
+      {canPreviewVideo && (
         <motion.div
           animate={{
             boxShadow: isActive
@@ -94,20 +99,26 @@ export const VibeVideoThumbnail = ({
       {/* Container */}
       <div className="relative w-full h-full rounded-full overflow-hidden">
         {/* Static Thumbnail */}
-        <motion.img
-          src={thumbnailUrl}
-          alt="Profile thumbnail"
-          className={cn(
-            "absolute inset-0 w-full h-full object-cover transition-opacity duration-300",
-            isActive && hasVibeVideo && isVideoLoaded ? "opacity-0" : "opacity-100"
-          )}
-        />
+        {hasThumbnail ? (
+          <motion.img
+            src={safeThumbnailUrl}
+            alt="Profile thumbnail"
+            className={cn(
+              "absolute inset-0 w-full h-full object-cover transition-opacity duration-300",
+              isActive && canPreviewVideo && isVideoLoaded ? "opacity-0" : "opacity-100"
+            )}
+          />
+        ) : (
+          <div className="absolute inset-0 bg-secondary flex items-center justify-center">
+            <Video className="w-4 h-4 text-muted-foreground" />
+          </div>
+        )}
 
         {/* Video (hidden until hover/long-press) */}
-        {hasVibeVideo && (
+        {canPreviewVideo && (
           <video
             ref={videoRef}
-            src={videoUrl}
+            src={safeVideoUrl}
             className={cn(
               "absolute inset-0 w-full h-full object-cover transition-opacity duration-300",
               isActive && isVideoLoaded ? "opacity-100" : "opacity-0"
@@ -122,7 +133,7 @@ export const VibeVideoThumbnail = ({
       </div>
 
       {/* Video Indicator Icon */}
-      {hasVibeVideo && !isActive && (
+      {canPreviewVideo && !isActive && (
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}

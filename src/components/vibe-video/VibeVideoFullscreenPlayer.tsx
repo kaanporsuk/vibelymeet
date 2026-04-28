@@ -2,11 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import * as Sentry from "@sentry/react";
-import {
-  getWebVibeVideoPlaybackUrl,
-  getWebVibeVideoThumbnailUrl,
-  normalizeBunnyVideoStatus,
-} from "@/lib/vibeVideo/webVibeVideoState";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { attachHlsPlayback } from "@/lib/vibeVideo/attachHlsPlayback";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 
@@ -27,15 +23,19 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
   const playbackSucceededRef = useRef(false);
   const [playbackFailed, setPlaybackFailed] = useState(false);
 
-  const norm = normalizeBunnyVideoStatus(bunnyVideoStatus);
-  const isReady = norm === "ready" && !!bunnyVideoUid?.trim();
+  const vibeVideoInfo = resolveWebVibeVideoState({
+    bunny_video_uid: bunnyVideoUid,
+    bunny_video_status: bunnyVideoStatus,
+    vibe_caption: vibeCaption,
+  });
+  const isReady = vibeVideoInfo.state === "ready" && !!vibeVideoInfo.uid;
 
   useEffect(() => {
     setPlaybackFailed(false);
     playbackSucceededRef.current = false;
-    if (!show || !isReady || !bunnyVideoUid) return;
+    if (!show || !isReady || !vibeVideoInfo.uid) return;
 
-    const src = getWebVibeVideoPlaybackUrl(bunnyVideoUid);
+    const src = vibeVideoInfo.playbackUrl;
     if (!src) {
       setPlaybackFailed(true);
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
@@ -58,7 +58,7 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackAttempted, {
       source: "vibe_player_fullscreen",
       autoplay: true,
-      video_guid: bunnyVideoUid,
+      video_guid: vibeVideoInfo.uid,
     });
 
     const reportSucceeded = () => {
@@ -66,7 +66,7 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
       playbackSucceededRef.current = true;
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackSucceeded, {
         source: "vibe_player_fullscreen",
-        video_guid: bunnyVideoUid,
+        video_guid: vibeVideoInfo.uid,
       });
     };
     videoEl.addEventListener("play", reportSucceeded);
@@ -79,7 +79,7 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
         trackVibeVideoEvent(VIBE_VIDEO_EVENTS.playbackFailed, {
           source: "vibe_player_fullscreen",
           kind,
-          video_guid: bunnyVideoUid,
+          video_guid: vibeVideoInfo.uid,
         });
         Sentry.addBreadcrumb({
           category: "vibe-video-playback",
@@ -93,13 +93,13 @@ export function VibeVideoFullscreenPlayer({ show, bunnyVideoUid, bunnyVideoStatu
       videoEl.removeEventListener("play", reportSucceeded);
       cleanupHls();
     };
-  }, [show, bunnyVideoUid, bunnyVideoStatus, isReady]);
+  }, [show, isReady, vibeVideoInfo.playbackUrl, vibeVideoInfo.uid]);
 
-  const poster = bunnyVideoUid ? getWebVibeVideoThumbnailUrl(bunnyVideoUid) : null;
+  const poster = vibeVideoInfo.thumbnailUrl;
 
   return (
     <AnimatePresence>
-      {show && isReady && bunnyVideoUid && (
+      {show && isReady && vibeVideoInfo.uid && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

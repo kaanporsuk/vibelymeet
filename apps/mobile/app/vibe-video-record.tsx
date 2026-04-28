@@ -219,7 +219,7 @@ export default function VibeVideoRecordScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-      videoMaxDuration: 20,
+      videoMaxDuration: MAX_DURATION_SEC,
       quality: 1,
     });
     if (result.canceled || !result.assets[0]?.uri) return;
@@ -283,7 +283,7 @@ export default function VibeVideoRecordScreen() {
         had_existing_caption: existingCaption.length > 0,
       });
     }
-    nativeHeroVideoStart(recordedUri, caption, context);
+    nativeHeroVideoStart(recordedUri, caption, context, uploadSourceRef.current);
 
     if (onboardingFlow) {
       returnToOnboarding();
