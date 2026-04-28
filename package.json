@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "typecheck:core": "tsc -p tsconfig.core-strict.json",
     "typecheck": "npm run typecheck:core && cd apps/mobile && npm run typecheck && cd ../../ && npx tsc --noEmit -p tsconfig.app.json",
+    "check:canonical-origin": "node scripts/check-canonical-origin.mjs",
     "vibely-games:typecheck": "npx tsc --noEmit -p shared/vibely-games/tsconfig.json",
     "vibely-games:selfcheck": "rm -rf shared/vibely-games/dist && npx tsc -p shared/vibely-games/tsconfig.build.json && node shared/vibely-games/dist/selfcheck.js",
     "audit:mobile-keyboard-overlays": "node scripts/audit-mobile-keyboard-overlays.mjs",
