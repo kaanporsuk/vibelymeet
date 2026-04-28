@@ -782,6 +782,7 @@ function videoDateRoomProperties(): Record<string, unknown> {
     enable_chat: false,
     enable_screenshare: false,
     enable_knocking: false,
+    enforce_unique_user_ids: true,
     start_video_off: false,
     start_audio_off: false,
     exp: Math.floor(Date.now() / 1000) + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS,

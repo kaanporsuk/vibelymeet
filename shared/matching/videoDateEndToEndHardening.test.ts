@@ -467,6 +467,11 @@ test("daily-room prepare_date_entry creates deterministic rooms and scoped token
   assert.match(dailyRoomFunction, /action === "prepare_date_entry"/);
   assert.match(dailyRoomFunction, /p_action: "prepare_entry"/);
   assert.match(dailyRoomFunction, /function videoDateRoomNameForSession\(sessionId: string\): string/);
+  assert.match(dailyRoomFunction, /max_participants: 2/);
+  assert.match(dailyRoomFunction, /enable_chat: false/);
+  assert.match(dailyRoomFunction, /enable_screenshare: false/);
+  assert.match(dailyRoomFunction, /enable_knocking: false/);
+  assert.match(dailyRoomFunction, /enforce_unique_user_ids: true/);
   assert.match(dailyRoomFunction, /createMeetingToken\(roomName, user\.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS\)/);
   assert.match(dailyRoomFunction, /provider_verify_skipped/);
   assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
