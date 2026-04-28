@@ -74,6 +74,10 @@ const pendingSurveyRecoveryIndexesMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501132000_pending_post_date_survey_recovery_indexes.sql"),
   "utf8",
 );
+const cleanupProviderPresenceMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501133000_video_date_cleanup_provider_presence_hardening.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -84,10 +88,6 @@ const sendNotificationFunction = readFileSync(
 );
 const supabaseConfig = readFileSync(
   join(process.cwd(), "supabase/config.toml"),
-  "utf8",
-);
-const expireStaleBoundingDeferralDoc = readFileSync(
-  join(process.cwd(), "docs/video-date-expire-stale-bounding-deferral.md"),
   "utf8",
 );
 const readyGateOverlay = readFileSync(
@@ -629,10 +629,37 @@ test("pending post-date survey recovery has narrow lookup indexes", () => {
 
 test("video-date room cleanup checks Daily presence before destructive delete", () => {
   assert.match(videoDateRoomCleanupFunction, /\/rooms\/\$\{encodeURIComponent\(roomName\)\}\/presence/);
+  assert.match(videoDateRoomCleanupFunction, /type VideoDateCleanupRow/);
+  assert.match(videoDateRoomCleanupFunction, /function hasTerminalCleanupState\(row: VideoDateCleanupRow\)/);
+  assert.match(videoDateRoomCleanupFunction, /cleanup_deferred_non_terminal_state/);
   assert.match(videoDateRoomCleanupFunction, /cleanup_deferred_active_participants/);
   assert.match(videoDateRoomCleanupFunction, /cleanup_deferred_provider_check_failed/);
+  assert.match(videoDateRoomCleanupFunction, /cleanup_delete_failed/);
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /select\(\s*"id, daily_room_name, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase"/,
+  );
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /function providerFailureReason\(status: number \| null\): string \{[\s\S]*status === 429[\s\S]*provider_rate_limited[\s\S]*status >= 500[\s\S]*provider_unavailable/s,
+  );
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /function markRoomCleaned\([\s\S]*endedAt: string \| null[\s\S]*if \(!endedAt\) return false/s,
+  );
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /\.eq\("id", sessionId\)[\s\S]*\.eq\("daily_room_name", roomName\)[\s\S]*\.eq\("ended_at", endedAt\)[\s\S]*\.select\("id"\)[\s\S]*\.maybeSingle\(\)/s,
+  );
+  assert.match(
+    videoDateRoomCleanupFunction,
+    /return Boolean\(data\?\.id\)/,
+  );
+  assert.match(videoDateRoomCleanupFunction, /if \(!hasTerminalCleanupState\(row\)\)[\s\S]*continue;/s);
   assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && presence\.activeCount > 0\)[\s\S]*continue;/s);
   assert.match(videoDateRoomCleanupFunction, /if \(!presence\.ok\)[\s\S]*cleanup_deferred_provider_check_failed[\s\S]*continue;/s);
+  assert.match(videoDateRoomCleanupFunction, /if \(presence\.ok && !presence\.exists\)[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
+  assert.match(videoDateRoomCleanupFunction, /const ok = await deleteDailyRoom\(name\);[\s\S]*markRoomCleaned\(supabase, row\.id, name, endedAt\)/s);
   assert.doesNotMatch(videoDateRoomCleanupFunction, /cleanup_hard_delete_after_provider_check_failed/);
   assert.doesNotMatch(videoDateRoomCleanupFunction, /HARD_DELETE_FALLBACK_MS/);
 });
@@ -927,11 +954,20 @@ test("prepare-entry documents its deterministic provider-idempotent concurrency 
   assert.match(dailyRoomFunction, /same-value DB writes/);
 });
 
-test("historical expire-stale bounding remains explicitly tracked instead of falsely closed", () => {
-  assert.match(remainingHardeningMigration, /Historical expire_stale_video_sessions body remains delegated\/unbounded/);
-  assert.match(expireStaleBoundingDeferralDoc, /tracked operational risk, not a closed item/);
-  assert.match(expireStaleBoundingDeferralDoc, /DB-executed migration rehearsal/);
-  assert.match(expireStaleBoundingDeferralDoc, /FOR UPDATE SKIP LOCKED/);
+test("stale video-date cleanup is bounded and preserves joined or date evidence", () => {
+  assert.match(cleanupProviderPresenceMigration, /CREATE OR REPLACE FUNCTION public\.expire_stale_video_sessions_bounded/);
+  assert.match(cleanupProviderPresenceMigration, /CREATE OR REPLACE FUNCTION public\.expire_stale_video_date_phases_bounded/);
+  assert.match(cleanupProviderPresenceMigration, /RETURN public\.expire_stale_video_sessions_bounded\(100\)/);
+  assert.doesNotMatch(cleanupProviderPresenceMigration, /expire_stale_video_sessions_20260501103000_unbounded\(/);
+  assert.match(cleanupProviderPresenceMigration, /v_limit integer := GREATEST\(1, LEAST\(COALESCE\(p_limit, 100\), 500\)\)/);
+  assert.match(cleanupProviderPresenceMigration, /LIMIT v_limit[\s\S]*FOR UPDATE SKIP LOCKED/);
+  assert.match(cleanupProviderPresenceMigration, /ready_gate_status IN \('ready', 'ready_a', 'ready_b'\)[\s\S]*date_started_at IS NULL[\s\S]*daily_room_name IS NULL[\s\S]*participant_1_joined_at IS NULL[\s\S]*participant_2_joined_at IS NULL/s);
+  assert.match(cleanupProviderPresenceMigration, /ready_gate_status = 'both_ready'[\s\S]*date_started_at IS NULL[\s\S]*daily_room_name IS NULL[\s\S]*participant_1_joined_at IS NULL[\s\S]*participant_2_joined_at IS NULL/s);
+  assert.match(cleanupProviderPresenceMigration, /ended_reason = 'ready_gate_expired'[\s\S]*date_started_at IS NULL[\s\S]*daily_room_name IS NULL[\s\S]*participant_1_joined_at IS NULL[\s\S]*participant_2_joined_at IS NULL/s);
+  assert.match(cleanupProviderPresenceMigration, /state = 'handshake'::public\.video_date_state[\s\S]*date_started_at IS NULL[\s\S]*participant_1_joined_at IS NULL[\s\S]*participant_2_joined_at IS NULL/s);
+  assert.match(cleanupProviderPresenceMigration, /state = 'date'::public\.video_date_state[\s\S]*date_started_at IS NOT NULL[\s\S]*queue_status = 'in_survey'/s);
+  assert.match(cleanupProviderPresenceMigration, /survey_candidates[\s\S]*queue_status = 'in_survey'/s);
+  assert.match(cleanupProviderPresenceMigration, /'bounded', true/);
 });
 
 test("web and native expose clear peer-missing choices instead of toast-only timeout copy", () => {
