@@ -51,6 +51,7 @@ export async function prepareVideoDateEntry(
 
   const startedAt = Date.now();
   const entryAttemptId = createVideoDateEntryAttemptId(startedAt);
+  const videoDateTraceId = entryAttemptId;
   const sourceSurface = "video_date_entry";
   const attemptCount = options.force ? 2 : 1;
   const trackLatencyCheckpoint = (
@@ -102,6 +103,7 @@ export async function prepareVideoDateEntry(
     force: options.force === true,
     attempt_count: attemptCount,
     entry_attempt_id: entryAttemptId,
+    video_date_trace_id: videoDateTraceId,
   });
   Sentry.addBreadcrumb({
     category: "video-date",
@@ -113,6 +115,7 @@ export async function prepareVideoDateEntry(
       source: options.source ?? null,
       force: options.force === true,
       entryAttemptId,
+      videoDateTraceId,
     },
   });
   vdbg("video_date_prepare_entry_started", {
@@ -121,6 +124,7 @@ export async function prepareVideoDateEntry(
     source: options.source ?? null,
     force: options.force === true,
     entryAttemptId,
+    videoDateTraceId,
   });
 
   const result = await prepareVideoDateEntryWithClient({
@@ -131,7 +135,12 @@ export async function prepareVideoDateEntry(
     bothReadyObservedAtMs: options.bothReadyObservedAtMs,
     invoke: ({ entryAttemptId: attemptId }) =>
       supabase.functions.invoke("daily-room", {
-        body: { action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId, entry_attempt_id: attemptId },
+        body: {
+          action: PREPARE_VIDEO_DATE_ENTRY_ACTION,
+          sessionId,
+          entry_attempt_id: attemptId,
+          video_date_trace_id: attemptId,
+        },
       }),
     classifyFailure: ({ data, error, response, timedOut }) =>
       classifyDailyRoomInvokeFailure({
@@ -146,6 +155,7 @@ export async function prepareVideoDateEntry(
   if (result.ok === true) {
     const durationMs = Date.now() - startedAt;
     const tokenDurationMs = result.data.timings?.prepareDurationMs ?? durationMs;
+    const traceId = result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? videoDateTraceId;
     trackLatencyCheckpoint("enter_handshake_success", "prepare_date_entry_success", "success", null, tokenDurationMs);
     trackLatencyCheckpoint("daily_token_success", "daily_token_success", "success", null, tokenDurationMs);
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_SUCCESS, {
@@ -165,6 +175,7 @@ export async function prepareVideoDateEntry(
       provider_room_recreated: result.data.provider_room_recreated === true,
       provider_verify_skipped: result.data.provider_verify_skipped === true,
       entry_attempt_id: result.data.entry_attempt_id ?? entryAttemptId,
+      video_date_trace_id: traceId,
     });
     if (result.cached) {
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREWARMED_TOKEN_USED, {
@@ -172,6 +183,8 @@ export async function prepareVideoDateEntry(
         session_id: sessionId,
         event_id: options.eventId ?? null,
         source: options.source ?? null,
+        entry_attempt_id: result.data.entry_attempt_id ?? traceId,
+        video_date_trace_id: traceId,
       });
     } else {
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREWARMED_TOKEN_CACHED, {
@@ -179,6 +192,8 @@ export async function prepareVideoDateEntry(
         session_id: sessionId,
         event_id: options.eventId ?? null,
         source: options.source ?? null,
+        entry_attempt_id: result.data.entry_attempt_id ?? traceId,
+        video_date_trace_id: traceId,
       });
     }
     Sentry.addBreadcrumb({
@@ -191,6 +206,7 @@ export async function prepareVideoDateEntry(
         roomName: result.data.room_name,
         cached: result.cached,
         entryAttemptId: result.data.entry_attempt_id ?? entryAttemptId,
+        videoDateTraceId: traceId,
       },
     });
     vdbg("video_date_prepare_entry_success", {
@@ -201,10 +217,12 @@ export async function prepareVideoDateEntry(
       cached: result.cached,
       timings: result.data.timings ?? null,
       entryAttemptId: result.data.entry_attempt_id ?? entryAttemptId,
+      videoDateTraceId: traceId,
     });
     return result;
   }
 
+  const traceId = result.entryAttemptId ?? videoDateTraceId;
   trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILURE, {
     platform: "web",
     session_id: sessionId,
@@ -220,6 +238,7 @@ export async function prepareVideoDateEntry(
     latency_bucket: bucketVideoDateLatencyMs(Date.now() - startedAt),
     attempt_count: attemptCount,
     entry_attempt_id: result.entryAttemptId ?? entryAttemptId,
+    video_date_trace_id: traceId,
   });
   trackLatencyCheckpoint("enter_handshake_failure", "prepare_date_entry_failure", "failure", result.code);
   trackLatencyCheckpoint("daily_token_failure", "daily_token_failure", "failure", result.code);
@@ -234,6 +253,7 @@ export async function prepareVideoDateEntry(
       retryable: result.retryable,
       httpStatus: result.httpStatus ?? null,
       entryAttemptId: result.entryAttemptId ?? entryAttemptId,
+      videoDateTraceId: traceId,
     },
   });
   vdbg("video_date_prepare_entry_failure", {
@@ -245,6 +265,7 @@ export async function prepareVideoDateEntry(
     httpStatus: result.httpStatus ?? null,
     message: result.message ?? null,
     entryAttemptId: result.entryAttemptId ?? entryAttemptId,
+    videoDateTraceId: traceId,
   });
   return result;
 }
@@ -262,19 +283,25 @@ export function rejectPreparedVideoDateEntry(
   reason: string,
   eventId?: string | null,
 ): boolean {
+  const cached = getCachedPreparedVideoDateEntry(sessionId, userId);
   const rejected = rejectCachedPreparedVideoDateEntry(sessionId, userId);
   if (rejected) {
+    const traceId = cached?.value.video_date_trace_id ?? cached?.entryAttemptId ?? null;
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREWARMED_TOKEN_REJECTED, {
       platform: "web",
       session_id: sessionId,
       event_id: eventId ?? null,
       reason,
+      entry_attempt_id: cached?.entryAttemptId ?? null,
+      video_date_trace_id: traceId,
     });
     vdbg("video_date_prewarmed_token_rejected", {
       sessionId,
       userId,
       eventId: eventId ?? null,
       reason,
+      entryAttemptId: cached?.entryAttemptId ?? null,
+      videoDateTraceId: traceId,
     });
   }
   return rejected;

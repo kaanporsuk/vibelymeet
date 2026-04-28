@@ -48,6 +48,7 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
   assert.equal(calls, 1);
   assert.equal(sentAttemptId, "attempt-cache-1");
   assert.equal(first.ok && first.data.entry_attempt_id, "attempt-cache-1");
+  assert.equal(first.ok && first.data.video_date_trace_id, "attempt-cache-1");
   assert.equal(first.ok && first.cacheEntry.entryAttemptId, "attempt-cache-1");
 
   const cached = await prepareVideoDateEntryWithClient({
@@ -64,8 +65,33 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
   assert.equal(cached.ok, true);
   assert.equal(cached.ok && cached.cached, true);
   assert.equal(cached.ok && cached.data.entry_attempt_id, "attempt-cache-1");
+  assert.equal(cached.ok && cached.data.video_date_trace_id, "attempt-cache-1");
   assert.equal(calls, 1);
   assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 2000)?.value.token, "short-lived-client-token");
+});
+
+test("prepareVideoDateEntryWithClient preserves server trace ids when returned", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  const result = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    entryAttemptId: "client-attempt-1",
+    invoke: async () => ({
+      data: {
+        ...successPayload(),
+        entry_attempt_id: "server-entry-attempt-1",
+        video_date_trace_id: "server-trace-1",
+      },
+    }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.ok && result.data.entry_attempt_id, "server-entry-attempt-1");
+  assert.equal(result.ok && result.data.video_date_trace_id, "server-trace-1");
+  assert.equal(result.ok && result.cacheEntry.value.video_date_trace_id, "server-trace-1");
 });
 
 test("prepareVideoDateEntryWithClient falls back when cache is stale or rejected", async () => {

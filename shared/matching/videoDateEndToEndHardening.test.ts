@@ -62,6 +62,10 @@ const videoDateObservabilityV1Migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501135000_video_date_observability_v1.sql"),
   "utf8",
 );
+const videoDateObservabilityV2Migration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501140000_video_date_observability_v2_trace.sql"),
+  "utf8",
+);
 const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
@@ -908,10 +912,11 @@ test("daily-room hard-fails room and registration persistence before returning t
 test("entry_attempt_id is generated client-side and carried through Edge logs and responses", () => {
   assert.match(webPrepareEntry, /createVideoDateEntryAttemptId\(startedAt\)/);
   assert.match(nativePrepareEntry, /createVideoDateEntryAttemptId\(startedAt\)/);
-  assert.match(webPrepareEntry, /body: \{ action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId, entry_attempt_id: attemptId \}/);
-  assert.match(nativePrepareEntry, /body: \{ action: PREPARE_VIDEO_DATE_ENTRY_ACTION, sessionId, entry_attempt_id: attemptId \}/);
-  assert.match(dailyRoomFunction, /sanitizeEntryAttemptId\(body\?\.entry_attempt_id \?\? body\?\.entryAttemptId\)/);
+  assert.match(webPrepareEntry, /body: \{[\s\S]*action: PREPARE_VIDEO_DATE_ENTRY_ACTION[\s\S]*entry_attempt_id: attemptId[\s\S]*video_date_trace_id: attemptId[\s\S]*\}/);
+  assert.match(nativePrepareEntry, /body: \{[\s\S]*action: PREPARE_VIDEO_DATE_ENTRY_ACTION[\s\S]*entry_attempt_id: attemptId[\s\S]*video_date_trace_id: attemptId[\s\S]*\}/);
+  assert.match(dailyRoomFunction, /readVideoDateTraceContext\(body, action\)/);
   assert.match(dailyRoomFunction, /entry_attempt_id: entryAttemptId/);
+  assert.match(dailyRoomFunction, /video_date_trace_id: videoDateTraceId/);
   assert.match(dailyRoomFunction, /p_entry_attempt_id: params\.entryAttemptId \?\? null/);
 });
 
@@ -1227,6 +1232,66 @@ test("observability v1 exposes a service-role-only ordered session timeline", ()
   assert.match(videoDateObservabilityV1Migration, /ORDER BY tr\.occurred_at ASC, tr\.sort_order ASC, tr\.operation ASC/);
   assert.match(videoDateObservabilityV1Migration, /REVOKE ALL ON FUNCTION public\.get_video_date_session_timeline\(uuid\) FROM PUBLIC, anon, authenticated/);
   assert.match(videoDateObservabilityV1Migration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_session_timeline\(uuid\) TO service_role/);
+});
+
+test("observability v2 adds Daily provider lifecycle rows to the service-role timeline", () => {
+  for (const operation of [
+    "create_date_room_attempt",
+    "create_date_room_reused_existing_db_room",
+    "create_date_room_provider_already_exists",
+    "create_date_room_provider_created",
+    "create_date_room_provider_recovered_or_recreated",
+    "create_date_room_token_issued",
+    "create_date_room_blocked_session_ended",
+    "create_date_room_blocked_access_denied",
+    "create_date_room_provider_error",
+  ]) {
+    assert.match(videoDateObservabilityV2Migration, new RegExp(`'${operation}'`));
+    assert.match(dailyRoomFunction, new RegExp(`"${operation}"`));
+  }
+
+  assert.match(videoDateObservabilityV2Migration, /GRANT EXECUTE ON FUNCTION public\.record_event_loop_observability\(text, text, text, integer, uuid, uuid, uuid, jsonb\)\s+TO service_role/);
+  assert.match(videoDateObservabilityV2Migration, /CREATE OR REPLACE FUNCTION public\.get_video_date_session_timeline\(p_session_id uuid\)/);
+  assert.match(videoDateObservabilityV2Migration, /WHERE eo\.session_id = p_session_id/);
+  assert.match(videoDateObservabilityV2Migration, /row_number\(\) OVER \(ORDER BY tr\.occurred_at ASC, tr\.sort_order ASC, tr\.operation ASC\)/);
+  assert.match(videoDateObservabilityV2Migration, /REVOKE ALL ON FUNCTION public\.get_video_date_session_timeline\(uuid\) FROM PUBLIC, anon, authenticated/);
+  assert.match(videoDateObservabilityV2Migration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_session_timeline\(uuid\) TO service_role/);
+});
+
+test("video date trace id is propagated through prepare entry analytics and Daily-room payloads", () => {
+  for (const source of [webPrepareEntry, nativePrepareEntry]) {
+    assert.match(source, /const videoDateTraceId = entryAttemptId/);
+    assert.match(source, /video_date_trace_id: videoDateTraceId/);
+    assert.match(source, /videoDateTraceId/);
+    assert.match(source, /video_date_trace_id: attemptId/);
+    assert.match(source, /result\.data\.video_date_trace_id \?\? result\.data\.entry_attempt_id \?\? videoDateTraceId/);
+  }
+
+  assert.match(dailyRoomFunction, /function readVideoDateTraceContext/);
+  assert.match(dailyRoomFunction, /body\?\.video_date_trace_id \?\? body\?\.videoDateTraceId/);
+  assert.match(dailyRoomFunction, /providedTraceId \?\? providedEntryAttemptId \?\? \(shouldGenerateTrace \? createServerVideoDateTraceId\(\) : null\)/);
+  assert.match(dailyRoomFunction, /video_date_trace_id: videoDateTraceId/);
+  assert.match(webVideoCallHook, /const videoDateTraceId = roomData\.video_date_trace_id \?\? entryAttemptId/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_DAILY_JOIN_STARTED[\s\S]*video_date_trace_id: videoDateTraceId/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_DAILY_JOIN_SUCCESS[\s\S]*video_date_trace_id: videoDateTraceId/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_DAILY_JOIN_FAILURE[\s\S]*video_date_trace_id: preparedEntryAtFailure\?\.value\.video_date_trace_id/);
+  assert.match(nativeVideoDateApi, /video_date_trace_id: result\.data\.video_date_trace_id \?\? result\.data\.entry_attempt_id \?\? null/);
+  assert.match(nativeVideoDateRoute, /const videoDateTraceId =[\s\S]*tokenResult\.video_date_trace_id/s);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_DAILY_JOIN_STARTED[\s\S]*video_date_trace_id: videoDateTraceId/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_DAILY_JOIN_SUCCESS[\s\S]*video_date_trace_id: videoDateTraceId/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_DAILY_JOIN_FAILURE[\s\S]*video_date_trace_id: preparedEntryAtFailure\?\.value\.video_date_trace_id/);
+});
+
+test("Daily provider observability is fail-soft and redacts token material", () => {
+  const helperBody = dailyRoomFunction.match(
+    /async function recordVideoDateProviderObservability[\s\S]*?\n}\n\nfunction createBlockedDateRoomResponse/,
+  )?.[0] ?? "";
+  assert.match(helperBody, /try \{/);
+  assert.match(helperBody, /catch \(error\)/);
+  assert.match(helperBody, /video_date_provider_observability_failed/);
+  assert.doesNotMatch(helperBody, /\btoken\b/i);
+
+  assert.match(dailyRoomFunction, /operation: "create_date_room_token_issued"[\s\S]*detail: \{[\s\S]*provider_room_reused/s);
 });
 
 test("Sprint E missing observability events are typed and wired", () => {
