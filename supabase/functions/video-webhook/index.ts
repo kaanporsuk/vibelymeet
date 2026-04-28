@@ -1,18 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  constantTimeCompare,
+  hasAnyBunnyStreamSignatureHeader,
+  verifyBunnyStreamWebhookSignature,
+} from "../_shared/bunny-stream-webhook.ts";
 import { logVibeVideo } from "../_shared/vibe-video-logs.ts";
-
-function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let out = 0;
-  for (let i = 0; i < a.length; i++) out |= a[i] ^ b[i];
-  return out === 0;
-}
-
-function constantTimeCompare(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  return timingSafeEqual(enc.encode(a), enc.encode(b));
-}
 
 function getProjectRef(url: string | undefined): string {
   if (!url) return "unknown";
@@ -27,6 +20,105 @@ function getProjectRef(url: string | undefined): string {
 function isValidVideoGuid(value: unknown): value is string {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+type WebhookAuthMode = "signature" | "bearer" | "legacy_query_token";
+
+type WebhookAuthResult =
+  | {
+    ok: true;
+    authMode: WebhookAuthMode;
+    signatureKeyConfigured: boolean;
+  }
+  | {
+    ok: false;
+    reason: "invalid_signature" | "invalid_auth";
+    signatureFailureReason?: string;
+    signatureKeyConfigured: boolean;
+    hasSignatureHeaders: boolean;
+    hasBearerToken: boolean;
+    hasLegacyQueryToken: boolean;
+    hasWebhookTokenConfigured: boolean;
+  };
+
+function getBearerToken(headers: Headers): string | null {
+  const authorization = headers.get("Authorization")?.trim() ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  const token = match?.[1]?.trim() ?? "";
+  return token.length > 0 ? token : null;
+}
+
+async function authenticateWebhook(
+  req: Request,
+  rawBody: string,
+  webhookToken: string,
+  streamApiKey: string,
+): Promise<WebhookAuthResult> {
+  const hasSignatureHeaders = hasAnyBunnyStreamSignatureHeader(req.headers);
+  const signatureKeyConfigured = streamApiKey.length > 0;
+  const bearerToken = getBearerToken(req.headers);
+  const url = new URL(req.url);
+  const legacyToken = url.searchParams.get("token");
+  const hasWebhookTokenConfigured = webhookToken.trim().length > 0;
+
+  if (hasSignatureHeaders && signatureKeyConfigured) {
+    const signatureResult = await verifyBunnyStreamWebhookSignature(
+      req.headers,
+      rawBody,
+      streamApiKey,
+    );
+    if (signatureResult.ok) {
+      return {
+        ok: true,
+        authMode: "signature",
+        signatureKeyConfigured,
+      };
+    }
+    return {
+      ok: false,
+      reason: "invalid_signature",
+      signatureFailureReason: signatureResult.reason,
+      signatureKeyConfigured,
+      hasSignatureHeaders,
+      hasBearerToken: !!bearerToken,
+      hasLegacyQueryToken: !!legacyToken,
+      hasWebhookTokenConfigured,
+    };
+  }
+
+  if (
+    bearerToken &&
+    hasWebhookTokenConfigured &&
+    constantTimeCompare(bearerToken, webhookToken)
+  ) {
+    return {
+      ok: true,
+      authMode: "bearer",
+      signatureKeyConfigured,
+    };
+  }
+
+  if (
+    legacyToken &&
+    hasWebhookTokenConfigured &&
+    constantTimeCompare(legacyToken, webhookToken)
+  ) {
+    return {
+      ok: true,
+      authMode: "legacy_query_token",
+      signatureKeyConfigured,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: "invalid_auth",
+    signatureKeyConfigured,
+    hasSignatureHeaders,
+    hasBearerToken: !!bearerToken,
+    hasLegacyQueryToken: !!legacyToken,
+    hasWebhookTokenConfigured,
+  };
 }
 
 serve(async (req) => {
@@ -44,34 +136,78 @@ serve(async (req) => {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const webhookToken = Deno.env.get("BUNNY_VIDEO_WEBHOOK_TOKEN");
-  if (!webhookToken || webhookToken.trim() === "") {
+  const webhookToken = Deno.env.get("BUNNY_VIDEO_WEBHOOK_TOKEN")?.trim() ?? "";
+  const streamApiKey = Deno.env.get("BUNNY_STREAM_API_KEY")?.trim() ?? "";
+
+  let rawBody: string;
+  try {
+    rawBody = await req.text();
+  } catch (err) {
     logVibeVideo("error", "video_webhook_rejected", {
       project_ref: projectRef,
-      reason: "webhook_token_unconfigured",
+      reason: "body_read_failed",
+      error_code: err instanceof Error ? err.name : "unknown",
     });
-    return new Response("Service unavailable", { status: 503 });
+    return new Response("Bad request", { status: 400 });
   }
 
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token");
-  if (!token || !constantTimeCompare(token, webhookToken)) {
+  const authResult = await authenticateWebhook(
+    req,
+    rawBody,
+    webhookToken,
+    streamApiKey,
+  );
+  if (!authResult.ok) {
     logVibeVideo("warn", "video_webhook_rejected", {
       project_ref: projectRef,
-      reason: "invalid_token",
-      has_token: !!token,
+      reason: authResult.reason,
+      signature_failure_reason: authResult.signatureFailureReason ?? null,
+      signature_key_configured: authResult.signatureKeyConfigured,
+      has_signature_headers: authResult.hasSignatureHeaders,
+      has_bearer_token: authResult.hasBearerToken,
+      has_legacy_query_token: authResult.hasLegacyQueryToken,
+      has_webhook_token_configured: authResult.hasWebhookTokenConfigured,
     });
     return new Response("Unauthorized", { status: 401 });
   }
-  logVibeVideo("info", "video_webhook_token_validated", { project_ref: projectRef });
 
+  if (authResult.authMode === "legacy_query_token") {
+    logVibeVideo("warn", "video_webhook_auth_validated", {
+      project_ref: projectRef,
+      auth_mode: authResult.authMode,
+      signature_key_configured: authResult.signatureKeyConfigured,
+      legacy_query_token_fallback: true,
+    });
+  } else {
+    logVibeVideo("info", "video_webhook_auth_validated", {
+      project_ref: projectRef,
+      auth_mode: authResult.authMode,
+      signature_key_configured: authResult.signatureKeyConfigured,
+    });
+  }
+
+  let body: {
+    VideoGuid?: string;
+    Status?: number;
+    VideoLibraryId?: number | string;
+  };
   try {
-    const body = await req.json() as {
+    body = JSON.parse(rawBody) as {
       VideoGuid?: string;
       Status?: number;
       VideoLibraryId?: number | string;
     };
+  } catch (err) {
+    logVibeVideo("warn", "video_webhook_rejected", {
+      project_ref: projectRef,
+      reason: "invalid_json",
+      auth_mode: authResult.authMode,
+      error_code: err instanceof Error ? err.name : "unknown",
+    });
+    return new Response("Bad request", { status: 400 });
+  }
 
+  try {
     const { VideoGuid, Status, VideoLibraryId } = body;
     const expectedLibraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID");
     logVibeVideo("info", "video_webhook_payload_parsed", {

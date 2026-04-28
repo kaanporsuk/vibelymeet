@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  hasAnyBunnyStreamSignatureHeader,
+  verifyBunnyStreamWebhookSignature,
+} from "../supabase/functions/_shared/bunny-stream-webhook";
 import {
   __setHlsLoaderForTest,
   attachHlsPlayback,
@@ -320,7 +325,26 @@ test("webhook validation rejects unsafe payloads before profile mutation", () =>
   const webhook = read("supabase/functions/video-webhook/index.ts");
 
   assert.match(webhook, /req\.method !== "POST"/);
-  assert.match(webhook, /constantTimeCompare\(token, webhookToken\)/);
+  assert.match(webhook, /BUNNY_STREAM_API_KEY/);
+  assert.match(webhook, /req\.text\(\)/);
+  assert.doesNotMatch(webhook, /req\.json\(\)/);
+  assert.match(webhook, /verifyBunnyStreamWebhookSignature/);
+  assert.match(webhook, /getBearerToken/);
+  assert.match(webhook, /auth_mode: authResult\.authMode/);
+  assert.match(webhook, /signature_key_configured: authResult\.signatureKeyConfigured/);
+  assert.equal(webhook.includes(["signature", "key", "source"].join("_")), false);
+  assert.match(webhook, /legacy_query_token_fallback: true/);
+  assert.match(webhook, /constantTimeCompare\(bearerToken, webhookToken\)/);
+  assert.match(webhook, /constantTimeCompare\(legacyToken, webhookToken\)/);
+  assert.match(webhook, /hasSignatureHeaders && signatureKeyConfigured/);
+  assert.ok(
+    webhook.indexOf("if (!authResult.ok)") < webhook.indexOf("JSON.parse(rawBody)"),
+    "webhook JSON must be parsed only after authentication succeeds",
+  );
+  assert.match(
+    webhook,
+    /reason: "invalid_json"[\s\S]*?return new Response\("Bad request", \{ status: 400 \}\)/,
+  );
   assert.match(webhook, /isValidVideoGuid\(VideoGuid\)/);
   assert.match(webhook, /VideoLibraryId/);
   assert.match(webhook, /from\("draft_media_sessions"\)/);
@@ -334,6 +358,130 @@ test("webhook validation rejects unsafe payloads before profile mutation", () =>
     "modern session lookup must happen before legacy profile fallback",
   );
   assert.doesNotMatch(webhook, /console\.log\(`\[video-webhook\]/);
+});
+
+test("Bunny Stream webhook signature helper validates official v1 raw-body HMAC contract with stream API key", async () => {
+  const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
+  const streamApiKey = "stream-api-key";
+  const signature = createHmac("sha256", streamApiKey).update(rawBody).digest("hex");
+  const headers = new Headers({
+    "X-BunnyStream-Signature-Version": "v1",
+    "X-BunnyStream-Signature-Algorithm": "hmac-sha256",
+    "X-BunnyStream-Signature": signature,
+  });
+
+  assert.equal(hasAnyBunnyStreamSignatureHeader(headers), true);
+  assert.deepEqual(
+    await verifyBunnyStreamWebhookSignature(headers, rawBody, streamApiKey),
+    { ok: true },
+  );
+});
+
+test("Bunny Stream webhook missing signing key is explicit and rollout fallback remains possible", async () => {
+  const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
+  const signature = createHmac("sha256", "not-configured").update(rawBody).digest("hex");
+
+  assert.deepEqual(
+    await verifyBunnyStreamWebhookSignature(
+      new Headers({
+        "X-BunnyStream-Signature-Version": "v1",
+        "X-BunnyStream-Signature-Algorithm": "hmac-sha256",
+        "X-BunnyStream-Signature": signature,
+      }),
+      rawBody,
+      "",
+    ),
+    { ok: false, reason: "signature_secret_unconfigured" },
+  );
+
+  const webhook = read("supabase/functions/video-webhook/index.ts");
+  assert.ok(
+    webhook.indexOf("hasSignatureHeaders && signatureKeyConfigured") <
+      webhook.indexOf("constantTimeCompare(legacyToken, webhookToken)"),
+    "missing signature key must leave legacy token fallback reachable during rollout",
+  );
+  assert.match(webhook, /signature_key_configured: authResult\.signatureKeyConfigured/);
+});
+
+test("invalid Bunny Stream signature with valid legacy token still rejects before JSON trust", async () => {
+  const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
+  const streamApiKey = "stream-api-key";
+  const wrongSignature = createHmac("sha256", "wrong-key").update(rawBody).digest("hex");
+
+  assert.deepEqual(
+    await verifyBunnyStreamWebhookSignature(
+      new Headers({
+        "X-BunnyStream-Signature-Version": "v1",
+        "X-BunnyStream-Signature-Algorithm": "hmac-sha256",
+        "X-BunnyStream-Signature": wrongSignature,
+      }),
+      rawBody,
+      streamApiKey,
+    ),
+    { ok: false, reason: "invalid_signature" },
+  );
+
+  const webhook = read("supabase/functions/video-webhook/index.ts");
+  const signatureBranch = webhook.indexOf("if (hasSignatureHeaders && signatureKeyConfigured)");
+  const invalidSignatureReturn = webhook.indexOf('reason: "invalid_signature"', signatureBranch);
+  const legacyTokenCompare = webhook.indexOf("constantTimeCompare(legacyToken, webhookToken)", signatureBranch);
+  const unauthorizedResponse = webhook.indexOf('return new Response("Unauthorized", { status: 401 })');
+  const jsonParse = webhook.indexOf("JSON.parse(rawBody)");
+
+  assert.ok(signatureBranch >= 0, "signature-header auth branch must exist");
+  assert.ok(invalidSignatureReturn > signatureBranch, "invalid signature must return an auth failure result");
+  assert.ok(
+    invalidSignatureReturn < legacyTokenCompare,
+    "invalid signature must not fall through to legacy token auth even when ?token= is valid",
+  );
+  assert.ok(
+    unauthorizedResponse < jsonParse,
+    "invalid auth must return 401 before any JSON payload is trusted",
+  );
+});
+
+test("Bunny Stream webhook signature helper rejects malformed and invalid signatures", async () => {
+  const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
+  const streamApiKey = "stream-api-key";
+  const signature = createHmac("sha256", streamApiKey).update(rawBody).digest("hex");
+  const invalidSignature = `${signature.slice(0, -1)}${signature.endsWith("0") ? "1" : "0"}`;
+
+  assert.deepEqual(
+    await verifyBunnyStreamWebhookSignature(
+      new Headers({
+        "X-BunnyStream-Signature-Version": "v1",
+        "X-BunnyStream-Signature-Algorithm": "hmac-sha256",
+        "X-BunnyStream-Signature": signature.toUpperCase(),
+      }),
+      rawBody,
+      streamApiKey,
+    ),
+    { ok: false, reason: "malformed_signature" },
+  );
+
+  assert.deepEqual(
+    await verifyBunnyStreamWebhookSignature(
+      new Headers({
+        "X-BunnyStream-Signature-Version": "v1",
+        "X-BunnyStream-Signature-Algorithm": "hmac-sha256",
+        "X-BunnyStream-Signature": invalidSignature,
+      }),
+      rawBody,
+      streamApiKey,
+    ),
+    { ok: false, reason: "invalid_signature" },
+  );
+
+  assert.deepEqual(
+    await verifyBunnyStreamWebhookSignature(
+      new Headers({
+        "X-BunnyStream-Signature": signature,
+      }),
+      rawBody,
+      streamApiKey,
+    ),
+    { ok: false, reason: "missing_signature_version" },
+  );
 });
 
 test("Vibe Video telemetry events are wired on web and native", () => {
