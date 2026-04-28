@@ -70,6 +70,10 @@ const checkMutualVibeLockdownMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501131000_lock_down_check_mutual_vibe_and_match.sql"),
   "utf8",
 );
+const pendingSurveyRecoveryIndexesMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501132000_pending_post_date_survey_recovery_indexes.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -545,6 +549,21 @@ test("video_sessions active lookup indexes are additive partial indexes", () => 
   );
 });
 
+test("pending post-date survey recovery has narrow lookup indexes", () => {
+  assert.match(
+    pendingSurveyRecoveryIndexesMigration,
+    /CREATE INDEX IF NOT EXISTS idx_video_sessions_participant_1_pending_survey\s+ON public\.video_sessions\(participant_1_id, ended_at DESC\)\s+WHERE ended_at IS NOT NULL\s+AND date_started_at IS NOT NULL;/,
+  );
+  assert.match(
+    pendingSurveyRecoveryIndexesMigration,
+    /CREATE INDEX IF NOT EXISTS idx_video_sessions_participant_2_pending_survey\s+ON public\.video_sessions\(participant_2_id, ended_at DESC\)\s+WHERE ended_at IS NOT NULL\s+AND date_started_at IS NOT NULL;/,
+  );
+  assert.match(
+    pendingSurveyRecoveryIndexesMigration,
+    /CREATE INDEX IF NOT EXISTS idx_date_feedback_user_session\s+ON public\.date_feedback\(user_id, session_id\);/,
+  );
+});
+
 test("video-date room cleanup checks Daily presence before destructive delete", () => {
   assert.match(videoDateRoomCleanupFunction, /\/rooms\/\$\{encodeURIComponent\(roomName\)\}\/presence/);
   assert.match(videoDateRoomCleanupFunction, /cleanup_deferred_active_participants/);
@@ -687,6 +706,34 @@ test("date route truth requires provider metadata before navigating to video", (
   assert.match(nativeVideoDateRoute, /in_ready_gate_without_provider_prepared_truth/);
   assert.doesNotMatch(nativeEventLobby, /phase === 'handshake' \|\| phase === 'date'/);
   assert.match(dailyRoomFunction, /allow Daily token only after provider-prepared handshake\/date truth is confirmed/);
+});
+
+test("web and native active-session recovery share pending survey contract", () => {
+  assert.match(sharedActiveSession, /POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS/);
+  assert.match(sharedActiveSession, /function videoSessionHasRecoverablePostDateSurveyTruth/);
+  assert.match(sharedActiveSession, /function getVideoSessionPartnerIdForUser/);
+  assert.match(sharedActiveSession, /function pickRecoverablePendingPostDateSurveySession/);
+  assert.match(sharedActiveSession, /feedbackSessionIdsForUser\.has\(row\.id\)/);
+
+  for (const source of [webActiveSessionHook, nativeActiveSessionHook]) {
+    assert.match(source, /findPendingPostDateSurveySession/);
+    assert.match(source, /\.not\(["']ended_at["'], ["']is["'], null\)/);
+    assert.match(source, /\.not\(["']date_started_at["'], ["']is["'], null\)/);
+    assert.match(source, /videoSessionHasRecoverablePostDateSurveyTruth/);
+    assert.match(source, /pickRecoverablePendingPostDateSurveySession/);
+    assert.match(source, /\.from\(["']date_feedback["']\)[\s\S]*\.select\(["']session_id["']\)[\s\S]*\.eq\(["']user_id["'], userId\)[\s\S]*\.in\(["']session_id["'], candidateSessionIds\)/);
+    assert.match(source, /queueStatus: ["']in_survey["']/);
+  }
+});
+
+test("native date route opens recovered pending surveys after current_room_id is cleared", () => {
+  assert.match(nativeVideoDateRoute, /function shouldRecoverPendingPostDateSurvey/);
+  assert.match(nativeVideoDateRoute, /getVideoSessionPartnerIdForUser/);
+  assert.match(nativeVideoDateRoute, /videoSessionHasRecoverablePostDateSurveyTruth/);
+  assert.match(nativeVideoDateRoute, /\.eq\('event_id', vs\.event_id as string\)/);
+  assert.match(nativeVideoDateRoute, /\.eq\('event_id', regEventId\)/);
+  assert.match(nativeVideoDateRoute, /pendingPostDateSurveyDue/);
+  assert.match(nativeVideoDateRoute, /if \(pendingPostDateSurveyDue\) \{/);
 });
 
 test("remaining prepare-entry hardening defers in_handshake registration until Daily token success", () => {
