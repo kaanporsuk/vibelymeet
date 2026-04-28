@@ -10,6 +10,8 @@ export const VIBE_VIDEO_EVENTS = {
   tusUploadFailed: "vibe_video_tus_upload_failed",
   uploadStalled: "vibe_video_upload_stalled",
   processingPollStarted: "vibe_video_processing_poll_started",
+  pollStalledVisible: "vibe_video_poll_stalled_visible",
+  visibilityResumePoll: "vibe_video_visibility_resume_poll",
   processingStatusChanged: "vibe_video_processing_status_changed",
   processingStalled: "vibe_video_processing_stalled",
   readyObserved: "vibe_video_ready_observed",

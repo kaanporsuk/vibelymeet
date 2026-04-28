@@ -3,9 +3,12 @@
  * Use everywhere web reads bunny_video_uid / bunny_video_status for UI truth.
  */
 
+import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+
 export type BunnyVideoStatusNormalized = "none" | "uploading" | "processing" | "ready" | "failed" | "unknown";
 
 const ALLOWED: ReadonlySet<string> = new Set(["none", "uploading", "processing", "ready", "failed"]);
+let webCdnHostnameFallbackReported = false;
 
 export function normalizeBunnyVideoStatus(raw: string | null | undefined): BunnyVideoStatusNormalized {
   const s = String(raw ?? "none")
@@ -30,8 +33,24 @@ export function normalizeWebStreamCdnHostname(input: string | undefined): string
   return h.trim().toLowerCase();
 }
 
+function trackWebCdnHostnameFallbackUsed(reason: "env_missing" | "normalized_empty"): void {
+  if (webCdnHostnameFallbackReported) return;
+  webCdnHostnameFallbackReported = true;
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.cdnHostnameFallbackUsed, {
+    source: "web_vibe_video_state",
+    kind: "cdn_hostname_missing",
+    stream_hostname_source: "missing",
+    reason,
+  });
+}
+
 export function getWebVibeVideoStreamHostname(): string {
-  return normalizeWebStreamCdnHostname(import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME);
+  const raw = import.meta.env.VITE_BUNNY_STREAM_CDN_HOSTNAME;
+  const hostname = normalizeWebStreamCdnHostname(raw);
+  if (!hostname) {
+    trackWebCdnHostnameFallbackUsed(raw == null || String(raw).trim() === "" ? "env_missing" : "normalized_empty");
+  }
+  return hostname;
 }
 
 /** Canonical HLS URL; null if uid or hostname missing. */

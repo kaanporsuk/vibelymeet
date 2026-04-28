@@ -58,6 +58,7 @@ let cachedCdnHostname: string | null = null;
 let warnedMissingHostForPlayback = false;
 let warnedInitMissing = false;
 let warnedMissingResolution = false;
+let reportedEnvPersistedMismatch = false;
 
 export type StreamHostnameSource = 'env' | 'persisted' | 'missing';
 
@@ -69,6 +70,19 @@ export type StreamHostnameResolution = {
   envPersistedMismatch: boolean;
   missingReason: string | null;
 };
+
+function trackCdnHostnamePersistenceMismatch(source: string): void {
+  if (reportedEnvPersistedMismatch) return;
+  reportedEnvPersistedMismatch = true;
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.cdnHostnamePersistenceMismatch, {
+    source,
+    kind: 'env_persisted_hostname_mismatch',
+    stream_hostname_source: 'env',
+    project_ref: SUPABASE_PROJECT_REF,
+    env_hostname_present: true,
+    persisted_hostname_present: true,
+  });
+}
 
 /**
  * Single canonical resolver for stream CDN hostname (sync). All playback/thumbnail URLs must use this.
@@ -92,6 +106,9 @@ export function resolveVibeVideoStreamHostnameSync(): StreamHostnameResolution {
         'Using env for URL construction. If you see 403/empty manifest, align env with Edge or clear app data.',
       { env, persisted },
     );
+  }
+  if (envPersistedMismatch) {
+    trackCdnHostnamePersistenceMismatch('native_playback_hostname_resolver');
   }
 
   if (env) {
@@ -153,6 +170,9 @@ export async function persistStreamCdnHostnameFromEdge(edgeHostname: string | nu
       edge: normalized,
       env,
     });
+  }
+  if (env && env !== normalized) {
+    trackCdnHostnamePersistenceMismatch('native_playback_hostname_persist');
   }
 }
 
