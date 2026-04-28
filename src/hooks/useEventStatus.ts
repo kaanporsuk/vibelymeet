@@ -49,17 +49,15 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
     [eventId, user?.id]
   );
 
-  // Heartbeat: update activity only. Lobby foreground proof is stamped by lobby-only lifecycle signals.
+  // Heartbeat: update activity only. Timestamp is server-stamped by RPC.
   useEffect(() => {
     if (!enabled || !eventId || !user?.id) return;
 
     heartbeatRef.current = setInterval(async () => {
       try {
-        await supabase
-          .from("event_registrations")
-          .update({ last_active_at: new Date().toISOString() })
-          .eq("event_id", eventId)
-          .eq("profile_id", user.id);
+        await supabase.rpc("mark_event_participant_heartbeat", {
+          p_event_id: eventId,
+        });
       } catch {}
     }, 30000);
 

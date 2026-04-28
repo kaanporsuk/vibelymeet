@@ -54,6 +54,10 @@ const backendIntegrityMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501112000_video_sessions_rls_write_lockdown.sql"),
   "utf8",
 );
+const eventParticipantHeartbeatMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501134000_event_participant_server_stamped_heartbeat.sql"),
+  "utf8",
+);
 const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
@@ -126,8 +130,16 @@ const webActiveSessionHook = readFileSync(
   join(process.cwd(), "src/hooks/useActiveSession.ts"),
   "utf8",
 );
+const webEventStatusHook = readFileSync(
+  join(process.cwd(), "src/hooks/useEventStatus.ts"),
+  "utf8",
+);
 const nativeActiveSessionHook = readFileSync(
   join(process.cwd(), "apps/mobile/lib/useActiveSession.ts"),
+  "utf8",
+);
+const nativeEventStatusHook = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/eventStatus.ts"),
   "utf8",
 );
 const webSwipeActionHook = readFileSync(
@@ -748,6 +760,46 @@ test("remaining hardening migration locks video_sessions writes behind server-ow
   assert.match(remainingHardeningMigration, /CREATE TRIGGER enforce_one_active_video_session_before_write/);
   assert.match(remainingHardeningMigration, /participant_has_active_session_conflict/);
   assert.match(remainingHardeningMigration, /pg_advisory_xact_lock/);
+});
+
+test("event participant heartbeat RPC is server-stamped without queue-status authority", () => {
+  assert.match(eventParticipantHeartbeatMigration, /CREATE OR REPLACE FUNCTION public\.mark_event_participant_heartbeat/);
+  assert.match(eventParticipantHeartbeatMigration, /p_event_id uuid/);
+  assert.match(eventParticipantHeartbeatMigration, /v_now timestamptz := now\(\)/);
+  assert.match(
+    eventParticipantHeartbeatMigration,
+    /SET last_active_at = v_now[\s\S]*WHERE event_id = p_event_id[\s\S]*AND profile_id = v_uid/s,
+  );
+  assert.doesNotMatch(eventParticipantHeartbeatMigration, /SET queue_status/);
+  assert.doesNotMatch(
+    eventParticipantHeartbeatMigration,
+    /mark_event_participant_heartbeat\([\s\S]*p_(?:last_active_at|timestamp|client)\b[\s\S]*\) RETURNS/,
+  );
+  assert.match(eventParticipantHeartbeatMigration, /REVOKE ALL ON FUNCTION public\.mark_event_participant_heartbeat\(uuid\)[\s\S]*FROM PUBLIC, anon/s);
+  assert.match(eventParticipantHeartbeatMigration, /GRANT EXECUTE ON FUNCTION public\.mark_event_participant_heartbeat\(uuid\)[\s\S]*TO authenticated/s);
+});
+
+test("old-client direct heartbeat timestamps are accepted but server-overwritten", () => {
+  assert.match(eventParticipantHeartbeatMigration, /Compatibility bridge for older deployed web\/native clients/);
+  assert.match(eventParticipantHeartbeatMigration, /CREATE OR REPLACE FUNCTION public\.server_stamp_client_last_active_at/);
+  assert.match(eventParticipantHeartbeatMigration, /current_user IN \('anon', 'authenticated'\)/);
+  assert.match(eventParticipantHeartbeatMigration, /NEW\.last_active_at := now\(\)/);
+  assert.match(eventParticipantHeartbeatMigration, /CREATE TRIGGER event_registrations_server_stamp_client_last_active_at/);
+  assert.match(eventParticipantHeartbeatMigration, /BEFORE UPDATE OF last_active_at ON public\.event_registrations/);
+  assert.doesNotMatch(eventParticipantHeartbeatMigration, /RAISE EXCEPTION 'event_registrations\.last_active_at is server-owned'/);
+  assert.doesNotMatch(eventParticipantHeartbeatMigration, /prevent_client_last_active_at_override/);
+  assert.doesNotMatch(eventParticipantHeartbeatMigration, /NEW\.queue_status|SET queue_status/);
+});
+
+test("web and native event heartbeats use server-stamped RPC", () => {
+  assert.match(webEventStatusHook, /rpc\("mark_event_participant_heartbeat"/);
+  assert.doesNotMatch(webEventStatusHook, /last_active_at\s*:/);
+  assert.doesNotMatch(webEventStatusHook, /\.from\("event_registrations"\)[\s\S]{0,240}\.update\(/);
+  assert.match(nativeVideoDateApi, /export async function markEventParticipantHeartbeat\(eventId: string\): Promise<boolean>/);
+  assert.match(nativeVideoDateApi, /rpc\('mark_event_participant_heartbeat'/);
+  assert.match(nativeEventStatusHook, /markEventParticipantHeartbeat\(eventId\)/);
+  assert.doesNotMatch(nativeEventStatusHook, /last_active_at\s*:/);
+  assert.doesNotMatch(nativeEventStatusHook, /\.from\('event_registrations'\)[\s\S]{0,240}\.update\(/);
 });
 
 test("backend integrity migration reasserts video_sessions client write lockdown", () => {
