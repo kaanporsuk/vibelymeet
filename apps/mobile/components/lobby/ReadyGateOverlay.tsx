@@ -108,6 +108,8 @@ export function ReadyGateOverlay({
   const openingPermissionWaitRef = useRef(false);
   const terminalTimeoutRef = useRef(false);
   const timeoutForfeitSentRef = useRef(false);
+  const terminalActionInFlightRef = useRef(false);
+  const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
@@ -119,6 +121,8 @@ export function ReadyGateOverlay({
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
   const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>('idle');
   const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailure | null>(null);
+  const [terminalActionPending, setTerminalActionPending] = useState(false);
+  const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
 
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
     if (Platform.OS === 'android') {
@@ -411,20 +415,33 @@ export function ReadyGateOverlay({
   const handleForfeited = useCallback(
     async (_reason: 'timeout' | 'skip') => {
       if (closedRef.current) return;
+      const reason = pendingForfeitReasonRef.current ?? _reason;
+      pendingForfeitReasonRef.current = null;
       closedRef.current = true;
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeited', { reason: _reason, eventId });
+      terminalActionInFlightRef.current = false;
+      setTerminalActionPending(false);
+      setTerminalActionError(null);
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeited', { reason, eventId });
       if (!terminalTimeoutRef.current) {
         terminalTimeoutRef.current = true;
         trackEvent(LobbyPostDateEvents.READY_GATE_TIMEOUT, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId,
-          reason: _reason,
+          reason,
         });
       }
-      await updateParticipantStatus(eventId, 'browsing');
+      try {
+        await updateParticipantStatus(eventId, 'browsing');
+      } catch (e) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_browsing_status_after_forfeit_failed', {
+          event_id: eventId,
+          session_id: sessionId,
+          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+        });
+      }
       onLobbyUserMessage?.(
-        _reason === 'timeout'
+        reason === 'timeout'
           ? "They weren't ready. Back to browsing — your deck is waiting."
           : 'No worries — back to browsing 💚',
         'info',
@@ -459,6 +476,8 @@ export function ReadyGateOverlay({
     openingPermissionWaitRef.current = false;
     terminalTimeoutRef.current = false;
     timeoutForfeitSentRef.current = false;
+    terminalActionInFlightRef.current = false;
+    pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
@@ -470,6 +489,8 @@ export function ReadyGateOverlay({
     setHasMediaPermission(null);
     setPrepareEntryStatus('idle');
     setPrepareEntryFailure(null);
+    setTerminalActionPending(false);
+    setTerminalActionError(null);
     if (!rgImpressionRef.current) {
       rgImpressionRef.current = true;
       const latencyContext = startReadyGateToDateLatencyContext({
@@ -620,7 +641,7 @@ export function ReadyGateOverlay({
   }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, userId]);
 
   useEffect(() => {
-    if (isTransitioning || iAmReady || markingReady || snoozedByPartner) return;
+    if (isTransitioning || iAmReady || markingReady || snoozedByPartner || terminalActionPending) return;
     const tick = () => {
       const next = getReadyGateRemainingSeconds({
         expiresAt,
@@ -635,23 +656,41 @@ export function ReadyGateOverlay({
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, expiresAt, forfeit]);
+  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, terminalActionPending, expiresAt, forfeit]);
 
   const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT_SEC);
   const dashOffset = CIRC * (1 - progress);
 
-  const handleSkip = () => {
+  const handleSkip = useCallback(async () => {
+    if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;
+    terminalActionInFlightRef.current = true;
+    pendingForfeitReasonRef.current = 'skip';
+    setTerminalActionPending(true);
+    setTerminalActionError(null);
     trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
       dismiss_variant: iAmReady ? 'cancel_go_back' : 'skip_this_one',
     });
-    closedRef.current = true;
-    void forfeit();
-    void updateParticipantStatus(eventId, 'browsing');
-    onClose();
-  };
+    try {
+      const ok = await forfeit();
+      if (!ok) throw new Error('ready_gate_forfeit_failed');
+      await handleForfeited('skip');
+    } catch (e) {
+      terminalActionInFlightRef.current = false;
+      pendingForfeitReasonRef.current = null;
+      if (closedRef.current || dateNavigationStartedRef.current) return;
+      const message = "We couldn't step away. Check your connection and try again.";
+      setTerminalActionPending(false);
+      setTerminalActionError(message);
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeit_failed_kept_open', {
+        session_id: sessionId,
+        event_id: eventId,
+        message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+      });
+    }
+  }, [eventId, forfeit, handleForfeited, iAmReady, sessionId]);
 
   const displayName = partnerName || 'someone';
   const retryPrepareEntry = () => {
@@ -676,7 +715,7 @@ export function ReadyGateOverlay({
         : 'This should only take a moment.';
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={handleSkip}>
+    <Modal visible transparent animationType="fade" onRequestClose={() => { void handleSkip(); }}>
       <View style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.8)' }]} pointerEvents="auto">
         {permissionsResolved && hasMediaPermission === false ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
@@ -685,6 +724,9 @@ export function ReadyGateOverlay({
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
               Allow camera and microphone access to join this date.
             </Text>
+            {terminalActionError ? (
+              <Text style={[styles.terminalError, { color: theme.danger }]}>{terminalActionError}</Text>
+            ) : null}
             <VibelyButton
               label="Enable permissions"
               onPress={() => {
@@ -693,9 +735,20 @@ export function ReadyGateOverlay({
               variant="primary"
               size="lg"
               style={styles.readyBtn}
+              disabled={terminalActionPending}
             />
-            <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
-              <Text style={[styles.skipText, { color: theme.textSecondary }]}>Back to lobby</Text>
+            <Pressable
+              onPress={() => { void handleSkip(); }}
+              disabled={terminalActionPending}
+              style={({ pressed }) => [
+                styles.skipWrap,
+                terminalActionPending && { opacity: 0.5 },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Text style={[styles.skipText, { color: theme.textSecondary }]}>
+                {terminalActionPending ? 'Leaving...' : 'Back to lobby'}
+              </Text>
             </Pressable>
           </Card>
         ) : !permissionsResolved ? (
@@ -713,6 +766,9 @@ export function ReadyGateOverlay({
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
               {prepareEntryFailureMessage(prepareEntryFailure.code)}
             </Text>
+            {terminalActionError ? (
+              <Text style={[styles.terminalError, { color: theme.danger }]}>{terminalActionError}</Text>
+            ) : null}
             {prepareEntryFailure.retryable ? (
               <VibelyButton
                 label="Try again"
@@ -720,10 +776,21 @@ export function ReadyGateOverlay({
                 variant="primary"
                 size="lg"
                 style={styles.readyBtn}
+                disabled={terminalActionPending}
               />
             ) : null}
-            <Pressable onPress={handleSkip} style={({ pressed }) => [styles.skipWrap, pressed && { opacity: 0.8 }]}>
-              <Text style={[styles.skipText, { color: theme.textSecondary }]}>Back to lobby</Text>
+            <Pressable
+              onPress={() => { void handleSkip(); }}
+              disabled={terminalActionPending}
+              style={({ pressed }) => [
+                styles.skipWrap,
+                terminalActionPending && { opacity: 0.5 },
+                pressed && { opacity: 0.8 },
+              ]}
+            >
+              <Text style={[styles.skipText, { color: theme.textSecondary }]}>
+                {terminalActionPending ? 'Leaving...' : 'Back to lobby'}
+              </Text>
             </Pressable>
           </Card>
         ) : isTransitioning || isBothReady || prepareEntryStatus !== 'idle' ? (
@@ -782,6 +849,10 @@ export function ReadyGateOverlay({
               </View>
             ) : null}
 
+            {terminalActionError ? (
+              <Text style={[styles.terminalError, { color: theme.danger }]}>{terminalActionError}</Text>
+            ) : null}
+
             {!iAmReady ? (
               <>
                 <View style={styles.ringWrap}>
@@ -814,7 +885,7 @@ export function ReadyGateOverlay({
                 <VibelyButton
                   label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                   onPress={() => {
-                    if (markingReady) return;
+                    if (markingReady || terminalActionPending) return;
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
                       sessionId,
                       platform: 'native',
@@ -861,7 +932,7 @@ export function ReadyGateOverlay({
                   variant="primary"
                   size="lg"
                   style={styles.readyBtn}
-                  disabled={markingReady || requestingSnooze}
+                  disabled={markingReady || requestingSnooze || terminalActionPending}
                 />
                 <Text style={[styles.helperText, { color: theme.textSecondary }]}>
                   Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
@@ -869,7 +940,7 @@ export function ReadyGateOverlay({
                 <View style={styles.secondaryRow}>
                   <Pressable
                     onPress={() => {
-                      if (requestingSnooze) return;
+                      if (requestingSnooze || terminalActionPending) return;
                       trackEvent(LobbyPostDateEvents.READY_GATE_SNOOZE_TAP, {
                         platform: 'native',
                         session_id: sessionId,
@@ -884,10 +955,10 @@ export function ReadyGateOverlay({
                         }
                       })();
                     }}
-                    disabled={requestingSnooze || markingReady}
+                    disabled={requestingSnooze || markingReady || terminalActionPending}
                     style={({ pressed }) => [
                       styles.skipWrap,
-                      (requestingSnooze || markingReady) && { opacity: 0.5 },
+                      (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
                       pressed && { opacity: 0.8 },
                     ]}
                   >
@@ -897,15 +968,17 @@ export function ReadyGateOverlay({
                   </Pressable>
                   <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
                   <Pressable
-                    onPress={handleSkip}
-                    disabled={requestingSnooze || markingReady}
+                    onPress={() => { void handleSkip(); }}
+                    disabled={requestingSnooze || markingReady || terminalActionPending}
                     style={({ pressed }) => [
                       styles.skipWrap,
-                      (requestingSnooze || markingReady) && { opacity: 0.5 },
+                      (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
                       pressed && { opacity: 0.8 },
                     ]}
                   >
-                    <Text style={[styles.skipText, { color: theme.textSecondary }]}>Step away</Text>
+                    <Text style={[styles.skipText, { color: theme.textSecondary }]}>
+                      {terminalActionPending ? 'Leaving...' : 'Step away'}
+                    </Text>
                   </Pressable>
                 </View>
               </>
@@ -918,15 +991,17 @@ export function ReadyGateOverlay({
                   </Text>
                 </View>
                 <Pressable
-                  onPress={handleSkip}
-                  disabled={requestingSnooze || markingReady}
+                  onPress={() => { void handleSkip(); }}
+                  disabled={requestingSnooze || markingReady || terminalActionPending}
                   style={({ pressed }) => [
                     styles.skipWrap,
-                    (requestingSnooze || markingReady) && { opacity: 0.5 },
+                    (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>Step away</Text>
+                  <Text style={[styles.skipText, { color: theme.textSecondary }]}>
+                    {terminalActionPending ? 'Leaving...' : 'Step away'}
+                  </Text>
                 </Pressable>
               </>
             )}
@@ -988,6 +1063,12 @@ const styles = StyleSheet.create({
   },
   partnerReadyText: { fontSize: 14, fontWeight: '600' },
   subtleLine: { fontSize: 14 },
+  terminalError: {
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
   avatarWrap: {
     width: 112,
     height: 112,

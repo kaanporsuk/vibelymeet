@@ -98,6 +98,14 @@ const nativeReadyGateOverlay = readFileSync(
   join(process.cwd(), "apps/mobile/components/lobby/ReadyGateOverlay.tsx"),
   "utf8",
 );
+const webReadyGateHook = readFileSync(
+  join(process.cwd(), "src/hooks/useReadyGate.ts"),
+  "utf8",
+);
+const nativeReadyGateApi = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/readyGateApi.ts"),
+  "utf8",
+);
 const sharedActiveSession = readFileSync(
   join(process.cwd(), "shared/matching/activeSession.ts"),
   "utf8",
@@ -526,6 +534,36 @@ test("native ready-gate paths are success-gated with no timer fallback route", (
   assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\) \{[\s\S]*navigateWithLatency\(`\$\{source\}_prepare_success`\)/s);
   assert.match(nativeReadyGateOverlay, /setPrepareEntryStatus\('failed'\)/);
   assert.match(nativeReadyGateOverlay, /retryPrepareEntry/);
+});
+
+test("ready-gate terminal actions wait for server forfeit before closing", () => {
+  assert.match(webReadyGateHook, /const skip = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(webReadyGateHook, /const \{ error \} = await supabase\.rpc\("ready_gate_transition"/);
+  assert.match(webReadyGateHook, /return false;[\s\S]*return true;/);
+  assert.match(readyGateOverlay, /const runTerminalAction = useCallback\(/);
+  assert.match(readyGateOverlay, /const ok = await skip\(\)/);
+  assert.match(readyGateOverlay, /if \(!ok\) \{[\s\S]*ready_gate_forfeit_failed/s);
+  assert.match(readyGateOverlay, /setTerminalActionError\(message\)/);
+  assert.match(readyGateOverlay, /void runTerminalAction\("skip_this_one"\)/);
+  assert.match(readyGateOverlay, /void runTerminalAction\("cancel_go_back"\)/);
+  assert.match(readyGateOverlay, /void runTerminalAction\("prepare_failed_back"\)/);
+  assert.doesNotMatch(
+    readyGateOverlay,
+    /closedRef\.current = true;\s*skip\(\);\s*setStatus\("browsing"\);\s*onClose\(\);/,
+  );
+
+  assert.match(nativeReadyGateApi, /const forfeit = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(nativeReadyGateApi, /const \{ error \} = await supabase\.rpc\('ready_gate_transition'/);
+  assert.match(nativeReadyGateApi, /return false;[\s\S]*return true;/);
+  assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(\) =>/);
+  assert.match(nativeReadyGateOverlay, /const ok = await forfeit\(\)/);
+  assert.match(nativeReadyGateOverlay, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
+  assert.match(nativeReadyGateOverlay, /setTerminalActionError\(message\)/);
+  assert.match(nativeReadyGateOverlay, /pendingForfeitReasonRef\.current = 'skip'/);
+  assert.doesNotMatch(
+    nativeReadyGateOverlay,
+    /closedRef\.current = true;\s*void forfeit\(\);\s*void updateParticipantStatus\(eventId, 'browsing'\);\s*onClose\(\);/,
+  );
 });
 
 test("daily-room classifies Daily provider failures without leaking raw response bodies", () => {

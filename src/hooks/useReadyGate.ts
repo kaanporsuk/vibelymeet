@@ -196,14 +196,23 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
   }, [sessionId, user?.id]);
 
   // Skip — forfeit (server-owned transition)
-  const skip = useCallback(async () => {
-    if (!sessionId) return;
+  const skip = useCallback(async (): Promise<boolean> => {
+    if (!sessionId || !user?.id) return false;
 
-    await supabase.rpc("ready_gate_transition", {
+    const { error } = await supabase.rpc("ready_gate_transition", {
       p_session_id: sessionId,
       p_action: "forfeit",
     });
-  }, [sessionId]);
+    if (error) {
+      readyGateDebug("forfeit transition failed", {
+        sessionId,
+        code: error.code ?? null,
+        message: error.message,
+      });
+      return false;
+    }
+    return true;
+  }, [sessionId, user?.id]);
 
   // Snooze — request 2 more minutes (server-owned transition)
   const snooze = useCallback(async () => {
