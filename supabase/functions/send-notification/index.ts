@@ -12,7 +12,7 @@ const supabase = createClient(
 
 const ONESIGNAL_APP_ID = Deno.env.get('ONESIGNAL_APP_ID')!
 const ONESIGNAL_REST_API_KEY = Deno.env.get('ONESIGNAL_REST_API_KEY')!
-const APP_URL = Deno.env.get('APP_URL') || 'https://vibelymeet.com'
+const APP_URL = Deno.env.get('APP_URL') || 'https://www.vibelymeet.com'
 
 /**
  * Map notification category → notify_* column (settings UI + DB).

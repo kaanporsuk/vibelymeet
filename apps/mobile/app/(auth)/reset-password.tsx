@@ -14,7 +14,7 @@ import {
   type PasswordRecoveryStatus,
 } from '@shared/authRedirect';
 
-const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://vibelymeet.com').replace(/\/$/, '');
+const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
 
 function firstRouteParam(value: string | string[] | undefined): string | null {
   if (Array.isArray(value)) {

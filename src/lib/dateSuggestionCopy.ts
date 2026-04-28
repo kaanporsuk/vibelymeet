@@ -152,7 +152,7 @@ export function buildShareDateText(params: {
     "",
     DATE_SAFETY_NOTE,
     "",
-    params.appUrl ?? (typeof window !== "undefined" ? window.location.origin : "https://vibelymeet.com"),
+    params.appUrl ?? (typeof window !== "undefined" ? window.location.origin : "https://www.vibelymeet.com"),
   ].filter((l) => l !== "");
   return lines.join("\n");
 }

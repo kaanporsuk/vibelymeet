@@ -9,7 +9,7 @@ export type { CreditPackId };
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 /** Origin for redirect URLs (create-credits-checkout uses req.headers.get('origin')). Web sends it automatically; mobile must set it so success/cancel URLs point to the web app. */
-const APP_ORIGIN = process.env.EXPO_PUBLIC_APP_ORIGIN ?? 'https://vibelymeet.com';
+const APP_ORIGIN = process.env.EXPO_PUBLIC_APP_ORIGIN ?? 'https://www.vibelymeet.com';
 
 export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();

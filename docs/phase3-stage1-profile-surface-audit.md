@@ -68,7 +68,7 @@ Each gap is classified as one of: **structural** | **visual** | **interaction** 
 
 | # | Gap | Classification | Notes |
 |---|-----|----------------|--------|
-| R1 | Web: VerificationSteps (email, photo, phone) with labels and onStartStep (e.g. open photo verification, phone verification). Native: single paragraph "Verify your email, photo, and phone on vibelymeet.com...". | **Missing affordance** | No step list, no per-step actions. |
+| R1 | Web: VerificationSteps (email, photo, phone) with labels and onStartStep (e.g. open photo verification, phone verification). Native: single paragraph "Verify your email, photo, and phone on www.vibelymeet.com...". | **Missing affordance** | No step list, no per-step actions. |
 | R2 | Web: VerificationBadge on profile photo when verified. Native: none. | **Missing affordance** | Trust badge missing. |
 | R3 | Web: photo verification status (pending, approved, rejected, expired) drives step description. Native: no verification state in UI. | **Content hierarchy mismatch** | Status not surfaced. |
 

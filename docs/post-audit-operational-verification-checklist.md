@@ -35,7 +35,7 @@
 | Item | What to verify |
 |------|----------------|
 | **Vercel production** | Deployed commit matches expected release; production env includes `VITE_ONESIGNAL_APP_ID` and Supabase URL/anon key for the project above |
-| **OneSignal runtime** | Web: init succeeds on `vibelymeet.com`; push receipt end-to-end. Native: `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets matches dashboard; device receives a test push |
+| **OneSignal runtime** | Web: init succeeds on `www.vibelymeet.com`; apex redirects to `www`; push receipt end-to-end. Native: `EXPO_PUBLIC_ONESIGNAL_APP_ID` in EAS secrets matches dashboard; device receives a test push |
 | **`PUSH_WEBHOOK_SECRET`** | Set in Supabase Edge secrets; matches what OneSignal (or other) webhook sends in `x-webhook-secret`; `push-webhook` returns 503 if unset |
 | **Authenticated route smoke** | Re-run `npm run proof:browser-auth` (or equivalent) against the target URL when changing auth or shell routes |
 | **Rebuild rehearsal** | Follow `docs/rebuild-rehearsal-log.md` / team process — not automated here |

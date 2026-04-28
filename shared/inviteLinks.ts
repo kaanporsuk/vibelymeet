@@ -1,6 +1,6 @@
 import { normalizeReferralId } from "./referrals";
 
-export const VIBELY_WEB_ORIGIN = "https://vibelymeet.com";
+export const VIBELY_WEB_ORIGIN = "https://www.vibelymeet.com";
 
 /**
  * Public event page URL. Adds `?ref=` when `referrerUserId` is a UUID-like auth user id.

@@ -10,13 +10,13 @@ Consumer-facing surfaces that still hand off to web, and justification. Intentio
 
 | Surface | Where | Action | Justification |
 |--------|--------|--------|----------------|
-| **Schedule** | Profile → My Vibe Schedule | Alert + "Open schedule on web" → vibelymeet.com/schedule | Schedule backend (slots, date_proposals, useSchedule) is substantial; not in Sprint 4 scope. Copy is explicit. |
-| **Profile preview** (own profile as others see) | Profile → eye icon | Alert + "Open on web" → vibelymeet.com/profile | Optional parity; native public profile exists for *other* users. Own preview can follow later. |
-| **Account settings** (password, pause, etc.) | Settings → Account | "Open account settings on web" → vibelymeet.com/settings | Full account UI (password change, pause/resume) remains web; no new backend. |
-| **Notification toggles** (quiet hours, sounds) | Settings → Notifications | "Open notification settings on web" → vibelymeet.com/settings | Backend exists; full UI scope deferred. Copy explicit. |
-| **Daily Drop** (empty state) | Matches → Daily Drop tab | "Daily Drop is coming to mobile soon" + "Open on web" → vibelymeet.com/matches | Separate feature; not in Sprint 4. |
-| **Reset password** | Auth reset flow | "Use the web app to reset your password: vibelymeet.com" | Auth flow; link is explicit. |
-| **How it works / Help / Privacy / Terms** | Settings quick actions | Links to vibelymeet.com/… | Legal and marketing content; web-only by design. |
+| **Schedule** | Profile → My Vibe Schedule | Alert + "Open schedule on web" → www.vibelymeet.com/schedule | Schedule backend (slots, date_proposals, useSchedule) is substantial; not in Sprint 4 scope. Copy is explicit. |
+| **Profile preview** (own profile as others see) | Profile → eye icon | Alert + "Open on web" → www.vibelymeet.com/profile | Optional parity; native public profile exists for *other* users. Own preview can follow later. |
+| **Account settings** (password, pause, etc.) | Settings → Account | "Open account settings on web" → www.vibelymeet.com/settings | Full account UI (password change, pause/resume) remains web; no new backend. |
+| **Notification toggles** (quiet hours, sounds) | Settings → Notifications | "Open notification settings on web" → www.vibelymeet.com/settings | Backend exists; full UI scope deferred. Copy explicit. |
+| **Daily Drop** (empty state) | Matches → Daily Drop tab | "Daily Drop is coming to mobile soon" + "Open on web" → www.vibelymeet.com/matches | Separate feature; not in Sprint 4. |
+| **Reset password** | Auth reset flow | "Use the web app to reset your password: www.vibelymeet.com" | Auth flow; link is explicit. |
+| **How it works / Help / Privacy / Terms** | Settings quick actions | Links to www.vibelymeet.com/… | Legal and marketing content; web-only by design. |
 
 ---
 

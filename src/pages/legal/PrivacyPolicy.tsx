@@ -31,7 +31,7 @@ const PrivacyPolicy = () => {
         <section>
           <h2>1. Introduction</h2>
           <p>
-            Vibely operates the mobile application and website at vibelymeet.com. This policy explains how we collect, use, and protect your data. By using Vibely you agree to this policy. We comply with GDPR.
+            Vibely operates the mobile application and website at www.vibelymeet.com. This policy explains how we collect, use, and protect your data. By using Vibely you agree to this policy. We comply with GDPR.
           </p>
           <p className="mt-2">Data Controller: Vibely — privacy@vibelymeet.com</p>
         </section>
@@ -120,7 +120,7 @@ const PrivacyPolicy = () => {
           <p>privacy@vibelymeet.com</p>
           <p>
             <Link to="/delete-account" className="text-neon-violet hover:underline">
-              vibelymeet.com/delete-account
+              www.vibelymeet.com/delete-account
             </Link>
           </p>
         </section>

@@ -15,8 +15,8 @@ This stream is proof-focused. It does not assume correctness from static code in
 
 ### Runtime environments
 
-- Production web host: `https://vibelymeet.com`
-- Production web alias: `https://www.vibelymeet.com`
+- Production web host: `https://www.vibelymeet.com`
+- Production apex redirect: `https://vibelymeet.com` → `https://www.vibelymeet.com`
 - Linked Supabase project ref from rebuild pack: `schdyxcunwcvddlcshwd`
 
 ### Known smoke/test identities referenced by the repo

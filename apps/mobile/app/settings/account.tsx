@@ -827,7 +827,7 @@ export default function AccountSettingsScreen() {
                 iconColor={theme.mutedForeground}
                 title="About verification"
                 subtitle="How Vibely uses your verification data"
-                onPress={() => WebBrowser.openBrowserAsync('https://vibelymeet.com/privacy').catch(() => {})}
+                onPress={() => WebBrowser.openBrowserAsync('https://www.vibelymeet.com/privacy').catch(() => {})}
               />
             </CardShell>
 

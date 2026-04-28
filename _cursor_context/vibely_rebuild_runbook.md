@@ -237,7 +237,7 @@ Then replace with a clean file using only valid `KEY=value` lines.
 
 For OneSignal web push (v16), the site must serve a OneSignal service worker script **from the domain root**:
 
-- `https://vibelymeet.com/OneSignalSDK.sw.js`
+- `https://www.vibelymeet.com/OneSignalSDK.sw.js`
 
 The repo provides a shim at:
 
@@ -245,7 +245,7 @@ The repo provides a shim at:
 
 which delegates to the official OneSignal CDN worker. A successful rebuild/deploy **must** ensure this file is published at the root so that requests like:
 
-- `https://vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
+- `https://www.vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
 
 do **not** 404 and OneSignal’s service worker can register correctly. OneSignal health still depends on the provider-side app/origin/service-worker configuration in the OneSignal dashboard.
 
@@ -407,7 +407,7 @@ Example:
 
 ```env
 # .env.functions.production
-APP_URL=https://vibelymeet.com
+APP_URL=https://www.vibelymeet.com
 SUPABASE_URL=https://schdyxcunwcvddlcshwd.supabase.co
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
@@ -671,7 +671,7 @@ These are rebuild-sensitive because they are embedded in source rather than clea
 
 ### Hardcoded production domain references
 
-`vibelymeet.com` is referenced in multiple frontend pages and functions.
+`www.vibelymeet.com` is the canonical app origin and is referenced in multiple frontend pages and functions.
 
 If domain changes, you must audit at least:
 

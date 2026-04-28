@@ -11,7 +11,7 @@ Full file reads were performed for **Dashboard** (web `Dashboard.tsx` vs native 
 | Area | Web | Native (before) | Fix |
 |------|-----|-----------------|-----|
 | Other cities nudge | Premium upsell card with counts, cities, **Go Premium →** → `/events` | Missing | Added `useOtherCityEvents` + card matching web copy and navigation to `/events`. |
-| MiniDateCountdown tap | `/schedule` | `/matches` | Opens `https://vibelymeet.com/schedule`. |
+| MiniDateCountdown tap | `/schedule` | `/matches` | Opens `https://www.vibelymeet.com/schedule`. |
 | DateReminderCard Join | Prefers `/date/:id` when an active session is known; else `/schedule` | Prefers `/date/:id` when an active session is known; else opens match chat fallback | Contextual join handler wired on both platforms. |
 | Live section | Enter Lobby only | Extra “View event details” | Removed secondary link. |
 | Next event (registered) | No bottom CTA; whole card navigates | “View event” button | **View & Register** only when **not** registered (matches web). |

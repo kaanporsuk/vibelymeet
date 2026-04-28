@@ -973,19 +973,19 @@ export default function PrivacySettingsScreen() {
               <SettingsRow
                 icon={<Ionicons name="document-text-outline" size={20} color={theme.mutedForeground} />}
                 title="Privacy Policy"
-                onPress={() => openLegal('https://vibelymeet.com/privacy')}
+                onPress={() => openLegal('https://www.vibelymeet.com/privacy')}
               />
               <View style={[styles.hairline, { backgroundColor: theme.border }]} />
               <SettingsRow
                 icon={<Ionicons name="document-text-outline" size={20} color={theme.mutedForeground} />}
                 title="Community Guidelines"
-                onPress={() => openLegal('https://vibelymeet.com/community-guidelines')}
+                onPress={() => openLegal('https://www.vibelymeet.com/community-guidelines')}
               />
               <View style={[styles.hairline, { backgroundColor: theme.border }]} />
               <SettingsRow
                 icon={<Ionicons name="document-text-outline" size={20} color={theme.mutedForeground} />}
                 title="Terms of Service"
-                onPress={() => openLegal('https://vibelymeet.com/terms')}
+                onPress={() => openLegal('https://www.vibelymeet.com/terms')}
               />
             </SectionCard>
           </>
