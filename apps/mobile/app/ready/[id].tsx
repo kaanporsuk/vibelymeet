@@ -32,6 +32,8 @@ import {
 
 const GATE_TIMEOUT_SEC = 30;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
+const TIMEOUT_FORFEIT_RETRY_DELAY_MS = 5_000;
+const TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS = 2;
 
 export default function ReadyGateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -65,9 +67,14 @@ export default function ReadyGateScreen() {
   const [permissionRequestEligible, setPermissionRequestEligible] = useState(false);
   const [permissionsResolved, setPermissionsResolved] = useState(false);
   const [hasMediaPermission, setHasMediaPermission] = useState<boolean | null>(null);
+  const [terminalActionPending, setTerminalActionPending] = useState(false);
+  const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
+  const timeoutForfeitSentRef = useRef(false);
+  const timeoutForfeitRetryAtMsRef = useRef(0);
+  const timeoutForfeitAttemptCountRef = useRef(0);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const requestMediaPermissions = async (): Promise<boolean> => {
@@ -192,8 +199,13 @@ export default function ReadyGateScreen() {
     setSessionLookupDone(false);
     setPermissionRequestEligible(false);
     redirectExplainedRef.current = false;
+    timeoutForfeitSentRef.current = false;
+    timeoutForfeitRetryAtMsRef.current = 0;
+    timeoutForfeitAttemptCountRef.current = 0;
     setPermissionsResolved(false);
     setHasMediaPermission(null);
+    setTerminalActionPending(false);
+    setTerminalActionError(null);
   }, [sessionId, user?.id]);
 
   useEffect(() => {
@@ -328,6 +340,8 @@ export default function ReadyGateScreen() {
 
   useEffect(() => {
     if (isForfeited) {
+      setTerminalActionPending(false);
+      setTerminalActionError(null);
       rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeited', {
         session_id: sessionId ?? null,
         event_id: eventId,
@@ -345,8 +359,42 @@ export default function ReadyGateScreen() {
     if (isSnoozed) setRequestingSnooze(false);
   }, [isSnoozed]);
 
+  const runReadyGateForfeit = useCallback(
+    async (reason: 'timeout' | 'skip') => {
+      if (terminalActionPending) return;
+      const isTimeoutAutoForfeit = reason === 'timeout';
+      setTerminalActionPending(true);
+      setTerminalActionError(null);
+      try {
+        const ok = await forfeit();
+        if (!ok) throw new Error('ready_gate_forfeit_failed');
+        setTerminalActionPending(false);
+        setTerminalActionError(null);
+        if (eventId) router.replace(eventLobbyHref(eventId));
+        else if (sessionLookupDone) router.replace(tabsRootHref());
+      } catch (e) {
+        if (isTimeoutAutoForfeit) {
+          timeoutForfeitSentRef.current = false;
+          timeoutForfeitRetryAtMsRef.current = Date.now() + TIMEOUT_FORFEIT_RETRY_DELAY_MS;
+        }
+        const message = isTimeoutAutoForfeit
+          ? "We couldn't step away automatically. Check your connection and tap Step away."
+          : "We couldn't step away. Check your connection and try again.";
+        setTerminalActionError(message);
+        setTerminalActionPending(false);
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeit_failed_kept_open', {
+          session_id: sessionId ?? null,
+          event_id: eventId,
+          reason,
+          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+        });
+      }
+    },
+    [eventId, forfeit, sessionId, sessionLookupDone, terminalActionPending],
+  );
+
   useEffect(() => {
-    if (transitioning || iAmReady || markingReady || requestingSnooze) return;
+    if (transitioning || iAmReady || markingReady || requestingSnooze || terminalActionPending) return;
     if (isSnoozed && snoozeExpiresAt) {
       const remaining = Math.max(0, Math.floor((new Date(snoozeExpiresAt).getTime() - Date.now()) / 1000));
       setSnoozeTimeLeft(remaining);
@@ -355,35 +403,54 @@ export default function ReadyGateScreen() {
     const t = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          forfeit();
+          const now = Date.now();
+          if (
+            !timeoutForfeitSentRef.current &&
+            timeoutForfeitAttemptCountRef.current < TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS &&
+            timeoutForfeitRetryAtMsRef.current <= now
+          ) {
+            timeoutForfeitSentRef.current = true;
+            timeoutForfeitAttemptCountRef.current += 1;
+            void runReadyGateForfeit('timeout');
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [transitioning, iAmReady, markingReady, requestingSnooze, isSnoozed, snoozeExpiresAt, forfeit]);
+  }, [transitioning, iAmReady, markingReady, requestingSnooze, terminalActionPending, isSnoozed, snoozeExpiresAt, runReadyGateForfeit]);
 
   useEffect(() => {
-    if (!isSnoozed) return;
+    if (!isSnoozed || terminalActionPending) return;
     const t = setInterval(() => {
       setSnoozeTimeLeft((prev) => {
         if (prev <= 1) {
-          forfeit();
+          const now = Date.now();
+          if (
+            !timeoutForfeitSentRef.current &&
+            timeoutForfeitAttemptCountRef.current < TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS &&
+            timeoutForfeitRetryAtMsRef.current <= now
+          ) {
+            timeoutForfeitSentRef.current = true;
+            timeoutForfeitAttemptCountRef.current += 1;
+            void runReadyGateForfeit('timeout');
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [isSnoozed, forfeit]);
+  }, [isSnoozed, terminalActionPending, runReadyGateForfeit]);
 
   const handleSkip = () => {
+    if (terminalActionPending) return;
     showDialog({
       title: 'Step away from this match?',
       message: "You'll return to the lobby. Your match can keep going with others.",
       variant: 'destructive',
-      primaryAction: { label: 'Step away', onPress: () => forfeit() },
+      primaryAction: { label: 'Step away', onPress: () => { void runReadyGateForfeit('skip'); } },
       secondaryAction: { label: 'Stay', onPress: () => {} },
     });
   };
@@ -495,6 +562,10 @@ export default function ReadyGateScreen() {
               <Text style={[styles.snoozeCueText, { color: theme.textSecondary }]}>{partnerName ?? 'Partner'} needs a moment — they'll be right back!</Text>
             </View>
           )}
+
+          {terminalActionError ? (
+            <Text style={[styles.actionError, { color: theme.danger }]}>{terminalActionError}</Text>
+          ) : null}
         </Card>
 
         <View style={styles.actions}>
@@ -503,11 +574,20 @@ export default function ReadyGateScreen() {
               <VibelyButton
                 label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                 onPress={() => {
-                  if (markingReady) return;
+                  if (markingReady || requestingSnooze || terminalActionPending) return;
                   setMarkingReady(true);
                   void (async () => {
                     try {
-                      await markReady();
+                      setTerminalActionError(null);
+                      const ok = await markReady();
+                      if (!ok) throw new Error('ready_gate_mark_ready_failed');
+                    } catch (e) {
+                      setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
+                      rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_mark_ready_failed_kept_open', {
+                        session_id: sessionId,
+                        event_id: eventId,
+                        message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+                      });
                     } finally {
                       setMarkingReady(false);
                     }
@@ -516,7 +596,7 @@ export default function ReadyGateScreen() {
                 variant="primary"
                 size="lg"
                 style={styles.primaryBtn}
-                disabled={markingReady || requestingSnooze}
+                disabled={markingReady || requestingSnooze || terminalActionPending}
               />
               <Text style={[styles.helperText, { color: theme.textSecondary }]}>
                 Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
@@ -524,20 +604,29 @@ export default function ReadyGateScreen() {
               <View style={styles.secondaryRow}>
                 <Pressable
                   onPress={() => {
-                    if (requestingSnooze) return;
+                    if (requestingSnooze || markingReady || terminalActionPending) return;
                     setRequestingSnooze(true);
                     void (async () => {
                       try {
-                        await snooze();
+                        setTerminalActionError(null);
+                        const ok = await snooze();
+                        if (!ok) throw new Error('ready_gate_snooze_failed');
+                      } catch (e) {
+                        setTerminalActionError("We couldn't snooze this match. Check your connection and try again.");
+                        rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snooze_failed_kept_open', {
+                          session_id: sessionId,
+                          event_id: eventId,
+                          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+                        });
                       } finally {
                         setRequestingSnooze(false);
                       }
                     })();
                   }}
-                  disabled={requestingSnooze || markingReady}
+                  disabled={requestingSnooze || markingReady || terminalActionPending}
                   style={({ pressed }) => [
                     styles.ghostBtn,
-                    (requestingSnooze || markingReady) && { opacity: 0.5 },
+                    (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
                     pressed && { opacity: 0.8 },
                   ]}
                 >
@@ -548,14 +637,16 @@ export default function ReadyGateScreen() {
                 <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
                 <Pressable
                   onPress={handleSkip}
-                  disabled={requestingSnooze || markingReady}
+                  disabled={requestingSnooze || markingReady || terminalActionPending}
                   style={({ pressed }) => [
                     styles.ghostBtn,
-                    (requestingSnooze || markingReady) && { opacity: 0.5 },
+                    (requestingSnooze || markingReady || terminalActionPending) && { opacity: 0.5 },
                     pressed && { opacity: 0.8 },
                   ]}
                 >
-                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Step away</Text>
+                  <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
+                    {terminalActionPending ? 'Leaving...' : 'Step away'}
+                  </Text>
                 </Pressable>
               </View>
             </>
@@ -565,8 +656,14 @@ export default function ReadyGateScreen() {
                 <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
                 <Text style={[styles.waitingText, { color: theme.text }]}>You're ready! Waiting for {partnerName ?? 'partner'}...</Text>
               </View>
-              <Pressable onPress={handleSkip} style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.8 }]}>
-                <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>Step away</Text>
+              <Pressable
+                onPress={handleSkip}
+                disabled={terminalActionPending}
+                style={({ pressed }) => [styles.ghostBtn, terminalActionPending && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
+              >
+                <Text style={[styles.ghostBtnText, { color: theme.textSecondary }]}>
+                  {terminalActionPending ? 'Leaving...' : 'Step away'}
+                </Text>
               </Pressable>
             </>
           )}
@@ -629,6 +726,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   snoozeCueText: { fontSize: 14 },
+  actionError: { fontSize: 13, textAlign: 'center', marginTop: spacing.md },
   actions: { alignItems: 'center', gap: spacing.lg },
   primaryBtn: { alignSelf: 'stretch' },
   helperText: {

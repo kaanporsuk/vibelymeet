@@ -570,6 +570,8 @@ test("native ready-gate paths are success-gated with no timer fallback route", (
 });
 
 test("ready-gate terminal actions wait for server forfeit before closing", () => {
+  assert.match(webReadyGateHook, /type ReadyGateTransitionAction = "mark_ready" \| "forfeit" \| "snooze"/);
+  assert.match(webReadyGateHook, /const runReadyGateTransition = useCallback\(async \(action: ReadyGateTransitionAction\): Promise<boolean> =>/);
   assert.match(webReadyGateHook, /const skip = useCallback\(async \(\): Promise<boolean> =>/);
   assert.match(webReadyGateHook, /const \{ error \} = await supabase\.rpc\("ready_gate_transition"/);
   assert.match(webReadyGateHook, /return false;[\s\S]*return true;/);
@@ -585,18 +587,69 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
     /closedRef\.current = true;\s*skip\(\);\s*setStatus\("browsing"\);\s*onClose\(\);/,
   );
 
+  assert.match(nativeReadyGateApi, /type ReadyGateTransitionAction = 'mark_ready' \| 'forfeit' \| 'snooze'/);
+  assert.match(nativeReadyGateApi, /const runReadyGateTransition = useCallback\(async \(action: ReadyGateTransitionAction\): Promise<boolean> =>/);
   assert.match(nativeReadyGateApi, /const forfeit = useCallback\(async \(\): Promise<boolean> =>/);
   assert.match(nativeReadyGateApi, /const \{ error \} = await supabase\.rpc\('ready_gate_transition'/);
   assert.match(nativeReadyGateApi, /return false;[\s\S]*return true;/);
-  assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(\) =>/);
+  assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'timeout' \| 'skip' = 'skip'\) =>/);
   assert.match(nativeReadyGateOverlay, /const ok = await forfeit\(\)/);
   assert.match(nativeReadyGateOverlay, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
   assert.match(nativeReadyGateOverlay, /setTerminalActionError\(message\)/);
-  assert.match(nativeReadyGateOverlay, /pendingForfeitReasonRef\.current = 'skip'/);
+  assert.match(nativeReadyGateOverlay, /pendingForfeitReasonRef\.current = reason/);
   assert.doesNotMatch(
     nativeReadyGateOverlay,
     /closedRef\.current = true;\s*void forfeit\(\);\s*void updateParticipantStatus\(eventId, 'browsing'\);\s*onClose\(\);/,
   );
+});
+
+test("ready-gate RPC failures surface retryable UI and timeout forfeit can retry", () => {
+  assert.match(webReadyGateHook, /const markReady = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(webReadyGateHook, /const snooze = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(webReadyGateHook, /runReadyGateTransition\("mark_ready"\)/);
+  assert.match(webReadyGateHook, /runReadyGateTransition\("snooze"\)/);
+  assert.match(readyGateOverlay, /const ok = await markReady\(\)/);
+  assert.match(readyGateOverlay, /throw new Error\("ready_gate_mark_ready_failed"\)/);
+  assert.match(readyGateOverlay, /We couldn't mark you ready\. Check your connection and try again\./);
+  assert.match(readyGateOverlay, /const ok = await snooze\(\)/);
+  assert.match(readyGateOverlay, /throw new Error\("ready_gate_snooze_failed"\)/);
+  assert.match(readyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
+  assert.match(readyGateOverlay, /TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
+  assert.match(readyGateOverlay, /TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS/);
+  assert.match(readyGateOverlay, /void runTerminalAction\("timeout_auto_forfeit"\)/);
+  assert.match(readyGateOverlay, /timeoutForfeitSentRef\.current = false[\s\S]*timeoutForfeitRetryAtMsRef\.current = Date\.now\(\) \+ TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
+  assert.doesNotMatch(readyGateOverlay, /timeoutForfeitSentRef\.current = true;\s*void skip\(\)/);
+
+  assert.match(nativeReadyGateApi, /const markReady = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(nativeReadyGateApi, /const snooze = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(nativeReadyGateApi, /runReadyGateTransition\('mark_ready'\)/);
+  assert.match(nativeReadyGateApi, /runReadyGateTransition\('snooze'\)/);
+  assert.match(nativeReadyGateOverlay, /const ok = await markReady\(\)/);
+  assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_mark_ready_failed'\)/);
+  assert.match(nativeReadyGateOverlay, /We couldn't mark you ready\. Check your connection and try again\./);
+  assert.match(nativeReadyGateOverlay, /const ok = await snooze\(\)/);
+  assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_snooze_failed'\)/);
+  assert.match(nativeReadyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
+  assert.match(nativeReadyGateOverlay, /TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
+  assert.match(nativeReadyGateOverlay, /TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS/);
+  assert.match(nativeReadyGateOverlay, /void handleSkip\('timeout'\)/);
+  assert.match(nativeReadyGateOverlay, /timeoutForfeitSentRef\.current = false[\s\S]*timeoutForfeitRetryAtMsRef\.current = Date\.now\(\) \+ TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /timeoutForfeitSentRef\.current = true;\s*void forfeit\(\)/);
+
+  assert.match(nativeReadyRoute, /const runReadyGateForfeit = useCallback\(/);
+  assert.match(nativeReadyRoute, /const ok = await forfeit\(\)/);
+  assert.match(nativeReadyRoute, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
+  assert.match(nativeReadyRoute, /setTerminalActionError\(message\)/);
+  assert.match(nativeReadyRoute, /timeoutForfeitSentRef\.current = false[\s\S]*timeoutForfeitRetryAtMsRef\.current = Date\.now\(\) \+ TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
+  assert.match(nativeReadyRoute, /void runReadyGateForfeit\('timeout'\)/);
+  assert.match(nativeReadyRoute, /primaryAction: \{ label: 'Step away', onPress: \(\) => \{ void runReadyGateForfeit\('skip'\); \} \}/);
+  assert.doesNotMatch(nativeReadyRoute, /forfeit\(\);\s*return 0/);
+  assert.match(nativeReadyRoute, /const ok = await markReady\(\)/);
+  assert.match(nativeReadyRoute, /throw new Error\('ready_gate_mark_ready_failed'\)/);
+  assert.match(nativeReadyRoute, /We couldn't mark you ready\. Check your connection and try again\./);
+  assert.match(nativeReadyRoute, /const ok = await snooze\(\)/);
+  assert.match(nativeReadyRoute, /throw new Error\('ready_gate_snooze_failed'\)/);
+  assert.match(nativeReadyRoute, /We couldn't snooze this match\. Check your connection and try again\./);
 });
 
 test("daily-room classifies Daily provider failures without leaking raw response bodies", () => {

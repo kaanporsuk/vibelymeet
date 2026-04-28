@@ -7,6 +7,7 @@ const FORFEITED = 'forfeited';
 const SNOOZED = 'snoozed';
 const EXPIRED = 'expired';
 const POLL_MS = 2000;
+type ReadyGateTransitionAction = 'mark_ready' | 'forfeit' | 'snooze';
 
 export type ReadyGateState = {
   status: string;
@@ -154,24 +155,11 @@ export function useReadyGate(
     return () => clearInterval(intervalId);
   }, [sessionId, userId, state.status, fetchSession]);
 
-  const markReady = useCallback(async () => {
-    if (!sessionId || !userId) return;
-    const { error } = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: 'mark_ready' });
+  const runReadyGateTransition = useCallback(async (action: ReadyGateTransitionAction): Promise<boolean> => {
+    if (!sessionId || !userId) return false;
+    const { error } = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action });
     if (error) {
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'mark_ready_rpc_error', {
-        code: error.code ?? null,
-        message_snippet: String(error.message ?? '').slice(0, 120),
-      });
-      return;
-    }
-    await fetchSession();
-  }, [sessionId, userId, fetchSession]);
-
-  const forfeit = useCallback(async (): Promise<boolean> => {
-    if (!sessionId) return false;
-    const { error } = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: 'forfeit' });
-    if (error) {
-      rcBreadcrumb(RC_CATEGORY.readyGate, 'forfeit_rpc_error', {
+      rcBreadcrumb(RC_CATEGORY.readyGate, `${action}_rpc_error`, {
         code: error.code ?? null,
         message_snippet: String(error.message ?? '').slice(0, 120),
       });
@@ -179,13 +167,19 @@ export function useReadyGate(
     }
     await fetchSession();
     return true;
-  }, [sessionId, fetchSession]);
-
-  const snooze = useCallback(async () => {
-    if (!sessionId || !userId) return;
-    await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: 'snooze' });
-    await fetchSession();
   }, [sessionId, userId, fetchSession]);
+
+  const markReady = useCallback(async (): Promise<boolean> => {
+    return runReadyGateTransition('mark_ready');
+  }, [runReadyGateTransition]);
+
+  const forfeit = useCallback(async (): Promise<boolean> => {
+    return runReadyGateTransition('forfeit');
+  }, [runReadyGateTransition]);
+
+  const snooze = useCallback(async (): Promise<boolean> => {
+    return runReadyGateTransition('snooze');
+  }, [runReadyGateTransition]);
 
   const isBothReady = state.status === BOTH_READY;
   const isForfeited = state.status === FORFEITED || state.status === EXPIRED;
