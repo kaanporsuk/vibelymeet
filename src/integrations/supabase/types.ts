@@ -4687,6 +4687,10 @@ export type Database = {
         Returns: Json
       }
       mark_my_activity_seen: { Args: never; Returns: boolean }
+      mark_event_participant_heartbeat: {
+        Args: { p_event_id: string }
+        Returns: boolean
+      }
       mark_photo_deleted: {
         Args: { p_storage_path: string; p_user_id: string }
         Returns: Json

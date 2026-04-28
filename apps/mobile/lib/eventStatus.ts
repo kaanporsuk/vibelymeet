@@ -1,12 +1,11 @@
 /**
- * Event status tracking: browsing on mount (direct update), offline on unmount, 60s heartbeat.
+ * Event status tracking: browsing on mount, offline on unmount, 60s server-stamped heartbeat.
  * Mirrors web useEventStatus (src/hooks/useEventStatus.ts).
  * Other flows (ready gate, video date) call updateParticipantStatus RPC for in_ready_gate, in_handshake, etc.
  */
 
 import { useCallback, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { updateParticipantStatus } from '@/lib/videoDateApi';
+import { markEventParticipantHeartbeat, updateParticipantStatus } from '@/lib/videoDateApi';
 
 export type ParticipantStatus =
   | 'browsing'
@@ -39,15 +38,8 @@ export function useEventStatus(eventId: string | undefined, userId: string | und
       if (!ok && __DEV__) console.warn('[eventStatus] initial status update failed');
     })();
     const heartbeat = setInterval(async () => {
-      const nowIso = new Date().toISOString();
-      const { error } = await supabase
-        .from('event_registrations')
-        .update({
-          last_active_at: nowIso,
-        })
-        .eq('event_id', eventId)
-        .eq('profile_id', userId);
-      if (error && __DEV__) console.warn('[eventStatus] heartbeat update failed:', error.message);
+      const ok = await markEventParticipantHeartbeat(eventId);
+      if (!ok && __DEV__) console.warn('[eventStatus] heartbeat update failed');
     }, HEARTBEAT_MS);
     return () => {
       clearInterval(heartbeat);

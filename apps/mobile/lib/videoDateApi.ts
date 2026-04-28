@@ -869,6 +869,14 @@ export async function updateParticipantStatus(eventId: string, status: string): 
   return !error;
 }
 
+/** Server-stamped event registration heartbeat; does not alter queue_status. */
+export async function markEventParticipantHeartbeat(eventId: string): Promise<boolean> {
+  const { error } = await supabase.rpc('mark_event_participant_heartbeat', {
+    p_event_id: eventId,
+  });
+  return !error;
+}
+
 export type PartnerProfileData = {
   name: string;
   age: number;
