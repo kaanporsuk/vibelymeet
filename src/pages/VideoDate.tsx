@@ -279,9 +279,20 @@ const VideoDate = () => {
         session_id: id,
         event_id: eventId,
         reason,
+        source_surface: "video_date_route",
+        source_action: reason,
       });
       logJourney("survey_opened", { reason }, `survey_opened_${reason}`);
       if (reason.includes("recovery") || reason === "session_load_terminal") {
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
+          platform: "web",
+          session_id: id,
+          event_id: eventId,
+          source_surface: "video_date_route",
+          source_action: reason,
+          outcome: "recovered",
+          reason_code: reason,
+        });
         logJourney("survey_recovered", { reason }, `survey_recovered_${reason}`);
       }
       return true;
