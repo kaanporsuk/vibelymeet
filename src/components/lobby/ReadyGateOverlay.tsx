@@ -418,6 +418,15 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           throw new Error("ready_gate_forfeit_failed");
         }
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
+        trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "ready_gate_overlay",
+          source_action: dismissVariant,
+          outcome: "success",
+          reason: "forfeit",
+        });
         handleForfeited("skip");
       } catch (error) {
         terminalActionInFlightRef.current = false;
@@ -429,6 +438,17 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           sessionId,
           dismissVariant,
           message: error instanceof Error ? error.message : String(error),
+        });
+        trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_FAILURE, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "ready_gate_overlay",
+          source_action: dismissVariant,
+          outcome: "failure",
+          reason_code: "ready_gate_forfeit_failed",
+          retryable: true,
+          error_name: error instanceof Error ? error.name : "unknown",
         });
         toast.error(message, { duration: 3200 });
       }

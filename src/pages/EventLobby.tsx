@@ -276,6 +276,18 @@ const EventLobby = () => {
           httpStatus: result.httpStatus ?? null,
           retryable: result.retryable,
         });
+        trackEvent(LobbyPostDateEvents.READY_GATE_HANDOFF_RECOVERY, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "event_lobby",
+          source_action: `${source}_prepare_failed_ready_gate_recovery`,
+          outcome: "recovered",
+          code: result.code,
+          reason_code: result.code,
+          httpStatus: result.httpStatus ?? null,
+          retryable: result.retryable,
+        });
         openReadyGateSession(sessionId, `${source}_prepare_failed_ready_gate_recovery`);
       });
     },

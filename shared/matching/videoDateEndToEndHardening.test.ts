@@ -222,6 +222,10 @@ const lobbyToPostDateJourney = readFileSync(
   join(process.cwd(), "shared/analytics/lobbyToPostDateJourney.ts"),
   "utf8",
 );
+const videoDateJourneyTraceMap = readFileSync(
+  join(process.cwd(), "shared/observability/videoDateJourneyTraceMap.ts"),
+  "utf8",
+);
 
 test("credit extension parser preserves server-returned seconds and totals", () => {
   assert.deepEqual(
@@ -1069,6 +1073,104 @@ test("Sprint E missing observability events are typed and wired", () => {
   assert.match(webVideoCallHook, /VIDEO_DATE_SYNC_RECONNECT_FAILED/);
   assert.match(webActiveSessionHook, /STALE_ACTIVE_SESSION_DETECTED/);
   assert.match(webSwipeActionHook, /DUPLICATE_ACTIVE_SESSION_CONFLICT/);
+});
+
+test("Sprint 1H journey trace map covers critical Video Date release signals", () => {
+  for (const stage of [
+    "swipe_result",
+    "ready_gate_opened",
+    "ready_gate_ready_tap",
+    "ready_gate_terminal_action",
+    "both_ready_observed",
+    "prepare_entry_started",
+    "prepare_entry_success",
+    "prepare_entry_failure",
+    "daily_join_started",
+    "daily_join_success",
+    "daily_join_failure",
+    "remote_participant_seen",
+    "survey_shown",
+    "survey_recovered",
+    "verdict_submitted",
+    "mutual_result",
+    "cleanup_deferred_or_deleted",
+  ]) {
+    assert.match(videoDateJourneyTraceMap, new RegExp(`stage: "${stage}"`));
+  }
+
+  for (const eventName of [
+    "READY_GATE_HANDOFF_RECOVERY",
+    "READY_GATE_TERMINAL_ACTION_SUCCESS",
+    "READY_GATE_TERMINAL_ACTION_FAILURE",
+    "VIDEO_DATE_PREPARE_ENTRY_STARTED",
+    "VIDEO_DATE_PREPARE_ENTRY_SUCCESS",
+    "VIDEO_DATE_PREPARE_ENTRY_FAILURE",
+    "VIDEO_DATE_DAILY_JOIN_STARTED",
+    "VIDEO_DATE_DAILY_JOIN_SUCCESS",
+    "VIDEO_DATE_DAILY_JOIN_FAILURE",
+    "VIDEO_DATE_REMOTE_SEEN",
+    "VIDEO_DATE_SURVEY_OPENED",
+    "VIDEO_DATE_SURVEY_RECOVERED",
+    "VIDEO_DATE_SURVEY_SUBMITTED",
+    "MUTUAL_VIBE_OUTCOME",
+    "CLEANUP_DEFERRED_ACTIVE_PARTICIPANTS",
+    "CLEANUP_DEFERRED_PROVIDER_CHECK_FAILED",
+  ]) {
+    assert.match(lobbyToPostDateJourney, new RegExp(`${eventName}:`));
+    assert.match(videoDateJourneyTraceMap, new RegExp(`LobbyPostDateEvents\\.${eventName}`));
+  }
+
+  for (const key of ["session_id", "event_id", "source_surface", "source_action", "outcome"]) {
+    assert.match(videoDateJourneyTraceMap, new RegExp(`"${key}"`));
+  }
+  assert.match(videoDateJourneyTraceMap, /correlationKeys: \["session_id", "room_name", "provider_status", "reason", "ended_reason"\]/);
+  assert.match(videoDateJourneyTraceMap, /Cleanup signals are structured Edge logs, not PostHog events/);
+  assert.doesNotMatch(videoDateJourneyTraceMap, /correlationKeys:\s*\[[^\]]*(token|secret|credential|authorization)/i);
+});
+
+test("Sprint 1H added recovery trace points are wired with safe correlation metadata", () => {
+  assert.match(eventLobby, /READY_GATE_HANDOFF_RECOVERY/);
+  assert.match(eventLobby, /source_surface: "event_lobby"/);
+  assert.match(eventLobby, /source_action: `\$\{source\}_prepare_failed_ready_gate_recovery`/);
+  assert.match(eventLobby, /outcome: "recovered"/);
+  assert.match(eventLobby, /reason_code: result\.code/);
+  assert.match(eventLobby, /retryable: result\.retryable/);
+
+  for (const readyGateSource of [readyGateOverlay, nativeReadyGateOverlay]) {
+    assert.match(readyGateSource, /READY_GATE_TERMINAL_ACTION_SUCCESS/);
+    assert.match(readyGateSource, /READY_GATE_TERMINAL_ACTION_FAILURE/);
+    assert.match(readyGateSource, /source_surface: ['"]ready_gate_overlay['"]/);
+    assert.match(readyGateSource, /outcome: ['"]success['"]/);
+    assert.match(readyGateSource, /outcome: ['"]failure['"]/);
+    assert.match(readyGateSource, /reason_code: ['"]ready_gate_forfeit_failed['"]/);
+    assert.match(readyGateSource, /retryable: true/);
+  }
+
+  for (const dateRouteSource of [webVideoDatePage, nativeVideoDateRoute]) {
+    assert.match(dateRouteSource, /VIDEO_DATE_SURVEY_RECOVERED/);
+    assert.match(dateRouteSource, /source_surface: ['"]video_date_route['"]/);
+    assert.match(dateRouteSource, /outcome: ['"]recovered['"]/);
+    assert.match(dateRouteSource, /reason_code/);
+  }
+
+  assert.match(dailyRoomFunction, /event: "video_date_provider_room_missing_or_expired_recovering"/);
+  assert.match(dailyRoomFunction, /provider_room_recovered/);
+  assert.match(videoDateRoomCleanupFunction, /event: "cleanup_deferred_active_participants"/);
+  assert.match(videoDateRoomCleanupFunction, /event: "cleanup_deferred_provider_check_failed"/);
+  assert.match(videoDateRoomCleanupFunction, /event: "cleanup_room_not_found"/);
+  assert.match(videoDateRoomCleanupFunction, /event: "cleanup_delete_failed"/);
+  assert.match(videoDateRoomCleanupFunction, /reason: presence\.reason/);
+
+  for (const source of [
+    eventLobby,
+    readyGateOverlay,
+    nativeReadyGateOverlay,
+    webVideoDatePage,
+    nativeVideoDateRoute,
+    videoDateRoomCleanupFunction,
+  ]) {
+    assert.doesNotMatch(source, /(READY_GATE_HANDOFF_RECOVERY|READY_GATE_TERMINAL_ACTION_|VIDEO_DATE_SURVEY_RECOVERED)[\s\S]{0,700}(token|secret|credential|authorization)/i);
+  }
 });
 
 test("persistent Ready Gate polling fallback becomes user-visible without blocking the gate", () => {

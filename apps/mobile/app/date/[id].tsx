@@ -1095,6 +1095,17 @@ export default function VideoDateScreen() {
             'survey_recovered_ended_route_guard'
           );
           logJourney('survey_lost_prevented', { source: 'ended_route_guard' }, 'survey_lost_prevented');
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: vs.event_id ?? eventId ?? null,
+            source_surface: 'video_date_route',
+            source_action: 'ended_route_guard',
+            outcome: 'recovered',
+            reason_code: 'ended_route_guard',
+            reconnectExpiredSurveyDue,
+            pendingPostDateSurveyDue,
+          });
           setShowFeedback(true);
           return;
         }
@@ -4322,6 +4333,17 @@ export default function VideoDateScreen() {
           'survey_recovered_terminal_session_recovery'
         );
         logJourney('survey_lost_prevented', { source: 'terminal_session_recovery' }, 'survey_lost_prevented');
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: session?.event_id ?? eventId ?? null,
+          source_surface: 'video_date_route',
+          source_action: 'terminal_session_recovery',
+          outcome: 'recovered',
+          reason_code: 'terminal_session_recovery',
+          reconnectExpiredSurveyDue,
+          pendingPostDateSurveyDue,
+        });
         setShowFeedback(true);
       }
     })();

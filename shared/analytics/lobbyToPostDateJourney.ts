@@ -32,6 +32,9 @@ export const LobbyPostDateEvents = {
   READY_GATE_STALE_CLOSE: 'ready_gate_stale_close',
   READY_GATE_BOTH_READY: 'ready_gate_both_ready',
   READY_GATE_BOTH_READY_OBSERVED: 'ready_gate_both_ready_observed',
+  READY_GATE_HANDOFF_RECOVERY: 'ready_gate_handoff_recovery',
+  READY_GATE_TERMINAL_ACTION_SUCCESS: 'ready_gate_terminal_action_success',
+  READY_GATE_TERMINAL_ACTION_FAILURE: 'ready_gate_terminal_action_failure',
   VIDEO_DATE_BOTH_READY: 'video_date_both_ready',
 
   // --- Ready Gate → date join latency envelope ---
@@ -142,6 +145,7 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_NATIVE_BACKGROUND_EXPIRED: 'video_date_native_background_expired',
   VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED: 'video_date_native_background_leave_signal_failed',
   VIDEO_DATE_SURVEY_OPENED: 'video_date_survey_opened',
+  VIDEO_DATE_SURVEY_RECOVERED: 'video_date_survey_recovered',
   VIDEO_DATE_SURVEY_SUBMITTED: 'video_date_survey_submitted',
   VIDEO_DATE_SURVEY_ABANDONED: 'video_date_survey_abandoned',
   VIDEO_DATE_QUEUE_DRAIN_FOUND: 'video_date_queue_drain_found',

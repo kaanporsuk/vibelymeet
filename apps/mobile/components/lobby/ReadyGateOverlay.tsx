@@ -667,15 +667,25 @@ export function ReadyGateOverlay({
     pendingForfeitReasonRef.current = 'skip';
     setTerminalActionPending(true);
     setTerminalActionError(null);
+    const dismissVariant = iAmReady ? 'cancel_go_back' : 'skip_this_one';
     trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
-      dismiss_variant: iAmReady ? 'cancel_go_back' : 'skip_this_one',
+      dismiss_variant: dismissVariant,
     });
     try {
       const ok = await forfeit();
       if (!ok) throw new Error('ready_gate_forfeit_failed');
+      trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: 'ready_gate_overlay',
+        source_action: dismissVariant,
+        outcome: 'success',
+        reason: 'forfeit',
+      });
       await handleForfeited('skip');
     } catch (e) {
       terminalActionInFlightRef.current = false;
@@ -688,6 +698,17 @@ export function ReadyGateOverlay({
         session_id: sessionId,
         event_id: eventId,
         message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+      });
+      trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_FAILURE, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: 'ready_gate_overlay',
+        source_action: dismissVariant,
+        outcome: 'failure',
+        reason_code: 'ready_gate_forfeit_failed',
+        retryable: true,
+        error_name: e instanceof Error ? e.name : 'unknown',
       });
     }
   }, [eventId, forfeit, handleForfeited, iAmReady, sessionId]);
