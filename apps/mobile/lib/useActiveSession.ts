@@ -13,8 +13,11 @@ import { trackEvent } from '@/lib/analytics';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  getVideoSessionPartnerIdForUser,
   inferVideoQueueStatusFromSessionTruth,
+  pickRecoverablePendingPostDateSurveySession,
   pickRegistrationForActiveSession,
+  videoSessionHasRecoverablePostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { VideoSessionDateEntryTruth } from '@/lib/videoDateApi';
@@ -27,49 +30,69 @@ export type ActiveSession =
 
 type Options = { eventId?: string | null };
 
-async function findPendingReconnectGraceSurveySession(
+async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
+  const { data: profile, error } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
+  if (error) {
+    if (__DEV__) console.warn('[useActiveSession] partner query failed:', error.message);
+    return null;
+  }
+  const partnerProfile = profile as { name?: string | null } | null;
+  return partnerProfile?.name ?? null;
+}
+
+async function findPendingPostDateSurveySession(
   userId: string,
   eventFilter: string | null
-): Promise<{ sessionId: string; eventId: string; partnerName: string | null } | null> {
+): Promise<{ sessionId: string; eventId: string; partnerName: string | null; endedReason: string | null } | null> {
   const endedQuery = supabase
     .from('video_sessions')
     .select('id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at')
-    .eq('ended_reason', 'reconnect_grace_expired')
+    .not('ended_at', 'is', null)
     .not('date_started_at', 'is', null)
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .order('ended_at', { ascending: false, nullsFirst: false })
-    .limit(5);
+    .limit(10);
   if (eventFilter) endedQuery.eq('event_id', eventFilter);
   const { data: endedRows, error: endedError } = await endedQuery;
   if (endedError || !endedRows?.length) return null;
 
-  for (const row of endedRows) {
-    const sessionId = row.id as string;
-    const eventId = row.event_id as string | null;
-    if (!eventId) continue;
-    const { data: verdict } = await supabase
-      .from('date_feedback')
-      .select('id')
-      .eq('session_id', sessionId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (verdict) continue;
+  const candidateRows = endedRows.filter((row) => videoSessionHasRecoverablePostDateSurveyTruth(row));
+  const candidateSessionIds = candidateRows
+    .map((row) => row.id)
+    .filter((sessionId): sessionId is string => Boolean(sessionId));
+  if (!candidateSessionIds.length) return null;
 
-    const partnerId =
-      row.participant_1_id === userId
-        ? (row.participant_2_id as string | null)
-        : (row.participant_1_id as string | null);
-    let partnerName: string | null = null;
-    if (partnerId) {
-      const { data: profile } = await supabase.rpc('get_profile_for_viewer', { p_target_id: partnerId });
-      const partnerProfile = profile as { name?: string | null } | null;
-      partnerName = partnerProfile?.name ?? null;
-    }
+  const { data: verdictRows, error: verdictError } = await supabase
+    .from('date_feedback')
+    .select('session_id')
+    .eq('user_id', userId)
+    .in('session_id', candidateSessionIds);
+  if (verdictError) return null;
 
-    return { sessionId, eventId, partnerName };
+  const feedbackSessionIdsForUser = new Set(
+    (verdictRows ?? [])
+      .map((row) => row.session_id)
+      .filter((sessionId): sessionId is string => Boolean(sessionId)),
+  );
+  const pendingSurvey = pickRecoverablePendingPostDateSurveySession(
+    candidateRows,
+    feedbackSessionIdsForUser,
+    userId,
+  );
+  if (!pendingSurvey?.id || !pendingSurvey.event_id) return null;
+
+  const partnerId = getVideoSessionPartnerIdForUser(pendingSurvey, userId);
+  let partnerName: string | null = null;
+  if (partnerId) {
+    partnerName = await fetchPartnerNameForViewer(partnerId);
   }
 
-  return null;
+  return {
+    sessionId: pendingSurvey.id,
+    eventId: pendingSurvey.event_id,
+    partnerName,
+    endedReason: pendingSurvey.ended_reason ?? null,
+  };
 }
 
 async function findDirectVideoSessionFallback(
@@ -241,18 +264,9 @@ export function useActiveSession(
           const truthDecision = decideVideoSessionRouteFromTruth(truth);
           const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth);
 
-          let partnerName: string | null = null;
-          if (reg.current_partner_id) {
-            const { data: profile, error: profileError } = await supabase.rpc('get_profile_for_viewer', {
-              p_target_id: reg.current_partner_id,
-            });
-            if (profileError && __DEV__) {
-              console.warn('[useActiveSession] partner query failed:', profileError.message);
-            } else {
-              const partnerProfile = profile as { name?: string | null } | null;
-              partnerName = partnerProfile?.name ?? null;
-            }
-          }
+          const partnerName = reg.current_partner_id
+            ? await fetchPartnerNameForViewer(reg.current_partner_id)
+            : null;
 
           const base = {
             sessionId: session.id,
@@ -362,14 +376,14 @@ export function useActiveSession(
       return;
     }
 
-    const reconnectSurvey = await findPendingReconnectGraceSurveySession(userId, eventFilter);
-    if (reconnectSurvey) {
+    const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+    if (pendingSurvey) {
       if (mounted.current) {
         setActiveSession({
           kind: 'video',
-          sessionId: reconnectSurvey.sessionId,
-          eventId: reconnectSurvey.eventId,
-          partnerName: reconnectSurvey.partnerName,
+          sessionId: pendingSurvey.sessionId,
+          eventId: pendingSurvey.eventId,
+          partnerName: pendingSurvey.partnerName,
           queueStatus: 'in_survey',
         });
         setHydrated(true);

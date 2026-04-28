@@ -5,8 +5,11 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  getVideoSessionPartnerIdForUser,
   inferVideoQueueStatusFromSessionTruth,
+  pickRecoverablePendingPostDateSurveySession,
   pickRegistrationForActiveSession,
+  videoSessionHasRecoverablePostDateSurveyTruth,
   type ActiveSessionBase,
 } from "@clientShared/matching/activeSession";
 
@@ -30,47 +33,79 @@ async function fetchPartnerNameForViewer(partnerId: string): Promise<string | nu
   return (profile as { name?: string | null } | null)?.name ?? null;
 }
 
-async function findPendingReconnectGraceSurveySession(
+async function findPendingPostDateSurveySession(
   userId: string,
   eventFilter: string | null
-): Promise<{ sessionId: string; eventId: string; partnerName: string | null } | null> {
+): Promise<{ sessionId: string; eventId: string; partnerName: string | null; endedReason: string | null } | null> {
   const endedQuery = supabase
     .from("video_sessions")
     .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at")
-    .eq("ended_reason", "reconnect_grace_expired")
+    .not("ended_at", "is", null)
     .not("date_started_at", "is", null)
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .order("ended_at", { ascending: false, nullsFirst: false })
-    .limit(5);
+    .limit(10);
   if (eventFilter) endedQuery.eq("event_id", eventFilter);
   const { data: endedRows, error: endedError } = await endedQuery;
   if (endedError || !endedRows?.length) return null;
 
-  for (const row of endedRows) {
-    const sessionId = row.id as string;
-    const eventId = row.event_id as string | null;
-    if (!eventId) continue;
-    const { data: verdict } = await supabase
-      .from("date_feedback")
-      .select("id")
-      .eq("session_id", sessionId)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (verdict) continue;
+  const candidateRows = endedRows.filter((row) => videoSessionHasRecoverablePostDateSurveyTruth(row));
+  const candidateSessionIds = candidateRows
+    .map((row) => row.id)
+    .filter((sessionId): sessionId is string => Boolean(sessionId));
+  if (!candidateSessionIds.length) return null;
 
-    const partnerId =
-      row.participant_1_id === userId
-        ? (row.participant_2_id as string | null)
-        : (row.participant_1_id as string | null);
-    let partnerName: string | null = null;
-    if (partnerId) {
-      partnerName = await fetchPartnerNameForViewer(partnerId);
-    }
+  const { data: verdictRows, error: verdictError } = await supabase
+    .from("date_feedback")
+    .select("session_id")
+    .eq("user_id", userId)
+    .in("session_id", candidateSessionIds);
+  if (verdictError) return null;
 
-    return { sessionId, eventId, partnerName };
+  const feedbackSessionIdsForUser = new Set(
+    (verdictRows ?? [])
+      .map((row) => row.session_id)
+      .filter((sessionId): sessionId is string => Boolean(sessionId)),
+  );
+  const pendingSurvey = pickRecoverablePendingPostDateSurveySession(
+    candidateRows,
+    feedbackSessionIdsForUser,
+    userId,
+  );
+  if (!pendingSurvey?.id || !pendingSurvey.event_id) return null;
+
+  const partnerId = getVideoSessionPartnerIdForUser(pendingSurvey, userId);
+  let partnerName: string | null = null;
+  if (partnerId) {
+    partnerName = await fetchPartnerNameForViewer(partnerId);
   }
 
-  return null;
+  return {
+    sessionId: pendingSurvey.id,
+    eventId: pendingSurvey.event_id,
+    partnerName,
+    endedReason: pendingSurvey.ended_reason ?? null,
+  };
+}
+
+function activeSessionFromPendingSurvey(
+  pendingSurvey: NonNullable<Awaited<ReturnType<typeof findPendingPostDateSurveySession>>>
+): ActiveSession {
+  return {
+    kind: "video",
+    sessionId: pendingSurvey.sessionId,
+    eventId: pendingSurvey.eventId,
+    partnerName: pendingSurvey.partnerName,
+    queueStatus: "in_survey",
+  };
+}
+
+function pendingSurveyHydrationReason(
+  pendingSurvey: NonNullable<Awaited<ReturnType<typeof findPendingPostDateSurveySession>>>
+): string {
+  return pendingSurvey.endedReason === "reconnect_grace_expired"
+    ? "reconnect_grace_pending_survey"
+    : "pending_post_date_survey";
 }
 
 async function findDirectVideoSessionFallback(
@@ -210,8 +245,8 @@ export function useActiveSession(
       return;
     }
 
-    // Intentional: plain `in_survey` with `current_room_id` null (normal post-date end) is not surfaced here.
-    // Survey UX lives on `/date/:id` until verdict/flow completes; see `VideoDate` + `PostDateSurvey`.
+    // Normal post-date end clears current_room_id, so registration lookup is followed by
+    // participant-scoped ended-session recovery before falling back to lobby/dashboard.
     const { data: regs, error: regError } = await supabase
       .from("event_registrations")
       .select("event_id, current_room_id, queue_status, current_partner_id")
@@ -233,17 +268,11 @@ export function useActiveSession(
         commitActiveSession(directSession, "direct_video_session_fallback");
         return;
       }
-      const reconnectSurvey = await findPendingReconnectGraceSurveySession(userId, eventFilter);
-      if (reconnectSurvey) {
+      const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+      if (pendingSurvey) {
         commitActiveSession(
-          {
-            kind: "video",
-            sessionId: reconnectSurvey.sessionId,
-            eventId: reconnectSurvey.eventId,
-            partnerName: reconnectSurvey.partnerName,
-            queueStatus: "in_survey",
-          },
-          "reconnect_grace_pending_survey"
+          activeSessionFromPendingSurvey(pendingSurvey),
+          pendingSurveyHydrationReason(pendingSurvey)
         );
       } else {
         commitActiveSession(null, "no_active_registration_room");
@@ -275,7 +304,15 @@ export function useActiveSession(
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_session_query_failed");
       } else {
-        commitActiveSession(null, "session_query_failed");
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+        if (pendingSurvey) {
+          commitActiveSession(
+            activeSessionFromPendingSurvey(pendingSurvey),
+            pendingSurveyHydrationReason(pendingSurvey)
+          );
+        } else {
+          commitActiveSession(null, "session_query_failed");
+        }
       }
       return;
     }
@@ -285,14 +322,22 @@ export function useActiveSession(
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_session_missing");
       } else {
-        emitStaleActiveSessionDetected({
-          reason: "registration_points_to_missing_session",
-          eventId: reg.event_id as string | null,
-          sessionId: reg.current_room_id as string | null,
-          queueStatus: reg.queue_status as string | null,
-          currentPartnerPresent: Boolean(reg.current_partner_id),
-        });
-        commitActiveSession(null, "session_missing_or_ended");
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+        if (pendingSurvey) {
+          commitActiveSession(
+            activeSessionFromPendingSurvey(pendingSurvey),
+            pendingSurveyHydrationReason(pendingSurvey)
+          );
+        } else {
+          emitStaleActiveSessionDetected({
+            reason: "registration_points_to_missing_session",
+            eventId: reg.event_id as string | null,
+            sessionId: reg.current_room_id as string | null,
+            queueStatus: reg.queue_status as string | null,
+            currentPartnerPresent: Boolean(reg.current_partner_id),
+          });
+          commitActiveSession(null, "session_missing_or_ended");
+        }
       }
       return;
     }
@@ -316,14 +361,22 @@ export function useActiveSession(
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_registration_ended");
       } else {
-        emitStaleActiveSessionDetected({
-          reason: "registration_points_to_ended_session",
-          eventId: reg.event_id as string | null,
-          sessionId: session.id as string | null,
-          queueStatus: qs as string | null,
-          currentPartnerPresent: Boolean(reg.current_partner_id),
-        });
-        commitActiveSession(null, "session_missing_or_ended");
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+        if (pendingSurvey) {
+          commitActiveSession(
+            activeSessionFromPendingSurvey(pendingSurvey),
+            pendingSurveyHydrationReason(pendingSurvey)
+          );
+        } else {
+          emitStaleActiveSessionDetected({
+            reason: "registration_points_to_ended_session",
+            eventId: reg.event_id as string | null,
+            sessionId: session.id as string | null,
+            queueStatus: qs as string | null,
+            currentPartnerPresent: Boolean(reg.current_partner_id),
+          });
+          commitActiveSession(null, "session_missing_or_ended");
+        }
       }
       return;
     }

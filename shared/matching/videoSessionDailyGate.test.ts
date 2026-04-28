@@ -4,6 +4,8 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   canPrepareDailyRoomFromReadyGateTruth,
   decideVideoSessionRouteFromTruth,
+  pickRecoverablePendingPostDateSurveySession,
+  videoSessionHasRecoverablePostDateSurveyTruth,
 } from "./activeSession";
 
 const NOW_MS = Date.parse("2026-04-24T00:33:00.000Z");
@@ -276,5 +278,93 @@ test("date-entry owner sends date state to date", () => {
       canAttemptDaily: true,
       routedTo: "date",
     },
+  );
+});
+
+test("pending survey recovery returns ended date session when current user has no feedback", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_reason: "completed",
+    date_started_at: "2026-04-24T00:35:00.000Z",
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), true);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1"),
+    row,
+  );
+});
+
+test("pending survey recovery skips ended date session once current user has feedback", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_reason: "completed",
+    date_started_at: "2026-04-24T00:35:00.000Z",
+  };
+
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set(["session-1"]), "user-1"),
+    null,
+  );
+});
+
+test("pending survey recovery does not expose sessions to nonparticipants", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_reason: "completed",
+    date_started_at: "2026-04-24T00:35:00.000Z",
+  };
+
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-3"),
+    null,
+  );
+});
+
+test("pending survey recovery preserves reconnect-grace survey behavior", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_reason: "reconnect_grace_expired",
+    date_started_at: "2026-04-24T00:35:00.000Z",
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), true);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-2"),
+    row,
+  );
+});
+
+test("pending survey recovery ignores pre-date terminal sessions", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_reason: "handshake_not_mutual",
+    date_started_at: "2026-04-24T00:35:00.000Z",
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), false);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1"),
+    null,
   );
 });

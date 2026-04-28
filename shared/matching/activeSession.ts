@@ -4,8 +4,8 @@
  * Registration `queue_status` drives routing; `video_sessions` confirms the row is live and can
  * override stale `in_ready_gate` when the session already entered handshake/date.
  *
- * Lobby hydration requires `current_room_id` — typical post-date `in_survey` clears that pointer on
- * the server, so survey is handled on `/date/:id`, not as an `ActiveSession` row. That is intentional.
+ * Lobby hydration normally uses `current_room_id`; post-date survey recovery also checks ended
+ * date sessions with no verdict for the current participant so close/reopen can resume `/date/:id`.
  */
 
 export type ActiveSessionKind = "video" | "ready_gate";
@@ -29,6 +29,30 @@ type VideoSessionDailyRoomTruth = {
   ready_gate_expires_at?: string | number | null;
   ready_gate_status?: string | null;
   state?: string | null;
+};
+
+export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
+  "ready_gate_forfeit",
+  "ready_gate_expired",
+  "queued_ttl_expired",
+  "handshake_not_mutual",
+  "handshake_grace_expired",
+  "handshake_timeout",
+  "blocked_pair",
+] as const;
+
+const postDateSurveyIneligibleEndedReasons = new Set<string>(
+  POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
+);
+
+export type VideoSessionPendingSurveyTruth = {
+  id?: string | null;
+  event_id?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  ended_at?: string | null;
+  ended_reason?: string | null;
+  date_started_at?: string | null;
 };
 
 function readyGateExpiryMs(
@@ -137,6 +161,42 @@ export function videoSessionRowIsEnded(
   } | null
 ): boolean {
   return Boolean(row && (row.ended_at || row.state === "ended" || row.phase === "ended"));
+}
+
+export function videoSessionHasRecoverablePostDateSurveyTruth(
+  row: VideoSessionPendingSurveyTruth | null,
+): boolean {
+  if (!row?.ended_at) return false;
+  if (!row.date_started_at) return false;
+  const endedReason = row.ended_reason ?? "";
+  return !postDateSurveyIneligibleEndedReasons.has(endedReason);
+}
+
+export function getVideoSessionPartnerIdForUser(
+  row: Pick<VideoSessionPendingSurveyTruth, "participant_1_id" | "participant_2_id"> | null,
+  userId: string | null | undefined,
+): string | null {
+  if (!row || !userId) return null;
+  if (row.participant_1_id === userId) return row.participant_2_id ?? null;
+  if (row.participant_2_id === userId) return row.participant_1_id ?? null;
+  return null;
+}
+
+export function pickRecoverablePendingPostDateSurveySession<
+  T extends VideoSessionPendingSurveyTruth,
+>(
+  rows: readonly T[] | null | undefined,
+  feedbackSessionIdsForUser: ReadonlySet<string>,
+  userId: string,
+): T | null {
+  for (const row of rows ?? []) {
+    if (!row.id || !row.event_id) continue;
+    if (!getVideoSessionPartnerIdForUser(row, userId)) continue;
+    if (!videoSessionHasRecoverablePostDateSurveyTruth(row)) continue;
+    if (feedbackSessionIdsForUser.has(row.id)) continue;
+    return row;
+  }
+  return null;
 }
 
 export function videoSessionRowReadyGateEligible(

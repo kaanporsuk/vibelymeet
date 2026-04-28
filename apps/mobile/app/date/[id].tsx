@@ -65,6 +65,8 @@ import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceSchedu
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  getVideoSessionPartnerIdForUser,
+  videoSessionHasRecoverablePostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
 import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
@@ -335,6 +337,22 @@ function addVideoDateBreadcrumb(
     level,
     data: safeData as Record<string, unknown> | undefined,
   });
+}
+
+function shouldRecoverPendingPostDateSurvey(
+  session: {
+    participant_1_id?: string | null;
+    participant_2_id?: string | null;
+    ended_at?: string | null;
+    ended_reason?: string | null;
+    date_started_at?: string | null;
+  } | null,
+  userId: string,
+  verdict: unknown
+): boolean {
+  if (verdict) return false;
+  if (!getVideoSessionPartnerIdForUser(session, userId)) return false;
+  return videoSessionHasRecoverablePostDateSurveyTruth(session);
 }
 
 export default function VideoDateScreen() {
@@ -984,12 +1002,16 @@ export default function VideoDateScreen() {
         vdbg('date_guard_blocked', { sessionId, userId: user.id, reason: 'missing_session_truth_row' });
         return;
       }
-      const { data: reg } = await supabase
+      const regQuery = supabase
         .from('event_registrations')
         .select('queue_status')
-        .eq('profile_id', user.id)
-        .eq('current_room_id', sessionId)
-        .maybeSingle();
+        .eq('profile_id', user.id);
+      if (vs.event_id) {
+        regQuery.eq('event_id', vs.event_id as string);
+      } else {
+        regQuery.eq('current_room_id', sessionId);
+      }
+      const { data: reg } = await regQuery.maybeSingle();
       if (cancelled) return;
       const truthDecision = decideVideoSessionRouteFromTruth(vs);
       const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
@@ -1037,16 +1059,26 @@ export default function VideoDateScreen() {
           .eq('user_id', user.id)
           .maybeSingle();
         if (cancelled) return;
+        const pendingPostDateSurveyDue = shouldRecoverPendingPostDateSurvey(
+          vs,
+          user.id,
+          verdict,
+        );
         const reconnectExpiredSurveyDue =
           (vs as { ended_reason?: string | null }).ended_reason === 'reconnect_grace_expired' &&
           Boolean((vs as { date_started_at?: string | null }).date_started_at) &&
           !verdict;
-        if (reg?.queue_status === 'in_survey' || reconnectExpiredSurveyDue) {
+        if (pendingPostDateSurveyDue) {
           dateEstablishedRef.current = true;
           logJourney('date_route_recovered', { source: 'ended_route_guard' }, 'date_route_recovered');
           logJourney(
             'survey_recovered',
-            { source: 'ended_route_guard', queue_status: reg?.queue_status ?? null, reconnectExpiredSurveyDue },
+            {
+              source: 'ended_route_guard',
+              queue_status: reg?.queue_status ?? null,
+              reconnectExpiredSurveyDue,
+              pendingPostDateSurveyDue,
+            },
             'survey_recovered_ended_route_guard'
           );
           logJourney('survey_lost_prevented', { source: 'ended_route_guard' }, 'survey_lost_prevented');
@@ -4228,13 +4260,18 @@ export default function VideoDateScreen() {
     if (!isTerminalSession) return;
     let cancelled = false;
     void (async () => {
+      const regEventId = session?.event_id ?? eventId;
+      const regQuery = supabase
+        .from('event_registrations')
+        .select('queue_status')
+        .eq('profile_id', user.id);
+      if (regEventId) {
+        regQuery.eq('event_id', regEventId);
+      } else {
+        regQuery.eq('current_room_id', sessionId);
+      }
       const [{ data: reg }, { data: verdict }] = await Promise.all([
-        supabase
-          .from('event_registrations')
-          .select('queue_status')
-          .eq('profile_id', user.id)
-          .eq('current_room_id', sessionId)
-          .maybeSingle(),
+        regQuery.maybeSingle(),
         supabase
           .from('date_feedback')
           .select('id')
@@ -4243,16 +4280,26 @@ export default function VideoDateScreen() {
           .maybeSingle(),
       ]);
       if (cancelled) return;
+      const pendingPostDateSurveyDue = shouldRecoverPendingPostDateSurvey(
+        session,
+        user.id,
+        verdict,
+      );
       const reconnectExpiredSurveyDue =
         session?.ended_reason === 'reconnect_grace_expired' &&
         Boolean(session?.date_started_at) &&
         !verdict;
-      if (reg?.queue_status === 'in_survey' || reconnectExpiredSurveyDue) {
+      if (pendingPostDateSurveyDue) {
         dateEstablishedRef.current = true;
         logJourney('date_route_recovered', { source: 'terminal_session_recovery' }, 'date_route_recovered');
         logJourney(
           'survey_recovered',
-          { source: 'terminal_session_recovery', queue_status: reg?.queue_status ?? null, reconnectExpiredSurveyDue },
+          {
+            source: 'terminal_session_recovery',
+            queue_status: reg?.queue_status ?? null,
+            reconnectExpiredSurveyDue,
+            pendingPostDateSurveyDue,
+          },
           'survey_recovered_terminal_session_recovery'
         );
         logJourney('survey_lost_prevented', { source: 'terminal_session_recovery' }, 'survey_lost_prevented');
@@ -4262,7 +4309,22 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id, showFeedback, phase, session?.ended_at, session?.state, session?.phase, logJourney]);
+  }, [
+    sessionId,
+    user?.id,
+    showFeedback,
+    phase,
+    eventId,
+    session?.event_id,
+    session?.ended_at,
+    session?.state,
+    session?.phase,
+    session?.ended_reason,
+    session?.date_started_at,
+    session?.participant_1_id,
+    session?.participant_2_id,
+    logJourney,
+  ]);
 
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
   useEffect(() => {
