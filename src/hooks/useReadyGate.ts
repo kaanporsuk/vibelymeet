@@ -38,11 +38,38 @@ type ReadyGateRealtimeRow = {
   snooze_expires_at: string | null;
 };
 
+type ReadyGateSessionTruth = {
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  ready_gate_status?: ReadyGateStatus | string | null;
+  status?: ReadyGateStatus | string | null;
+  ready_participant_1_at?: string | null;
+  ready_participant_2_at?: string | null;
+  ready_gate_expires_at?: string | null;
+  snoozed_by?: string | null;
+  snooze_expires_at?: string | null;
+};
+
+type ReadyGateSyncResult =
+  | { ok: true; status: ReadyGateStatus; isTerminal: boolean; expiresAt: string | null }
+  | { ok: false; error: string };
+
+const READY_GATE_STATUS_VALUES = Object.values(ReadyGateStatus) as ReadyGateStatus[];
 const TERMINAL_READY_GATE_STATUS_VALUES: readonly ReadyGateStatus[] = TERMINAL_READY_GATE_STATUSES;
-type ReadyGateTransitionAction = "mark_ready" | "forfeit" | "snooze";
+type ReadyGateTransitionAction = "mark_ready" | "forfeit" | "snooze" | "sync";
 
 function isTerminalReadyGateStatus(status: ReadyGateStatus): status is TerminalReadyGateStatus {
   return TERMINAL_READY_GATE_STATUS_VALUES.includes(status);
+}
+
+function normalizeReadyGateStatus(value: unknown): ReadyGateStatus {
+  return READY_GATE_STATUS_VALUES.includes(value as ReadyGateStatus)
+    ? (value as ReadyGateStatus)
+    : ReadyGateStatus.Queued;
+}
+
+function normalizeReadyGateTimestamp(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
@@ -61,10 +88,11 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     snoozeExpiresAt: null,
     expiresAt: null,
   });
-  const [isParticipant1, setIsParticipant1] = useState(false);
   const onBothReadyRef = useRef(onBothReady);
   const onForfeitedRef = useRef(onForfeited);
   const terminalHandledRef = useRef<ReadyGateStatus | null>(null);
+  const participantPositionRef = useRef<"p1" | "p2" | null>(null);
+  const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
 
   useEffect(() => {
     onBothReadyRef.current = onBothReady;
@@ -73,6 +101,8 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
 
   useEffect(() => {
     terminalHandledRef.current = null;
+    participantPositionRef.current = null;
+    syncSessionInFlightRef.current = null;
   }, [sessionId]);
 
   const notifyTerminal = useCallback((status: TerminalReadyGateStatus) => {
@@ -88,6 +118,59 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     }
   }, [sessionId]);
 
+  const applyReadyGateTruth = useCallback((
+    truth: ReadyGateSessionTruth,
+    options?: { partnerName?: string | null },
+  ): ReadyGateSyncResult => {
+    const nextStatus = normalizeReadyGateStatus(truth.ready_gate_status ?? truth.status);
+    const p1 = typeof truth.participant_1_id === "string" ? truth.participant_1_id : null;
+    const p2 = typeof truth.participant_2_id === "string" ? truth.participant_2_id : null;
+
+    if (user?.id && p1 && p2) {
+      if (p1 === user.id) {
+        participantPositionRef.current = "p1";
+      } else if (p2 === user.id) {
+        participantPositionRef.current = "p2";
+      }
+    }
+
+    const position = participantPositionRef.current;
+    const hasParticipantPosition = position === "p1" || position === "p2";
+    const myReadyAt = position === "p1" ? truth.ready_participant_1_at : truth.ready_participant_2_at;
+    const partnerReadyAt = position === "p1" ? truth.ready_participant_2_at : truth.ready_participant_1_at;
+    const hasSnoozedBy = Object.prototype.hasOwnProperty.call(truth, "snoozed_by");
+    const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, "snooze_expires_at");
+    const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, "ready_gate_expires_at");
+    const expiresAt = normalizeReadyGateTimestamp(truth.ready_gate_expires_at);
+
+    setState((prev) => ({
+      status: nextStatus,
+      iAmReady: hasParticipantPosition ? !!myReadyAt : prev.iAmReady,
+      partnerReady: hasParticipantPosition ? !!partnerReadyAt : prev.partnerReady,
+      partnerName: options?.partnerName ?? prev.partnerName,
+      snoozedByPartner: hasSnoozedBy
+        ? typeof truth.snoozed_by === "string" && truth.snoozed_by !== user?.id
+        : prev.snoozedByPartner,
+      snoozeExpiresAt: hasSnoozeExpiresAt
+        ? normalizeReadyGateTimestamp(truth.snooze_expires_at)
+        : prev.snoozeExpiresAt,
+      expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
+    }));
+
+    if (isTerminalReadyGateStatus(nextStatus)) {
+      notifyTerminal(nextStatus);
+    } else {
+      terminalHandledRef.current = null;
+    }
+
+    return {
+      ok: true,
+      status: nextStatus,
+      isTerminal: isTerminalReadyGateStatus(nextStatus),
+      expiresAt,
+    };
+  }, [notifyTerminal, user?.id]);
+
   const fetchSession = useCallback(async () => {
       if (!sessionId || !user?.id) return;
 
@@ -100,8 +183,6 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       if (!session) return;
 
       const isP1 = session.participant_1_id === user.id;
-      setIsParticipant1(isP1);
-
       const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
 
       // Fetch partner name through the privacy-aware profile RPC.
@@ -110,26 +191,10 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       });
       const partnerProfile = profile as { name?: string | null } | null;
 
-      const myReadyAt = isP1 ? session.ready_participant_1_at : session.ready_participant_2_at;
-      const partnerReadyAt = isP1 ? session.ready_participant_2_at : session.ready_participant_1_at;
-
-      setState({
-        status: session.ready_gate_status as ReadyGateStatus,
-        iAmReady: !!myReadyAt,
-        partnerReady: !!partnerReadyAt,
+      applyReadyGateTruth(session as ReadyGateSessionTruth, {
         partnerName: partnerProfile?.name || "Your match",
-        snoozedByPartner: session.snoozed_by !== null && session.snoozed_by !== user.id,
-        snoozeExpiresAt: session.snooze_expires_at,
-        expiresAt: session.ready_gate_expires_at,
       });
-
-      const nextStatus = session.ready_gate_status as ReadyGateStatus;
-      if (isTerminalReadyGateStatus(nextStatus)) {
-        notifyTerminal(nextStatus);
-      } else {
-        terminalHandledRef.current = null;
-      }
-  }, [sessionId, user?.id, notifyTerminal]);
+  }, [sessionId, user?.id, applyReadyGateTruth]);
 
   // Fetch initial state and determine participant position
   useEffect(() => {
@@ -154,26 +219,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
         },
         (payload) => {
           const s = payload.new as ReadyGateRealtimeRow;
-          const isP1 = s.participant_1_id === user.id;
-          const myReadyAt = isP1 ? s.ready_participant_1_at : s.ready_participant_2_at;
-          const partnerReadyAt = isP1 ? s.ready_participant_2_at : s.ready_participant_1_at;
-
-          setState((prev) => ({
-            ...prev,
-            status: s.ready_gate_status as ReadyGateStatus,
-            iAmReady: !!myReadyAt,
-            partnerReady: !!partnerReadyAt,
-            snoozedByPartner: s.snoozed_by !== null && s.snoozed_by !== user.id,
-            snoozeExpiresAt: s.snooze_expires_at,
-            expiresAt: s.ready_gate_expires_at,
-          }));
-
-          const nextStatus = s.ready_gate_status as ReadyGateStatus;
-          if (isTerminalReadyGateStatus(nextStatus)) {
-            notifyTerminal(nextStatus);
-          } else {
-            terminalHandledRef.current = null;
-          }
+          applyReadyGateTruth(s);
         }
       )
       .subscribe();
@@ -181,7 +227,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, user?.id, notifyTerminal]);
+  }, [sessionId, user?.id, applyReadyGateTruth]);
 
   // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
   // so we avoid duplicate 2s timers alongside the overlay reconcile loop.
@@ -204,6 +250,62 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     return true;
   }, [sessionId, user?.id]);
 
+  const syncSession = useCallback(async (): Promise<ReadyGateSyncResult> => {
+    if (!sessionId || !user?.id) {
+      return { ok: false, error: "missing_session_or_user" };
+    }
+
+    if (syncSessionInFlightRef.current) {
+      return syncSessionInFlightRef.current;
+    }
+
+    const syncPromise = (async (): Promise<ReadyGateSyncResult> => {
+      const { data, error } = await supabase.rpc("ready_gate_transition", {
+        p_session_id: sessionId,
+        p_action: "sync" satisfies ReadyGateTransitionAction,
+      });
+
+      if (error) {
+        readyGateDebug("sync transition failed", {
+          sessionId,
+          code: error.code ?? null,
+          message: error.message,
+        });
+        return { ok: false, error: error.message };
+      }
+
+      const payload = data && typeof data === "object" && !Array.isArray(data)
+        ? (data as ReadyGateSessionTruth & { success?: boolean; error?: string | null })
+        : null;
+      if (!payload) {
+        readyGateDebug("sync transition returned invalid payload", { sessionId });
+        return { ok: false, error: "invalid_ready_gate_sync_response" };
+      }
+
+      if (payload?.success === false) {
+        readyGateDebug("sync transition returned unsuccessful payload", {
+          sessionId,
+          error: payload.error ?? null,
+        });
+        return { ok: false, error: payload.error ?? "ready_gate_sync_failed" };
+      }
+
+      return applyReadyGateTruth({
+        ...payload,
+        ready_gate_status: payload.status ?? payload.ready_gate_status,
+      });
+    })();
+
+    syncSessionInFlightRef.current = syncPromise;
+    try {
+      return await syncPromise;
+    } finally {
+      if (syncSessionInFlightRef.current === syncPromise) {
+        syncSessionInFlightRef.current = null;
+      }
+    }
+  }, [sessionId, user?.id, applyReadyGateTruth]);
+
   // Mark self as ready (server-owned transition)
   const markReady = useCallback(async (): Promise<boolean> => (
     runReadyGateTransition("mark_ready")
@@ -225,6 +327,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     markReady,
     skip,
     snooze,
+    syncSession,
     /** Refresh gate UI from `video_sessions` (called by ReadyGateOverlay after reconcile poll). */
     refetchSession: fetchSession,
   };
