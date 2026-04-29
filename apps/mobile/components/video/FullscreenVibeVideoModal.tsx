@@ -19,6 +19,7 @@ import { resolveVibeVideoStreamHostnameSync } from '@/lib/vibeVideoPlaybackUrl';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import VibeVideoPlayer from '@/components/video/VibeVideoPlayer';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import type { VibeVideoState } from '@/lib/vibeVideoState';
 
 export interface FullscreenVibeVideoModalProps {
   visible: boolean;
@@ -27,6 +28,8 @@ export interface FullscreenVibeVideoModalProps {
   playbackUrl: string | null;
   /** Helps distinguish “still processing” vs CDN/config issues when URL is null */
   bunnyVideoUid?: string | null;
+  /** Canonical resolver state from `resolveVibeVideoState`; avoids ad hoc availability copy. */
+  vibeVideoState: VibeVideoState;
   vibeCaption?: string;
   /** Bunny thumbnail while the HLS buffer starts */
   posterUrl?: string | null;
@@ -42,6 +45,7 @@ export function FullscreenVibeVideoModal({
   onClose,
   playbackUrl,
   bunnyVideoUid,
+  vibeVideoState,
   vibeCaption = '',
   posterUrl,
   onPlayToEnd,
@@ -157,10 +161,23 @@ export function FullscreenVibeVideoModal({
   const configBody =
     'Set EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME to match web (see apps/mobile/.env.example), or upload a video once so the app can cache the hostname from the server.';
 
-  const urlTitle = uid ? 'Video not ready yet' : 'No video found';
-  const urlBody = uid
-    ? 'The video may still be processing, or the stream is not reachable from this device. Pull to refresh on Profile.'
-    : 'No video ID on your profile. Pull to refresh or record again.';
+  const canonicalUrlState = vibeVideoState;
+  const urlTitle =
+    canonicalUrlState === 'processing'
+      ? 'Video still processing'
+      : canonicalUrlState === 'failed' || canonicalUrlState === 'error'
+        ? 'Video needs a fresh take'
+        : canonicalUrlState === 'ready'
+          ? 'Preview still syncing'
+          : 'Profile clip not found';
+  const urlBody =
+    canonicalUrlState === 'processing'
+      ? 'The clip is saved and still getting ready for playback. Pull to refresh on Profile.'
+      : canonicalUrlState === 'failed' || canonicalUrlState === 'error'
+        ? 'This clip did not reach playback. Record again from Profile Studio.'
+        : canonicalUrlState === 'ready'
+          ? 'The clip is ready on our side, but this device is still waiting on a playable preview URL.'
+          : 'There is not a profile clip to play yet. Pull to refresh or record again.';
 
   const playbackTitle = 'Playback failed';
   const playbackBody =

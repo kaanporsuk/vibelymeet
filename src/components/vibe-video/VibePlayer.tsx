@@ -216,7 +216,7 @@ export const VibePlayer = ({
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-secondary z-10 px-4 text-center">
           <Play className="w-8 h-8 text-muted-foreground mb-2 opacity-80" />
           <p className="text-sm font-medium text-foreground">
-            {backendReportsReady ? "Can't play right now" : "Video unavailable"}
+            Can't play right now
           </p>
           {backendReportsReady && (
             <p className="text-xs text-muted-foreground mt-1.5 max-w-[240px]">

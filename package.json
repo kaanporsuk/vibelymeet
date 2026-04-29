@@ -20,7 +20,7 @@
     "proof:vibe-upload-processing": "node scripts/fresh-vibe-upload-processing-proof.mjs",
     "launch:preflight": "node scripts/native-launch-preflight.mjs",
     "test:auth-redirect-contract": "tsx scripts/auth-redirect-contract.test.ts",
-    "test:vibe-video-contract": "tsx scripts/vibe-video-contract.test.ts && tsx supabase/functions/_shared/onboardingTypes.test.ts",
+    "test:vibe-video-contract": "tsx scripts/vibe-video-semantics.test.ts && tsx scripts/vibe-video-contract.test.ts && tsx supabase/functions/_shared/onboardingTypes.test.ts",
     "test:daily-room-contract": "tsx supabase/functions/daily-room/dailyRoomContracts.test.ts",
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",

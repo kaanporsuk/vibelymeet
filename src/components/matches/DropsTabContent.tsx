@@ -308,7 +308,14 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
     bunny_video_status: partner.bunny_video_status,
     vibe_caption: partner.vibe_caption,
   });
-  const showVibeVideoBadge = vibeVideoInfo.state === 'ready' && vibeVideoInfo.canPlay;
+  const vibeVideoBadgeLabel =
+    vibeVideoInfo.state === 'ready' && vibeVideoInfo.canPlay
+      ? 'Has a Vibe Video'
+      : vibeVideoInfo.state === 'processing'
+        ? 'Vibe Video processing'
+        : vibeVideoInfo.state === 'failed'
+          ? 'Vibe Video needs retry'
+          : null;
 
   return (
     <div className="glass-card overflow-hidden rounded-2xl">
@@ -337,10 +344,10 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
           <p className="text-sm text-muted-foreground line-clamp-3">{partner.about_me}</p>
         )}
 
-        {showVibeVideoBadge && (
+        {vibeVideoBadgeLabel && (
           <div className="flex items-center gap-2 text-xs text-primary">
             <Sparkles className="w-3.5 h-3.5" />
-            Has a Vibe Video
+            {vibeVideoBadgeLabel}
           </div>
         )}
 

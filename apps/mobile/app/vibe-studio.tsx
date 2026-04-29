@@ -139,7 +139,7 @@ export default function VibeStudioScreen() {
     }
 
     const currentInfo = resolveVibeVideoState(profileRef.current ?? null);
-    return currentInfo.state === 'uploading' || currentInfo.state === 'processing';
+    return currentInfo.state === 'processing';
   }, []);
 
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
@@ -261,7 +261,7 @@ export default function VibeStudioScreen() {
         };
       default:
         return {
-          label: 'No video yet',
+          label: 'Create',
           title: 'Create your Vibe Video',
           description:
             'Give people a fast read on your energy before the first chat. One strong 15 second take beats another static photo.',
@@ -313,7 +313,7 @@ export default function VibeStudioScreen() {
   const confirmDelete = () => {
     if (!videoInfo.canDelete || isDeleting) return;
 
-    const deletingPipelineVideo = videoInfo.state === 'uploading' || videoInfo.state === 'processing';
+    const deletingPipelineVideo = videoInfo.state === 'processing';
     show({
       title: deletingPipelineVideo ? 'Cancel this upload?' : 'Delete vibe video?',
       message: deletingPipelineVideo
@@ -610,7 +610,7 @@ export default function VibeStudioScreen() {
                       <Ionicons name="trash-outline" size={18} color={theme.danger} />
                     )}
                     <Text style={[styles.dangerActionText, { color: theme.danger }]}>
-                      {videoInfo.state === 'uploading' || videoInfo.state === 'processing'
+                      {videoInfo.state === 'processing'
                         ? 'Cancel & delete'
                         : 'Delete'}
                     </Text>
@@ -690,7 +690,7 @@ export default function VibeStudioScreen() {
                 </View>
                 <View style={[styles.guidanceItem, { backgroundColor: theme.surfaceSubtle, borderColor: theme.glassBorder }]}>
                   <Text style={[styles.guidanceText, { color: theme.textSecondary }]}>
-                    Failed clips are recoverable. Replace them here instead of treating them like “no video.”
+                    Failed clips are recoverable. Replace them here instead of treating them like an empty profile.
                   </Text>
                 </View>
               </View>
@@ -704,6 +704,7 @@ export default function VibeStudioScreen() {
         onClose={() => setShowFullscreen(false)}
         playbackUrl={videoInfo.playbackUrl}
         bunnyVideoUid={videoInfo.uid}
+        vibeVideoState={videoInfo.state}
         vibeCaption={videoInfo.caption ?? ''}
         posterUrl={videoInfo.thumbnailUrl}
       />

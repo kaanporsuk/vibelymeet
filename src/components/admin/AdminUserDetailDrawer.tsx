@@ -560,7 +560,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                           <span className="text-xs font-normal text-muted-foreground">({vibeVideo.state})</span>
                         ) : null}
                       </h4>
-                      {vibeVideo.state === "processing" || vibeVideo.state === "uploading" ? (
+                      {vibeVideo.state === "processing" ? (
                         <div className="aspect-video rounded-xl bg-secondary/50 flex flex-col items-center justify-center gap-2 p-4 text-center">
                           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                           <p className="text-sm text-muted-foreground">Processing — video is in the pipeline</p>

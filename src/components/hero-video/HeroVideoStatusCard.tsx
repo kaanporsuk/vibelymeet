@@ -281,18 +281,15 @@ export function HeroVideoStatusCard({
     );
   }
 
-  // ── Profile-sourced in-pipeline states (uploading/processing from backend
-  //    when controller is idle — e.g. after page reload mid-processing) ────────
-  if (backendInfo.state === "uploading" || backendInfo.state === "processing") {
+  // ── Profile-sourced in-pipeline state when controller is idle.
+  if (backendInfo.state === "processing") {
     return (
       <div className={cn("rounded-2xl bg-white/5 border border-violet-500/20 p-5", className)}>
         <div className="flex items-start gap-3">
           <Loader2 className="w-5 h-5 text-violet-300 animate-spin flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-white">
-              {backendInfo.state === "uploading"
-                ? "Upload in progress"
-                : "Processing your Vibe Video"}
+              Processing your Vibe Video
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
               Preparing for playback. If it stays here, open Studio to replace or delete it.

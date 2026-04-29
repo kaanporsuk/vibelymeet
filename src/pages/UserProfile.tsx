@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Briefcase, MapPin, Ruler, Loader2, Play, ShieldCheck } from "lucide-react";
+import { AlertCircle, ArrowLeft, Briefcase, MapPin, Ruler, Loader2, Play, ShieldCheck } from "lucide-react";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -40,7 +40,7 @@ const UserProfile = () => {
       ),
     [profile],
   );
-  const hasVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
+  const hasPlayableVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
   const playbackUrl = vibeVideo.playbackUrl;
   const thumbnailUrl = vibeVideo.thumbnailUrl;
   const vibeCaption = profile?.vibe_caption?.trim() ?? "";
@@ -160,7 +160,7 @@ const UserProfile = () => {
         </div>
 
         {/* Vibe Video — same readiness/playback contract as ProfilePreview / ProfileDetailDrawer */}
-        {hasVibeVideo && playbackUrl ? (
+        {hasPlayableVibeVideo && playbackUrl ? (
           <div className="glass-card overflow-hidden border border-border">
             <button
               type="button"
@@ -199,6 +199,48 @@ const UserProfile = () => {
                 </div>
               ) : null}
             </button>
+          </div>
+        ) : null}
+
+        {vibeVideo.state === "processing" ? (
+          <div className="glass-card border border-border p-4">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Vibe Video processing</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Their clip is saved and getting ready for playback.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {vibeVideo.state === "failed" ? (
+          <div className="glass-card border border-amber-500/25 p-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Vibe Video needs a fresh take</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This clip did not finish processing.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {vibeVideo.state === "ready" && !playbackUrl ? (
+          <div className="glass-card border border-border p-4">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-400" />
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Vibe Video preview syncing</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  The clip is ready on our side and playback should appear shortly.
+                </p>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -300,7 +342,7 @@ const UserProfile = () => {
         )}
       </div>
 
-      {showVideoPlayer && hasVibeVideo && playbackUrl ? (
+      {showVideoPlayer && hasPlayableVibeVideo && playbackUrl ? (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg">
             <div className="flex justify-end mb-3">

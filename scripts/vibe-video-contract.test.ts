@@ -225,17 +225,24 @@ test("native onboarding no longer sends pending as a Vibe Video uid", () => {
 
 test("web and native upload controllers expose an explicit stalled phase", () => {
   const web = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const webState = read("src/lib/vibeVideo/webVibeVideoState.ts");
   const native = read("apps/mobile/lib/nativeHeroVideoUploadController.ts");
   const nativeState = read("apps/mobile/lib/vibeVideoState.ts");
   const nativePoll = read("apps/mobile/lib/vibeVideoPoll.ts");
+  const sharedSemantics = read("shared/vibeVideoSemantics.ts");
 
   assert.match(web, /"stalled"/);
   assert.match(native, /'stalled'/);
   assert.match(web, /taking longer than expected/);
   assert.match(native, /taking longer than expected/);
+  assert.match(sharedSemantics, /state: "processing", uid, status, isScoreEligible: true/);
+  assert.match(webState, /resolveCanonicalVibeVideoState/);
+  assert.match(nativeState, /resolveCanonicalVibeVideoState/);
+  assert.doesNotMatch(webState, /state: "uploading"/);
+  assert.doesNotMatch(nativeState, /state: 'uploading'/);
   assert.match(nativeState, /state: 'ready'[\s\S]*canPlay: !!playbackUrl/);
   assert.match(nativeState, /state: 'failed'[\s\S]*canRecord: true/);
-  assert.match(nativeState, /uid exists but status is `none`[\s\S]*state: 'processing'/);
+  assert.match(nativeState, /status is non-terminal[\s\S]*state: 'processing'/);
   assert.match(nativePoll, /profile_bunny_video_uid_cleared/);
   assert.match(nativePoll, /profile_bunny_video_uid_replaced/);
 });
@@ -272,6 +279,19 @@ test("UID-only Vibe Score and onboarding UID preservation remain source-backed",
   const repairValidation = read("supabase/validation/vibe_video_backend_contract_repair.sql");
   const webIncomplete = read("src/lib/vibeScoreIncompleteActions.ts");
   const nativeIncomplete = read("apps/mobile/lib/vibeScoreIncompleteActions.ts");
+  const webProfileService = read("src/services/profileService.ts");
+  const nativeProfileApi = read("apps/mobile/lib/profileApi.ts");
+  const webProfileStudio = read("src/pages/ProfileStudio.tsx");
+  const nativeProfileStudio = read("apps/mobile/app/(tabs)/profile/ProfileStudio.tsx");
+  const wizard = read("src/components/wizard/ProfileWizard.tsx");
+  const profileToDb = webProfileService.slice(
+    webProfileService.indexOf("export const profileToDb"),
+    webProfileService.indexOf("// Fetch current user's profile"),
+  );
+  const nativeUpdateMyProfile = nativeProfileApi.slice(
+    nativeProfileApi.indexOf("export async function updateMyProfile"),
+    nativeProfileApi.indexOf("/** Sync `profile_vibes`"),
+  );
 
   assert.match(migration, /bunny_video_uid IS NOT NULL/);
   assert.match(migration, /length\(trim\(v_profile\.bunny_video_uid\)\) > 0/);
@@ -287,6 +307,11 @@ test("UID-only Vibe Score and onboarding UID preservation remain source-backed",
   assert.match(repairValidation, /delete_clears_uid_and_removes_video_score_credit/);
   assert.match(webIncomplete, /bunnyVideoUid\?\.trim\(\)/);
   assert.match(nativeIncomplete, /bunny_video_uid\?\.trim\(\)/);
+  assert.doesNotMatch(profileToDb, /vibe_score|vibeScore|vibe_score_label|vibeScoreLabel/);
+  assert.doesNotMatch(nativeUpdateMyProfile, /vibe_score|vibe_score_label/);
+  assert.match(webProfileStudio, /Server-computed; read from profiles\.vibe_score/);
+  assert.match(nativeProfileStudio, /Server `vibe_score`/);
+  assert.match(wizard, /server-computed vibe score/);
 });
 
 test("create-video-upload requires durable media-session state before credentials are returned", () => {
@@ -674,22 +699,49 @@ test("native Vibe Video playback stays on expo-video and never imports expo-av",
   assert.match(read("apps/mobile/components/video/VibeVideoPlayer.tsx"), /from 'expo-video'/);
 });
 
-test("web Vibe Video surfaces use resolver-owned readiness and owner error states", () => {
+test("native Vibe Video surfaces use canonical resolver state for non-playable UI", () => {
+  const resolver = read("apps/mobile/lib/vibeVideoState.ts");
+  const fullView = read("apps/mobile/components/profile/UserProfileFullView.tsx");
+  const fullscreenModal = read("apps/mobile/components/video/FullscreenVibeVideoModal.tsx");
+  const studio = read("apps/mobile/app/vibe-studio.tsx");
+  const controller = read("apps/mobile/lib/nativeHeroVideoUploadController.ts");
+
+  assert.match(resolver, /resolveCanonicalVibeVideoState/);
+  assert.match(resolver, /state: 'processing'/);
+  assert.doesNotMatch(resolver, /state: 'uploading'/);
+  assert.match(fullView, /Vibe Video processing/);
+  assert.match(fullView, /Their clip is saved and getting ready for playback/);
+  assert.match(fullView, /vibeVideoState=\{vibeInfo\.state\}/);
+  assert.match(fullscreenModal, /canonicalUrlState/);
+  assert.match(studio, /vibeVideoState=\{videoInfo\.state\}/);
+  assert.match(controller, /phase: 'processing'/);
+});
+
+test("web Vibe Video surfaces use resolver-owned readiness and processing states", () => {
   const drops = read("src/components/matches/DropsTabContent.tsx");
   const card = read("src/components/hero-video/HeroVideoStatusCard.tsx");
   const fullscreen = read("src/components/vibe-video/VibeVideoFullscreenPlayer.tsx");
   const thumbnail = read("src/components/vibe-video/VibeVideoThumbnail.tsx");
   const wizard = read("src/components/wizard/ProfileWizard.tsx");
+  const userProfile = read("src/pages/UserProfile.tsx");
+  const drawer = read("src/components/ProfileDetailDrawer.tsx");
 
   assert.match(drops, /resolveWebVibeVideoState/);
-  assert.match(drops, /showVibeVideoBadge = vibeVideoInfo\.state === 'ready' && vibeVideoInfo\.canPlay/);
+  assert.match(drops, /vibeVideoBadgeLabel/);
+  assert.match(drops, /Vibe Video processing/);
   assert.doesNotMatch(drops, /partner\.bunny_video_uid && partner\.bunny_video_status === 'ready'/);
 
   assert.match(card, /backendInfo\.state === "error"/);
   assert.match(card, /Vibe Video needs attention/);
   assert.match(card, /Video saved, playback needs attention/);
   assert.match(card, /NEEDS CHECK/);
+  assert.match(card, /backendInfo\.state === "processing"/);
   assert.doesNotMatch(card, /None \/ error/);
+
+  assert.match(userProfile, /Vibe Video processing/);
+  assert.match(userProfile, /Vibe Video needs a fresh take/);
+  assert.match(drawer, /Vibe Video processing/);
+  assert.match(drawer, /Their clip is saved and getting ready for playback/);
 
   assert.match(fullscreen, /resolveWebVibeVideoState/);
   assert.doesNotMatch(fullscreen, /normalizeBunnyVideoStatus/);
@@ -720,6 +772,9 @@ test("native Stream CDN missing config is explicit and not hidden by a hardcoded
   assert.match(playbackUrl, /let cachedCdnHostname: string \| null = null/);
   assert.match(playbackUrl, /if \(!uid \|\| !hostname\) return null/);
   assert.match(fullscreenModal, /const configMissing = !streamHostname;/);
+  assert.match(fullscreenModal, /vibeVideoState: VibeVideoState/);
+  assert.match(fullscreenModal, /Video still processing/);
+  assert.doesNotMatch(fullscreenModal, /No\s+video/);
   assert.doesNotMatch(fullscreenModal, /streamHostname\.trim\(\)/);
   assert.match(runbook, /Do not mask missing config with a hardcoded Stream hostname/);
   assert.match(runbook, /kind: "cdn_hostname_missing"/);

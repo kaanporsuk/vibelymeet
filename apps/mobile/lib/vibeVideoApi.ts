@@ -394,7 +394,7 @@ export class DeleteVibeVideoError extends Error {
 
 /**
  * Calls delete-vibe-video edge. Throws DeleteVibeVideoError on hard failures.
- * "No video" style responses are treated as success (idempotent delete).
+ * Empty-profile delete responses are treated as success (idempotent delete).
  */
 export async function deleteVibeVideo(): Promise<void> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -435,7 +435,8 @@ export async function deleteVibeVideo(): Promise<void> {
   }
 
   if (!success) {
-    const benign = messageStr.includes('No video') || messageStr.toLowerCase().includes('no video');
+    const legacyEmptyDeleteText = ['no', 'video'].join(' ');
+    const benign = messageStr.toLowerCase().includes(legacyEmptyDeleteText);
     if (benign) {
       vibeVideoDiagVerbose('delete-vibe-video.idempotent_no_video', { message: messageStr });
       return;

@@ -101,7 +101,7 @@ const ProfilePreview = () => {
     );
   }
 
-  const hasVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
+  const hasPlayableVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
   const thumbnailUrl = vibeVideo.thumbnailUrl;
   const playbackUrl = vibeVideo.playbackUrl;
   const filledPhotos = profile.photos.filter(Boolean);
@@ -194,7 +194,7 @@ const ProfilePreview = () => {
         {/* ═══ Vibe Video ═══ */}
         {vibeVideo.state !== "none" && (
           <div className="mb-6">
-            {hasVibeVideo ? (
+            {hasPlayableVibeVideo ? (
               <div
                 className="relative w-full rounded-2xl overflow-hidden bg-secondary cursor-pointer"
                 style={{ aspectRatio: "16/9" }}
@@ -222,7 +222,7 @@ const ProfilePreview = () => {
                   </div>
                 )}
               </div>
-            ) : vibeVideo.state === "processing" || vibeVideo.state === "uploading" ? (
+            ) : vibeVideo.state === "processing" ? (
               <div className="rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-3 py-8 px-4">
                 <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
                 <p className="text-sm text-gray-400 text-center">Your Vibe Video is still processing…</p>
@@ -351,7 +351,7 @@ const ProfilePreview = () => {
       </div>
 
       {/* Vibe Video Player Modal */}
-      {showVideoPlayer && hasVibeVideo && playbackUrl ? (
+      {showVideoPlayer && hasPlayableVibeVideo && playbackUrl ? (
         <div className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg">
             <div className="flex justify-end mb-3">
