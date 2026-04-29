@@ -4,8 +4,9 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase';
-import { disablePush, syncPushSubscriptionToBackend } from '@/lib/onesignal';
+import { disablePush, getNativeOneSignalClientSnapshot, syncPushSubscriptionToBackend } from '@/lib/onesignal';
 import { PAUSED_UNTIL_KEY } from '@/lib/notificationPause';
+import { recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import {
   getStableOsPushPermissionState,
   pushPermDevLog,
@@ -180,11 +181,39 @@ export type PushPromptResult =
   | { outcome: 'denied_after_sheet' }
   | { outcome: 'no_app_id' };
 
+function recordNativePushPromptResult(
+  outcome: PushPromptResult['outcome'] | 'already_granted',
+  permissionState: PushPromptOsStatus,
+): void {
+  recordPushDeliveryTelemetry('push_permission_prompt_result', {
+    platform: 'native',
+    surface: 'permission_request',
+    permission_state: permissionState,
+    sdk_status: getNativeOneSignalClientSnapshot().sdkStatus,
+    sync_result_code: outcome,
+  });
+}
+
+function recordNativePushSyncResult(result: PushSyncResult, surface: string, permissionState?: PushPromptOsStatus): void {
+  recordPushDeliveryTelemetry('push_registration_sync_result', {
+    platform: 'native',
+    surface,
+    permission_state: permissionState ?? 'unknown',
+    sdk_status: getNativeOneSignalClientSnapshot().sdkStatus,
+    sync_result_code: result.code,
+    local_player_present: Boolean(result.playerId),
+    backend_player_present: result.synced,
+    backend_subscribed: result.synced,
+  });
+}
+
 /** Shared success path after OS permission is granted (prefs + OneSignal subscription; no prompts). */
 export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyncResult> {
   if (__DEV__) pushPermDevLog('syncBackendAfterPushGrant', { userId });
   if (!APP_ID) {
-    return { code: 'app_id_missing', synced: false, playerId: null };
+    const result = { code: 'app_id_missing', synced: false, playerId: null } satisfies PushSyncResult;
+    recordNativePushSyncResult(result, 'permission_grant_sync');
+    return result;
   }
   const stored = await AsyncStorage.getItem(PAUSED_UNTIL_KEY);
   const isPaused = !!(stored && new Date(stored) > new Date());
@@ -196,19 +225,25 @@ export async function syncBackendAfterPushGrant(userId: string): Promise<PushSyn
     { onConflict: 'user_id' }
   );
   if (error) {
-    return { code: 'upsert_failed', synced: false, playerId: null, message: error.message };
+    const result = { code: 'upsert_failed', synced: false, playerId: null, message: error.message } satisfies PushSyncResult;
+    recordNativePushSyncResult(result, 'permission_grant_sync');
+    return result;
   }
-  return await syncPushSubscriptionToBackend(userId);
+  const result = await syncPushSubscriptionToBackend(userId);
+  recordNativePushSyncResult(result, 'permission_grant_sync');
+  return result;
 }
 
 export async function requestPushPermissionsAfterPrompt(userId: string): Promise<PushPromptResult> {
   await AsyncStorage.setItem(VIBELY_PUSH_PERMISSION_ASKED_KEY, 'true');
   if (!APP_ID) {
+    recordNativePushPromptResult('no_app_id', 'unknown');
     return { outcome: 'no_app_id' };
   }
 
   const os = await getPromptableOsState('request_push_permissions_after_prompt_before');
   if (!os) {
+    recordNativePushPromptResult('denied_after_sheet', 'unknown');
     return { outcome: 'denied_after_sheet' };
   }
   if (os === 'denied') {
@@ -216,9 +251,11 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
       { user_id: userId, push_enabled: false },
       { onConflict: 'user_id' }
     );
+    recordNativePushPromptResult('already_denied', os);
     return { outcome: 'already_denied' };
   }
   if (os === 'granted') {
+    recordNativePushPromptResult('already_granted', os);
     const sync = await syncBackendAfterPushGrant(userId);
     return { outcome: 'granted', sync };
   }
@@ -227,6 +264,7 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
   try {
     const { granted } = await requestOsPushPermission();
     if (granted) {
+      recordNativePushPromptResult('granted', 'granted');
       const sync = await syncBackendAfterPushGrant(userId);
       return { outcome: 'granted', sync };
     }
@@ -237,5 +275,6 @@ export async function requestPushPermissionsAfterPrompt(userId: string): Promise
     { user_id: userId, push_enabled: false },
     { onConflict: 'user_id' }
   );
+  recordNativePushPromptResult('denied_after_sheet', 'denied');
   return { outcome: 'denied_after_sheet' };
 }

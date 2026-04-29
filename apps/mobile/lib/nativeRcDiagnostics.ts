@@ -13,6 +13,7 @@ export const RC_CATEGORY = {
   authBoot: 'rc.auth.boot',
   authEntryState: 'rc.auth.entry_state',
   authRedirectUrl: 'rc.auth.redirect_url',
+  pushDelivery: 'rc.push.delivery',
   notifDeepLink: 'rc.notif.deep_link',
   onboardingFinalize: 'rc.onboarding.finalize',
   readyGate: 'rc.ready_gate',

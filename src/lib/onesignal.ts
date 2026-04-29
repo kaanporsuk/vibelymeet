@@ -6,6 +6,7 @@ declare global {
 
 import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
+import { classifyPushDeepLink, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
 import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 
 const PLAYER_ID_POLL_ATTEMPTS = 10;
@@ -186,6 +187,17 @@ export const initOneSignal = () => {
 
       OneSignal.Notifications.addEventListener("click", (event: any) => {
         const url = event.notification?.data?.url;
+        const deepLink = classifyPushDeepLink(url);
+        recordPushDeliveryTelemetry("push_notification_tap", {
+          platform: "web",
+          surface: "onesignal_click",
+          ...deepLink,
+        });
+        recordPushDeliveryTelemetry("push_notification_deeplink_result", {
+          platform: "web",
+          surface: "onesignal_click",
+          ...deepLink,
+        });
         if (url && typeof url === "string") {
           window.location.href = url;
         }
@@ -203,6 +215,12 @@ export const initOneSignal = () => {
       vibelyOsLog("onesignal:init failed", {
         domainError: isOneSignalDomainError(e),
         error: e instanceof Error ? e.message : String(e),
+      });
+      recordPushDeliveryTelemetry("push_registration_sync_result", {
+        platform: "web",
+        surface: "sdk_init",
+        sdk_status: "init_failed",
+        sync_result_code: "init_failed",
       });
       if (isOneSignalDomainError(e)) {
         console.warn("[OneSignal] Skipped on this origin (domain restriction).");
