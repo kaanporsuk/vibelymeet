@@ -232,6 +232,7 @@ export function PostDateSurvey({
   const finishSurveyRef = useRef<() => Promise<void>>(async () => {});
   const finishSurveyInFlightRef = useRef(false);
   const queuedNavigationStartedRef = useRef(false);
+  const queuedDrainAttemptKeyRef = useRef<string | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const shellImpressionRef = useRef(false);
   const verdictImpressionRef = useRef(false);
@@ -241,6 +242,7 @@ export function PostDateSurvey({
     verdictImpressionRef.current = false;
     finishSurveyInFlightRef.current = false;
     queuedNavigationStartedRef.current = false;
+    queuedDrainAttemptKeyRef.current = null;
     setCelebrationData(null);
   }, [sessionId]);
 
@@ -305,7 +307,10 @@ export function PostDateSurvey({
   );
 
   useEffect(() => {
-    if (!eventId || step !== 'safety' || queuedNavigationStartedRef.current) return;
+    if (!eventId || !userId || queuedNavigationStartedRef.current) return;
+    const drainKey = `${sessionId}:${eventId}:${userId}`;
+    if (queuedDrainAttemptKeyRef.current === drainKey) return;
+    queuedDrainAttemptKeyRef.current = drainKey;
     let cancelled = false;
     setIsDrainingQueue(true);
     void (async () => {
@@ -378,7 +383,7 @@ export function PostDateSurvey({
     return () => {
       cancelled = true;
     };
-  }, [eventId, onQueuedVideoSessionReady, step, userId]);
+  }, [eventId, onQueuedVideoSessionReady, sessionId, userId]);
 
   useEffect(() => {
     if (step !== 'celebration' || !userId || !partnerId) return;

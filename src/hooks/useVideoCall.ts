@@ -15,6 +15,7 @@ import {
   bucketVideoDateLatencyMs,
   recordReadyGateToDateLatencyCheckpoint,
 } from "@clientShared/observability/videoDateOperatorMetrics";
+import { markDailyJoinedWithBackoff } from "@clientShared/matching/dailyJoinedConfirmation";
 import type { DailyRoomFailureKind } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
 
@@ -1544,43 +1545,62 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: truthRow.event_id ?? eventId,
           userId,
         });
-        const { data: joinedData, error: joinedError } = await supabase.rpc(
-          "mark_video_date_daily_joined",
-          joinedArgs
-        );
-        vdbg("mark_video_date_daily_joined_after", {
-          sessionId,
-          eventId: truthRow.event_id ?? eventId,
-          userId,
-          roomName: roomData.room_name,
-          ok: !joinedError && (joinedData as { ok?: boolean } | null)?.ok === true,
-          payload: joinedData ?? null,
-          error: joinedError ? { code: joinedError.code, message: joinedError.message } : null,
-        });
-        if (joinedError || (joinedData as { ok?: boolean } | null)?.ok !== true) {
-          trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
-            platform: "web",
-            session_id: sessionId,
-            event_id: truthRow.event_id ?? eventId,
-            code: joinedError?.code ?? ((joinedData as { error?: string } | null)?.error ?? null),
-            entry_attempt_id: entryAttemptId,
-            video_date_trace_id: videoDateTraceId,
-          });
-          toast.info("We're reconnecting your date state...", { duration: 3000 });
-          window.setTimeout(() => {
-            void supabase
-              .rpc("mark_video_date_daily_joined", joinedArgs)
-              .then(({ data: retryData, error: retryError }) => {
-                vdbg("mark_video_date_daily_joined_retry_after_failure", {
-                  sessionId,
-                  eventId: truthRow.event_id ?? eventId,
-                  userId,
-                  ok: !retryError && (retryData as { ok?: boolean } | null)?.ok === true,
-                  error: retryError ? { code: retryError.code, message: retryError.message } : null,
-                });
+        await markDailyJoinedWithBackoff({
+          sleep,
+          confirm: async (attempt) => {
+            const { data: joinedData, error: joinedError } = await supabase.rpc(
+              "mark_video_date_daily_joined",
+              joinedArgs
+            );
+            const payload = joinedData as { ok?: boolean; error?: string | null } | null;
+            const ok = !joinedError && payload?.ok === true;
+            const code = joinedError?.code ?? payload?.error ?? null;
+            vdbg("mark_video_date_daily_joined_after", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              roomName: roomData.room_name,
+              attempt,
+              ok,
+              payload: joinedData ?? null,
+              error: joinedError ? { code: joinedError.code, message: joinedError.message } : null,
+            });
+            return {
+              ok,
+              code,
+              retryable: joinedError ? true : undefined,
+              error: joinedError ?? undefined,
+              payload: joinedData ?? null,
+            };
+          },
+          onAttemptResult: ({ attempt, ok, code, retryable, willRetry }) => {
+            if (!ok && attempt === 1) {
+              trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: truthRow.event_id ?? eventId,
+                code,
+                retryable,
+                will_retry: willRetry,
+                entry_attempt_id: entryAttemptId,
+                video_date_trace_id: videoDateTraceId,
               });
-          }, 1_500);
-        }
+              toast.info("We're reconnecting your date state...", { duration: 3000 });
+            }
+            if (attempt > 1) {
+              vdbg("mark_video_date_daily_joined_retry_after_failure", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                attempt,
+                ok,
+                code,
+                retryable,
+                willRetry,
+              });
+            }
+          },
+        });
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
