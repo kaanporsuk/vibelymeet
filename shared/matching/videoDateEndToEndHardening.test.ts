@@ -106,6 +106,10 @@ const partialJoinTimeoutMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501143000_video_date_partial_join_timeout.sql"),
   "utf8",
 );
+const partialJoinObservabilityPolishMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501144000_video_date_partial_join_observability_polish.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -1311,6 +1315,25 @@ test("partial Daily joins get a backend-owned peer-timeout terminal reason", () 
   assert.match(partialJoinTimeoutMigration, /CREATE OR REPLACE FUNCTION public\.expire_stale_video_date_phases_bounded/);
   assert.match(partialJoinTimeoutMigration, /v_base := public\.expire_stale_video_date_phases_bounded_20260501143000_partial_join_base\(v_limit\)/);
   assert.match(partialJoinTimeoutMigration, /'partial_join_peer_timeout', COALESCE\(\(v_partial->>'partial_join_peer_timeout'\)::int, 0\)/);
+});
+
+test("partial join cleanup polish removes accidental identifier truncation and exposes cleanup timeline rows", () => {
+  assert.match(
+    partialJoinObservabilityPolishMigration,
+    /ALTER FUNCTION public\.expire_stale_video_date_phases_bounded_20260501143000_partial_j\(integer\)\s+RENAME TO expire_vd_phases_base_20260501133000/s,
+  );
+  assert.match(
+    partialJoinObservabilityPolishMigration,
+    /v_base := public\.expire_vd_phases_base_20260501133000\(v_limit\)/,
+  );
+  assert.match(partialJoinObservabilityPolishMigration, /'expire_stale_video_sessions'/);
+  assert.match(partialJoinObservabilityPolishMigration, /stale cleanup/);
+  assert.doesNotMatch(
+    partialJoinObservabilityPolishMigration,
+    /v_base := public\.expire_stale_video_date_phases_bounded_20260501143000_partial_join_base/,
+  );
+  assert.match(videoDateValidationSql, /partial_join_cleanup_helper_has_intentional_name/);
+  assert.match(videoDateValidationSql, /timeline_includes_stale_cleanup_events/);
 });
 
 test("partial join terminal reason is excluded from post-date survey contracts", () => {

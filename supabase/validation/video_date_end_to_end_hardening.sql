@@ -146,3 +146,19 @@ where er.queue_status = 'in_survey'
   )
 order by vs.ended_at desc
 limit 100;
+
+-- 10) Confirm the partial-join cleanup helper has the deliberate short name,
+-- not the Postgres-truncated migration identifier.
+select
+  'partial_join_cleanup_helper_has_intentional_name' as check_name,
+  to_regprocedure('public.expire_vd_phases_base_20260501133000(integer)') is not null
+  and to_regprocedure('public.expire_stale_video_date_phases_bounded_20260501143000_partial_j(integer)') is null
+  as ok;
+
+-- 11) Confirm per-session stale cleanup observability is visible in the
+-- service-role video-date timeline.
+select
+  'timeline_includes_stale_cleanup_events' as check_name,
+  pg_get_functiondef('public.get_video_date_session_timeline(uuid)'::regprocedure)
+    like '%''expire_stale_video_sessions''%'
+  as ok;
