@@ -10,6 +10,7 @@ import { Platform } from 'react-native';
 import { OneSignal } from 'react-native-onesignal';
 import { supabase } from '@/lib/supabase';
 import { getOsPushPermissionState } from '@/lib/osPushPermission';
+import { recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import type { PushSdkHealth, PushSyncResult } from '@clientShared/pushDeliveryHealth';
 
 const APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? '';
@@ -105,6 +106,12 @@ export function initOneSignal(): void {
     initialized = true;
   } catch (e) {
     console.warn('[Vibely] OneSignal init failed:', e);
+    recordPushDeliveryTelemetry('push_registration_sync_result', {
+      platform: 'native',
+      surface: 'sdk_init',
+      sdk_status: 'init_failed',
+      sync_result_code: 'init_failed',
+    });
   }
 }
 

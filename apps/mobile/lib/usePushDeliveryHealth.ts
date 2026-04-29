@@ -8,6 +8,7 @@ import {
   getNativeOneSignalClientSnapshot,
   syncPushWithBackendIfPermissionGranted,
 } from '@/lib/onesignal';
+import { recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 import {
   resolvePushDeliveryHealth,
   type PushDeliveryHealth,
@@ -43,6 +44,7 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
   const [lastSyncResultCode, setLastSyncResultCode] = useState<PushSyncResultCode | null>(null);
   const mountedRef = useRef(true);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const lastObservedHealthRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -144,6 +146,31 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
     sdkSubscribed,
     syncInFlight,
   ]);
+
+  useEffect(() => {
+    const signature = [
+      health.status,
+      health.permission,
+      health.sdk,
+      health.lastSyncResultCode ?? 'none',
+      Boolean(health.localPlayerId),
+      Boolean(health.backendPlayerId),
+      health.backendSubscribed === true,
+    ].join('|');
+    if (lastObservedHealthRef.current === signature) return;
+    lastObservedHealthRef.current = signature;
+    recordPushDeliveryTelemetry('push_delivery_health_observed', {
+      platform: 'native',
+      surface: 'push_delivery_health',
+      permission_state: health.permission,
+      sdk_status: health.sdk,
+      client_health_status: health.status,
+      sync_result_code: health.lastSyncResultCode ?? 'none',
+      local_player_present: Boolean(health.localPlayerId),
+      backend_player_present: Boolean(health.backendPlayerId),
+      backend_subscribed: health.backendSubscribed === true,
+    });
+  }, [health]);
 
   return {
     health,

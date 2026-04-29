@@ -268,6 +268,193 @@ function onesignalJsonIndicatesLogicalFailure(parsed: unknown): string | null {
   return null
 }
 
+const CANONICAL_APP_ORIGIN = 'https://www.vibelymeet.com'
+const NON_CANONICAL_APEX_ORIGIN = CANONICAL_APP_ORIGIN.replace('://www.', '://')
+
+type PushPlatform = 'web' | 'mobile'
+type ProviderStatus = 'not_attempted' | 'accepted' | 'failed' | 'logical_error'
+type DeepLinkRouteClass = 'chat' | 'event' | 'date' | 'matches' | 'profile' | 'settings' | 'unknown'
+type DeepLinkUrlKind =
+  | 'missing'
+  | 'relative_app_path'
+  | 'canonical_www_url'
+  | 'non_canonical_apex_url'
+  | 'external_url'
+  | 'invalid_url'
+
+type PushDeliveryDiagnostic = {
+  notification_category: string
+  platform_targeted: PushPlatform[]
+  web_player_present: boolean
+  web_player_subscribed: boolean
+  mobile_player_present: boolean
+  mobile_player_subscribed: boolean
+  player_target_count: number
+  suppression_reason: string | null
+  suppression_gate: string | null
+  preference_column: string | null
+  provider_request_attempted: boolean
+  provider_status: ProviderStatus
+  provider_http_status: number | null
+  provider_error_code: string | null
+  provider_notification_id: string | null
+  deeplink_url_present: boolean
+  deeplink_url_kind: DeepLinkUrlKind
+  deeplink_route_class: DeepLinkRouteClass
+  canonical_origin_valid: boolean
+  // Compatibility aliases for the existing push-health audit assertions and support queries.
+  web_player_id_present: boolean
+  web_subscribed: boolean
+  mobile_player_id_present: boolean
+  mobile_subscribed: boolean
+  push_enabled: boolean | null
+}
+
+function routeClassForPath(path: string): DeepLinkRouteClass {
+  const cleanPath = path.split(/[?#]/)[0] || '/'
+  if (cleanPath.startsWith('/chat/')) return 'chat'
+  if (cleanPath.startsWith('/event/') || cleanPath.startsWith('/events/')) return 'event'
+  if (cleanPath.startsWith('/date/') || cleanPath.startsWith('/ready/')) return 'date'
+  if (cleanPath === '/matches' || cleanPath.startsWith('/matches/')) return 'matches'
+  if (cleanPath === '/profile' || cleanPath.startsWith('/profile/')) return 'profile'
+  if (cleanPath === '/settings' || cleanPath.startsWith('/settings/')) return 'settings'
+  return 'unknown'
+}
+
+function classifyDeepLink(raw: unknown): {
+  deeplink_url_present: boolean
+  deeplink_url_kind: DeepLinkUrlKind
+  deeplink_route_class: DeepLinkRouteClass
+  canonical_origin_valid: boolean
+} {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (!value) {
+    return {
+      deeplink_url_present: false,
+      deeplink_url_kind: 'missing',
+      deeplink_route_class: 'unknown',
+      canonical_origin_valid: false,
+    }
+  }
+
+  if (value.startsWith('/')) {
+    return {
+      deeplink_url_present: true,
+      deeplink_url_kind: 'relative_app_path',
+      deeplink_route_class: routeClassForPath(value),
+      canonical_origin_valid: true,
+    }
+  }
+
+  try {
+    const url = new URL(value)
+    if (url.origin === CANONICAL_APP_ORIGIN) {
+      return {
+        deeplink_url_present: true,
+        deeplink_url_kind: 'canonical_www_url',
+        deeplink_route_class: routeClassForPath(url.pathname),
+        canonical_origin_valid: true,
+      }
+    }
+    if (url.origin === NON_CANONICAL_APEX_ORIGIN) {
+      return {
+        deeplink_url_present: true,
+        deeplink_url_kind: 'non_canonical_apex_url',
+        deeplink_route_class: routeClassForPath(url.pathname),
+        canonical_origin_valid: false,
+      }
+    }
+    return {
+      deeplink_url_present: true,
+      deeplink_url_kind: 'external_url',
+      deeplink_route_class: routeClassForPath(url.pathname),
+      canonical_origin_valid: false,
+    }
+  } catch {
+    return {
+      deeplink_url_present: true,
+      deeplink_url_kind: 'invalid_url',
+      deeplink_route_class: 'unknown',
+      canonical_origin_valid: false,
+    }
+  }
+}
+
+function diagnosticDeepLinkCandidate(category: string, data: any): unknown {
+  const isDateSuggestionCategory = typeof category === 'string' && category.startsWith('date_suggestion_')
+  if (
+    (category === 'match_call' || category === 'messages' || isDateSuggestionCategory) &&
+    data?.match_id &&
+    data?.sender_id
+  ) {
+    return `/chat/${data.sender_id}`
+  }
+  const eventLink = isEventLifecycleCategory(category) ? eventDeepLink(category, data) : null
+  if (eventLink) return eventLink
+  if (data && typeof data.url === 'string') return data.url
+  if (data && typeof data.deep_link === 'string') return data.deep_link
+  return null
+}
+
+function buildPushDeliveryDiagnostic(args: {
+  category: string
+  data: any
+  prefs?: any | null
+  suppressionReason?: string | null
+  suppressionGate?: string | null
+  preferenceColumn?: string | null
+  providerRequestAttempted?: boolean
+  providerStatus?: ProviderStatus
+  providerHttpStatus?: number | null
+  providerErrorCode?: string | null
+  providerNotificationId?: string | null
+  deepLink?: unknown
+}): PushDeliveryDiagnostic {
+  const prefs = args.prefs ?? null
+  const webPlayerPresent = Boolean(prefs?.onesignal_player_id)
+  const webPlayerSubscribed = prefs?.onesignal_subscribed === true
+  const mobilePlayerPresent = Boolean(prefs?.mobile_onesignal_player_id)
+  const mobilePlayerSubscribed = prefs?.mobile_onesignal_subscribed === true
+  const platformTargeted: PushPlatform[] = []
+  if (webPlayerPresent && webPlayerSubscribed) platformTargeted.push('web')
+  if (mobilePlayerPresent && mobilePlayerSubscribed) platformTargeted.push('mobile')
+  const deepLink = classifyDeepLink(args.deepLink ?? diagnosticDeepLinkCandidate(args.category, args.data))
+
+  return {
+    notification_category: args.category,
+    platform_targeted: platformTargeted,
+    web_player_present: webPlayerPresent,
+    web_player_subscribed: webPlayerSubscribed,
+    mobile_player_present: mobilePlayerPresent,
+    mobile_player_subscribed: mobilePlayerSubscribed,
+    player_target_count: platformTargeted.length,
+    suppression_reason: args.suppressionReason ?? null,
+    suppression_gate: args.suppressionGate ?? null,
+    preference_column: args.preferenceColumn ?? null,
+    provider_request_attempted: args.providerRequestAttempted === true,
+    provider_status: args.providerStatus ?? 'not_attempted',
+    provider_http_status: args.providerHttpStatus ?? null,
+    provider_error_code: args.providerErrorCode ?? null,
+    provider_notification_id: args.providerNotificationId ?? null,
+    ...deepLink,
+    web_player_id_present: webPlayerPresent,
+    web_subscribed: webPlayerSubscribed,
+    mobile_player_id_present: mobilePlayerPresent,
+    mobile_subscribed: mobilePlayerSubscribed,
+    push_enabled: prefs == null ? null : prefs.push_enabled !== false,
+  }
+}
+
+function dataWithPushDiagnostic(data: any, diagnostic: PushDeliveryDiagnostic): Record<string, unknown> {
+  const base = data && typeof data === 'object' && !Array.isArray(data)
+    ? { ...(data as Record<string, unknown>) }
+    : {}
+  return {
+    ...base,
+    push_delivery_diagnostic: diagnostic,
+  }
+}
+
 function eventDeepLink(category: string, data: any): string | null {
   const eventId = getEventId(data)
   if (!eventId) return null
@@ -354,14 +541,15 @@ async function logNotification(
   body: string,
   data: any,
   delivered: boolean,
-  suppressedReason?: string
+  suppressedReason?: string,
+  diagnostic?: PushDeliveryDiagnostic
 ) {
   await supabase.from('notification_log').insert({
     user_id: userId,
     category,
     title,
     body,
-    data,
+    data: diagnostic ? dataWithPushDiagnostic(data, diagnostic) : data,
     delivered,
     suppressed_reason: suppressedReason || null,
   })
@@ -507,6 +695,24 @@ Deno.serve(async (req) => {
     if (!title) title = 'Notification'
     if (!body) body = 'You have a new notification'
 
+    let prefs: any | null = null
+    const diagnostic = (overrides: {
+      suppressionReason?: string | null
+      suppressionGate?: string | null
+      preferenceColumn?: string | null
+      providerRequestAttempted?: boolean
+      providerStatus?: ProviderStatus
+      providerHttpStatus?: number | null
+      providerErrorCode?: string | null
+      providerNotificationId?: string | null
+      deepLink?: unknown
+    }) => buildPushDeliveryDiagnostic({
+      category,
+      data,
+      prefs,
+      ...overrides,
+    })
+
     if (!skipsPerBucketPreferenceCheck(category)) {
       const actorId = await resolveActorId(user_id, category, data)
       if (actorId && await isPairBlocked(user_id, actorId)) {
@@ -517,7 +723,10 @@ Deno.serve(async (req) => {
           match_id: data?.match_id ?? null,
           session_id: getSessionId(data),
         }))
-        await logNotification(user_id, category, title, body, data, false, 'blocked_pair')
+        await logNotification(user_id, category, title, body, data, false, 'blocked_pair', diagnostic({
+          suppressionReason: 'blocked_pair',
+          suppressionGate: 'blocked_pair',
+        }))
         emitLifecycle('suppressed', 'blocked_pair')
         return new Response(JSON.stringify({ success: false, reason: 'blocked_pair', code: 'suppressed_blocked_pair' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -526,11 +735,12 @@ Deno.serve(async (req) => {
     }
 
     // Fetch preferences
-    let { data: prefs } = await supabase
+    const { data: existingPrefs } = await supabase
       .from('notification_preferences')
       .select('*')
       .eq('user_id', user_id)
       .maybeSingle()
+    prefs = existingPrefs
 
     if (!prefs) {
       // Create defaults
@@ -544,7 +754,10 @@ Deno.serve(async (req) => {
     }
 
     if (!prefs) {
-      await logNotification(user_id, category, title, body, data, false, 'no_preferences')
+      await logNotification(user_id, category, title, body, data, false, 'no_preferences', diagnostic({
+        suppressionReason: 'no_preferences',
+        suppressionGate: 'no_preferences',
+      }))
       emitLifecycle('suppressed', 'no_preferences')
       return new Response(JSON.stringify({ success: false, reason: 'no_preferences' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -576,7 +789,10 @@ Deno.serve(async (req) => {
         (profileRow.account_paused_until == null || new Date(profileRow.account_paused_until) > new Date())
 
       if (legacyPaused || accountPaused) {
-        await logNotification(user_id, category, title, body, data, false, 'account_paused')
+        await logNotification(user_id, category, title, body, data, false, 'account_paused', diagnostic({
+          suppressionReason: 'account_paused',
+          suppressionGate: 'account_pause',
+        }))
         emitLifecycle('suppressed', 'account_paused')
         return new Response(JSON.stringify({ success: false, reason: 'account_paused' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -587,7 +803,10 @@ Deno.serve(async (req) => {
     // 5. Check notification-prefs pause (paused_until on notification_preferences)
     if (!skipsPerBucketPreferenceCheck(category) && prefs.paused_until) {
       if (new Date(prefs.paused_until) > new Date()) {
-        await logNotification(user_id, category, title, body, data, false, 'paused')
+        await logNotification(user_id, category, title, body, data, false, 'paused', diagnostic({
+          suppressionReason: 'paused',
+          suppressionGate: 'notification_pause',
+        }))
         emitLifecycle('suppressed', 'paused')
         return new Response(JSON.stringify({ success: false, reason: 'paused' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -597,7 +816,10 @@ Deno.serve(async (req) => {
 
     // 6. Check master toggle
     if (!prefs.push_enabled && !bypass_preferences) {
-      await logNotification(user_id, category, title, body, data, false, 'user_disabled')
+      await logNotification(user_id, category, title, body, data, false, 'user_disabled', diagnostic({
+        suppressionReason: 'user_disabled',
+        suppressionGate: 'master_push_disabled',
+      }))
       emitLifecycle('suppressed', 'user_disabled')
       return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -608,14 +830,21 @@ Deno.serve(async (req) => {
     if (!skipsPerBucketPreferenceCheck(category)) {
       const col = CATEGORY_TO_COLUMN[category]
       if (!col) {
-        await logNotification(user_id, category, title, body, data, false, 'unknown_category')
+        await logNotification(user_id, category, title, body, data, false, 'unknown_category', diagnostic({
+          suppressionReason: 'unknown_category',
+          suppressionGate: 'unknown_category',
+        }))
         emitLifecycle('suppressed', 'unknown_category')
         return new Response(JSON.stringify({ success: false, reason: 'unknown_category' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
       if (prefs[col] === false) {
-        await logNotification(user_id, category, title, body, data, false, 'user_disabled')
+        await logNotification(user_id, category, title, body, data, false, 'user_disabled', diagnostic({
+          suppressionReason: 'user_disabled',
+          suppressionGate: 'category_disabled',
+          preferenceColumn: col,
+        }))
         emitLifecycle('suppressed', 'user_disabled')
         return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -638,7 +867,10 @@ Deno.serve(async (req) => {
 
       if (notifMute) {
         if (!notifMute.muted_until || new Date(notifMute.muted_until) > new Date()) {
-          await logNotification(user_id, category, title, body, data, false, 'match_muted')
+          await logNotification(user_id, category, title, body, data, false, 'match_muted', diagnostic({
+            suppressionReason: 'match_muted',
+            suppressionGate: 'match_muted',
+          }))
           emitLifecycle('suppressed', 'match_muted')
           return new Response(JSON.stringify({ success: false, reason: 'match_muted' }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -659,7 +891,10 @@ Deno.serve(async (req) => {
         prefs.quiet_hours_timezone || 'UTC'
       )
       if (inQuiet) {
-        await logNotification(user_id, category, title, body, data, false, 'quiet_hours')
+        await logNotification(user_id, category, title, body, data, false, 'quiet_hours', diagnostic({
+          suppressionReason: 'quiet_hours',
+          suppressionGate: 'quiet_hours',
+        }))
         emitLifecycle('suppressed', 'quiet_hours')
         return new Response(JSON.stringify({ success: false, reason: 'quiet_hours' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -698,17 +933,10 @@ Deno.serve(async (req) => {
       playerIds.push(prefs.mobile_onesignal_player_id)
     }
     if (playerIds.length === 0) {
-      const diagnosticData = {
-        ...(data || {}),
-        push_delivery_diagnostic: {
-          web_player_id_present: Boolean(prefs.onesignal_player_id),
-          web_subscribed: prefs.onesignal_subscribed === true,
-          mobile_player_id_present: Boolean(prefs.mobile_onesignal_player_id),
-          mobile_subscribed: prefs.mobile_onesignal_subscribed === true,
-          push_enabled: prefs.push_enabled !== false,
-        },
-      }
-      await logNotification(user_id, category, title, body, diagnosticData, false, 'no_player_id')
+      await logNotification(user_id, category, title, body, data, false, 'no_player_id', diagnostic({
+        suppressionReason: 'no_player_id',
+        suppressionGate: 'no_player_id',
+      }))
       emitLifecycle('suppressed', 'no_player_id')
       return new Response(JSON.stringify({ success: false, reason: 'no_player_id' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -787,16 +1015,39 @@ Deno.serve(async (req) => {
       osPayload.chrome_web_image = image_url
     }
 
-    const osResponse = await fetch('https://api.onesignal.com/notifications', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(osPayload),
-    })
-
-    const osResultText = await osResponse.text()
+    let osResponse: Response
+    let osResultText = ''
+    try {
+      osResponse = await fetch('https://api.onesignal.com/notifications', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${ONESIGNAL_REST_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(osPayload),
+      })
+      osResultText = await osResponse.text()
+    } catch (error) {
+      const suppressed = 'onesignal_exception'
+      emitLifecycle('delivery_error', suppressed)
+      await logNotification(user_id, category, finalTitle, finalBody, data, false, suppressed, diagnostic({
+        suppressionReason: suppressed,
+        suppressionGate: 'provider_failure',
+        providerRequestAttempted: true,
+        providerStatus: 'failed',
+        providerErrorCode: suppressed,
+        deepLink: webPath,
+      }))
+      return new Response(
+        JSON.stringify({
+          success: false,
+          reason: 'onesignal_error',
+          onesignal_reason: suppressed,
+          detail: error instanceof Error ? error.message : String(error),
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      )
+    }
     let notificationId: string | undefined
     let osParsed: unknown = null
     try {
@@ -812,7 +1063,15 @@ Deno.serve(async (req) => {
         osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
       const suppressed = `onesignal_http_${osResponse.status}`
       emitLifecycle('delivery_error', suppressed)
-      await logNotification(user_id, category, finalTitle, finalBody, data, false, suppressed)
+      await logNotification(user_id, category, finalTitle, finalBody, data, false, suppressed, diagnostic({
+        suppressionReason: suppressed,
+        suppressionGate: 'provider_failure',
+        providerRequestAttempted: true,
+        providerStatus: 'failed',
+        providerHttpStatus: osResponse.status,
+        providerErrorCode: suppressed,
+        deepLink: webPath,
+      }))
       return new Response(
         JSON.stringify({
           success: false,
@@ -829,7 +1088,15 @@ Deno.serve(async (req) => {
       const errSnippet =
         osResultText.length > 280 ? `${osResultText.slice(0, 280)}…` : osResultText
       emitLifecycle('delivery_error', osLogicalFailure)
-      await logNotification(user_id, category, finalTitle, finalBody, data, false, osLogicalFailure)
+      await logNotification(user_id, category, finalTitle, finalBody, data, false, osLogicalFailure, diagnostic({
+        suppressionReason: osLogicalFailure,
+        suppressionGate: 'provider_failure',
+        providerRequestAttempted: true,
+        providerStatus: 'logical_error',
+        providerHttpStatus: osResponse.status,
+        providerErrorCode: osLogicalFailure,
+        deepLink: webPath,
+      }))
       return new Response(
         JSON.stringify({
           success: false,
@@ -842,7 +1109,13 @@ Deno.serve(async (req) => {
     }
 
     emitLifecycle('delivered', null)
-    await logNotification(user_id, category, finalTitle, finalBody, data, true)
+    await logNotification(user_id, category, finalTitle, finalBody, data, true, undefined, diagnostic({
+      providerRequestAttempted: true,
+      providerStatus: 'accepted',
+      providerHttpStatus: osResponse.status,
+      providerNotificationId: notificationId ?? null,
+      deepLink: webPath,
+    }))
 
     return new Response(
       JSON.stringify({ success: true, onesignal_id: notificationId ?? null }),

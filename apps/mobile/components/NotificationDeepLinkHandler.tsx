@@ -31,6 +31,7 @@ import {
   queueNotificationDeepLinkPath,
   takePendingNotificationDeepLinkPath,
 } from '@/lib/pendingNotificationDeepLink';
+import { classifyPushDeepLink, recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
 
 /**
  * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
@@ -66,6 +67,15 @@ function hrefFromPayload(additionalData: Record<string, unknown> | undefined, la
     /* ignore */
   }
   return null;
+}
+
+function rawHrefFromPayload(additionalData: Record<string, unknown> | undefined, launchURL?: string): string | null {
+  const raw =
+    (additionalData && typeof additionalData.url === 'string' && additionalData.url) ||
+    (additionalData && typeof additionalData.deep_link === 'string' && additionalData.deep_link) ||
+    (additionalData && typeof additionalData.deepLink === 'string' && additionalData.deepLink) ||
+    (launchURL && launchURL.trim() ? launchURL.trim() : '');
+  return raw || null;
 }
 
 /** Chat routes must use the other user profile id; prefer `other_user_id` when present (Daily Drop / match payloads). */
@@ -264,8 +274,20 @@ export function NotificationDeepLinkHandler() {
         const additionalData = n?.additionalData ?? e?.additionalData;
         const launchURL = n?.launchURL ?? e?.launchURL;
         const data = additionalData as Record<string, unknown> | undefined;
+        const rawHref = rawHrefFromPayload(additionalData, launchURL);
+        const tapDeepLink = classifyPushDeepLink(rawHref);
+        recordPushDeliveryTelemetry('push_notification_tap', {
+          platform: 'native',
+          surface: 'onesignal_click',
+          ...tapDeepLink,
+        });
         if (data?.type === 'support_reply' && typeof data.ticket_id === 'string') {
           const ticketPath = `/settings/ticket/${data.ticket_id}`;
+          recordPushDeliveryTelemetry('push_notification_deeplink_result', {
+            platform: 'native',
+            surface: 'onesignal_click',
+            ...classifyPushDeepLink(ticketPath),
+          });
           if (!user?.id || !entryReady) {
             queueNotificationDeepLinkPath(ticketPath);
             rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', {
@@ -283,9 +305,19 @@ export function NotificationDeepLinkHandler() {
               has_url_key: typeof (additionalData as Record<string, unknown>).url === 'string',
             });
           }
+          recordPushDeliveryTelemetry('push_notification_deeplink_result', {
+            platform: 'native',
+            surface: 'onesignal_click',
+            ...tapDeepLink,
+          });
           return;
         }
         const pathStr = String(resolved);
+        recordPushDeliveryTelemetry('push_notification_deeplink_result', {
+          platform: 'native',
+          surface: 'onesignal_click',
+          ...classifyPushDeepLink(pathStr),
+        });
         if (!user?.id || !entryReady) {
           queueNotificationDeepLinkPath(pathStr);
           rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'notification_tap_queued', { href: pathStr });

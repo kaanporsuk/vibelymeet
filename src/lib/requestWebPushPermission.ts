@@ -13,6 +13,7 @@ import {
   waitForOneSignalInitResult,
 } from "@/lib/onesignal";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
+import { recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
 import type { PushSyncResult } from "@clientShared/pushDeliveryHealth";
 
 const WEB_PLAYER_ID_SYNC_RETRY = {
@@ -82,11 +83,53 @@ export async function requestWebPushPermissionAndSync(userId: string): Promise<P
     vibelyOsLog("requestWebPushPermission:start", { userIdTail: userId.slice(-6) });
     const granted = await promptForPush();
     vibelyOsLog("requestWebPushPermission:after promptForPush", { granted });
-    if (!granted) return syncResult("permission_denied");
-    return await syncWebPushRegistrationToBackend(userId);
+    recordPushDeliveryTelemetry("push_permission_prompt_result", {
+      platform: "web",
+      surface: "permission_request",
+      permission_state: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+      sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+      sync_result_code: granted ? "prompt_granted" : "permission_denied",
+    });
+    if (!granted) {
+      const result = syncResult("permission_denied");
+      recordPushDeliveryTelemetry("push_registration_sync_result", {
+        platform: "web",
+        surface: "permission_request",
+        permission_state: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+        sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+        sync_result_code: result.code,
+        local_player_present: false,
+        backend_player_present: false,
+        backend_subscribed: false,
+      });
+      return result;
+    }
+    const result = await syncWebPushRegistrationToBackend(userId);
+    recordPushDeliveryTelemetry("push_registration_sync_result", {
+      platform: "web",
+      surface: "permission_request",
+      permission_state: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+      sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+      sync_result_code: result.code,
+      local_player_present: Boolean(result.playerId),
+      backend_player_present: result.synced,
+      backend_subscribed: result.synced,
+    });
+    return result;
   } catch (err) {
     vibelyOsLog("requestWebPushPermission:catch", { error: String(err) });
     console.error("[requestWebPushPermission] error:", err);
-    return syncResult("upsert_failed", null, err instanceof Error ? err.message : String(err));
+    const result = syncResult("upsert_failed", null, err instanceof Error ? err.message : String(err));
+    recordPushDeliveryTelemetry("push_registration_sync_result", {
+      platform: "web",
+      surface: "permission_request",
+      permission_state: typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+      sdk_status: getOneSignalWebClientSnapshot().sdkStatus,
+      sync_result_code: result.code,
+      local_player_present: false,
+      backend_player_present: false,
+      backend_subscribed: false,
+    });
+    return result;
   }
 }

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { initOneSignal } from "./lib/onesignal";
 import { isOneSignalWebOriginAllowed } from "./lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "./lib/onesignalWebDiagnostics";
+import { recordPushDeliveryTelemetry } from "./lib/pushDeliveryTelemetry";
 import posthog from 'posthog-js';
 import "./lib/webAuthReturnBootstrap";
 import App from "./App.tsx";
@@ -79,6 +80,12 @@ if (oneSignalInitAllowed) {
   }
 } else {
   vibelyOsLog("main:initOneSignal skipped (host not allowlisted)", { origin });
+  recordPushDeliveryTelemetry("push_registration_sync_result", {
+    platform: "web",
+    surface: "sdk_init",
+    sdk_status: "unsupported_host",
+    sync_result_code: "sdk_not_ready",
+  });
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
