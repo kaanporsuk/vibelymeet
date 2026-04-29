@@ -146,7 +146,7 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
   })();
 
   return (
-    <div className="flex items-center gap-1.5 min-w-[128px] max-w-[220px]">
+    <div className="flex items-center gap-1.5 min-w-[140px] w-full max-w-[min(18rem,100%)]">
       {/* Play/Pause button */}
       <motion.button
         whileTap={{ scale: 0.94 }}

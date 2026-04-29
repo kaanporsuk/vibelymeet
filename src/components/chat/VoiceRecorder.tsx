@@ -290,7 +290,7 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
         initial={{ y: 100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 100, opacity: 0 }}
-        className="relative w-full max-w-lg mx-4 mb-4 pointer-events-auto"
+        className="relative w-full max-w-2xl mx-4 mb-4 pointer-events-auto"
       >
         {/* Lock indicator */}
         <AnimatePresence>

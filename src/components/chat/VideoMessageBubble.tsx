@@ -162,7 +162,7 @@ export const VideoMessageBubble = ({
 
   if (loadError) {
     return (
-      <div className="w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden border border-fuchsia-500/20 bg-gradient-to-b from-secondary/30 to-black/40 flex flex-col items-center justify-center py-5 px-3 gap-1.5 shadow-inner shadow-black/30">
+      <div className="w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden border border-fuchsia-500/20 bg-gradient-to-b from-secondary/30 to-black/40 flex flex-col items-center justify-center py-5 px-3 gap-1.5 shadow-inner shadow-black/30">
         <AlertCircle className="w-6 h-6 text-muted-foreground" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Couldn't load video</span>
         <button
@@ -186,7 +186,7 @@ export const VideoMessageBubble = ({
   return (
     <div
       className={cn(
-        "w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden relative group cursor-pointer shadow-md shadow-black/20 ring-1 ring-white/10 transition-opacity duration-200",
+        "w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden relative group cursor-pointer shadow-md shadow-black/20 ring-1 ring-white/10 transition-opacity duration-200",
         threadVisualRecede && "opacity-[0.9] ring-white/[0.06] shadow-black/10",
       )}
       onClick={onSurfaceInteract}
