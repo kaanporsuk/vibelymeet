@@ -70,6 +70,10 @@ const readyGateServerOwnedRegistrationMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501141000_ready_gate_server_owned_registration_status.sql"),
   "utf8",
 );
+const readyGateClientLifecycleOverwriteGuardMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501142000_ready_gate_client_lifecycle_overwrite_guard.sql"),
+  "utf8",
+);
 const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
@@ -236,6 +240,10 @@ const nativeEventLobby = readFileSync(
   join(process.cwd(), "apps/mobile/app/event/[eventId]/lobby.tsx"),
   "utf8",
 );
+const nativeHomeRoute = readFileSync(
+  join(process.cwd(), "apps/mobile/app/(tabs)/index.tsx"),
+  "utf8",
+);
 const nativeSafeAudioMode = readFileSync(
   join(process.cwd(), "apps/mobile/lib/safeAudioMode.ts"),
   "utf8",
@@ -256,6 +264,9 @@ const nativeVideoDateApi = readFileSync(
   join(process.cwd(), "apps/mobile/lib/videoDateApi.ts"),
   "utf8",
 );
+const nativeVideoDateApiClientWritableStatusType = nativeVideoDateApi.match(
+  /export type ClientWritableParticipantStatus =[\s\S]*?;/,
+)?.[0] ?? "";
 const notificationDeepLinkHandler = readFileSync(
   join(process.cwd(), "apps/mobile/components/NotificationDeepLinkHandler.tsx"),
   "utf8",
@@ -890,16 +901,26 @@ test("provider-atomic entry keeps prepare_entry non-routeable until Daily proof 
 });
 
 test("client presence RPC cannot create server-owned ready gate or video date route statuses", () => {
+  const finalStatusAllowlist = readyGateClientLifecycleOverwriteGuardMigration.match(
+    /IF v_status NOT IN \([\s\S]*?\) THEN/,
+  )?.[0] ?? "";
+
   assert.match(readyGateServerOwnedRegistrationMigration, /CREATE OR REPLACE FUNCTION public\.update_participant_status/);
+  assert.match(readyGateClientLifecycleOverwriteGuardMigration, /CREATE OR REPLACE FUNCTION public\.update_participant_status/);
+  assert.ok(finalStatusAllowlist.length > 0);
   assert.match(
-    readyGateServerOwnedRegistrationMigration,
-    /v_status NOT IN \(\s+'browsing',\s+'idle',\s+'in_survey',\s+'offline'\s+\) THEN\s+RETURN;/s,
+    finalStatusAllowlist,
+    /v_status NOT IN \(\s+'browsing',\s+'idle',\s+'in_survey',\s+'offline'\s+\) THEN/s,
   );
-  assert.doesNotMatch(readyGateServerOwnedRegistrationMigration, /v_status NOT IN \([\s\S]*'in_ready_gate'[\s\S]*\) THEN/);
-  assert.doesNotMatch(readyGateServerOwnedRegistrationMigration, /v_status NOT IN \([\s\S]*'in_handshake'[\s\S]*\) THEN/);
-  assert.doesNotMatch(readyGateServerOwnedRegistrationMigration, /v_status NOT IN \([\s\S]*'in_date'[\s\S]*\) THEN/);
-  assert.match(readyGateServerOwnedRegistrationMigration, /REVOKE ALL ON FUNCTION public\.update_participant_status\(uuid, text\)\s+FROM PUBLIC, anon/s);
-  assert.match(readyGateServerOwnedRegistrationMigration, /GRANT EXECUTE ON FUNCTION public\.update_participant_status\(uuid, text\)\s+TO authenticated/s);
+  assert.match(
+    readyGateClientLifecycleOverwriteGuardMigration,
+    /v_current_room_id IS NOT NULL\s+AND v_current_status IN \('in_ready_gate', 'in_handshake', 'in_date'\)\s+AND v_status IN \('browsing', 'idle', 'in_survey', 'offline'\) THEN\s+RETURN;/s,
+  );
+  assert.doesNotMatch(finalStatusAllowlist, /in_ready_gate/);
+  assert.doesNotMatch(finalStatusAllowlist, /in_handshake/);
+  assert.doesNotMatch(finalStatusAllowlist, /in_date/);
+  assert.match(readyGateClientLifecycleOverwriteGuardMigration, /REVOKE ALL ON FUNCTION public\.update_participant_status\(uuid, text\)\s+FROM PUBLIC, anon/s);
+  assert.match(readyGateClientLifecycleOverwriteGuardMigration, /GRANT EXECUTE ON FUNCTION public\.update_participant_status\(uuid, text\)\s+TO authenticated/s);
 });
 
 test("ready gate registration ownership is not resurrected by clients", () => {
@@ -911,10 +932,42 @@ test("ready gate registration ownership is not resurrected by clients", () => {
   assert.doesNotMatch(nativeReadyGateOverlay, /updateParticipantStatus\(eventId,\s*['"]in_ready_gate['"]\)/);
   assert.ok(webClientWritableStatusType.length > 0);
   assert.ok(nativeClientWritableStatusType.length > 0);
+  assert.ok(nativeVideoDateApiClientWritableStatusType.length > 0);
   assert.doesNotMatch(webClientWritableStatusType, /in_ready_gate/);
+  assert.doesNotMatch(webClientWritableStatusType, /in_handshake/);
+  assert.doesNotMatch(webClientWritableStatusType, /in_date/);
   assert.doesNotMatch(nativeClientWritableStatusType, /in_ready_gate/);
+  assert.doesNotMatch(nativeClientWritableStatusType, /in_handshake/);
+  assert.doesNotMatch(nativeClientWritableStatusType, /in_date/);
+  assert.doesNotMatch(nativeVideoDateApiClientWritableStatusType, /in_ready_gate/);
+  assert.doesNotMatch(nativeVideoDateApiClientWritableStatusType, /in_handshake/);
+  assert.doesNotMatch(nativeVideoDateApiClientWritableStatusType, /in_date/);
   assert.doesNotMatch(readyGateOverlay, /setStatus\(["']browsing["']\)/);
   assert.doesNotMatch(nativeReadyGateOverlay, /updateParticipantStatus\(eventId,\s*['"]browsing['"]\)/);
+  assert.doesNotMatch(eventLobby, /clearReadyGateSession\("ready_gate_overlay_close"\);\s*setStatus\(["']browsing["']\)/);
+  assert.doesNotMatch(
+    nativeHomeRoute,
+    /ready_gate[\s\S]{0,500}ready_gate_transition[\s\S]{0,500}updateParticipantStatus\(activeSession\.eventId,\s*['"]browsing['"]\)/,
+  );
+});
+
+test("direct client updates cannot overwrite server-owned registration lifecycle columns", () => {
+  assert.match(
+    readyGateClientLifecycleOverwriteGuardMigration,
+    /CREATE OR REPLACE FUNCTION public\.prevent_client_session_registration_state_overwrite\(\)/,
+  );
+  assert.match(
+    readyGateClientLifecycleOverwriteGuardMigration,
+    /current_user IN \('anon', 'authenticated'\)[\s\S]*NEW\.current_room_id IS DISTINCT FROM OLD\.current_room_id[\s\S]*RETURN NULL/s,
+  );
+  assert.match(
+    readyGateClientLifecycleOverwriteGuardMigration,
+    /NEW\.queue_status IS DISTINCT FROM OLD\.queue_status[\s\S]*OLD\.queue_status IN \('in_ready_gate', 'in_handshake', 'in_date'\)[\s\S]*NEW\.queue_status IN \('in_ready_gate', 'in_handshake', 'in_date'\)[\s\S]*RETURN NULL/s,
+  );
+  assert.match(
+    readyGateClientLifecycleOverwriteGuardMigration,
+    /CREATE TRIGGER event_registrations_prevent_client_session_state_overwrite\s+BEFORE UPDATE OF queue_status, current_room_id, current_partner_id\s+ON public\.event_registrations/s,
+  );
 });
 
 test("web lobby dedupes same-runtime prepare handoffs before date navigation", () => {
