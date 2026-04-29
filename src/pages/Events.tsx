@@ -23,6 +23,11 @@ import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseEventDiscoveryPrefs } from "@shared/eventDiscoveryContracts";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
+import {
+  matchesLaterTodayFilter,
+  matchesThisWeekTimeFilter,
+  matchesThisWeekendFilter,
+} from "@clientShared/eventTimingBuckets";
 
 // ── Location Prompt ───────────────────────────────────────────────────────────
 const LocationPromptBanner = () => {
@@ -396,23 +401,15 @@ const Events = () => {
     if (activeFilters.length > 0) {
       filtered = filtered.filter(event => {
         const ed = event.eventDate;
-        const isTonight = ed.toDateString() === now.toDateString();
-        const isThisWeekend = (() => {
-          const dow = now.getDay();
-          const sat = new Date(now); sat.setDate(now.getDate() + (6 - dow));
-          const sun = new Date(sat); sun.setDate(sat.getDate() + 1);
-          return ed >= sat && ed <= sun;
-        })();
-        const isThisWeek = (() => {
-          const end = new Date(now); end.setDate(now.getDate() + (7 - now.getDay()));
-          return ed <= end;
-        })();
-
-        const dateFilterNames = ["Tonight","This Weekend","This Week","Upcoming"];
+        const dateFilterNames = ["Later Today", "Tonight", "This Weekend", "This Week", "Upcoming"];
         const interestFilterNames = activeFilters.filter(f => !dateFilterNames.includes(f));
-        const dateMatch = (activeFilters.includes("Tonight") && isTonight) ||
-          (activeFilters.includes("This Weekend") && isThisWeekend) ||
-          (activeFilters.includes("This Week") && isThisWeek) ||
+        const wantsLaterToday =
+          activeFilters.includes("Later Today") || activeFilters.includes("Tonight");
+        const dateMatch =
+          (wantsLaterToday &&
+            matchesLaterTodayFilter(ed, now, event.duration_minutes, event.status === "live")) ||
+          (activeFilters.includes("This Weekend") && matchesThisWeekendFilter(ed, now)) ||
+          (activeFilters.includes("This Week") && matchesThisWeekTimeFilter(ed, now)) ||
           (activeFilters.includes("Upcoming") && ed > now);
         const interestMatch = interestFilterNames.length === 0 ||
           event.tags.some(t => interestFilterNames.includes(t));

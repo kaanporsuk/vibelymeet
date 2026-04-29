@@ -34,7 +34,7 @@ interface EventsFilterBarProps {
   onPremiumUpgrade: () => void;
 }
 
-const dateFilters = ["Tonight", "This Weekend", "This Week", "Upcoming"];
+const dateFilters = ["Later Today", "This Weekend", "This Week", "Upcoming"];
 const interestFilters = ["Music", "Tech", "Art", "Gaming", "Food", "Wellness", "Outdoor"];
 const distanceOptions = [
   { km: 10, label: "10 km" },
