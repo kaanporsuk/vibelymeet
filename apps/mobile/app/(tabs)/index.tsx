@@ -68,26 +68,12 @@ import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 import { deriveEventPhase, getCountdownParts } from '@/lib/eventPhase';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
+import {
+  classifyEventTimingHeading,
+  getDashboardEventRailHeading,
+} from '@clientShared/eventTimingBuckets';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
-
-function isToday(date: Date): boolean {
-  const now = new Date();
-  return (
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear()
-  );
-}
-
-function isThisWeek(date: Date): boolean {
-  const now = new Date();
-  const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay());
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 7);
-  return date >= startOfWeek && date < endOfWeek;
-}
 
 function getTimeGreeting(): string {
   const h = new Date().getHours();
@@ -255,23 +241,26 @@ export default function DashboardScreen() {
     nextEventData?.hasEventAdmission ?? (isConfirmedForNextEvent || isWaitlistedForNextEvent);
   const [liveClockMs, setLiveClockMs] = useState(() => Date.now());
   const isFocused = useIsFocused();
+  const nextEventId = nextEvent?.id;
+  const nextEventStartMs = nextEvent?.eventDate?.getTime();
+  const nextEventDurationMin = nextEvent?.duration_minutes;
 
   useEffect(() => {
-    if (!nextEvent || !hasEventAdmissionForNext) return;
+    if (nextEventId == null || !hasEventAdmissionForNext) return;
     const timer = setInterval(() => setLiveClockMs(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [nextEvent?.id, hasEventAdmissionForNext]);
+  }, [nextEventId, hasEventAdmissionForNext]);
 
   const nextEventPhase = useMemo(
     () =>
-      nextEvent
+      nextEventId != null && nextEventStartMs !== undefined
         ? deriveEventPhase({
-            eventDate: nextEvent.eventDate,
-            eventDurationMinutes: nextEvent.duration_minutes,
+            eventDate: nextEventStartMs,
+            eventDurationMinutes: nextEventDurationMin,
             nowMs: liveClockMs,
           })
         : null,
-    [nextEvent?.id, nextEvent?.eventDate?.getTime(), nextEvent?.duration_minutes, liveClockMs],
+    [nextEventId, nextEventStartMs, nextEventDurationMin, liveClockMs],
   );
 
   const isLiveEvent = nextEventPhase?.isLive ?? false;
@@ -294,11 +283,28 @@ export default function DashboardScreen() {
     [events],
   );
 
-  const eventSectionTitle = useMemo(() => {
-    if (upcomingEvents.some((e) => isToday(e.eventDate))) return 'Tonight';
-    if (upcomingEvents.some((e) => isThisWeek(e.eventDate))) return 'This Week';
-    return 'Upcoming Events';
-  }, [upcomingEvents]);
+  const eventSectionTitle = useMemo(
+    () => getDashboardEventRailHeading(upcomingEvents),
+    [upcomingEvents],
+  );
+
+  const nextRegisteredTimingHeading = useMemo(() => {
+    if (nextEventId == null || nextEventStartMs === undefined || !hasEventAdmissionForNext) return null;
+    if (isLiveEvent) return 'Live Now' as const;
+    return classifyEventTimingHeading({
+      eventStart: new Date(nextEventStartMs),
+      durationMinutes: nextEventDurationMin,
+      now: new Date(liveClockMs),
+      statusIsLive: false,
+    });
+  }, [
+    nextEventId,
+    nextEventStartMs,
+    nextEventDurationMin,
+    hasEventAdmissionForNext,
+    isLiveEvent,
+    liveClockMs,
+  ]);
 
   const countdown = useMemo(
     () => (nextEventPhase ? getCountdownParts(nextEventPhase.msUntilStart) : { days: 0, hours: 0, minutes: 0, seconds: 0 }),
@@ -535,9 +541,14 @@ export default function DashboardScreen() {
     'there';
 
   const getSubline = (): string | null => {
-    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) return "You're live tonight";
+    if (isLiveEvent && isConfirmedForNextEvent && nextEvent) return "You're live now";
     if (isLiveEvent && isWaitlistedForNextEvent && nextEvent) return "Event is live — you're on the waitlist";
-    if (nextEvent && hasEventAdmissionForNext && hoursUntilNext < 24) return 'Tonight looks promising';
+    if (nextEvent && hasEventAdmissionForNext && nextRegisteredTimingHeading === 'About to Start')
+      return 'Starting soon — get ready';
+    if (nextEvent && hasEventAdmissionForNext && nextRegisteredTimingHeading === 'Later Today')
+      return 'Your event is later today';
+    if (nextEvent && hasEventAdmissionForNext && nextRegisteredTimingHeading === 'Tomorrow')
+      return 'Your event is tomorrow';
     if (unreadMessageCount > 0)
       return `${unreadMessageCount} fresh conversation${unreadMessageCount > 1 ? 's' : ''}`;
     if (newMatchCount > 0) return 'Someone new vibed with you';
@@ -802,7 +813,7 @@ export default function DashboardScreen() {
         style={[styles.readinessCard, { backgroundColor: withAlpha(theme.tint, 0.08), borderColor: withAlpha(theme.tint, 0.2) }]}
       >
         <View style={{ flex: 1 }}>
-          <Text style={[styles.readinessTitle, { color: theme.text }]}>Be more discoverable tonight</Text>
+          <Text style={[styles.readinessTitle, { color: theme.text }]}>Be more discoverable</Text>
           <Text style={[styles.readinessSub, { color: theme.mutedForeground }]}>
             {!hasPhotos ? 'Add photos for stronger first impressions' : !hasVibes ? 'Select your vibes for better matching' : 'Add more about yourself for stronger intros'}
           </Text>

@@ -59,10 +59,15 @@ import {
 } from '@/lib/locationProfileUpdate';
 import { parseEventDiscoveryPrefs } from '@shared/eventDiscoveryContracts';
 import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisibility';
+import {
+  matchesLaterTodayFilter,
+  matchesThisWeekendFilter,
+  matchesThisWeekTimeFilter,
+} from '@clientShared/eventTimingBuckets';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 
 const TIME_FILTERS = [
-  { key: 'tonight', label: 'Tonight' },
+  { key: 'later_today', label: 'Later Today' },
   { key: 'this_weekend', label: 'This Weekend' },
   { key: 'this_week', label: 'This Week' },
   { key: 'upcoming', label: 'Upcoming' },
@@ -74,25 +79,6 @@ function discoverFeaturedRank(status: string): number {
   if (status === 'upcoming') return 1;
   if (status === 'ended') return 2;
   return 3;
-}
-
-function isTonight(ed: Date, now: Date): boolean {
-  return ed.toDateString() === now.toDateString();
-}
-
-function isThisWeekend(ed: Date, now: Date): boolean {
-  const dow = now.getDay();
-  const sat = new Date(now);
-  sat.setDate(now.getDate() + (6 - dow));
-  const sun = new Date(sat);
-  sun.setDate(sat.getDate() + 1);
-  return ed >= sat && ed <= sun;
-}
-
-function isThisWeek(ed: Date, now: Date): boolean {
-  const end = new Date(now);
-  end.setDate(now.getDate() + (7 - now.getDay()));
-  return ed <= end && ed >= now;
 }
 
 // ── Location prompt banner: show when profile has no location_data; Enable saves GPS + optional country (web Events parity)
@@ -972,9 +958,13 @@ export default function EventsListScreen() {
       list = list.filter(event => {
         const ed = event.eventDate;
         switch (timeFilter) {
-          case 'tonight': return isTonight(ed, now) && ed.getTime() > now.getTime();
-          case 'this_weekend': return isThisWeekend(ed, now);
-          case 'this_week': return isThisWeek(ed, now);
+          case 'later_today':
+          case 'tonight':
+            return matchesLaterTodayFilter(ed, now, event.duration_minutes, event.status === 'live');
+          case 'this_weekend':
+            return matchesThisWeekendFilter(ed, now);
+          case 'this_week':
+            return matchesThisWeekTimeFilter(ed, now);
           case 'upcoming': return ed > now;
           default: return true;
         }

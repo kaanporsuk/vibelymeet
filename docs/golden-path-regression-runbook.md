@@ -28,6 +28,8 @@ For the hardened video-date loop:
 
 This runs full typecheck, lint, build, the video-date hardening tests, admin ops helper tests, and `git diff --check`.
 
+**Event timing (web + native):** Dashboard rail headings and Events time-filter chips (`Later Today`, weekend, week) are implemented in `shared/eventTimingBuckets.ts` (not under `supabase/functions/_shared`). After changes in that module, re-run static checks and a quick Events + Dashboard smoke on web and native.
+
 For release-grade local confidence:
 
 ```bash

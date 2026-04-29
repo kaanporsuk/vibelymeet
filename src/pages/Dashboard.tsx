@@ -7,7 +7,6 @@ import {
   Radio,
   UserPlus,
   Search,
-  Video,
   Heart,
   Clock,
   X,
@@ -35,27 +34,11 @@ import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
-import { differenceInSeconds, differenceInMinutes, differenceInHours, format } from "date-fns";
+import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
+import { getDashboardEventRailHeading } from "@clientShared/eventTimingBuckets";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
-function isToday(date: Date): boolean {
-  const now = new Date();
-  return (
-    date.getDate() === now.getDate() &&
-    date.getMonth() === now.getMonth() &&
-    date.getFullYear() === now.getFullYear()
-  );
-}
-
-function isThisWeek(date: Date): boolean {
-  const now = new Date();
-  const start = new Date(now);
-  start.setDate(now.getDate() - now.getDay());
-  const end = new Date(start);
-  end.setDate(start.getDate() + 7);
-  return date >= start && date < end;
-}
 
 function getTimeGreeting(): string {
   const h = new Date().getHours();
@@ -264,11 +247,10 @@ const Dashboard = () => {
     [events],
   );
 
-  const eventSectionTitle = useMemo(() => {
-    if (upcomingEvents.some((e) => isToday(e.eventDate))) return "Tonight";
-    if (upcomingEvents.some((e) => isThisWeek(e.eventDate))) return "This Week";
-    return "Upcoming Events";
-  }, [upcomingEvents]);
+  const eventSectionTitle = useMemo(
+    () => getDashboardEventRailHeading(upcomingEvents),
+    [upcomingEvents],
+  );
 
   const handleRefresh = useCallback(async () => {
     await Promise.all([
