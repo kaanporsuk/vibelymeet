@@ -101,6 +101,8 @@ export const SelfViewPIP = ({
           <span className="text-[10px] text-muted-foreground">Camera off</span>
         </div>
       ) : (
+        // Self-view PIP is a small draggable portrait tile, so this local preview intentionally crops.
+        // The remote Vibe Video Date surface must use contain instead.
         <video
           ref={videoRef}
           autoPlay

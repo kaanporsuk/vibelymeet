@@ -128,7 +128,7 @@ export const ActiveCallOverlay = ({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black flex flex-col"
     >
-      {/* Remote video */}
+      {/* Match/chat calls are intentionally full-bleed today; Vibe Video Date remote video must not crop. */}
       <video
         ref={remoteVideoRef as React.RefObject<HTMLVideoElement>}
         autoPlay
