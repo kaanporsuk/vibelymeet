@@ -71,6 +71,10 @@ import {
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
+const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
+// Product invariant: remote date video preserves the full encoded camera frame.
+// Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
+const REMOTE_DATE_VIDEO_CLASS = "w-full h-full object-contain object-center";
 
 type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout";
 
@@ -238,6 +242,7 @@ const VideoDate = () => {
   const lastForegroundReconcileAtRef = useRef(0);
   const videoJoinCycleRef = useRef(0);
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
+  const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -519,6 +524,65 @@ const VideoDate = () => {
       }
     },
   });
+
+  const logRemoteVideoLayout = useCallback(
+    (source: "loadedmetadata" | "playing" | "resize") => {
+      if (!import.meta.env.DEV) return;
+      const videoEl = remoteVideoRef.current;
+      const containerEl = remoteContainerRef.current;
+      if (!videoEl || !containerEl) return;
+
+      const videoRect = videoEl.getBoundingClientRect();
+      const containerRect = containerEl.getBoundingClientRect();
+      const computed = window.getComputedStyle(videoEl);
+      const stream = videoEl.srcObject instanceof MediaStream ? videoEl.srcObject : null;
+      const videoTrack = stream?.getVideoTracks()[0] ?? null;
+      const trackSettings =
+        videoTrack && typeof videoTrack.getSettings === "function" ? videoTrack.getSettings() : null;
+      const diagnosticKey = [
+        source,
+        phase,
+        videoEl.videoWidth,
+        videoEl.videoHeight,
+        Math.round(videoRect.width),
+        Math.round(videoRect.height),
+        Math.round(containerRect.width),
+        Math.round(containerRect.height),
+        trackSettings?.width ?? "na",
+        trackSettings?.height ?? "na",
+      ].join(":");
+
+      if (lastRemoteLayoutDiagnosticKeyRef.current === diagnosticKey) return;
+      lastRemoteLayoutDiagnosticKeyRef.current = diagnosticKey;
+
+      vdbg("remote_date_video_layout", {
+        source,
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+        phase,
+        videoIntrinsic: {
+          width: videoEl.videoWidth,
+          height: videoEl.videoHeight,
+        },
+        renderedRect: {
+          width: Math.round(videoRect.width),
+          height: Math.round(videoRect.height),
+        },
+        containerRect: {
+          width: Math.round(containerRect.width),
+          height: Math.round(containerRect.height),
+        },
+        css: {
+          objectFit: computed.objectFit,
+          objectPosition: computed.objectPosition,
+          transform: computed.transform,
+        },
+        trackSettings,
+        videoTrackId: videoTrack?.id ?? null,
+      });
+    },
+    [eventId, id, phase, remoteVideoRef]
+  );
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -2892,12 +2956,15 @@ const VideoDate = () => {
       </motion.div>
 
       {/* ─── Remote Video with Progressive Blur ─── */}
-      <div className="flex-1 relative bg-black" ref={remoteContainerRef}>
+      <div className={REMOTE_DATE_VIDEO_CONTAINER_CLASS} ref={remoteContainerRef}>
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
-          className="w-full h-full object-contain"
+          className={REMOTE_DATE_VIDEO_CLASS}
+          onLoadedMetadata={() => logRemoteVideoLayout("loadedmetadata")}
+          onPlaying={() => logRemoteVideoLayout("playing")}
+          onResize={() => logRemoteVideoLayout("resize")}
           style={{
             filter: `blur(${blurAmount}px)`,
             transition: "filter 10s linear",

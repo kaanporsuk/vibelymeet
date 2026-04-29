@@ -5233,10 +5233,13 @@ export default function VideoDateScreen() {
         {remoteParticipant ? (
           <>
             {(remoteVideoTrack || remoteAudioTrack) && (
+              // Remote date video must preserve the full encoded camera frame.
+              // DailyMediaView defaults to cover, so keep this explicit.
               <DailyMediaView
                 videoTrack={remoteVideoTrack}
                 audioTrack={remoteAudioTrack}
                 mirror={false}
+                objectFit="contain"
                 zOrder={0}
                 style={StyleSheet.absoluteFill}
               />
@@ -5269,13 +5272,17 @@ export default function VideoDateScreen() {
 
       <View style={[styles.localPip, { borderColor: theme.tint }]}>
         {localParticipant && localVideoTrack ? (
-          <DailyMediaView
-            videoTrack={localVideoTrack}
-            audioTrack={null}
-            mirror={true}
-            zOrder={1}
-            style={styles.localVideo}
-          />
+          <>
+            {/* Self-view PIP intentionally crops to a stable portrait tile; remote date video must contain. */}
+            <DailyMediaView
+              videoTrack={localVideoTrack}
+              audioTrack={null}
+              mirror={true}
+              objectFit="cover"
+              zOrder={1}
+              style={styles.localVideo}
+            />
+          </>
         ) : (
           <View style={[styles.localVideo, styles.placeholderLocal, { backgroundColor: theme.surface }]}>
             <Ionicons
@@ -5625,7 +5632,7 @@ const styles = StyleSheet.create({
   nativeBackgroundText: { marginTop: 3, textAlign: 'center', fontSize: 12, lineHeight: 17 },
   button: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16 },
-  remoteContainer: { ...StyleSheet.absoluteFillObject },
+  remoteContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
   placeholderRemote: { justifyContent: 'center', alignItems: 'center' },
   placeholderText: { color: '#888', fontSize: 16 },
   localPip: {

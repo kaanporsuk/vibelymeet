@@ -45,6 +45,7 @@ const VDBG_VIDEO_DATE_DEV_CONSOLE_JSON = new Set<string>([
   "daily_remote_tracks_changed",
   "daily_remote_track_mounted",
   "daily_local_track_mounted",
+  "remote_date_video_layout",
   "daily_call_cleanup_start",
   "daily_remote_first_frame_rendered",
   "daily_remote_video_play_retry",

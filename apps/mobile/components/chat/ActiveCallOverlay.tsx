@@ -120,10 +120,12 @@ export function ActiveCallOverlay({
           {remoteParticipant ? (
             <>
               {(remoteVideoTrack || remoteAudioTrack) && (
+                // Match/chat calls are intentionally full-bleed today; Vibe Video Date remote video must contain.
                 <DailyMediaView
                   videoTrack={remoteVideoTrack}
                   audioTrack={remoteAudioTrack}
                   mirror={false}
+                  objectFit="cover"
                   zOrder={0}
                   style={StyleSheet.absoluteFill}
                 />
@@ -155,6 +157,7 @@ export function ActiveCallOverlay({
               videoTrack={localVideoTrack}
               audioTrack={null}
               mirror
+              objectFit="cover"
               zOrder={1}
               style={styles.pipVideo}
             />
