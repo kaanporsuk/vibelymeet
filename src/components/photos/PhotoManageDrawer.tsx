@@ -52,6 +52,7 @@ interface PhotoManageDrawerProps {
 }
 
 const MAX_PHOTOS = 6;
+/** Keep in sync with `supabase/functions/upload-image` max size. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /** Blob URLs keyed by slot index, shown while the upload is in-flight */

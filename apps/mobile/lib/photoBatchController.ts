@@ -156,7 +156,9 @@ function collectEphemeralStoragePaths(
 }
 
 async function markPhotoDraftsDeletedOnServer(paths: string[]): Promise<void> {
-  const unique = [...new Set(paths)].filter(Boolean);
+  const unique = [...new Set(paths)].filter(
+    (p): p is string => typeof p === 'string' && p.length > 0 && p.startsWith('photos/'),
+  );
   if (unique.length === 0) return;
   const { error } = await supabase.rpc('mark_photo_drafts_deleted', { p_paths: unique });
   if (error && __DEV__) {
