@@ -114,6 +114,10 @@ const partialJoinManualEndMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501145000_video_date_peer_missing_manual_end.sql"),
   "utf8",
 );
+const clientStuckObservabilityMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501151000_video_date_client_stuck_observability.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -1537,6 +1541,54 @@ test("observability v2 adds Daily provider lifecycle rows to the service-role ti
   assert.match(videoDateObservabilityV2Migration, /row_number\(\) OVER \(ORDER BY tr\.occurred_at ASC, tr\.sort_order ASC, tr\.operation ASC\)/);
   assert.match(videoDateObservabilityV2Migration, /REVOKE ALL ON FUNCTION public\.get_video_date_session_timeline\(uuid\) FROM PUBLIC, anon, authenticated/);
   assert.match(videoDateObservabilityV2Migration, /GRANT EXECUTE ON FUNCTION public\.get_video_date_session_timeline\(uuid\) TO service_role/);
+});
+
+test("client stuck observability is authenticated, allowlisted, deduped, and timeline-visible", () => {
+  assert.match(
+    clientStuckObservabilityMigration,
+    /CREATE OR REPLACE FUNCTION public\.record_video_date_client_stuck_observability/,
+  );
+  assert.match(clientStuckObservabilityMigration, /v_actor uuid := auth\.uid\(\)/);
+  assert.match(clientStuckObservabilityMigration, /participant_1_id IS DISTINCT FROM v_actor/);
+  assert.match(clientStuckObservabilityMigration, /participant_2_id IS DISTINCT FROM v_actor/);
+  for (const eventName of [
+    "ready_gate_handoff_slow",
+    "prepare_date_entry_failed",
+    "daily_join_confirmation_failed",
+    "peer_missing_terminal",
+    "native_background_recovery_started",
+    "native_background_recovery_failed",
+    "native_background_expired",
+  ]) {
+    assert.match(clientStuckObservabilityMigration, new RegExp(`'${eventName}'`));
+  }
+  assert.match(clientStuckObservabilityMigration, /'unknown_event_name'/);
+  assert.match(clientStuckObservabilityMigration, /event_loop_obs_video_date_client_stuck_once_idx/);
+  assert.match(
+    clientStuckObservabilityMigration,
+    /ON CONFLICT \(session_id, actor_id, operation, reason_code\)[\s\S]*WHERE operation = 'video_date_client_stuck_state'/,
+  );
+  assert.match(clientStuckObservabilityMigration, /REVOKE ALL ON FUNCTION public\.record_video_date_client_stuck_observability\(uuid, text, jsonb, integer\)[\s\S]*FROM PUBLIC, anon, authenticated, service_role/);
+  assert.match(clientStuckObservabilityMigration, /GRANT EXECUTE ON FUNCTION public\.record_video_date_client_stuck_observability\(uuid, text, jsonb, integer\)[\s\S]*TO authenticated/);
+  assert.match(clientStuckObservabilityMigration, /'video_date_client_stuck_state'/);
+  assert.match(clientStuckObservabilityMigration, /video_date_client_stuck_safe_text/);
+  assert.match(clientStuckObservabilityMigration, /video_date_client_stuck_safe_int/);
+  assert.match(clientStuckObservabilityMigration, /video_date_client_stuck_safe_bool/);
+  assert.match(readyGateOverlay, /emitWebVideoDateClientStuckState/);
+  assert.match(readyGateOverlay, /ready_gate_handoff_slow/);
+  assert.match(readyGateOverlay, /prepare_date_entry_failed/);
+  assert.match(nativeReadyGateOverlay, /emitNativeVideoDateClientStuckState/);
+  assert.match(nativeReadyGateOverlay, /ready_gate_handoff_slow/);
+  assert.match(nativeReadyGateOverlay, /prepare_date_entry_failed/);
+  assert.match(webVideoCallHook, /daily_join_confirmation_failed/);
+  assert.match(webVideoCallHook, /peer_missing_terminal/);
+  assert.match(nativeVideoDateRoute, /daily_join_confirmation_failed/);
+  assert.match(nativeVideoDateRoute, /peer_missing_terminal/);
+  assert.match(nativeVideoDateRoute, /native_background_recovery_started/);
+  assert.match(nativeVideoDateRoute, /native_background_recovery_failed/);
+  assert.match(nativeVideoDateRoute, /native_background_expired/);
+  assert.match(videoDateValidationSql, /client_stuck_observability_rpc_granted_authenticated_only/);
+  assert.match(videoDateValidationSql, /timeline_includes_client_stuck_events/);
 });
 
 test("video date trace id is propagated through prepare entry analytics and Daily-room payloads", () => {

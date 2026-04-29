@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/react";
 import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
+import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import {
   prepareVideoDateEntry,
   rejectPreparedVideoDateEntry,
@@ -1545,7 +1546,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: truthRow.event_id ?? eventId,
           userId,
         });
-        await markDailyJoinedWithBackoff({
+        const joinedConfirmation = await markDailyJoinedWithBackoff({
           sleep,
           confirm: async (attempt) => {
             const { data: joinedData, error: joinedError } = await supabase.rpc(
@@ -1601,6 +1602,23 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
           },
         });
+        if (!joinedConfirmation.ok) {
+          void emitWebVideoDateClientStuckState({
+            sessionId,
+            eventName: "daily_join_confirmation_failed",
+            payload: {
+              source_surface: "video_date_daily",
+              source_action: "mark_video_date_daily_joined",
+              reason_code: joinedConfirmation.code ?? "unknown",
+              code: joinedConfirmation.code ?? "unknown",
+              retryable: joinedConfirmation.retryable,
+              exhausted: joinedConfirmation.exhausted,
+              attempt_count: joinedConfirmation.attempts,
+              entry_attempt_id: entryAttemptId ?? undefined,
+              video_date_trace_id: videoDateTraceId ?? undefined,
+            },
+          });
+        }
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
@@ -1739,6 +1757,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               session_id: sessionId,
               event_id: truthRow.event_id ?? eventId,
               attempt_count: noRemoteAutoRecoveryCountRef.current,
+            });
+            void emitWebVideoDateClientStuckState({
+              sessionId,
+              eventName: "peer_missing_terminal",
+              latencyMs: FIRST_REMOTE_TIMEOUT_MS,
+              payload: {
+                source_surface: "video_date_daily",
+                source_action: "first_remote_watchdog",
+                reason_code: "peer_missing_timeout",
+                watchdog_ms: FIRST_REMOTE_TIMEOUT_MS,
+                auto_recovery_count: noRemoteAutoRecoveryCountRef.current,
+              },
             });
             toast.error("Your match has not joined this video room yet.");
           }, FIRST_REMOTE_TIMEOUT_MS);

@@ -146,6 +146,22 @@ test("video date timeline rows are ordered and trace ids are extractable", () =>
       detail: { token: "secret", entry_attempt_id: "attempt-1", video_date_trace_id: "attempt-1" },
     },
     {
+      timeline_seq: 3,
+      occurred_at: "2026-04-28T22:24:12Z",
+      source: "event_loop_observability_events",
+      operation: "video_date_client_stuck_state",
+      outcome: "timeout",
+      reason_code: "peer_missing_terminal",
+      event_id: "event-1",
+      actor_id: "actor-1",
+      session_id: "session-1",
+      detail: {
+        client_event_name: "peer_missing_terminal",
+        source_surface: "video_date_daily",
+        access_token: "secret",
+      },
+    },
+    {
       timeline_seq: 1,
       occurred_at: "2026-04-28T22:24:10Z",
       source: "event_loop_observability_events",
@@ -161,9 +177,11 @@ test("video date timeline rows are ordered and trace ids are extractable", () =>
 
   assert.equal(rows[0].operation, "ready_gate_transition");
   assert.equal(rows[1].operation, "create_date_room_token_issued");
+  assert.equal(rows[2].operation, "video_date_client_stuck_state");
   assert.deepEqual(extractVideoDateTimelineTraceIds(rows[1].detail), {
     entryAttemptId: "attempt-1",
     videoDateTraceId: "attempt-1",
   });
   assert.equal((rows[1].detail as Record<string, unknown>).token, "[REDACTED]");
+  assert.equal((rows[2].detail as Record<string, unknown>).access_token, "[REDACTED]");
 });

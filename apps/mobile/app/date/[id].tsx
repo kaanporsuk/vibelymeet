@@ -86,6 +86,7 @@ import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import {
   getPreparedVideoDateEntry,
@@ -1596,6 +1597,18 @@ export default function VideoDateScreen() {
         watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
       });
       videoDateDailyDiagnostic('peer_missing_timeout', { session_id: sessionId, room_name: roomNameRef.current ?? null });
+      void emitNativeVideoDateClientStuckState({
+        sessionId,
+        eventName: 'peer_missing_terminal',
+        latencyMs: FIRST_CONNECT_TIMEOUT_MS,
+        payload: {
+          source_surface: 'video_date_daily',
+          source_action: 'first_remote_watchdog',
+          reason_code: 'peer_missing_timeout',
+          watchdog_ms: FIRST_CONNECT_TIMEOUT_MS,
+          auto_recovery_count: noRemoteAutoRecoveryUsedRef.current ? 1 : 0,
+        },
+      });
       setPeerMissingTerminal(true);
       vdbg('prejoin_state_awaitingFirstConnect', {
         value: false,
@@ -2010,6 +2023,19 @@ export default function VideoDateScreen() {
                 grace_ms: NATIVE_BACKGROUND_GRACE_MS,
                 elapsed_ms: backgroundElapsedMs,
               });
+              void emitNativeVideoDateClientStuckState({
+                sessionId,
+                eventName: 'native_background_expired',
+                latencyMs: backgroundElapsedMs,
+                payload: {
+                  source_surface: 'video_date_native_background',
+                  source_action: 'app_foreground_after_background_timeout',
+                  reason_code: 'app_background_timeout',
+                  source: 'app_foreground_after_background_timeout',
+                  grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+                  elapsed_ms: backgroundElapsedMs,
+                },
+              });
             }
             void (async () => {
               await cleanupDailyAndLocalState();
@@ -2092,6 +2118,18 @@ export default function VideoDateScreen() {
             source: 'app_background',
             grace_ms: NATIVE_BACKGROUND_GRACE_MS,
           });
+          void emitNativeVideoDateClientStuckState({
+            sessionId,
+            eventName: 'native_background_recovery_started',
+            latencyMs: NATIVE_BACKGROUND_GRACE_MS,
+            payload: {
+              source_surface: 'video_date_native_background',
+              source_action: 'app_background',
+              reason_code: 'app_background_grace_started',
+              source: 'app_background',
+              grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+            },
+          });
           vdbg('native_background_grace_started', {
             sessionId,
             eventId: eventId || null,
@@ -2105,6 +2143,16 @@ export default function VideoDateScreen() {
                 session_id: sessionId,
                 event_id: eventId || null,
                 source: 'app_background',
+              });
+              void emitNativeVideoDateClientStuckState({
+                sessionId,
+                eventName: 'native_background_recovery_failed',
+                payload: {
+                  source_surface: 'video_date_native_background',
+                  source_action: 'signal_video_date_leave',
+                  reason_code: 'leave_signal_failed',
+                  source: 'app_background',
+                },
               });
             }
             await cleanupDailyAndLocalState();
@@ -2135,6 +2183,18 @@ export default function VideoDateScreen() {
               event_id: eventId || null,
               source: 'app_background_timeout',
               grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+            });
+            void emitNativeVideoDateClientStuckState({
+              sessionId,
+              eventName: 'native_background_expired',
+              latencyMs: NATIVE_BACKGROUND_GRACE_MS,
+              payload: {
+                source_surface: 'video_date_native_background',
+                source_action: 'app_background_timeout',
+                reason_code: 'app_background_timeout',
+                source: 'app_background_timeout',
+                grace_ms: NATIVE_BACKGROUND_GRACE_MS,
+              },
             });
             vdbg('native_background_grace_expired', {
               sessionId,
@@ -4041,6 +4101,23 @@ export default function VideoDateScreen() {
             }
           },
         }).then((result) => {
+          if (!result.ok) {
+            void emitNativeVideoDateClientStuckState({
+              sessionId,
+              eventName: 'daily_join_confirmation_failed',
+              payload: {
+                source_surface: 'video_date_daily',
+                source_action: 'mark_video_date_daily_joined',
+                reason_code: result.code ?? 'unknown',
+                code: result.code ?? 'unknown',
+                retryable: result.retryable,
+                exhausted: result.exhausted,
+                attempt_count: result.attempts,
+                entry_attempt_id: entryAttemptId ?? undefined,
+                video_date_trace_id: videoDateTraceId ?? undefined,
+              },
+            });
+          }
           if (result.ok) {
             setCallError(null);
             void refetchVideoSession();
