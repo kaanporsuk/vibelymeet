@@ -88,6 +88,7 @@ case "$MODE" in
     run_step npm run typecheck
     run_step npm run lint -- --quiet
     run_step npm run build
+    run_step npm run test:daily-room-contract
     run_step npx tsx --test shared/matching/videoDateEndToEndHardening.test.ts
     run_step npx tsx --test shared/matching/readyGateCountdown.test.ts
     run_step npx tsx --test shared/observability/videoDateOperatorMetrics.test.ts
@@ -98,6 +99,7 @@ case "$MODE" in
     run_step npm run typecheck
     run_step npm run lint -- --quiet
     run_step npm run build
+    run_step npm run test:daily-room-contract
     run_step npx tsx --test shared/matching/videoDateEndToEndHardening.test.ts
     run_step npx tsx --test shared/matching/readyGateCountdown.test.ts
     run_step npx tsx --test shared/observability/videoDateOperatorMetrics.test.ts
