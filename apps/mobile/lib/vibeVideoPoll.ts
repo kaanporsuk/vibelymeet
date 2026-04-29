@@ -60,7 +60,7 @@ export async function pollVibeVideoUntilTerminal(options: {
 
     const { data, error } = await supabase
       .from('profiles')
-      .select('bunny_video_uid, bunny_video_status')
+      .select('bunny_video_uid, bunny_video_status, updated_at')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -85,6 +85,7 @@ export async function pollVibeVideoUntilTerminal(options: {
       attempt,
       rowUid: rowUid || null,
       rawStatus,
+      updatedAt: typeof data?.updated_at === 'string' ? data.updated_at : null,
     });
     if (!rowUid) {
       vibeVideoDiagVerbose('poll.uid_removed_or_empty', {

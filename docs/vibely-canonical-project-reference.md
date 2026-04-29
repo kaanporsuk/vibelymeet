@@ -17,7 +17,7 @@ Monorepo keeps API and behavior contracts visible and reduces drift between clie
 **Import path ownership (TypeScript):**
 
 - **`@shared/*`** — Resolves to **`supabase/functions/_shared/`** (utilities co-located with Edge Functions: tiers, discovery contracts, profile adapters, etc.). Use for backend-aligned or deploy-bundled shared modules, not for arbitrary UI product logic.
-- **`shared/`** (repo root) — **Cross-app product logic** shared by web and native (e.g. `shared/eventTimingBuckets.ts`, `shared/supabaseFunctionInvokeErrors.ts`). Import via **relative paths** from each app (`../../shared/...` from `src/`, deep relatives from `apps/mobile/`), unless a future alias is introduced deliberately.
+- **`shared/`** (repo root) — **Cross-app product logic** shared by web and native (e.g. `shared/eventTimingBuckets.ts`, `shared/supabaseFunctionInvokeErrors.ts`, `shared/vibeVideoSemantics.ts`). Import through the deliberate **`@clientShared/*`** alias where configured, or by relative path in contexts that do not load the app tsconfig.
 
 Do not place frontend-only domain modules under `supabase/functions/_shared` solely to use the `@shared` alias.
 
@@ -159,9 +159,9 @@ Supabase **`schema_migrations`** on the linked project may list **both**:
 ### 8.2 Native UI readiness (playback and actions)
 
 - Resolver: [`apps/mobile/lib/vibeVideoState.ts`](../apps/mobile/lib/vibeVideoState.ts) — canonical for native surfaces.
-- **States:** `none`, `uploading`, `processing`, `ready`, `failed`, `error`.
+- **States:** `none`, `processing`, `stale_processing`, `ready`, `failed`, `error`. Provider `uploading` is normalized into `processing` in UI resolver output.
 - **`canPlay`:** `true` only when `bunny_video_status` is **`ready`** and a playback URL exists.
-- If a **uid** exists but status is missing or unrecognized → treat as **`processing`** (e.g. webhook lag).
+- If a **uid** exists but status is missing or unrecognized → treat as **`processing`** (e.g. webhook lag), and as **`stale_processing`** after the shared stale threshold when profile timestamps are available.
 
 ### 8.3 Legacy client-side wizard score (not server truth)
 
@@ -170,7 +170,7 @@ Supabase **`schema_migrations`** on the linked project may list **both**:
 
 ### 8.4 Webhook pipeline (operator)
 
-- Bunny transcode → **`video-webhook`** Edge Function updates `bunny_video_status`. If webhooks fail, clients can remain on `processing` until fixed. See [vibe-video-webhook-operator.md](./vibe-video-webhook-operator.md).
+- Bunny transcode → **`video-webhook`** Edge Function updates `bunny_video_status`. If webhooks fail, clients keep polling/refetching and show recoverable processing/stale-processing copy until fixed. See [vibe-video-webhook-operator.md](./vibe-video-webhook-operator.md).
 
 ---
 

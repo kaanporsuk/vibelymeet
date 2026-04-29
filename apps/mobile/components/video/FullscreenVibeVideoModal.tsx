@@ -163,16 +163,20 @@ export function FullscreenVibeVideoModal({
 
   const canonicalUrlState = vibeVideoState;
   const urlTitle =
-    canonicalUrlState === 'processing'
-      ? 'Video still processing'
+    canonicalUrlState === 'processing' || canonicalUrlState === 'stale_processing'
+      ? canonicalUrlState === 'stale_processing'
+        ? 'Still processing'
+        : 'Video still processing'
       : canonicalUrlState === 'failed' || canonicalUrlState === 'error'
         ? 'Video needs a fresh take'
         : canonicalUrlState === 'ready'
           ? 'Preview still syncing'
           : 'Profile clip not found';
   const urlBody =
-    canonicalUrlState === 'processing'
-      ? 'The clip is saved and still getting ready for playback. Pull to refresh on Profile.'
+    canonicalUrlState === 'processing' || canonicalUrlState === 'stale_processing'
+      ? canonicalUrlState === 'stale_processing'
+        ? 'Still processing. Refresh, try again later, or re-upload if it does not finish.'
+        : "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."
       : canonicalUrlState === 'failed' || canonicalUrlState === 'error'
         ? 'This clip did not reach playback. Record again from Profile Studio.'
         : canonicalUrlState === 'ready'

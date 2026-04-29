@@ -54,6 +54,7 @@ echo
 echo "Bunny checks:"
 echo "- Bunny Storage uploads work (voice + chat video)."
 echo "- Bunny Stream webhook URL includes ?token=... and updates profile video status."
+echo "- Stuck Vibe Video rows are recoverable: app shows processing/stale_processing, and classify_stale_vibe_video_uploads reports operator candidates."
 echo
 echo "Stripe checks:"
 echo "- Checkout + portal create sessions succeed; webhook delivers and settles state."

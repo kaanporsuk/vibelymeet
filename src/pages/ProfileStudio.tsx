@@ -52,6 +52,7 @@ import { useLogout } from "@/hooks/useLogout";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
+import { heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -93,6 +94,7 @@ interface ProfilePromptData {
 
 interface UserProfile {
   id: string;
+  updatedAt: string | null;
   name: string;
   birthDate: Date | null;
   age: number | null;
@@ -128,6 +130,7 @@ interface UserProfile {
 
 const initialProfile: UserProfile = {
   id: "",
+  updatedAt: null,
   name: "",
   birthDate: null,
   age: null,
@@ -348,6 +351,7 @@ const ProfileStudio = () => {
           const prompts = data.prompts?.length ? data.prompts : [{ question: "", answer: "" }, { question: "", answer: "" }, { question: "", answer: "" }];
           setProfile({
             id: data.id,
+            updatedAt: data.updatedAt,
             name: data.name,
             birthDate: data.birthDate,
             age: data.age,
@@ -374,6 +378,15 @@ const ProfileStudio = () => {
             vibeScore: data.vibeScore ?? 0,
             vibeScoreLabel: data.vibeScoreLabel ?? "New",
           });
+          heroVideoResumePollingForProfile(
+            {
+              id: data.id,
+              bunnyVideoUid: data.bunnyVideoUid,
+              bunnyVideoStatus: data.bunnyVideoStatus,
+              updatedAt: data.updatedAt,
+            },
+            { source: "profile_load" },
+          );
           const stored = data.lifestyle?.meeting_preference;
           if (stored === "events" || stored === "dates" || stored === "both") {
             setMeetingPref(stored);
@@ -404,27 +417,55 @@ const ProfileStudio = () => {
     }
   }, [heroVideoUpload.phase]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!profile.bunnyVideoUid) return;
+      setProfileRefreshKey((k) => k + 1);
+      heroVideoResumePollingForProfile(
+        {
+          id: profile.id,
+          bunnyVideoUid: profile.bunnyVideoUid,
+          bunnyVideoStatus: profile.bunnyVideoStatus,
+          updatedAt: profile.updatedAt,
+        },
+        { source: "visibility_active" },
+      );
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [profile.id, profile.bunnyVideoUid, profile.bunnyVideoStatus, profile.updatedAt]);
+
   // ── Derived data ──────────────────────────────────────────────
 
   const vibeScore = profile.vibeScore ?? 0;
   const effectiveVibeVideo = useMemo(() => {
     if (heroVideoUpload.phase === "ready" && heroVideoUpload.videoId) {
       return {
+        id: profile.id,
         bunnyVideoUid: heroVideoUpload.videoId,
         bunnyVideoStatus: "ready",
+        updatedAt: profile.updatedAt,
         vibeCaption: profile.vibeCaption,
       };
     }
     return {
+      id: profile.id,
       bunnyVideoUid: profile.bunnyVideoUid,
       bunnyVideoStatus: profile.bunnyVideoStatus,
+      updatedAt: profile.updatedAt,
       vibeCaption: profile.vibeCaption,
     };
   }, [
     heroVideoUpload.phase,
     heroVideoUpload.videoId,
+    profile.id,
     profile.bunnyVideoUid,
     profile.bunnyVideoStatus,
+    profile.updatedAt,
     profile.vibeCaption,
   ]);
 
@@ -1029,6 +1070,10 @@ const ProfileStudio = () => {
             profile={effectiveVibeVideo}
             onOpenRecorder={goToVibeStudio}
             onOpenPlayer={() => setShowVibePlayer(true)}
+            onRefresh={() => {
+              setProfileRefreshKey((k) => k + 1);
+              heroVideoResumePollingForProfile(effectiveVibeVideo, { source: "manual_refresh" });
+            }}
           />
         </div>
 

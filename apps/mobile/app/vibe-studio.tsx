@@ -31,7 +31,11 @@ import {
 import { fetchMyProfile, updateMyProfile, type ProfileRow } from '@/lib/profileApi';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
-import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry';
+import {
+  trackStaleVibeVideoProcessing,
+  trackVibeVideoEvent,
+  VIBE_VIDEO_EVENTS,
+} from '@/lib/vibeVideoTelemetry';
 import { useNativeHeroVideoUpload } from '@/hooks/useNativeHeroVideoUpload';
 
 const CAPTION_MAX = 50;
@@ -139,7 +143,7 @@ export default function VibeStudioScreen() {
     }
 
     const currentInfo = resolveVibeVideoState(profileRef.current ?? null);
-    return currentInfo.state === 'processing';
+    return currentInfo.state === 'processing' || currentInfo.state === 'stale_processing';
   }, []);
 
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
@@ -178,6 +182,26 @@ export default function VibeStudioScreen() {
   const controllerIsTerminal = ctrl.phase === 'ready' || ctrl.phase === 'failed' || ctrl.phase === 'stalled';
   const effectivePhase =
     controllerIsActive || controllerIsTerminal ? ctrl.phase : videoInfo.state;
+
+  useEffect(() => {
+    if (videoInfo.state !== 'stale_processing' || !videoInfo.uid) return;
+    trackStaleVibeVideoProcessing({
+      source: 'native_vibe_studio',
+      surface: 'vibe_studio',
+      user_id: profile?.id ?? null,
+      video_guid: videoInfo.uid,
+      status: videoInfo.normalizedStatus,
+      age_ms: videoInfo.statusAgeMs,
+      status_updated_at: videoInfo.statusUpdatedAt,
+    });
+  }, [
+    profile?.id,
+    videoInfo.state,
+    videoInfo.uid,
+    videoInfo.normalizedStatus,
+    videoInfo.statusAgeMs,
+    videoInfo.statusUpdatedAt,
+  ]);
 
   const tone: StatusTone = useMemo(() => {
     if (readyAwaitingPlaybackUrl) {
@@ -220,10 +244,20 @@ export default function VibeStudioScreen() {
           label: 'Processing',
           title: "We're preparing your Vibe Video",
           description:
-            'The clip is on file and moving toward playback. You can leave this screen — processing continues on our servers.',
+            "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking.",
           badgeBg: theme.tintSoft,
           badgeText: theme.tint,
           icon: 'refresh-circle',
+        };
+      case 'stale_processing':
+        return {
+          label: 'Still processing',
+          title: 'Still processing',
+          description:
+            'You can refresh, try again later, or re-upload if it does not finish.',
+          badgeBg: 'rgba(245, 158, 11, 0.16)',
+          badgeText: '#FBBF24',
+          icon: 'warning-outline',
         };
       case 'failed':
         return {
@@ -313,7 +347,7 @@ export default function VibeStudioScreen() {
   const confirmDelete = () => {
     if (!videoInfo.canDelete || isDeleting) return;
 
-    const deletingPipelineVideo = videoInfo.state === 'processing';
+    const deletingPipelineVideo = videoInfo.state === 'processing' || videoInfo.state === 'stale_processing';
     show({
       title: deletingPipelineVideo ? 'Cancel this upload?' : 'Delete vibe video?',
       message: deletingPipelineVideo
@@ -432,7 +466,7 @@ export default function VibeStudioScreen() {
 
   const showPreviewCard = effectivePhase === 'ready' && videoInfo.canPlay;
   const statusIconColor = tone.badgeText;
-  const refreshActionLabel = effectivePhase === 'stalled' ? 'Retry' : 'Refresh';
+  const refreshActionLabel = effectivePhase === 'stalled' || effectivePhase === 'stale_processing' ? 'Retry' : 'Refresh';
 
   return (
     <>
@@ -487,7 +521,7 @@ export default function VibeStudioScreen() {
                 <Pressable
                   onPress={() => void refreshProfile({
                     resumeIfNonTerminal: true,
-                    source: effectivePhase === 'stalled' ? 'manual_retry' : 'manual_refresh',
+                    source: effectivePhase === 'stalled' || effectivePhase === 'stale_processing' ? 'manual_retry' : 'manual_refresh',
                   })}
                   style={[styles.refreshBtn, { borderColor: theme.glassBorder, backgroundColor: theme.surfaceSubtle }]}
                 >
@@ -542,15 +576,15 @@ export default function VibeStudioScreen() {
                         Good light, one sentence about your vibe, and a clear smile is enough for a strong first version.
                       </Text>
                     </>
-                  ) : effectivePhase === 'failed' || effectivePhase === 'stalled' || effectivePhase === 'error' ? (
+                  ) : effectivePhase === 'failed' || effectivePhase === 'stalled' || effectivePhase === 'stale_processing' || effectivePhase === 'error' ? (
                     <>
                       <Ionicons name="alert-circle-outline" size={52} color="#FBBF24" />
                       <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                        {effectivePhase === 'stalled' ? 'Taking longer than expected' : 'This clip needs a fresh take'}
+                        {effectivePhase === 'stalled' || effectivePhase === 'stale_processing' ? 'Still processing' : 'This clip needs a fresh take'}
                       </Text>
                       <Text style={[styles.emptyBody, { color: theme.textSecondary }]}>
-                        {effectivePhase === 'stalled'
-                          ? 'Your video is still saved. Retry to check the latest status, or replace it if you want a fresh take.'
+                        {effectivePhase === 'stalled' || effectivePhase === 'stale_processing'
+                          ? 'Still processing. You can refresh, try again later, or re-upload if it does not finish.'
                           : 'Your caption stays intact, and you can replace the video with a new take.'}
                       </Text>
                     </>
@@ -610,7 +644,7 @@ export default function VibeStudioScreen() {
                       <Ionicons name="trash-outline" size={18} color={theme.danger} />
                     )}
                     <Text style={[styles.dangerActionText, { color: theme.danger }]}>
-                      {videoInfo.state === 'processing'
+                      {videoInfo.state === 'processing' || videoInfo.state === 'stale_processing'
                         ? 'Cancel & delete'
                         : 'Delete'}
                     </Text>

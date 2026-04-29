@@ -26,10 +26,11 @@ import {
 } from '@/lib/vibeVideoApi';
 import { pollVibeVideoUntilTerminal } from '@/lib/vibeVideoPoll';
 import { updateMyProfile } from '@/lib/profileApi';
-import { normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';
+import { resolveCanonicalVibeVideoState } from '@clientShared/vibeVideoSemantics';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
 import {
   captureVibeVideoException,
+  trackStaleVibeVideoProcessing,
   trackVibeVideoEvent,
   VIBE_VIDEO_EVENTS,
 } from '@/lib/vibeVideoTelemetry';
@@ -49,10 +50,13 @@ export interface NativeHeroVideoControllerState {
 
 type Subscriber = (state: NativeHeroVideoControllerState) => void;
 type NativeVibeVideoProfileSnapshot = {
+  id?: string | null;
   bunny_video_uid?: string | null;
   bunny_video_status?: string | null;
+  bunny_video_updated_at?: string | number | Date | null;
+  updated_at?: string | number | Date | null;
 };
-type PollStartSource = 'upload_complete' | 'app_state_active' | 'manual_retry' | 'manual_refresh';
+type PollStartSource = 'upload_complete' | 'profile_load' | 'app_state_active' | 'manual_retry' | 'manual_refresh';
 
 const PROCESSING_POLL_INTERVAL_MS = 5000;
 const PROCESSING_POLL_MAX_ATTEMPTS = 36;
@@ -123,23 +127,43 @@ function inferNativeUploadSource(videoUri: string): VibeVideoUploadSource {
   return 'unknown';
 }
 
+function nextProfileUserId(profile: NativeVibeVideoProfileSnapshot | null | undefined): string | null {
+  return typeof profile?.id === 'string' && profile.id.trim() ? profile.id : null;
+}
+
 function profileVideoPhase(
   profile: NativeVibeVideoProfileSnapshot | null | undefined,
 ):
   | { kind: 'none' }
   | { kind: 'ready'; videoId: string }
   | { kind: 'failed'; videoId: string }
-  | { kind: 'non_terminal'; videoId: string; phase: 'uploading' | 'processing' } {
+  | {
+      kind: 'non_terminal';
+      videoId: string;
+      phase: 'uploading' | 'processing';
+      stale: boolean;
+      status: string;
+      statusUpdatedAt: string | null;
+      statusAgeMs: number | null;
+    } {
   const videoId = typeof profile?.bunny_video_uid === 'string' ? profile.bunny_video_uid.trim() : '';
   if (!videoId) return { kind: 'none' };
 
-  const status = normalizeBunnyVideoStatus(profile?.bunny_video_status);
-  if (status === 'ready') return { kind: 'ready', videoId };
-  if (status === 'failed') return { kind: 'failed', videoId };
+  const info = resolveCanonicalVibeVideoState({
+    bunnyVideoUid: videoId,
+    bunnyVideoStatus: profile?.bunny_video_status,
+    bunnyVideoUpdatedAt: profile?.bunny_video_updated_at ?? profile?.updated_at,
+  });
+  if (info.state === 'ready') return { kind: 'ready', videoId };
+  if (info.state === 'failed') return { kind: 'failed', videoId };
   return {
     kind: 'non_terminal',
     videoId,
     phase: 'processing',
+    stale: info.state === 'stale_processing',
+    status: info.status,
+    statusUpdatedAt: info.statusUpdatedAt,
+    statusAgeMs: info.statusAgeMs,
   };
 }
 
@@ -374,6 +398,18 @@ export function nativeHeroVideoResumePollingForProfile(
     });
     _invalidateProfile();
     return false;
+  }
+
+  if (profilePhase.stale) {
+    trackStaleVibeVideoProcessing({
+      source: 'native_hero_video_resume',
+      surface: source,
+      user_id: nextProfileUserId(profile),
+      video_guid: profilePhase.videoId,
+      status: profilePhase.status,
+      age_ms: profilePhase.statusAgeMs,
+      status_updated_at: profilePhase.statusUpdatedAt,
+    });
   }
 
   return _beginStatusPoll({

@@ -239,6 +239,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         ? resolveWebVibeVideoState({
             bunny_video_uid: profile.bunny_video_uid,
             bunny_video_status: profile.bunny_video_status,
+            updated_at: profile.updated_at,
             vibe_caption: profile.vibe_caption,
           })
         : null,
@@ -560,10 +561,18 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                           <span className="text-xs font-normal text-muted-foreground">({vibeVideo.state})</span>
                         ) : null}
                       </h4>
-                      {vibeVideo.state === "processing" ? (
+                      {vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" ? (
                         <div className="aspect-video rounded-xl bg-secondary/50 flex flex-col items-center justify-center gap-2 p-4 text-center">
-                          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                          <p className="text-sm text-muted-foreground">Processing — video is in the pipeline</p>
+                          <Loader2
+                            className={`w-6 h-6 animate-spin ${
+                              vibeVideo.state === "stale_processing" ? "text-amber-400" : "text-muted-foreground"
+                            }`}
+                          />
+                          <p className="text-sm text-muted-foreground">
+                            {vibeVideo.state === "stale_processing"
+                              ? "Still processing — inspect Bunny webhook delivery and profile timestamps"
+                              : "Processing — video is in the pipeline"}
+                          </p>
                         </div>
                       ) : vibeVideo.state === "failed" ? (
                         <div className="aspect-video rounded-xl bg-secondary/50 flex items-center justify-center p-4 text-center">

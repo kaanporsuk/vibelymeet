@@ -13,6 +13,7 @@ export const VIBE_VIDEO_EVENTS = {
   pollStalledVisible: "vibe_video_poll_stalled_visible",
   visibilityResumePoll: "vibe_video_visibility_resume_poll",
   processingStatusChanged: "vibe_video_processing_status_changed",
+  staleProcessingObserved: "vibe_video_stale_processing_observed",
   processingStalled: "vibe_video_processing_stalled",
   readyObserved: "vibe_video_ready_observed",
   failedObserved: "vibe_video_failed_observed",
@@ -33,6 +34,8 @@ export type VibeVideoEventName = (typeof VIBE_VIDEO_EVENTS)[keyof typeof VIBE_VI
 
 type SafeTelemetryValue = string | number | boolean | null | undefined;
 export type VibeVideoTelemetryProperties = Record<string, SafeTelemetryValue>;
+
+const staleProcessingSeen = new Set<string>();
 
 const SENSITIVE_KEY_PATTERN =
   /(auth|authorization|bearer|token|secret|signature|url|uri|path|(?:^|_)(?:file|filename)(?:$|_)|headers?)/i;
@@ -58,13 +61,33 @@ export function trackVibeVideoEvent(
   properties: VibeVideoTelemetryProperties = {},
 ): void {
   const sanitized = sanitizeProperties(properties);
-  trackEvent(eventName, sanitized);
-  Sentry.addBreadcrumb({
-    category: "vibe-video",
-    message: eventName,
-    level: "info",
-    data: sanitized,
-  });
+  try {
+    trackEvent(eventName, sanitized);
+  } catch {
+    // Telemetry is diagnostic only; never let analytics availability break Vibe Video state.
+  }
+  try {
+    Sentry.addBreadcrumb({
+      category: "vibe-video",
+      message: eventName,
+      level: "info",
+      data: sanitized,
+    });
+  } catch {
+    // Breadcrumb capture is also best-effort.
+  }
+}
+
+export function trackStaleVibeVideoProcessing(
+  properties: VibeVideoTelemetryProperties = {},
+): void {
+  const userId = String(properties.user_id ?? properties.userId ?? "unknown");
+  const videoGuid = String(properties.video_guid ?? "unknown");
+  const surface = String(properties.surface ?? properties.source ?? "unknown");
+  const key = `${userId}:${videoGuid}:${surface}`;
+  if (staleProcessingSeen.has(key)) return;
+  staleProcessingSeen.add(key);
+  trackVibeVideoEvent(VIBE_VIDEO_EVENTS.staleProcessingObserved, properties);
 }
 
 export function addVibeVideoBreadcrumb(

@@ -136,7 +136,7 @@ This split matters for rebuild, cleanup, CDN migration, and future native work.
 - `BUNNY_STORAGE_API_KEY`
 - `BUNNY_CDN_HOSTNAME`
 - `BUNNY_CDN_PATH_PREFIX` (optional; must match database setting `app.bunny_cdn_path_prefix` for lifecycle sync)
-- `BUNNY_VIDEO_WEBHOOK_TOKEN` (required for `video-webhook`; URL query param; fail-closed if missing)
+- `BUNNY_VIDEO_WEBHOOK_TOKEN` (used by `video-webhook` bearer auth or legacy URL query fallback)
 
 ## Operator note
 These are split across:
@@ -215,7 +215,7 @@ Clients do not directly write arbitrary UID/status values. Caption-only profile 
 Function:
 - `video-webhook`
 
-**Auth (post-hardening):** URL token required. Callback URL must include `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>`. Secret must be set in Supabase; function returns 503 if missing, 401 if token invalid.
+**Auth (post-hardening):** Bunny Stream signature headers are preferred when `BUNNY_STREAM_API_KEY` is configured. The function also accepts `Authorization: Bearer <BUNNY_VIDEO_WEBHOOK_TOKEN>` and the legacy rollout URL `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>`. Bad or missing auth returns 401.
 
 It expects Bunny payload fields like:
 - `VideoGuid`
@@ -228,10 +228,12 @@ It maps:
 
 And updates media-session/profile state only when the current profile UID still matches the webhook `VideoGuid`, so stale replacement/deleted webhooks cannot resurrect or corrupt the active profile video.
 
-### Phase 6 — Frontend polls profile state
-`VibeStudioModal` polls `profiles.bunny_video_uid` and `profiles.bunny_video_status` until the video becomes:
+### Phase 6 — Clients poll profile state
+Web and native poll/refetch `profiles.bunny_video_uid`, `profiles.bunny_video_status`, and profile timestamps until the video becomes:
 - `ready`
 - or `failed`
+
+If a UID remains in a non-terminal, missing, or unknown status beyond the shared stale threshold, UI shows recoverable `stale_processing` copy, emits `vibe_video_stale_processing_observed`, and continues to offer refresh/retry/re-upload actions. It must not show this as "no video."
 
 ### Phase 7 — Playback uses HLS URL
 Playback URL pattern:
@@ -420,8 +422,10 @@ If `video-webhook` is not registered, videos may upload successfully but stay st
 - `uploading`
 - `processing`
 
+Current clients map those rows to `processing` or `stale_processing`, keep playback disabled, keep Vibe Score credit based on the UID, and provide operator diagnostics.
+
 ## Risk 3 — `video-webhook` auth (resolved in hardening)
-The function now requires `BUNNY_VIDEO_WEBHOOK_TOKEN` as a URL query parameter. Bunny dashboard must be configured to call the webhook URL with `?token=<value>`. Fail-closed if secret is missing; 401 if token does not match.
+The function validates Bunny signature headers first when available, then bearer token, then legacy `?token=<value>` fallback. Bunny dashboard must be configured with one accepted auth mode. Invalid auth returns 401 before JSON is trusted.
 
 ## Risk 4 — CDN hostname mismatch breaks media even with successful uploads
 If `BUNNY_CDN_HOSTNAME` or `VITE_BUNNY_STREAM_CDN_HOSTNAME` is wrong, upload can succeed but media retrieval fails.
@@ -433,8 +437,8 @@ Image resolution intentionally supports both:
 
 A simplistic “move everything to Bunny” cleanup can break historical media rendering.
 
-## Risk 6 — Deletion is best-effort remotely but definitive locally
-`delete-vibe-video` clears DB state even if Bunny remote delete fails, which can leave orphaned media.
+## Risk 6 — Deletion is definitive locally and deferred remotely
+`delete-vibe-video` clears the active profile snapshot immediately and hands physical Bunny deletion to the media lifecycle worker. Inspect `media_assets` / `media_delete_jobs` before treating immediate remote presence as a failure.
 
 ## Risk 7 — Mis-identifying the chat video provider
 Inline chat / Vibe Clip video uploads go through **`upload-chat-video` → Bunny**. Rebuild or refactors that assume Supabase Storage for those sends will mis-handle behavior; verify the Edge Function and `messages.video_url` contract instead.
@@ -466,9 +470,10 @@ Verify:
 ### Step 3 — Webhook readiness test
 Verify:
 - `BUNNY_VIDEO_WEBHOOK_TOKEN` is set in Supabase secrets
-- Bunny processing callback URL includes `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>`
+- Bunny processing callback URL reaches `/functions/v1/video-webhook`; current rollout includes `?token=<BUNNY_VIDEO_WEBHOOK_TOKEN>` unless signature/bearer auth is configured
 - callback reaches `video-webhook` and is accepted
 - `profiles.bunny_video_status` becomes `ready`
+- stuck uploads appear in `public.classify_stale_vibe_video_uploads(45, 100)` before repair
 - failed-processing path can also be observed or simulated
 
 ### Step 4 — Vibe-video playback test

@@ -50,6 +50,7 @@ function isAdminVibeTag(value: unknown): value is AdminVibeTag {
 
 const ADMIN_PROFILE_PREVIEW_SELECT = `
   id,
+  updated_at,
   name,
   age,
   gender,
@@ -128,6 +129,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
         ? resolveWebVibeVideoState({
             bunny_video_uid: profile.bunny_video_uid,
             bunny_video_status: profile.bunny_video_status,
+            updated_at: profile.updated_at,
             vibe_caption: profile.vibe_caption,
           })
         : null,
@@ -243,10 +245,18 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                     <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
                     <span className="text-xs text-muted-foreground/80">({vibeVideo.state})</span>
                   </div>
-                  {vibeVideo.state === "processing" ? (
+                  {vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" ? (
                     <div className="relative aspect-video rounded-lg overflow-hidden bg-secondary/50 flex flex-col items-center justify-center gap-2 p-4 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Processing — not playable yet</p>
+                      <Loader2
+                        className={`w-6 h-6 animate-spin ${
+                          vibeVideo.state === "stale_processing" ? "text-amber-400" : "text-muted-foreground"
+                        }`}
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        {vibeVideo.state === "stale_processing"
+                          ? "Still processing — refresh or inspect Bunny webhook delivery"
+                          : "Processing — not playable yet"}
+                      </p>
                     </div>
                   ) : vibeVideo.state === "failed" ? (
                     <div className="aspect-video rounded-lg bg-secondary/50 flex items-center justify-center p-4">
