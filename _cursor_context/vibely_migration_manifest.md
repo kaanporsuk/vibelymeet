@@ -784,6 +784,18 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11h. Stream — event discovery location entitlement guards (2026-05)
+
+- **`supabase/migrations/20260501150000_get_visible_events_location_entitlement_guards.sql`**
+  - Replaces canonical `get_visible_events` without changing the signature or returned columns.
+  - Restores the non-service auth binding (`auth.uid() = p_user_id`) so callers cannot borrow another user's premium entitlement.
+  - Keeps client `p_is_premium` ignored; premium city browse is derived from subscriptions, admin role, or profile premium grants.
+  - For non-premium browse-coordinate attempts, falls back to stored profile coordinates only.
+  - Treats local/location-specific no-coordinate rows as ineligible for radius matching; explicit global/regional scope remains the only radius bypass.
+- **Validation:** `supabase/validation/events_location_premium_no_coord_guards.sql` covers free spoof attempts, premium remote city browse, no-coordinate local exclusion, global/regional exceptions, and nearby valid local matches.
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

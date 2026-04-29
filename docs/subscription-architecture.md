@@ -14,7 +14,7 @@ Both **Stripe** (web checkout) and **RevenueCat** (iOS/Android) write subscripti
 - **Web** may use `check_premium_status` RPC and/or UI that reflects Stripe session state.
 - **Native** uses `useBackendSubscription` (`apps/mobile/lib/subscriptionApi.ts`): loads `subscriptions` for the user (active/trialing wins), then falls back to `profiles.is_premium`.
 
-Premium gating for **event visibility** on mobile uses `useBackendSubscription().isPremium` when calling `get_visible_events` (same as web’s `p_is_premium` intent).
+Premium UI can use client entitlement hooks to show or hide city-browse controls, but **event visibility is enforced inside `get_visible_events`**. Web and native may pass `p_is_premium: false`; the RPC ignores that flag, binds `p_user_id` to `auth.uid()` for non-service callers, and derives city-browse access from Postgres subscription/profile/admin state.
 
 ## Cross-platform consistency
 
