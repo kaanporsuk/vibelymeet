@@ -142,3 +142,14 @@ The audit found a real bug and a single safe definitive fix. The implementation 
 - `npm run build` (passes with existing chunk-size/dynamic-import warnings)
 - `supabase db push --linked --dry-run` (confirms only `20260501143000_video_date_partial_join_timeout.sql` would push)
 - `supabase db lint --local --fail-on error` could not run because local Postgres was not listening on `127.0.0.1:54322`.
+
+## Post-Merge Audit
+
+The merged product behavior landed as intended: exactly-one-joined handshakes are no longer eligible for false `ready_gate_expired` classification, and the new backend terminal reason is shared by DB cleanup, survey recovery, validation, and web/native terminal copy.
+
+Two polish issues were found after deployment:
+
+- The private delegated cleanup helper name from the partial-join migration exceeded PostgreSQL's 63-byte identifier limit and deployed as a truncated function name. This did not break the wrapper, but it made the deployed function catalog less intentional.
+- The partial-join timeout writes a per-session `event_loop_observability_events` row with rich joined-evidence detail, but the service-role session timeline allowlist did not include `expire_stale_video_sessions`, so the new row was harder for operators to inspect from the timeline UI.
+
+Follow-up migration `20260501144000_video_date_partial_join_observability_polish.sql` fixes both issues forward-only by renaming the private helper to `expire_vd_phases_base_20260501133000`, recreating the wrapper to call that deliberate name, and adding `expire_stale_video_sessions` to `get_video_date_session_timeline`.
