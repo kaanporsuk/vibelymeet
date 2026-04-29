@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
 import { useReadyGate } from "@/hooks/useReadyGate";
 import { vdbg } from "@/lib/vdbg";
-import { useEventStatus } from "@/hooks/useEventStatus";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
@@ -124,7 +123,6 @@ function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: Prepare
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
   const { user } = useUserProfile();
-  const { setStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
 
   const [partnerPhotos, setPartnerPhotos] = useState<string[] | null>(null);
   const [partnerAvatarUrl, setPartnerAvatarUrl] = useState<string | null>(null);
@@ -361,13 +359,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           reason,
         });
       }
-      setStatus("browsing");
       toast(reason === "timeout" ? "They weren't ready. Back to browsing — your deck is waiting." : "No worries — back to browsing 💚", {
         duration: 2500,
       });
       onClose();
     },
-    [setStatus, onClose, sessionId, eventId]
+    [onClose, sessionId, eventId]
   );
 
   const closeAsStale = useCallback(
@@ -578,27 +575,6 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     },
     [sessionId, eventId, user?.id, handleBothReady, closeAsStale, refetchSession, syncSession]
   );
-
-  // Set status to in_ready_gate only when that will not overwrite active date truth.
-  useEffect(() => {
-    if (!sessionId || !eventId || !user?.id) return;
-    let cancelled = false;
-    void (async () => {
-      const { data: reg } = await supabase
-        .from("event_registrations")
-        .select("queue_status, current_room_id")
-        .eq("event_id", eventId)
-        .eq("profile_id", user.id)
-        .maybeSingle();
-      if (cancelled || dateNavigationStartedRef.current) return;
-      if (reg?.current_room_id === sessionId && !ACTIVE_DATE_QUEUE_STATUSES.has(reg.queue_status ?? "")) {
-        void setStatus("in_ready_gate");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [sessionId, eventId, user?.id, setStatus]);
 
   useEffect(() => {
     void reconcileSession("initial");

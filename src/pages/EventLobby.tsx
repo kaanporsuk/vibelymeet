@@ -127,6 +127,7 @@ const EventLobby = () => {
   const activeSessionIdRef = useRef<string | null>(null);
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
+  const prepareNavigationInFlightRef = useRef<Set<string>>(new Set());
   const lobbyEnteredEventRef = useRef<string | null>(null);
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
 
@@ -203,6 +204,16 @@ const EventLobby = () => {
 
   const prepareAndNavigateToDateSession = useCallback(
     (sessionId: string, source: string) => {
+      if (prepareNavigationInFlightRef.current.has(sessionId)) {
+        vdbg("event_lobby_prepare_entry_suppressed", {
+          sessionId,
+          eventId,
+          source,
+          reason: "prepare_entry_already_in_flight",
+        });
+        return;
+      }
+      prepareNavigationInFlightRef.current.add(sessionId);
       const observedAtMs = Date.now();
       const latencyContext = recordReadyGateToDateLatencyCheckpoint({
         sessionId,
@@ -252,44 +263,69 @@ const EventLobby = () => {
         eventId,
         source: `event_lobby_${source}`,
         bothReadyObservedAtMs: observedAtMs,
-      }).then((result) => {
-        if (result.ok === true) {
-          navigateAfterPrepare(`${source}_prepare_done`);
-          return;
-        }
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          source_surface: "event_lobby",
-          source_action: "prepare_entry_failed_no_nav",
-          code: result.code,
-          reason_code: result.code,
-          httpStatus: result.httpStatus ?? null,
-          retryable: result.retryable,
+      })
+        .then((result) => {
+          if (result.ok === true) {
+            navigateAfterPrepare(`${source}_prepare_done`);
+            return;
+          }
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: "event_lobby",
+            source_action: "prepare_entry_failed_no_nav",
+            code: result.code,
+            reason_code: result.code,
+            httpStatus: result.httpStatus ?? null,
+            retryable: result.retryable,
+          });
+          vdbg("event_lobby_prepare_entry_failed_no_nav", {
+            sessionId,
+            eventId,
+            source,
+            code: result.code,
+            httpStatus: result.httpStatus ?? null,
+            retryable: result.retryable,
+          });
+          trackEvent(LobbyPostDateEvents.READY_GATE_HANDOFF_RECOVERY, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: "event_lobby",
+            source_action: `${source}_prepare_failed_ready_gate_recovery`,
+            outcome: "recovered",
+            code: result.code,
+            reason_code: result.code,
+            httpStatus: result.httpStatus ?? null,
+            retryable: result.retryable,
+          });
+          openReadyGateSession(sessionId, `${source}_prepare_failed_ready_gate_recovery`);
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: "event_lobby",
+            source_action: "prepare_entry_exception_no_nav",
+            code: "PREPARE_ENTRY_EXCEPTION",
+            reason_code: "PREPARE_ENTRY_EXCEPTION",
+            httpStatus: null,
+            retryable: true,
+          });
+          vdbg("event_lobby_prepare_entry_exception_no_nav", {
+            sessionId,
+            eventId,
+            source,
+            message,
+          });
+          openReadyGateSession(sessionId, `${source}_prepare_exception_ready_gate_recovery`);
+        })
+        .finally(() => {
+          prepareNavigationInFlightRef.current.delete(sessionId);
         });
-        vdbg("event_lobby_prepare_entry_failed_no_nav", {
-          sessionId,
-          eventId,
-          source,
-          code: result.code,
-          httpStatus: result.httpStatus ?? null,
-          retryable: result.retryable,
-        });
-        trackEvent(LobbyPostDateEvents.READY_GATE_HANDOFF_RECOVERY, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId,
-          source_surface: "event_lobby",
-          source_action: `${source}_prepare_failed_ready_gate_recovery`,
-          outcome: "recovered",
-          code: result.code,
-          reason_code: result.code,
-          httpStatus: result.httpStatus ?? null,
-          retryable: result.retryable,
-        });
-        openReadyGateSession(sessionId, `${source}_prepare_failed_ready_gate_recovery`);
-      });
     },
     [eventId, navigateToDateSession, openReadyGateSession],
   );
@@ -323,6 +359,7 @@ const EventLobby = () => {
     deckExhaustedFiredRef.current = false;
     activeSessionIdRef.current = null;
     dateNavigationSessionIdRef.current = null;
+    prepareNavigationInFlightRef.current.clear();
     setActiveSessionId(null);
     setDateNavigationSessionId(null);
     setPostSurveyReturnContext(false);
