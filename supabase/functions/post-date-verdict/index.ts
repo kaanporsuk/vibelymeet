@@ -16,6 +16,8 @@ type VerdictRpcResult = {
   persistent_match_created?: boolean | null;
   awaiting_partner_verdict?: boolean;
   partner_verdict_recorded?: boolean;
+  safety_report_recorded?: boolean;
+  report_id?: string;
 };
 
 function logLifecycle(payload: {
@@ -45,10 +47,18 @@ serve(async (req) => {
       });
     }
 
-    const body = await req.json().catch(() => null) as { session_id?: string; liked?: boolean } | null;
+    const body = await req.json().catch(() => null) as {
+      action?: "verdict" | "report";
+      session_id?: string;
+      liked?: boolean;
+      idempotency_key?: string;
+      safety_report?: unknown;
+    } | null;
+    const action = body?.action ?? "verdict";
     const sessionId = body?.session_id;
     const liked = body?.liked;
-    if (!sessionId || typeof liked !== "boolean") {
+    const idempotencyKey = typeof body?.idempotency_key === "string" ? body.idempotency_key.trim() : "";
+    if (!sessionId || (action === "verdict" && typeof liked !== "boolean")) {
       return new Response(JSON.stringify({ success: false, error: "invalid_request" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -66,17 +76,30 @@ serve(async (req) => {
     const { data: authUser } = await userClient.auth.getUser();
     const actorUserId = authUser?.user?.id ?? null;
 
-    const { data, error } = await userClient.rpc("submit_post_date_verdict", {
-      p_session_id: sessionId,
-      p_liked: liked,
-    });
+    const { data, error } = action === "report"
+      ? await userClient.rpc("submit_post_date_safety_report_v1", {
+          p_session_id: sessionId,
+          p_idempotency_key: idempotencyKey,
+          p_safety_report: body?.safety_report ?? null,
+        })
+      : idempotencyKey
+        ? await userClient.rpc("submit_post_date_verdict_v2", {
+            p_session_id: sessionId,
+            p_liked: liked as boolean,
+            p_idempotency_key: idempotencyKey,
+            p_safety_report: body?.safety_report ?? null,
+          })
+        : await userClient.rpc("submit_post_date_verdict", {
+            p_session_id: sessionId,
+            p_liked: liked as boolean,
+          });
 
     if (error) {
       console.error("post-date-verdict RPC error:", error);
       logLifecycle({
         session_id: sessionId,
         user_id: actorUserId,
-        category: "post_date_verdict",
+        category: action === "report" ? "post_date_safety_report" : "post_date_verdict",
         result: "rpc_error",
         error_reason: error.message,
       });
@@ -91,7 +114,7 @@ serve(async (req) => {
       logLifecycle({
         session_id: sessionId,
         user_id: actorUserId,
-        category: "post_date_verdict",
+        category: action === "report" ? "post_date_safety_report" : "post_date_verdict",
         result: "rejected",
         error_reason: payload.error ?? "rpc_rejected",
       });
@@ -104,8 +127,14 @@ serve(async (req) => {
     logLifecycle({
       session_id: sessionId,
       user_id: actorUserId,
-      category: "post_date_verdict",
-      result: payload?.awaiting_partner_verdict ? "pending_partner" : payload?.mutual ? "mutual" : "recorded",
+      category: action === "report" ? "post_date_safety_report" : "post_date_verdict",
+      result: action === "report"
+        ? "recorded"
+        : payload?.awaiting_partner_verdict
+          ? "pending_partner"
+          : payload?.mutual
+            ? "mutual"
+            : "recorded",
       error_reason: null,
     });
 

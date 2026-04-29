@@ -35,6 +35,7 @@ export const LobbyPostDateEvents = {
   READY_GATE_HANDOFF_RECOVERY: 'ready_gate_handoff_recovery',
   READY_GATE_TERMINAL_ACTION_SUCCESS: 'ready_gate_terminal_action_success',
   READY_GATE_TERMINAL_ACTION_FAILURE: 'ready_gate_terminal_action_failure',
+  READY_GATE_REALTIME_DEGRADED: 'ready_gate_realtime_degraded',
   VIDEO_DATE_BOTH_READY: 'video_date_both_ready',
 
   // --- Ready Gate → date join latency envelope ---
@@ -56,6 +57,7 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_ENTER_HANDSHAKE_FAILURE: 'video_date_enter_handshake_failure',
   VIDEO_DATE_DAILY_TOKEN_SUCCESS: 'video_date_daily_token_success',
   VIDEO_DATE_DAILY_TOKEN_FAILURE: 'video_date_daily_token_failure',
+  VIDEO_DATE_DAILY_SDK_UNRESPONSIVE: 'video_date_daily_sdk_unresponsive',
   VIDEO_DATE_DAILY_JOIN_STARTED: 'video_date_daily_join_started',
   VIDEO_DATE_DAILY_JOIN_SUCCESS: 'video_date_daily_join_success',
   VIDEO_DATE_DAILY_JOIN_FAILURE: 'video_date_daily_join_failure',
@@ -68,6 +70,7 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_JOIN_SUCCESS: 'video_date_join_success',
   VIDEO_DATE_JOIN_FAILURE: 'video_date_join_failure',
   VIDEO_DATE_SYNC_RECONNECT_FAILED: 'video_date_sync_reconnect_failed',
+  VIDEO_DATE_FOREGROUND_RECONCILE_FAILED: 'video_date_foreground_reconcile_failed',
   REALTIME_FALLBACK_TO_POLL: 'realtime_fallback_to_poll',
   CAMERA_PERMISSION_DENIED: 'camera_permission_denied',
   VIDEO_DATE_MEDIA_PERMISSION_DENIED: 'video_date_media_permission_denied',

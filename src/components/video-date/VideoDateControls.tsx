@@ -45,6 +45,7 @@ export const VideoDateControls = ({
         <Button
           variant="secondary"
           size="icon"
+          aria-label="View profile"
           className={`${controlBtn} bg-secondary/60 border border-border/50 hover:bg-secondary`}
           onClick={onViewProfile}
         >
@@ -58,6 +59,7 @@ export const VideoDateControls = ({
           <Button
             variant={isMuted ? "destructive" : "secondary"}
             size="icon"
+            aria-label={isMuted ? "Unmute microphone" : "Mute microphone"}
             className={`${controlBtn} ${
               !isMuted
                 ? "bg-secondary/60 border border-border/50 hover:bg-secondary"
@@ -77,6 +79,7 @@ export const VideoDateControls = ({
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             size="icon"
+            aria-label="End date"
             className={`${controlBtn} bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-lg`}
             style={{
               boxShadow: "0 0 20px hsl(var(--destructive) / 0.4)",
@@ -91,6 +94,7 @@ export const VideoDateControls = ({
           <Button
             variant={isVideoOff ? "destructive" : "secondary"}
             size="icon"
+            aria-label={isVideoOff ? "Turn camera on" : "Turn camera off"}
             className={`${controlBtn} ${
               !isVideoOff
                 ? "bg-secondary/60 border border-border/50 hover:bg-secondary"

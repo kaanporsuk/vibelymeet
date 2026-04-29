@@ -48,6 +48,7 @@ import { useAccountPauseStatus } from '@/hooks/useAccountPauseStatus';
 import { initStreamCdnHostname } from '@/lib/vibeVideoPlaybackUrl';
 import { ChatOutboxProvider } from '@/lib/chatOutbox/ChatOutboxContext';
 import { ChatOutboxRunner } from '@/lib/chatOutbox/ChatOutboxRunner';
+import { PostDateOutboxRunner } from '@/lib/postDateOutbox/PostDateOutboxRunner';
 import { MatchCallProvider } from '@/lib/useMatchCall';
 import { supabase } from '@/lib/supabase';
 import { completeSessionFromAuthReturnUrl } from '@/lib/nativeAuthRedirect';
@@ -509,6 +510,7 @@ function RootLayoutNav() {
           <BadgeCountUpdater />
           <EventsRealtimeUpdater />
           <ChatOutboxRunner />
+          <PostDateOutboxRunner />
           <View style={{ flex: 1 }}>
             <View style={{ flex: 1 }}>
               {POSTHOG_ENABLED ? (

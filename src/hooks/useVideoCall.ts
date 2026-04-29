@@ -17,7 +17,10 @@ import {
   recordReadyGateToDateLatencyCheckpoint,
 } from "@clientShared/observability/videoDateOperatorMetrics";
 import { markDailyJoinedWithBackoff } from "@clientShared/matching/dailyJoinedConfirmation";
-import type { DailyRoomFailureKind } from "@clientShared/matching/dailyRoomFailure";
+import {
+  classifyDailyRoomTokenFailureClass,
+  type DailyRoomFailureKind,
+} from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
 
 interface UseVideoCallOptions {
@@ -72,6 +75,7 @@ type DailyRoomSuccessResponse = {
   room_name: string;
   room_url: string;
   token: string;
+  token_expires_at?: string | null;
   entry_attempt_id?: string | null;
   video_date_trace_id?: string | null;
   reused_room?: boolean;
@@ -218,10 +222,64 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const playbackBlockedRef = useRef(false);
   const activePreparedEntryCacheRef = useRef<PreparedVideoDateEntryCacheEntry | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
+  const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
+
+  useEffect(() => {
+    if (!isConnecting && !isConnected) {
+      dailySdkUnresponsiveKeyRef.current = null;
+      return;
+    }
+
+    const emitUnresponsive = (reason: string, meetingState: string | null, error?: unknown) => {
+      const sessionId = optionsRef.current?.roomId ?? null;
+      const key = `${sessionId ?? "unknown"}:${reason}:${meetingState ?? "none"}`;
+      if (dailySdkUnresponsiveKeyRef.current === key) return;
+      dailySdkUnresponsiveKeyRef.current = key;
+      const payload = {
+        platform: "web",
+        session_id: sessionId,
+        event_id: optionsRef.current?.eventId ?? null,
+        source_surface: "video_date_daily",
+        source_action: "daily_sdk_heartbeat",
+        reason,
+        daily_meeting_state: meetingState,
+        connected: isConnected,
+        connecting: isConnecting,
+      };
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_SDK_UNRESPONSIVE, payload);
+      Sentry.captureMessage("video_date_daily_sdk_unresponsive", {
+        level: "warning",
+        extra: {
+          ...payload,
+          error: error instanceof Error ? { name: error.name, message: error.message } : error ?? null,
+        },
+      });
+    };
+
+    const intervalId = setInterval(() => {
+      const call = callObjectRef.current as (DailyCall & { meetingState?: () => unknown }) | null;
+      if (!call || typeof call.meetingState !== "function") return;
+      let meetingState: string | null = null;
+      try {
+        const state = call.meetingState();
+        meetingState = typeof state === "string" ? state : state == null ? null : String(state);
+      } catch (error) {
+        emitUnresponsive("meeting_state_throw", null, error);
+        return;
+      }
+      if (meetingState === "error" || (isConnected && meetingState === "left-meeting")) {
+        emitUnresponsive("unexpected_meeting_state", meetingState);
+      }
+    }, 5_000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isConnected, isConnecting]);
 
   const markRemoteFirstFrameRendered = useCallback((source: string) => {
     const nowMs = Date.now();
@@ -672,6 +730,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             source_action: "daily_token_failure",
             code: lastFailure.kind,
             reason_code: lastFailure.kind,
+            failure_class: classifyDailyRoomTokenFailureClass(lastFailure.kind),
             retryable: true,
             attempt: attempt + 1,
             attempt_count: attempt + 1,
@@ -688,6 +747,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             token: result.data.token,
             room_name: result.data.room_name,
             room_url: result.data.room_url,
+            token_expires_at: result.data.token_expires_at ?? null,
           };
           const entryAttemptId = successfulRoomData.entry_attempt_id ?? result.cacheEntry.entryAttemptId ?? null;
           const videoDateTraceId = successfulRoomData.video_date_trace_id ?? entryAttemptId;
@@ -766,6 +826,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           source_action: "daily_token_failure",
           code: result.code,
           reason_code: result.code,
+          failure_class: classifyDailyRoomTokenFailureClass(result.code),
           retryable: result.retryable,
           attempt: attempt + 1,
           attempt_count: attempt + 1,

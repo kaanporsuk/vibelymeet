@@ -8,10 +8,12 @@ import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import { trackEvent } from '@/lib/analytics';
+import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import { videoSessionRowIndicatesHandshakeOrDate } from '@clientShared/matching/activeSession';
 import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailure';
+import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
 import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
@@ -22,6 +24,7 @@ import {
   persistHandshakeDecisionWithVerification,
   type PersistHandshakeDecisionResult,
 } from '@clientShared/matching/videoDateHandshakePersistence';
+import type { PostDateSafetyReportPayload } from '@clientShared/postDateOutbox/types';
 
 export type VideoDateSession = {
   id: string;
@@ -70,6 +73,7 @@ export type RoomTokenResult = {
   room_name: string;
   room_url: string;
   token: string;
+  token_expires_at?: string | null;
   entry_attempt_id?: string | null;
   video_date_trace_id?: string | null;
 };
@@ -410,6 +414,7 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
         room_name: result.data.room_name,
         room_url: result.data.room_url,
         token: result.data.token,
+        token_expires_at: result.data.token_expires_at ?? null,
         entry_attempt_id: result.data.entry_attempt_id ?? null,
         video_date_trace_id: result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? null,
       },
@@ -624,30 +629,46 @@ export async function signalVideoDateLeave(sessionId: string, reason = 'app_back
     reason,
   };
   vdbg('daily_room_before', { action: 'video_date_leave', args });
-  try {
-    const { data, error } = await supabase.functions.invoke('daily-room', {
-      body: args,
-    });
-    const ok = !error && (data as { success?: boolean } | null)?.success !== false;
-    vdbg('daily_room_after', {
-      action: 'video_date_leave',
-      ok,
-      sessionId,
-      reason,
-      error: error ? { name: error.name, message: error.message } : null,
-      code: (data as { code?: string } | null)?.code ?? null,
-    });
-    return ok;
-  } catch (error) {
-    vdbg('daily_room_after', {
-      action: 'video_date_leave',
-      ok: false,
-      sessionId,
-      reason,
-      error: error instanceof Error ? { name: error.name, message: error.message } : 'exception',
-    });
-    return false;
-  }
+  const result = await sendVideoDateSignalWithRetry({
+    sessionId,
+    action: 'video_date_leave',
+    operation: async (attempt, idempotencyKey) => {
+      const { data, error } = await supabase.functions.invoke('daily-room', {
+        body: {
+          ...args,
+          idempotency_key: idempotencyKey,
+        },
+      });
+      vdbg('daily_room_after', {
+        action: 'video_date_leave',
+        ok: !error && (data as { success?: boolean } | null)?.success !== false,
+        sessionId,
+        reason,
+        attempt,
+        idempotencyKey,
+        error: error ? { name: error.name, message: error.message } : null,
+        code: (data as { code?: string } | null)?.code ?? null,
+      });
+      if (error) throw error;
+      return data;
+    },
+    isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
+  });
+  if (result.ok) return true;
+  vdbg('daily_room_after', {
+    action: 'video_date_leave',
+    ok: false,
+    sessionId,
+    reason,
+    attempts: result.attempts,
+    error:
+      result.error instanceof Error
+        ? { name: result.error.name, message: result.error.message }
+        : result.error == null
+          ? null
+          : String(result.error),
+  });
+  return false;
 }
 
 export async function markReconnectReturn(sessionId: string): Promise<void> {
@@ -673,14 +694,25 @@ export async function endVideoDate(sessionId: string, reason?: string): Promise<
     p_reason: reason ?? 'ended_from_client',
   };
   vdbg('video_date_transition_before', { action: 'end', args });
-  const { data, error } = await supabase.rpc('video_date_transition', args);
-  vdbg('video_date_transition_after', {
+  const result = await sendVideoDateSignalWithRetry({
+    sessionId,
     action: 'end',
-    ok: !error,
-    payload: data ?? null,
-    error: error ? { code: error.code, message: error.message } : null,
+    operation: async (attempt, idempotencyKey) => {
+      const { data, error } = await supabase.rpc('video_date_transition', args);
+      vdbg('video_date_transition_after', {
+        action: 'end',
+        ok: !error,
+        payload: data ?? null,
+        error: error ? { code: error.code, message: error.message } : null,
+        attempt,
+        idempotencyKey,
+      });
+      if (error) throw error;
+      return data;
+    },
+    isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
   });
-  return !error;
+  return result.ok;
 }
 
 /** Tell backend to delete the Daily room (best-effort). Same as web. */
@@ -1071,49 +1103,15 @@ function verdictBreadcrumb(
  */
 export async function submitVerdictAndCheckMutual(
   sessionId: string,
-  _userId: string,
+  userId: string,
   _partnerId: string,
   liked: boolean
 ): Promise<SubmitVerdictAndCheckMutualResult> {
-  const { data, error, response } = await supabase.functions.invoke<PostDateVerdictResponseBody>('post-date-verdict', {
-    body: { session_id: sessionId, liked },
-  });
-
-  if (error) {
-    const errName = error instanceof Error ? error.name : 'unknown';
-
-    if (errName === 'FunctionsFetchError' || errName === 'FunctionsRelayError') {
-      verdictBreadcrumb('verdict_invoke_failed', { errName });
-      return { ok: false, reason: 'network' };
-    }
-
-    if (response && typeof (response as Response).clone === 'function') {
-      const res = response as Response;
-      const status = res.status;
-      let body: PostDateVerdictResponseBody | null = null;
-      try {
-        body = await res.clone().json();
-      } catch {
-        /* non-JSON */
-      }
-      if (body?.success === false && (body.error || body.code)) {
-        const code = body.code ?? body.error ?? 'unknown';
-        verdictBreadcrumb('verdict_backend_rejected', { code });
-        return { ok: false, reason: 'backend', code, message: body.message };
-      }
-      if (status === 401 || body?.error === 'Unauthorized') {
-        verdictBreadcrumb('verdict_backend_rejected', { code: 'unauthorized' });
-        return { ok: false, reason: 'backend', code: 'unauthorized' };
-      }
-      verdictBreadcrumb('verdict_invoke_failed', { errName, httpStatus: status });
-      return { ok: false, reason: 'unknown' };
-    }
-
-    verdictBreadcrumb('verdict_invoke_failed', { errName });
-    return { ok: false, reason: 'unknown' };
-  }
-
-  const row = data as PostDateVerdictResponseBody | null;
+  const row = await submitNativePostDateOutboxItem({
+    userId,
+    sessionId,
+    payload: { kind: 'verdict', liked },
+  }) as PostDateVerdictResponseBody | null;
   if (!row || typeof row !== 'object') {
     verdictBreadcrumb('verdict_invoke_failed', { detail: 'missing_body' });
     return { ok: false, reason: 'unknown' };
@@ -1145,6 +1143,22 @@ export async function submitVerdictAndCheckMutual(
     awaiting_partner_verdict: row.awaiting_partner_verdict === true,
     partner_verdict_recorded: row.partner_verdict_recorded === true,
   };
+}
+
+export async function submitPostDateReportWithOutbox(
+  sessionId: string,
+  userId: string,
+  report: PostDateSafetyReportPayload,
+): Promise<{ ok: true; reportId?: string } | { ok: false; error: string }> {
+  const row = await submitNativePostDateOutboxItem({
+    userId,
+    sessionId,
+    payload: { kind: 'report', report },
+  });
+  if (row.success === false) {
+    return { ok: false, error: row.code ?? row.error ?? 'unknown' };
+  }
+  return { ok: true, reportId: row.report_id };
 }
 
 /** Fetch user credits for +Time (extra_time_credits, extended_vibe_credits). */

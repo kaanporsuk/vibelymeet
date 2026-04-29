@@ -1,0 +1,24 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { PostDateOutboxItem } from '@clientShared/postDateOutbox/types';
+
+const PREFIX = 'vibelymeet:post-date-outbox:v1:';
+
+export function postDateOutboxStorageKey(userId: string): string {
+  return `${PREFIX}${userId}`;
+}
+
+export async function loadPostDateOutboxItems(userId: string): Promise<PostDateOutboxItem[]> {
+  const raw = await AsyncStorage.getItem(postDateOutboxStorageKey(userId));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as PostDateOutboxItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function savePostDateOutboxItems(userId: string, items: PostDateOutboxItem[]): Promise<void> {
+  await AsyncStorage.setItem(postDateOutboxStorageKey(userId), JSON.stringify(items));
+}
+

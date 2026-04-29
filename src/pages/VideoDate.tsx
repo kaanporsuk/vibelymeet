@@ -48,6 +48,7 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
+import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -229,7 +230,7 @@ const VideoDate = () => {
     type: "extra_time" | "extended_vibe";
     key: string;
   } | null>(null);
-  const explicitEndRequestedRef = useRef(false);
+  const explicitEndRequestedRef = useRef<"idle" | "sending" | "acked">("idle");
   const leaveSignalTokenRef = useRef<string | null>(null);
   const leaveSignalSentRef = useRef(false);
   const lifecycleHiddenStartedAtRef = useRef<number | null>(null);
@@ -1227,7 +1228,7 @@ const VideoDate = () => {
 
     const reconcile = (source: "visibilitychange" | "online") => {
       if (source === "visibilitychange" && document.visibilityState !== "visible") return;
-      if (phaseRef.current === "ended" || surveyOpenedRef.current || explicitEndRequestedRef.current) return;
+      if (phaseRef.current === "ended" || surveyOpenedRef.current || explicitEndRequestedRef.current !== "idle") return;
       const now = Date.now();
       if (foregroundReconcileInFlightRef.current) return;
       if (now - lastForegroundReconcileAtRef.current < 4_000) return;
@@ -1257,6 +1258,15 @@ const VideoDate = () => {
                 event_id: eventId ?? null,
                 source: "visibilitychange",
               });
+            } else {
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
+                platform: "web",
+                session_id: id,
+                event_id: eventId ?? null,
+                source,
+                step: "mark_reconnect_return",
+                code: returnError.code ?? null,
+              });
             }
           }
           const { data, error } = await supabase
@@ -1268,7 +1278,26 @@ const VideoDate = () => {
             payload: data ?? null,
             error: error ? { code: error.code, message: error.message } : null,
           });
+          if (error) {
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
+              platform: "web",
+              session_id: id,
+              event_id: eventId ?? null,
+              source,
+              step: "sync_reconnect",
+              code: error.code ?? null,
+            });
+          }
           setTimingRefreshNonce((n) => n + 1);
+        } catch (error) {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
+            platform: "web",
+            session_id: id,
+            event_id: eventId ?? null,
+            source,
+            step: "exception",
+            error_name: error instanceof Error ? error.name : "unknown",
+          });
         } finally {
           foregroundReconcileInFlightRef.current = false;
         }
@@ -1624,14 +1653,14 @@ const VideoDate = () => {
     };
 
     const sendLeaveSignal = (source: WebLifecycleLeaveSource) => {
-      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current) return;
+      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current !== "idle") return;
       if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
       const token = leaveSignalTokenRef.current;
       if (!token) return;
       leaveSignalSentRef.current = true;
-      try {
-        void fetch(`${SUPABASE_URL}/functions/v1/daily-room`, {
+      const postLeaveSignal = async (idempotencyKey?: string) => {
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/daily-room`, {
           method: "POST",
           keepalive: true,
           headers: {
@@ -1643,26 +1672,66 @@ const VideoDate = () => {
             action: "video_date_leave",
             sessionId: id,
             reason: `web_${source}`,
+            idempotency_key: idempotencyKey,
           }),
-        }).catch(() => {
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_FAILED, {
-            platform: "web",
-            session_id: id,
-            event_id: eventId ?? null,
-            source,
-          });
         });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || (payload as { success?: boolean } | null)?.success === false) {
+          throw new Error(
+            `video_date_leave_failed:${response.status}:${String((payload as { code?: unknown } | null)?.code ?? "unknown")}`,
+          );
+        }
+        return payload;
+      };
+      const markSent = (attempts?: number) => {
         vdbg("video_date_leave_signal_sent", {
           sessionId: id,
           userId: user.id,
           eventId: eventId ?? null,
           source,
+          attempts: attempts ?? null,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_SENT, {
           platform: "web",
           session_id: id,
           event_id: eventId ?? null,
           source,
+          attempts: attempts ?? null,
+        });
+      };
+      const markFailed = () => {
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_FAILED, {
+          platform: "web",
+          session_id: id,
+          event_id: eventId ?? null,
+          source,
+        });
+      };
+      try {
+        if (source === "visibilitychange") {
+          void sendVideoDateSignalWithRetry({
+            sessionId: id,
+            action: "video_date_leave",
+            operation: (_attempt, idempotencyKey) => postLeaveSignal(idempotencyKey),
+            isSuccess: (payload) => (payload as { success?: boolean } | null)?.success !== false,
+          }).then((result) => {
+            if (result.ok) {
+              markSent(result.attempts);
+              return;
+            }
+            leaveSignalSentRef.current = false;
+            markFailed();
+          });
+          return;
+        }
+        void postLeaveSignal().then(() => markSent()).catch(() => {
+          leaveSignalSentRef.current = false;
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_LEAVE_SIGNAL_FAILED, {
+            platform: "web",
+            session_id: id,
+            event_id: eventId ?? null,
+            source,
+          });
         });
       } catch {
         leaveSignalSentRef.current = false;
@@ -1673,7 +1742,7 @@ const VideoDate = () => {
     const scheduleLifecycleAway = (
       source: Extract<WebLifecycleLeaveSource, "visibilitychange" | "pagehide" | "freeze">,
     ) => {
-      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current) return;
+      if (showFeedback || surveyOpenedRef.current || explicitEndRequestedRef.current !== "idle") return;
       if (phaseRef.current === "ended") return;
       if (leaveSignalSentRef.current) return;
       const startedAt = lifecycleHiddenStartedAtRef.current ?? Date.now();
@@ -1705,7 +1774,7 @@ const VideoDate = () => {
     };
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isConnected && !showFeedback && !explicitEndRequestedRef.current) {
+      if (isConnected && !showFeedback && explicitEndRequestedRef.current === "idle") {
         e.preventDefault();
         e.returnValue = "You're in a video date. Are you sure you want to leave?";
       }
@@ -2281,8 +2350,8 @@ const VideoDate = () => {
 
   // End call: server-owned `video_date_transition(end, …)` + survey/navigation UX (no direct session row writes here).
   const handleCallEnd = useCallback(async (reason: VideoDateEndReason = "ended_from_client") => {
-    if (explicitEndRequestedRef.current) return;
-    explicitEndRequestedRef.current = true;
+    if (explicitEndRequestedRef.current !== "idle") return;
+    explicitEndRequestedRef.current = "sending";
     const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date" || Boolean(dateStartedAt);
     const analyticsBudgetSeconds =
       phase === "handshake"
@@ -2294,7 +2363,7 @@ const VideoDate = () => {
       phase,
     });
     if (!id) {
-      explicitEndRequestedRef.current = false;
+      explicitEndRequestedRef.current = "idle";
       return;
     }
 
@@ -2304,31 +2373,44 @@ const VideoDate = () => {
       p_reason: reason,
     };
     vdbg("video_date_transition_before", { action: "end", args });
-    try {
-      const { data, error } = await supabase.rpc("video_date_transition", args);
-      vdbg("video_date_transition_after", {
-        action: "end",
-        ok: !error,
-        payload: data ?? null,
-        error: error ? { code: error.code, message: error.message } : null,
-      });
+    const transitionResult = await sendVideoDateSignalWithRetry({
+      sessionId: id,
+      action: "end",
+      operation: async (attempt, idempotencyKey) => {
+        const { data, error } = await supabase.rpc("video_date_transition", args);
+        vdbg("video_date_transition_after", {
+          action: "end",
+          ok: !error,
+          payload: data ?? null,
+          error: error ? { code: error.code, message: error.message } : null,
+          attempt,
+          idempotencyKey,
+        });
+        if (error) throw error;
+        return data;
+      },
+      isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
+    });
 
-      if (error) {
+    try {
+      if (!transitionResult.ok) {
         const { data: sessionRow } = await supabase
           .from("video_sessions")
           .select("ended_at, state, phase, date_started_at")
           .eq("id", id)
           .maybeSingle();
         if (videoSessionIndicatesTerminalEnd(sessionRow) && videoSessionHasDatePhaseEvidence(sessionRow)) {
+          explicitEndRequestedRef.current = "acked";
           markDateFlowEntered();
           openPostDateSurvey("local_end_recovered_after_rpc_error");
           return;
         }
         toast.error("Couldn't finish ending the date. Please try again.");
-        explicitEndRequestedRef.current = false;
+        explicitEndRequestedRef.current = "idle";
         return;
       }
 
+      explicitEndRequestedRef.current = "acked";
       const { data: sessionRow } = await supabase
         .from("video_sessions")
         .select("ended_at, state, phase, date_started_at")
@@ -2354,7 +2436,7 @@ const VideoDate = () => {
         error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
       });
       toast.error("Couldn't finish ending the date. Please try again.");
-      explicitEndRequestedRef.current = false;
+      explicitEndRequestedRef.current = "idle";
     }
   }, [id, phase, timeLeft, dateExtraSeconds, dateStartedAt, openPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
 

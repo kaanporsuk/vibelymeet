@@ -67,6 +67,19 @@ test("participant tokens are scoped to the same canonical room but distinct user
   assert.notEqual(userA.user_id, userB.user_id);
   assert.equal(userA.exp, 1_120);
   assert.equal(userB.exp, 1_120);
+  assert.equal(userA.eject_at_token_exp, undefined);
+});
+
+test("meeting tokens can opt into provider eject at token expiry", () => {
+  const token = buildMeetingTokenProperties({
+    roomName: ROOM_NAME,
+    userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    ttlSeconds: 120,
+    nowSeconds: 1_000,
+    ejectAtTokenExp: true,
+  });
+
+  assert.equal(token.eject_at_token_exp, true);
 });
 
 test("Daily provider already-exists errors are treated as idempotent room creation success", () => {

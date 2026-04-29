@@ -27,7 +27,7 @@ const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 7_200;
 const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 7_200;
 // Video dates can be extended with credits; keep provider credentials finite
 // while covering the normal 5-minute flow plus generous extension/reconnect room.
-const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 
 type VideoDateRoomGateSession = {
@@ -792,6 +792,7 @@ async function createMeetingToken(
   userId: string,
   expSeconds: number,
   retries = 2,
+  options: { ejectAtTokenExp?: boolean } = {},
 ): Promise<string> {
   const res = await fetch(`${DAILY_API_URL}/meeting-tokens`, {
     method: "POST",
@@ -804,13 +805,14 @@ async function createMeetingToken(
         roomName,
         userId,
         ttlSeconds: expSeconds,
+        ejectAtTokenExp: options.ejectAtTokenExp,
       }),
     }),
   });
 
   if (res.status === 429 && retries > 0) {
     await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
-    return createMeetingToken(roomName, userId, expSeconds, retries - 1);
+    return createMeetingToken(roomName, userId, expSeconds, retries - 1, options);
   }
 
   if (!res.ok) {
@@ -829,6 +831,10 @@ async function createMeetingToken(
     });
   }
   return data.token;
+}
+
+function meetingTokenExpiresAtIso(ttlSeconds: number, nowMs = Date.now()): string {
+  return new Date(nowMs + ttlSeconds * 1000).toISOString();
 }
 
 async function createDailyRoom(
@@ -1979,6 +1985,7 @@ serve(async (req) => {
         timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
 
         const tokenStartedAt = Date.now();
+        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
         const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
         timings.token_ms = Date.now() - tokenStartedAt;
         await recordVideoDateProviderObservability({
@@ -2058,6 +2065,7 @@ serve(async (req) => {
             room_name: roomName,
             room_url: roomUrl,
             token,
+            token_expires_at: tokenExpiresAt,
             session_state: confirmPayload.state ?? null,
             session_phase: confirmPayload.phase ?? null,
             handshake_started_at: confirmPayload.handshake_started_at ?? null,
@@ -2281,6 +2289,8 @@ serve(async (req) => {
           providerVerifySkipped,
         } = roomProof;
 
+        const tokenStartedAt = Date.now();
+        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
         const token = await createMeetingToken(roomName, user.id, DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS);
         await recordVideoDateProviderObservability({
           serviceClient,
@@ -2328,6 +2338,7 @@ serve(async (req) => {
             room_name: roomName,
             room_url: roomUrl,
             token,
+            token_expires_at: tokenExpiresAt,
             reused_room: reusedRoom,
             provider_room_recreated: providerRoomRecreated,
             provider_room_recovered: providerRoomRecovered,
@@ -2540,6 +2551,8 @@ serve(async (req) => {
           return roomProof.response;
         }
 
+        const tokenStartedAt = Date.now();
+        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS, tokenStartedAt);
         const token = await createMeetingToken(
           roomProof.roomName,
           user.id,
@@ -2570,6 +2583,7 @@ serve(async (req) => {
             room_name: roomProof.roomName,
             room_url: roomProof.roomUrl,
             token,
+            token_expires_at: tokenExpiresAt,
             reused_room: roomProof.reusedRoom,
             provider_room_recreated: roomProof.providerRoomRecreated,
             provider_room_recovered: roomProof.providerRoomRecovered,

@@ -16,7 +16,9 @@ import { useEventLifecycle } from "@/hooks/useEventLifecycle";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
+import { submitWebPostDateOutboxItem } from "@/lib/postDateOutbox/execute";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import type { PostDateSafetyReportPayload } from "@clientShared/postDateOutbox/types";
 import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionFlow";
 import {
   getPostDateSurveyContinuityDecision,
@@ -30,7 +32,6 @@ import {
 } from "@clientShared/matching/videoDateDiagnostics";
 import {
   mapPostDateSafetyCategoryToReasonId,
-  submitUserReportRpc,
 } from "@clientShared/safety/submitUserReportRpc";
 
 interface PostDateSurveyProps {
@@ -102,6 +103,8 @@ export const PostDateSurvey = ({
   const verdictStepImpressionRef = useRef(false);
   const finishSurveyInFlightRef = useRef(false);
   const queuedNavigationStartedRef = useRef(false);
+  const reportBeforeVerdictRef = useRef(false);
+  const reportPassVerdictSavedRef = useRef(false);
 
   useEffect(() => {
     if (!isOpen || !sessionId) return;
@@ -138,6 +141,8 @@ export const PostDateSurvey = ({
     verdictStepImpressionRef.current = false;
     finishSurveyInFlightRef.current = false;
     queuedNavigationStartedRef.current = false;
+    reportBeforeVerdictRef.current = false;
+    reportPassVerdictSavedRef.current = false;
     setCelebrationData(null);
   }, [sessionId]);
 
@@ -451,56 +456,21 @@ export const PostDateSurvey = ({
       );
 
       try {
-        let data: unknown = null;
-        let lastError: unknown = null;
-        for (let attempt = 1; attempt <= 3; attempt += 1) {
-          try {
-            const response = await supabase.functions.invoke("post-date-verdict", {
-              body: { session_id: sessionId, liked },
-            });
-            if (response.error) throw response.error;
-            data = response.data;
-            lastError = null;
-            if (attempt > 1) {
-              trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_SUCCESS_AFTER_RETRY, {
-                platform: "web",
-                session_id: sessionId,
-                event_id: eventId,
-                attempt,
-              });
-            }
-            break;
-          } catch (err) {
-            lastError = err;
-            trackEvent(
-              attempt < 3
-                ? LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_RETRY
-                : LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED,
-              {
-                platform: "web",
-                session_id: sessionId,
-                event_id: eventId,
-                attempt,
-              },
-            );
-            if (attempt < 3) await sleep(350 * 2 ** (attempt - 1));
-          }
-        }
-
-        if (lastError) throw lastError;
-
-        const result = data as {
-          success?: boolean;
-          error?: string;
-          code?: string;
-          mutual?: boolean;
-          verdict_recorded?: boolean;
-          awaiting_partner_verdict?: boolean;
-          partner_verdict_recorded?: boolean;
-        } | null;
+        const result = await submitWebPostDateOutboxItem({
+          userId: user.id,
+          sessionId,
+          eventId,
+          payload: { kind: "verdict", liked },
+        });
 
         if (result && result.success === false) {
           const code = result.code ?? result.error;
+          trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            reason: code,
+          });
           setVerdictRetryable(!["blocked_pair", "not_participant", "session_not_found"].includes(String(code)));
           setVerdictError(
             code === "blocked_pair"
@@ -583,6 +553,37 @@ export const PostDateSurvey = ({
     [user?.id, sessionId, eventId, isSubmitting, logJourney]
   );
 
+  const recordReportPassVerdict = useCallback(
+    async (report?: PostDateSafetyReportPayload | null) => {
+      if (!user?.id || reportPassVerdictSavedRef.current) return true;
+      const result = await submitWebPostDateOutboxItem({
+        userId: user.id,
+        sessionId,
+        eventId,
+        payload: { kind: "verdict", liked: false, report: report ?? null },
+      });
+      if (result.success === false) {
+        trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          reason: result.code ?? result.error ?? "report_pass_verdict_failed",
+        });
+        return false;
+      }
+      reportPassVerdictSavedRef.current = true;
+      trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        verdict: "pass",
+        source: "report_before_verdict",
+      });
+      return true;
+    },
+    [eventId, sessionId, user?.id],
+  );
+
   // Screen 2: Highlights (optional)
   const handleHighlights = useCallback(
     async (data: {
@@ -622,6 +623,14 @@ export const PostDateSurvey = ({
     async (data: { photoAccurate: string | null; honestRepresentation: string | null }) => {
       if (!user?.id) return;
 
+      if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
+        const ok = await recordReportPassVerdict(null);
+        if (!ok) {
+          toast.error("Couldn't save your answer. Check your connection and try again.");
+          return;
+        }
+      }
+
       try {
         await supabase
           .from("date_feedback")
@@ -637,7 +646,7 @@ export const PostDateSurvey = ({
 
       await finishSurvey();
     },
-    [user?.id, sessionId, finishSurvey]
+    [user?.id, sessionId, finishSurvey, recordReportPassVerdict]
   );
 
   const handleReport = useCallback(
@@ -645,19 +654,34 @@ export const PostDateSurvey = ({
       if (!user?.id) return;
 
       const mapped = mapPostDateSafetyCategoryToReasonId(reason);
-      const result = await submitUserReportRpc(supabase, {
-        reportedId: partnerId,
+      const reportPayload: PostDateSafetyReportPayload = {
         reason: mapped,
         details: details || null,
         alsoBlock,
-      });
-      if (!result.ok) {
-        if ("error" in result && result.error === "rate_limited") {
+      };
+      const result = reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current
+        ? await submitWebPostDateOutboxItem({
+            userId: user.id,
+            sessionId,
+            eventId,
+            payload: { kind: "verdict", liked: false, report: reportPayload },
+          })
+        : await submitWebPostDateOutboxItem({
+            userId: user.id,
+            sessionId,
+            eventId,
+            payload: { kind: "report", report: reportPayload },
+          });
+      if (result.success === false) {
+        if (result.error === "rate_limited" || result.code === "rate_limited") {
           toast.error("Too many reports in a short time. Try again later.");
         } else {
           toast.error("Failed to submit report.");
         }
         return;
+      }
+      if (reportBeforeVerdictRef.current) {
+        reportPassVerdictSavedRef.current = true;
       }
       toast.success(
         alsoBlock
@@ -665,10 +689,11 @@ export const PostDateSurvey = ({
           : "Report submitted. We'll review it promptly."
       );
     },
-    [user?.id, partnerId]
+    [user?.id, sessionId, eventId]
   );
 
   const handleReportFromVerdict = useCallback(() => {
+    reportBeforeVerdictRef.current = true;
     setStep("safety");
   }, []);
 
@@ -765,7 +790,14 @@ export const PostDateSurvey = ({
                           variant="outline"
                           size="sm"
                           disabled={isSubmitting}
-                          onClick={() => void handleVerdict(lastVerdictAttempt)}
+                          onClick={() => {
+                            trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_RETRY, {
+                              platform: "web",
+                              session_id: sessionId,
+                              event_id: eventId,
+                            });
+                            void handleVerdict(lastVerdictAttempt);
+                          }}
                           className="h-8 rounded-full border-destructive/40 bg-background/80 text-xs text-foreground hover:bg-background"
                         >
                           Try again
@@ -825,7 +857,16 @@ export const PostDateSurvey = ({
                       event_id: eventId,
                       step: "safety",
                     });
-                    void finishSurvey();
+                    void (async () => {
+                      if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
+                        const ok = await recordReportPassVerdict(null);
+                        if (!ok) {
+                          toast.error("Couldn't save your answer. Check your connection and try again.");
+                          return;
+                        }
+                      }
+                      await finishSurvey();
+                    })();
                   }}
                   onReport={handleReport}
                   isBusy={isFinishingSurvey}

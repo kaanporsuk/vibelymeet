@@ -62,6 +62,7 @@ import { WebOnBreakBanner } from "@/components/layout/WebOnBreakBanner";
 import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletionBanner";
 import { MatchCallProvider } from "@/hooks/useMatchCall";
 import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
+import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
 
@@ -133,6 +134,7 @@ const App = () => (
             <BrowserRouter>
               <MatchCallProvider>
                 <WebChatOutboxRunner />
+                <WebPostDateOutboxRunner />
                 <WebPasswordRecoveryHandler />
                 <PostHogPageTracker />
                 <SessionRouteHydration />
