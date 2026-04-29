@@ -1,5 +1,18 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  buildMeetingTokenProperties,
+  canIssueAnswerTokenForMatchCallStatus,
+  canReuseOpenMatchCallForCreateRetry,
+  classifyDeleteRoomSafety,
+  isDailyRoomAlreadyExistsErrorText,
+  planDailyProviderRoomRecovery,
+  resolveCanonicalVideoDateRoom,
+  videoDateRoomNameForSession,
+  videoDateRoomUrlForName as buildVideoDateRoomUrlForName,
+  type DateRoomAction,
+  type OpenMatchCallForRetry,
+} from "./dailyRoomContracts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,8 +29,6 @@ const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 7_200;
 // while covering the normal 5-minute flow plus generous extension/reconnect room.
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
-
-type DateRoomAction = "create_date_room" | "join_date_room" | "prepare_date_entry" | "video_date_leave";
 
 type VideoDateRoomGateSession = {
   id: string;
@@ -45,10 +56,13 @@ type MatchCallRow = {
   id: string;
   caller_id: string;
   callee_id: string;
+  call_type?: string | null;
   daily_room_name: string | null;
   daily_room_url: string | null;
   status: string | null;
   match_id: string | null;
+  ended_at?: string | null;
+  provider_deleted_at?: string | null;
 };
 
 type ClientRequestContext = {
@@ -786,12 +800,11 @@ async function createMeetingToken(
       Authorization: `Bearer ${DAILY_API_KEY}`,
     },
     body: JSON.stringify({
-      properties: {
-        room_name: roomName,
-        user_id: userId,
-        enable_screenshare: false,
-        exp: Math.floor(Date.now() / 1000) + expSeconds,
-      },
+      properties: buildMeetingTokenProperties({
+        roomName,
+        userId,
+        ttlSeconds: expSeconds,
+      }),
     }),
   });
 
@@ -839,7 +852,7 @@ async function createDailyRoom(
 
   if (res.status === 400) {
     const errBody = await readDailyProviderErrorBody(res);
-    if (errBody.text.toLowerCase().includes("already exists")) {
+    if (isDailyRoomAlreadyExistsErrorText(errBody.text)) {
       return { url: `https://${DAILY_DOMAIN}/${roomName}`, name: roomName, alreadyExisted: true };
     }
     throw await dailyProviderErrorFromResponse(res, "create_room", roomName);
@@ -875,11 +888,13 @@ async function getDailyRoomProviderState(roomName: string, retries = 2): Promise
   return { exists: true, expired };
 }
 
+type DeleteDailyRoomOutcome = "deleted" | "not_found_idempotent";
+
 async function deleteDailyRoom(
   roomName: string,
   options: { throwOnProviderError?: boolean } = {},
   retries = 2,
-): Promise<void> {
+): Promise<DeleteDailyRoomOutcome> {
   try {
     const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
       method: "DELETE",
@@ -889,7 +904,8 @@ async function deleteDailyRoom(
       await new Promise((r) => setTimeout(r, 1000 * (3 - retries)));
       return deleteDailyRoom(roomName, options, retries - 1);
     }
-    if (res.ok || res.status === 404) return;
+    if (res.ok) return "deleted";
+    if (res.status === 404) return "not_found_idempotent";
     const providerError = await dailyProviderErrorFromResponse(res, "delete_room", roomName);
     if (options.throwOnProviderError) throw providerError;
     logDailyProviderFailure(providerError, { roomName });
@@ -897,6 +913,7 @@ async function deleteDailyRoom(
     if (options.throwOnProviderError) throw error;
     // Best-effort
   }
+  return "not_found_idempotent";
 }
 
 function videoDateRoomProperties(): Record<string, unknown> {
@@ -913,12 +930,63 @@ function videoDateRoomProperties(): Record<string, unknown> {
   };
 }
 
-function videoDateRoomNameForSession(sessionId: string): string {
-  return `date-${sessionId.replace(/-/g, "")}`;
+function matchCallRoomProperties(callTypeValue: "voice" | "video"): Record<string, unknown> {
+  return {
+    max_participants: 2,
+    enable_chat: false,
+    enable_screenshare: false,
+    start_video_off: callTypeValue === "voice",
+    start_audio_off: false,
+    exp: Math.floor(Date.now() / 1000) + DAILY_MATCH_CALL_ROOM_TTL_SECONDS,
+    eject_at_room_exp: false,
+  };
 }
 
 function videoDateRoomUrlForName(roomName: string): string {
+  return buildVideoDateRoomUrlForName(roomName, DAILY_DOMAIN);
+}
+
+function matchCallRoomUrlForName(roomName: string): string {
   return `https://${DAILY_DOMAIN}/${roomName}`;
+}
+
+async function ensureMatchCallProviderRoomForToken(params: {
+  action: string;
+  callId: string;
+  matchId?: string | null;
+  userId: string;
+  roomName: string;
+  roomUrl?: string | null;
+  callType: "voice" | "video";
+}): Promise<{ roomName: string; roomUrl: string; providerRoomRecreated: boolean; providerRoomRecovered: boolean }> {
+  const roomName = params.roomName;
+  const roomUrl = params.roomUrl ?? matchCallRoomUrlForName(roomName);
+  const state = await getDailyRoomProviderState(roomName);
+  const recoveryPlan = planDailyProviderRoomRecovery(state);
+
+  if (recoveryPlan.shouldCreate) {
+    console.log(JSON.stringify({
+      event: "match_call_provider_room_missing_or_expired_recovering",
+      action: params.action,
+      call_id: params.callId,
+      match_id: params.matchId ?? null,
+      user_id: params.userId,
+      room_name: roomName,
+      provider_exists: state.exists,
+      provider_expired: state.expired,
+    }));
+    if (recoveryPlan.shouldDeleteExpired) {
+      await deleteDailyRoom(roomName, { throwOnProviderError: true });
+    }
+    await createDailyRoom(roomName, matchCallRoomProperties(params.callType));
+  }
+
+  return {
+    roomName,
+    roomUrl,
+    providerRoomRecreated: recoveryPlan.providerRoomRecreated,
+    providerRoomRecovered: recoveryPlan.providerRoomRecovered,
+  };
 }
 
 type VideoDateProviderRoomProof =
@@ -943,11 +1011,14 @@ async function ensureVideoDateProviderRoomForToken(params: {
   entryAttemptId?: string | null;
   videoDateTraceId?: string | null;
 }): Promise<VideoDateProviderRoomProof> {
-  const roomName = videoDateRoomNameForSession(params.sessionId);
-  const roomUrl = videoDateRoomUrlForName(roomName);
   const existingRoomName = params.session.daily_room_name ?? null;
   const existingRoomUrl = params.session.daily_room_url ?? null;
-  const metadataMatchesCanonical = existingRoomName === roomName && existingRoomUrl === roomUrl;
+  const { roomName, roomUrl, metadataMatchesCanonical } = resolveCanonicalVideoDateRoom({
+    sessionId: params.sessionId,
+    dailyDomain: DAILY_DOMAIN,
+    existingRoomName,
+    existingRoomUrl,
+  });
   let reusedRoom = metadataMatchesCanonical;
   let providerRoomRecreated = false;
   let providerRoomRecovered = false;
@@ -972,7 +1043,8 @@ async function ensureVideoDateProviderRoomForToken(params: {
   });
 
   const providerRoomState = await getDailyRoomProviderState(roomName);
-  if (!providerRoomState.exists || providerRoomState.expired) {
+  const recoveryPlan = planDailyProviderRoomRecovery(providerRoomState);
+  if (recoveryPlan.shouldCreate) {
     providerRoomRecovered = Boolean(existingRoomName) || providerRoomState.expired;
     providerRoomRecreated = Boolean(existingRoomName) || providerRoomState.expired;
     reusedRoom = false;
@@ -989,7 +1061,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
       entry_attempt_id: params.entryAttemptId ?? null,
       video_date_trace_id: params.videoDateTraceId ?? params.entryAttemptId ?? null,
     }));
-    if (providerRoomState.exists) {
+    if (recoveryPlan.shouldDeleteExpired) {
       await deleteDailyRoom(roomName, { throwOnProviderError: true });
     }
     const providerRoom = await createDailyRoom(roomName, videoDateRoomProperties());
@@ -1216,7 +1288,7 @@ async function assertCreateMatchCallAllowed(params: {
   archivedAt: string | null;
 }): Promise<
   | { ok: true }
-  | { ok: false; status: number; code: string; message: string }
+  | { ok: false; status: number; code: string; message: string; duplicateCall?: OpenMatchCallForRetry | null }
 > {
   const { serviceClient, matchId, callerId, calleeId, archivedAt } = params;
 
@@ -1254,7 +1326,7 @@ async function assertCreateMatchCallAllowed(params: {
 
   const { data: dup } = await serviceClient
     .from("match_calls")
-    .select("id")
+    .select("id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status")
     .eq("match_id", matchId)
     .in("status", ["ringing", "active"])
     .limit(1)
@@ -1266,6 +1338,7 @@ async function assertCreateMatchCallAllowed(params: {
       status: 409,
       code: "DUPLICATE_ACTIVE_CALL",
       message: "A call is already in progress for this match",
+      duplicateCall: dup as OpenMatchCallForRetry,
     };
   }
 
@@ -1304,6 +1377,136 @@ async function assertCreateMatchCallAllowed(params: {
   }
 
   return { ok: true };
+}
+
+async function fetchOpenMatchCallForMatch(
+  serviceClient: ReturnType<typeof createClient>,
+  matchId: string,
+): Promise<OpenMatchCallForRetry | null> {
+  const { data, error } = await serviceClient
+    .from("match_calls")
+    .select("id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status")
+    .eq("match_id", matchId)
+    .in("status", ["ringing", "active"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as OpenMatchCallForRetry | null) ?? null;
+}
+
+function createDuplicateActiveMatchCallResponse(matchId: string, callerId: string, calleeId?: string | null) {
+  console.log(
+    JSON.stringify({
+      event: "create_match_call_rejected",
+      code: "DUPLICATE_ACTIVE_CALL",
+      match_id: matchId,
+      caller_id: callerId,
+      callee_id: calleeId ?? null,
+    }),
+  );
+  return new Response(
+    JSON.stringify({
+      error: "A call is already in progress for this match",
+      code: "DUPLICATE_ACTIVE_CALL",
+    }),
+    {
+      status: 409,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
+async function maybeCreateMatchCallRetryResponse(params: {
+  call: OpenMatchCallForRetry | null | undefined;
+  request: {
+    matchId: string;
+    callerId: string;
+    calleeId: string;
+    callType: "voice" | "video";
+  };
+}): Promise<Response | null> {
+  if (!canReuseOpenMatchCallForCreateRetry(params.call, params.request)) {
+    return null;
+  }
+
+  try {
+    const providerRoom = await ensureMatchCallProviderRoomForToken({
+      action: "create_match_call_retry",
+      callId: params.call.id,
+      matchId: params.call.match_id,
+      userId: params.request.callerId,
+      roomName: params.call.daily_room_name,
+      roomUrl: params.call.daily_room_url,
+      callType: params.request.callType,
+    });
+    const token = await createMeetingToken(
+      providerRoom.roomName,
+      params.request.callerId,
+      DAILY_MATCH_CALL_TOKEN_TTL_SECONDS,
+    );
+
+    console.log(
+      JSON.stringify({
+        event: "create_match_call_retry_reused_existing_call",
+        call_id: params.call.id,
+        match_id: params.request.matchId,
+        caller_id: params.request.callerId,
+        callee_id: params.request.calleeId,
+        call_type: params.request.callType,
+        room_name: providerRoom.roomName,
+        status: params.call.status,
+        provider_room_recreated: providerRoom.providerRoomRecreated,
+        provider_room_recovered: providerRoom.providerRoomRecovered,
+        has_token: true,
+      }),
+    );
+
+    return new Response(
+      JSON.stringify({
+        call_id: params.call.id,
+        room_name: providerRoom.roomName,
+        room_url: providerRoom.roomUrl,
+        token,
+        reused_call: true,
+        status: params.call.status,
+        provider_room_recreated: providerRoom.providerRoomRecreated,
+        provider_room_recovered: providerRoom.providerRoomRecovered,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (tokenErr) {
+    const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
+    if (isDailyProviderError(tokenErr)) {
+      logDailyProviderFailure(tokenErr, {
+        action: "create_match_call_retry",
+        matchId: params.request.matchId,
+        callId: params.call.id,
+        userId: params.request.callerId,
+        roomName: params.call.daily_room_name,
+      });
+    }
+    console.error(
+      JSON.stringify({
+        event: "create_match_call_retry_token_failed",
+        call_id: params.call.id,
+        match_id: params.request.matchId,
+        caller_id: params.request.callerId,
+        room_name: params.call.daily_room_name,
+        detail,
+      }),
+    );
+    return new Response(
+      JSON.stringify({
+        error: "Call service temporarily unavailable",
+        code: "TOKEN_ISSUE_FAILED",
+      }),
+      {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
 }
 
 serve(async (req) => {
@@ -1423,11 +1626,12 @@ serve(async (req) => {
 
       let authorized = false;
       let roomType = "unknown";
+      let callRow: MatchCallRow | null = null;
 
       // Check video_sessions first
       const { data: vsRow } = await supabase
         .from("video_sessions")
-        .select("id, participant_1_id, participant_2_id, ended_at")
+        .select("id, participant_1_id, participant_2_id, ended_at, state, phase")
         .eq("daily_room_name", roomName)
         .maybeSingle();
 
@@ -1436,11 +1640,12 @@ serve(async (req) => {
         roomType = "video_date";
       } else {
         // Fall back to match_calls
-        const { data: callRow } = await supabase
+        const { data: rawCallRow } = await supabase
           .from("match_calls")
-          .select("id, caller_id, callee_id")
+          .select("id, caller_id, callee_id, match_id, call_type, daily_room_name, daily_room_url, status, ended_at, provider_deleted_at")
           .eq("daily_room_name", roomName)
           .maybeSingle();
+        callRow = (rawCallRow as MatchCallRow | null) ?? null;
 
         if (callRow) {
           authorized = callRow.caller_id === user.id || callRow.callee_id === user.id;
@@ -1464,6 +1669,12 @@ serve(async (req) => {
       }
 
       if (roomType === "video_date") {
+        const decision = classifyDeleteRoomSafety({
+          roomType: "video_date",
+          endedAt: vsRow?.ended_at ?? null,
+          state: vsRow?.state ?? null,
+          phase: vsRow?.phase ?? null,
+        });
         console.log(JSON.stringify({
           event: "delete_room_skipped",
           user_id: user.id,
@@ -1472,20 +1683,61 @@ serve(async (req) => {
           reason: "video_date_room_cleanup_owned_by_cron",
           session_id: vsRow?.id ?? null,
           session_ended: Boolean(vsRow?.ended_at),
+          outcome: decision.outcome,
+          code: decision.code,
         }));
         return new Response(
           JSON.stringify({
             success: true,
             skipped: true,
-            code: "VIDEO_DATE_CLEANUP_OWNED_BY_CRON",
+            code: decision.code,
+            outcome: decision.outcome,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      await deleteDailyRoom(roomName, { throwOnProviderError: true });
+      if (roomType === "match_call" && callRow) {
+        const decision = classifyDeleteRoomSafety({
+          roomType: "match_call",
+          status: callRow.status,
+          endedAt: callRow.ended_at ?? null,
+          providerDeletedAt: callRow.provider_deleted_at ?? null,
+        });
+        if (!decision.shouldDelete) {
+          console.log(JSON.stringify({
+            event: "delete_room_skipped",
+            user_id: user.id,
+            room_name: roomName,
+            room_type: roomType,
+            call_id: callRow.id,
+            match_id: callRow.match_id,
+            status: callRow.status,
+            outcome: decision.outcome,
+            code: decision.code,
+          }));
+          return new Response(
+            JSON.stringify({
+              success: true,
+              skipped: true,
+              code: decision.code,
+              outcome: decision.outcome,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+      }
+
+      const deleteOutcome = await deleteDailyRoom(roomName, { throwOnProviderError: true });
+      if (roomType === "match_call" && callRow) {
+        await serviceClient
+          .from("match_calls")
+          .update({ provider_deleted_at: new Date().toISOString() })
+          .eq("id", callRow.id)
+          .is("provider_deleted_at", null);
+      }
       return new Response(
-        JSON.stringify({ success: true }),
+        JSON.stringify({ success: true, code: deleteOutcome === "deleted" ? "DELETED" : "NOT_FOUND_IDEMPOTENT", outcome: deleteOutcome }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -2274,37 +2526,6 @@ serve(async (req) => {
           });
         }
 
-        if (!session.daily_room_name) {
-          await recordVideoDateProviderObservability({
-            serviceClient,
-            operation: "create_date_room_blocked_access_denied",
-            outcome: "blocked",
-            reasonCode: "ROOM_NOT_FOUND",
-            eventId: session.event_id ?? null,
-            actorId: user.id,
-            sessionId: typeof sessionId === "string" ? sessionId : null,
-            action,
-            entryAttemptId,
-            videoDateTraceId,
-            roomName: typeof sessionId === "string" ? videoDateRoomNameForSession(sessionId) : null,
-            detail: {
-              typed_error_code: "ROOM_NOT_FOUND",
-              source: "daily_room_name_guard",
-            },
-          });
-          return createDateRoomRejectResponse({
-            action,
-            sessionId,
-            userId: user.id,
-            status: 404,
-            code: "ROOM_NOT_FOUND",
-            error: "Room not found",
-            requestContext,
-            session,
-            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
-          });
-        }
-
         const roomProof = await ensureVideoDateProviderRoomForToken({
           serviceClient,
           action,
@@ -2428,6 +2649,7 @@ serve(async (req) => {
         match.profile_id_1 === user.id
           ? match.profile_id_2
           : match.profile_id_1;
+      const callTypeValue = callType === "voice" ? "voice" : "video";
 
       const gate = await assertCreateMatchCallAllowed({
         serviceClient,
@@ -2438,6 +2660,14 @@ serve(async (req) => {
       });
 
       if (!gate.ok) {
+        if (gate.code === "DUPLICATE_ACTIVE_CALL") {
+          const retryResponse = await maybeCreateMatchCallRetryResponse({
+            call: gate.duplicateCall ?? null,
+            request: { matchId, callerId: user.id, calleeId, callType: callTypeValue },
+          });
+          if (retryResponse) return retryResponse;
+          return createDuplicateActiveMatchCallResponse(matchId, user.id, calleeId);
+        }
         console.log(
           JSON.stringify({
             event: "create_match_call_rejected",
@@ -2460,19 +2690,10 @@ serve(async (req) => {
       const roomName = `call-${matchId
         .replace(/-/g, "")
         .substring(0, 20)}-${Date.now().toString(36)}`;
-      const callTypeValue = callType === "voice" ? "voice" : "video";
 
-      await createDailyRoom(roomName, {
-        max_participants: 2,
-        enable_chat: false,
-        enable_screenshare: false,
-        start_video_off: callTypeValue === "voice",
-        start_audio_off: false,
-        exp: Math.floor(Date.now() / 1000) + DAILY_MATCH_CALL_ROOM_TTL_SECONDS,
-        eject_at_room_exp: false,
-      });
+      await createDailyRoom(roomName, matchCallRoomProperties(callTypeValue));
 
-      const roomUrl = `https://${DAILY_DOMAIN}/${roomName}`;
+      const roomUrl = matchCallRoomUrlForName(roomName);
       let callerToken: string;
       try {
         callerToken = await createMeetingToken(roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
@@ -2526,6 +2747,12 @@ serve(async (req) => {
         await deleteDailyRoom(roomName);
         const pgCode = (callError as { code?: string }).code;
         if (pgCode === "23505") {
+          const existingCall = await fetchOpenMatchCallForMatch(serviceClient, matchId);
+          const retryResponse = await maybeCreateMatchCallRetryResponse({
+            call: existingCall,
+            request: { matchId, callerId: user.id, calleeId, callType: callTypeValue },
+          });
+          if (retryResponse) return retryResponse;
           console.log(
             JSON.stringify({
               event: "create_match_call_duplicate_db",
@@ -2535,16 +2762,7 @@ serve(async (req) => {
               caller_id: user.id,
             }),
           );
-          return new Response(
-            JSON.stringify({
-              error: "A call is already in progress for this match",
-              code: "DUPLICATE_ACTIVE_CALL",
-            }),
-            {
-              status: 409,
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            },
-          );
+          return createDuplicateActiveMatchCallResponse(matchId, user.id, calleeId);
         }
         console.error(
           JSON.stringify({
@@ -2636,7 +2854,7 @@ serve(async (req) => {
 
       const { data: call } = await supabase
         .from("match_calls")
-        .select("id, caller_id, callee_id, daily_room_name, daily_room_url, status, match_id")
+        .select("id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, match_id")
         .eq("id", targetCallId)
         .maybeSingle();
 
@@ -2702,9 +2920,32 @@ serve(async (req) => {
         );
       }
 
+      if (!call.daily_room_name) {
+        return new Response(
+          JSON.stringify({
+            error: "Call room is unavailable",
+            code: "ROOM_NOT_FOUND",
+          }),
+          {
+            status: 409,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+
       let token: string;
+      let providerRoom: { roomName: string; roomUrl: string; providerRoomRecreated: boolean; providerRoomRecovered: boolean };
       try {
-        token = await createMeetingToken(call.daily_room_name, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
+        providerRoom = await ensureMatchCallProviderRoomForToken({
+          action: "join_match_call",
+          callId: call.id,
+          matchId: call.match_id,
+          userId: user.id,
+          roomName: call.daily_room_name,
+          roomUrl: call.daily_room_url,
+          callType: call.call_type === "voice" ? "voice" : "video",
+        });
+        token = await createMeetingToken(providerRoom.roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
         if (isDailyProviderError(tokenErr)) {
@@ -2740,9 +2981,11 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           call_id: call.id,
-          room_name: call.daily_room_name,
-          room_url: call.daily_room_url,
+          room_name: providerRoom.roomName,
+          room_url: providerRoom.roomUrl,
           token,
+          provider_room_recreated: providerRoom.providerRoomRecreated,
+          provider_room_recovered: providerRoom.providerRoomRecovered,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -2764,7 +3007,7 @@ serve(async (req) => {
       // Fetch the call row first (read-only, callee-only guard)
       const { data: call } = await supabase
         .from("match_calls")
-        .select("id, caller_id, callee_id, daily_room_name, daily_room_url, status, match_id")
+        .select("id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, match_id")
         .eq("id", targetCallId)
         .eq("callee_id", user.id)
         .maybeSingle();
@@ -2805,17 +3048,19 @@ serve(async (req) => {
         });
       }
 
-      if (call.status !== "ringing") {
+      let callForToken = call as MatchCallRow;
+      const callTypeValue = callForToken.call_type === "voice" ? "voice" : "video";
+      if (!canIssueAnswerTokenForMatchCallStatus(callForToken.status)) {
         console.log(
           JSON.stringify({
             event: "answer_match_call_rejected",
             code: "CALL_NOT_RINGING",
-            call_id: call.id,
-            status: call.status,
+            call_id: callForToken.id,
+            status: callForToken.status,
           }),
         );
         return new Response(
-          JSON.stringify({ error: "Call is no longer ringing", code: "CALL_NOT_RINGING", status: call.status }),
+          JSON.stringify({ error: "Call is no longer ringing", code: "CALL_NOT_RINGING", status: callForToken.status }),
           {
             status: 409,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2823,76 +3068,118 @@ serve(async (req) => {
         );
       }
 
-      // Activate first (row lock + single source of truth), then issue token — avoids returning a usable token while DB is still "ringing".
-      const { data: transition } = await supabase.rpc("match_call_transition", {
-        p_call_id: call.id,
-        p_action: "answer",
-      });
+      let activatedDuringRequest = false;
+      let idempotentAnswerRetry = callForToken.status === "active";
+      if (callForToken.status === "ringing") {
+        // Activate first (row lock + single source of truth), then issue token — avoids returning a usable token while DB is still "ringing".
+        const { data: transition } = await supabase.rpc("match_call_transition", {
+          p_call_id: callForToken.id,
+          p_action: "answer",
+        });
 
-      if (!transition?.ok) {
-        console.log(
-          JSON.stringify({
-            event: "answer_match_call_transition_failed",
-            call_id: call.id,
-            transition_code: transition?.code,
-          }),
-        );
+        if (!transition?.ok) {
+          const { data: refreshedCall } = await serviceClient
+            .from("match_calls")
+            .select("id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, match_id")
+            .eq("id", callForToken.id)
+            .maybeSingle();
+          const activeRetry = (refreshedCall as MatchCallRow | null) ?? null;
+          if (activeRetry?.callee_id === user.id && activeRetry.status === "active") {
+            callForToken = activeRetry;
+            idempotentAnswerRetry = true;
+          } else {
+            console.log(
+              JSON.stringify({
+                event: "answer_match_call_transition_failed",
+                call_id: callForToken.id,
+                transition_code: transition?.code,
+              }),
+            );
+            return new Response(
+              JSON.stringify({
+                error: "Call is no longer ringing",
+                code: transition?.code || "CALL_NOT_RINGING",
+                status: transition?.status ?? callForToken.status,
+              }),
+              {
+                status: 409,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
+            );
+          }
+        } else {
+          activatedDuringRequest = true;
+        }
+      }
+
+      if (!callForToken.daily_room_name) {
         return new Response(
           JSON.stringify({
-            error: "Call is no longer ringing",
-            code: transition?.code || "CALL_NOT_RINGING",
-            status: transition?.status ?? call.status,
+            error: "Call room is unavailable",
+            code: "ROOM_NOT_FOUND",
           }),
           {
             status: 409,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+          },
         );
       }
 
       let token: string;
+      let providerRoom: { roomName: string; roomUrl: string; providerRoomRecreated: boolean; providerRoomRecovered: boolean };
       try {
-        token = await createMeetingToken(call.daily_room_name, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
+        providerRoom = await ensureMatchCallProviderRoomForToken({
+          action: "answer_match_call",
+          callId: callForToken.id,
+          matchId: callForToken.match_id,
+          userId: user.id,
+          roomName: callForToken.daily_room_name,
+          roomUrl: callForToken.daily_room_url,
+          callType: callTypeValue,
+        });
+        token = await createMeetingToken(providerRoom.roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
         if (isDailyProviderError(tokenErr)) {
           logDailyProviderFailure(tokenErr, {
             action: "answer_match_call",
-            callId: call.id,
-            matchId: call.match_id,
+            callId: callForToken.id,
+            matchId: callForToken.match_id,
             userId: user.id,
-            roomName: call.daily_room_name,
+            roomName: callForToken.daily_room_name,
           });
         }
         console.error(
           JSON.stringify({
             event: "answer_match_call_token_failed_after_transition",
-            call_id: call.id,
-            match_id: call.match_id,
+            call_id: callForToken.id,
+            match_id: callForToken.match_id,
             callee_id: user.id,
             detail,
           }),
         );
-        try {
-          const { data: rollback } = await supabase.rpc("match_call_transition", {
-            p_call_id: call.id,
-            p_action: "join_failed",
-          });
-          console.log(
-            JSON.stringify({
-              event: "answer_match_call_token_rollback_end",
-              call_id: call.id,
-              rollback_ok: rollback?.ok === true,
-            }),
-          );
-        } catch (rollbackErr) {
-          console.error(
-            JSON.stringify({
-              event: "answer_match_call_token_rollback_failed",
-              call_id: call.id,
-              detail: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
-            }),
-          );
+        if (activatedDuringRequest) {
+          try {
+            const { data: rollback } = await supabase.rpc("match_call_transition", {
+              p_call_id: callForToken.id,
+              p_action: "join_failed",
+            });
+            console.log(
+              JSON.stringify({
+                event: "answer_match_call_token_rollback_end",
+                call_id: callForToken.id,
+                rollback_ok: rollback?.ok === true,
+              }),
+            );
+          } catch (rollbackErr) {
+            console.error(
+              JSON.stringify({
+                event: "answer_match_call_token_rollback_failed",
+                call_id: callForToken.id,
+                detail: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr),
+              }),
+            );
+          }
         }
         return new Response(
           JSON.stringify({
@@ -2908,10 +3195,13 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify({
-          call_id: call.id,
-          room_name: call.daily_room_name,
-          room_url: call.daily_room_url,
+          call_id: callForToken.id,
+          room_name: providerRoom.roomName,
+          room_url: providerRoom.roomUrl,
           token,
+          idempotent_answer_retry: idempotentAnswerRetry,
+          provider_room_recreated: providerRoom.providerRoomRecreated,
+          provider_room_recovered: providerRoom.providerRoomRecovered,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
