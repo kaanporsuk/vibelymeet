@@ -110,6 +110,10 @@ const partialJoinObservabilityPolishMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501144000_video_date_partial_join_observability_polish.sql"),
   "utf8",
 );
+const partialJoinManualEndMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501145000_video_date_peer_missing_manual_end.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -1339,7 +1343,28 @@ test("partial join cleanup polish removes accidental identifier truncation and e
 test("partial join terminal reason is excluded from post-date survey contracts", () => {
   assert.match(sharedActiveSession, /"partial_join_peer_timeout"/);
   assert.match(partialJoinTimeoutMigration, /'partial_join_peer_timeout'/);
+  assert.match(partialJoinManualEndMigration, /'partial_join_peer_timeout'/);
   assert.match(videoDateValidationSql, /'partial_join_peer_timeout'/);
+});
+
+test("peer-missing user exit preserves the canonical partial-join terminal reason", () => {
+  assert.match(partialJoinManualEndMigration, /CREATE OR REPLACE FUNCTION public\.video_date_transition/);
+  assert.match(
+    partialJoinManualEndMigration,
+    /v_requested_reason IN \('partial_join_peer_timeout', 'peer_missing_timeout'\)/,
+  );
+  assert.match(
+    partialJoinManualEndMigration,
+    /v_exactly_one_joined := \([\s\S]*participant_1_joined_at IS NULL[\s\S]*<>[\s\S]*participant_2_joined_at IS NULL[\s\S]*\)/,
+  );
+  assert.match(partialJoinManualEndMigration, /v_reached_date_phase OR NOT v_exactly_one_joined/);
+  assert.match(partialJoinManualEndMigration, /'ended_from_client'/);
+  assert.match(partialJoinManualEndMigration, /ended_reason = 'partial_join_peer_timeout'/);
+  assert.match(partialJoinManualEndMigration, /'watchdog_source', 'client_peer_missing_exit'/);
+  assert.match(partialJoinManualEndMigration, /'survey_eligible', false/);
+  assert.match(partialJoinManualEndMigration, /'joined_evidence'/);
+  assert.match(webVideoDatePage, /handleLeave\(\{ reason: "partial_join_peer_timeout" \}\)/);
+  assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'partial_join_peer_timeout'\)/);
 });
 
 test("web and native expose clear peer-missing choices instead of toast-only timeout copy", () => {

@@ -71,6 +71,8 @@ const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
 
+type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout";
+
 type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
 
 function normalizedDateExtraSeconds(raw: unknown): number {
@@ -2278,7 +2280,7 @@ const VideoDate = () => {
   );
 
   // End call: server-owned `video_date_transition(end, …)` + survey/navigation UX (no direct session row writes here).
-  const handleCallEnd = useCallback(async () => {
+  const handleCallEnd = useCallback(async (reason: VideoDateEndReason = "ended_from_client") => {
     if (explicitEndRequestedRef.current) return;
     explicitEndRequestedRef.current = true;
     const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date" || Boolean(dateStartedAt);
@@ -2299,7 +2301,7 @@ const VideoDate = () => {
     const args = {
       p_session_id: id,
       p_action: "end",
-      p_reason: "ended_from_client",
+      p_reason: reason,
     };
     vdbg("video_date_transition_before", { action: "end", args });
     try {
@@ -2360,11 +2362,11 @@ const VideoDate = () => {
     handleCallEndRef.current = handleCallEnd;
   }, [handleCallEnd]);
 
-  const handleLeave = useCallback(async () => {
+  const handleLeave = useCallback(async (opts?: { reason?: VideoDateEndReason }) => {
     clearHandshakeGraceState();
     await endCall("user_leave_button");
     toast("You left the date — stay safe! 💚", { duration: 2000 });
-    await handleCallEnd();
+    await handleCallEnd(opts?.reason);
   }, [endCall, handleCallEnd, clearHandshakeGraceState]);
 
   useEffect(() => {
@@ -2419,7 +2421,7 @@ const VideoDate = () => {
         source: "peer_missing_back_to_lobby",
       });
     }
-    void handleLeave();
+    void handleLeave({ reason: "partial_join_peer_timeout" });
   }, [eventId, handleLeave, id]);
 
   useEffect(() => {

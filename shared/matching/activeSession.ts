@@ -25,7 +25,11 @@ type VideoSessionDailyRoomTruth = {
   daily_room_url?: string | null;
   date_started_at?: string | null;
   ended_at?: string | null;
+  ended_reason?: string | null;
   handshake_started_at?: string | null;
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
+  phase?: string | null;
   ready_gate_expires_at?: string | number | null;
   ready_gate_status?: string | null;
   state?: string | null;
@@ -218,17 +222,7 @@ export function videoSessionRowReadyGateEligible(
 }
 
 export function decideVideoSessionRouteFromTruth(
-  row: {
-    daily_room_name?: string | null;
-    daily_room_url?: string | null;
-    ended_at?: string | null;
-    state?: string | null;
-    phase?: string | null;
-    handshake_started_at?: string | null;
-    date_started_at?: string | null;
-    ready_gate_status?: string | null;
-    ready_gate_expires_at?: string | number | null;
-  } | null,
+  row: VideoSessionDailyRoomTruth | null,
   nowMs: number = Date.now()
 ): VideoSessionTruthRouteDecision {
   if (!row) return "stay_lobby";

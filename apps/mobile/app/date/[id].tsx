@@ -2359,24 +2359,25 @@ export default function VideoDateScreen() {
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
   const handleAbortConnection = useCallback(
     async (opts?: { source?: 'peer_missing' }) => {
-    if (opts?.source === 'peer_missing' && sessionId) {
-      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
-        platform: 'native',
-        session_id: sessionId,
-        event_id: eventId,
-      });
-    }
-    await cleanupForAbortWithoutServerEnd();
-    if (eventId) {
-      const target = eventLobbyHref(eventId);
-      vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null, eventId });
-      router.replace(target);
-    } else {
-      const target = '/(tabs)/events';
-      vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
-      router.replace(target);
-    }
-  },
+      if (opts?.source === 'peer_missing' && sessionId) {
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+        });
+        await endVideoDate(sessionId, 'partial_join_peer_timeout');
+      }
+      await cleanupForAbortWithoutServerEnd();
+      if (eventId) {
+        const target = eventLobbyHref(eventId);
+        vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null, eventId });
+        router.replace(target);
+      } else {
+        const target = '/(tabs)/events';
+        vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
+        router.replace(target);
+      }
+    },
     [cleanupForAbortWithoutServerEnd, eventId, sessionId]
   );
 

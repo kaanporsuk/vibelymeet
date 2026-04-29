@@ -162,3 +162,15 @@ select
   pg_get_functiondef('public.get_video_date_session_timeline(uuid)'::regprocedure)
     like '%''expire_stale_video_sessions''%'
   as ok;
+
+-- 12) User-driven peer-missing exits after exactly one Daily join keep the
+-- same terminal reason as backend partial-join timeout cleanup.
+select
+  'video_date_transition_peer_missing_manual_end_reason' as check_name,
+  pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure)
+    like '%partial_join_peer_manual_end%'
+  and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure)
+    like '%partial_join_peer_timeout%'
+  and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure)
+    like '%client_peer_missing_exit%'
+  as ok;
