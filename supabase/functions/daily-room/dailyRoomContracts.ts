@@ -58,11 +58,13 @@ export function buildMeetingTokenProperties(params: {
   userId: string;
   ttlSeconds: number;
   nowSeconds?: number;
+  ejectAtTokenExp?: boolean;
 }): {
   room_name: string;
   user_id: string;
   enable_screenshare: false;
   exp: number;
+  eject_at_token_exp?: true;
 } {
   const nowSeconds = params.nowSeconds ?? Math.floor(Date.now() / 1000);
   return {
@@ -70,6 +72,7 @@ export function buildMeetingTokenProperties(params: {
     user_id: params.userId,
     enable_screenshare: false,
     exp: nowSeconds + params.ttlSeconds,
+    ...(params.ejectAtTokenExp ? { eject_at_token_exp: true as const } : {}),
   };
 }
 

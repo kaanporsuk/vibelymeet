@@ -8,7 +8,7 @@ const corsHeaders = {
 
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
 const DAILY_API_URL = "https://api.daily.co/v1";
-const DELETE_GRACE_MS = 120_000;
+const DELETE_GRACE_MS = 45_000;
 
 type VideoDateCleanupRow = {
   id: string;

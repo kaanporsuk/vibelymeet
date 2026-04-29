@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DAILY_ROOM_ACTIONS,
   classifyDailyRoomInvokeFailure,
+  classifyDailyRoomTokenFailureClass,
   isRetryableDailyRoomFailure,
 } from "./dailyRoomFailure";
 
@@ -70,4 +71,12 @@ test("classifies provider-atomic persistence failures as retryable", async () =>
   });
   assert.equal(registrationPersist.kind, "REGISTRATION_PERSIST_FAILED");
   assert.equal(registrationPersist.retryable, true);
+});
+
+test("maps token failure kinds into shared analytics classes", () => {
+  assert.equal(classifyDailyRoomTokenFailureClass("DAILY_AUTH_FAILED"), "auth_expired");
+  assert.equal(classifyDailyRoomTokenFailureClass("network"), "network");
+  assert.equal(classifyDailyRoomTokenFailureClass("SESSION_ENDED"), "session_ended");
+  assert.equal(classifyDailyRoomTokenFailureClass("ROOM_NOT_FOUND"), "room_missing");
+  assert.equal(classifyDailyRoomTokenFailureClass("DAILY_REQUEST_REJECTED"), "unknown");
 });

@@ -34,6 +34,13 @@ export type DailyRoomFailureClassification = {
   retryable: boolean;
 };
 
+export type DailyRoomFailureClass =
+  | "auth_expired"
+  | "network"
+  | "session_ended"
+  | "room_missing"
+  | "unknown";
+
 type DailyRoomFailureInput = {
   action: DailyRoomAction;
   data?: unknown;
@@ -135,6 +142,31 @@ export function classifyDailyRoomFailureKind(input: {
 
 export function isRetryableDailyRoomFailure(kind: DailyRoomFailureKind): boolean {
   return kind === "network" || kind === "DAILY_PROVIDER_ERROR" || kind === "DAILY_PROVIDER_UNAVAILABLE" || kind === "DAILY_RATE_LIMIT" || kind === "DB_ROOM_PERSIST_FAILED" || kind === "REGISTRATION_PERSIST_FAILED";
+}
+
+export function classifyDailyRoomTokenFailureClass(
+  kind: DailyRoomFailureKind | string | null | undefined
+): DailyRoomFailureClass {
+  switch (kind) {
+    case "auth":
+    case "DAILY_AUTH_FAILED":
+    case "DAILY_CREDENTIALS_INVALID":
+      return "auth_expired";
+    case "network":
+    case "DAILY_RATE_LIMIT":
+    case "DAILY_PROVIDER_UNAVAILABLE":
+    case "DAILY_PROVIDER_ERROR":
+    case "DB_ROOM_PERSIST_FAILED":
+    case "REGISTRATION_PERSIST_FAILED":
+      return "network";
+    case "SESSION_ENDED":
+      return "session_ended";
+    case "SESSION_NOT_FOUND":
+    case "ROOM_NOT_FOUND":
+      return "room_missing";
+    default:
+      return "unknown";
+  }
 }
 
 export async function classifyDailyRoomInvokeFailure(

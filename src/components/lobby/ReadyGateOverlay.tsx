@@ -108,6 +108,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const [prepareEntryStatus, setPrepareEntryStatus] = useState<PrepareEntryStatus>("idle");
   const [prepareEntryFailure, setPrepareEntryFailure] = useState<PrepareEntryFailureState>(null);
   const [showRealtimeFallbackCopy, setShowRealtimeFallbackCopy] = useState(false);
+  const [realtimeDegraded, setRealtimeDegraded] = useState(false);
   const [terminalActionPending, setTerminalActionPending] = useState(false);
   const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
   const closedRef = useRef(false);
@@ -121,9 +122,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const expirySyncRetryAtMsRef = useRef(0);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
+  const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
+  const readyGateRealtimeDegradedLoggedRef = useRef(false);
   const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalActionInFlightRef = useRef(false);
 
@@ -175,6 +178,23 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
     },
     [sessionId, eventId, onNavigateToDate]
+  );
+
+  const markRealtimeDegraded = useCallback(
+    (reason: "channel_error" | "channel_closed" | "channel_timed_out" | "missed_progress_detection") => {
+      setRealtimeDegraded(true);
+      if (readyGateRealtimeDegradedLoggedRef.current) return;
+      readyGateRealtimeDegradedLoggedRef.current = true;
+      trackEvent(LobbyPostDateEvents.READY_GATE_REALTIME_DEGRADED, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source: "ready_gate_overlay",
+        reason,
+        elapsed_ms: Math.max(0, Date.now() - readyGateOpenedAtMsRef.current),
+      });
+    },
+    [eventId, sessionId],
   );
 
   const handleBothReady = useCallback(() => {
@@ -358,6 +378,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           session_id: sessionId,
           event_id: eventId,
           reason,
+          elapsed_ms: Math.max(0, Date.now() - readyGateOpenedAtMsRef.current),
+          age_seconds: Math.max(0, Math.floor((Date.now() - readyGateOpenedAtMsRef.current) / 1000)),
+          realtime_healthy: !realtimeDegraded,
         });
       }
       toast(reason === "timeout" ? "They weren't ready. Back to browsing — your deck is waiting." : "No worries — back to browsing 💚", {
@@ -365,7 +388,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       });
       onClose();
     },
-    [onClose, sessionId, eventId]
+    [onClose, sessionId, eventId, realtimeDegraded]
   );
 
   const closeAsStale = useCallback(
@@ -559,6 +582,9 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       }
 
       if (canAttemptDaily || decision === "navigate_date") {
+        if (source === "poll") {
+          markRealtimeDegraded("missed_progress_detection");
+        }
         handleBothReady();
         return;
       }
@@ -574,7 +600,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
       void refetchSession();
     },
-    [sessionId, eventId, user?.id, handleBothReady, closeAsStale, refetchSession, syncSession]
+    [sessionId, eventId, user?.id, handleBothReady, closeAsStale, refetchSession, syncSession, markRealtimeDegraded]
   );
 
   useEffect(() => {
@@ -636,17 +662,26 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           void reconcileSession("video_session_realtime");
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR") {
+          markRealtimeDegraded("channel_error");
+        } else if (status === "TIMED_OUT") {
+          markRealtimeDegraded("channel_timed_out");
+        } else if (status === "CLOSED") {
+          markRealtimeDegraded("channel_closed");
+        }
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [sessionId, eventId, user?.id, handleBothReady, reconcileSession]);
+  }, [sessionId, eventId, user?.id, handleBothReady, reconcileSession, markRealtimeDegraded]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id || dateNavigationStartedRef.current) return;
+    const intervalMs = realtimeDegraded ? 1_000 : 2_000;
     const intervalId = setInterval(() => {
-      if (!realtimeFallbackLoggedRef.current) {
+      if (realtimeDegraded && !realtimeFallbackLoggedRef.current) {
         realtimeFallbackLoggedRef.current = true;
         if (realtimeFallbackCopyTimerRef.current) {
           clearTimeout(realtimeFallbackCopyTimerRef.current);
@@ -662,10 +697,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           session_id: sessionId,
           event_id: eventId,
           source: "ready_gate_overlay",
+          reason: "realtime_degraded",
         });
       }
       void reconcileSession("poll");
-    }, 2000);
+    }, intervalMs);
     return () => {
       clearInterval(intervalId);
       if (realtimeFallbackCopyTimerRef.current) {
@@ -673,7 +709,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         realtimeFallbackCopyTimerRef.current = null;
       }
     };
-  }, [sessionId, eventId, user?.id, reconcileSession]);
+  }, [sessionId, eventId, user?.id, realtimeDegraded, reconcileSession]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
@@ -689,8 +725,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
     realtimeFallbackLoggedRef.current = false;
+    readyGateRealtimeDegradedLoggedRef.current = false;
     terminalActionInFlightRef.current = false;
     bothReadyObservedAtMsRef.current = null;
+    readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
@@ -700,6 +738,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     setPrepareEntryStatus("idle");
     setPrepareEntryFailure(null);
     setShowRealtimeFallbackCopy(false);
+    setRealtimeDegraded(false);
     setTerminalActionPending(false);
     setTerminalActionError(null);
     setTimeLeft(GATE_TIMEOUT);

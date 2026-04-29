@@ -15,6 +15,7 @@ export type PreparedVideoDateEntry = {
   room_name: string;
   room_url: string;
   token: string;
+  token_expires_at?: string | null;
   entry_attempt_id?: string | null;
   video_date_trace_id?: string | null;
   session_state?: string | null;
@@ -126,6 +127,12 @@ export function setCachedPreparedVideoDateEntry(params: {
   nowMs?: number;
 }): PreparedVideoDateEntryCacheEntry {
   const nowMs = params.nowMs ?? Date.now();
+  const tokenExpiresAtMs = params.value.token_expires_at
+    ? new Date(params.value.token_expires_at).getTime()
+    : NaN;
+  const cacheExpiresAtMs = Number.isFinite(tokenExpiresAtMs)
+    ? Math.min(nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS, Math.max(nowMs, tokenExpiresAtMs - 30_000))
+    : nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS;
   const key = preparedVideoDateEntryCacheKey(params.sessionId, params.userId);
   const entry: PreparedVideoDateEntryCacheEntry = {
     sessionId: params.sessionId,
@@ -133,7 +140,7 @@ export function setCachedPreparedVideoDateEntry(params: {
     value: params.value,
     entryAttemptId: params.entryAttemptId ?? params.value.entry_attempt_id ?? null,
     cachedAtMs: nowMs,
-    expiresAtMs: nowMs + PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS,
+    expiresAtMs: cacheExpiresAtMs,
     bothReadyObservedAtMs: params.bothReadyObservedAtMs,
     prepareStartedAtMs: params.prepareStartedAtMs,
     prepareFinishedAtMs: params.prepareFinishedAtMs,

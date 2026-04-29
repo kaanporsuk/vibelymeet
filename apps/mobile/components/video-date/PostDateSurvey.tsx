@@ -19,9 +19,10 @@ import { typography, spacing, radius } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
+import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import type { SubmitVerdictAndCheckMutualResult } from '@/lib/videoDateApi';
-import { updateParticipantStatus } from '@/lib/videoDateApi';
+import { submitPostDateReportWithOutbox, updateParticipantStatus } from '@/lib/videoDateApi';
 import { drainMatchQueue, getQueuedMatchCount } from '@/lib/eventsApi';
 import { MatchCelebrationScreen } from '@/components/match/MatchCelebrationScreen';
 import { supabase } from '@/lib/supabase';
@@ -38,8 +39,8 @@ import {
 } from '@clientShared/matching/videoDateDiagnostics';
 import {
   mapPostDateSafetyCategoryToReasonId,
-  submitUserReportRpc,
 } from '../../../../shared/safety/submitUserReportRpc';
+import type { PostDateSafetyReportPayload } from '../../../../shared/postDateOutbox/types';
 
 type Props = {
   sessionId: string;
@@ -236,6 +237,8 @@ export function PostDateSurvey({
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const shellImpressionRef = useRef(false);
   const verdictImpressionRef = useRef(false);
+  const reportBeforeVerdictRef = useRef(false);
+  const reportPassVerdictSavedRef = useRef(false);
 
   useEffect(() => {
     shellImpressionRef.current = false;
@@ -243,6 +246,8 @@ export function PostDateSurvey({
     finishSurveyInFlightRef.current = false;
     queuedNavigationStartedRef.current = false;
     queuedDrainAttemptKeyRef.current = null;
+    reportBeforeVerdictRef.current = false;
+    reportPassVerdictSavedRef.current = false;
     setCelebrationData(null);
   }, [sessionId]);
 
@@ -722,6 +727,13 @@ export function PostDateSurvey({
 
   const handleSafetyComplete = async () => {
     if (finishing) return;
+    if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
+      const ok = await recordReportPassVerdict(null);
+      if (!ok) {
+        Alert.alert('Feedback', "Couldn't save your answer. Check your connection and try again.");
+        return;
+      }
+    }
     try {
       await persistSafety();
     } catch {
@@ -738,18 +750,70 @@ export function PostDateSurvey({
       event_id: eventId,
       step: 'safety',
     });
+    if (reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current) {
+      const ok = await recordReportPassVerdict(null);
+      if (!ok) {
+        Alert.alert('Feedback', "Couldn't save your answer. Check your connection and try again.");
+        return;
+      }
+    }
     await finishSurveyRef.current();
+  };
+
+  const recordReportPassVerdict = async (report?: PostDateSafetyReportPayload | null): Promise<boolean> => {
+    if (reportPassVerdictSavedRef.current) return true;
+    const result = report
+      ? await submitNativePostDateOutboxItem({
+          userId,
+          sessionId,
+          eventId,
+          payload: { kind: 'verdict', liked: false, report },
+        })
+      : await onSubmitVerdict(false);
+    if ('ok' in result && !result.ok) {
+      trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        reason: result.reason,
+        code: result.reason === 'backend' ? result.code : undefined,
+        source: 'report_before_verdict',
+      });
+      return false;
+    }
+    if (!('ok' in result) && result.success === false) {
+      trackEvent(LobbyPostDateEvents.POST_DATE_VERDICT_SUBMIT_FAILED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        reason: result.error ?? result.code ?? 'report_pass_verdict_failed',
+        code: result.code,
+        source: 'report_before_verdict',
+      });
+      return false;
+    }
+    reportPassVerdictSavedRef.current = true;
+    trackEvent(LobbyPostDateEvents.POST_DATE_SURVEY_SUBMIT, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      verdict: 'pass',
+      source: 'report_before_verdict',
+    });
+    return true;
   };
 
   const handleReportSubmit = async () => {
     if (!reportCategory) return;
     const mapped = mapPostDateSafetyCategoryToReasonId(reportCategory);
-    const result = await submitUserReportRpc(supabase, {
-      reportedId: partnerId,
+    const reportPayload: PostDateSafetyReportPayload = {
       reason: mapped,
       details: reportDetails || null,
       alsoBlock: wantsBlock,
-    });
+    };
+    const result = reportBeforeVerdictRef.current && !reportPassVerdictSavedRef.current
+      ? { ok: await recordReportPassVerdict(reportPayload) }
+      : await submitPostDateReportWithOutbox(sessionId, userId, reportPayload);
     if (!result.ok) {
       const msg =
         'error' in result && result.error === 'rate_limited'
@@ -1076,7 +1140,14 @@ export function PostDateSurvey({
           <Text style={[styles.passBtnText, { color: theme.mutedForeground }]}>✕ Pass</Text>
         </Pressable>
       </View>
-      <Pressable onPress={() => setStep('safety')} style={styles.reportLink}>
+      <Pressable
+        onPress={() => {
+          reportBeforeVerdictRef.current = true;
+          setShowReportFlow(true);
+          setStep('safety');
+        }}
+        style={styles.reportLink}
+      >
         <Text style={{ color: theme.mutedForeground, fontSize: 12 }}>⚠ Report an issue</Text>
       </Pressable>
     </View>

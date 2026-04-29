@@ -95,6 +95,7 @@ import {
   rejectPreparedVideoDateEntry,
 } from '@/lib/videoDatePrepareEntry';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
+import { classifyDailyRoomTokenFailureClass } from '@clientShared/matching/dailyRoomFailure';
 import {
   buildReadyGateToDateLatencyPayload,
   buildVideoDateTimerDriftRecoveredPayload,
@@ -462,6 +463,7 @@ export default function VideoDateScreen() {
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const peerMissingTerminalImpressionRef = useRef(false);
   const localInDailyRoomRef = useRef(false);
+  const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
   const appStateBackgroundTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const appStateBackgroundIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRecoveredTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -569,6 +571,56 @@ export default function VideoDateScreen() {
   useEffect(() => {
     localInDailyRoomRef.current = localInDailyRoom;
   }, [localInDailyRoom]);
+
+  useEffect(() => {
+    if (!isConnecting && !localInDailyRoom) {
+      dailySdkUnresponsiveKeyRef.current = null;
+      return;
+    }
+
+    const emitUnresponsive = (reason: string, meetingState: string | null, error?: unknown) => {
+      const key = `${sessionId ?? 'unknown'}:${reason}:${meetingState ?? 'none'}`;
+      if (dailySdkUnresponsiveKeyRef.current === key) return;
+      dailySdkUnresponsiveKeyRef.current = key;
+      const payload = {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: eventId || null,
+        source_surface: 'video_date_daily',
+        source_action: 'daily_sdk_heartbeat',
+        reason,
+        daily_meeting_state: meetingState,
+        connected: localInDailyRoom,
+        connecting: isConnecting,
+      };
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_SDK_UNRESPONSIVE, payload);
+      Sentry.captureMessage('video_date_daily_sdk_unresponsive', {
+        level: 'warning',
+        extra: {
+          ...payload,
+          error: error instanceof Error ? { name: error.name, message: error.message } : error ?? null,
+        },
+      });
+    };
+
+    const intervalId = setInterval(() => {
+      const call = callRef.current as (DailyCallObject & { meetingState?: () => unknown }) | null;
+      if (!call || typeof call.meetingState !== 'function') return;
+      let meetingState: string | null = null;
+      try {
+        const state = call.meetingState();
+        meetingState = typeof state === 'string' ? state : state == null ? null : String(state);
+      } catch (error) {
+        emitUnresponsive('meeting_state_throw', null, error);
+        return;
+      }
+      if (meetingState === 'error' || (localInDailyRoom && meetingState === 'left-meeting')) {
+        emitUnresponsive('unexpected_meeting_state', meetingState);
+      }
+    }, 5_000);
+
+    return () => clearInterval(intervalId);
+  }, [eventId, isConnecting, localInDailyRoom, sessionId]);
 
   useEffect(() => {
     setDateEntryPermissionEligible(false);
@@ -2089,6 +2141,13 @@ export default function VideoDateScreen() {
               session_id: sessionId,
               room_name: roomNameRef.current ?? null,
               error: 1,
+            });
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
+              platform: 'native',
+              session_id: sessionId,
+              event_id: eventId || null,
+              source: 'app_foreground',
+              step: 'refetch_video_session',
             });
           });
         requestReconnectSyncRef.current('app_foreground');
@@ -3616,6 +3675,7 @@ export default function VideoDateScreen() {
           source_action: 'daily_token_failure',
           reason_code: timedOut ? 'timeout' : 'exception',
           code: timedOut ? 'timeout' : 'exception',
+          failure_class: classifyDailyRoomTokenFailureClass('network'),
           duration_ms: tokenDurationMs,
           latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
           attempt_count: 1,
@@ -3756,6 +3816,7 @@ export default function VideoDateScreen() {
           source_action: 'daily_token_failure',
           reason_code: String(tokenRes.code),
           code: String(tokenRes.code),
+          failure_class: classifyDailyRoomTokenFailureClass(tokenRes.code),
           retryable: tokenRes.code === 'READY_GATE_NOT_READY',
           duration_ms: tokenDurationMs,
           latency_bucket: bucketVideoDateLatencyMs(tokenDurationMs),
