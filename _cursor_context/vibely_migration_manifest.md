@@ -773,6 +773,17 @@ That refactor has **not** been done yet in the frozen baseline, but this manifes
 
 ---
 
+## 11g. Stream — video-date partial Daily join terminal semantics (2026-05)
+
+- **Migrations:**
+  - `supabase/migrations/20260501143000_video_date_partial_join_timeout.sql` — adds service-role bounded cleanup for exactly-one-joined handshakes, ending with `ended_reason = 'partial_join_peer_timeout'` after the configured recovery window; preserves no-evidence ready-gate/handshake expiry behavior.
+  - `supabase/migrations/20260501144000_video_date_partial_join_observability_polish.sql` — gives the delegated cleanup helper an intentional short name and exposes stale cleanup rows in `get_video_date_session_timeline`.
+  - `supabase/migrations/20260501145000_video_date_peer_missing_manual_end.sql` — wraps `video_date_transition('end')` so user-driven peer-missing exits after exactly one persisted Daily join also terminate with `partial_join_peer_timeout`; date-phase and no-evidence manual ends continue to delegate to prior behavior.
+- **Contract:** persisted `participant_1_joined_at` / `participant_2_joined_at` remains authoritative Daily joined evidence. Once either is set, ready-gate expiry must not be used as the terminal reason. Partial-join exits are not survey-eligible unless a real date phase was reached.
+- **Observability:** `expire_stale_video_sessions / partial_join_peer_timeout` and `video_date_transition / partial_join_peer_manual_end` include joined/missing participant metadata and joined evidence.
+
+---
+
 ## 12. Bottom line
 
 The Vibely migration history is rich, real, and operationally meaningful — but it is also messy in a very specific way:

@@ -281,6 +281,71 @@ test("date-entry owner sends date state to date", () => {
   );
 });
 
+test("date-entry owner keeps partial Daily join recoverable on date route", () => {
+  assert.deepEqual(
+    dateEntryOwnerRoute({
+      ended_at: null,
+      ...PROVIDER_ROOM,
+      state: "handshake",
+      phase: "handshake",
+      handshake_started_at: "2026-04-24T00:32:10.000Z",
+      ready_gate_status: "both_ready",
+      ready_gate_expires_at: "2026-04-24T00:32:20.000Z",
+      participant_1_joined_at: "2026-04-24T00:32:15.000Z",
+      participant_2_joined_at: null,
+    }),
+    {
+      decision: "navigate_date",
+      canAttemptDaily: true,
+      routedTo: "date",
+    },
+  );
+});
+
+test("date-entry owner treats peer late join as same recoverable date route", () => {
+  assert.deepEqual(
+    dateEntryOwnerRoute({
+      ended_at: null,
+      ...PROVIDER_ROOM,
+      state: "handshake",
+      phase: "handshake",
+      handshake_started_at: "2026-04-24T00:32:10.000Z",
+      ready_gate_status: "both_ready",
+      ready_gate_expires_at: "2026-04-24T00:32:20.000Z",
+      participant_1_joined_at: "2026-04-24T00:32:15.000Z",
+      participant_2_joined_at: "2026-04-24T00:32:45.000Z",
+    }),
+    {
+      decision: "navigate_date",
+      canAttemptDaily: true,
+      routedTo: "date",
+    },
+  );
+});
+
+test("date-entry owner reports partial-join terminal as ended, not ready gate", () => {
+  assert.deepEqual(
+    dateEntryOwnerRoute({
+      ended_at: "2026-04-24T00:34:00.000Z",
+      ended_reason: "partial_join_peer_timeout",
+      ...PROVIDER_ROOM,
+      state: "ended",
+      phase: "ended",
+      handshake_started_at: "2026-04-24T00:32:10.000Z",
+      date_started_at: null,
+      ready_gate_status: "both_ready",
+      ready_gate_expires_at: "2026-04-24T00:32:20.000Z",
+      participant_1_joined_at: "2026-04-24T00:32:15.000Z",
+      participant_2_joined_at: null,
+    }),
+    {
+      decision: "ended",
+      canAttemptDaily: false,
+      routedTo: "ended",
+    },
+  );
+});
+
 test("pending survey recovery returns ended date session when current user has no feedback", () => {
   const row = {
     id: "session-1",
