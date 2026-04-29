@@ -10,11 +10,14 @@
  * use uid-only to mirror score eligibility.
  */
 import { getVibeVideoPlaybackUrl, getVibeVideoThumbnailUrl } from '@/lib/vibeVideoPlaybackUrl';
-import { normalizeBunnyVideoStatus } from '@/lib/vibeVideoStatus';
+import {
+  normalizeBunnyVideoUid,
+  resolveCanonicalVibeVideoState,
+  type BunnyVideoStatusNormalized,
+} from '@clientShared/vibeVideoSemantics';
 
 export type VibeVideoState =
   | 'none'
-  | 'uploading'
   | 'processing'
   | 'ready'
   | 'failed'
@@ -23,9 +26,11 @@ export type VibeVideoState =
 export interface VibeVideoInfo {
   state: VibeVideoState;
   uid: string | null;
+  normalizedStatus: BunnyVideoStatusNormalized;
   playbackUrl: string | null;
   thumbnailUrl: string | null;
   caption: string | null;
+  isScoreEligible: boolean;
   canPlay: boolean;
   canManage: boolean;
   canDelete: boolean;
@@ -37,55 +42,47 @@ export function resolveVibeVideoState(profile: {
   bunny_video_status?: string | null;
   vibe_caption?: string | null;
 } | null | undefined): VibeVideoInfo {
-  const uid = profile?.bunny_video_uid?.trim() || null;
-  const normStatus = normalizeBunnyVideoStatus(profile?.bunny_video_status);
+  const uid = normalizeBunnyVideoUid(profile?.bunny_video_uid);
+  const canonical = resolveCanonicalVibeVideoState({
+    bunnyVideoUid: uid,
+    bunnyVideoStatus: profile?.bunny_video_status,
+  });
+  const normStatus = canonical.status;
   const caption = profile?.vibe_caption?.trim() || null;
 
   const NONE: VibeVideoInfo = {
     state: 'none',
-    uid: null, playbackUrl: null, thumbnailUrl: null, caption: null,
+    uid: null, normalizedStatus: normStatus, playbackUrl: null, thumbnailUrl: null, caption: null,
+    isScoreEligible: false,
     canPlay: false, canManage: false, canDelete: false, canRecord: true,
   };
 
   if (!uid) {
-    if (normStatus === 'none') return NONE;
+    if (canonical.state === 'none') return NONE;
     return {
       state: 'error',
-      uid: null, playbackUrl: null, thumbnailUrl: null, caption,
+      uid: null, normalizedStatus: normStatus, playbackUrl: null, thumbnailUrl: null, caption,
+      isScoreEligible: false,
       canPlay: false, canManage: false, canDelete: false, canRecord: true,
     };
   }
 
-  if (normStatus === 'unknown') {
+  if (canonical.state === 'processing') {
     return {
       state: 'processing',
-      uid, playbackUrl: null, thumbnailUrl: null, caption,
+      uid, normalizedStatus: normStatus, playbackUrl: null, thumbnailUrl: null, caption,
+      isScoreEligible: true,
       canPlay: false, canManage: false, canDelete: true, canRecord: false,
     };
   }
 
-  if (normStatus === 'uploading') {
-    return {
-      state: 'uploading',
-      uid, playbackUrl: null, thumbnailUrl: null, caption,
-      canPlay: false, canManage: false, canDelete: true, canRecord: false,
-    };
-  }
-
-  if (normStatus === 'processing') {
-    return {
-      state: 'processing',
-      uid, playbackUrl: null, thumbnailUrl: null, caption,
-      canPlay: false, canManage: false, canDelete: true, canRecord: false,
-    };
-  }
-
-  if (normStatus === 'ready') {
+  if (canonical.state === 'ready') {
     const playbackUrl = getVibeVideoPlaybackUrl(uid);
     const thumbnailUrl = getVibeVideoThumbnailUrl(uid);
     return {
       state: 'ready',
-      uid, playbackUrl, thumbnailUrl, caption,
+      uid, normalizedStatus: normStatus, playbackUrl, thumbnailUrl, caption,
+      isScoreEligible: true,
       canPlay: !!playbackUrl,
       canManage: true,
       canDelete: true,
@@ -93,18 +90,20 @@ export function resolveVibeVideoState(profile: {
     };
   }
 
-  if (normStatus === 'failed') {
+  if (canonical.state === 'failed') {
     return {
       state: 'failed',
-      uid, playbackUrl: null, thumbnailUrl: null, caption,
+      uid, normalizedStatus: normStatus, playbackUrl: null, thumbnailUrl: null, caption,
+      isScoreEligible: true,
       canPlay: false, canManage: false, canDelete: true, canRecord: true,
     };
   }
 
-  // uid exists but status is `none` — webhook lag or partial write; stay in pipeline, not "no video".
+  // uid exists but status is non-terminal; stay in pipeline, not empty.
   return {
     state: 'processing',
-    uid, playbackUrl: null, thumbnailUrl: null, caption,
+    uid, normalizedStatus: normStatus, playbackUrl: null, thumbnailUrl: null, caption,
+    isScoreEligible: true,
     canPlay: false, canManage: false, canDelete: true, canRecord: false,
   };
 }

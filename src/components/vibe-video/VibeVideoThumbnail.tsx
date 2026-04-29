@@ -7,7 +7,7 @@ interface VibeVideoThumbnailProps {
   /** Presentational only: callers must pass resolver-ready URLs, not raw UID/status guesses. */
   thumbnailUrl: string;
   videoUrl: string;
-  hasVibeVideo?: boolean;
+  hasPlayableVibeVideo?: boolean;
   size?: "sm" | "md" | "lg";
   className?: string;
 }
@@ -15,7 +15,7 @@ interface VibeVideoThumbnailProps {
 export const VibeVideoThumbnail = ({
   thumbnailUrl,
   videoUrl,
-  hasVibeVideo = true,
+  hasPlayableVibeVideo = true,
   size = "md",
   className,
 }: VibeVideoThumbnailProps) => {
@@ -26,7 +26,7 @@ export const VibeVideoThumbnail = ({
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const safeThumbnailUrl = thumbnailUrl.trim();
   const safeVideoUrl = videoUrl.trim();
-  const canPreviewVideo = hasVibeVideo && safeVideoUrl.length > 0;
+  const canPreviewVideo = hasPlayableVibeVideo && safeVideoUrl.length > 0;
   const hasThumbnail = safeThumbnailUrl.length > 0;
 
   const sizeClasses = {

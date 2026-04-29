@@ -330,7 +330,7 @@ export const VibeStudioModal = ({
   const handleConfirm = useCallback(() => {
     const file = recordedBlob ?? uploadedFile;
     if (!file) {
-      toast.error("No video to confirm");
+      toast.error("No clip to confirm");
       return;
     }
 

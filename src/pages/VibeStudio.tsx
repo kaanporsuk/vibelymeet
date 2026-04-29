@@ -131,14 +131,6 @@ const VibeStudio = () => {
           title: "Your Vibe Video is live",
           description: "Preview it full-screen, replace it with a stronger take, or fine-tune the caption shown on top.",
         };
-      case "uploading":
-        return {
-          pillClassName: "bg-cyan-500/15 text-cyan-300 border border-cyan-500/25",
-          iconClassName: "text-cyan-300",
-          label: "Uploading",
-          title: "Your upload is still in flight",
-          description: "This is not treated as no video. Keep this page open or come back in a moment while we finish the upload.",
-        };
       case "processing":
         return {
           pillClassName: "bg-violet-500/15 text-violet-300 border border-violet-500/25",
@@ -167,7 +159,7 @@ const VibeStudio = () => {
         return {
           pillClassName: "bg-white/10 text-violet-200 border border-white/10",
           iconClassName: "text-violet-300",
-          label: "No video yet",
+          label: "Create",
           title: "Create your Vibe Video",
           description: "Give people a feel for your energy before the first chat. A strong 15 second take goes further than another static photo.",
         };
@@ -204,7 +196,7 @@ const VibeStudio = () => {
   const handleDelete = async () => {
     if (!videoInfo.canDelete || isDeleting) return;
 
-    const deletingPipelineVideo = videoInfo.state === "uploading" || videoInfo.state === "processing";
+    const deletingPipelineVideo = videoInfo.state === "processing";
     const confirmed = window.confirm(
       deletingPipelineVideo
         ? "Delete this in-progress Vibe Video? This will cancel the current upload/processing attempt."
@@ -350,7 +342,7 @@ const VibeStudio = () => {
             <div className="mt-3">
               <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={isDeleting}>
                 {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                {videoInfo.state === "uploading" || videoInfo.state === "processing" ? "Cancel & delete" : "Delete video"}
+                {videoInfo.state === "processing" ? "Cancel & delete" : "Delete video"}
               </Button>
             </div>
           )}
@@ -399,7 +391,7 @@ const VibeStudio = () => {
               If your video is still preparing, you can leave this screen and check back in a moment.
             </div>
             <div className="rounded-2xl border border-white/8 bg-black/15 p-4">
-              Failed clips are recoverable: replace them here instead of assuming the studio has no video on file.
+              Failed clips are recoverable: replace them here instead of assuming the studio is empty.
             </div>
           </div>
         </section>

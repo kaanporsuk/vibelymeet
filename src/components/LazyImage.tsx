@@ -250,7 +250,7 @@ export const LazyVideo = ({
       {hasError && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted">
           <div className="text-center text-muted-foreground p-4">
-            <span className="text-xs">Video unavailable</span>
+            <span className="text-xs">Media can&apos;t play right now</span>
           </div>
         </div>
       )}

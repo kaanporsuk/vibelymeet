@@ -243,7 +243,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                     <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
                     <span className="text-xs text-muted-foreground/80">({vibeVideo.state})</span>
                   </div>
-                  {vibeVideo.state === "processing" || vibeVideo.state === "uploading" ? (
+                  {vibeVideo.state === "processing" ? (
                     <div className="relative aspect-video rounded-lg overflow-hidden bg-secondary/50 flex flex-col items-center justify-center gap-2 p-4 text-center">
                       <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                       <p className="text-sm text-muted-foreground">Processing — not playable yet</p>

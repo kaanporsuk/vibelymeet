@@ -762,7 +762,7 @@ export default function ProfileStudio() {
   const age = profile?.age;
   const hasPlayableVibeVideo = videoInfo.state === 'ready' && videoInfo.canPlay;
   const readyAwaitingPlaybackUrl = videoInfo.state === 'ready' && !videoInfo.canPlay;
-  const isVibeVideoProcessing = videoInfo.state === 'processing' || videoInfo.state === 'uploading';
+  const isVibeVideoProcessing = videoInfo.state === 'processing';
   const isVibeVideoFailed = videoInfo.state === 'failed';
   const isVibeVideoError = videoInfo.state === 'error';
   const thumbnailUrl = videoInfo.thumbnailUrl;

@@ -139,7 +139,7 @@ function profileVideoPhase(
   return {
     kind: 'non_terminal',
     videoId,
-    phase: status === 'uploading' ? 'uploading' : 'processing',
+    phase: 'processing',
   };
 }
 

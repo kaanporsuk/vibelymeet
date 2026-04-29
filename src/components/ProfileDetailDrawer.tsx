@@ -11,7 +11,9 @@ import {
   X,
   Heart,
   Info,
+  AlertCircle,
   ChevronUp,
+  Loader2,
 } from "lucide-react";
 import {
   Drawer,
@@ -238,6 +240,42 @@ export const ProfileDetailDrawer = ({
                 {vibe}
               </span>
             ))}
+          </div>
+        </motion.div>
+      );
+    }
+
+    if (!hasVideoIntro && (vibeVideo.state === "processing" || vibeVideo.state === "failed" || vibeVideo.state === "ready")) {
+      const isProcessing = vibeVideo.state === "processing";
+      const title = isProcessing
+        ? "Vibe Video processing"
+        : vibeVideo.state === "failed"
+          ? "Vibe Video needs a fresh take"
+          : "Vibe Video preview syncing";
+      const body = isProcessing
+        ? "Their clip is saved and getting ready for playback."
+        : vibeVideo.state === "failed"
+          ? "This clip did not finish processing."
+          : "The clip is ready on our side and playback should appear shortly.";
+
+      sections.push(
+        <motion.div
+          key="vibe-video-status"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.22 }}
+          className="glass-card p-5 rounded-2xl"
+        >
+          <div className="flex items-start gap-3">
+            {isProcessing ? (
+              <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-primary" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" />
+            )}
+            <div>
+              <p className="text-sm font-semibold text-foreground">{title}</p>
+              <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{body}</p>
+            </div>
           </div>
         </motion.div>
       );

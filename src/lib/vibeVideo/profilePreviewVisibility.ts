@@ -10,15 +10,13 @@ export function getProfilePreviewVibeVideoSections(
   vibeVideo: Pick<WebVibeVideoInfo, "state" | "playbackUrl">,
   isOwnProfile = false,
 ): ProfilePreviewVibeVideoSection[] {
+  void isOwnProfile;
+
   if (vibeVideo.state === "ready" && vibeVideo.playbackUrl) {
     return [{ type: "video", data: vibeVideo.playbackUrl }];
   }
 
-  if (!isOwnProfile) {
-    return [];
-  }
-
-  if (vibeVideo.state === "processing" || vibeVideo.state === "uploading") {
+  if (vibeVideo.state === "processing") {
     return [{ type: "vibe_pipeline" }];
   }
 

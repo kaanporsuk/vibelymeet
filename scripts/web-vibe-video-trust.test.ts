@@ -22,23 +22,21 @@ function sectionTypes(
   return getProfilePreviewVibeVideoSections({ state, playbackUrl }, isOwnProfile).map((section) => section.type);
 }
 
-test("ProfilePreview shows uploading/processing diagnostics only to owners", () => {
-  assert.deepEqual(sectionTypes("uploading", null, true), ["vibe_pipeline"]);
+test("ProfilePreview shows processing state to all viewers", () => {
   assert.deepEqual(sectionTypes("processing", null, true), ["vibe_pipeline"]);
 
-  assert.deepEqual(sectionTypes("uploading", null, false), []);
-  assert.deepEqual(sectionTypes("processing", null, false), []);
-  assert.deepEqual(sectionTypes("processing", null), [], "safe default should be non-owner visibility");
+  assert.deepEqual(sectionTypes("processing", null, false), ["vibe_pipeline"]);
+  assert.deepEqual(sectionTypes("processing", null), ["vibe_pipeline"]);
 });
 
-test("ProfilePreview shows failed diagnostics only to owners", () => {
+test("ProfilePreview shows failed state to all viewers", () => {
   assert.deepEqual(sectionTypes("failed", null, true), ["vibe_failed"]);
-  assert.deepEqual(sectionTypes("failed", null, false), []);
+  assert.deepEqual(sectionTypes("failed", null, false), ["vibe_failed"]);
 });
 
-test("ProfilePreview shows CDN-stuck ready diagnostics only to owners", () => {
+test("ProfilePreview shows CDN-stuck ready state to all viewers", () => {
   assert.deepEqual(sectionTypes("ready", null, true), ["vibe_cdn"]);
-  assert.deepEqual(sectionTypes("ready", null, false), []);
+  assert.deepEqual(sectionTypes("ready", null, false), ["vibe_cdn"]);
 });
 
 test("ProfilePreview still shows ready playable Vibe Video to non-owners", () => {

@@ -1,6 +1,6 @@
 /**
  * Full profile body (hero + sections) — same content order and styling as Profile Preview,
- * minus owner-only vibe pipeline states unless `isOwnProfile`. Use inside screens, modals, or sheets.
+ * including canonical non-playable Vibe Video states. Use inside screens, modals, or sheets.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -41,7 +41,7 @@ const ABOUT_ME_MIN_CHARS = 10;
 
 export type UserProfileFullViewProps = {
   profile: UserProfileView;
-  /** Owner-only: video processing / failed cards. Default false — others see nothing for non-ready video. */
+  /** Enables owner-only edit and retry copy. Non-ready Vibe Video state remains visible to all viewers. */
   isOwnProfile?: boolean;
   onEditProfile?: () => void;
   onClose?: () => void;
@@ -85,7 +85,7 @@ export function UserProfileFullView({
   const vibeInfo = resolveVibeVideoState(profile);
   const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
   const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;
-  const vibeProcessing = vibeInfo.state === 'uploading' || vibeInfo.state === 'processing';
+  const vibeProcessing = vibeInfo.state === 'processing';
   const vibeFailedOrError = vibeInfo.state === 'failed' || vibeInfo.state === 'error';
   const thumbnailUrl = vibeInfo.thumbnailUrl;
   const caption = vibeInfo.caption ?? '';
@@ -280,37 +280,45 @@ export function UserProfileFullView({
         ) : null}
 
         <RNView style={[s.main, hideHero && { paddingTop: spacing.sm }]}>
-          {isOwnProfile && vibeProcessing ? (
+          {vibeProcessing ? (
             <RNView style={s.section}>
               <RNView style={[s.videoCard, s.videoProcessingCard, { borderColor: theme.glassBorder }]}>
                 <ActivityIndicator size="large" color="#8B5CF6" />
-                <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Processing your video…</Text>
+                <Text style={[s.videoProcessingTitle, { color: theme.text }]}>
+                  {isOwnProfile ? 'Processing your video...' : 'Vibe Video processing'}
+                </Text>
                 <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
-                  This usually takes 15–30 seconds. Pull to refresh on Profile if it sticks.
+                  {isOwnProfile
+                    ? 'This usually takes 15-30 seconds. Pull to refresh on Profile if it sticks.'
+                    : 'Their clip is saved and getting ready for playback.'}
                 </Text>
               </RNView>
             </RNView>
           ) : null}
 
-          {isOwnProfile && vibeFailedOrError ? (
+          {vibeFailedOrError ? (
             <RNView style={s.section}>
               <RNView style={[s.videoCard, s.videoFailedCard, { borderColor: theme.glassBorder }]}>
                 <Ionicons name="alert-circle-outline" size={32} color="#F59E0B" />
-                <Text style={[s.videoFailedTitle, { color: theme.text }]}>Video processing failed</Text>
+                <Text style={[s.videoFailedTitle, { color: theme.text }]}>
+                  {isOwnProfile ? 'Video processing failed' : 'Vibe Video needs a fresh take'}
+                </Text>
                 <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
-                  Record a new clip from Profile Studio.
+                  {isOwnProfile ? 'Record a new clip from Profile Studio.' : 'This clip did not finish processing.'}
                 </Text>
               </RNView>
             </RNView>
           ) : null}
 
-          {isOwnProfile && vibeReadyAwaitingPlayback ? (
+          {vibeReadyAwaitingPlayback ? (
             <RNView style={s.section}>
               <RNView style={[s.videoCard, s.videoProcessingCard, { borderColor: theme.glassBorder }]}>
                 <Ionicons name="sync" size={32} color="#FBBF24" />
                 <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Preview still syncing</Text>
                 <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
-                  Your Vibe Video is ready on the backend, but this device is still waiting on a playable preview URL.
+                  {isOwnProfile
+                    ? 'Your Vibe Video is ready on the backend, but this device is still waiting on a playable preview URL.'
+                    : 'The clip is ready on our side and playback should appear shortly.'}
                 </Text>
               </RNView>
             </RNView>
@@ -507,6 +515,7 @@ export function UserProfileFullView({
         onClose={() => setShowFullscreenVibe(false)}
         playbackUrl={vibeInfo.playbackUrl}
         bunnyVideoUid={vibeInfo.uid}
+        vibeVideoState={vibeInfo.state}
         vibeCaption={caption}
         posterUrl={vibeInfo.thumbnailUrl}
         onPlayToEnd={() => setHideVibingOnLabelAfterComplete(true)}

@@ -4,23 +4,17 @@
  */
 
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import {
+  normalizeBunnyVideoStatus,
+  normalizeBunnyVideoUid,
+  resolveCanonicalVibeVideoState,
+  type BunnyVideoStatusNormalized,
+} from "@clientShared/vibeVideoSemantics";
 
-export type BunnyVideoStatusNormalized = "none" | "uploading" | "processing" | "ready" | "failed" | "unknown";
+export { normalizeBunnyVideoStatus };
+export type { BunnyVideoStatusNormalized };
 
-const ALLOWED: ReadonlySet<string> = new Set(["none", "uploading", "processing", "ready", "failed"]);
 let webCdnHostnameFallbackReported = false;
-
-export function normalizeBunnyVideoStatus(raw: string | null | undefined): BunnyVideoStatusNormalized {
-  const s = String(raw ?? "none")
-    .toLowerCase()
-    .trim();
-  if (!s || s === "null" || s === "undefined") return "none";
-  if (s === "1" || s === "2") return "processing";
-  if (s === "3" || s === "4") return "ready";
-  if (s === "5") return "failed";
-  if (ALLOWED.has(s)) return s as BunnyVideoStatusNormalized;
-  return "unknown";
-}
 
 /** Normalize hostname: no scheme, no path, lowercase. */
 export function normalizeWebStreamCdnHostname(input: string | undefined): string {
@@ -68,14 +62,16 @@ export function getWebVibeVideoThumbnailUrl(bunnyVideoUid: string | null | undef
   return `https://${hostname}/${uid}/thumbnail.jpg`;
 }
 
-export type WebVibeVideoState = "none" | "uploading" | "processing" | "ready" | "failed" | "error";
+export type WebVibeVideoState = "none" | "processing" | "ready" | "failed" | "error";
 
 export interface WebVibeVideoInfo {
   state: WebVibeVideoState;
   uid: string | null;
+  normalizedStatus: BunnyVideoStatusNormalized;
   playbackUrl: string | null;
   thumbnailUrl: string | null;
   caption: string | null;
+  isScoreEligible: boolean;
   canPlay: boolean;
   canManage: boolean;
   canDelete: boolean;
@@ -93,7 +89,7 @@ type ProfileVibeInput = {
 
 function pickUid(p: ProfileVibeInput): string | null {
   const raw = p?.bunny_video_uid ?? p?.bunnyVideoUid;
-  return typeof raw === "string" ? raw.trim() || null : null;
+  return normalizeBunnyVideoUid(raw);
 }
 
 function pickStatus(p: ProfileVibeInput): string | null | undefined {
@@ -107,15 +103,21 @@ function pickCaption(p: ProfileVibeInput): string | null {
 
 export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVideoInfo {
   const uid = pickUid(profile);
-  const normStatus = normalizeBunnyVideoStatus(pickStatus(profile));
+  const canonical = resolveCanonicalVibeVideoState({
+    bunnyVideoUid: uid,
+    bunnyVideoStatus: pickStatus(profile),
+  });
+  const normStatus = canonical.status;
   const caption = pickCaption(profile);
 
   const NONE: WebVibeVideoInfo = {
     state: "none",
     uid: null,
+    normalizedStatus: normStatus,
     playbackUrl: null,
     thumbnailUrl: null,
     caption: null,
+    isScoreEligible: false,
     canPlay: false,
     canManage: false,
     canDelete: false,
@@ -123,13 +125,15 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
   };
 
   if (!uid) {
-    if (normStatus === "none") return NONE;
+    if (canonical.state === "none") return NONE;
     return {
       state: "error",
       uid: null,
+      normalizedStatus: normStatus,
       playbackUrl: null,
       thumbnailUrl: null,
       caption,
+      isScoreEligible: false,
       canPlay: false,
       canManage: false,
       canDelete: false,
@@ -137,13 +141,15 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
     };
   }
 
-  if (normStatus === "unknown") {
+  if (canonical.state === "processing") {
     return {
       state: "processing",
       uid,
+      normalizedStatus: normStatus,
       playbackUrl: null,
       thumbnailUrl: null,
       caption,
+      isScoreEligible: true,
       canPlay: false,
       canManage: false,
       canDelete: true,
@@ -151,43 +157,17 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
     };
   }
 
-  if (normStatus === "uploading") {
-    return {
-      state: "uploading",
-      uid,
-      playbackUrl: null,
-      thumbnailUrl: null,
-      caption,
-      canPlay: false,
-      canManage: false,
-      canDelete: true,
-      canRecord: false,
-    };
-  }
-
-  if (normStatus === "processing") {
-    return {
-      state: "processing",
-      uid,
-      playbackUrl: null,
-      thumbnailUrl: null,
-      caption,
-      canPlay: false,
-      canManage: false,
-      canDelete: true,
-      canRecord: false,
-    };
-  }
-
-  if (normStatus === "ready") {
+  if (canonical.state === "ready") {
     const playbackUrl = getWebVibeVideoPlaybackUrl(uid);
     const thumbnailUrl = getWebVibeVideoThumbnailUrl(uid);
     return {
       state: "ready",
       uid,
+      normalizedStatus: normStatus,
       playbackUrl,
       thumbnailUrl,
       caption,
+      isScoreEligible: true,
       canPlay: !!playbackUrl,
       canManage: true,
       canDelete: true,
@@ -195,13 +175,15 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
     };
   }
 
-  if (normStatus === "failed") {
+  if (canonical.state === "failed") {
     return {
       state: "failed",
       uid,
+      normalizedStatus: normStatus,
       playbackUrl: null,
       thumbnailUrl: null,
       caption,
+      isScoreEligible: true,
       canPlay: false,
       canManage: false,
       canDelete: true,
@@ -212,9 +194,11 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
   return {
     state: "processing",
     uid,
+    normalizedStatus: normStatus,
     playbackUrl: null,
     thumbnailUrl: null,
     caption,
+    isScoreEligible: true,
     canPlay: false,
     canManage: false,
     canDelete: true,

@@ -10,7 +10,7 @@
 | Module | Role |
 |--------|------|
 | `lib/vibeVideoPlaybackUrl.ts` | **Canonical** CDN hostname resolution + `getVibeVideoPlaybackUrl` / `getVibeVideoThumbnailUrl` |
-| `lib/vibeVideoState.ts` | **`resolveVibeVideoState()`** — single resolver for all native UI (`none` / `uploading` / `processing` / `ready` / `failed` / `error`) |
+| `lib/vibeVideoState.ts` | **`resolveVibeVideoState()`** — single resolver for all native UI (`none` / `processing` / `ready` / `failed` / `error`; live local upload progress belongs to the upload controller) |
 | `lib/vibeVideoStatus.ts` | `normalizeBunnyVideoStatus` (shared normalization; avoid ad-hoc status branches in screens) |
 | `components/video/VibeVideoPlayer.tsx` | **Canonical** expo-video playback (preview + fullscreen HLS) |
 | `lib/vibeVideoApi.ts` | create-video-upload, cache-file normalize + TUS upload, delete-vibe-video (robust JSON + HTTP status) |
@@ -20,7 +20,7 @@
 ### Score vs playback (backend contract)
 
 - **Vibe Score / incomplete-actions list:** treat the vibe-video task as satisfied when `bunny_video_uid` is non-empty (`calculate_vibe_score` awards on uid, not only `ready`).
-- **Playback and “live on profile” UX:** still driven by `resolveVibeVideoState()` — `canPlay` requires `bunny_video_status === 'ready'` (normalized) and a resolvable HLS hostname/URL.
+- **Playback and “live on profile” UX:** still driven by `resolveVibeVideoState()` — a UID plus `uploading`, `processing`, null, or unknown status renders as processing. `canPlay` requires normalized `ready` plus a resolvable HLS hostname/URL.
 
 `bunny_video_uid` / `bunny_video_status` are **not** client-written; `create-video-upload`, webhooks, and `delete-vibe-video` own the snapshot.
 
