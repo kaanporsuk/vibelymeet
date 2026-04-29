@@ -74,6 +74,7 @@ echo "=== Golden-path smoke (${MODE}) ==="
 
 require_file "docs/golden-path-regression-runbook.md"
 require_file "docs/video-date-hardening-closure-handoff.md"
+require_file "scripts/audit-video-date-remote-frame.mjs"
 require_file "shared/matching/videoDateEndToEndHardening.test.ts"
 require_file "shared/matching/readyGateCountdown.test.ts"
 require_file "shared/observability/videoDateOperatorMetrics.test.ts"
@@ -85,6 +86,7 @@ case "$MODE" in
     run_step npm run build
     ;;
   video-date)
+    run_step npm run audit:video-date-remote-frame
     run_step npm run typecheck
     run_step npm run lint -- --quiet
     run_step npm run build
@@ -96,6 +98,7 @@ case "$MODE" in
     run_step git diff --check
     ;;
   full)
+    run_step npm run audit:video-date-remote-frame
     run_step npm run typecheck
     run_step npm run lint -- --quiet
     run_step npm run build

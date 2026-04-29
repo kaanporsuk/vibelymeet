@@ -57,7 +57,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
-          video_date_pattern='^(\.github/workflows/golden-path-smoke\.yml|scripts/run_golden_path_smoke\.sh|docs/video-date-hardening-closure-handoff\.md|src/pages/VideoDate\.tsx|src/components/video-date/|src/components/lobby/|apps/mobile/app/date/|apps/mobile/components/lobby/|shared/matching/|shared/observability/|supabase/functions/daily-room/|supabase/functions/admin-video-date-ops/|supabase/functions/_shared/admin-video-date-ops)'
+          video_date_pattern='^(\.github/workflows/golden-path-smoke\.yml|scripts/run_golden_path_smoke\.sh|scripts/audit-video-date-remote-frame\.mjs|docs/video-date-hardening-closure-handoff\.md|src/pages/VideoDate\.tsx|src/components/video-date/|src/components/lobby/|apps/mobile/app/date/|apps/mobile/components/lobby/|shared/matching/|shared/observability/|supabase/functions/daily-room/|supabase/functions/admin-video-date-ops/|supabase/functions/_shared/admin-video-date-ops)'
 
           if printf '%s\n' "$changed_files" | grep -E -q "$video_date_pattern"; then
             echo "Video-date relevant changes detected."
