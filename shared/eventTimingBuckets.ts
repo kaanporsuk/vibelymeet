@@ -1,6 +1,6 @@
 /**
  * Product-grade event timing taxonomy for dashboard rails and time filters (web + native).
- * Headings: Live Now -> About to Start -> Later Today -> Tomorrow -> This Weekend -> Next Week -> Upcoming.
+ * Headings: Live Now -> About to Start -> Later Today -> Tomorrow -> This Weekend -> This Week -> Next Week -> Upcoming.
  */
 
 export type EventTimingHeading =
@@ -9,6 +9,7 @@ export type EventTimingHeading =
   | "Later Today"
   | "Tomorrow"
   | "This Weekend"
+  | "This Week"
   | "Next Week"
   | "Upcoming";
 
@@ -16,6 +17,19 @@ export const EVENT_TIMING_TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
 function startOfCalendarDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function startOfLocalWeek(d: Date): Date {
+  const start = startOfCalendarDay(d);
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+}
+
+function addDays(d: Date, days: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + days);
+  return out;
 }
 
 function isSameCalendarDay(a: Date, b: Date): boolean {
@@ -34,23 +48,28 @@ export function isEventTomorrow(eventStart: Date, now: Date): boolean {
 }
 
 /**
- * Upcoming Saturday 00:00 through Sunday 23:59:59.999 in local time,
- * matching existing Events screen weekend logic without inheriting `now`'s clock time.
+ * Current/upcoming Saturday 00:00 through Sunday 23:59:59.999 in local time,
+ * without inheriting `now`'s clock time.
  */
 export function isInUpcomingWeekendWindow(eventStart: Date, now: Date): boolean {
-  const dow = now.getDay();
-  const sat = new Date(now);
-  sat.setDate(now.getDate() + (6 - dow));
+  const weekStart = startOfLocalWeek(now);
+  const sat = addDays(weekStart, 5);
   sat.setHours(0, 0, 0, 0);
-  const sun = new Date(sat);
-  sun.setDate(sat.getDate() + 1);
+  const sun = addDays(sat, 1);
   sun.setHours(23, 59, 59, 999);
   return eventStart >= sat && eventStart <= sun;
 }
 
-export function isWithinRollingSevenDays(eventStart: Date, now: Date): boolean {
-  const ms = eventStart.getTime() - now.getTime();
-  return ms > 0 && ms <= 7 * 24 * 60 * 60 * 1000;
+export function isInCurrentLocalWeek(eventStart: Date, now: Date): boolean {
+  const weekStart = startOfLocalWeek(now);
+  const nextWeekStart = addDays(weekStart, 7);
+  return eventStart >= weekStart && eventStart < nextWeekStart;
+}
+
+export function isInNextLocalWeek(eventStart: Date, now: Date): boolean {
+  const nextWeekStart = addDays(startOfLocalWeek(now), 7);
+  const followingWeekStart = addDays(nextWeekStart, 7);
+  return eventStart >= nextWeekStart && eventStart < followingWeekStart;
 }
 
 export function isEventLiveAt(params: {
@@ -83,10 +102,6 @@ export function classifyEventTimingHeading(input: {
   const endMs = startMs + Math.max(1, durationMinutes) * 60 * 1000;
   const nowMs = now.getTime();
 
-  if (nowMs >= endMs) {
-    return "Upcoming";
-  }
-
   if (
     isEventLiveAt({
       eventStart: input.eventStart,
@@ -98,6 +113,10 @@ export function classifyEventTimingHeading(input: {
     return "Live Now";
   }
 
+  if (nowMs >= endMs) {
+    return "Upcoming";
+  }
+
   const msUntilStart = startMs - nowMs;
   if (msUntilStart > 0 && msUntilStart <= EVENT_TIMING_TWO_HOURS_MS) {
     return "About to Start";
@@ -107,15 +126,21 @@ export function classifyEventTimingHeading(input: {
     return "Later Today";
   }
 
-  if (isEventTomorrow(input.eventStart, now)) {
+  const isThisWeekend = isInUpcomingWeekendWindow(input.eventStart, now);
+
+  if (isEventTomorrow(input.eventStart, now) && !isThisWeekend) {
     return "Tomorrow";
   }
 
-  if (isInUpcomingWeekendWindow(input.eventStart, now)) {
+  if (isThisWeekend) {
     return "This Weekend";
   }
 
-  if (isWithinRollingSevenDays(input.eventStart, now)) {
+  if (isInCurrentLocalWeek(input.eventStart, now)) {
+    return "This Week";
+  }
+
+  if (isInNextLocalWeek(input.eventStart, now)) {
     return "Next Week";
   }
 
@@ -179,7 +204,10 @@ export function matchesThisWeekendFilter(eventStart: Date, now: Date): boolean {
 
 export function matchesThisWeekTimeFilter(eventStart: Date, now: Date): boolean {
   if (eventStart.getTime() < now.getTime()) return false;
-  const end = new Date(now);
-  end.setDate(now.getDate() + (7 - now.getDay()));
-  return eventStart.getTime() <= end.getTime();
+  return (
+    isInCurrentLocalWeek(eventStart, now) &&
+    !isSameCalendarDay(eventStart, now) &&
+    !isEventTomorrow(eventStart, now) &&
+    !isInUpcomingWeekendWindow(eventStart, now)
+  );
 }
