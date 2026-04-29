@@ -3,6 +3,8 @@
 **Date:** 2026-04-11  
 **Mode:** investigation only — no code changes, no deploy  
 
+**Supersession note (2026-04-29):** Ready Gate registration ownership changed after this audit. Use `docs/ready-gate-server-owned-registration-status-final-audit.md` for current status ownership. In particular, clients no longer write `in_ready_gate`, `in_handshake`, or `in_date` through presence helpers.
+
 **Scope note:** The file **`Pasted text.txt`** referenced in the brief was **not found** in the workspace. This report treats **`docs/events-hardening-phase1-release-audit.md`**, **`phase2`**, **`phase3`**, **`_cursor_context/vibely_golden_snapshot_audited.md`**, **`_cursor_context/vibely_migration_manifest.md`**, and **`docs/supabase-full-backend-vs-frontend-audit.md`** as the composite “audit narrative” under scrutiny.
 
 ---
@@ -134,7 +136,7 @@ Terminal for overlay: [both_ready] --> client navigates to /date/:sessionId
 ### 2.6 Client writes that undermine “fully server-owned”
 
 - **`useEventStatus`:** `update_participant_status` RPC + **direct** `event_registrations.update({ last_active_at })` heartbeat.
-- **`ReadyGateOverlay`:** sets **`in_ready_gate`** via `setStatus` on mount.
+- **`ReadyGateOverlay`:** historical finding superseded on 2026-04-29; Ready Gate overlays now read server session/registration truth and no longer create Ready Gate state through client presence helpers.
 - **`VideoDate`:** **`video_date_transition`** for lifecycle (good); **beforeunload** uses **`fetch` to RPC** (keeps JWT; server-owned).
 
 ### 2.7 Verdict: robustness

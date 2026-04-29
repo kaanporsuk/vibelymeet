@@ -30,8 +30,8 @@
 |------|-------------------------|---------------|
 | State | `video_sessions` (`ready_gate_status`, ready timestamps, snooze) | `useReadyGate` + realtime (`readyGateApi.ts`) |
 | Transitions | RPC **`ready_gate_transition`** (`mark_ready`, `snooze`, `forfeit`) | Implemented |
-| Presence | **`updateParticipantStatus`** for `in_ready_gate` (lobby overlay) | `ReadyGateOverlay`, lobby |
-| Navigation | `event_registrations.queue_status === 'in_ready_gate'` → `/ready/[id]` | `useActiveSession`, `NotificationDeepLinkHandler` |
+| Presence/status writes | **`updateParticipantStatus`** only for client presence statuses (`browsing`, `idle`, `in_survey`, `offline`); `in_ready_gate`, `in_handshake`, and `in_date` are server-owned | `apps/mobile/lib/eventStatus.ts`, `apps/mobile/lib/videoDateApi.ts`; Ready Gate surfaces read session/registration truth |
+| Navigation | `video_sessions` route truth + read-only `event_registrations` state; `in_ready_gate` can route to `/ready/[id]`, provider-confirmed handshake/date truth routes to `/date/[id]` | `useActiveSession`, `NotificationDeepLinkHandler`, `videoDateEntryStartable` |
 
 **Gaps / parity:** Standalone `/ready/[id].tsx` guards against stale sessions (breadcrumb diagnostics). Web parity for copy/edge cases: treat as **polish**, not contract drift.
 

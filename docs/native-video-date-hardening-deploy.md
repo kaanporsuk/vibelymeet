@@ -16,7 +16,7 @@
    - `getDailyRoomToken` returns classified failures (no secrets); Sentry breadcrumbs/messages on token and handshake failures.
    - iOS requests camera/mic via `expo-camera` before Daily join; `hasStartedJoinRef` reset on failures; join effect no longer depends on `joining` (avoids spurious cancellation).
    - `useActiveSession`: `in_ready_gate` routes to `/ready/[id]`; `in_handshake` / `in_date` still route to `/date/[id]`.
-   - Ready Gate overlay no longer sets `in_date` before video starts; handshake queue status is updated when the date screen starts Daily.
+   - Later Ready Gate registration hardening supersedes the older client-status model: Ready Gate overlays do not write `in_ready_gate` or `in_date`; provider-confirmed server transitions own `in_handshake` / `in_date`.
 
 ## Deploy checklist (Supabase cloud)
 
