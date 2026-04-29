@@ -24,7 +24,7 @@ import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { useReadyGate } from '@/lib/readyGateApi';
-import { fetchVideoSessionDateEntryTruthCoalesced, updateParticipantStatus } from '@/lib/videoDateApi';
+import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
@@ -435,15 +435,6 @@ export function ReadyGateOverlay({
           reason,
         });
       }
-      try {
-        await updateParticipantStatus(eventId, 'browsing');
-      } catch (e) {
-        rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_browsing_status_after_forfeit_failed', {
-          event_id: eventId,
-          session_id: sessionId,
-          message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
-        });
-      }
       onLobbyUserMessage?.(
         reason === 'timeout'
           ? "They weren't ready. Back to browsing — your deck is waiting."
@@ -592,10 +583,6 @@ export function ReadyGateOverlay({
     sessionId,
     snoozedByPartner,
   ]);
-
-  useEffect(() => {
-    void updateParticipantStatus(eventId, 'in_ready_gate');
-  }, [eventId, userId]);
 
   useEffect(() => {
     let cancelled = false;

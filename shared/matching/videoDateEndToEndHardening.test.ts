@@ -66,6 +66,10 @@ const videoDateObservabilityV2Migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501140000_video_date_observability_v2_trace.sql"),
   "utf8",
 );
+const readyGateServerOwnedRegistrationMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501141000_ready_gate_server_owned_registration_status.sql"),
+  "utf8",
+);
 const halfVerdictTimeoutCronMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501104000_schedule_post_date_half_verdict_timeout_cron.sql"),
   "utf8",
@@ -150,6 +154,12 @@ const nativeEventStatusHook = readFileSync(
   join(process.cwd(), "apps/mobile/lib/eventStatus.ts"),
   "utf8",
 );
+const webClientWritableStatusType = webEventStatusHook.match(
+  /export type ClientWritableParticipantStatus =[\s\S]*?;/,
+)?.[0] ?? "";
+const nativeClientWritableStatusType = nativeEventStatusHook.match(
+  /export type ClientWritableParticipantStatus =[\s\S]*?;/,
+)?.[0] ?? "";
 const webSwipeActionHook = readFileSync(
   join(process.cwd(), "src/hooks/useSwipeAction.ts"),
   "utf8",
@@ -425,6 +435,21 @@ test("migration extends both_ready join window without reopening expired gates",
   assert.match(migration, /v_new_status := 'both_ready'/);
   assert.match(migration, /v_now \+ interval '15 seconds'/);
   assert.match(migration, /PERFORM public\.expire_stale_video_sessions\(\)/);
+});
+
+test("ready_gate_transition serializes Ready Gate terminal state before mutation", () => {
+  const lockIndex = migration.indexOf("SELECT * INTO v_session FROM public.video_sessions WHERE id = p_session_id FOR UPDATE");
+  const terminalGuardIndex = migration.indexOf("IF v_session.ready_gate_status IN ('forfeited', 'expired', 'both_ready') THEN");
+  const markReadyIndex = migration.indexOf("IF p_action = 'mark_ready' THEN", terminalGuardIndex);
+  const snoozeIndex = migration.indexOf("IF p_action = 'snooze' THEN", terminalGuardIndex);
+  const forfeitIndex = migration.indexOf("IF p_action = 'forfeit' THEN", terminalGuardIndex);
+
+  assert.ok(lockIndex > 0, "ready_gate_transition must lock the video_sessions row");
+  assert.ok(terminalGuardIndex > lockIndex, "terminal guard must run after canonical row lock");
+  assert.ok(markReadyIndex > terminalGuardIndex, "terminal guard must precede mark_ready mutation");
+  assert.ok(snoozeIndex > terminalGuardIndex, "terminal guard must precede snooze mutation");
+  assert.ok(forfeitIndex > terminalGuardIndex, "terminal guard must precede forfeit mutation");
+  assert.match(migration, /'status', v_session\.ready_gate_status[\s\S]*'ready_gate_expires_at', v_session\.ready_gate_expires_at/);
 });
 
 test("pre-date end migration delegates non-end actions through the prior state machine", () => {
@@ -864,13 +889,44 @@ test("provider-atomic entry keeps prepare_entry non-routeable until Daily proof 
   assert.doesNotMatch(providerAtomicEntryMigration, /state = CASE[\s\S]*'handshake'::public\.video_date_state[\s\S]*WHERE id = p_session_id[\s\S]*p_action/s);
 });
 
-test("client presence RPC cannot create server-owned video date route statuses", () => {
-  assert.match(backendIntegrityMigration, /CREATE OR REPLACE FUNCTION public\.update_participant_status/);
-  assert.match(backendIntegrityMigration, /v_status NOT IN \(\s+'browsing',\s+'idle',\s+'in_ready_gate',\s+'in_survey',\s+'offline'\s+\) THEN\s+RETURN;/s);
-  assert.doesNotMatch(backendIntegrityMigration, /v_status NOT IN \([\s\S]*'in_handshake'[\s\S]*\) THEN/);
-  assert.doesNotMatch(backendIntegrityMigration, /v_status NOT IN \([\s\S]*'in_date'[\s\S]*\) THEN/);
-  assert.match(backendIntegrityMigration, /REVOKE ALL ON FUNCTION public\.update_participant_status\(uuid, text\)\s+FROM PUBLIC, anon/s);
-  assert.match(backendIntegrityMigration, /GRANT EXECUTE ON FUNCTION public\.update_participant_status\(uuid, text\)\s+TO authenticated/s);
+test("client presence RPC cannot create server-owned ready gate or video date route statuses", () => {
+  assert.match(readyGateServerOwnedRegistrationMigration, /CREATE OR REPLACE FUNCTION public\.update_participant_status/);
+  assert.match(
+    readyGateServerOwnedRegistrationMigration,
+    /v_status NOT IN \(\s+'browsing',\s+'idle',\s+'in_survey',\s+'offline'\s+\) THEN\s+RETURN;/s,
+  );
+  assert.doesNotMatch(readyGateServerOwnedRegistrationMigration, /v_status NOT IN \([\s\S]*'in_ready_gate'[\s\S]*\) THEN/);
+  assert.doesNotMatch(readyGateServerOwnedRegistrationMigration, /v_status NOT IN \([\s\S]*'in_handshake'[\s\S]*\) THEN/);
+  assert.doesNotMatch(readyGateServerOwnedRegistrationMigration, /v_status NOT IN \([\s\S]*'in_date'[\s\S]*\) THEN/);
+  assert.match(readyGateServerOwnedRegistrationMigration, /REVOKE ALL ON FUNCTION public\.update_participant_status\(uuid, text\)\s+FROM PUBLIC, anon/s);
+  assert.match(readyGateServerOwnedRegistrationMigration, /GRANT EXECUTE ON FUNCTION public\.update_participant_status\(uuid, text\)\s+TO authenticated/s);
+});
+
+test("ready gate registration ownership is not resurrected by clients", () => {
+  assert.match(
+    readyGateServerOwnedRegistrationMigration,
+    /UPDATE public\.event_registrations[\s\S]*SET queue_status = 'idle'[\s\S]*WHERE queue_status = 'in_ready_gate'[\s\S]*AND current_room_id IS NULL/s,
+  );
+  assert.doesNotMatch(readyGateOverlay, /setStatus\(["']in_ready_gate["']\)/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /updateParticipantStatus\(eventId,\s*['"]in_ready_gate['"]\)/);
+  assert.ok(webClientWritableStatusType.length > 0);
+  assert.ok(nativeClientWritableStatusType.length > 0);
+  assert.doesNotMatch(webClientWritableStatusType, /in_ready_gate/);
+  assert.doesNotMatch(nativeClientWritableStatusType, /in_ready_gate/);
+  assert.doesNotMatch(readyGateOverlay, /setStatus\(["']browsing["']\)/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /updateParticipantStatus\(eventId,\s*['"]browsing['"]\)/);
+});
+
+test("web lobby dedupes same-runtime prepare handoffs before date navigation", () => {
+  assert.match(eventLobby, /const prepareNavigationInFlightRef = useRef<Set<string>>\(new Set\(\)\)/);
+  assert.match(eventLobby, /prepareNavigationInFlightRef\.current\.has\(sessionId\)/);
+  assert.match(eventLobby, /prepare_entry_already_in_flight/);
+  assert.match(eventLobby, /prepareNavigationInFlightRef\.current\.add\(sessionId\)/);
+  assert.match(eventLobby, /\.catch\(\(error\) => \{[\s\S]*PREPARE_ENTRY_EXCEPTION[\s\S]*openReadyGateSession/s);
+  assert.match(
+    eventLobby,
+    /\.finally\(\(\) => \{\s*prepareNavigationInFlightRef\.current\.delete\(sessionId\);\s*\}\)/s,
+  );
 });
 
 test("queue_status reaches in_handshake only after provider confirm succeeds", () => {

@@ -875,8 +875,10 @@ export async function completeHandshake(sessionId: string): Promise<CompleteHand
   };
 }
 
-/** Update event registration queue_status (in_handshake, in_date, in_survey, browsing, offline). */
-export async function updateParticipantStatus(eventId: string, status: string): Promise<boolean> {
+export type ClientWritableParticipantStatus = 'browsing' | 'idle' | 'in_survey' | 'offline';
+
+/** Update client-writable presence/status only; Ready Gate and date route statuses are server-owned. */
+export async function updateParticipantStatus(eventId: string, status: ClientWritableParticipantStatus): Promise<boolean> {
   const { error } = await supabase.rpc('update_participant_status', {
     p_event_id: eventId,
     p_status: status,

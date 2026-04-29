@@ -5,7 +5,6 @@ import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 /** Values the client may write via `update_participant_status` (server-owned statuses are excluded). */
 export type ClientWritableParticipantStatus =
   | "browsing"
-  | "in_ready_gate"
   | "in_survey"
   | "offline"
   | "idle";
@@ -13,6 +12,7 @@ export type ClientWritableParticipantStatus =
 /** Includes server-written queue_status values surfaced in UI / reads. */
 export type ParticipantStatus =
   | ClientWritableParticipantStatus
+  | "in_ready_gate"
   | "in_handshake"
   | "in_date";
 
