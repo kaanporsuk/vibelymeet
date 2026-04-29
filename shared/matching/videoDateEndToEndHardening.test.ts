@@ -510,6 +510,15 @@ test("pre-date manual end cleans registrations without entering survey", () => {
   assert.match(preDateEndMigration, /'survey_eligible', v_reached_date_phase/);
 });
 
+test("validation pack checks delegated pre-date cleanup after wrapper layering", () => {
+  assert.match(
+    videoDateValidationSql,
+    /video_date_transition_20260501091000_pre_date_end_cleanup\(uuid,text,text\)/,
+  );
+  assert.match(videoDateValidationSql, /pre_date_manual_end/);
+  assert.match(videoDateValidationSql, /queue_status = v_resume_status/);
+});
+
 test("date-phase end still routes pointed registrations to survey", () => {
   assert.match(preDateEndMigration, /v_session\.date_started_at IS NOT NULL/);
   assert.match(preDateEndMigration, /v_session\.state = 'date'::public\.video_date_state/);
