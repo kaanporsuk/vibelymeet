@@ -40,6 +40,13 @@ import {
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
+import {
+  VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS,
+  VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+  getVideoDateEntryHandoffStatusCopy,
+  shouldRetryVideoDateEntryHandoffFailure,
+  type VideoDateEntryHandoffStatus,
+} from '@clientShared/matching/videoDateEntryRetryPolicy';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import {
   buildReadyGateToDateLatencyPayload,
@@ -53,12 +60,9 @@ const R = (RING_SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * R;
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
-const PREPARE_ENTRY_SLOW_WAIT_MS = 4_000;
-const PREPARE_ENTRY_RETRY_DELAYS_MS = [700, 1_600] as const;
-const TIMEOUT_FORFEIT_RETRY_DELAY_MS = 5_000;
-const TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS = 2;
+const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
-type PrepareEntryStatus = 'idle' | 'preparing' | 'slow' | 'retrying' | 'failed';
+type PrepareEntryStatus = VideoDateEntryHandoffStatus;
 type PrepareEntryFailure = {
   code: string;
   retryable: boolean;
@@ -109,9 +113,8 @@ export function ReadyGateOverlay({
   const openingPartnerWaitRef = useRef(false);
   const openingPermissionWaitRef = useRef(false);
   const terminalTimeoutRef = useRef(false);
-  const timeoutForfeitSentRef = useRef(false);
-  const timeoutForfeitRetryAtMsRef = useRef(0);
-  const timeoutForfeitAttemptCountRef = useRef(0);
+  const expirySyncInFlightRef = useRef(false);
+  const expirySyncRetryAtMsRef = useRef(0);
   const terminalActionInFlightRef = useRef(false);
   const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
@@ -228,18 +231,18 @@ export function ReadyGateOverlay({
           event_id: eventId,
           source_surface: 'ready_gate_overlay',
           source_action: 'prepare_entry_slow_wait',
-          elapsed_ms: PREPARE_ENTRY_SLOW_WAIT_MS,
+          elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
         });
         vdbg('ready_gate_prepare_entry_slow_wait', {
           sessionId,
           eventId,
-          elapsedMs: PREPARE_ENTRY_SLOW_WAIT_MS,
+          elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
         });
-      }, PREPARE_ENTRY_SLOW_WAIT_MS);
+      }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
 
       void (async () => {
         try {
-          for (let attempt = 0; attempt <= PREPARE_ENTRY_RETRY_DELAYS_MS.length; attempt += 1) {
+          for (let attempt = 0; attempt <= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length; attempt += 1) {
             if (dateNavigationStartedRef.current || closedRef.current) return;
             setPrepareEntryStatus(attempt === 0 ? 'preparing' : 'retrying');
             const result = await prepareVideoDateEntry(sessionId, {
@@ -255,7 +258,8 @@ export function ReadyGateOverlay({
               return;
             }
 
-            const exhausted = !result.retryable || attempt >= PREPARE_ENTRY_RETRY_DELAYS_MS.length;
+            const retryable = shouldRetryVideoDateEntryHandoffFailure(result);
+            const exhausted = !retryable || attempt >= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
               platform: 'native',
               session_id: sessionId,
@@ -265,7 +269,7 @@ export function ReadyGateOverlay({
               code: result.code,
               reason_code: result.code,
               httpStatus: result.httpStatus ?? null,
-              retryable: result.retryable,
+              retryable,
               attempt: attempt + 1,
               attempt_count: attempt + 1,
               exhausted,
@@ -276,7 +280,7 @@ export function ReadyGateOverlay({
               session_id: sessionId,
               source,
               code: result.code,
-              retryable: result.retryable,
+              retryable,
               exhausted,
               entry_attempt_id: result.entryAttemptId ?? null,
             });
@@ -284,7 +288,7 @@ export function ReadyGateOverlay({
               sessionId,
               eventId,
               code: result.code,
-              retryable: result.retryable,
+              retryable,
               attempt: attempt + 1,
               exhausted,
               entryAttemptId: result.entryAttemptId ?? null,
@@ -296,14 +300,14 @@ export function ReadyGateOverlay({
               setPrepareEntryStatus('failed');
               setPrepareEntryFailure({
                 code: result.code,
-                retryable: result.retryable,
+                retryable,
                 httpStatus: result.httpStatus,
               });
               prepareEntryHandoffStartedRef.current = false;
               return;
             }
 
-            await sleep(PREPARE_ENTRY_RETRY_DELAYS_MS[attempt]);
+            await sleep(VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt]);
           }
         } finally {
           clearTimeout(slowWaitTimer);
@@ -455,6 +459,7 @@ export function ReadyGateOverlay({
     markReady,
     snooze,
     forfeit,
+    syncSession,
     isBothReady,
   } = useReadyGate(sessionId, userId, {
     onBothReady: handleBothReady,
@@ -470,9 +475,8 @@ export function ReadyGateOverlay({
     openingPartnerWaitRef.current = false;
     openingPermissionWaitRef.current = false;
     terminalTimeoutRef.current = false;
-    timeoutForfeitSentRef.current = false;
-    timeoutForfeitRetryAtMsRef.current = 0;
-    timeoutForfeitAttemptCountRef.current = 0;
+    expirySyncInFlightRef.current = false;
+    expirySyncRetryAtMsRef.current = 0;
     terminalActionInFlightRef.current = false;
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
@@ -633,22 +637,19 @@ export function ReadyGateOverlay({
     };
   }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, userId]);
 
-  const handleSkip = useCallback(async (reason: 'timeout' | 'skip' = 'skip') => {
+  const handleSkip = useCallback(async (reason: 'skip' = 'skip') => {
     if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;
-    const isTimeoutAutoForfeit = reason === 'timeout';
     terminalActionInFlightRef.current = true;
     pendingForfeitReasonRef.current = reason;
     setTerminalActionPending(true);
     setTerminalActionError(null);
-    const dismissVariant = isTimeoutAutoForfeit ? 'timeout_auto_forfeit' : iAmReady ? 'cancel_go_back' : 'skip_this_one';
-    if (!isTimeoutAutoForfeit) {
-      trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
-        platform: 'native',
-        session_id: sessionId,
-        event_id: eventId,
-        dismiss_variant: dismissVariant,
-      });
-    }
+    const dismissVariant = iAmReady ? 'cancel_go_back' : 'skip_this_one';
+    trackEvent(LobbyPostDateEvents.READY_GATE_NOT_NOW_TAP, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId,
+      dismiss_variant: dismissVariant,
+    });
     try {
       const ok = await forfeit();
       if (!ok) throw new Error('ready_gate_forfeit_failed');
@@ -665,14 +666,8 @@ export function ReadyGateOverlay({
     } catch (e) {
       terminalActionInFlightRef.current = false;
       pendingForfeitReasonRef.current = null;
-      if (isTimeoutAutoForfeit) {
-        timeoutForfeitSentRef.current = false;
-        timeoutForfeitRetryAtMsRef.current = Date.now() + TIMEOUT_FORFEIT_RETRY_DELAY_MS;
-      }
       if (closedRef.current || dateNavigationStartedRef.current) return;
-      const message = isTimeoutAutoForfeit
-        ? "We couldn't step away automatically. Check your connection and tap Step away."
-        : "We couldn't step away. Check your connection and try again.";
+      const message = "We couldn't step away. Check your connection and try again.";
       setTerminalActionPending(false);
       setTerminalActionError(message);
       rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeit_failed_kept_open', {
@@ -702,23 +697,32 @@ export function ReadyGateOverlay({
         fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
       });
       setTimeLeft(next);
-      if (next <= 0 && !timeoutForfeitSentRef.current) {
+      if (next <= 0) {
         const now = Date.now();
-        if (
-          timeoutForfeitAttemptCountRef.current >= TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS ||
-          timeoutForfeitRetryAtMsRef.current > now
-        ) {
+        if (expirySyncInFlightRef.current || expirySyncRetryAtMsRef.current > now) {
           return;
         }
-        timeoutForfeitSentRef.current = true;
-        timeoutForfeitAttemptCountRef.current += 1;
-        void handleSkip('timeout');
+        expirySyncInFlightRef.current = true;
+        expirySyncRetryAtMsRef.current = now + EXPIRY_SYNC_RETRY_DELAY_MS;
+        void syncSession()
+          .then((result) => {
+            if (result.ok === false) {
+              rcBreadcrumb(RC_CATEGORY.readyGate, 'countdown_expiry_sync_deferred', {
+                session_id: sessionId,
+                event_id: eventId,
+                error: result.error,
+              });
+            }
+          })
+          .finally(() => {
+            expirySyncInFlightRef.current = false;
+          });
       }
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, terminalActionPending, expiresAt, handleSkip]);
+  }, [isTransitioning, iAmReady, markingReady, snoozedByPartner, terminalActionPending, expiresAt, syncSession, sessionId, eventId]);
 
   const progress = getReadyGateCountdownProgress(timeLeft, GATE_TIMEOUT_SEC);
   const dashOffset = CIRC * (1 - progress);
@@ -732,18 +736,10 @@ export function ReadyGateOverlay({
     setIsTransitioning(true);
     startPrepareEntryHandoff('manual_retry');
   };
-  const prepareTitle =
-    prepareEntryStatus === 'retrying'
-      ? 'Still preparing...'
-      : prepareEntryStatus === 'slow'
-        ? 'Almost ready...'
-        : 'Joining your date...';
-  const prepareSubtitle =
-    prepareEntryStatus === 'retrying'
-      ? 'The video room needed another try.'
-      : prepareEntryStatus === 'slow'
-        ? 'Video setup is taking a little longer than usual.'
-        : 'This should only take a moment.';
+  const prepareCopy = getVideoDateEntryHandoffStatusCopy(
+    prepareEntryStatus,
+    prepareEntryFailure ? prepareEntryFailureMessage(prepareEntryFailure.code) : null,
+  );
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={() => { void handleSkip(); }}>
@@ -793,9 +789,9 @@ export function ReadyGateOverlay({
         ) : prepareEntryStatus === 'failed' && prepareEntryFailure ? (
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <Ionicons name="alert-circle-outline" size={34} color={theme.textSecondary} />
-            <Text style={[styles.title, { color: theme.text, marginTop: spacing.md }]}>Could not start yet</Text>
+            <Text style={[styles.title, { color: theme.text, marginTop: spacing.md }]}>{prepareCopy.title}</Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-              {prepareEntryFailureMessage(prepareEntryFailure.code)}
+              {prepareCopy.body}
             </Text>
             {terminalActionError ? (
               <Text style={[styles.terminalError, { color: theme.danger }]}>{terminalActionError}</Text>
@@ -828,10 +824,10 @@ export function ReadyGateOverlay({
           <Card variant="glass" style={[styles.card, { borderColor: theme.glassBorder }]}>
             <ActivityIndicator size="large" color={theme.tint} />
             <Text style={[styles.title, { color: theme.text, marginTop: spacing.lg }]}>
-              {prepareTitle}
+              {prepareCopy.title}
             </Text>
             <Text style={[styles.subtitle, { color: theme.textSecondary, marginTop: spacing.sm, marginBottom: 0 }]}>
-              {prepareSubtitle}
+              {prepareCopy.body}
             </Text>
           </Card>
         ) : (

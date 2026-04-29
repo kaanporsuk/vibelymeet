@@ -280,6 +280,14 @@ const nativePostDateSurvey = readFileSync(
   join(process.cwd(), "apps/mobile/components/video-date/PostDateSurvey.tsx"),
   "utf8",
 );
+const sharedVideoDateEntryRetryPolicy = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateEntryRetryPolicy.ts"),
+  "utf8",
+);
+const sharedDailyJoinedConfirmation = readFileSync(
+  join(process.cwd(), "shared/matching/dailyJoinedConfirmation.ts"),
+  "utf8",
+);
 const nativeVideoDateApi = readFileSync(
   join(process.cwd(), "apps/mobile/lib/videoDateApi.ts"),
   "utf8",
@@ -677,6 +685,23 @@ test("native ready-gate paths are success-gated with no timer fallback route", (
   assert.match(nativeReadyGateOverlay, /retryPrepareEntry/);
 });
 
+test("web and native ready-gate handoff use shared retry policy", () => {
+  assert.match(sharedVideoDateEntryRetryPolicy, /VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS = 3_000/);
+  assert.match(sharedVideoDateEntryRetryPolicy, /VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS = \[1_000, 2_000, 4_000, 8_000\]/);
+  assert.match(sharedVideoDateEntryRetryPolicy, /VIDEO_DATE_ENTRY_HANDOFF_STATUS_COPY/);
+  assert.match(sharedVideoDateEntryRetryPolicy, /Joining your date/);
+  assert.match(sharedVideoDateEntryRetryPolicy, /Holding your date/);
+  assert.match(sharedVideoDateEntryRetryPolicy, /Retrying connection/);
+  assert.match(sharedVideoDateEntryRetryPolicy, /function shouldRetryVideoDateEntryHandoffFailure/);
+  for (const source of [readyGateOverlay, nativeReadyGateOverlay]) {
+    assert.match(source, /VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS/);
+    assert.match(source, /VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS/);
+    assert.match(source, /getVideoDateEntryHandoffStatusCopy/);
+    assert.match(source, /shouldRetryVideoDateEntryHandoffFailure/);
+    assert.doesNotMatch(source, /const PREPARE_ENTRY_SLOW_WAIT_MS|const PREPARE_ENTRY_RETRY_DELAYS_MS/);
+  }
+});
+
 test("ready-gate terminal actions wait for server forfeit before closing", () => {
   assert.match(webReadyGateHook, /type ReadyGateTransitionAction = "mark_ready" \| "forfeit" \| "snooze" \| "sync"/);
   assert.match(webReadyGateHook, /const runReadyGateTransition = useCallback\(async \(action: ReadyGateTransitionAction\): Promise<boolean> =>/);
@@ -698,12 +723,15 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
     /closedRef\.current = true;\s*skip\(\);\s*setStatus\("browsing"\);\s*onClose\(\);/,
   );
 
-  assert.match(nativeReadyGateApi, /type ReadyGateTransitionAction = 'mark_ready' \| 'forfeit' \| 'snooze'/);
+  assert.match(nativeReadyGateApi, /type ReadyGateTransitionAction = 'mark_ready' \| 'forfeit' \| 'snooze' \| 'sync'/);
   assert.match(nativeReadyGateApi, /const runReadyGateTransition = useCallback\(async \(action: ReadyGateTransitionAction\): Promise<boolean> =>/);
   assert.match(nativeReadyGateApi, /const forfeit = useCallback\(async \(\): Promise<boolean> =>/);
   assert.match(nativeReadyGateApi, /const \{ error \} = await supabase\.rpc\('ready_gate_transition'/);
+  assert.match(nativeReadyGateApi, /const syncSession = useCallback\(async \(\): Promise<ReadyGateSyncResult> =>/);
+  assert.match(nativeReadyGateApi, /p_action: 'sync' satisfies ReadyGateTransitionAction/);
+  assert.match(nativeReadyGateApi, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status: payload\.status \?\? payload\.ready_gate_status/s);
   assert.match(nativeReadyGateApi, /return false;[\s\S]*return true;/);
-  assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'timeout' \| 'skip' = 'skip'\) =>/);
+  assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'skip' = 'skip'\) =>/);
   assert.match(nativeReadyGateOverlay, /const ok = await forfeit\(\)/);
   assert.match(nativeReadyGateOverlay, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
   assert.match(nativeReadyGateOverlay, /setTerminalActionError\(message\)/);
@@ -741,18 +769,19 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(nativeReadyGateOverlay, /const ok = await snooze\(\)/);
   assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
-  assert.match(nativeReadyGateOverlay, /TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
-  assert.match(nativeReadyGateOverlay, /TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS/);
-  assert.match(nativeReadyGateOverlay, /void handleSkip\('timeout'\)/);
-  assert.match(nativeReadyGateOverlay, /timeoutForfeitSentRef\.current = false[\s\S]*timeoutForfeitRetryAtMsRef\.current = Date\.now\(\) \+ TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
-  assert.doesNotMatch(nativeReadyGateOverlay, /timeoutForfeitSentRef\.current = true;\s*void forfeit\(\)/);
+  assert.match(nativeReadyGateOverlay, /EXPIRY_SYNC_RETRY_DELAY_MS/);
+  assert.match(nativeReadyGateOverlay, /void syncSession\(\)[\s\S]*countdown_expiry_sync_deferred/s);
+  assert.doesNotMatch(nativeReadyGateOverlay, /TIMEOUT_FORFEIT|timeoutForfeit|timeout_auto_forfeit|handleSkip\('timeout'\)/);
 
   assert.match(nativeReadyRoute, /const runReadyGateForfeit = useCallback\(/);
   assert.match(nativeReadyRoute, /const ok = await forfeit\(\)/);
   assert.match(nativeReadyRoute, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
-  assert.match(nativeReadyRoute, /setTerminalActionError\(message\)/);
-  assert.match(nativeReadyRoute, /timeoutForfeitSentRef\.current = false[\s\S]*timeoutForfeitRetryAtMsRef\.current = Date\.now\(\) \+ TIMEOUT_FORFEIT_RETRY_DELAY_MS/);
-  assert.match(nativeReadyRoute, /void runReadyGateForfeit\('timeout'\)/);
+  assert.match(nativeReadyRoute, /setTerminalActionError\("We couldn't step away\. Check your connection and try again\."\)/);
+  assert.match(nativeReadyRoute, /EXPIRY_SYNC_RETRY_DELAY_MS/);
+  assert.match(nativeReadyRoute, /const syncExpiredReadyGate = useCallback/);
+  assert.match(nativeReadyRoute, /const result = await syncSession\(\)/);
+  assert.match(nativeReadyRoute, /standalone_countdown_expiry_sync_deferred/);
+  assert.doesNotMatch(nativeReadyRoute, /TIMEOUT_FORFEIT|timeoutForfeit|runReadyGateForfeit\('timeout'\)/);
   assert.match(nativeReadyRoute, /primaryAction: \{ label: 'Step away', onPress: \(\) => \{ void runReadyGateForfeit\('skip'\); \} \}/);
   assert.doesNotMatch(nativeReadyRoute, /forfeit\(\);\s*return 0/);
   assert.match(nativeReadyRoute, /const ok = await markReady\(\)/);
@@ -1174,6 +1203,10 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
   assert.match(webVideoCallHook, /We're reconnecting your date state/);
+  assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = \[1_500, 3_000, 5_000\]/);
+  assert.match(sharedDailyJoinedConfirmation, /function markDailyJoinedWithBackoff/);
+  assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_TERMINAL_ERROR_CODES/);
+  assert.match(webVideoCallHook, /markDailyJoinedWithBackoff\(/);
   assert.match(webVideoCallHook, /mark_video_date_daily_joined_retry_after_failure/);
   assert.match(nativeVideoDateApi, /action: 'video_date_leave'/);
   assert.match(nativeVideoDateRoute, /signalVideoDateLeave\(sessionId, 'app_background'\)/);
@@ -1181,7 +1214,10 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
   assert.match(nativeVideoDateRoute, /We're reconnecting your date state/);
-  assert.match(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
+  assert.match(nativeVideoDateRoute, /markDailyJoinedWithBackoff\(/);
+  assert.match(nativeVideoDateRoute, /supabase\.rpc\('mark_video_date_daily_joined'/);
+  assert.match(nativeVideoDateRoute, /mark_video_date_daily_joined_retry_after_failure/);
+  assert.doesNotMatch(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
 });
 
 test("native local date end waits for server terminal truth before survey", () => {
@@ -1252,6 +1288,17 @@ test("post-date survey retries verdicts and exposes half-verdict pending state o
   assert.match(nativePostDateSurvey, /lastVerdictAttempt/);
   assert.match(nativePostDateSurvey, /Try again/);
   assert.match(nativePostDateSurvey, /Awaiting your match&apos;s verdict/);
+});
+
+test("native post-date survey drains queued ready gates across the whole survey lifecycle", () => {
+  assert.match(nativePostDateSurvey, /queuedNavigationStartedRef/);
+  assert.match(nativePostDateSurvey, /queuedDrainAttemptKeyRef/);
+  assert.match(nativePostDateSurvey, /const drainKey = `\$\{sessionId\}:\$\{eventId\}:\$\{userId\}`/);
+  assert.match(nativePostDateSurvey, /const result = await drainMatchQueue\(eventId, userId\)/);
+  assert.match(nativePostDateSurvey, /onQueuedVideoSessionReady\?\.\(nextSessionId\)/);
+  assert.match(nativePostDateSurvey, /\}, \[eventId, onQueuedVideoSessionReady, sessionId, userId\]\);/);
+  assert.doesNotMatch(nativePostDateSurvey, /step !== 'safety'/);
+  assert.doesNotMatch(nativePostDateSurvey, /drainMatchQueue\(eventId, userId\)[\s\S]{0,900}\[eventId, onQueuedVideoSessionReady, step, userId\]/);
 });
 
 test("notification date deep links require provider-prepared truth before routing to date", () => {

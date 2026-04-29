@@ -25,6 +25,13 @@ import {
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from "@clientShared/matching/readyGateCountdown";
+import {
+  VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS,
+  VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+  getVideoDateEntryHandoffStatusCopy,
+  shouldRetryVideoDateEntryHandoffFailure,
+  type VideoDateEntryHandoffStatus,
+} from "@clientShared/matching/videoDateEntryRetryPolicy";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -35,11 +42,9 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
-const PREPARE_ENTRY_SLOW_WAIT_MS = 3_000;
-const PREPARE_ENTRY_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000] as const;
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
-type PrepareEntryStatus = "idle" | "preparing" | "slow" | "retrying" | "failed";
+type PrepareEntryStatus = VideoDateEntryHandoffStatus;
 type ReadyGateTerminalAction =
   | "skip_this_one"
   | "cancel_go_back"
@@ -59,23 +64,6 @@ function readyGateDebug(message: string, data?: Record<string, unknown>) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function shouldRetryPrepareEntryFailure(result: {
-  code?: string;
-  httpStatus?: number;
-  retryable?: boolean;
-}): boolean {
-  if (result.retryable === true) return true;
-  if (result.code === "READY_GATE_NOT_READY" || result.code === "RPC_ERROR") return true;
-  if (
-    result.code === "DAILY_RATE_LIMIT" ||
-    result.code === "DAILY_PROVIDER_UNAVAILABLE" ||
-    result.code === "DAILY_PROVIDER_ERROR"
-  ) {
-    return true;
-  }
-  return typeof result.httpStatus === "number" && result.httpStatus >= 500;
 }
 
 function prepareEntryFailureMessage(code?: string): string {
@@ -103,22 +91,7 @@ function prepareEntryFailureMessage(code?: string): string {
 }
 
 function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: PrepareEntryFailureState) {
-  if (status === "failed") {
-    return {
-      title: "Could not prepare the room",
-      body: failure?.message ?? "We could not prepare the video room. Please try again.",
-    };
-  }
-  if (status === "slow" || status === "retrying") {
-    return {
-      title: "Preparing your video date...",
-      body: "Still setting up the room. This can take a few seconds.",
-    };
-  }
-  return {
-    title: "Preparing your video date...",
-    body: "This should only take a moment.",
-  };
+  return getVideoDateEntryHandoffStatusCopy(status, failure?.message);
 }
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
@@ -259,18 +232,18 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         event_id: eventId,
         source_surface: "ready_gate_overlay",
         source_action: "prepare_entry_slow_wait",
-        elapsed_ms: PREPARE_ENTRY_SLOW_WAIT_MS,
+        elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
       });
       vdbg("ready_gate_prepare_entry_slow_wait", {
         sessionId,
         eventId,
-        elapsedMs: PREPARE_ENTRY_SLOW_WAIT_MS,
+        elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
       });
-    }, PREPARE_ENTRY_SLOW_WAIT_MS);
+    }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
 
     void (async () => {
       try {
-        for (let attempt = 0; attempt <= PREPARE_ENTRY_RETRY_DELAYS_MS.length; attempt += 1) {
+        for (let attempt = 0; attempt <= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length; attempt += 1) {
           if (!isCurrentPrepareRun()) return;
           setPrepareEntryStatus(attempt === 0 ? "preparing" : "retrying");
           const result = await prepareVideoDateEntry(sessionId, {
@@ -287,8 +260,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
             return;
           }
 
-          const retryable = shouldRetryPrepareEntryFailure(result);
-          const exhausted = !retryable || attempt >= PREPARE_ENTRY_RETRY_DELAYS_MS.length;
+          const retryable = shouldRetryVideoDateEntryHandoffFailure(result);
+          const exhausted = !retryable || attempt >= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
             platform: "web",
             session_id: sessionId,
@@ -326,7 +299,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           }
 
           setPrepareEntryStatus("retrying");
-          await sleep(PREPARE_ENTRY_RETRY_DELAYS_MS[attempt]);
+          await sleep(VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt]);
         }
       } finally {
         window.clearTimeout(slowWaitTimer);

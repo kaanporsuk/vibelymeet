@@ -53,7 +53,6 @@ import {
   DATE_SECONDS,
   fetchVideoSessionDateEntryTruth,
   fetchVideoSessionDateEntryTruthCoalesced,
-  markVideoDateDailyJoined,
   type PartnerProfileData,
 } from '@/lib/videoDateApi';
 import {
@@ -131,6 +130,7 @@ import {
   shouldPreservePrejoinAttemptOnCleanup,
   type PrejoinAttemptStep,
 } from '@clientShared/matching/videoDatePrejoinAttempt';
+import { markDailyJoinedWithBackoff } from '@clientShared/matching/dailyJoinedConfirmation';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -3988,57 +3988,64 @@ export default function VideoDateScreen() {
         if (__DEV__) {
           vdbg('mark_video_date_daily_joined_before', { sessionId, userId: user.id });
         }
-        void markVideoDateDailyJoined(sessionId)
-          .then((ok) => {
+        void markDailyJoinedWithBackoff({
+          confirm: async (attempt) => {
+            const { data: joinedData, error: joinedError } = await supabase.rpc('mark_video_date_daily_joined', {
+              p_session_id: sessionId,
+            });
+            const payload = joinedData as { ok?: boolean; error?: string | null } | null;
+            const ok = !joinedError && payload?.ok === true;
+            const code = joinedError?.code ?? payload?.error ?? null;
             if (__DEV__) {
-              vdbg('mark_video_date_daily_joined_after', { sessionId, userId: user.id, ok });
+              vdbg('mark_video_date_daily_joined_after', {
+                sessionId,
+                userId: user.id,
+                attempt,
+                ok,
+                code,
+                error: joinedError ? { code: joinedError.code, message: joinedError.message } : null,
+              });
             }
-            if (!ok) {
+            return {
+              ok,
+              code,
+              retryable: joinedError ? true : undefined,
+              error: joinedError ?? undefined,
+              payload: joinedData ?? null,
+            };
+          },
+          onAttemptResult: ({ attempt, ok, code, retryable, willRetry }) => {
+            if (!ok && attempt === 1) {
               setCallError("We're reconnecting your date state...");
               trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
                 platform: 'native',
                 session_id: sessionId,
                 event_id: eventId || null,
+                code,
+                retryable,
+                will_retry: willRetry,
                 entry_attempt_id: entryAttemptId,
                 video_date_trace_id: videoDateTraceId,
               });
-              setTimeout(() => {
-                void markVideoDateDailyJoined(sessionId).then((retryOk) => {
-                  if (retryOk) {
-                    setCallError(null);
-                    void refetchVideoSession();
-                  }
-                });
-              }, 1500);
             }
-            if (ok) void refetchVideoSession();
-          })
-          .catch((err) => {
-            if (__DEV__) {
-              vdbg('mark_video_date_daily_joined_error', {
+            if (__DEV__ && attempt > 1) {
+              vdbg('mark_video_date_daily_joined_retry_after_failure', {
                 sessionId,
                 userId: user.id,
-                error: err instanceof Error ? err.message : String(err),
+                attempt,
+                ok,
+                code,
+                retryable,
+                willRetry,
               });
             }
-            trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
-              platform: 'native',
-              session_id: sessionId,
-              event_id: eventId || null,
-              reason: 'exception',
-              entry_attempt_id: entryAttemptId,
-              video_date_trace_id: videoDateTraceId,
-            });
-            setCallError("We're reconnecting your date state...");
-            setTimeout(() => {
-              void markVideoDateDailyJoined(sessionId).then((retryOk) => {
-                if (retryOk) {
-                  setCallError(null);
-                  void refetchVideoSession();
-                }
-              });
-            }, 1500);
-          });
+          },
+        }).then((result) => {
+          if (result.ok) {
+            setCallError(null);
+            void refetchVideoSession();
+          }
+        });
         const local = participants?.local;
         if (local) {
           setLocalParticipant(local);

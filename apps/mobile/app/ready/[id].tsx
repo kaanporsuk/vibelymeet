@@ -29,11 +29,14 @@ import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/
 import {
   READY_GATE_DEEP_LINK_INVALID_USER_MESSAGE,
 } from '@shared/matching/videoSessionFlow';
+import {
+  getReadyGateRemainingSeconds,
+  READY_GATE_DEFAULT_TIMEOUT_SECONDS,
+} from '@clientShared/matching/readyGateCountdown';
 
-const GATE_TIMEOUT_SEC = 30;
+const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
-const TIMEOUT_FORFEIT_RETRY_DELAY_MS = 5_000;
-const TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS = 2;
+const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
 export default function ReadyGateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
@@ -48,9 +51,11 @@ export default function ReadyGateScreen() {
     partnerName,
     snoozedByPartner,
     snoozeExpiresAt,
+    expiresAt,
     markReady,
     forfeit,
     snooze,
+    syncSession,
     isBothReady,
     isForfeited,
     isSnoozed,
@@ -72,9 +77,9 @@ export default function ReadyGateScreen() {
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
-  const timeoutForfeitSentRef = useRef(false);
-  const timeoutForfeitRetryAtMsRef = useRef(0);
-  const timeoutForfeitAttemptCountRef = useRef(0);
+  const expirySyncInFlightRef = useRef(false);
+  const expirySyncRetryAtMsRef = useRef(0);
+  const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const { show: showDialog, dialog: dialogEl } = useVibelyDialog();
 
   const requestMediaPermissions = async (): Promise<boolean> => {
@@ -199,9 +204,10 @@ export default function ReadyGateScreen() {
     setSessionLookupDone(false);
     setPermissionRequestEligible(false);
     redirectExplainedRef.current = false;
-    timeoutForfeitSentRef.current = false;
-    timeoutForfeitRetryAtMsRef.current = 0;
-    timeoutForfeitAttemptCountRef.current = 0;
+    expirySyncInFlightRef.current = false;
+    expirySyncRetryAtMsRef.current = 0;
+    fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
+    setTimeLeft(GATE_TIMEOUT_SEC);
     setPermissionsResolved(false);
     setHasMediaPermission(null);
     setTerminalActionPending(false);
@@ -360,9 +366,8 @@ export default function ReadyGateScreen() {
   }, [isSnoozed]);
 
   const runReadyGateForfeit = useCallback(
-    async (reason: 'timeout' | 'skip') => {
+    async (reason: 'skip') => {
       if (terminalActionPending) return;
-      const isTimeoutAutoForfeit = reason === 'timeout';
       setTerminalActionPending(true);
       setTerminalActionError(null);
       try {
@@ -373,14 +378,7 @@ export default function ReadyGateScreen() {
         if (eventId) router.replace(eventLobbyHref(eventId));
         else if (sessionLookupDone) router.replace(tabsRootHref());
       } catch (e) {
-        if (isTimeoutAutoForfeit) {
-          timeoutForfeitSentRef.current = false;
-          timeoutForfeitRetryAtMsRef.current = Date.now() + TIMEOUT_FORFEIT_RETRY_DELAY_MS;
-        }
-        const message = isTimeoutAutoForfeit
-          ? "We couldn't step away automatically. Check your connection and tap Step away."
-          : "We couldn't step away. Check your connection and try again.";
-        setTerminalActionError(message);
+        setTerminalActionError("We couldn't step away. Check your connection and try again.");
         setTerminalActionPending(false);
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeit_failed_kept_open', {
           session_id: sessionId ?? null,
@@ -393,6 +391,39 @@ export default function ReadyGateScreen() {
     [eventId, forfeit, sessionId, sessionLookupDone, terminalActionPending],
   );
 
+  const syncExpiredReadyGate = useCallback(
+    async (source: string) => {
+      if (!sessionId || !user?.id) return;
+      const now = Date.now();
+      if (expirySyncInFlightRef.current || expirySyncRetryAtMsRef.current > now) return;
+
+      expirySyncInFlightRef.current = true;
+      expirySyncRetryAtMsRef.current = now + EXPIRY_SYNC_RETRY_DELAY_MS;
+      try {
+        const result = await syncSession();
+        if (result.ok === true && result.expiresAt) {
+          setTimeLeft(
+            getReadyGateRemainingSeconds({
+              expiresAt: result.expiresAt,
+              fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
+            }),
+          );
+          return;
+        }
+        if (result.ok === false) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_countdown_expiry_sync_deferred', {
+            session_id: sessionId,
+            source,
+            error: result.error,
+          });
+        }
+      } finally {
+        expirySyncInFlightRef.current = false;
+      }
+    },
+    [sessionId, syncSession, user?.id],
+  );
+
   useEffect(() => {
     if (transitioning || iAmReady || markingReady || requestingSnooze || terminalActionPending) return;
     if (isSnoozed && snoozeExpiresAt) {
@@ -402,47 +433,45 @@ export default function ReadyGateScreen() {
     }
     const t = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 1) {
-          const now = Date.now();
-          if (
-            !timeoutForfeitSentRef.current &&
-            timeoutForfeitAttemptCountRef.current < TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS &&
-            timeoutForfeitRetryAtMsRef.current <= now
-          ) {
-            timeoutForfeitSentRef.current = true;
-            timeoutForfeitAttemptCountRef.current += 1;
-            void runReadyGateForfeit('timeout');
-          }
+        const next = expiresAt
+          ? getReadyGateRemainingSeconds({
+              expiresAt,
+              fallbackDeadlineMs: fallbackGateDeadlineMsRef.current,
+            })
+          : Math.max(0, prev - 1);
+        if (next <= 0) {
+          void syncExpiredReadyGate('countdown_expired');
           return 0;
         }
-        return prev - 1;
+        return next;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [transitioning, iAmReady, markingReady, requestingSnooze, terminalActionPending, isSnoozed, snoozeExpiresAt, runReadyGateForfeit]);
+  }, [
+    transitioning,
+    iAmReady,
+    markingReady,
+    requestingSnooze,
+    terminalActionPending,
+    isSnoozed,
+    snoozeExpiresAt,
+    expiresAt,
+    syncExpiredReadyGate,
+  ]);
 
   useEffect(() => {
     if (!isSnoozed || terminalActionPending) return;
     const t = setInterval(() => {
       setSnoozeTimeLeft((prev) => {
         if (prev <= 1) {
-          const now = Date.now();
-          if (
-            !timeoutForfeitSentRef.current &&
-            timeoutForfeitAttemptCountRef.current < TIMEOUT_FORFEIT_MAX_AUTO_ATTEMPTS &&
-            timeoutForfeitRetryAtMsRef.current <= now
-          ) {
-            timeoutForfeitSentRef.current = true;
-            timeoutForfeitAttemptCountRef.current += 1;
-            void runReadyGateForfeit('timeout');
-          }
+          void syncExpiredReadyGate('snooze_expired');
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [isSnoozed, terminalActionPending, runReadyGateForfeit]);
+  }, [isSnoozed, terminalActionPending, syncExpiredReadyGate]);
 
   const handleSkip = () => {
     if (terminalActionPending) return;
