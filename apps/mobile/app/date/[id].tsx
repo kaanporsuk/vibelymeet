@@ -1612,12 +1612,12 @@ export default function VideoDateScreen() {
       });
       setIsConnecting(false);
       vdbg('prejoin_state_callError', {
-        value: 'Your match has not joined yet.',
+        value: "They didn't make it in time.",
         sessionId,
         userId: user?.id ?? null,
         step: 'peer_missing_timeout',
       });
-      setCallError('Your match has not joined yet.');
+      setCallError("They didn't make it in time.");
     }, FIRST_CONNECT_TIMEOUT_MS);
 
     return () => clearFirstConnectWatchdog();
@@ -5191,10 +5191,10 @@ export default function VideoDateScreen() {
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>
-                Your match has not joined yet.
+                They didn't make it in time.
               </Text>
               <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
-                We could not connect them in time. You can keep waiting, try reconnecting, or head back to the lobby.
+                We couldn't connect them in time. You can try reconnecting, keep waiting, or head back to the lobby.
               </Text>
               <View style={styles.initialTimeoutActions}>
                 <Pressable

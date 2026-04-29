@@ -38,6 +38,7 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "handshake_not_mutual",
   "handshake_grace_expired",
   "handshake_timeout",
+  "partial_join_peer_timeout",
   "blocked_pair",
 ] as const;
 
