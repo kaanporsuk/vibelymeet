@@ -16,7 +16,7 @@ export function getProfilePreviewVibeVideoSections(
     return [{ type: "video", data: vibeVideo.playbackUrl }];
   }
 
-  if (vibeVideo.state === "processing") {
+  if (vibeVideo.state === "processing" || vibeVideo.state === "stale_processing") {
     return [{ type: "vibe_pipeline" }];
   }
 

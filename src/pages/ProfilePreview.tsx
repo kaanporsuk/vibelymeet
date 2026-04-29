@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, Play, Pencil, Loader2, Camera, Mail, Phone, Briefcase, Ruler, MessageCircle } from "lucide-react";
+import { AlertCircle, ArrowLeft, MapPin, Play, Pencil, Loader2, Camera, Mail, Phone, Briefcase, Ruler, MessageCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
@@ -222,10 +222,18 @@ const ProfilePreview = () => {
                   </div>
                 )}
               </div>
-            ) : vibeVideo.state === "processing" ? (
+            ) : vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" ? (
               <div className="rounded-2xl bg-white/5 border border-white/10 flex flex-col items-center justify-center gap-3 py-8 px-4">
-                <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
-                <p className="text-sm text-gray-400 text-center">Your Vibe Video is still processing…</p>
+                {vibeVideo.state === "stale_processing" ? (
+                  <AlertCircle className="w-8 h-8 text-amber-400" />
+                ) : (
+                  <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                )}
+                <p className="text-sm text-gray-400 text-center">
+                  {vibeVideo.state === "stale_processing"
+                    ? "Still processing. Refresh, try again later, or re-upload if it does not finish."
+                    : "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."}
+                </p>
               </div>
             ) : vibeVideo.state === "failed" ? (
               <div className="rounded-2xl bg-white/5 border border-red-500/20 flex items-center justify-center py-8 px-4">

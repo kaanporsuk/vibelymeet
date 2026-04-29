@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 
 export type UserProfileView = {
   id: string;
+  updated_at: string | null;
   name: string | null;
   age: number | null;
   birth_date: string | null;
@@ -85,6 +86,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
 
   return {
     id: row.id,
+    updated_at: typeof row.updated_at === 'string' ? row.updated_at : null,
     name: typeof row.name === 'string' ? row.name : row.name === null ? null : null,
     age: typeof row.age === 'number' ? row.age : row.age === null ? null : null,
     birth_date: typeof row.birth_date === 'string' ? row.birth_date : row.birth_date === null ? null : null,

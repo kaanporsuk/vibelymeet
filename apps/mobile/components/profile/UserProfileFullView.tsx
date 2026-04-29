@@ -85,7 +85,8 @@ export function UserProfileFullView({
   const vibeInfo = resolveVibeVideoState(profile);
   const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
   const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;
-  const vibeProcessing = vibeInfo.state === 'processing';
+  const vibeProcessing = vibeInfo.state === 'processing' || vibeInfo.state === 'stale_processing';
+  const vibeStaleProcessing = vibeInfo.state === 'stale_processing';
   const vibeFailedOrError = vibeInfo.state === 'failed' || vibeInfo.state === 'error';
   const thumbnailUrl = vibeInfo.thumbnailUrl;
   const caption = vibeInfo.caption ?? '';
@@ -283,14 +284,28 @@ export function UserProfileFullView({
           {vibeProcessing ? (
             <RNView style={s.section}>
               <RNView style={[s.videoCard, s.videoProcessingCard, { borderColor: theme.glassBorder }]}>
-                <ActivityIndicator size="large" color="#8B5CF6" />
+                {vibeStaleProcessing ? (
+                  <Ionicons name="warning-outline" size={32} color="#F59E0B" />
+                ) : (
+                  <ActivityIndicator size="large" color="#8B5CF6" />
+                )}
                 <Text style={[s.videoProcessingTitle, { color: theme.text }]}>
-                  {isOwnProfile ? 'Processing your video...' : 'Vibe Video processing'}
+                  {vibeStaleProcessing
+                    ? isOwnProfile
+                      ? 'Still processing your video'
+                      : 'Vibe Video still processing'
+                    : isOwnProfile
+                      ? 'Processing your video...'
+                      : 'Vibe Video processing'}
                 </Text>
                 <Text style={[s.videoProcessingSub, { color: theme.textSecondary }]}>
-                  {isOwnProfile
-                    ? 'This usually takes 15-30 seconds. Pull to refresh on Profile if it sticks.'
-                    : 'Their clip is saved and getting ready for playback.'}
+                  {vibeStaleProcessing
+                    ? isOwnProfile
+                      ? 'Still processing. Refresh, try again later, or re-upload if it does not finish.'
+                      : 'Their clip is saved, but playback is taking longer than usual.'
+                    : isOwnProfile
+                      ? "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."
+                      : 'Their clip is saved and getting ready for playback.'}
                 </Text>
               </RNView>
             </RNView>

@@ -245,15 +245,19 @@ export const ProfileDetailDrawer = ({
       );
     }
 
-    if (!hasVideoIntro && (vibeVideo.state === "processing" || vibeVideo.state === "failed" || vibeVideo.state === "ready")) {
-      const isProcessing = vibeVideo.state === "processing";
+    if (!hasVideoIntro && (vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" || vibeVideo.state === "failed" || vibeVideo.state === "ready")) {
+      const isProcessing = vibeVideo.state === "processing" || vibeVideo.state === "stale_processing";
       const title = isProcessing
-        ? "Vibe Video processing"
+        ? vibeVideo.state === "stale_processing"
+          ? "Vibe Video still processing"
+          : "Vibe Video processing"
         : vibeVideo.state === "failed"
           ? "Vibe Video needs a fresh take"
           : "Vibe Video preview syncing";
       const body = isProcessing
-        ? "Their clip is saved and getting ready for playback."
+        ? vibeVideo.state === "stale_processing"
+          ? "Their clip is saved, but playback is taking longer than usual."
+          : "Their clip is saved and getting ready for playback."
         : vibeVideo.state === "failed"
           ? "This clip did not finish processing."
           : "The clip is ready on our side and playback should appear shortly.";

@@ -18,11 +18,12 @@
 
 import * as tus from "tus-js-client";
 import { supabase } from "@/integrations/supabase/client";
-import { normalizeBunnyVideoStatus } from "@/lib/vibeVideo/webVibeVideoState";
+import { normalizeBunnyVideoStatus, resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { queryClient } from "@/lib/queryClient";
 import { updateMyProfile } from "@/services/profileService";
 import {
   captureVibeVideoException,
+  trackStaleVibeVideoProcessing,
   trackVibeVideoEvent,
   VIBE_VIDEO_EVENTS,
 } from "@/lib/vibeVideo/vibeVideoTelemetry";
@@ -42,6 +43,7 @@ export interface HeroVideoControllerState {
 
 type Subscriber = (state: HeroVideoControllerState) => void;
 export type HeroVideoUploadContext = "onboarding" | "profile_studio";
+type HeroVideoPollResumeSource = "profile_load" | "manual_refresh" | "manual_retry" | "visibility_active";
 type HotImportMeta = ImportMeta & {
   hot?: {
     dispose: (callback: () => void) => void;
@@ -66,6 +68,7 @@ let _activeRunStartedAt = 0;
 let _visibilityListenerAttached = false;
 let _visibilityChangeHandler: (() => void) | null = null;
 let _visibilityResumeInFlight = false;
+let _activePollVideoId: string | null = null;
 
 /** 36 × 5 s = 3 min max poll window before silently going idle */
 const POLL_MAX_ATTEMPTS = 36;
@@ -85,6 +88,7 @@ function _stopPoll(): void {
   }
   _pollAttempts = 0;
   _lastPollStatus = null;
+  _activePollVideoId = null;
 }
 
 async function _pollTick(expectedVideoId: string): Promise<void> {
@@ -98,7 +102,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("bunny_video_uid, bunny_video_status")
+      .select("id, bunny_video_uid, bunny_video_status, updated_at")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -116,6 +120,22 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     }
 
     const st = normalizeBunnyVideoStatus(data?.bunny_video_status);
+    const resolved = resolveWebVibeVideoState({
+      bunny_video_uid: rowUid,
+      bunny_video_status: data?.bunny_video_status,
+      updated_at: data?.updated_at,
+    });
+    if (resolved.state === "stale_processing") {
+      trackStaleVibeVideoProcessing({
+        source: "hero_video_controller",
+        surface: "processing_poll",
+        user_id: user.id,
+        video_guid: expectedVideoId,
+        status: resolved.normalizedStatus,
+        age_ms: resolved.statusAgeMs,
+        status_updated_at: resolved.statusUpdatedAt,
+      });
+    }
     if (st !== _lastPollStatus) {
       _lastPollStatus = st;
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingStatusChanged, {
@@ -181,6 +201,7 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
 
 function _startPoll(videoId: string): void {
   _stopPoll();
+  _activePollVideoId = videoId;
   _pollAttempts = 0;
   _lastPollStatus = null;
   trackVibeVideoEvent(VIBE_VIDEO_EVENTS.processingPollStarted, {
@@ -192,6 +213,53 @@ function _startPoll(videoId: string): void {
   _pollTimerId = setInterval(() => {
     void _pollTick(videoId);
   }, POLL_INTERVAL_MS);
+}
+
+export function heroVideoResumePollingForProfile(
+  profile: {
+    id?: string | null;
+    bunnyVideoUid?: string | null;
+    bunnyVideoStatus?: string | null;
+    bunnyVideoUpdatedAt?: string | number | Date | null;
+    updatedAt?: string | number | Date | null;
+    bunny_video_uid?: string | null;
+    bunny_video_status?: string | null;
+    bunny_video_updated_at?: string | number | Date | null;
+    updated_at?: string | number | Date | null;
+  } | null | undefined,
+  options: {
+    source?: HeroVideoPollResumeSource;
+  } = {},
+): boolean {
+  const source = options.source ?? "profile_load";
+  const info = resolveWebVibeVideoState(profile);
+  if (!info.uid || (info.state !== "processing" && info.state !== "stale_processing")) return false;
+
+  if (_state.phase === "uploading") return false;
+  if (_pollTimerId !== null && _activePollVideoId === info.uid) return false;
+  if (_state.phase === "stalled" && _state.videoId === info.uid && source === "profile_load") return false;
+
+  if (info.state === "stale_processing") {
+    trackStaleVibeVideoProcessing({
+      source: "hero_video_controller",
+      surface: source,
+      user_id: profile?.id ?? null,
+      video_guid: info.uid,
+      status: info.normalizedStatus,
+      age_ms: info.statusAgeMs,
+      status_updated_at: info.statusUpdatedAt,
+    });
+  }
+
+  _setState({
+    phase: "processing",
+    uploadProgress: 100,
+    videoId: info.uid,
+    errorMessage: null,
+  });
+  _startPoll(info.uid);
+  void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
+  return true;
 }
 
 function _handleVisibilityChange(): void {

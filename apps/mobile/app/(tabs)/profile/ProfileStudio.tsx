@@ -41,6 +41,8 @@ import { isDocumentPickerAvailable } from '@/lib/safeDocumentPicker';
 import { type PhotoBatchLaunchAction } from '@/lib/photoBatchController';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { vibeVideoDiagVerbose } from '@/lib/vibeVideoDiagnostics';
+import { nativeHeroVideoResumePollingForProfile } from '@/lib/nativeHeroVideoUploadController';
+import { trackStaleVibeVideoProcessing } from '@/lib/vibeVideoTelemetry';
 
 import { PromptEditSheet } from '@/components/profile/PromptEditSheet';
 import { TaglineEditorSheet } from '@/components/profile/TaglineEditorSheet';
@@ -269,8 +271,42 @@ export default function ProfileStudio() {
       bunny_video_status: profile.bunny_video_status ?? null,
       resolvedState: videoInfo.state,
       playbackUrl: videoInfo.playbackUrl,
+      statusAgeMs: videoInfo.statusAgeMs,
     });
-  }, [profile?.id, profile?.bunny_video_uid, profile?.bunny_video_status, videoInfo.playbackUrl, videoInfo.state, profile]);
+  }, [
+    profile?.id,
+    profile?.bunny_video_uid,
+    profile?.bunny_video_status,
+    videoInfo.playbackUrl,
+    videoInfo.state,
+    videoInfo.statusAgeMs,
+    profile,
+  ]);
+
+  useEffect(() => {
+    if (!profile || !videoInfo.uid) return;
+    if (videoInfo.state === 'processing' || videoInfo.state === 'stale_processing') {
+      nativeHeroVideoResumePollingForProfile(profile, { source: 'profile_load' });
+    }
+    if (videoInfo.state === 'stale_processing') {
+      trackStaleVibeVideoProcessing({
+        source: 'native_profile_studio',
+        surface: 'profile_tab',
+        user_id: profile.id,
+        video_guid: videoInfo.uid,
+        status: videoInfo.normalizedStatus,
+        age_ms: videoInfo.statusAgeMs,
+        status_updated_at: videoInfo.statusUpdatedAt,
+      });
+    }
+  }, [
+    profile,
+    videoInfo.uid,
+    videoInfo.state,
+    videoInfo.normalizedStatus,
+    videoInfo.statusAgeMs,
+    videoInfo.statusUpdatedAt,
+  ]);
 
   const registerSectionLayout = (key: string, y: number, height: number) => {
     sectionOffsets.current[key] = y;
@@ -762,7 +798,8 @@ export default function ProfileStudio() {
   const age = profile?.age;
   const hasPlayableVibeVideo = videoInfo.state === 'ready' && videoInfo.canPlay;
   const readyAwaitingPlaybackUrl = videoInfo.state === 'ready' && !videoInfo.canPlay;
-  const isVibeVideoProcessing = videoInfo.state === 'processing';
+  const isVibeVideoProcessing = videoInfo.state === 'processing' || videoInfo.state === 'stale_processing';
+  const isVibeVideoStaleProcessing = videoInfo.state === 'stale_processing';
   const isVibeVideoFailed = videoInfo.state === 'failed';
   const isVibeVideoError = videoInfo.state === 'error';
   const thumbnailUrl = videoInfo.thumbnailUrl;
@@ -1066,10 +1103,18 @@ export default function ProfileStudio() {
                 pressed && { opacity: 0.92 },
               ]}
             >
-              <ActivityIndicator size="large" color="#8B5CF6" />
-              <Text style={[s.videoProcessingTitle, { color: theme.text }]}>Processing your video…</Text>
+              {isVibeVideoStaleProcessing ? (
+                <Ionicons name="warning-outline" size={36} color="#FBBF24" />
+              ) : (
+                <ActivityIndicator size="large" color="#8B5CF6" />
+              )}
+              <Text style={[s.videoProcessingTitle, { color: theme.text }]}>
+                {isVibeVideoStaleProcessing ? 'Still processing' : 'Processing your video...'}
+              </Text>
               <Text style={[s.videoProcessingSubtitle, { color: theme.textSecondary }]}>
-                This usually takes 15–30 seconds
+                {isVibeVideoStaleProcessing
+                  ? 'You can refresh, try again later, or re-upload if it does not finish.'
+                  : "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."}
               </Text>
               <Text style={[s.videoStudioHint, { color: theme.tint }]}>Open Vibe Studio</Text>
             </Pressable>

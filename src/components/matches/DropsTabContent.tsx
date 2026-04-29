@@ -306,12 +306,13 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
   const vibeVideoInfo = resolveWebVibeVideoState({
     bunny_video_uid: partner.bunny_video_uid,
     bunny_video_status: partner.bunny_video_status,
+    updated_at: partner.updated_at,
     vibe_caption: partner.vibe_caption,
   });
   const vibeVideoBadgeLabel =
     vibeVideoInfo.state === 'ready' && vibeVideoInfo.canPlay
       ? 'Has a Vibe Video'
-      : vibeVideoInfo.state === 'processing'
+      : vibeVideoInfo.state === 'processing' || vibeVideoInfo.state === 'stale_processing'
         ? 'Vibe Video processing'
         : vibeVideoInfo.state === 'failed'
           ? 'Vibe Video needs retry'

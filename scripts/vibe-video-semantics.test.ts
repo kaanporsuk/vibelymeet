@@ -5,7 +5,9 @@ import {
   normalizeBunnyVideoStatus,
   normalizeBunnyVideoUid,
   resolveCanonicalVibeVideoState,
+  VIBE_VIDEO_STALE_PROCESSING_THRESHOLD_MS,
 } from "../shared/vibeVideoSemantics.ts";
+import { resolveWebVibeVideoState } from "../src/lib/vibeVideo/webVibeVideoState.ts";
 
 test("canonical Vibe Video semantics separate score eligibility from playback readiness", () => {
   const uploading = resolveCanonicalVibeVideoState({
@@ -16,6 +18,8 @@ test("canonical Vibe Video semantics separate score eligibility from playback re
     state: "processing",
     uid: "video-uploading",
     status: "uploading",
+    statusUpdatedAt: null,
+    statusAgeMs: null,
     isScoreEligible: true,
   });
 
@@ -64,6 +68,51 @@ test("UID plus missing, null, or unknown status remains processing and score eli
   assert.equal(normalizeBunnyVideoUid("   "), null);
 });
 
+test("processing becomes recoverable stale_processing after threshold and never becomes none", () => {
+  const now = "2026-04-29T12:00:00.000Z";
+  const fresh = resolveCanonicalVibeVideoState({
+    bunnyVideoUid: "video-fresh",
+    bunnyVideoStatus: "processing",
+    updatedAt: "2026-04-29T11:55:30.000Z",
+    now,
+  });
+  assert.equal(fresh.state, "processing");
+  assert.equal(fresh.isScoreEligible, true);
+
+  const stale = resolveCanonicalVibeVideoState({
+    bunnyVideoUid: "video-stale",
+    bunnyVideoStatus: "processing",
+    updatedAt: "2026-04-29T11:40:00.000Z",
+    now,
+  });
+  assert.equal(stale.state, "stale_processing");
+  assert.equal(stale.statusUpdatedAt, "2026-04-29T11:40:00.000Z");
+  assert.equal(stale.statusAgeMs, 20 * 60 * 1000);
+  assert.equal(stale.isScoreEligible, true);
+
+  const customThreshold = resolveCanonicalVibeVideoState({
+    bunnyVideoUid: "video-custom-threshold",
+    bunnyVideoStatus: "unknown-provider-status",
+    updatedAt: "2026-04-29T11:58:00.000Z",
+    now,
+    staleProcessingThresholdMs: VIBE_VIDEO_STALE_PROCESSING_THRESHOLD_MS,
+  });
+  assert.equal(customThreshold.state, "processing");
+  assert.notEqual(customThreshold.state, "none");
+});
+
+test("ready state still requires a playable URL before canPlay is true", () => {
+  const readyWithoutConfiguredHostname = resolveWebVibeVideoState({
+    bunny_video_uid: "video-ready",
+    bunny_video_status: "ready",
+  });
+
+  assert.equal(readyWithoutConfiguredHostname.state, "ready");
+  assert.equal(readyWithoutConfiguredHostname.playbackUrl, null);
+  assert.equal(readyWithoutConfiguredHostname.canPlay, false);
+  assert.equal(readyWithoutConfiguredHostname.isScoreEligible, true);
+});
+
 test("delete clears score eligibility and re-upload keeps processing semantics", () => {
   const beforeDelete = resolveCanonicalVibeVideoState({
     bunnyVideoUid: "video-before-delete",
@@ -84,4 +133,3 @@ test("delete clears score eligibility and re-upload keeps processing semantics",
   assert.equal(reupload.state, "processing");
   assert.equal(reupload.isScoreEligible, true);
 });
-

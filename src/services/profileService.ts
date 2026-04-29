@@ -10,6 +10,7 @@ import { fetchMyLocationData } from "@/services/myLocationData";
 // Frontend profile interface (camelCase)
 export interface ProfileData {
   id: string;
+  updatedAt: string | null;
   name: string;
   birthDate: Date | null;
   age: number | null;
@@ -70,6 +71,7 @@ export type ProfileUpdatePayload = Omit<Partial<ProfileData>, BackendOwnedProfil
 // Database profile interface (snake_case)
 interface DbProfile {
   id: string;
+  updated_at?: string | null;
   name: string;
   birth_date: string | null;
   age: number;
@@ -106,10 +108,10 @@ interface DbProfile {
 }
 
 const PROFILE_SELECT_WITH_DISCOVERY =
-  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
+  "id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs";
 
 const PROFILE_SELECT_BASE =
-  "id, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until";
+  "id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, lifestyle, prompts, photos, avatar_url, bunny_video_uid, bunny_video_status, vibe_caption, photo_verified, phone_verified, total_matches, total_conversations, is_premium, premium_until";
 
 const PROFILE_SELECT_RETRYABLE_ERROR =
   /vibe_score|vibe_score_label|preferred_age|event_discovery_prefs|column .* does not exist|schema cache/i;
@@ -170,6 +172,7 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
 
   return {
     id: dbProfile.id,
+    updatedAt: dbProfile.updated_at ?? null,
     name: dbProfile.name,
     birthDate,
     age,

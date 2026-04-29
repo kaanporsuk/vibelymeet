@@ -202,14 +202,22 @@ const UserProfile = () => {
           </div>
         ) : null}
 
-        {vibeVideo.state === "processing" ? (
+        {vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" ? (
           <div className="glass-card border border-border p-4">
             <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              {vibeVideo.state === "stale_processing" ? (
+                <AlertCircle className="h-5 w-5 text-amber-400" />
+              ) : (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              )}
               <div>
-                <h3 className="text-sm font-semibold text-foreground">Vibe Video processing</h3>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {vibeVideo.state === "stale_processing" ? "Vibe Video still processing" : "Vibe Video processing"}
+                </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Their clip is saved and getting ready for playback.
+                  {vibeVideo.state === "stale_processing"
+                    ? "Their clip is saved, but playback is taking longer than usual."
+                    : "Their clip is saved and getting ready for playback."}
                 </p>
               </div>
             </div>

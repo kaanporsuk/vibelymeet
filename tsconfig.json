@@ -1,12 +1,19 @@
 {
   "compilerOptions": {
     "allowJs": true,
+    "baseUrl": ".",
     "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@shared/*": [
+        "./supabase/functions/_shared/*"
+      ],
+      "@clientShared/*": [
+        "./shared/*"
       ]
     },
     "skipLibCheck": true,

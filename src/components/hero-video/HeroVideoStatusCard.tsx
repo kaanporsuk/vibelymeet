@@ -17,8 +17,11 @@ import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 
 interface ProfileSnap {
+  id?: string | null;
   bunnyVideoUid?: string | null;
   bunnyVideoStatus?: string | null;
+  bunnyVideoUpdatedAt?: string | number | Date | null;
+  updatedAt?: string | number | Date | null;
   vibeCaption?: string | null;
 }
 
@@ -29,6 +32,7 @@ interface HeroVideoStatusCardProps {
   onOpenRecorder: () => void;
   /** Open the fullscreen HLS player */
   onOpenPlayer?: () => void;
+  onRefresh?: () => void;
   className?: string;
 }
 
@@ -36,6 +40,7 @@ export function HeroVideoStatusCard({
   profile,
   onOpenRecorder,
   onOpenPlayer,
+  onRefresh,
   className,
 }: HeroVideoStatusCardProps) {
   const ctrl = useHeroVideoUpload();
@@ -47,6 +52,8 @@ export function HeroVideoStatusCard({
       ? {
           bunny_video_uid: profile.bunnyVideoUid,
           bunny_video_status: profile.bunnyVideoStatus,
+          bunnyVideoUpdatedAt: profile.bunnyVideoUpdatedAt,
+          updatedAt: profile.updatedAt,
           vibe_caption: profile.vibeCaption,
         }
       : null,
@@ -218,13 +225,23 @@ export function HeroVideoStatusCard({
           <div>
             <p className="text-sm font-semibold text-white">Processing your Vibe Video</p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Preparing for playback. You can leave this page.
+              Your video uploaded and is still processing. This can take a few minutes. We'll keep checking.
             </p>
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-2 leading-relaxed">
           You can leave this page — processing continues on our servers.
         </p>
+        {onRefresh ? (
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-violet-200 hover:text-violet-100 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Refresh status
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -271,39 +288,58 @@ export function HeroVideoStatusCard({
         </div>
         <button
           type="button"
-          onClick={onOpenRecorder}
+          onClick={onRefresh ?? onOpenRecorder}
           className="flex items-center gap-1.5 text-xs font-semibold text-amber-200 hover:text-amber-100 transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
-          Replace video
+          {onRefresh ? "Retry status check" : "Replace video"}
         </button>
       </div>
     );
   }
 
   // ── Profile-sourced in-pipeline state when controller is idle.
-  if (backendInfo.state === "processing") {
+  if (backendInfo.state === "processing" || backendInfo.state === "stale_processing") {
+    const isStale = backendInfo.state === "stale_processing";
     return (
-      <div className={cn("rounded-2xl bg-white/5 border border-violet-500/20 p-5", className)}>
+      <div className={cn("rounded-2xl bg-white/5 border border-violet-500/20 p-5", isStale && "border-amber-500/25", className)}>
         <div className="flex items-start gap-3">
-          <Loader2 className="w-5 h-5 text-violet-300 animate-spin flex-shrink-0 mt-0.5" />
+          {isStale ? (
+            <AlertCircle className="w-5 h-5 text-amber-300 flex-shrink-0 mt-0.5" />
+          ) : (
+            <Loader2 className="w-5 h-5 text-violet-300 animate-spin flex-shrink-0 mt-0.5" />
+          )}
           <div>
             <p className="text-sm font-semibold text-white">
-              Processing your Vibe Video
+              {isStale ? "Still processing your Vibe Video" : "Processing your Vibe Video"}
             </p>
             <p className="text-xs text-gray-400 mt-0.5">
-              Preparing for playback. If it stays here, open Studio to replace or delete it.
+              {isStale
+                ? "Still processing. You can refresh, try again later, or re-upload if it does not finish."
+                : "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking."}
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onOpenRecorder}
-          className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-violet-200 hover:text-violet-100 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Open Studio
-        </button>
+        <div className="mt-3 flex flex-wrap gap-3">
+          {onRefresh ? (
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="flex items-center gap-1.5 text-xs font-semibold text-violet-200 hover:text-violet-100 transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh status
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onOpenRecorder}
+            className="flex items-center gap-1.5 text-xs font-semibold text-violet-200 hover:text-violet-100 transition-colors"
+          >
+            <Video className="w-3.5 h-3.5" />
+            Open Studio
+          </button>
+        </div>
       </div>
     );
   }

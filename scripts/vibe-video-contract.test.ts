@@ -235,7 +235,8 @@ test("web and native upload controllers expose an explicit stalled phase", () =>
   assert.match(native, /'stalled'/);
   assert.match(web, /taking longer than expected/);
   assert.match(native, /taking longer than expected/);
-  assert.match(sharedSemantics, /state: "processing", uid, status, isScoreEligible: true/);
+  assert.match(sharedSemantics, /VIBE_VIDEO_STALE_PROCESSING_THRESHOLD_MS/);
+  assert.match(sharedSemantics, /"stale_processing"/);
   assert.match(webState, /resolveCanonicalVibeVideoState/);
   assert.match(nativeState, /resolveCanonicalVibeVideoState/);
   assert.doesNotMatch(webState, /state: "uploading"/);
@@ -243,6 +244,8 @@ test("web and native upload controllers expose an explicit stalled phase", () =>
   assert.match(nativeState, /state: 'ready'[\s\S]*canPlay: !!playbackUrl/);
   assert.match(nativeState, /state: 'failed'[\s\S]*canRecord: true/);
   assert.match(nativeState, /status is non-terminal[\s\S]*state: 'processing'/);
+  assert.match(webState, /canonical\.state === "processing" \|\| canonical\.state === "stale_processing"/);
+  assert.match(nativeState, /canonical\.state === 'processing' \|\| canonical\.state === 'stale_processing'/);
   assert.match(nativePoll, /profile_bunny_video_uid_cleared/);
   assert.match(nativePoll, /profile_bunny_video_uid_replaced/);
 });
@@ -614,6 +617,7 @@ test("Vibe Video telemetry events are wired on web and native", () => {
     "vibe_video_processing_poll_started",
     "vibe_video_processing_status_changed",
     "vibe_video_processing_stalled",
+    "vibe_video_stale_processing_observed",
     "vibe_video_ready_observed",
     "vibe_video_failed_observed",
     "vibe_video_playback_attempted",
@@ -639,8 +643,10 @@ test("Vibe Video telemetry events are wired on web and native", () => {
 
   assert.match(webController, /VIBE_VIDEO_EVENTS\.credentialsRequestStarted/);
   assert.match(webController, /VIBE_VIDEO_EVENTS\.processingStalled/);
+  assert.match(webController, /trackStaleVibeVideoProcessing/);
   assert.match(nativeController, /VIBE_VIDEO_EVENTS\.credentialsRequestStarted/);
   assert.match(nativeController, /VIBE_VIDEO_EVENTS\.processingStalled/);
+  assert.match(nativeController, /trackStaleVibeVideoProcessing/);
   assert.match(webReportWizard, /profileReportSubmitted/);
   assert.match(webReportWizard, /reportedHasVibeVideo/);
   assert.match(webChatHeader, /reportedHasVibeVideo/);
@@ -708,13 +714,17 @@ test("native Vibe Video surfaces use canonical resolver state for non-playable U
 
   assert.match(resolver, /resolveCanonicalVibeVideoState/);
   assert.match(resolver, /state: 'processing'/);
+  assert.match(resolver, /canonical\.state === 'processing' \|\| canonical\.state === 'stale_processing'/);
   assert.doesNotMatch(resolver, /state: 'uploading'/);
   assert.match(fullView, /Vibe Video processing/);
+  assert.match(fullView, /Vibe Video still processing/);
   assert.match(fullView, /Their clip is saved and getting ready for playback/);
+  assert.match(fullView, /Their clip is saved, but playback is taking longer than usual/);
   assert.match(fullView, /vibeVideoState=\{vibeInfo\.state\}/);
   assert.match(fullscreenModal, /canonicalUrlState/);
   assert.match(studio, /vibeVideoState=\{videoInfo\.state\}/);
   assert.match(controller, /phase: 'processing'/);
+  assert.match(controller, /type PollStartSource = 'upload_complete' \| 'profile_load'/);
 });
 
 test("web Vibe Video surfaces use resolver-owned readiness and processing states", () => {
@@ -735,12 +745,15 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
   assert.match(card, /Vibe Video needs attention/);
   assert.match(card, /Video saved, playback needs attention/);
   assert.match(card, /NEEDS CHECK/);
-  assert.match(card, /backendInfo\.state === "processing"/);
+  assert.match(card, /backendInfo\.state === "processing" \|\| backendInfo\.state === "stale_processing"/);
+  assert.match(card, /Still processing your Vibe Video/);
   assert.doesNotMatch(card, /None \/ error/);
 
   assert.match(userProfile, /Vibe Video processing/);
+  assert.match(userProfile, /Vibe Video still processing/);
   assert.match(userProfile, /Vibe Video needs a fresh take/);
   assert.match(drawer, /Vibe Video processing/);
+  assert.match(drawer, /Vibe Video still processing/);
   assert.match(drawer, /Their clip is saved and getting ready for playback/);
 
   assert.match(fullscreen, /resolveWebVibeVideoState/);

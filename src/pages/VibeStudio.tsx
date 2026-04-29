@@ -25,6 +25,7 @@ import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVide
 import { MAX_VIBE_CAPTION_LEN } from "@/lib/vibeVideo/constants";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
+import { heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
 
 type StatusTone = {
   pillClassName: string;
@@ -51,6 +52,17 @@ const VibeStudio = () => {
     try {
       const data = await fetchMyProfile();
       setProfile(data);
+      if (data) {
+        heroVideoResumePollingForProfile(
+          {
+            id: data.id,
+            bunnyVideoUid: data.bunnyVideoUid,
+            bunnyVideoStatus: data.bunnyVideoStatus,
+            updatedAt: data.updatedAt,
+          },
+          { source: "profile_load" },
+        );
+      }
     } catch (error) {
       console.error("Failed to load Vibe Studio profile:", error);
       toast.error("Could not load Vibe Studio right now.");
@@ -63,6 +75,28 @@ const VibeStudio = () => {
   useEffect(() => {
     void loadProfile();
   }, [loadProfile, refreshKey]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!profile?.bunnyVideoUid) return;
+      setRefreshKey((key) => key + 1);
+      heroVideoResumePollingForProfile(
+        {
+          id: profile.id,
+          bunnyVideoUid: profile.bunnyVideoUid,
+          bunnyVideoStatus: profile.bunnyVideoStatus,
+          updatedAt: profile.updatedAt,
+        },
+        { source: "visibility_active" },
+      );
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [profile?.id, profile?.bunnyVideoUid, profile?.bunnyVideoStatus, profile?.updatedAt]);
 
   useEffect(() => {
     setCaptionDraft(profile?.vibeCaption ?? "");
@@ -86,17 +120,29 @@ const VibeStudio = () => {
   const effectiveVibeVideo = useMemo(() => {
     if (ctrl.phase === "ready" && ctrl.videoId) {
       return {
+        id: profile?.id ?? null,
         bunnyVideoUid: ctrl.videoId,
         bunnyVideoStatus: "ready",
+        updatedAt: profile?.updatedAt ?? null,
         vibeCaption: profile?.vibeCaption ?? "",
       };
     }
     return {
+      id: profile?.id ?? null,
       bunnyVideoUid: profile?.bunnyVideoUid ?? null,
       bunnyVideoStatus: profile?.bunnyVideoStatus ?? "none",
+      updatedAt: profile?.updatedAt ?? null,
       vibeCaption: profile?.vibeCaption ?? "",
     };
-  }, [ctrl.phase, ctrl.videoId, profile?.bunnyVideoUid, profile?.bunnyVideoStatus, profile?.vibeCaption]);
+  }, [
+    ctrl.phase,
+    ctrl.videoId,
+    profile?.id,
+    profile?.bunnyVideoUid,
+    profile?.bunnyVideoStatus,
+    profile?.updatedAt,
+    profile?.vibeCaption,
+  ]);
 
   const videoInfo = useMemo(
     () =>
@@ -137,7 +183,15 @@ const VibeStudio = () => {
           iconClassName: "text-violet-300",
           label: "Processing",
           title: "We’re preparing your Vibe Video",
-          description: "The clip is on file and being readied for playback. You can leave this page — processing continues on our servers.",
+          description: "Your video uploaded and is still processing. This can take a few minutes. We'll keep checking.",
+        };
+      case "stale_processing":
+        return {
+          pillClassName: "bg-amber-500/15 text-amber-300 border border-amber-500/25",
+          iconClassName: "text-amber-300",
+          label: "Still processing",
+          title: "Still processing",
+          description: "You can refresh, try again later, or re-upload if it does not finish.",
         };
       case "failed":
         return {
@@ -166,7 +220,10 @@ const VibeStudio = () => {
     }
   }, [readyAwaitingPlaybackUrl, videoInfo.state]);
 
-  const refreshProfile = () => setRefreshKey((key) => key + 1);
+  const refreshProfile = () => {
+    setRefreshKey((key) => key + 1);
+    heroVideoResumePollingForProfile(effectiveVibeVideo, { source: "manual_refresh" });
+  };
 
   const handleCaptionSave = async () => {
     if (!profile || !captionChanged) return;
@@ -196,7 +253,7 @@ const VibeStudio = () => {
   const handleDelete = async () => {
     if (!videoInfo.canDelete || isDeleting) return;
 
-    const deletingPipelineVideo = videoInfo.state === "processing";
+    const deletingPipelineVideo = videoInfo.state === "processing" || videoInfo.state === "stale_processing";
     const confirmed = window.confirm(
       deletingPipelineVideo
         ? "Delete this in-progress Vibe Video? This will cancel the current upload/processing attempt."
@@ -309,7 +366,7 @@ const VibeStudio = () => {
               <div className={cn("inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold", tone.pillClassName)}>
                 {videoInfo.state === "ready" ? (
                   <CheckCircle2 className={cn("h-3.5 w-3.5", tone.iconClassName)} />
-                ) : videoInfo.state === "failed" || videoInfo.state === "error" ? (
+                ) : videoInfo.state === "failed" || videoInfo.state === "error" || videoInfo.state === "stale_processing" ? (
                   <AlertCircle className={cn("h-3.5 w-3.5", tone.iconClassName)} />
                 ) : videoInfo.state === "none" ? (
                   <Video className={cn("h-3.5 w-3.5", tone.iconClassName)} />
@@ -335,6 +392,7 @@ const VibeStudio = () => {
               profile={effectiveVibeVideo}
               onOpenRecorder={() => setShowComposer(true)}
               onOpenPlayer={() => setShowPlayer(true)}
+              onRefresh={refreshProfile}
             />
           </div>
 
@@ -342,7 +400,7 @@ const VibeStudio = () => {
             <div className="mt-3">
               <Button variant="destructive" className="w-full" onClick={handleDelete} disabled={isDeleting}>
                 {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                {videoInfo.state === "processing" ? "Cancel & delete" : "Delete video"}
+                {videoInfo.state === "processing" || videoInfo.state === "stale_processing" ? "Cancel & delete" : "Delete video"}
               </Button>
             </div>
           )}

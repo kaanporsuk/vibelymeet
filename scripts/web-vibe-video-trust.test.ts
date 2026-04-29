@@ -24,9 +24,12 @@ function sectionTypes(
 
 test("ProfilePreview shows processing state to all viewers", () => {
   assert.deepEqual(sectionTypes("processing", null, true), ["vibe_pipeline"]);
+  assert.deepEqual(sectionTypes("stale_processing", null, true), ["vibe_pipeline"]);
 
   assert.deepEqual(sectionTypes("processing", null, false), ["vibe_pipeline"]);
+  assert.deepEqual(sectionTypes("stale_processing", null, false), ["vibe_pipeline"]);
   assert.deepEqual(sectionTypes("processing", null), ["vibe_pipeline"]);
+  assert.deepEqual(sectionTypes("stale_processing", null), ["vibe_pipeline"]);
 });
 
 test("ProfilePreview shows failed state to all viewers", () => {
