@@ -30,6 +30,7 @@ import { supabase } from '@/lib/supabase';
 import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
+import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -238,6 +239,16 @@ export function ReadyGateOverlay({
           eventId,
           elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
         });
+        void emitNativeVideoDateClientStuckState({
+          sessionId,
+          eventName: 'ready_gate_handoff_slow',
+          latencyMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+          payload: {
+            source_surface: 'ready_gate_overlay',
+            source_action: 'prepare_entry_slow_wait',
+            elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+          },
+        });
       }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
 
       void (async () => {
@@ -296,6 +307,23 @@ export function ReadyGateOverlay({
 
             if (exhausted) {
               clearTimeout(slowWaitTimer);
+              void emitNativeVideoDateClientStuckState({
+                sessionId,
+                eventName: 'prepare_date_entry_failed',
+                payload: {
+                  source_surface: 'ready_gate_overlay',
+                  source_action: 'prepare_entry_failed_no_nav',
+                  reason_code: result.code,
+                  code: result.code,
+                  http_status: result.httpStatus ?? undefined,
+                  retryable,
+                  attempt: attempt + 1,
+                  attempt_count: attempt + 1,
+                  exhausted,
+                  entry_attempt_id: result.entryAttemptId ?? undefined,
+                  video_date_trace_id: result.entryAttemptId ?? undefined,
+                },
+              });
               setIsTransitioning(false);
               setPrepareEntryStatus('failed');
               setPrepareEntryFailure({

@@ -10,6 +10,7 @@ import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { trackEvent } from "@/lib/analytics";
+import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   buildReadyGateToDateLatencyPayload,
@@ -239,6 +240,16 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         eventId,
         elapsedMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
       });
+      void emitWebVideoDateClientStuckState({
+        sessionId,
+        eventName: "ready_gate_handoff_slow",
+        latencyMs: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+        payload: {
+          source_surface: "ready_gate_overlay",
+          source_action: "prepare_entry_slow_wait",
+          elapsed_ms: VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS,
+        },
+      });
     }, VIDEO_DATE_ENTRY_HANDOFF_SLOW_WAIT_MS);
 
     void (async () => {
@@ -288,6 +299,23 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
           if (exhausted) {
             window.clearTimeout(slowWaitTimer);
+            void emitWebVideoDateClientStuckState({
+              sessionId,
+              eventName: "prepare_date_entry_failed",
+              payload: {
+                source_surface: "ready_gate_overlay",
+                source_action: "prepare_entry_failed_no_nav",
+                reason_code: result.code,
+                code: result.code,
+                http_status: result.httpStatus ?? undefined,
+                retryable,
+                attempt: attempt + 1,
+                attempt_count: attempt + 1,
+                exhausted,
+                entry_attempt_id: result.entryAttemptId ?? undefined,
+                video_date_trace_id: result.entryAttemptId ?? undefined,
+              },
+            });
             setPrepareEntryStatus("failed");
             setPrepareEntryFailure({
               code: result.code,

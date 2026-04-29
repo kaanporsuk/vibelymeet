@@ -177,3 +177,69 @@ select
   and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure)
     like '%client_peer_missing_exit%'
   as ok;
+
+-- 13) Client-perceived stuck-state observability is participant-authenticated
+-- only; service role reads it through the existing timeline rather than this
+-- client ingestion RPC.
+select
+  'client_stuck_observability_rpc_granted_authenticated_only' as check_name,
+  has_function_privilege(
+    'authenticated',
+    'public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'service_role',
+    'public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)',
+    'EXECUTE'
+  )
+  as ok;
+
+-- 14) The client stuck-state RPC is sparse and rejects unknown event names.
+select
+  'client_stuck_observability_allowlist_and_unknown_reject' as check_name,
+  pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%ready_gate_handoff_slow%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%prepare_date_entry_failed%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%daily_join_confirmation_failed%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%peer_missing_terminal%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%native_background_recovery_started%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%native_background_recovery_failed%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%native_background_expired%'
+  and pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
+    like '%unknown_event_name%'
+  as ok;
+
+-- 15) Client stuck-state rows dedupe once per session/user/event.
+select
+  'client_stuck_observability_dedupe_index_exists' as check_name,
+  exists (
+    select 1
+    from pg_indexes
+    where schemaname = 'public'
+      and tablename = 'event_loop_observability_events'
+      and indexname = 'event_loop_obs_video_date_client_stuck_once_idx'
+      and indexdef like '%session_id%'
+      and indexdef like '%actor_id%'
+      and indexdef like '%operation%'
+      and indexdef like '%reason_code%'
+      and indexdef like '%video_date_client_stuck_state%'
+  ) as ok;
+
+-- 16) Client stuck-state rows are visible in the existing admin timeline.
+select
+  'timeline_includes_client_stuck_events' as check_name,
+  pg_get_functiondef('public.get_video_date_session_timeline(uuid)'::regprocedure)
+    like '%''video_date_client_stuck_state''%'
+  as ok;
