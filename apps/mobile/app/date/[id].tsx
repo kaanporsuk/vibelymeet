@@ -18,6 +18,7 @@ import {
   Dimensions,
   AccessibilityInfo,
   AppState,
+  Alert,
   Easing,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -1897,10 +1898,11 @@ export default function VideoDateScreen() {
     }
   }, [cleanupDailyAndLocalState, sessionId]);
 
-  const cleanupForEstablishedDateEnd = useCallback(async () => {
-    await cleanupDailyAndLocalState();
-    if (sessionId) await endVideoDate(sessionId);
-  }, [cleanupDailyAndLocalState, sessionId]);
+  const fetchServerTerminalTruth = useCallback(async () => {
+    if (!sessionId) return false;
+    const sync = await syncVideoDateReconnect(sessionId);
+    return sync?.ended === true;
+  }, [sessionId]);
 
   const handleCallEnd = useCallback(async (source: 'local_end' | 'server_end' = 'local_end') => {
     const dateWasEstablished = dateEstablishedRef.current;
@@ -1909,19 +1911,40 @@ export default function VideoDateScreen() {
       trackEvent('video_date_ended', { session_id: sessionId });
     }
     addVideoDateBreadcrumb('Call ended (user)', 'info', { sessionId, source, dateWasEstablished });
-    if (dateWasEstablished) {
-      logJourney('survey_opened', { source }, `survey_opened_${source}`);
-      setShowFeedback(true);
-      if (source === 'server_end') {
-        await cleanupForAbortWithoutServerEnd();
+    if (source === 'server_end') {
+      if (dateWasEstablished) {
+        logJourney('survey_opened', { source }, `survey_opened_${source}`);
+        setShowFeedback(true);
       } else {
-        await cleanupForEstablishedDateEnd();
+        setShowFeedback(false);
       }
+      await cleanupForAbortWithoutServerEnd();
+      return;
+    }
+
+    if (dateWasEstablished) {
+      let terminalConfirmed = false;
+      if (sessionId) {
+        terminalConfirmed = await endVideoDate(sessionId);
+      }
+      if (!terminalConfirmed) {
+        terminalConfirmed = await fetchServerTerminalTruth();
+      }
+      if (!terminalConfirmed) {
+        setShowFeedback(false);
+        await cleanupForAbortWithoutServerEnd();
+        Alert.alert('Could not end date yet', 'Please try ending the date again in a moment.');
+        return;
+      }
+
+      logJourney('survey_opened', { source: 'local_end_confirmed' }, 'survey_opened_local_end_confirmed');
+      setShowFeedback(true);
+      await cleanupForAbortWithoutServerEnd();
       return;
     }
     setShowFeedback(false);
     await cleanupForAbortWithoutServerEnd();
-  }, [cleanupForAbortWithoutServerEnd, cleanupForEstablishedDateEnd, sessionId, logJourney]);
+  }, [cleanupForAbortWithoutServerEnd, sessionId, logJourney, fetchServerTerminalTruth]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;

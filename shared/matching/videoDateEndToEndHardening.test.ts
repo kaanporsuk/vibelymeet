@@ -1149,6 +1149,21 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
 });
 
+test("native local date end waits for server terminal truth before survey", () => {
+  assert.match(
+    nativeVideoDateRoute,
+    /const fetchServerTerminalTruth = useCallback\(async \(\) => \{[\s\S]*syncVideoDateReconnect\(sessionId\)[\s\S]*sync\?\.ended === true/s,
+  );
+  assert.match(
+    nativeVideoDateRoute,
+    /if \(source === 'server_end'\) \{[\s\S]*setShowFeedback\(true\)[\s\S]*await cleanupForAbortWithoutServerEnd\(\);[\s\S]*return;/s,
+  );
+  assert.match(
+    nativeVideoDateRoute,
+    /let terminalConfirmed = false;[\s\S]*terminalConfirmed = await endVideoDate\(sessionId\);[\s\S]*terminalConfirmed = await fetchServerTerminalTruth\(\);[\s\S]*if \(!terminalConfirmed\) \{[\s\S]*setShowFeedback\(false\)[\s\S]*Alert\.alert\('Could not end date yet'[\s\S]*return;[\s\S]*logJourney\('survey_opened', \{ source: 'local_end_confirmed' \}/s,
+  );
+});
+
 test("web lifecycle background path delays false-away and handles freeze/pagehide safely", () => {
   assert.match(webVideoDatePage, /WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000/);
   assert.match(webVideoDatePage, /lifecycleHiddenStartedAtRef/);
