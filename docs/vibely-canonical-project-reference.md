@@ -93,13 +93,15 @@ Post-onboarding, **`location`**, **`location_data`**, and **`country`** on `prof
 |-----------|------|
 | **`20260416100000_canonical_location_model.sql`** | Defines **`update_profile_location`**. Tightens **`get_visible_events`**: users with **no effective coordinates** (no device coords and no stored `location_data`) see **no `local`-scoped** rows (removed the old “no coords ⇒ show all local” bypass). |
 | **`20260416110000_regional_events_require_location.sql`** | **`get_visible_events`**: **`regional`** scope now requires a **usable reference point** (`v_effective_lat` / `v_effective_lng` not null), same prerequisite style as **local** — not merely `profiles.country` match with stale text-only location. |
+| **`20260501150000_get_visible_events_location_entitlement_guards.sql`** | Restores the authenticated `p_user_id = auth.uid()` guard, keeps `p_is_premium` ignored, derives city-browse entitlement server-side, and treats local/location-specific no-coordinate rows as ineligible for radius matching. |
 
-**Visibility summary (after both migrations):**
+**Visibility summary (current):**
 
-- **`scope` global or NULL** — always visible (no location required).
+- **`scope = global`** — always visible (no location required) unless the row is also marked location-specific.
+- **Legacy `scope IS NULL`** — treated as global only when the row has no location-specific/coordinate signals; null-scope rows with location signals are treated as local for discovery eligibility.
 - **No usable location** (no premium browse coords, no device coords, no stored `location_data` lat/lng) — **only global-scoped events**; **zero regional, zero local**.
 - **`scope = regional`** — requires valid coordinates **and** country match / premium browse rules as implemented in the function (see `COMMENT ON FUNCTION public.get_visible_events` in the latest migration file).
-- **`scope = local`** — requires valid coordinates and distance within `radius_km`.
+- **`scope = local`** and location-specific rows — require event `latitude` / `longitude`, valid viewer/browse coordinates, and distance within `radius_km`.
 
 Older migrations (e.g. **`20260325100000_get_visible_events_no_coord_edge_case.sql`**) adjusted radius and edge cases; **20260416100000 / 20260416110000** supersede prior **no-coordinates** behavior for **local** and **regional** visibility.
 
@@ -112,10 +114,12 @@ Older migrations (e.g. **`20260325100000_get_visible_events_no_coord_edge_case.s
 **Premium flag on the RPC**
 
 - Web and mobile call the RPC with **`p_is_premium: false`**. Premium-driven browse capability is **not** trusted from the client flag; it is enforced **server-side** (subscriptions / admin), as noted in `useVisibleEvents`.
+- Non-service callers cannot borrow another profile id for entitlement checks: `get_visible_events` requires `auth.uid() = p_user_id`.
+- For non-premium callers that still send city browse coordinates, the server ignores those coordinates and falls back to the stored profile location only; arbitrary client coordinates in the same browse request are not accepted as a replacement remote city.
 
 **Radius vs event scope (server)**
 
-- When `p_filter_radius_km` is set, **local** events are filtered by distance from the effective browse/user point; **global** and **regional** scoped rows are **not** excluded by the user’s radius filter. For the **current** function body and comments, use the files **`20260416110000_regional_events_require_location.sql`** (latest `get_visible_events` in repo) as source of truth, not older snapshots alone.
+- When `p_filter_radius_km` is set, **local/location-specific** events are filtered by distance from the effective browse/user point and must have event coordinates. **Explicit global** and **regional** scoped rows are **not** excluded by the user’s radius filter. For the **current** function body and comments, use **`20260501150000_get_visible_events_location_entitlement_guards.sql`** as source of truth, not older snapshots alone.
 
 ### 7.2 Migration history note (operators)
 
