@@ -3,6 +3,8 @@
 Date: 2026-04-29
 Scope: repo-only investigation. External OneSignal, Sentry, PostHog, Supabase production logs, and provider dashboards were not queried.
 
+Implementation note (2026-04-29): Follow-up code landed in `fb4bc6fd3679459d60a786670cf82cea6bbea0e6` and updated client telemetry plus `send-notification` diagnostics. Treat the gap analysis below as the pre-implementation audit baseline; current code now records structured `push_delivery_diagnostic` data, provider status, target-platform summary, deep-link classification, and provider notification ID on the transactional `notification_log` path.
+
 ## Executive Summary
 
 Vibely can currently diagnose several backend-side notification outcomes from `notification_log`: user disabled push, account pause, notification pause, quiet hours, match mute, unknown category, blocked pair, no player ID, and OneSignal API failures. The recent `no_player_id` diagnostic is present and useful because it records web/mobile player presence and subscription booleans without writing raw player IDs into `notification_log.data`.

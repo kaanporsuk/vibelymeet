@@ -38,6 +38,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Fresh smoke bootstrap method and proof boundaries | `docs/fresh-smoke-proof-bootstrap.md` |
 | Proof policy and rebuild-proof context | `docs/authenticated-proof-and-rebuild-plan.md` |
 | Clean rebuild rehearsal log | `docs/rebuild-rehearsal-log.md` |
+| Ready Gate registration ownership hardening | `docs/ready-gate-server-owned-registration-status.md`, `docs/ready-gate-server-owned-registration-status-final-audit.md`; migrations `20260501141000_ready_gate_server_owned_registration_status.sql`, `20260501142000_ready_gate_client_lifecycle_overwrite_guard.sql` |
 
 ---
 
@@ -48,6 +49,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Preflight | `npm run launch:preflight` + `npm run typecheck` |
 | **Architecture, providers, import boundaries (`@shared/*` vs root `shared/`)** | `docs/vibely-canonical-project-reference.md` |
 | **Native v1 architecture lock (routes, backend contracts, providers, gap list)** | `docs/native-sprint0-architecture-lock.md` |
+| **Ready Gate / video-date registration ownership** | `docs/ready-gate-server-owned-registration-status-final-audit.md` |
 | **Sprint 5 launch-polish triage (static matrix + implemented handoff fixes)** | `docs/native-sprint5-launch-polish-triage.md` |
 | Operator execution sheet | `docs/kaan-launch-closure-execution-sheet.md` |
 | Canonical launch-closure runbook | `docs/native-launch-closure-master-runbook.md` |

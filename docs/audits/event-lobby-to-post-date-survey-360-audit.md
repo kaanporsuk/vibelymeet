@@ -5,6 +5,8 @@ Scope: read-only repo-grounded audit from Event Lobby entry through Ready Gate, 
 Primary parity rule for this audit: web is the product/UX source of truth unless the current backend contract proves otherwise.  
 Backend guardrail: keep the hardened backend-authoritative model. Core transitions stay owned by RPCs and Edge Functions.
 
+Supersession note (2026-04-29): Ready Gate/date registration ownership was tightened after this audit. Use `docs/ready-gate-server-owned-registration-status-final-audit.md` for current status ownership. Client-writable statuses are now limited to `browsing`, `idle`, `in_survey`, and `offline`; `in_ready_gate`, `in_handshake`, and `in_date` are server-owned.
+
 ## 1. Executive summary
 
 The current flow is mostly backend-authoritative for high-risk business transitions. The strongest backend-owned surfaces are:
@@ -145,10 +147,10 @@ Legend:
   - No interval polling.
 
 - `src/hooks/useEventStatus.ts`
-  - Client-writable statuses: `browsing`, `in_ready_gate`, `in_survey`, `offline`, `idle`.
+  - Current client-writable statuses: `browsing`, `idle`, `in_survey`, `offline`.
   - Calls `update_participant_status`.
-  - Sends heartbeat updates to `event_registrations.last_active_at`.
-  - Server-owned statuses `in_handshake` and `in_date` are intentionally not client-writable.
+  - Heartbeats use server-stamped activity RPCs.
+  - Server-owned statuses `in_ready_gate`, `in_handshake`, and `in_date` are intentionally not client-writable.
 
 - `src/hooks/useActiveSession.ts`
   - Queries own `event_registrations` where `queue_status in (in_handshake, in_date, in_ready_gate)` and `current_room_id is not null`.
@@ -1104,4 +1106,3 @@ Recommended PR strategy:
 - Then move directly into implementation PRs by stream; do not combine state-machine fixes with UI polish.
 - Keep backend-authoritative semantics intact. Client PRs should consume RPC truth, not reimplement transition decisions.
 - If adding durable survey recovery needs new backend shape, ship backend migration/function first, then web/native consumers.
-
