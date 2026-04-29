@@ -34,6 +34,10 @@ const dailyRoomFunction = readFileSync(
   join(process.cwd(), "supabase/functions/daily-room/index.ts"),
   "utf8",
 );
+const dailyRoomContracts = readFileSync(
+  join(process.cwd(), "supabase/functions/daily-room/dailyRoomContracts.ts"),
+  "utf8",
+);
 const videoDateRoomCleanupFunction = readFileSync(
   join(process.cwd(), "supabase/functions/video-date-room-cleanup/index.ts"),
   "utf8",
@@ -534,7 +538,9 @@ test("prepare_entry rejects ended, blocked, expired, and non-participant callers
 test("daily-room prepare_date_entry creates deterministic rooms and scoped tokens", () => {
   assert.match(dailyRoomFunction, /action === "prepare_date_entry"/);
   assert.match(dailyRoomFunction, /p_action: "prepare_entry"/);
-  assert.match(dailyRoomFunction, /function videoDateRoomNameForSession\(sessionId: string\): string/);
+  assert.match(dailyRoomFunction, /videoDateRoomNameForSession/);
+  assert.match(dailyRoomContracts, /function videoDateRoomNameForSession\(sessionId: string\): string/);
+  assert.match(dailyRoomContracts, /function buildMeetingTokenProperties/);
   assert.match(dailyRoomFunction, /max_participants: 2/);
   assert.match(dailyRoomFunction, /enable_chat: false/);
   assert.match(dailyRoomFunction, /enable_screenshare: false/);
@@ -563,13 +569,16 @@ test("daily-room prepare_date_entry preserves auth, participant, and delete-room
   assert.match(dailyRoomFunction, /code: "ACCESS_DENIED"/);
   assert.match(dailyRoomFunction, /service_role_post_prepare_block_check/);
   assert.doesNotMatch(dailyRoomFunction, /token[^;\n]*\.from\("video_sessions"\)/);
-  assert.match(dailyRoomFunction, /if \(action === "delete_room"\)[\s\S]*roomType === "video_date"[\s\S]*VIDEO_DATE_CLEANUP_OWNED_BY_CRON/s);
+  assert.match(dailyRoomFunction, /if \(action === "delete_room"\)/);
+  assert.match(dailyRoomFunction, /roomType === "video_date"[\s\S]*classifyDeleteRoomSafety/s);
+  assert.match(dailyRoomContracts, /VIDEO_DATE_CLEANUP_OWNED_BY_CRON/);
 });
 
 test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
   assert.match(dailyRoomFunction, /async function ensureVideoDateProviderRoomForToken/);
   assert.match(dailyRoomFunction, /const providerRoomState = await getDailyRoomProviderState\(roomName\)/);
-  assert.match(dailyRoomFunction, /if \(!providerRoomState\.exists \|\| providerRoomState\.expired\) \{/);
+  assert.match(dailyRoomFunction, /const recoveryPlan = planDailyProviderRoomRecovery\(providerRoomState\)/);
+  assert.match(dailyRoomFunction, /if \(recoveryPlan\.shouldCreate\) \{/);
   assert.match(dailyRoomFunction, /video_date_provider_room_missing_or_expired_recovering/);
   assert.match(dailyRoomFunction, /await createDailyRoom\(roomName, videoDateRoomProperties\(\)\)/);
   assert.match(dailyRoomFunction, /providerRoomRecovered = Boolean\(existingRoomName\) \|\| providerRoomState\.expired/);
@@ -595,7 +604,8 @@ test("legacy join_date_room verifies or recovers provider room before token issu
   assert.match(joinBlock, /daily_room_name, daily_room_url/);
   assert.match(joinBlock, /if \(session\.ended_at\)[\s\S]*code: "SESSION_ENDED"/);
   assert.match(joinBlock, /if \(!canIssueVideoDateRoomToken\(session\)\)[\s\S]*code: "READY_GATE_NOT_READY"/);
-  assert.match(joinBlock, /if \(!session\.daily_room_name\)[\s\S]*code: "ROOM_NOT_FOUND"/);
+  assert.doesNotMatch(joinBlock, /if \(!session\.daily_room_name\)[\s\S]*code: "ROOM_NOT_FOUND"/);
+  assert.doesNotMatch(joinBlock, /daily_room_name_guard/);
   assert.match(joinBlock, /const roomProof = await ensureVideoDateProviderRoomForToken/);
   assert.match(joinBlock, /createMeetingToken\(\s*roomProof\.roomName,\s*user\.id,\s*DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS/s);
   assert.doesNotMatch(joinBlock, /createMeetingToken\(\s*session\.daily_room_name/);
