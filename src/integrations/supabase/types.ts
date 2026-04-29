@@ -1,3 +1,12 @@
+/**
+ * Supabase `public` schema types — generated from the linked project.
+ *
+ * Regenerate:
+ *   ./scripts/regen-supabase-types.sh
+ *
+ * Project id matches supabase/config.toml (linked).
+ */
+
 export type Json =
   | string
   | number
@@ -11,31 +20,6 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
-  }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
   }
   public: {
     Tables: {
@@ -2285,6 +2269,119 @@ export type Database = {
         }
         Relationships: []
       }
+      post_date_client_submissions: {
+        Row: {
+          action: string
+          actor_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          liked: boolean | null
+          report_payload: Json | null
+          result: Json | null
+          session_id: string
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          liked?: boolean | null
+          report_payload?: Json | null
+          result?: Json | null
+          session_id: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          liked?: boolean | null
+          report_payload?: Json | null
+          result?: Json | null
+          session_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_date_client_submissions_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_date_client_submissions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      post_date_pending_verdicts: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          event_id: string | null
+          first_detected_at: string
+          last_seen_at: string
+          missing_user_id: string
+          reminder_eligible_at: string
+          reminder_error: string | null
+          reminder_sent_at: string | null
+          session_id: string
+          stale_at: string | null
+          status: string
+          submitted_by: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          event_id?: string | null
+          first_detected_at?: string
+          last_seen_at?: string
+          missing_user_id: string
+          reminder_eligible_at?: string
+          reminder_error?: string | null
+          reminder_sent_at?: string | null
+          session_id: string
+          stale_at?: string | null
+          status?: string
+          submitted_by: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          event_id?: string | null
+          first_detected_at?: string
+          last_seen_at?: string
+          missing_user_id?: string
+          reminder_eligible_at?: string
+          reminder_error?: string | null
+          reminder_sent_at?: string | null
+          session_id?: string
+          stale_at?: string | null
+          status?: string
+          submitted_by?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_date_pending_verdicts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       premium_history: {
         Row: {
           action: string
@@ -4298,6 +4395,21 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_post_date_pending_verdict_reminders: {
+        Args: { p_limit?: number }
+        Returns: {
+          event_id: string
+          first_detected_at: string
+          missing_user_id: string
+          reminder_sent_at: string
+          session_id: string
+          submitted_by: string
+        }[]
+      }
+      classify_stale_vibe_video_uploads: {
+        Args: { p_limit?: number; p_stale_minutes?: number }
+        Returns: Json
+      }
       clear_expired_pauses: { Args: never; Returns: number }
       clear_my_location_data: { Args: never; Returns: Json }
       clear_profile_vibe_video: {
@@ -4317,6 +4429,15 @@ export type Database = {
         Returns: Json
       }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
+      confirm_video_date_entry_prepared: {
+        Args: {
+          p_entry_attempt_id?: string
+          p_room_name: string
+          p_room_url: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       create_media_session: {
         Args: {
           p_caption?: string
@@ -4371,9 +4492,22 @@ export type Database = {
           total_video_sessions: number
         }[]
       }
+      detect_post_date_half_verdict_timeouts: {
+        Args: { p_limit?: number; p_older_than?: string }
+        Returns: number
+      }
       drain_match_queue: { Args: { p_event_id: string }; Returns: Json }
       enqueue_media_delete: {
         Args: { p_asset_id: string; p_job_type?: string }
+        Returns: Json
+      }
+      enqueue_vibe_video_orphan_delete: {
+        Args: {
+          p_context?: Json
+          p_reason: string
+          p_user_id: string
+          p_video_id: string
+        }
         Returns: Json
       }
       ensure_chat_media_asset: {
@@ -4421,8 +4555,28 @@ export type Database = {
         Returns: string
       }
       expire_stale_match_calls: { Args: never; Returns: number }
+      expire_stale_video_date_partial_joins_bounded: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       expire_stale_video_date_phases: { Args: never; Returns: Json }
+      expire_stale_video_date_phases_bounded: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       expire_stale_video_sessions: { Args: never; Returns: number }
+      expire_stale_video_sessions_20260501103000_unbounded: {
+        Args: never
+        Returns: number
+      }
+      expire_stale_video_sessions_bounded: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
+      expire_vd_phases_base_20260501133000: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       expire_video_date_reconnect_graces: { Args: never; Returns: number }
       extract_chat_image_path_from_content: {
         Args: { p_content: string }
@@ -4555,6 +4709,10 @@ export type Database = {
         }[]
       }
       get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
+      get_or_seed_video_session_vibe_questions: {
+        Args: { p_questions: Json; p_session_id: string }
+        Returns: Json
+      }
       get_other_city_events: {
         Args: { p_user_id: string; p_user_lat?: number; p_user_lng?: number }
         Returns: {
@@ -4596,6 +4754,21 @@ export type Database = {
         Returns: string
       }
       get_user_tier: { Args: { p_user_id: string }; Returns: string }
+      get_video_date_session_timeline: {
+        Args: { p_session_id: string }
+        Returns: {
+          actor_id: string
+          detail: Json
+          event_id: string
+          occurred_at: string
+          operation: string
+          outcome: string
+          reason_code: string
+          session_id: string
+          source: string
+          timeline_seq: number
+        }[]
+      }
       get_visible_events: {
         Args: {
           p_browse_lat?: number
@@ -4665,6 +4838,7 @@ export type Database = {
         Args: { _event_id: string; _user_id: string }
         Returns: boolean
       }
+      is_valid_bunny_video_uid: { Args: { p_uid: string }; Returns: boolean }
       join_matching_queue: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
@@ -4673,6 +4847,10 @@ export type Database = {
       mark_chat_match_participant_deletion_pending: {
         Args: { p_match_id: string; p_pending_at?: string; p_user_id: string }
         Returns: Json
+      }
+      mark_event_participant_heartbeat: {
+        Args: { p_event_id: string }
+        Returns: boolean
       }
       mark_lobby_foreground: {
         Args: { p_event_id: string }
@@ -4687,15 +4865,19 @@ export type Database = {
         Returns: Json
       }
       mark_my_activity_seen: { Args: never; Returns: boolean }
-      mark_event_participant_heartbeat: {
-        Args: { p_event_id: string }
-        Returns: boolean
-      }
       mark_photo_deleted: {
         Args: { p_storage_path: string; p_user_id: string }
         Returns: Json
       }
       mark_photo_drafts_deleted: { Args: { p_paths: string[] }; Returns: Json }
+      mark_post_date_pending_verdicts_stale: {
+        Args: { p_limit?: number; p_older_than?: string }
+        Returns: number
+      }
+      mark_stale_vibe_video_uploads_failed: {
+        Args: { p_limit?: number; p_stale_minutes?: number }
+        Returns: Json
+      }
       mark_support_reply_read: {
         Args: { p_reply_id: string }
         Returns: undefined
@@ -4793,6 +4975,10 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      ready_gate_transition_20260501135000_observability_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
       record_event_loop_observability: {
         Args: {
           p_actor_id: string
@@ -4805,6 +4991,19 @@ export type Database = {
           p_session_id: string
         }
         Returns: undefined
+      }
+      record_post_date_pending_verdict_reminder_result: {
+        Args: { p_error?: string; p_session_id: string; p_success: boolean }
+        Returns: Json
+      }
+      record_video_date_client_stuck_observability: {
+        Args: {
+          p_event_name: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
       }
       refresh_my_vibe_score: { Args: never; Returns: Json }
       register_for_event: { Args: { p_event_id: string }; Returns: Json }
@@ -4820,6 +5019,10 @@ export type Database = {
       release_media_reference: {
         Args: { p_reference_id: string; p_released_by?: string }
         Returns: Json
+      }
+      repair_stale_video_date_prepare_entries: {
+        Args: { p_limit?: number }
+        Returns: number
       }
       replenish_monthly_credits: { Args: never; Returns: Json }
       requeue_stale_media_delete_jobs: {
@@ -4875,8 +5078,25 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_post_date_safety_report_v1: {
+        Args: {
+          p_idempotency_key: string
+          p_safety_report: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
       submit_post_date_verdict: {
         Args: { p_liked: boolean; p_session_id: string }
+        Returns: Json
+      }
+      submit_post_date_verdict_v2: {
+        Args: {
+          p_idempotency_key: string
+          p_liked: boolean
+          p_safety_report?: Json
+          p_session_id: string
+        }
         Returns: Json
       }
       submit_user_report: {
@@ -4934,6 +5154,18 @@ export type Database = {
         }
         Returns: Json
       }
+      video_date_client_stuck_safe_bool: {
+        Args: { p_value: string }
+        Returns: boolean
+      }
+      video_date_client_stuck_safe_int: {
+        Args: { p_max?: number; p_min?: number; p_value: string }
+        Returns: number
+      }
+      video_date_client_stuck_safe_text: {
+        Args: { p_max_len?: number; p_value: string }
+        Returns: string
+      }
       video_date_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
@@ -4943,6 +5175,18 @@ export type Database = {
         Returns: Json
       }
       video_date_transition_20260501091000_pre_date_end_cleanup: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260501103000_prepare_entry_queue_guard: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260501110000_provider_atomic_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260501145000_peer_missing_end_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
@@ -5094,9 +5338,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
