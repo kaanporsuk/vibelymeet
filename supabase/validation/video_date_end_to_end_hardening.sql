@@ -97,12 +97,15 @@ where ended_at is null
 order by handshake_started_at asc
 limit 100;
 
--- 7) Confirm video_date_transition end branch contains pre-date non-survey cleanup.
+-- 7) Confirm the delegated pre-date end helper contains non-survey cleanup.
+-- Later migrations wrap video_date_transition(), so validate the preserved helper
+-- body instead of requiring the public wrapper to inline this older branch.
 select
   'video_date_transition_pre_date_end_cleanup' as check_name,
-  pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) like '%pre_date_end_cleanup%'
-  and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) like '%pre_date_manual_end%'
-  and pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) like '%queue_status = v_resume_status%'
+  to_regprocedure('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)') is not null
+  and pg_get_functiondef('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_end_cleanup%'
+  and pg_get_functiondef('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%pre_date_manual_end%'
+  and pg_get_functiondef('public.video_date_transition_20260501091000_pre_date_end_cleanup(uuid,text,text)'::regprocedure) like '%queue_status = v_resume_status%'
   as ok;
 
 -- 8) Confirm clients cannot call the retired implementation directly.
