@@ -217,7 +217,7 @@ export const VibeClipBubble = ({
 
   if (loadError) {
     return (
-      <div className="w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40">
+      <div className="w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40">
         <AlertCircle className="w-7 h-7 text-violet-400/90" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Clip unavailable</span>
         <button
@@ -241,7 +241,7 @@ export const VibeClipBubble = ({
   return (
     <div
       className={cn(
-        "w-[min(12.5rem,85vw)] max-w-[200px] rounded-xl overflow-hidden relative group transition-opacity duration-200",
+        "w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden relative group transition-opacity duration-200",
         isMine
           ? "ring-1 ring-violet-500/35 bg-violet-500/[0.04]"
           : "ring-1 ring-white/[0.08] bg-white/[0.025]",

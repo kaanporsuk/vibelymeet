@@ -133,7 +133,7 @@ export const MessageBubble = ({
 
       <div
         className={cn(
-          "max-w-[min(85%,18rem)] px-3 py-1.5 relative",
+          "max-w-[min(92%,22rem)] px-3.5 py-2 relative",
           isMe
             ? "bg-gradient-primary text-primary-foreground"
             : "glass-card text-foreground",
@@ -155,7 +155,7 @@ export const MessageBubble = ({
               )
         )}
       >
-        <p className="text-[13px] leading-snug">{message.text}</p>
+        <p className="text-[13px] leading-relaxed">{message.text}</p>
         {isMe && message.sendError ? (
           <button
             onClick={() => onRetryFailedSend?.(message.id)}
@@ -252,7 +252,7 @@ export const MessageBubble = ({
           isMe ? "justify-end" : "justify-start",
           isFocused && "z-[100]",
           (message.reactionPair?.mine || message.reactionPair?.partner) && "mb-4",
-          isFirstInGroup ? "mt-1.5" : "mt-0.5"
+          isFirstInGroup ? "mt-2" : "mt-1"
         )}
       >
         {/* Avatar */}

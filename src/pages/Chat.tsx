@@ -170,7 +170,7 @@ function VibeClipMessageRow({
       className={cn(
         "flex items-end gap-2",
         isMine ? "justify-end" : "justify-start",
-        message.isFirstInGroup ? "mt-1.5" : "mt-0.5"
+        message.isFirstInGroup ? "mt-2" : "mt-1"
       )}
     >
       {!isMine && (
@@ -1271,13 +1271,13 @@ const Chat = () => {
             </button>
           </motion.div>
         ) : (
-          <div ref={threadContentRef} className="w-full max-w-lg mx-auto space-y-0">
+          <div ref={threadContentRef} className="w-full max-w-2xl mx-auto space-y-0 px-0.5 sm:px-0">
             {rowsWithLayout.map(({ row, isFirstInGroup, isLastInGroup, showAvatar }) => {
               if (row.type === "pending_games_summary") {
                 return (
                   <div
                     key={row.clusterKey}
-                    className={cn("flex justify-center w-full px-1", isFirstInGroup ? "mt-1.5" : "mt-0.5")}
+                    className={cn("flex justify-center w-full px-1", isFirstInGroup ? "mt-2" : "mt-1")}
                   >
                     <button
                       type="button"
@@ -1314,10 +1314,10 @@ const Chat = () => {
                   className={cn(
                     "flex",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
-                  <div className="max-w-[min(92%,252px)] w-full">
+                  <div className="max-w-[min(92%,22rem)] w-full">
                     {groupedMessage.refId && suggestionById.get(groupedMessage.refId) ? (
                       <DateSuggestionCard
                         suggestion={suggestionById.get(groupedMessage.refId)!}
@@ -1341,12 +1341,12 @@ const Chat = () => {
                   className={cn(
                     "flex",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
                   <div
                     className={cn(
-                      "max-w-[min(92%,252px)] w-full overflow-hidden transition-opacity duration-200",
+                      "max-w-[min(92%,22rem)] w-full overflow-hidden transition-opacity duration-200",
                       groupedMessage.gameSessionView.status === "complete" && "opacity-[0.9] saturate-[0.92]",
                     )}
                   >
@@ -1396,7 +1396,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -1443,7 +1443,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -1453,10 +1453,10 @@ const Chat = () => {
                       )}
                     </div>
                   )}
-                  <div className="max-w-[min(85%,18rem)]">
+                  <div className="max-w-[min(92%,22rem)]">
                     <button
                       type="button"
-                      className="group relative block w-52 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group relative block w-60 max-w-full cursor-zoom-in rounded-2xl border-0 bg-transparent p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       aria-label="View photo full screen"
                       onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
                     >
@@ -1464,11 +1464,11 @@ const Chat = () => {
                         <img
                           src={parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true }) || ""}
                           alt="Shared image"
-                          className="w-52 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                          className="w-60 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="w-52 h-32 rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
+                        <div className="w-60 h-32 max-w-full rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
                           Preparing photo…
                         </div>
                       )}
@@ -1519,7 +1519,7 @@ const Chat = () => {
                   className={cn(
                     "flex items-end gap-2",
                     groupedMessage.sender === "me" ? "justify-end" : "justify-start",
-                    groupedMessage.isFirstInGroup ? "mt-1.5" : "mt-0.5",
+                    groupedMessage.isFirstInGroup ? "mt-2" : "mt-1",
                   )}
                 >
                   {groupedMessage.sender !== "me" && (
@@ -1531,7 +1531,7 @@ const Chat = () => {
                   )}
                   <div
                     className={cn(
-                      "max-w-[min(85%,18rem)] rounded-2xl px-2.5 py-1.5",
+                      "max-w-[min(92%,22rem)] rounded-2xl px-3 py-2",
                       groupedMessage.sender === "me"
                         ? "bg-gradient-primary text-primary-foreground"
                         : "glass-card border border-border/30 text-foreground",
@@ -1601,7 +1601,7 @@ const Chat = () => {
         />
 
         <div className="px-2 pb-0 pt-0">
-          <div className="max-w-lg mx-auto flex items-stretch justify-center gap-1">
+          <div className="max-w-2xl mx-auto flex items-stretch justify-center gap-1">
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
@@ -1636,7 +1636,7 @@ const Chat = () => {
             tabIndex={-1}
             onChange={handlePhotoFileChange}
           />
-          <div className="flex items-end gap-1 max-w-lg mx-auto">
+          <div className="flex items-end gap-1 max-w-2xl mx-auto">
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
