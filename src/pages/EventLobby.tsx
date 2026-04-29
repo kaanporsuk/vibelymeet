@@ -1330,7 +1330,6 @@ const EventLobby = () => {
             onNavigateToDate={navigateToDateSession}
             onClose={() => {
               clearReadyGateSession("ready_gate_overlay_close");
-              setStatus("browsing");
               void refetchScopedSession();
               if (eventId && user?.id) {
                 void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });

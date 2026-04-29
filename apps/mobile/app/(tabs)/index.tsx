@@ -43,7 +43,7 @@ import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { useScheduleHub } from '@/lib/useScheduleHub';
 import { DateReminderCard, MiniDateCountdown } from '@/components/schedule/DateReminderCard';
-import { endVideoDate, updateParticipantStatus } from '@/lib/videoDateApi';
+import { endVideoDate } from '@/lib/videoDateApi';
 import { supabase } from '@/lib/supabase';
 import { isWithinDiscoverHomeGraceWindow } from '@clientShared/discoverEventVisibility';
 import { useDeletionRecovery } from '@/lib/useDeletionRecovery';
@@ -510,7 +510,6 @@ export default function DashboardScreen() {
     } else {
       await endVideoDate(activeSession.sessionId);
     }
-    await updateParticipantStatus(activeSession.eventId, 'browsing');
     await refetchActiveSession();
   }, [activeSession, user?.id, refetchActiveSession]);
 
