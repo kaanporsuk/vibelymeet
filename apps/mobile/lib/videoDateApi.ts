@@ -558,19 +558,6 @@ export function videoSessionIndicatesHandshakeOrDate(
 }
 
 /** Poll server reconnect state (`sync_reconnect` path); applies lazy grace expiry on the server. */
-/** Idempotent: stamp first Daily join for the current user on this session (after `call.join` succeeds). */
-export async function markVideoDateDailyJoined(sessionId: string): Promise<boolean> {
-  const { data, error } = await supabase.rpc('mark_video_date_daily_joined', {
-    p_session_id: sessionId,
-  });
-  if (error) {
-    if (__DEV__) console.warn('[videoDate] markVideoDateDailyJoined:', error.message);
-    return false;
-  }
-  const ok = (data as { ok?: boolean } | null)?.ok === true;
-  return ok;
-}
-
 export async function syncVideoDateReconnect(sessionId: string): Promise<SyncReconnectPayload | null> {
   const args = {
     p_session_id: sessionId,
