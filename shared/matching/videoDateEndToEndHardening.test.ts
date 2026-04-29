@@ -102,6 +102,10 @@ const cleanupProviderPresenceMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501133000_video_date_cleanup_provider_presence_hardening.sql"),
   "utf8",
 );
+const partialJoinTimeoutMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501143000_video_date_partial_join_timeout.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -112,6 +116,10 @@ const sendNotificationFunction = readFileSync(
 );
 const supabaseConfig = readFileSync(
   join(process.cwd(), "supabase/config.toml"),
+  "utf8",
+);
+const videoDateValidationSql = readFileSync(
+  join(process.cwd(), "supabase/validation/video_date_end_to_end_hardening.sql"),
   "utf8",
 );
 const readyGateOverlay = readFileSync(
@@ -1289,10 +1297,32 @@ test("stale video-date cleanup is bounded and preserves joined or date evidence"
   assert.match(cleanupProviderPresenceMigration, /'bounded', true/);
 });
 
+test("partial Daily joins get a backend-owned peer-timeout terminal reason", () => {
+  assert.match(partialJoinTimeoutMigration, /ALTER FUNCTION public\.expire_stale_video_date_phases_bounded\(integer\)\s+RENAME TO expire_stale_video_date_phases_bounded_20260501143000_partial_join_base/s);
+  assert.match(partialJoinTimeoutMigration, /CREATE OR REPLACE FUNCTION public\.expire_stale_video_date_partial_joins_bounded/);
+  assert.match(partialJoinTimeoutMigration, /state = 'handshake'::public\.video_date_state[\s\S]*date_started_at IS NULL[\s\S]*\(\(participant_1_joined_at IS NULL\) <> \(participant_2_joined_at IS NULL\)\)/s);
+  assert.match(partialJoinTimeoutMigration, /GREATEST\([\s\S]*participant_1_joined_at[\s\S]*participant_2_joined_at[\s\S]*handshake_started_at[\s\S]*started_at[\s\S]*\) \+ interval '90 seconds' <= v_now/s);
+  assert.match(partialJoinTimeoutMigration, /AND NOT \([\s\S]*reconnect_grace_ends_at IS NOT NULL[\s\S]*reconnect_grace_ends_at > v_now[\s\S]*\)/s);
+  assert.match(partialJoinTimeoutMigration, /ended_reason = 'partial_join_peer_timeout'/);
+  assert.match(partialJoinTimeoutMigration, /queue_status = 'idle'[\s\S]*AND current_room_id = r\.id/s);
+  assert.match(partialJoinTimeoutMigration, /record_event_loop_observability\([\s\S]*'expire_stale_video_sessions'[\s\S]*'partial_join_peer_timeout'[\s\S]*'joined_evidence'/s);
+  assert.match(partialJoinTimeoutMigration, /'timeout_source', 'expire_stale_video_date_phases_bounded'/);
+  assert.match(partialJoinTimeoutMigration, /'watchdog_source', 'server_cleanup'/);
+  assert.match(partialJoinTimeoutMigration, /CREATE OR REPLACE FUNCTION public\.expire_stale_video_date_phases_bounded/);
+  assert.match(partialJoinTimeoutMigration, /v_base := public\.expire_stale_video_date_phases_bounded_20260501143000_partial_join_base\(v_limit\)/);
+  assert.match(partialJoinTimeoutMigration, /'partial_join_peer_timeout', COALESCE\(\(v_partial->>'partial_join_peer_timeout'\)::int, 0\)/);
+});
+
+test("partial join terminal reason is excluded from post-date survey contracts", () => {
+  assert.match(sharedActiveSession, /"partial_join_peer_timeout"/);
+  assert.match(partialJoinTimeoutMigration, /'partial_join_peer_timeout'/);
+  assert.match(videoDateValidationSql, /'partial_join_peer_timeout'/);
+});
+
 test("web and native expose clear peer-missing choices instead of toast-only timeout copy", () => {
   assert.match(webVideoCallHook, /setPeerMissing\(\{ terminal: true \}\)/);
-  assert.match(webConnectionOverlay, /Waiting for your match to join\.\.\./);
-  assert.match(webConnectionOverlay, /We're keeping the room ready/);
+  assert.match(webConnectionOverlay, /They didn't make it in time\./);
+  assert.match(webConnectionOverlay, /We couldn't connect them in time/);
   assert.match(webConnectionOverlay, /Keep waiting/);
   assert.match(webConnectionOverlay, /Try reconnecting/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
@@ -1304,7 +1334,8 @@ test("web and native expose clear peer-missing choices instead of toast-only tim
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_NO_REMOTE_USER_EXIT/);
-  assert.match(nativeVideoDateRoute, /Your match has not joined yet/);
+  assert.match(nativeVideoDateRoute, /They didn't make it in time\./);
+  assert.match(nativeVideoDateRoute, /We couldn't connect them in time/);
   assert.match(nativeVideoDateRoute, /Try reconnecting/);
   assert.match(nativeVideoDateRoute, /Keep waiting/);
   assert.match(nativeVideoDateRoute, /Back to lobby/);

@@ -38,6 +38,7 @@ where vs.ended_at is null
      'handshake_not_mutual',
      'handshake_grace_expired',
      'handshake_timeout',
+     'partial_join_peer_timeout',
      'blocked_pair'
    )
 order by df.created_at desc
@@ -140,6 +141,7 @@ where er.queue_status = 'in_survey'
     'handshake_not_mutual',
     'handshake_grace_expired',
     'handshake_timeout',
+    'partial_join_peer_timeout',
     'blocked_pair'
   )
 order by vs.ended_at desc

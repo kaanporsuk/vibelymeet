@@ -368,3 +368,21 @@ test("pending survey recovery ignores pre-date terminal sessions", () => {
     null,
   );
 });
+
+test("pending survey recovery ignores partial Daily join peer timeout", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_reason: "partial_join_peer_timeout",
+    date_started_at: null,
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), false);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1"),
+    null,
+  );
+});
