@@ -45,9 +45,9 @@ No change to RevenueCat SDK wrapper, subscription API, or webhook logic.
 
 ---
 
-## 4. What requires app-store / provider-side user action vs Cursor
+## 4. What requires app-store / provider-side user action vs repo agent
 
-**Cursor handled in repo:**
+**Repo agent handled:**
 
 - Offerings refetch when user is set (so offerings are post–logIn).
 - Existing behavior: purchase → refetch(); restore → refetch(); unavailable state when no offerings; backend as source of truth.

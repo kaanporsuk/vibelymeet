@@ -1,6 +1,6 @@
 # Vibely — canonical project reference
 
-> **Purpose:** This file is the **canonical project reference** for Vibely (VibelyMeet): architecture, locked decisions, workflows, and product semantics grounded in the repo. Use it at the start of implementation work, Cursor sessions, and engineer handoffs. Detailed runbooks, audits, and phase reports live elsewhere under `docs/`; this document does not replace them.
+> **Purpose:** This file is the **canonical project reference** for Vibely (VibelyMeet): architecture, locked decisions, workflows, and product semantics grounded in the repo. Use it at the start of implementation work, AI-assisted implementation sessions, and engineer handoffs. Detailed runbooks, audits, and phase reports live elsewhere under `docs/`; this document does not replace them.
 
 ---
 
@@ -27,7 +27,7 @@ Do not place frontend-only domain modules under `supabase/functions/_shared` sol
 
 - **One Supabase project** backs both web and native. There is no separate “mobile-only” backend or duplicate system of record for core domains.
 - **Project reference** is the value of `project_id` in [`supabase/config.toml`](../supabase/config.toml) (repo source of truth for which cloud project this codebase targets).
-- **Deploy and verify:** Follow [supabase-cloud-deploy.md](./supabase-cloud-deploy.md) — link alignment, `supabase migration list`, `supabase db push`, per-function or bulk Edge Function deploy, secrets outside git, and (when using Cursor MCP) confirming the MCP-authenticated project matches the linked ref.
+- **Deploy and verify:** Follow [supabase-cloud-deploy.md](./supabase-cloud-deploy.md) — link alignment, `supabase migration list`, `supabase db push`, per-function or bulk Edge Function deploy, secrets outside git, and confirming any authenticated agent/MCP project matches the linked ref.
 
 ---
 
@@ -56,6 +56,28 @@ Do not place frontend-only domain modules under `supabase/functions/_shared` sol
 **Bundle / application ID:** `com.vibelymeet.vibely` (RevenueCat, OneSignal, store submissions).
 
 Full env matrix: [native-platform-adapter-matrix.md](./native-platform-adapter-matrix.md).
+
+### 4.1 Video Date Handshake release contract
+
+Current release status: **complete and deployed** as of 2026-04-30 on Supabase project `schdyxcunwcvddlcshwd`.
+
+Durable contract for web and native:
+
+- `confirm_video_date_entry_prepared(...)` is the provider-atomic routeability step. It persists Daily metadata and makes the session routeable without starting `handshake_started_at`.
+- `mark_video_date_daily_joined(...)` stamps the authenticated participant's Daily join and starts `handshake_started_at` only after both participant join stamps exist.
+- Ready Gate `both_ready` provider handoff is `45s`, and expired Ready Gates are not reopened.
+- Web and native warm-up timers and Vibe/Pass controls wait for server-owned `handshake_started_at`.
+- Daily room identity remains deterministic and session-scoped; both participants must target the same `video_sessions.id` and Daily room.
+- Each participant receives a distinct user-scoped Daily token. Non-participants must not receive tokens or write join stamps.
+- Critical video-date lifecycle state remains backend-owned through RPCs/state-machine functions; clients render and route from server truth.
+- Daily fallback diagnostics must not log meeting tokens, auth headers, provider secrets, or raw secret values.
+
+Release evidence:
+
+- Migration applied: `20260501170000_video_date_handshake_starts_after_daily_join.sql`.
+- Edge Function redeployed: `daily-room`.
+- Required Supabase secret names were present at release check: `DAILY_API_KEY`, `DAILY_DOMAIN`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+- Two-person Daily/provider runtime QA for the handshake release is recorded as completed.
 
 ---
 

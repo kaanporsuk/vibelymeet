@@ -1,6 +1,6 @@
 # Active doc map
 
-Date: 2026-04-14  
+Date: 2026-04-30
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
@@ -39,6 +39,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Proof policy and rebuild-proof context | `docs/authenticated-proof-and-rebuild-plan.md` |
 | Clean rebuild rehearsal log | `docs/rebuild-rehearsal-log.md` |
 | Ready Gate registration ownership hardening | `docs/ready-gate-server-owned-registration-status.md`, `docs/ready-gate-server-owned-registration-status-final-audit.md`; migrations `20260501141000_ready_gate_server_owned_registration_status.sql`, `20260501142000_ready_gate_client_lifecycle_overwrite_guard.sql` |
+| **Video Date Handshake release: timer starts after both Daily joins** | `docs/vibely-canonical-project-reference.md` §4.1 and `docs/video-date-hardening-closure-report.md` §Video Date Handshake release-status addendum; migration `20260501170000_video_date_handshake_starts_after_daily_join.sql`; Edge Function `daily-room` |
 
 ---
 
@@ -83,6 +84,8 @@ These remain in-repo for audit history, provenance, or deep context, but they ar
 - `docs/native-deferred-runtime-bugs-backlog.md` — historical deferred backlog, not the active launch backlog
 - `docs/native-web-handoff-burndown.md` — historical scope/handoff reference, still cited only for accepted web handoffs
 - `_cursor_context/vibely_rebuild_runbook.md` — canonical for frozen web rebuild only, not native launch closure (banner at top notes 2026-04-11 removals)
+- `_cursor_context/Native_Build_Beginning_Handoff.md` — historical native kickoff handoff; superseded by the agent-neutral current docs in this map
+- `_cursor_context/vibely_cursor_hardening_campaign.md` — historical filename retained for provenance; content now functions as an agent-neutral rebuildability brief
 - `_cursor_context/vibely_discrepancy_report.md` — historical rebuild audit
 - **`_cursor_context/vibely_golden_snapshot_audited.md`** and **`_cursor_context/vibely_rebuild_runbook.md`** — include a **2026-04-11** alignment note for `/ready/:readyId` → `ReadyRedirect` and removed unrouted surfaces; still **verify** against `src/App.tsx` for any older § inventory counts. **Other `_cursor_context/*.md` files** — audit/snapshot provenance; some may still name Lovable-era hosting or pre-removal paths. Do not treat them as current route or deploy truth without cross-checking `docs/repo-hardening-closure-2026-04-11.md` and the live `src/App.tsx` route table.
 - `docs/_archive/historical/vibely_golden_snapshot_audited_duplicate_2026-04-11.md` — archived duplicate copy; use `_cursor_context/vibely_golden_snapshot_audited.md`

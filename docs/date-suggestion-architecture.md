@@ -445,7 +445,7 @@ Map to `send-notification` with new types (extend `NOTIFICATION_TYPE_TO_PREF` + 
 
 ---
 
-## Part 13 — User-only actions (cannot be done by Cursor alone)
+## Part 13 — User-only actions (cannot be done by the implementation agent alone)
 
 - **OneSignal / Apple / Google** dashboard configuration for new notification types if your org requires manual template approval.
 - **Production cron** scheduling (Supabase dashboard or external) for expiry jobs — unless you add `pg_cron` via migration in repo.

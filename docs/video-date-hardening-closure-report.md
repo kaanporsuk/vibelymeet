@@ -17,6 +17,55 @@ Evidence from the closure pass:
 - Video-date room cleanup cron: active pg_cron job with recent pg_net `200` responses
 - Relevant Edge Functions: deployed and active
 
+## Video Date Handshake release-status addendum
+
+Date: 2026-04-30
+
+Status: **released, deployed, and QA-closed**.
+
+This addendum supersedes older handshake timing notes in this report and in earlier video-date hardening runbooks.
+
+Accepted contract:
+
+- `confirm_video_date_entry_prepared(...)` persists Daily room metadata and makes the session routeable without starting `handshake_started_at`.
+- `mark_video_date_daily_joined(...)` starts `handshake_started_at` only after both participant Daily join stamps exist.
+- Ready Gate `both_ready` provider handoff is `45s`.
+- Expired Ready Gates are not reopened.
+- Web/native warm-up timers and Vibe/Pass controls wait for server-owned `handshake_started_at`.
+- Daily room generation remains deterministic and session-scoped.
+- Both participants must join the same `video_sessions.id` and the same Daily room.
+- Each participant receives a distinct user-scoped Daily token.
+- Non-participants cannot receive Daily tokens or write Daily join stamps.
+- Clients must not own critical video-date lifecycle writes.
+- Daily fallback diagnostics must not expose meeting tokens, auth headers, provider secrets, or raw secret values.
+
+Release evidence:
+
+- Commit: `a6c6822edb90cc8a1405dda29f866c82734ef421` (`Harden video date handshake start after Daily join`).
+- Migration applied: `20260501170000_video_date_handshake_starts_after_daily_join.sql`.
+- Changed RPC/state-machine surfaces: `confirm_video_date_entry_prepared(...)`, `mark_video_date_daily_joined(...)`, `ready_gate_transition(...)`, `repair_stale_video_date_prepare_entries(...)`.
+- Edge Function redeployed: `daily-room` on project `schdyxcunwcvddlcshwd`.
+- Required secret names confirmed present: `DAILY_API_KEY`, `DAILY_DOMAIN`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`.
+- Two-person Daily/provider runtime QA for this handshake release is recorded as completed.
+- No raw secret values, meeting tokens, or auth headers were added to repo docs/logs.
+
+Release validation:
+
+```bash
+npm run test:daily-room-contract
+npm run test:web-vibe-video-trust
+./node_modules/.bin/tsx shared/matching/videoSessionDailyGate.test.ts
+./node_modules/.bin/tsx shared/matching/videoDatePrepareEntry.test.ts
+./node_modules/.bin/tsx shared/matching/videoDateHandshakePersistence.test.ts
+./node_modules/.bin/tsx shared/matching/dailyJoinedConfirmation.test.ts
+./node_modules/.bin/tsx shared/matching/videoDateEndToEndHardening.test.ts
+npm run typecheck
+npm run build
+git diff --check
+```
+
+Result: all passed. The production build emitted the existing Vite dynamic/static import and chunk-size warnings; no build failure.
+
 ## Sprints A-F summary
 
 | Sprint | PR | Merge commit | Scope |
@@ -62,6 +111,7 @@ The closure pass confirmed these migration versions exist in the remote Supabase
 - `20260501113000_post_date_pending_verdict_observability`
 - `20260501114000_post_date_pending_verdict_reminders`
 - `20260501115000_video_date_room_cleanup_cron_vault`
+- `20260501170000_video_date_handshake_starts_after_daily_join`
 
 The `20260501115000` repair is forward-only. The original `video-date-room-cleanup` scheduler was created from `current_setting('app.supabase_url', true)` and `current_setting('app.cron_secret', true)`. Those DB settings were absent in production, causing a null scheduler URL and empty `Authorization: Bearer ` header. PR #551 rescheduled the same job with the proven Vault-backed `project_url` / `cron_secret` pattern used by `post-date-verdict-reminders`.
 
@@ -87,6 +137,8 @@ Relevant Video Date functions are deployed and active on project `schdyxcunwcvdd
 | `video-date-room-cleanup` | 124 | 2026-04-27 16:56:58 |
 | `send-notification` | 481 | 2026-04-27 19:36:53 |
 | `post-date-verdict-reminders` | 1 | 2026-04-27 19:37:02 |
+
+Latest handshake release redeployed `daily-room` on 2026-04-30; `supabase functions list --project-ref schdyxcunwcvddlcshwd` reported it active at version `560`.
 
 ## Web deploy status
 
@@ -115,16 +167,16 @@ Native items requiring fresh binary distribution if not already released:
 
 User context for this closure sprint states that Sprints A-F are complete and QA accepted.
 
-This document records release-state and deployment evidence. It does not replace physical-device QA evidence for native binaries or browser-specific media/autoplay behavior.
+This document records release-state and deployment evidence. The 2026-04-30 handshake addendum records two-person Daily/provider runtime QA as complete for the handshake timer release. Normal browser/device media/autoplay regression checks still belong in recurring release QA.
 
 ## Final known open risks
 
 - Native binary release status was not independently verified in this closure pass.
-- Browser permission and autoplay behavior remain browser-specific and should stay in manual regression QA.
+- Browser permission and autoplay behavior remain browser-specific and should stay in recurring regression QA.
 - Analytics dashboards may need wiring or saved views for the new Video Date event names.
 - Reminder copy and timing may need future product tuning after observing real-world response rates.
 - Long-term native audio-session work remains deferred. Do not introduce `expo-av` as part of that future work unless the native media architecture is deliberately revisited.
-- Manual QA caveats remain for rare network, backgrounding, and permission-denial combinations on physical iOS/Android devices.
+- Rare network, backgrounding, and permission-denial combinations on physical iOS/Android devices should stay in recurring release regression coverage.
 
 ## Deferred future polish
 

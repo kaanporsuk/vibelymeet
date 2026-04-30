@@ -75,9 +75,9 @@ supabase functions deploy <function-name> --project-ref schdyxcunwcvddlcshwd
 
 Secrets (Stripe, Twilio, etc.) are **not** in git — set in Dashboard → Edge Functions → Secrets or `supabase secrets set --project-ref schdyxcunwcvddlcshwd KEY=value`.
 
-## Cursor / MCP
+## Agent / MCP
 
-If **user-supabase** MCP is enabled in Cursor, tools such as `list_migrations`, `list_tables`, `execute_sql`, `apply_migration`, and `deploy_edge_function` can read or change the project **that MCP is authenticated to**. Confirm in MCP settings that it points at **`schdyxcunwcvddlcshwd`** so agent actions match this CLI-linked project.
+If **user-supabase** MCP or any authenticated Supabase agent tooling is enabled, tools such as `list_migrations`, `list_tables`, `execute_sql`, `apply_migration`, and `deploy_edge_function` can read or change the project **that tool is authenticated to**. Confirm the authenticated project points at **`schdyxcunwcvddlcshwd`** so agent actions match this CLI-linked project.
 
 ## Media lifecycle worker
 

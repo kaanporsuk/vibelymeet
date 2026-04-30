@@ -21,7 +21,7 @@ This is the **single canonical execution order** for moving from **current No-Go
 
 ---
 
-## 1. Stage 0 — Repo preflight (Cursor / Kaan, ~5 min)
+## 1. Stage 0 — Repo preflight (implementation agent / Kaan, ~5 min)
 
 | Step | Action | Pass | Fail |
 |------|--------|------|------|
@@ -54,7 +54,7 @@ Complete in order. **Do not** skip RevenueCat webhook + Supabase deploy before d
 | 6 | Real device validation (iOS + Android) | Sheet § 6 |
 | 7 | Production build + submit (when ready) | Checklist §6–7; runbook Phase 6 |
 
-Phased narrative with Cursor/Kaan roles: `docs/native-sprint6-launch-closure-runbook.md`.  
+Phased narrative with implementation-agent/Kaan roles: `docs/native-sprint6-launch-closure-runbook.md`.
 Strict matrix: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
 
 ---
@@ -85,11 +85,11 @@ Strict matrix: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
 | Symptom | Likely layer | Next step |
 |---------|--------------|-----------|
 | Premium: "No offerings" | RevenueCat / store product IDs | Checklist §2; Kaan dashboard |
-| Purchase OK; DB not premium | Webhook URL, `REVENUECAT_WEBHOOK_AUTHORIZATION`, EF not deployed | Supabase function logs; Kaan + Cursor if function bug proven |
+| Purchase OK; DB not premium | Webhook URL, `REVENUECAT_WEBHOOK_AUTHORIZATION`, EF not deployed | Supabase function logs; Kaan + implementation agent if function bug proven |
 | No push player id in DB | App ID missing in build, permission denied | EAS secrets; Kaan |
 | Push queued; device silent | APNs/FCM misconfigured | OneSignal dashboard; Kaan |
 | EAS build fails on env | Missing EAS secret | Kaan |
-| Web proof regression | App or Supabase deploy | **Cursor** — not fixed in dashboards |
+| Web proof regression | App or Supabase deploy | **Implementation agent** — not fixed in dashboards |
 
 ---
 

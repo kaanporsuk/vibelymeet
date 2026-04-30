@@ -55,7 +55,7 @@ No schema migration or deploy is required for this bootstrap. It uses linked SQL
 
 ## 3. Proof dependency audit
 
-| Proof target | Required auth/session state | Required data state | Can Cursor bootstrap this now |
+| Proof target | Required auth/session state | Required data state | Can the implementation agent bootstrap this now |
 |---|---|---|---|
 | Schedule non-empty pending/upcoming/history | Fresh authenticated `kaanporsuk@gmail.com` browser session | Tagged smoke suggestions/plans on match `06eab9bc-fabc-4580-9192-98b636f64a89` | Yes |
 | Schedule reminder-routing truth | Fresh authenticated `kaanporsuk@gmail.com` browser session | Accepted upcoming tagged plan starting within the next hour | Yes |
