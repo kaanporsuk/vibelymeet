@@ -920,88 +920,101 @@ export default function EventLobbyScreen() {
 
   useEffect(() => {
     if (!user?.id || !id) return;
-    const channel = supabase
-      .channel(`lobby-video-${id}-${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'video_sessions', filter: `event_id=eq.${id}` },
-        async (payload) => {
-          const session = payload.new as Record<string, unknown>;
-          const old = payload.old as Record<string, unknown> | null;
-          const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
-          if (!isParticipant) return;
-          const sid = session.id as string;
-          if (
-            user.id &&
-            isVideoSessionQueuedTtlExpiryTransition(old, session, user.id) &&
-            !queuedTtlExpiryNotifiedIdsRef.current.has(sid)
-          ) {
-            queuedTtlExpiryNotifiedIdsRef.current.add(sid);
-            show({
-              title: 'Match window ended',
-              message: QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
-              variant: 'info',
-              primaryAction: { label: 'OK', onPress: () => {} },
-            });
-          }
-          void refetchDeck();
-          void refreshQueueAndSuperVibe();
-          if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
-            navigateToDateSession(session.id as string, 'video_session_update_both_ready', 'replace');
-            return;
-          }
-          const newStatus = session.ready_gate_status as string;
-          const oldStatus = old?.ready_gate_status as string | undefined;
-          const becameReadyGateActive =
-            READY_GATE_ACTIVE_STATUSES.has(newStatus) &&
-            (!oldStatus || !READY_GATE_ACTIVE_STATUSES.has(oldStatus));
-          if (becameReadyGateActive) {
-            await openReadyGateWithSession(session.id as string, 'video_session_update');
-            return;
-          }
-          // If this participant's session has already moved into provider-confirmed
-          // video truth, route out of lobby even if ready-gate transitions were missed.
-          if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
-            navigateToDateSession(session.id as string, 'video_session_update', 'replace');
-          }
+    const handleVideoSessionUpdate = async (payload: {
+      new: Record<string, unknown>;
+      old?: Record<string, unknown> | null;
+    }) => {
+      const session = payload.new as Record<string, unknown>;
+      if (session.event_id !== id) return;
+      const old = payload.old as Record<string, unknown> | null;
+      const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
+      if (!isParticipant) return;
+      const sid = session.id as string;
+      if (
+        user.id &&
+        isVideoSessionQueuedTtlExpiryTransition(old, session, user.id) &&
+        !queuedTtlExpiryNotifiedIdsRef.current.has(sid)
+      ) {
+        queuedTtlExpiryNotifiedIdsRef.current.add(sid);
+        show({
+          title: 'Match window ended',
+          message: QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      }
+      void refetchDeck();
+      void refreshQueueAndSuperVibe();
+      if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+        navigateToDateSession(session.id as string, 'video_session_update_both_ready', 'replace');
+        return;
+      }
+      const newStatus = session.ready_gate_status as string;
+      const oldStatus = old?.ready_gate_status as string | undefined;
+      const becameReadyGateActive =
+        READY_GATE_ACTIVE_STATUSES.has(newStatus) &&
+        (!oldStatus || !READY_GATE_ACTIVE_STATUSES.has(oldStatus));
+      if (becameReadyGateActive) {
+        await openReadyGateWithSession(session.id as string, 'video_session_update');
+        return;
+      }
+      // If this participant's session has already moved into provider-confirmed
+      // video truth, route out of lobby even if ready-gate transitions were missed.
+      if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
+        navigateToDateSession(session.id as string, 'video_session_update', 'replace');
+      }
+    };
+
+    const handleVideoSessionInsert = async (payload: { new: Record<string, unknown> }) => {
+      const session = payload.new as Record<string, unknown>;
+      if (session.event_id !== id) return;
+      const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
+      if (!isParticipant) return;
+      void refetchDeck();
+      void refreshQueueAndSuperVibe();
+      const status = session.ready_gate_status as string;
+      const sid = session.id as string;
+      if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
+        navigateToDateSession(sid, 'video_session_insert_both_ready', 'replace');
+        return;
+      }
+      if (status === 'queued') {
+        const drainResult = await drainMatchQueue(id, user.id);
+        const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);
+        if (drainResult?.found && promotedId) {
+          await openReadyGateWithSession(promotedId, 'video_session_insert_queue_drain');
+        } else {
+          showDrainReasonInfoOnce(drainResult);
         }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'video_sessions', filter: `event_id=eq.${id}` },
-        async (payload) => {
-          const session = payload.new as Record<string, unknown>;
-          const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
-          if (!isParticipant) return;
-          void refetchDeck();
-          void refreshQueueAndSuperVibe();
-          const status = session.ready_gate_status as string;
-          const sid = session.id as string;
-          if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
-            navigateToDateSession(sid, 'video_session_insert_both_ready', 'replace');
-            return;
-          }
-          if (status === 'queued') {
-            const drainResult = await drainMatchQueue(id, user.id);
-            const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);
-            if (drainResult?.found && promotedId) {
-              await openReadyGateWithSession(promotedId, 'video_session_insert_queue_drain');
-            } else {
-              showDrainReasonInfoOnce(drainResult);
-            }
-            await refreshQueueAndSuperVibe();
-            return;
-          }
-          if (READY_GATE_ACTIVE_STATUSES.has(status)) {
-            await openReadyGateWithSession(sid, 'video_session_insert');
-            return;
-          }
-          if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
-            navigateToDateSession(sid, 'video_session_insert', 'replace');
-          }
-        }
-      )
-      .subscribe();
+        await refreshQueueAndSuperVibe();
+        return;
+      }
+      if (READY_GATE_ACTIVE_STATUSES.has(status)) {
+        await openReadyGateWithSession(sid, 'video_session_insert');
+        return;
+      }
+      if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
+        navigateToDateSession(sid, 'video_session_insert', 'replace');
+      }
+    };
+
+    const channel = supabase.channel(`lobby-video-${id}-${user.id}`);
+    // Realtime cannot OR participant columns in one filter. Native lobby uses
+    // participant-scoped bindings plus event validation and queue/refetch fallback.
+    for (const filter of [`participant_1_id=eq.${user.id}`, `participant_2_id=eq.${user.id}`]) {
+      channel
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'video_sessions', filter },
+          handleVideoSessionUpdate
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'video_sessions', filter },
+          handleVideoSessionInsert
+        );
+    }
+    channel.subscribe();
     return () => {
       supabase.removeChannel(channel);
     };

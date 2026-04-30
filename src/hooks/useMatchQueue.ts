@@ -142,81 +142,98 @@ export const useMatchQueue = ({
   useEffect(() => {
     if (!eventId || !user?.id) return;
 
-    const channel = supabase
-      .channel(`match-queue-${eventId}-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "video_sessions",
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          const session = payload.new as {
-            id: string;
-            participant_1_id: string;
-            participant_2_id: string;
-            ready_gate_status: string;
-          };
-          const isParticipant =
-            session.participant_1_id === user.id || session.participant_2_id === user.id;
+    const handleUpdate = (payload: {
+      new: Record<string, unknown>;
+      old?: Record<string, unknown> | null;
+    }) => {
+      const session = payload.new as {
+        id?: string;
+        event_id?: string;
+        participant_1_id?: string;
+        participant_2_id?: string;
+        ready_gate_status?: string;
+      };
+      if (session.event_id !== eventId || !session.id) return;
 
-          if (!isParticipant) return;
+      const isParticipant =
+        session.participant_1_id === user.id || session.participant_2_id === user.id;
 
-          const oldRow = payload.old as Record<string, unknown> | null | undefined;
-          const newRow = payload.new as Record<string, unknown>;
-          if (
-            isVideoSessionQueuedTtlExpiryTransition(oldRow, newRow, user.id) &&
-            !queuedExpiryNotifiedIdsRef.current.has(session.id)
-          ) {
-            queuedExpiryNotifiedIdsRef.current.add(session.id);
-            onQueuedExpiredRef.current?.(session.id);
-          }
+      if (!isParticipant) return;
 
-          if (session.ready_gate_status === "ready" && payload.old?.ready_gate_status === "queued") {
-            const partnerId =
-              session.participant_1_id === user.id
-                ? session.participant_2_id
-                : session.participant_1_id;
-            notifyReadyOnce(session.id, partnerId);
-          }
+      const oldRow = payload.old as Record<string, unknown> | null | undefined;
+      const newRow = payload.new as Record<string, unknown>;
+      if (
+        isVideoSessionQueuedTtlExpiryTransition(oldRow, newRow, user.id) &&
+        !queuedExpiryNotifiedIdsRef.current.has(session.id)
+      ) {
+        queuedExpiryNotifiedIdsRef.current.add(session.id);
+        onQueuedExpiredRef.current?.(session.id);
+      }
 
-          refreshQueueCount();
-        }
-      )
-      .on(
+      if (session.ready_gate_status === "ready" && payload.old?.ready_gate_status === "queued") {
+        const partnerId =
+          session.participant_1_id === user.id
+            ? session.participant_2_id
+            : session.participant_1_id;
+        if (partnerId) notifyReadyOnce(session.id, partnerId);
+      }
+
+      refreshQueueCount();
+    };
+
+    const handleInsert = (payload: { new: Record<string, unknown> }) => {
+      const session = payload.new as {
+        id?: string;
+        event_id?: string;
+        participant_1_id?: string;
+        participant_2_id?: string;
+        ready_gate_status?: string;
+      };
+      if (session.event_id !== eventId || !session.id) return;
+
+      const isParticipant =
+        session.participant_1_id === user.id || session.participant_2_id === user.id;
+
+      if (!isParticipant) return;
+
+      if (session.ready_gate_status === "ready") {
+        const partnerId =
+          session.participant_1_id === user.id
+            ? session.participant_2_id
+            : session.participant_1_id;
+        if (partnerId) notifyReadyOnce(session.id, partnerId);
+      }
+
+      refreshQueueCount();
+    };
+
+    const channel = supabase.channel(`match-queue-${eventId}-${user.id}`);
+    // Realtime cannot OR participant columns in one filter, so discovery uses
+    // participant-scoped bindings plus event validation and the polling/refetch fallback.
+    for (const filter of [`participant_1_id=eq.${user.id}`, `participant_2_id=eq.${user.id}`]) {
+      channel
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "video_sessions",
+            filter,
+          },
+          handleUpdate
+        )
+        .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "video_sessions",
-          filter: `event_id=eq.${eventId}`,
+          filter,
         },
-        (payload) => {
-          const session = payload.new as {
-            id: string;
-            participant_1_id: string;
-            participant_2_id: string;
-            ready_gate_status: string;
-          };
-          const isParticipant =
-            session.participant_1_id === user.id || session.participant_2_id === user.id;
-
-          if (!isParticipant) return;
-
-          if (session.ready_gate_status === "ready") {
-            const partnerId =
-              session.participant_1_id === user.id
-                ? session.participant_2_id
-                : session.participant_1_id;
-            notifyReadyOnce(session.id, partnerId);
-          }
-
-          refreshQueueCount();
-        }
-      )
-      .subscribe();
+          handleInsert
+        );
+    }
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);

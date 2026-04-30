@@ -682,70 +682,63 @@ const EventLobby = () => {
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
-    const channel = supabase
-      .channel(`lobby-video-${eventId}-${user.id}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "video_sessions",
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          const session = payload.new as Record<string, unknown>;
-          const isParticipant =
-            session.participant_1_id === user.id || session.participant_2_id === user.id;
-          if (!isParticipant) return;
-          const sessionId = typeof session.id === "string" ? session.id : null;
-          if (!sessionId) return;
+    const handleVideoSessionChange = (
+      payload: { new: Record<string, unknown> },
+      source: "video_session_realtime" | "video_session_insert"
+    ) => {
+      const session = payload.new as Record<string, unknown>;
+      if (session.event_id !== eventId) return;
+      const isParticipant =
+        session.participant_1_id === user.id || session.participant_2_id === user.id;
+      if (!isParticipant) return;
+      const sessionId = typeof session.id === "string" ? session.id : null;
+      if (!sessionId) return;
 
-          if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
-            lobbyDebug("same-session active date detected from video session realtime", {
-              sessionId,
-              state: session.state,
-              phase: session.phase,
-              readyGateStatus: session.ready_gate_status,
-              readyGateExpiresAt: session.ready_gate_expires_at,
-            });
-            prepareAndNavigateToDateSession(sessionId, "video_session_realtime");
-            return;
-          }
+      if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
+        lobbyDebug("same-session active date detected from participant-scoped video session realtime", {
+          sessionId,
+          state: session.state,
+          phase: session.phase,
+          readyGateStatus: session.ready_gate_status,
+          readyGateExpiresAt: session.ready_gate_expires_at,
+        });
+        prepareAndNavigateToDateSession(sessionId, source);
+        return;
+      }
 
-          const status = session.ready_gate_status;
-          if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
-            openReadyGateSession(sessionId, "video_session_realtime");
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "video_sessions",
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          const session = payload.new as Record<string, unknown>;
-          const isParticipant =
-            session.participant_1_id === user.id || session.participant_2_id === user.id;
-          if (!isParticipant) return;
-          const sessionId = typeof session.id === "string" ? session.id : null;
-          if (!sessionId) return;
+      const status = session.ready_gate_status;
+      if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
+        openReadyGateSession(sessionId, source);
+      }
+    };
 
-          if (canAttemptDailyRoomFromVideoSessionTruth(session) || isActiveVideoPhase(session)) {
-            prepareAndNavigateToDateSession(sessionId, "video_session_insert");
-            return;
-          }
-
-          const status = session.ready_gate_status;
-          if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
-            openReadyGateSession(sessionId, "video_session_insert");
-          }
-        }
-      )
-      .subscribe();
+    const channel = supabase.channel(`lobby-video-${eventId}-${user.id}`);
+    // Realtime cannot OR participant columns in one filter. Subscribe to each
+    // participant side, then validate event/session truth before side effects.
+    for (const filter of [`participant_1_id=eq.${user.id}`, `participant_2_id=eq.${user.id}`]) {
+      channel
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "video_sessions",
+            filter,
+          },
+          (payload) => handleVideoSessionChange(payload, "video_session_realtime")
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "video_sessions",
+            filter,
+          },
+          (payload) => handleVideoSessionChange(payload, "video_session_insert")
+        );
+    }
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);

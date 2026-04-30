@@ -467,21 +467,31 @@ export function useActiveSession(
   useEffect(() => {
     if (!userId || !eventFilter) return;
 
-    const channel = supabase
-      .channel(`active-session-video-${userId}-${eventFilter}`)
-      .on(
+    const maybeCheckForScopedEvent = (payload: {
+      new?: Record<string, unknown> | null;
+      old?: Record<string, unknown> | null;
+    }) => {
+      const row = payload.new ?? payload.old ?? null;
+      if (row?.event_id !== eventFilter) return;
+      void check();
+    };
+
+    const channel = supabase.channel(`active-session-video-${userId}-${eventFilter}`);
+    // Realtime cannot OR participant columns in one filter, so active-session
+    // hydration listens to each participant side and keeps the polling fallback.
+    for (const filter of [`participant_1_id=eq.${userId}`, `participant_2_id=eq.${userId}`]) {
+      channel.on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "video_sessions",
-          filter: `event_id=eq.${eventFilter}`,
+          filter,
         },
-        () => {
-          void check();
-        }
-      )
-      .subscribe();
+        maybeCheckForScopedEvent
+      );
+    }
+    channel.subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
