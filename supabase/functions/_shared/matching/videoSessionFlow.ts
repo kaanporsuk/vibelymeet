@@ -17,6 +17,12 @@ export type SwipeSessionStageResult = {
   success?: boolean;
   error?: string;
   message?: string;
+  idempotent?: boolean;
+  replay?: boolean;
+  notification_suppressed?: boolean;
+  dedupe_reason?: string;
+  existing_swipe_type?: string;
+  requested_swipe_type?: string;
 };
 
 /** `drain_match_queue` RPC JSON (session activation, not persistent match). */
@@ -134,6 +140,8 @@ export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
   "participant_has_active_session_conflict",
   /** Cancelled/archived event: `handle_swipe` — do not burn the current deck card. */
   "event_not_active",
+  /** Retry conflict: the natural event/actor/target swipe key already has a different recorded type. */
+  "swipe_already_recorded",
 ]);
 
 export function shouldAdvanceLobbyDeckAfterSwipe(result: string | null | undefined): boolean {

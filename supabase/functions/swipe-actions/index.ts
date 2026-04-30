@@ -13,11 +13,20 @@ const corsHeaders = {
  * Super Vibe is capped per event (`limit_reached`, etc.); there is no `no_credits` branch in current SQL.
  */
 type HandleSwipeSessionPayload = {
+  success?: boolean;
   result: string;
+  error?: string;
+  reason?: string;
   match_id?: string;
   video_session_id?: string;
   event_id?: string;
   immediate?: boolean;
+  idempotent?: boolean;
+  replay?: boolean;
+  notification_suppressed?: boolean;
+  dedupe_reason?: string;
+  existing_swipe_type?: string;
+  requested_swipe_type?: string;
 };
 
 /** Deep link + OneSignal `data` for session-stage notifications (ready gate / video date entry). */
@@ -38,13 +47,25 @@ function logLifecycle(payload: {
   event_id: string | null;
   session_id: string | null;
   user_id: string | null;
+  target_id?: string | null;
   admission_status?: string | null;
   queue_id?: string | null;
   category: string;
   result: string;
+  swipe_type?: string | null;
+  dedupe_reason?: string | null;
   error_reason?: string | null;
 }) {
   console.log("lifecycle.swipe_actions", JSON.stringify(payload));
+}
+
+function shouldSuppressSwipeNotification(result: HandleSwipeSessionPayload): boolean {
+  const outcome = result.result ?? result.error;
+  return result.notification_suppressed === true ||
+    result.idempotent === true ||
+    result.replay === true ||
+    outcome === "swipe_already_recorded" ||
+    outcome === "event_not_active";
 }
 
 serve(async (req) => {
@@ -126,18 +147,34 @@ serve(async (req) => {
 
     const sessionId = result.video_session_id ?? result.match_id;
     const eventIdStr = typeof result.event_id === "string" ? result.event_id : String(event_id);
+    const suppressNotifications = shouldSuppressSwipeNotification(result);
 
     logLifecycle({
       event_id: eventIdStr,
       session_id: sessionId ?? null,
       user_id: actorId,
+      target_id: String(target_id),
       category: "swipe_action",
       result: result.result ?? "ok",
+      swipe_type: String(swipe_type),
+      dedupe_reason: result.dedupe_reason ?? null,
       error_reason: null,
     });
 
     try {
-      if (result.result === "match" && sessionId) {
+      if (suppressNotifications) {
+        logLifecycle({
+          event_id: eventIdStr,
+          session_id: sessionId ?? null,
+          user_id: actorId,
+          target_id: String(target_id),
+          category: "swipe_notification_dedupe",
+          result: "notification_suppressed",
+          swipe_type: String(swipe_type),
+          dedupe_reason: result.dedupe_reason ?? result.error ?? result.result ?? "idempotent_replay",
+          error_reason: null,
+        });
+      } else if (result.result === "match" && sessionId) {
         const dataPayload = sessionStageNotificationData(eventIdStr, sessionId);
         const immediateBody = {
           category: "ready_gate" as const,
@@ -153,8 +190,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: String(target_id),
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_sent",
+            swipe_type: String(swipe_type),
             error_reason: null,
           });
         } catch (e) {
@@ -163,8 +202,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: String(target_id),
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_error",
+            swipe_type: String(swipe_type),
             error_reason: e instanceof Error ? e.message : String(e),
           });
         }
@@ -176,8 +217,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: actorId,
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_sent",
+            swipe_type: String(swipe_type),
             error_reason: null,
           });
         } catch (e) {
@@ -186,8 +229,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: actorId,
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_error",
+            swipe_type: String(swipe_type),
             error_reason: e instanceof Error ? e.message : String(e),
           });
         }
@@ -211,8 +256,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: String(target_id),
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_sent",
+            swipe_type: String(swipe_type),
             error_reason: null,
           });
         } catch (e) {
@@ -221,8 +268,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: String(target_id),
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_error",
+            swipe_type: String(swipe_type),
             error_reason: e instanceof Error ? e.message : String(e),
           });
         }
@@ -239,8 +288,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: actorId,
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_sent",
+            swipe_type: String(swipe_type),
             error_reason: null,
           });
         } catch (e) {
@@ -249,8 +300,10 @@ serve(async (req) => {
             event_id: eventIdStr,
             session_id: sessionId,
             user_id: actorId,
+            target_id: String(target_id),
             category: "ready_gate",
             result: "notify_error",
+            swipe_type: String(swipe_type),
             error_reason: e instanceof Error ? e.message : String(e),
           });
         }
@@ -271,8 +324,10 @@ serve(async (req) => {
           event_id: eventIdStr,
           session_id: null,
           user_id: String(target_id),
+          target_id: String(target_id),
           category: "someone_vibed_you",
           result: "notify_sent",
+          swipe_type: String(swipe_type),
           error_reason: null,
         });
       }
@@ -282,8 +337,10 @@ serve(async (req) => {
         event_id: eventIdStr,
         session_id: sessionId ?? null,
         user_id: actorId,
+        target_id: String(target_id),
         category: "swipe_action",
         result: "notify_error",
+        swipe_type: String(swipe_type),
         error_reason: notifyError instanceof Error ? notifyError.message : String(notifyError),
       });
     }
