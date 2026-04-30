@@ -4,15 +4,17 @@ Date: 2026-04-30
 Branch: `audit/event-lobby-production-contract-verification`
 Mode: read-only production verification. No code fixes, deploys, pushes, migration edits, or Supabase cloud mutations were performed.
 
+> Current status note, 2026-05-01: this document is a historical pre-hardening production snapshot. The blockers identified here were intentionally closed by Streams 1-11, especially PRs #613-#624. Do not use the historical readiness verdict below as current production posture; use the stream branch deltas, validation SQL, and hardening contract tests for current state.
+
 ## Executive Summary
 
 Production Supabase is linked to the same project ref declared in `supabase/config.toml`: `schdyxcunwcvddlcshwd` (`MVP_Vibe`, West EU / Ireland).
 
-The remote migration history matches local migration history exactly for the audited repo: 338 local versions, 338 remote versions, 0 version mismatches. The latest hardening migrations referenced by `docs/audits/event-lobby-deck-deep-dive.md` are present remotely, including the future-dated `202605...` migration series.
+At the time of this audit, the remote migration history matched local migration history exactly for the audited repo: 338 local versions, 338 remote versions, 0 version mismatches. The then-latest hardening migrations inspected by the scratch deep-dive were present remotely, including the future-dated `202605...` migration series.
 
 The deployed Edge Functions needed for the Event Lobby Deck contract are active. `swipe-actions`, `daily-room`, `send-notification`, and `admin-video-date-ops` were downloaded from the linked project into `/tmp` with `supabase functions download --use-api`; their downloaded source matches local source by SHA-256.
 
-Production readiness verdict: production has the same backend contract shape that the audit inspected. That is not a green light to ship fixes blindly: the verified production contract still contains the audit blockers, especially active-event enforcement gaps in `get_event_deck`, `handle_swipe`, and `find_mystery_match`.
+Historical production readiness verdict: production had the same backend contract shape that the audit inspected, including the blockers listed below. Those blockers are no longer current findings after the merged hardening streams; they are retained here only as the rationale for Streams 1-11.
 
 ## Verification Commands
 
@@ -149,9 +151,9 @@ Verified app call paths:
 
 Verdict: web and native use `swipe-actions`; `handle_swipe` remains the backend RPC called by the Edge Function.
 
-## Production Readiness Verdict
+## Historical Production Readiness Verdict
 
-Production/cloud truth is now verified for this stream:
+Production/cloud truth verified for this historical audit:
 
 - The linked Supabase project matches local config.
 - Remote migration history matches local history.
@@ -160,23 +162,25 @@ Production/cloud truth is now verified for this stream:
 - `swipe-actions`, `daily-room`, `send-notification`, and `admin-video-date-ops` source-match local deployed source.
 - Web and native call `swipe-actions`, not direct `handle_swipe`.
 
-Readiness verdict: production is aligned with the audited local backend contract, but the audited contract is not yet production-safe for the Event Lobby Deck fixes. Proceed to code fixes only after acknowledging the blockers below.
+Historical readiness verdict: production was aligned with the audited local backend contract, but the audited contract was not yet production-safe for Event Lobby Deck fixes. This was the input to the subsequent hardening streams, not the current state of `main`.
 
-## Exact Blockers Before Code Fixes
+## Historical Blockers Before Code Fixes
 
-1. Active-event enforcement gap is real in production.
+The following blockers were real at audit time and are retained as historical context. They were addressed by Streams 1-11 and should not be cited as current production defects without rerunning current validation.
+
+1. Active-event enforcement gap was real in production.
    - Remote `get_event_deck` has no live/unended marker.
    - Remote `find_mystery_match` has no live/unended marker.
    - Remote `handle_swipe` has cancelled/archived and session-ended markers, but no clear event-live marker.
    - `promote_ready_gate_if_eligible` does have live and ended-null markers, so queue promotion is stricter than deck/swipe/mystery entry.
 
-2. `swipe-actions` production source matches local source, so any swipe retry/idempotency or notification coupling risks from the audit are production-real, not local-only.
+2. `swipe-actions` production source matched local source, so any swipe retry/idempotency or notification coupling risks from the audit were production-real, not local-only.
 
 3. A full remote schema dump could not be produced in this environment because Docker is unavailable.
    - This is not blocking the contract conclusion above because targeted remote SQL verified the required functions/tables/indexes.
    - If a full byte-for-byte schema artifact is required before release, run the manual command below on a machine with Docker running.
 
-4. The untracked audit source doc `docs/audits/event-lobby-deck-deep-dive.md` exists locally and was not modified by this stream.
+4. The scratch deep-dive audit source was intentionally left untracked during the audit and has since been removed from the working tree to avoid preserving stale pre-hardening claims as current documentation.
 
 ## Manual Verification Commands If Needed
 
