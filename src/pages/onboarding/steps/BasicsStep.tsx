@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HeightSelector } from "@/components/HeightSelector";
 
+const COMMON_HEIGHTS_CM = [160, 170, 180, 190] as const;
+
 interface BasicsStepProps {
   heightCm: number | null;
   job: string;
@@ -17,6 +19,8 @@ export const BasicsStep = ({
   onJobChange,
   onNext,
 }: BasicsStepProps) => {
+  const hasHeight = heightCm != null;
+
   return (
     <div className="flex flex-col gap-6 pt-12">
       <div>
@@ -31,17 +35,38 @@ export const BasicsStep = ({
       <div className="space-y-6">
         <div>
           <label className="text-sm font-medium text-foreground mb-3 block">Height</label>
-          <HeightSelector
-            value={heightCm ?? 170}
-            onChange={(v) => onHeightChange(v)}
-          />
-          {heightCm && (
-            <button
-              onClick={() => onHeightChange(null)}
-              className="text-xs text-muted-foreground hover:text-foreground mt-2 transition-colors"
-            >
-              Clear height
-            </button>
+          {!hasHeight ? (
+            <div className="space-y-4 rounded-xl border border-border bg-secondary/30 px-4 py-5">
+              <p className="text-center text-sm text-muted-foreground">
+                No height on your profile yet. Pick a common height, or continue without one.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {COMMON_HEIGHTS_CM.map((height) => (
+                  <button
+                    key={height}
+                    type="button"
+                    onClick={() => onHeightChange(height)}
+                    className="rounded-lg bg-secondary px-3 py-1.5 text-sm text-muted-foreground transition-all hover:text-foreground"
+                  >
+                    {height} cm
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <HeightSelector
+                value={heightCm}
+                onChange={(v) => onHeightChange(v)}
+              />
+              <button
+                type="button"
+                onClick={() => onHeightChange(null)}
+                className="text-xs text-muted-foreground hover:text-foreground mt-2 transition-colors"
+              >
+                Clear height
+              </button>
+            </>
           )}
         </div>
 
