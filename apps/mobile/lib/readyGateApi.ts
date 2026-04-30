@@ -29,10 +29,24 @@ type ReadyGateSessionTruth = {
   ready_gate_expires_at?: string | null;
   snoozed_by?: string | null;
   snooze_expires_at?: string | null;
+  reason?: string | null;
+  inactive_reason?: string | null;
+  error_code?: string | null;
+  code?: string | null;
+  terminal?: boolean | null;
 };
 
 export type ReadyGateSyncResult =
-  | { ok: true; status: string; isTerminal: boolean; expiresAt: string | null }
+  | {
+      ok: true;
+      status: string;
+      isTerminal: boolean;
+      expiresAt: string | null;
+      reason?: string | null;
+      inactiveReason?: string | null;
+      errorCode?: string | null;
+      terminal?: boolean | null;
+    }
   | { ok: false; error: string };
 
 export type UseReadyGateOptions = {
@@ -132,6 +146,10 @@ export function useReadyGate(
       status,
       isTerminal: status === BOTH_READY || status === FORFEITED || status === EXPIRED,
       expiresAt,
+      reason: truth.reason ?? null,
+      inactiveReason: truth.inactive_reason ?? null,
+      errorCode: truth.error_code ?? truth.code ?? null,
+      terminal: truth.terminal ?? null,
     };
   }, [notifyTerminal, userId]);
 

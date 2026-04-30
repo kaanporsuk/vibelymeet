@@ -10,6 +10,7 @@ export type DailyRoomAction = (typeof DAILY_ROOM_ACTIONS)[keyof typeof DAILY_ROO
 
 export type DailyRoomFailureKind =
   | "READY_GATE_NOT_READY"
+  | "EVENT_NOT_ACTIVE"
   | "BLOCKED_PAIR"
   | "ACCESS_DENIED"
   | "SESSION_ENDED"
@@ -51,6 +52,7 @@ type DailyRoomFailureInput = {
 
 type DailyRoomFailureBody = {
   code?: unknown;
+  error_code?: unknown;
   error?: unknown;
   message?: unknown;
 };
@@ -64,7 +66,7 @@ function toServerCode(code: unknown): string | undefined {
 function readFailureBodyCode(data: unknown): string | undefined {
   if (data === null || typeof data !== "object") return undefined;
   const body = data as DailyRoomFailureBody;
-  return toServerCode(body.code) ?? toServerCode(body.error) ?? toServerCode(body.message);
+  return toServerCode(body.error_code) ?? toServerCode(body.code) ?? toServerCode(body.error) ?? toServerCode(body.message);
 }
 
 async function readFailureContext(
@@ -111,6 +113,7 @@ export function classifyDailyRoomFailureKind(input: {
 
   if (timedOut || networkError) return "network";
   if (code === "UNAUTHORIZED" || httpStatus === 401) return "auth";
+  if (code === "EVENT_NOT_ACTIVE" || code === "event_not_active") return "EVENT_NOT_ACTIVE";
   if (code === "READY_GATE_NOT_READY") return "READY_GATE_NOT_READY";
   if (code === "BLOCKED_PAIR" || code === "blocked_pair") return "BLOCKED_PAIR";
   if (code === "ACCESS_DENIED" || httpStatus === 403) return "ACCESS_DENIED";
@@ -160,6 +163,7 @@ export function classifyDailyRoomTokenFailureClass(
     case "REGISTRATION_PERSIST_FAILED":
       return "network";
     case "SESSION_ENDED":
+    case "EVENT_NOT_ACTIVE":
       return "session_ended";
     case "SESSION_NOT_FOUND":
     case "ROOM_NOT_FOUND":

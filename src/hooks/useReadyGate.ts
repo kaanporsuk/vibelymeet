@@ -48,10 +48,24 @@ type ReadyGateSessionTruth = {
   ready_gate_expires_at?: string | null;
   snoozed_by?: string | null;
   snooze_expires_at?: string | null;
+  reason?: string | null;
+  inactive_reason?: string | null;
+  error_code?: string | null;
+  code?: string | null;
+  terminal?: boolean | null;
 };
 
 type ReadyGateSyncResult =
-  | { ok: true; status: ReadyGateStatus; isTerminal: boolean; expiresAt: string | null }
+  | {
+      ok: true;
+      status: ReadyGateStatus;
+      isTerminal: boolean;
+      expiresAt: string | null;
+      reason?: string | null;
+      inactiveReason?: string | null;
+      errorCode?: string | null;
+      terminal?: boolean | null;
+    }
   | { ok: false; error: string };
 
 const READY_GATE_STATUS_VALUES = Object.values(ReadyGateStatus) as ReadyGateStatus[];
@@ -168,6 +182,10 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       status: nextStatus,
       isTerminal: isTerminalReadyGateStatus(nextStatus),
       expiresAt,
+      reason: truth.reason ?? null,
+      inactiveReason: truth.inactive_reason ?? null,
+      errorCode: truth.error_code ?? truth.code ?? null,
+      terminal: truth.terminal ?? null,
     };
   }, [notifyTerminal, user?.id]);
 

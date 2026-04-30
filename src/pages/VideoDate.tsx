@@ -104,6 +104,9 @@ function messageForHandshakeFailure(code?: string): string {
   if (code === "SESSION_ENDED") {
     return "This date has already ended.";
   }
+  if (code === "EVENT_NOT_ACTIVE") {
+    return "This date link is no longer available.";
+  }
   if (code === "DAILY_AUTH_FAILED" || code === "DAILY_CREDENTIALS_INVALID") {
     return "Video provider authentication failed. Please try again later.";
   }

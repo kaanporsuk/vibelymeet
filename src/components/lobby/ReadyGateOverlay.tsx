@@ -77,6 +77,8 @@ function prepareEntryFailureMessage(code?: string): string {
       return "This call is no longer available.";
     case "SESSION_ENDED":
       return "This date has already ended.";
+    case "EVENT_NOT_ACTIVE":
+      return "This Ready Gate is no longer available.";
     case "DAILY_AUTH_FAILED":
     case "DAILY_CREDENTIALS_INVALID":
       return "Video provider authentication failed. Please try again later.";

@@ -194,6 +194,8 @@ function userMessageForTokenFailure(code: RoomTokenFailureCode): string {
       return 'Almost there — finish the Ready Gate with your match first.';
     case 'SESSION_ENDED':
       return 'This date has already ended.';
+    case 'EVENT_NOT_ACTIVE':
+      return 'This date link is no longer available.';
     case 'SESSION_NOT_FOUND':
     case 'ROOM_NOT_FOUND':
       return "We couldn't open this date. Go back and try again.";
@@ -221,6 +223,9 @@ function userMessageForHandshakeFailure(code?: string): string {
   }
   if (code === 'SESSION_ENDED') {
     return 'This date has already ended.';
+  }
+  if (code === 'EVENT_NOT_ACTIVE') {
+    return 'This date link is no longer available.';
   }
   return 'Could not start video. Please try again.';
 }

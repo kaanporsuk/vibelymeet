@@ -55,6 +55,29 @@ test("classifies provider rejected Daily requests as non-retryable", async () =>
   assert.equal(failure.retryable, false);
 });
 
+test("classifies event-inactive prepare-entry blockers as non-retryable stale handoff truth", async () => {
+  const failure = await classifyDailyRoomInvokeFailure({
+    action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
+    data: {
+      code: "READY_GATE_NOT_READY",
+      error_code: "EVENT_NOT_ACTIVE",
+      reason: "event_not_active",
+      inactive_reason: "event_ended",
+    },
+    response: new Response(JSON.stringify({
+      code: "READY_GATE_NOT_READY",
+      error_code: "EVENT_NOT_ACTIVE",
+      reason: "event_not_active",
+      inactive_reason: "event_ended",
+    }), { status: 403 }),
+  });
+
+  assert.equal(failure.kind, "EVENT_NOT_ACTIVE");
+  assert.equal(failure.serverCode, "EVENT_NOT_ACTIVE");
+  assert.equal(failure.retryable, false);
+  assert.equal(isRetryableDailyRoomFailure("EVENT_NOT_ACTIVE"), false);
+});
+
 test("classifies provider-atomic persistence failures as retryable", async () => {
   const roomPersist = await classifyDailyRoomInvokeFailure({
     action: DAILY_ROOM_ACTIONS.PREPARE_ENTRY,
@@ -77,6 +100,7 @@ test("maps token failure kinds into shared analytics classes", () => {
   assert.equal(classifyDailyRoomTokenFailureClass("DAILY_AUTH_FAILED"), "auth_expired");
   assert.equal(classifyDailyRoomTokenFailureClass("network"), "network");
   assert.equal(classifyDailyRoomTokenFailureClass("SESSION_ENDED"), "session_ended");
+  assert.equal(classifyDailyRoomTokenFailureClass("EVENT_NOT_ACTIVE"), "session_ended");
   assert.equal(classifyDailyRoomTokenFailureClass("ROOM_NOT_FOUND"), "room_missing");
   assert.equal(classifyDailyRoomTokenFailureClass("DAILY_REQUEST_REJECTED"), "unknown");
 });

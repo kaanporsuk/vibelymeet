@@ -16,6 +16,7 @@ test("video date entry handoff policy centralizes retry timing", () => {
 
 test("video date entry handoff retries only transient prepare failures", () => {
   assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "READY_GATE_NOT_READY" }), true);
+  assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "EVENT_NOT_ACTIVE" }), false);
   assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "DAILY_PROVIDER_UNAVAILABLE" }), true);
   assert.equal(shouldRetryVideoDateEntryHandoffFailure({ code: "ACCESS_DENIED", retryable: false }), false);
   assert.equal(shouldRetryVideoDateEntryHandoffFailure({ httpStatus: 502 }), true);

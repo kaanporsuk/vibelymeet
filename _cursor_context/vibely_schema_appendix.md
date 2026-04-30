@@ -108,6 +108,8 @@ Migration `20260404195500_phase2_queue_ttl_ready_gate_sync_daily_gate.sql` intro
 Edge function gate tightening:
 - `supabase/functions/daily-room/index.ts` now issues Daily room tokens only when session is active (`handshake`/`date`/rejoin) or when `ready_gate_status = 'both_ready'` and `ready_gate_expires_at` is still valid.
 
+2026-04-30 contract freeze: Streams 1-3 hardened active-event enforcement, Ready Gate expiry/rowcount truth, event-ended terminalization, and stale prepare-entry blocking. Treat `docs/ready-gate-backend-contract.md` as the canonical web/native Ready Gate contract; this appendix is historical schema context only.
+
 ### Phase 3 events hardening delta (2026-04-04)
 
 Migration `20260412143000_phase3_legacy_queue_contract_cleanup.sql` consolidates queue-era compatibility surfaces and active contracts:
