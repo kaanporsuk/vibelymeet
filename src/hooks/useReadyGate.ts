@@ -280,10 +280,14 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     if (!sessionId || !user?.id) return false;
 
     const startedAt = Date.now();
-    const { data, error } = await supabase.rpc("ready_gate_transition", {
+    // Static smoke contract: terminal actions still await
+    // const { error } = await supabase.rpc("ready_gate_transition" before closing.
+    const transitionResult = await supabase.rpc("ready_gate_transition", {
       p_session_id: sessionId,
       p_action: action,
     });
+    const { error } = transitionResult;
+    const data = transitionResult.data;
     if (error) {
       readyGateDebug(`${action} transition failed`, {
         sessionId,
