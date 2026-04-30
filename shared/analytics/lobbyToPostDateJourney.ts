@@ -36,6 +36,12 @@ export const LobbyPostDateEvents = {
   READY_GATE_TERMINAL_ACTION_SUCCESS: 'ready_gate_terminal_action_success',
   READY_GATE_TERMINAL_ACTION_FAILURE: 'ready_gate_terminal_action_failure',
   READY_GATE_REALTIME_DEGRADED: 'ready_gate_realtime_degraded',
+  READY_GATE_CLIENT_TRANSITION_FAILURE: 'ready_gate_client_transition_failure',
+  READY_GATE_CLIENT_TERMINAL: 'ready_gate_client_terminal',
+  READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE: 'ready_gate_client_prepare_entry_failure',
+  READY_GATE_CLIENT_PREPARE_ENTRY_EVENT_INACTIVE: 'ready_gate_client_prepare_entry_event_inactive',
+  READY_GATE_CLIENT_DUPLICATE_NAV_SUPPRESSED: 'ready_gate_client_duplicate_nav_suppressed',
+  READY_GATE_CLIENT_DUPLICATE_TERMINAL_SUPPRESSED: 'ready_gate_client_duplicate_terminal_suppressed',
   VIDEO_DATE_BOTH_READY: 'video_date_both_ready',
 
   // --- Ready Gate → date join latency envelope ---
