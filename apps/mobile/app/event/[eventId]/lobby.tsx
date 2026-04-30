@@ -58,6 +58,7 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
+import { getMatchQueueDrainReasonCopy } from '@clientShared/matching/matchQueueDrainReasonCopy';
 import {
   getPostDateLobbyContinuityDecision,
   secondsUntilPostDateEventEnd,
@@ -262,6 +263,9 @@ export default function EventLobbyScreen() {
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
   /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
+  /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
+  const drainReasonNotifiedKeysRef = useRef<Set<string>>(new Set());
+  const isActiveLobbyContextRef = useRef(false);
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
@@ -588,8 +592,27 @@ export default function EventLobbyScreen() {
   }, []);
 
   useEffect(() => {
+    isActiveLobbyContextRef.current = isLobbyFocused && appState === 'active';
+  }, [appState, isLobbyFocused]);
+
+  useEffect(() => {
     queuedTtlExpiryNotifiedIdsRef.current.clear();
+    drainReasonNotifiedKeysRef.current.clear();
   }, [id, user?.id]);
+
+  const showDrainReasonInfoOnce = useCallback(
+    (payload: unknown) => {
+      if (!id || !user?.id) return;
+      if (!isActiveLobbyContextRef.current) return;
+      const copy = getMatchQueueDrainReasonCopy(payload);
+      if (!copy) return;
+      const key = `${user.id}:${id}:${copy.reason}`;
+      if (drainReasonNotifiedKeysRef.current.has(key)) return;
+      drainReasonNotifiedKeysRef.current.add(key);
+      setReadyGateLobbyToast({ text: copy.message, variant: 'info' });
+    },
+    [id, user?.id]
+  );
 
   useEffect(() => {
     if (!id || !user?.id) return;
@@ -775,6 +798,9 @@ export default function EventLobbyScreen() {
       const promotedSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && promotedSessionId) {
         await openReadyGateWithSession(promotedSessionId, 'queue_drain_interval');
+      } else {
+        if (cancelled) return;
+        showDrainReasonInfoOnce(result);
       }
       await refreshQueueAndSuperVibe();
       if (cancelled) return;
@@ -801,20 +827,28 @@ export default function EventLobbyScreen() {
     sameEventActiveSession?.kind,
     openReadyGateWithSession,
     refreshQueueAndSuperVibe,
+    showDrainReasonInfoOnce,
   ]);
 
   useEffect(() => {
     if (!id || !user?.id) return;
+    let cancelled = false;
     const run = async () => {
       const result = await drainMatchQueue(id, user.id);
       const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && sessionId) {
         await openReadyGateWithSession(sessionId, 'queue_drain_initial');
+      } else {
+        if (cancelled) return;
+        showDrainReasonInfoOnce(result);
       }
       await refreshQueueAndSuperVibe();
     };
     run();
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, showDrainReasonInfoOnce]);
 
   useEffect(() => {
     if (!id) return;
@@ -952,6 +986,8 @@ export default function EventLobbyScreen() {
             const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);
             if (drainResult?.found && promotedId) {
               await openReadyGateWithSession(promotedId, 'video_session_insert_queue_drain');
+            } else {
+              showDrainReasonInfoOnce(drainResult);
             }
             await refreshQueueAndSuperVibe();
             return;
@@ -969,7 +1005,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck, show, navigateToDateSession]);
+  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck, show, showDrainReasonInfoOnce, navigateToDateSession]);
 
   const timeRemaining = useCountdown(eventEndTime);
 

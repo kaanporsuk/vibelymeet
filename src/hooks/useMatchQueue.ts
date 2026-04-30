@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useState, useRef } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import {
@@ -6,6 +7,7 @@ import {
   isVideoSessionQueuedTtlExpiryTransition,
   videoSessionIdFromDrainPayload,
 } from "@shared/matching/videoSessionFlow";
+import { getMatchQueueDrainReasonCopy } from "@clientShared/matching/matchQueueDrainReasonCopy";
 import { isMatchQueueDrainEligible } from "@clientShared/matching/matchQueueDrainEligibility";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
@@ -40,6 +42,8 @@ export const useMatchQueue = ({
   const readyNotifiedIdsRef = useRef(new Set<string>());
   /** Dedupe TTL-expiry toasts per `video_sessions.id` for this hook instance. */
   const queuedExpiryNotifiedIdsRef = useRef(new Set<string>());
+  /** Dedupe informational drain-reason toasts per user/event/reason for this hook instance. */
+  const drainReasonNotifiedKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
     onReadyRef.current = onVideoSessionReady;
@@ -52,6 +56,7 @@ export const useMatchQueue = ({
   useEffect(() => {
     readyNotifiedIdsRef.current.clear();
     queuedExpiryNotifiedIdsRef.current.clear();
+    drainReasonNotifiedKeysRef.current.clear();
   }, [eventId, user?.id]);
 
   const notifyReadyOnce = useCallback((videoSessionId: string, partnerId: string) => {
@@ -113,6 +118,15 @@ export const useMatchQueue = ({
             platform: "web",
             event_id: eventId,
           });
+        }
+
+        const copy = result?.found ? null : getMatchQueueDrainReasonCopy(reason);
+        if (copy) {
+          const key = `${user.id}:${eventId}:${copy.reason}`;
+          if (!drainReasonNotifiedKeysRef.current.has(key)) {
+            drainReasonNotifiedKeysRef.current.add(key);
+            toast.info(copy.message, { duration: 3800 });
+          }
         }
       } catch (err) {
         console.error("Error draining queue:", err);
