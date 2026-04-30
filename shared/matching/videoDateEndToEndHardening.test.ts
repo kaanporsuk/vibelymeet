@@ -118,6 +118,10 @@ const clientStuckObservabilityMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501151000_video_date_client_stuck_observability.sql"),
   "utf8",
 );
+const handshakeJoinStartMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -476,7 +480,12 @@ test("swipe recovery migration preserves conflict, immediate, queued, and pass o
 
 test("migration extends both_ready join window without reopening expired gates", () => {
   assert.match(migration, /v_new_status := 'both_ready'/);
-  assert.match(migration, /v_now \+ interval '15 seconds'/);
+  assert.match(handshakeJoinStartMigration, /v_now \+ interval '45 seconds'/);
+  assert.match(handshakeJoinStartMigration, /both_ready_provider_prepare_grace_extended/);
+  assert.match(
+    handshakeJoinStartMigration,
+    /v_session\.ready_gate_status = 'both_ready'[\s\S]*v_session\.ready_gate_expires_at IS NOT NULL[\s\S]*v_session\.ready_gate_expires_at > v_now/s,
+  );
   assert.match(migration, /PERFORM public\.expire_stale_video_sessions\(\)/);
 });
 
@@ -609,6 +618,14 @@ test("daily-room prepare_date_entry preserves auth, participant, and delete-room
   assert.match(dailyRoomFunction, /if \(action === "delete_room"\)/);
   assert.match(dailyRoomFunction, /roomType === "video_date"[\s\S]*classifyDeleteRoomSafety/s);
   assert.match(dailyRoomContracts, /VIDEO_DATE_CLEANUP_OWNED_BY_CRON/);
+});
+
+test("daily-room makes DAILY_DOMAIN fallback visible without logging secrets", () => {
+  assert.match(dailyRoomFunction, /const DAILY_DOMAIN_FALLBACK = "vibelyapp\.daily\.co"/);
+  assert.match(dailyRoomFunction, /DAILY_DOMAIN_ENV \|\| DAILY_DOMAIN_FALLBACK/);
+  assert.match(dailyRoomFunction, /event: "daily_domain_env_missing"/);
+  assert.match(dailyRoomFunction, /code: "DAILY_DOMAIN_FALLBACK_USED"/);
+  assert.doesNotMatch(dailyRoomFunction, /DAILY_API_KEY[\s\S]{0,200}daily_domain_env_missing/);
 });
 
 test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
@@ -1085,6 +1102,41 @@ test("confirm_video_date_entry_prepared is service-role-only and atomically pers
   assert.match(providerAtomicEntryMigration, /'entry_attempt_id', p_entry_attempt_id/);
 });
 
+test("latest handshake migration starts the visible timer only after both Daily joins", () => {
+  assert.match(handshakeJoinStartMigration, /CREATE OR REPLACE FUNCTION public\.confirm_video_date_entry_prepared\(/);
+  assert.match(handshakeJoinStartMigration, /'handshake_timer', 'deferred_until_both_daily_joined'/);
+
+  const confirmStart = handshakeJoinStartMigration.indexOf(
+    "CREATE OR REPLACE FUNCTION public.confirm_video_date_entry_prepared",
+  );
+  const markJoinedStart = handshakeJoinStartMigration.indexOf(
+    "CREATE OR REPLACE FUNCTION public.mark_video_date_daily_joined",
+  );
+  const confirmBody = handshakeJoinStartMigration.slice(confirmStart, markJoinedStart);
+  assert.ok(confirmStart >= 0);
+  assert.ok(markJoinedStart > confirmStart);
+  assert.doesNotMatch(confirmBody, /handshake_started_at\s*=\s*COALESCE\(handshake_started_at,\s*v_now\)/);
+  assert.doesNotMatch(confirmBody, /handshake_started_at\s*=\s*v_now/);
+
+  const markJoinedBody = handshakeJoinStartMigration.slice(markJoinedStart);
+  assert.match(
+    markJoinedBody,
+    /participant_1_joined_at IS NOT NULL[\s\S]*participant_2_joined_at IS NOT NULL[\s\S]*handshake_started_at = v_now/s,
+  );
+  assert.match(markJoinedBody, /'handshake_started_after_both_daily_joined'/);
+  assert.match(markJoinedBody, /'handshake_started', v_started_handshake/);
+  assert.match(markJoinedBody, /'handshake_started_at', v_row\.handshake_started_at/);
+});
+
+test("prepared-but-never-joined video dates are repaired without starting the handshake timer", () => {
+  assert.match(
+    handshakeJoinStartMigration,
+    /state = 'handshake'::public\.video_date_state[\s\S]*handshake_started_at IS NULL[\s\S]*daily_room_name IS NOT NULL[\s\S]*daily_room_url IS NOT NULL[\s\S]*participant_1_joined_at IS NULL[\s\S]*participant_2_joined_at IS NULL/s,
+  );
+  assert.match(handshakeJoinStartMigration, /ended_reason = 'prepare_entry_daily_join_missing'/);
+  assert.match(handshakeJoinStartMigration, /'handshake_timer', 'never_started'/);
+});
+
 test("daily-room hard-fails room and registration persistence before returning tokens", () => {
   assert.match(dailyRoomFunction, /persistVideoDateRoomMetadata\(params\.serviceClient/);
   assert.match(dailyRoomFunction, /code: "DB_ROOM_PERSIST_FAILED"/);
@@ -1206,7 +1258,7 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(webVideoCallHook, /CAMERA_PERMISSION_DENIED/);
   assert.match(webVideoCallHook, /VIDEO_DATE_REMOTE_PLAYBACK_REQUIRES_GESTURE/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
-  assert.match(webVideoCallHook, /We're reconnecting your date state/);
+  assert.match(webVideoCallHook, /Keeping your date state in sync/);
   assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_RETRY_DELAYS_MS = \[1_500, 3_000, 5_000\]/);
   assert.match(sharedDailyJoinedConfirmation, /function markDailyJoinedWithBackoff/);
   assert.match(sharedDailyJoinedConfirmation, /DAILY_JOINED_CONFIRMATION_TERMINAL_ERROR_CODES/);
@@ -1217,7 +1269,7 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_GRACE_STARTED/);
   assert.match(nativeVideoDateRoute, /VIDEO_DATE_NATIVE_BACKGROUND_LEAVE_SIGNAL_FAILED/);
   assert.match(nativeVideoDateRoute, /app_background_timeout/);
-  assert.match(nativeVideoDateRoute, /We're reconnecting your date state/);
+  assert.match(nativeVideoDateRoute, /Keeping your date state in sync/);
   assert.match(nativeVideoDateRoute, /markDailyJoinedWithBackoff\(/);
   assert.match(nativeVideoDateRoute, /supabase\.rpc\('mark_video_date_daily_joined'/);
   assert.match(nativeVideoDateRoute, /mark_video_date_daily_joined_retry_after_failure/);
@@ -1259,8 +1311,8 @@ test("web reconnect grace surfaces partner-left UX immediately", () => {
   assert.match(webVideoCallHook, /VIDEO_DATE_RECONNECT_GRACE_RECOVERED/);
   assert.match(webVideoCallHook, /VIDEO_DATE_RECONNECT_GRACE_EXPIRED/);
   assert.match(webVideoDatePage, /dailyReconnectState === "partner_left_grace"\s+\? "partner_away"/);
-  assert.match(webReconnectionOverlay, /Trying to reconnect/);
-  assert.match(webReconnectionOverlay, /Your match disconnected\. We'll keep the room open for a few seconds\./);
+  assert.match(webReconnectionOverlay, /Keeping the room open/);
+  assert.match(webReconnectionOverlay, /Your match may be stepping back in\. We'll hold the room for a few seconds\./);
   assert.match(webReconnectionHook, /VIDEO_DATE_RECONNECT_GRACE_STARTED/);
   assert.match(webReconnectionHook, /VIDEO_DATE_RECONNECT_GRACE_RECOVERED/);
   assert.match(webReconnectionHook, /VIDEO_DATE_RECONNECT_GRACE_EXPIRED/);
@@ -1430,8 +1482,8 @@ test("peer-missing user exit preserves the canonical partial-join terminal reaso
 
 test("web and native expose clear peer-missing choices instead of toast-only timeout copy", () => {
   assert.match(webVideoCallHook, /setPeerMissing\(\{ terminal: true \}\)/);
-  assert.match(webConnectionOverlay, /They didn't make it in time\./);
-  assert.match(webConnectionOverlay, /We couldn't connect them in time/);
+  assert.match(webConnectionOverlay, /They may need a little more time\./);
+  assert.match(webConnectionOverlay, /keep waiting a little longer/);
   assert.match(webConnectionOverlay, /Keep waiting/);
   assert.match(webConnectionOverlay, /Try reconnecting/);
   assert.match(webVideoCallHook, /noRemoteAutoRecoveryCountRef\.current < 2/);
@@ -1443,8 +1495,8 @@ test("web and native expose clear peer-missing choices instead of toast-only tim
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_NO_REMOTE_USER_EXIT/);
-  assert.match(nativeVideoDateRoute, /They didn't make it in time\./);
-  assert.match(nativeVideoDateRoute, /We couldn't connect them in time/);
+  assert.match(nativeVideoDateRoute, /They may need a little more time\./);
+  assert.match(nativeVideoDateRoute, /keep waiting a little longer/);
   assert.match(nativeVideoDateRoute, /Try reconnecting/);
   assert.match(nativeVideoDateRoute, /Keep waiting/);
   assert.match(nativeVideoDateRoute, /Back to lobby/);
@@ -1469,10 +1521,10 @@ test("web video date access recovery covers permission denial and playback-block
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RETRY/);
   assert.match(webSelfViewPip, /VIDEO_DATE_PLAYBACK_RECOVERED/);
   assert.match(webSelfViewPip, /Tap to resume video/);
-  assert.match(webVideoDatePage, /Camera and microphone access are needed for your video date/);
+  assert.match(webVideoDatePage, /Allow access so your date can begin softly with audio and video/);
   assert.match(webVideoDatePage, /VIDEO_DATE_MEDIA_PERMISSION_RETRY/);
   assert.match(webVideoDatePage, /clearMediaPermissionError\(\)/);
-  assert.match(webConnectionOverlay, /Tap to resume video\/audio/);
+  assert.match(webConnectionOverlay, /Resume audio\/video/);
   assert.match(webConnectionOverlay, /browser paused the video or audio/);
 });
 

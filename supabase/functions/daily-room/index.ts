@@ -21,7 +21,16 @@ const corsHeaders = {
 };
 
 const DAILY_API_KEY = Deno.env.get("DAILY_API_KEY")!;
-const DAILY_DOMAIN = Deno.env.get("DAILY_DOMAIN") || "vibelyapp.daily.co";
+const DAILY_DOMAIN_FALLBACK = "vibelyapp.daily.co";
+const DAILY_DOMAIN_ENV = Deno.env.get("DAILY_DOMAIN")?.trim();
+const DAILY_DOMAIN = DAILY_DOMAIN_ENV || DAILY_DOMAIN_FALLBACK;
+if (!DAILY_DOMAIN_ENV) {
+  console.error(JSON.stringify({
+    event: "daily_domain_env_missing",
+    code: "DAILY_DOMAIN_FALLBACK_USED",
+    daily_domain: DAILY_DOMAIN,
+  }));
+}
 const DAILY_API_URL = "https://api.daily.co/v1";
 const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 7_200;
 const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 7_200;

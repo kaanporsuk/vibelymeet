@@ -23,8 +23,8 @@ export function ReconnectionOverlay({ isVisible, partnerName, graceTimeLeft }: P
   return (
     <View style={styles.overlay}>
       <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.title, { color: theme.text }]}>Reconnecting with {partnerName}...</Text>
-        <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>Hang tight — they might be back! ⏳</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Keeping the room open for {partnerName}</Text>
+        <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>They may be stepping back in. We'll hold this gently.</Text>
         <View style={styles.countdown}>
           <Text style={[styles.countdownNum, { color: theme.text }]}>{graceTimeLeft}s</Text>
         </View>

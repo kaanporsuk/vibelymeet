@@ -162,7 +162,7 @@ export function useVideoDateSession(
 
   type PhaseResolution = {
     phase: 'handshake' | 'date' | 'ended';
-    timeLeft: number;
+    timeLeft: number | null;
   };
 
   const resolvePhaseAndTime = useCallback(
@@ -208,11 +208,11 @@ export function useVideoDateSession(
           const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
           return { phase: 'handshake', timeLeft: Math.max(0, Math.ceil(HANDSHAKE_SECONDS - elapsed)) };
         }
-        return { phase: 'handshake', timeLeft: HANDSHAKE_SECONDS };
+        return { phase: 'handshake', timeLeft: null };
       }
 
       // Ready/prejoin fallback.
-      return { phase: 'handshake', timeLeft: HANDSHAKE_SECONDS };
+      return { phase: 'handshake', timeLeft: null };
     },
     []
   );

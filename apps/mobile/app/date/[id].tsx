@@ -1677,12 +1677,12 @@ export default function VideoDateScreen() {
       });
       setIsConnecting(false);
       vdbg('prejoin_state_callError', {
-        value: "They didn't make it in time.",
+        value: 'They may need a little more time.',
         sessionId,
         userId: user?.id ?? null,
         step: 'peer_missing_timeout',
       });
-      setCallError("They didn't make it in time.");
+      setCallError('They may need a little more time.');
     }, FIRST_CONNECT_TIMEOUT_MS);
 
     return () => clearFirstConnectWatchdog();
@@ -3085,12 +3085,12 @@ export default function VideoDateScreen() {
         });
         if (!ok && !cancelled) {
           vdbg('prejoin_state_callError', {
-            value: 'Camera and microphone access are required for video dates.',
+            value: 'Camera and microphone access are needed to begin gently.',
             sessionId,
             userId: user.id,
             step: currentStep,
           });
-          setCallError('Camera and microphone access are required for video dates.');
+          setCallError('Camera and microphone access are needed to begin gently.');
         }
         hasStartedJoinRef.current = false;
         vdbg('prejoin_state_hasStartedJoinRef', { value: false, sessionId, userId: user.id, step: currentStep });
@@ -4137,7 +4137,7 @@ export default function VideoDateScreen() {
           },
           onAttemptResult: ({ attempt, ok, code, retryable, willRetry }) => {
             if (!ok && attempt === 1) {
-              setCallError("We're reconnecting your date state...");
+              setCallError("Keeping your date state in sync...");
               trackEvent(LobbyPostDateEvents.MARK_VIDEO_DATE_DAILY_JOINED_FAILED, {
                 platform: 'native',
                 session_id: sessionId,
@@ -4703,10 +4703,10 @@ export default function VideoDateScreen() {
           clearHandshakeGraceState();
           if (result.reason === 'handshake_grace_expired') {
             const message = result.waiting_for_self
-              ? "You didn't choose Vibe or Pass in time."
+              ? "Your warm-up choice wasn't saved in time."
               : result.waiting_for_partner
-                ? "Your match didn't choose in time."
-                : 'The handshake timed out before both choices were saved.';
+                ? "Their warm-up choice wasn't saved in time."
+                : 'The warm-up ended before both choices were saved.';
             setCallError(message);
             vdbg('complete_handshake_timeout_copy', {
               sessionId,
@@ -4905,6 +4905,8 @@ export default function VideoDateScreen() {
       ? HANDSHAKE_SECONDS
       : effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds);
   const displayTimeLeft = localTimeLeft ?? totalTime;
+  const handshakeTimerStarted =
+    phase !== 'handshake' || Boolean(session?.handshake_started_at) || handshakeGraceSecondsRemaining !== null;
 
   /** Local user is in Daily but server has no join stamp for the peer yet — distinct from reconnect / ambiguous absence. */
   const peerNotOpenedVideoDateYet = useMemo(
@@ -5013,6 +5015,7 @@ export default function VideoDateScreen() {
   // Show the Vibe/Pass CTA during normal handshake AND during grace when the local user still needs to decide.
   const showHandshakeChrome =
     phase === 'handshake' &&
+    handshakeTimerStarted &&
     hasRemotePartner &&
     !peerMissingTerminal &&
     (handshakeGraceSecondsRemaining === null || handshakeGraceWaitingForSelf);
@@ -5344,10 +5347,10 @@ export default function VideoDateScreen() {
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>
-                They didn't make it in time.
+                They may need a little more time.
               </Text>
               <Text style={[styles.initialTimeoutSub, { color: theme.mutedForeground }]}>
-                We couldn't connect them in time. You can try reconnecting, keep waiting, or head back to the lobby.
+                You can try reconnecting, keep waiting a little longer, or head back to the lobby.
               </Text>
               <View style={styles.initialTimeoutActions}>
                 <Pressable
@@ -5416,10 +5419,10 @@ export default function VideoDateScreen() {
             <View style={styles.waitingTimerPill}>
               <Text style={[styles.waitingTimerText, { color: theme.text }]}>
                 {joining || isConnecting
-                  ? 'Connecting...'
+                  ? 'Opening the room...'
                   : peerNotOpenedVideoDateYet
-                    ? "They haven't opened the date yet"
-                    : 'Waiting for partner...'}
+                    ? "They're stepping into the room"
+                    : 'Holding the room softly...'}
               </Text>
             </View>
           </View>
@@ -5428,7 +5431,7 @@ export default function VideoDateScreen() {
             <View style={styles.waitingTimerPill}>
               <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
                 <Text style={[styles.waitingTimerText, { color: theme.text }]}>
-                  Last chance · {handshakeGraceSecondsRemaining}s — waiting for partner
+                  Gentle check-in · {handshakeGraceSecondsRemaining}s — waiting softly
                 </Text>
               </Animated.View>
             </View>
@@ -5438,7 +5441,7 @@ export default function VideoDateScreen() {
             <View style={[styles.waitingTimerPill, { backgroundColor: theme.tintSoft }]}>
               <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
                 <Text style={[styles.waitingTimerText, { color: theme.tint }]}>
-                  Last chance · {handshakeGraceSecondsRemaining}s — tap Pass or Vibe
+                  Gentle check-in · {handshakeGraceSecondsRemaining}s — choose when ready
                 </Text>
               </Animated.View>
             </View>
@@ -5452,12 +5455,16 @@ export default function VideoDateScreen() {
                   { color: netQualityTier === 'poor' ? theme.danger : '#f59e0b' },
                 ]}
               >
-                {netQualityTier === 'poor' ? 'Poor connection' : 'Fair connection'}
+                {netQualityTier === 'poor' ? 'Connection is fragile' : 'Connection is settling'}
               </Text>
             ) : null}
             <View style={[styles.phaseTimePill, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
               <Text style={[styles.phaseTimeText, { color: theme.text }]}>
-                {phase === 'handshake' ? 'Warm up' : 'Live'} · {formatVideoDateCountdown(Math.max(0, displayTimeLeft))}
+                {phase === 'handshake'
+                  ? handshakeTimerStarted
+                    ? `Warm up · ${formatVideoDateCountdown(Math.max(0, displayTimeLeft))}`
+                    : 'Settling in softly'
+                  : `Live · ${formatVideoDateCountdown(Math.max(0, displayTimeLeft))}`}
               </Text>
             </View>
           </View>

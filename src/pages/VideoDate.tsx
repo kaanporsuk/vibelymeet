@@ -496,7 +496,7 @@ const VideoDate = () => {
       reconnection.startGraceWindow();
     },
     onPartnerTransientDisconnect: () => {
-      toast("Connection interrupted - reconnecting...", { duration: 2500 });
+      toast("Connection softened. Reconnecting...", { duration: 2500 });
     },
     onPartnerTransientRecover: () => {
       toast("Connection restored", { duration: 1800 });
@@ -818,6 +818,8 @@ const VideoDate = () => {
   useEffect(() => {
     setDateExtraSeconds(0);
     setDateStartedAt(null);
+    setHandshakeStartedAt(null);
+    setTimeLeft(null);
   }, [id]);
 
   // Resolve a photo path to a displayable URL (sync via public URL)
@@ -2185,10 +2187,10 @@ const VideoDate = () => {
         });
         if (payload?.reason === "handshake_grace_expired") {
           const message = payload.waiting_for_self
-            ? "You didn't choose Vibe or Pass in time."
+            ? "Your warm-up choice wasn't saved in time."
             : payload.waiting_for_partner
-              ? "Your match didn't choose in time."
-              : "The handshake timed out before both choices were saved.";
+              ? "Their warm-up choice wasn't saved in time."
+              : "The warm-up ended before both choices were saved.";
           toast.error(message, { duration: 3000 });
         } else {
           toast("Great meeting you! 👋", { duration: 2500 });
@@ -2610,6 +2612,8 @@ const VideoDate = () => {
     ? (handshakeGraceSecondsRemaining ?? 0)
     : (timeLeft ?? 0);
   const handshakeTimerTotal = handshakeInGraceCountdown ? HANDSHAKE_LAST_CHANCE_GRACE_SECONDS : totalTime;
+  const handshakeTimerStarted =
+    phase !== "handshake" || Boolean(handshakeStartedAt) || handshakeInGraceCountdown;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
   const transportReconnectVisible =
     dailyReconnectState === "interrupted" ||
@@ -2686,10 +2690,9 @@ const VideoDate = () => {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center gap-4">
         <User className="w-14 h-14 text-muted-foreground" />
-        <h1 className="text-xl font-display font-semibold">Camera and microphone access are needed</h1>
+        <h1 className="text-xl font-display font-semibold">Camera and microphone are needed</h1>
         <p className="text-muted-foreground text-sm max-w-sm">
-          Camera and microphone access are needed for your video date. Please allow access in your browser settings,
-          then try again.
+          Allow access so your date can begin softly with audio and video. Then try again.
         </p>
         <p className="text-xs text-muted-foreground max-w-sm">
           In Chrome or Safari, use the camera icon in the address bar or your site settings to allow access for Vibely.
@@ -2880,14 +2883,14 @@ const VideoDate = () => {
                     transition={{ duration: 2, repeat: Infinity }}
                   />
                   <span className="text-[10px] text-green-500">
-                    {phase === "handshake" ? "Handshake" : "Live"}
+                    {phase === "handshake" ? (handshakeTimerStarted ? "Warm up" : "Settling in") : "Live"}
                   </span>
                 </div>
                 {networkTier !== "good" && (
                   <span
                     className={`text-[10px] ${networkTier === "poor" ? "text-destructive" : "text-amber-500"}`}
                   >
-                    {networkTier === "poor" ? "Poor connection" : "Fair connection"}
+                    {networkTier === "poor" ? "Connection is fragile" : "Connection is settling"}
                   </span>
                 )}
               </div>
@@ -2904,7 +2907,7 @@ const VideoDate = () => {
               className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30"
             >
               <span className="text-[10px] font-medium text-primary uppercase tracking-wider">
-                Handshake
+                {handshakeTimerStarted ? "Warm up" : "Settling in"}
               </span>
             </motion.div>
           )}
@@ -2919,11 +2922,21 @@ const VideoDate = () => {
               </span>
             </motion.div>
           )}
-          <HandshakeTimer
-            timeLeft={handshakeTimerDisplayLeft}
-            totalTime={handshakeTimerTotal}
-            phase={phase}
-          />
+          {handshakeTimerStarted ? (
+            <HandshakeTimer
+              timeLeft={handshakeTimerDisplayLeft}
+              totalTime={handshakeTimerTotal}
+              phase={phase}
+            />
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="px-3 py-2 rounded-full bg-background/50 border border-border/50"
+            >
+              <span className="text-[10px] text-muted-foreground">Waiting together</span>
+            </motion.div>
+          )}
           {isConnected && phase === "handshake" && handshakeGraceSecondsRemaining !== null && (
             <motion.div
               initial={{ opacity: 0, x: 10 }}
@@ -2936,8 +2949,8 @@ const VideoDate = () => {
                 transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
               >
                 {handshakeGraceWaitingForSelf
-                  ? `Last Chance · ${handshakeGraceSecondsRemaining}s — choose now`
-                  : `Last Chance · ${handshakeGraceSecondsRemaining}s — waiting for partner`}
+                  ? `Gentle check-in · ${handshakeGraceSecondsRemaining}s — choose when ready`
+                  : `Gentle check-in · ${handshakeGraceSecondsRemaining}s — waiting softly`}
               </motion.span>
             </motion.div>
           )}
@@ -3033,7 +3046,7 @@ const VideoDate = () => {
 
       {/* ─── Vibed ✓ Button (handshake only) ─── */}
       <AnimatePresence>
-        {isConnected && phase === "handshake" && !showFeedback && (
+        {isConnected && phase === "handshake" && handshakeTimerStarted && !showFeedback && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

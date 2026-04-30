@@ -1246,7 +1246,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             setIsConnected(true);
             setIsConnecting(false);
             setPeerMissing({ terminal: false });
-            toast.success("Connected! Your video date is live 🎉");
+            toast.success("You're both here. Starting gently.");
             optionsRef.current?.onPartnerJoined?.();
             attachTracks(event.participant, remoteVideoRef.current, false);
           }
@@ -1647,7 +1647,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 entry_attempt_id: entryAttemptId,
                 video_date_trace_id: videoDateTraceId,
               });
-              toast.info("We're reconnecting your date state...", { duration: 3000 });
+              toast.info("Keeping your date state in sync...", { duration: 3000 });
             }
             if (attempt > 1) {
               vdbg("mark_video_date_daily_joined_retry_after_failure", {
@@ -1749,7 +1749,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           setIsConnected(true);
           setIsConnecting(false);
           setPeerMissing({ terminal: false });
-          toast.success("Connected! Your video date is live 🎉");
+          toast.success("You're both here. Starting gently.");
           optionsRef.current?.onPartnerJoined?.();
           attachTracks(remoteParticipants[0], remoteVideoRef.current, false);
           logTrackMounted("post_join_snapshot", {
@@ -1831,7 +1831,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 auto_recovery_count: noRemoteAutoRecoveryCountRef.current,
               },
             });
-            toast.error("Your match has not joined this video room yet.");
+            toast.info("They're not in the room yet. We'll keep this gentle.");
           }, FIRST_REMOTE_TIMEOUT_MS);
         }
 
