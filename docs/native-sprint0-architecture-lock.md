@@ -165,4 +165,4 @@ Further launch-polish items live in `docs/native-sprint5-launch-polish-triage.md
 
 - No reopening **event-loop backend** redesign or new observability features unless new production evidence appears.
 - No partitioning/export/retention scope beyond shipped Phase 3c.
-- No instruction to run the native app locally in Cursor (operators use EAS/device per existing runbooks).
+- No instruction to run the native app locally inside an agent workspace (operators use EAS/device per existing runbooks).

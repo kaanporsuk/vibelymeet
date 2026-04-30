@@ -7,7 +7,7 @@
 | **KD** | Kaan — dashboard or store console |
 | **KB** | Kaan — build/install (EAS or local) |
 | **KV** | Kaan — device proof |
-| **CF** | Cursor — repo/doc/code **only if** a defect is proven (not the default path) |
+| **CF** | Implementation agent — repo/doc/code **only if** a defect is proven (not the default path) |
 
 **Before anything:** repo root → `npm run launch:preflight` (must be `"ok": true`) → `npm run typecheck`. **CF** only if these fail for non-env reasons.
 
@@ -130,7 +130,7 @@ When preview is green: `eas build --profile production`; `eas submit` or console
 ## Related docs (depth)
 
 - `docs/native-external-setup-checklist.md` — provider steps, env tables  
-- `docs/native-sprint6-launch-closure-runbook.md` — phased roles (Cursor vs Kaan)  
+- `docs/native-sprint6-launch-closure-runbook.md` — phased roles (implementation agent vs Kaan)
 - `docs/phase7-stage5-release-readiness-and-go-nogo.md` — strict go/no-go matrix  
 - `docs/native-release-readiness.md` — what is done vs blocked at product level  
 - `docs/native-final-blocker-matrix.md` — **live blocker + test result log**

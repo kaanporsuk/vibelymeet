@@ -3,7 +3,7 @@
 > **Historical / supplemental.** This is not the active launch-closure entrypoint. Start from `docs/active-doc-map.md` and use this file only as an extra runtime-validation workflow when needed.
 
 Date: 2026-04-04
-Purpose: Execute runtime validation in the highest-signal order and produce actionable findings for Cursor follow-up.
+Purpose: Execute runtime validation in the highest-signal order and produce actionable findings for implementation-agent follow-up.
 
 ## 1. Operating Principles
 
@@ -97,7 +97,7 @@ Use this decision flow:
 - Likely Provider config.
 - Example: push identity mismatch, Daily token/create room failures, missing offerings in RevenueCat.
 
-## 6. Reporting Format Back to Cursor
+## 6. Reporting Format Back to the Implementation Agent
 
 Submit one consolidated report grouped by severity:
 
@@ -114,12 +114,12 @@ For each issue include:
 - Last known good (if known)
 - Recommended next action
 
-## 7. Cursor Follow-up Workflow
+## 7. Implementation-Agent Follow-up Workflow
 
 After operator report is posted:
-1. Cursor converts each P0/P1 into explicit fix tasks scoped by owner surface.
-2. Cursor applies minimal patches only in impacted files.
-3. Cursor re-runs contract compliance checks (no lifecycle drift).
+1. The implementation agent converts each P0/P1 into explicit fix tasks scoped by owner surface.
+2. The implementation agent applies minimal patches only in impacted files.
+3. The implementation agent re-runs contract compliance checks (no lifecycle drift).
 4. Operator re-tests only impacted matrix IDs first, then run adjacent regression slice.
 5. Mark item PASS only with fresh runtime evidence.
 

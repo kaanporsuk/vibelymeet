@@ -6,7 +6,7 @@ Use this runbook before releases and after auth, event, lobby, swipe, Ready Gate
 
 The video-date hardening baseline is closed and documented in `docs/video-date-hardening-closure-handoff.md`. Treat that handoff as the source of truth for video-date ownership boundaries, deploy history, rollback notes, and regression commands.
 
-For seeded live/staging setup of the remaining manual two-user/device/admin checks, use `docs/qa/video-date-seeded-runtime-qa-pack.md`.
+For seeded live/staging setup when repeating two-person/device/admin checks, use `docs/qa/video-date-seeded-runtime-qa-pack.md`.
 
 For native release-candidate device checks before TestFlight/Play internal distribution, use `docs/qa/native-rc-smoke-pack.md`.
 

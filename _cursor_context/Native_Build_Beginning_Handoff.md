@@ -3,10 +3,12 @@ Repo: kaanporsuk/vibelymeet
 Backend: Supabase project ref `schdyxcunwcvddlcshwd` (MVP_Vibe)
 Goal: Start native iOS + Android implementation on top of the now-hardened web/backend baseline.
 
+Status note (2026-04-30): this is a historical kickoff handoff. It remains useful for backend-surface context, but active implementation sessions should use the agent-neutral docs in `docs/active-doc-map.md` and `docs/vibely-canonical-project-reference.md`.
+
 What matters most:
 - The web/backend was deliberately hardened first so native can rely on backend-owned state, not fragile browser logic.
-- The new chat should use Cursor as the primary implementer.
-- Ask the user to do things only when Cursor truly cannot do them.
+- The implementation agent should do as much as possible directly.
+- Ask the user to do things only when the implementation agent truly cannot do them.
 - When asking the user to do anything, give explicit step-by-step terminal/UI instructions.
 - Keep one branch per stream, PR into protected main, and include rebuild delta/docs updates where relevant.
 
@@ -125,8 +127,8 @@ Web-only for now:
 - admin/internal dashboards/tools
 
 What the next chat should assume about process:
-- Cursor should do as much as possible.
-- Only ask the user to do actions Cursor cannot do.
+- The implementation agent should do as much as possible.
+- Only ask the user to do actions the agent cannot do.
 - Branch-per-stream.
 - PR into main.
 - Keep `_cursor_context` docs/inventory/manifests in sync when backend/public surfaces change.
@@ -221,7 +223,7 @@ What I want you to do in this new chat:
 2. Verify whether the golden-path regression harness is already on `main`
 3. Start `docs/native-build-architecture-plan`
 4. Produce a definitive native architecture + sprint plan tied to the actual hardened backend surfaces
-5. Then guide implementation sprint by sprint, using Cursor as implementer and asking the user to do only the actions Cursor cannot do
+5. Then guide implementation sprint by sprint, using the current implementation agent and asking the user to do only the actions the agent cannot do
 
 Closure addendum (2026-04-04):
 - Auth/bootstrap ownership is now fully enforced with no latent fallback surfaces.

@@ -215,7 +215,7 @@ Owner stream: Native v1
 
 ---
 
-## F. Sprint backlog for Cursor (recommended)
+## F. Sprint backlog for the implementation agent (recommended)
 
 ### Sprint 1 (foundation + auth/onboarding + shell)
 1. Lock navigation contracts and route transition map tests/checklist.
@@ -271,7 +271,7 @@ Rationale:
 
 ---
 
-## Cursor execution guardrails
+## Implementation-agent execution guardrails
 - Do not introduce a separate mobile backend path.
 - Do not bypass backend-owned contracts with direct state writes for queue/date/match lifecycle.
 - Preserve web behavior for shared backend contracts.

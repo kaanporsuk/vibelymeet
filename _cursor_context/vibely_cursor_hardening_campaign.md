@@ -1,7 +1,8 @@
-# VIBELY — CURSOR HARDENING CAMPAIGN
+# VIBELY — IMPLEMENTATION AGENT HARDENING CAMPAIGN
 
 **Date:** 2026-03-11  
 **Baseline:** post-hardening (frozen golden: pre-native-hardening)  
+**Status note (2026-04-30):** the filename is historical. Treat this as an agent-neutral rebuildability and preservation brief for any implementation session.
 **Canonical source pack:**
 - `VIBELY_GOLDEN_SNAPSHOT_AUDITED.md`
 - `VIBELY_REBUILD_RUNBOOK.md`
@@ -51,7 +52,7 @@ This campaign is successful when all of the following are true:
 
 1. a future operator can rebuild the frozen web baseline without relying on undocumented tribal knowledge  
 2. major code changes cannot land without exposing new rebuild-impacting drift  
-3. Cursor is working from explicit preservation rules rather than informal judgment  
+3. implementation agents work from explicit preservation rules rather than informal judgment
 4. architecture changes generate structured documentation deltas as part of the change itself  
 5. native-build preparation can proceed without destroying web rebuildability
 
@@ -135,7 +136,7 @@ The following surfaces are considered canonical for drift detection:
 
 ## 7. Non-negotiable preservation rules
 
-These rules should govern Cursor-assisted work.
+These rules should govern AI-assisted implementation work.
 
 ### Rule A — No silent surface removal
 If a file, route, function, table, bucket, or env var disappears, the change must explicitly say:
@@ -154,7 +155,7 @@ Any migration that changes tables, views, enums, functions, storage, or policies
 - machine-readable inventory JSON if object lists change
 
 ### Rule C.1 — No remote migration operations without parity check
-Before any operator (or Cursor) runs remote migration operations (push/pull/repair), run:
+Before any operator or implementation agent runs remote migration operations (push/pull/repair), run:
 
 ```bash
 ./scripts/check_migration_parity.sh
@@ -189,7 +190,7 @@ If Stripe, Bunny, Daily, Twilio, Resend, OneSignal, PostHog, Sentry, or domain s
 
 ## 8. Required inventory dimensions going forward
 
-For every major branch, Cursor should actively watch these categories.
+For every major branch, the implementation agent should actively watch these categories.
 
 ### 1. Repo surface drift
 - new or removed pages
@@ -226,11 +227,11 @@ For every major branch, Cursor should actively watch these categories.
 
 ---
 
-## 9. Cursor operating brief
+## 9. Implementation agent operating brief
 
-This is the core operating brief that should guide Cursor on all major Vibely changes.
+This is the core operating brief that should guide any implementation agent on major Vibely changes.
 
-### Cursor system brief
+### Agent system brief
 
 You are working on Vibely against a frozen pre-native-hardening baseline that must remain rebuildable.
 
@@ -255,7 +256,7 @@ After making changes:
 
 ---
 
-## 10. Standard Cursor prompts for this campaign
+## 10. Standard agent prompts for this campaign
 
 ### Prompt 1 — Pre-change impact audit
 Before editing anything, compare the target files to the current Vibely rebuild pack and tell me:
@@ -484,4 +485,3 @@ This campaign is what turns that truth into engineering discipline.
 
 Without this step, the pack is documentation.
 With this step, it becomes a control system for safe evolution.
-
