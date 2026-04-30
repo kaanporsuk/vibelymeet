@@ -167,6 +167,7 @@ const Auth = () => {
       if (cancelled) return;
       if (ensured.status === "ready") {
         const referralResult = await applyBrowserReferralAttribution(sessionUser.id);
+        if (cancelled) return;
         if (
           !cancelled &&
           referralResult.status === "rpc-failed"
