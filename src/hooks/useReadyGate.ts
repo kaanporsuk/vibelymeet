@@ -311,6 +311,8 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       });
       if (payload.success === false) {
         const errorCode = payload.error_code ?? payload.code ?? null;
+        const transitionStatus = result.ok === true ? result.status : normalizeReadyGateStatus(payload.status ?? payload.ready_gate_status);
+        const transitionTerminal = result.ok === true ? result.isTerminal : isTerminalReadyGateStatus(transitionStatus);
         if (errorCode === "EVENT_NOT_ACTIVE" || payload.reason === "event_not_active") {
           notifyTerminal(ReadyGateStatus.Expired, {
             status: payload.status ?? payload.ready_gate_status ?? ReadyGateStatus.Expired,
@@ -325,18 +327,18 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
           session_id: sessionId,
           action,
           source_surface: "use_ready_gate",
-          ready_gate_status: result.status,
+          ready_gate_status: transitionStatus,
           reason: payload.reason ?? payload.error ?? null,
           error_code: payload.error_code ?? payload.code ?? null,
           inactive_reason: payload.inactive_reason ?? null,
-          terminal: payload.terminal === true || result.isTerminal || errorCode === "EVENT_NOT_ACTIVE",
+          terminal: payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE",
           latency_ms: Date.now() - startedAt,
         });
-        return payload.terminal === true || result.isTerminal || errorCode === "EVENT_NOT_ACTIVE";
+        return payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE";
       }
     }
     return true;
-  }, [sessionId, user?.id, applyReadyGateTruth]);
+  }, [sessionId, user?.id, applyReadyGateTruth, notifyTerminal]);
 
   const syncSession = useCallback(async (): Promise<ReadyGateSyncResult> => {
     if (!sessionId || !user?.id) {
