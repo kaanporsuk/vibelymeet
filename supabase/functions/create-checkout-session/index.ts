@@ -1,5 +1,6 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -19,6 +20,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
+
+  let observedUserId: string | null = null
+  let observedPlan: string | null = null
 
   try {
     // Get authenticated user
@@ -40,8 +44,10 @@ Deno.serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+    observedUserId = user.id
 
     const { plan } = await req.json()
+    observedPlan = typeof plan === 'string' ? plan : null
     if (!plan || !['monthly', 'annual'].includes(plan)) {
       return new Response(
         JSON.stringify({ success: false, error: 'Invalid plan. Must be monthly or annual.' }),
@@ -91,12 +97,32 @@ Deno.serve(async (req) => {
       },
     })
 
+    await recordPaymentObservability(supabase, {
+      category: 'checkout_session_created',
+      status: 'created',
+      result: 'subscription_checkout_created',
+      checkout_session_id: session.id,
+      stripe_customer_id: customerId,
+      user_id: user.id,
+      plan,
+      metadata_summary: { mode: 'subscription' },
+    })
+
     return new Response(
       JSON.stringify({ success: true, url: session.url }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
+    await recordPaymentObservability(supabase, {
+      category: 'checkout_session_failed',
+      status: 'failed',
+      result: 'subscription_checkout_failed',
+      error_code: error instanceof Error ? error.message : 'unknown_error',
+      user_id: observedUserId,
+      plan: observedPlan,
+      metadata_summary: { mode: 'subscription' },
+    })
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

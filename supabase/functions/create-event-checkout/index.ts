@@ -1,5 +1,6 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -20,6 +21,11 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders })
   }
 
+  let observedUserId: string | null = null
+  let observedEventId: string | null = null
+  let observedAmount: number | null = null
+  let observedCurrency: string | null = null
+
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
@@ -39,8 +45,12 @@ Deno.serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+    observedUserId = user.id
 
     const { eventId, eventTitle, price, currency = 'eur' } = await req.json()
+    observedEventId = typeof eventId === 'string' ? eventId : null
+    observedAmount = typeof price === 'number' ? Math.round(price * 100) : null
+    observedCurrency = typeof currency === 'string' ? currency : null
 
     if (!eventId || !eventTitle || price === undefined) {
       return new Response(
@@ -147,12 +157,36 @@ Deno.serve(async (req) => {
       },
     })
 
+    await recordPaymentObservability(supabase, {
+      category: 'checkout_session_created',
+      status: 'created',
+      result: 'event_ticket_checkout_created',
+      checkout_session_id: session.id,
+      stripe_customer_id: customerId,
+      user_id: user.id,
+      paid_event_id: eventId,
+      amount: Math.round(price * 100),
+      currency,
+      metadata_summary: { mode: 'payment', type: 'event_ticket' },
+    })
+
     return new Response(
       JSON.stringify({ success: true, url: session.url }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
+    await recordPaymentObservability(supabase, {
+      category: 'checkout_session_failed',
+      status: 'failed',
+      result: 'event_ticket_checkout_failed',
+      error_code: error instanceof Error ? error.message : 'unknown_error',
+      user_id: observedUserId,
+      paid_event_id: observedEventId,
+      amount: observedAmount,
+      currency: observedCurrency,
+      metadata_summary: { mode: 'payment', type: 'event_ticket' },
+    })
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
