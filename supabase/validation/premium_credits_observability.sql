@@ -104,6 +104,19 @@ BEGIN
     RAISE EXCEPTION 'payment_observability_events RLS is not enabled';
   END IF;
 
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) acl
+    WHERE n.nspname = 'public'
+      AND c.relname IN ('stripe_webhook_events', 'payment_observability_events')
+      AND acl.grantee = 0
+      AND acl.privilege_type IN ('INSERT', 'UPDATE', 'DELETE')
+  ) THEN
+    RAISE EXCEPTION 'PUBLIC has write access to payment observability tables';
+  END IF;
+
   SELECT bool_or(
     has_table_privilege(role_name, 'public.stripe_webhook_events', 'INSERT')
     OR has_table_privilege(role_name, 'public.stripe_webhook_events', 'UPDATE')
@@ -113,7 +126,7 @@ BEGIN
     OR has_table_privilege(role_name, 'public.payment_observability_events', 'DELETE')
   )
   INTO v_client_write
-  FROM (VALUES ('PUBLIC'), ('anon'), ('authenticated')) AS roles(role_name);
+  FROM (VALUES ('anon'), ('authenticated')) AS roles(role_name);
 
   IF COALESCE(v_client_write, false) THEN
     RAISE EXCEPTION 'client role has write access to payment observability tables';
