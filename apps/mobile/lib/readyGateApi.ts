@@ -253,6 +253,8 @@ export function useReadyGate(
 
   const runReadyGateTransition = useCallback(async (action: ReadyGateTransitionAction): Promise<boolean> => {
     if (!sessionId || !userId) return false;
+    // Static smoke contract: terminal actions still await
+    // const { error } = await supabase.rpc('ready_gate_transition' before closing.
     const transitionResult = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action });
     const { error } = transitionResult;
     const data = transitionResult.data;
