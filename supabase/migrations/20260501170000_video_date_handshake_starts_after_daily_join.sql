@@ -1,0 +1,590 @@
+-- Vibe Video Date handshake timing hardening.
+--
+-- Provider preparation remains the routeable, server-owned handoff into the
+-- video date, but the visible handshake clock now starts only after both
+-- participants have confirmed a Daily join. This preserves deterministic Daily
+-- room creation while preventing early-arrival wait time from consuming the
+-- shared warm-up window.
+
+DROP FUNCTION IF EXISTS public.ready_gate_transition_20260501170000_both_ready_grace_base(uuid, text, text);
+
+ALTER FUNCTION public.ready_gate_transition(uuid, text, text)
+  RENAME TO ready_gate_transition_20260501170000_both_ready_grace_base;
+
+REVOKE ALL ON FUNCTION public.ready_gate_transition_20260501170000_both_ready_grace_base(uuid, text, text)
+  FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.ready_gate_transition(
+  p_session_id uuid,
+  p_action text,
+  p_reason text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_result jsonb;
+  v_now timestamptz := now();
+  v_session public.video_sessions%ROWTYPE;
+  v_extended_expires_at timestamptz;
+BEGIN
+  v_result := public.ready_gate_transition_20260501170000_both_ready_grace_base(
+    p_session_id,
+    p_action,
+    p_reason
+  );
+
+  IF COALESCE(v_result @> '{"success": true}'::jsonb, false)
+     AND p_action = 'mark_ready' THEN
+    SELECT *
+    INTO v_session
+    FROM public.video_sessions
+    WHERE id = p_session_id
+    FOR UPDATE;
+
+    IF FOUND
+       AND v_session.ended_at IS NULL
+       AND v_session.ready_gate_status = 'both_ready'
+       AND v_session.ready_gate_expires_at IS NOT NULL
+       AND v_session.ready_gate_expires_at > v_now
+       AND v_session.handshake_started_at IS NULL
+       AND v_session.date_started_at IS NULL THEN
+      v_extended_expires_at := GREATEST(
+        COALESCE(v_session.ready_gate_expires_at, v_now),
+        v_now + interval '45 seconds'
+      );
+
+      IF v_session.ready_gate_expires_at IS DISTINCT FROM v_extended_expires_at THEN
+        UPDATE public.video_sessions
+        SET
+          ready_gate_expires_at = v_extended_expires_at,
+          state_updated_at = v_now
+        WHERE id = p_session_id
+          AND ended_at IS NULL
+          AND ready_gate_status = 'both_ready'
+          AND handshake_started_at IS NULL
+          AND date_started_at IS NULL
+        RETURNING * INTO v_session;
+
+        PERFORM public.record_event_loop_observability(
+          'ready_gate_transition',
+          'success',
+          'both_ready_provider_prepare_grace_extended',
+          NULL,
+          v_session.event_id,
+          auth.uid(),
+          p_session_id,
+          jsonb_build_object(
+            'action', p_action,
+            'p_reason', p_reason,
+            'ready_gate_expires_at', v_extended_expires_at,
+            'provider_prepare_grace_seconds', 45
+          )
+        );
+      END IF;
+
+      v_result := jsonb_set(
+        jsonb_set(v_result, '{status}', to_jsonb('both_ready'::text), true),
+        '{ready_gate_expires_at}',
+        to_jsonb(v_extended_expires_at),
+        true
+      );
+    END IF;
+  END IF;
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.ready_gate_transition(uuid, text, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ready_gate_transition(uuid, text, text) TO anon, authenticated, service_role;
+
+COMMENT ON FUNCTION public.ready_gate_transition(uuid, text, text) IS
+  'Canonical Ready Gate transition RPC. Extends both_ready provider handoff to 45 seconds before returning the delegated transition result.';
+
+CREATE OR REPLACE FUNCTION public.confirm_video_date_entry_prepared(
+  p_session_id uuid,
+  p_room_name text,
+  p_room_url text,
+  p_entry_attempt_id text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_session public.video_sessions%ROWTYPE;
+  v_now timestamptz := now();
+  v_gate_live boolean := false;
+  v_already_entry boolean := false;
+  v_blocked boolean := false;
+  v_registration_count integer := 0;
+  v_update_count integer := 0;
+  v_queue_status text;
+BEGIN
+  IF p_room_name IS NULL
+     OR btrim(p_room_name) = ''
+     OR p_room_url IS NULL
+     OR btrim(p_room_url) = '' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Daily room metadata is required',
+      'code', 'DB_ROOM_PERSIST_FAILED'
+    );
+  END IF;
+
+  SELECT * INTO v_session
+  FROM public.video_sessions
+  WHERE id = p_session_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Session not found', 'code', 'SESSION_NOT_FOUND');
+  END IF;
+
+  IF v_session.ended_at IS NOT NULL THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Session has ended',
+      'code', 'SESSION_ENDED',
+      'state', 'ended',
+      'phase', COALESCE(v_session.phase, 'ended'),
+      'event_id', v_session.event_id,
+      'participant_1_id', v_session.participant_1_id,
+      'participant_2_id', v_session.participant_2_id,
+      'handshake_started_at', v_session.handshake_started_at,
+      'ready_gate_status', v_session.ready_gate_status,
+      'ready_gate_expires_at', v_session.ready_gate_expires_at
+    );
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.blocked_users bu
+    WHERE (bu.blocker_id = v_session.participant_1_id AND bu.blocked_id = v_session.participant_2_id)
+       OR (bu.blocker_id = v_session.participant_2_id AND bu.blocked_id = v_session.participant_1_id)
+  ) INTO v_blocked;
+
+  IF v_blocked THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'This call is no longer available.',
+      'code', 'BLOCKED_PAIR',
+      'state', v_session.state::text,
+      'phase', v_session.phase,
+      'event_id', v_session.event_id,
+      'participant_1_id', v_session.participant_1_id,
+      'participant_2_id', v_session.participant_2_id,
+      'handshake_started_at', v_session.handshake_started_at,
+      'ready_gate_status', v_session.ready_gate_status,
+      'ready_gate_expires_at', v_session.ready_gate_expires_at
+    );
+  END IF;
+
+  v_already_entry := (
+    v_session.handshake_started_at IS NOT NULL
+    OR v_session.state IN ('handshake'::public.video_date_state, 'date'::public.video_date_state)
+    OR v_session.date_started_at IS NOT NULL
+  );
+
+  v_gate_live := (
+    COALESCE(v_session.ready_gate_status, '') = 'both_ready'
+    AND v_session.ready_gate_expires_at IS NOT NULL
+    AND v_session.ready_gate_expires_at > v_now
+  );
+
+  IF NOT v_already_entry AND NOT v_gate_live THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Both participants must be ready before starting the video date',
+      'code', 'READY_GATE_NOT_READY',
+      'state', v_session.state::text,
+      'phase', v_session.phase,
+      'event_id', v_session.event_id,
+      'participant_1_id', v_session.participant_1_id,
+      'participant_2_id', v_session.participant_2_id,
+      'handshake_started_at', v_session.handshake_started_at,
+      'ready_gate_status', v_session.ready_gate_status,
+      'ready_gate_expires_at', v_session.ready_gate_expires_at
+    );
+  END IF;
+
+  SELECT count(*) INTO v_registration_count
+  FROM (
+    SELECT 1
+    FROM public.event_registrations
+    WHERE event_id = v_session.event_id
+      AND profile_id IN (v_session.participant_1_id, v_session.participant_2_id)
+    FOR UPDATE
+  ) locked_registrations;
+
+  IF v_registration_count IS DISTINCT FROM 2 THEN
+    PERFORM public.record_event_loop_observability(
+      'video_date_transition',
+      'blocked',
+      'confirm_prepare_entry_registration_missing',
+      NULL,
+      v_session.event_id,
+      NULL,
+      p_session_id,
+      jsonb_build_object(
+        'entry_attempt_id', p_entry_attempt_id,
+        'registration_count', v_registration_count
+      )
+    );
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Could not persist date routing state',
+      'code', 'REGISTRATION_PERSIST_FAILED',
+      'state', v_session.state::text,
+      'phase', v_session.phase,
+      'event_id', v_session.event_id,
+      'participant_1_id', v_session.participant_1_id,
+      'participant_2_id', v_session.participant_2_id,
+      'handshake_started_at', v_session.handshake_started_at,
+      'ready_gate_status', v_session.ready_gate_status,
+      'ready_gate_expires_at', v_session.ready_gate_expires_at
+    );
+  END IF;
+
+  v_queue_status := CASE
+    WHEN v_session.date_started_at IS NOT NULL
+      OR v_session.state = 'date'::public.video_date_state
+      OR v_session.phase = 'date'
+      THEN 'in_date'
+    ELSE 'in_handshake'
+  END;
+
+  UPDATE public.event_registrations
+  SET
+    queue_status = v_queue_status,
+    current_room_id = v_session.id,
+    current_partner_id = CASE
+      WHEN profile_id = v_session.participant_1_id THEN v_session.participant_2_id
+      ELSE v_session.participant_1_id
+    END,
+    last_active_at = v_now
+  WHERE event_id = v_session.event_id
+    AND profile_id IN (v_session.participant_1_id, v_session.participant_2_id);
+
+  GET DIAGNOSTICS v_update_count = ROW_COUNT;
+  IF v_update_count IS DISTINCT FROM 2 THEN
+    PERFORM public.record_event_loop_observability(
+      'video_date_transition',
+      'blocked',
+      'confirm_prepare_entry_registration_update_failed',
+      NULL,
+      v_session.event_id,
+      NULL,
+      p_session_id,
+      jsonb_build_object(
+        'entry_attempt_id', p_entry_attempt_id,
+        'updated_count', v_update_count
+      )
+    );
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'Could not persist date routing state',
+      'code', 'REGISTRATION_PERSIST_FAILED',
+      'state', v_session.state::text,
+      'phase', v_session.phase,
+      'event_id', v_session.event_id,
+      'participant_1_id', v_session.participant_1_id,
+      'participant_2_id', v_session.participant_2_id,
+      'handshake_started_at', v_session.handshake_started_at,
+      'ready_gate_status', v_session.ready_gate_status,
+      'ready_gate_expires_at', v_session.ready_gate_expires_at
+    );
+  END IF;
+
+  UPDATE public.video_sessions
+  SET
+    daily_room_name = p_room_name,
+    daily_room_url = p_room_url,
+    state = CASE
+      WHEN date_started_at IS NOT NULL OR state = 'date'::public.video_date_state THEN state
+      ELSE 'handshake'::public.video_date_state
+    END,
+    phase = CASE
+      WHEN date_started_at IS NOT NULL OR phase = 'date' THEN phase
+      ELSE 'handshake'
+    END,
+    reconnect_grace_ends_at = NULL,
+    participant_1_away_at = NULL,
+    participant_2_away_at = NULL,
+    state_updated_at = v_now
+  WHERE id = p_session_id
+    AND ended_at IS NULL
+  RETURNING * INTO v_session;
+
+  PERFORM public.record_event_loop_observability(
+    'video_date_transition',
+    'success',
+    'confirm_prepare_entry_prepared',
+    NULL,
+    v_session.event_id,
+    NULL,
+    p_session_id,
+    jsonb_build_object(
+      'entry_attempt_id', p_entry_attempt_id,
+      'state_after', v_session.state::text,
+      'phase_after', v_session.phase,
+      'room_metadata_persisted', true,
+      'registration_status', v_queue_status,
+      'handshake_timer', 'deferred_until_both_daily_joined'
+    )
+  );
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'code', 'OK',
+    'state', v_session.state::text,
+    'phase', v_session.phase,
+    'event_id', v_session.event_id,
+    'participant_1_id', v_session.participant_1_id,
+    'participant_2_id', v_session.participant_2_id,
+    'handshake_started_at', v_session.handshake_started_at,
+    'ready_gate_status', v_session.ready_gate_status,
+    'ready_gate_expires_at', v_session.ready_gate_expires_at,
+    'daily_room_name', v_session.daily_room_name,
+    'daily_room_url', v_session.daily_room_url,
+    'entry_attempt_id', p_entry_attempt_id
+  );
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.confirm_video_date_entry_prepared(uuid, text, text, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.confirm_video_date_entry_prepared(uuid, text, text, text)
+  TO service_role;
+
+COMMENT ON FUNCTION public.confirm_video_date_entry_prepared(uuid, text, text, text) IS
+  'Service-role-only provider-atomic transition: confirms Daily room metadata and routeable handshake state, but defers the visible handshake timer until both Daily joins are confirmed.';
+
+CREATE OR REPLACE FUNCTION public.mark_video_date_daily_joined(p_session_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_row public.video_sessions%ROWTYPE;
+  v_status text;
+  v_now timestamptz := now();
+  v_started_handshake boolean := false;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'unauthorized');
+  END IF;
+
+  SELECT * INTO v_row FROM public.video_sessions WHERE id = p_session_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'not_found');
+  END IF;
+
+  IF v_row.ended_at IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'session_ended');
+  END IF;
+
+  IF v_uid IS DISTINCT FROM v_row.participant_1_id AND v_uid IS DISTINCT FROM v_row.participant_2_id THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'forbidden');
+  END IF;
+
+  IF v_uid = v_row.participant_1_id THEN
+    UPDATE public.video_sessions
+    SET participant_1_joined_at = COALESCE(participant_1_joined_at, v_now)
+    WHERE id = p_session_id;
+  ELSE
+    UPDATE public.video_sessions
+    SET participant_2_joined_at = COALESCE(participant_2_joined_at, v_now)
+    WHERE id = p_session_id;
+  END IF;
+
+  SELECT * INTO v_row FROM public.video_sessions WHERE id = p_session_id FOR UPDATE;
+
+  IF v_row.date_started_at IS NULL
+     AND v_row.handshake_started_at IS NULL
+     AND v_row.participant_1_joined_at IS NOT NULL
+     AND v_row.participant_2_joined_at IS NOT NULL THEN
+    UPDATE public.video_sessions
+    SET
+      handshake_started_at = v_now,
+      state = 'handshake'::public.video_date_state,
+      phase = 'handshake',
+      reconnect_grace_ends_at = NULL,
+      participant_1_away_at = NULL,
+      participant_2_away_at = NULL,
+      state_updated_at = v_now
+    WHERE id = p_session_id
+      AND ended_at IS NULL
+      AND date_started_at IS NULL
+      AND handshake_started_at IS NULL
+      AND participant_1_joined_at IS NOT NULL
+      AND participant_2_joined_at IS NOT NULL
+    RETURNING * INTO v_row;
+
+    IF FOUND THEN
+      v_started_handshake := true;
+      PERFORM public.record_event_loop_observability(
+        'video_date_transition',
+        'success',
+        'handshake_started_after_both_daily_joined',
+        NULL,
+        v_row.event_id,
+        v_uid,
+        p_session_id,
+        jsonb_build_object(
+          'action', 'mark_video_date_daily_joined',
+          'handshake_started_at', v_row.handshake_started_at,
+          'participant_1_joined_at', v_row.participant_1_joined_at,
+          'participant_2_joined_at', v_row.participant_2_joined_at
+        )
+      );
+    ELSE
+      SELECT * INTO v_row FROM public.video_sessions WHERE id = p_session_id;
+    END IF;
+  END IF;
+
+  v_status := CASE
+    WHEN v_row.date_started_at IS NOT NULL
+      OR v_row.state = 'date'::public.video_date_state
+      OR v_row.phase = 'date'
+      THEN 'in_date'
+    ELSE 'in_handshake'
+  END;
+
+  UPDATE public.event_registrations
+  SET
+    queue_status = v_status,
+    current_room_id = p_session_id,
+    current_partner_id = CASE
+      WHEN profile_id = v_row.participant_1_id THEN v_row.participant_2_id
+      ELSE v_row.participant_1_id
+    END,
+    last_active_at = v_now
+  WHERE event_id = v_row.event_id
+    AND profile_id IN (v_row.participant_1_id, v_row.participant_2_id);
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'queue_status', v_status,
+    'handshake_started', v_started_handshake,
+    'handshake_started_at', v_row.handshake_started_at,
+    'participant_1_joined_at', v_row.participant_1_joined_at,
+    'participant_2_joined_at', v_row.participant_2_joined_at
+  );
+END;
+$function$;
+
+GRANT EXECUTE ON FUNCTION public.mark_video_date_daily_joined(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.mark_video_date_daily_joined(uuid) IS
+  'Idempotent Daily join stamp for the caller. Starts the visible handshake timer only once both participant join stamps exist.';
+
+DROP FUNCTION IF EXISTS public.repair_stale_video_date_prepare_entries_20260501170000_both_join_base(integer);
+
+ALTER FUNCTION public.repair_stale_video_date_prepare_entries(integer)
+  RENAME TO repair_stale_video_date_prepare_entries_20260501170000_both_join_base;
+
+REVOKE ALL ON FUNCTION public.repair_stale_video_date_prepare_entries_20260501170000_both_join_base(integer)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.repair_stale_video_date_prepare_entries_20260501170000_both_join_base(integer)
+  TO service_role;
+
+CREATE OR REPLACE FUNCTION public.repair_stale_video_date_prepare_entries(
+  p_limit integer DEFAULT 100
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_now timestamptz := now();
+  v_limit integer := GREATEST(1, LEAST(COALESCE(p_limit, 100), 500));
+  r record;
+  n integer := 0;
+  v_base integer := 0;
+  v_registration_rows integer := 0;
+BEGIN
+  v_base := public.repair_stale_video_date_prepare_entries_20260501170000_both_join_base(v_limit);
+
+  FOR r IN
+    SELECT id, event_id, participant_1_id, participant_2_id, started_at, state_updated_at, ready_gate_expires_at
+    FROM public.video_sessions
+    WHERE ended_at IS NULL
+      AND state = 'handshake'::public.video_date_state
+      AND date_started_at IS NULL
+      AND handshake_started_at IS NULL
+      AND daily_room_name IS NOT NULL
+      AND daily_room_url IS NOT NULL
+      AND participant_1_joined_at IS NULL
+      AND participant_2_joined_at IS NULL
+      AND COALESCE(state_updated_at, ready_gate_expires_at, started_at) < v_now - interval '5 minutes'
+    ORDER BY COALESCE(state_updated_at, ready_gate_expires_at, started_at), id
+    LIMIT v_limit
+    FOR UPDATE SKIP LOCKED
+  LOOP
+    UPDATE public.video_sessions
+    SET
+      state = 'ended',
+      phase = 'ended',
+      ended_at = v_now,
+      ended_reason = 'prepare_entry_daily_join_missing',
+      reconnect_grace_ends_at = NULL,
+      participant_1_away_at = NULL,
+      participant_2_away_at = NULL,
+      duration_seconds = COALESCE(
+        duration_seconds,
+        GREATEST(0, floor(EXTRACT(EPOCH FROM (v_now - r.started_at)))::int)
+      ),
+      state_updated_at = v_now
+    WHERE id = r.id
+      AND ended_at IS NULL
+      AND date_started_at IS NULL
+      AND handshake_started_at IS NULL
+      AND participant_1_joined_at IS NULL
+      AND participant_2_joined_at IS NULL;
+
+    UPDATE public.event_registrations
+    SET
+      queue_status = 'idle',
+      current_room_id = NULL,
+      current_partner_id = NULL,
+      last_active_at = v_now
+    WHERE event_id = r.event_id
+      AND profile_id IN (r.participant_1_id, r.participant_2_id)
+      AND current_room_id = r.id;
+
+    GET DIAGNOSTICS v_registration_rows = ROW_COUNT;
+
+    PERFORM public.record_event_loop_observability(
+      'repair_stale_video_date_prepare_entries',
+      CASE WHEN v_registration_rows = 0 THEN 'deferred' ELSE 'success' END,
+      'stale_prepare_entry_no_daily_join',
+      NULL,
+      r.event_id,
+      NULL,
+      r.id,
+      jsonb_build_object(
+        'ended_reason', 'prepare_entry_daily_join_missing',
+        'handshake_timer', 'never_started',
+        'registration_rows', v_registration_rows
+      )
+    );
+    n := n + 1;
+  END LOOP;
+
+  RETURN COALESCE(v_base, 0) + n;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.repair_stale_video_date_prepare_entries(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.repair_stale_video_date_prepare_entries(integer) TO service_role;
+
+COMMENT ON FUNCTION public.repair_stale_video_date_prepare_entries(integer) IS
+  'Repairs stale provider-prepared video dates. Includes rows where room metadata was persisted but neither participant ever confirmed Daily join, so the handshake timer never started.';

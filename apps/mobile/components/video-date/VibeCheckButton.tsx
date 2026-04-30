@@ -28,8 +28,8 @@ function formatWarmHint(
   hasDecided: boolean
 ): string | null {
   if (hasDecided) return null;
-  if (inGrace && graceSecondsRemaining != null) return `${graceSecondsRemaining}s to choose`;
-  if (isProminent) return 'Choose before time runs out';
+  if (inGrace && graceSecondsRemaining != null) return `${graceSecondsRemaining}s for your choice`;
+  if (isProminent) return 'A quiet nudge before warm-up ends';
   return null;
 }
 
@@ -103,7 +103,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
           <Ionicons name={decision ? 'heart' : 'close-circle'} size={18} color={theme.tint} />
           <Text style={[styles.lockedLabel, { color: theme.tint }]}>{decision ? 'Vibed' : 'Passed'}</Text>
         </View>
-        <Text style={[styles.waitingLine, { color: theme.mutedForeground }]}>Waiting for your match…</Text>
+        <Text style={[styles.waitingLine, { color: theme.mutedForeground }]}>Waiting softly for your match…</Text>
       </View>
     );
   }
@@ -114,7 +114,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
         <Animated.Text
           style={[styles.lastChanceTag, { color: theme.neonPink, opacity: lastChanceLabelOpacity }]}
         >
-          Last chance
+          Gentle check-in
         </Animated.Text>
       ) : null}
 

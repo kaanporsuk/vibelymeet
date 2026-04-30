@@ -50,7 +50,7 @@ export const VibeCheckButton = ({
           </span>
         </div>
         <p className="max-w-[240px] text-center text-[10px] leading-snug text-muted-foreground/75">
-          Waiting for your match...
+          Waiting softly for your match...
         </p>
       </div>
     );
@@ -64,13 +64,13 @@ export const VibeCheckButton = ({
           animate={{ opacity: [1, 0.4, 1] }}
           transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
         >
-          Last Chance
+          Gentle check-in
         </motion.p>
       ) : null}
       <p
         className="max-w-[240px] text-center text-[11px] font-medium leading-snug text-foreground"
       >
-        Vibe or Pass to continue
+        Choose only when it feels right
       </p>
       <div className="flex items-center gap-2">
         <motion.button
@@ -113,9 +113,9 @@ export const VibeCheckButton = ({
         className={`max-w-[240px] text-center text-[10px] leading-snug ${inGrace ? "text-primary font-medium" : "text-muted-foreground/70"}`}
       >
         {inGrace
-          ? `${graceSecondsRemaining}s left to choose.`
+          ? `${graceSecondsRemaining}s left for your choice.`
           : isProminent
-            ? "Last chance: choose before the timer ends."
+            ? "A quiet nudge before the warm-up ends."
             : "Your choice only continues after it saves."}
       </p>
     </div>

@@ -16,12 +16,12 @@ export const ReconnectionOverlay = ({
 }: ReconnectionOverlayProps) => {
   const title =
     mode === "network_interrupted"
-      ? "Trying to reconnect..."
-      : "Trying to reconnect...";
+      ? "Reconnecting gently..."
+      : "Keeping the room open...";
   const subtitle =
     mode === "network_interrupted"
-      ? "Connection interrupted. We'll keep the room open for a few seconds."
-      : "Your match disconnected. We'll keep the room open for a few seconds.";
+      ? "The connection softened. We'll hold the room for a few seconds."
+      : "Your match may be stepping back in. We'll hold the room for a few seconds.";
   const ariaLabel =
     mode === "network_interrupted"
       ? "Trying to reconnect"
