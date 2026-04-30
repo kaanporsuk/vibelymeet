@@ -265,6 +265,7 @@ export default function EventLobbyScreen() {
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
   const drainReasonNotifiedKeysRef = useRef<Set<string>>(new Set());
+  const isActiveLobbyContextRef = useRef(false);
   const [isLobbyFocused, setIsLobbyFocused] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
@@ -591,6 +592,10 @@ export default function EventLobbyScreen() {
   }, []);
 
   useEffect(() => {
+    isActiveLobbyContextRef.current = isLobbyFocused && appState === 'active';
+  }, [appState, isLobbyFocused]);
+
+  useEffect(() => {
     queuedTtlExpiryNotifiedIdsRef.current.clear();
     drainReasonNotifiedKeysRef.current.clear();
   }, [id, user?.id]);
@@ -598,6 +603,7 @@ export default function EventLobbyScreen() {
   const showDrainReasonInfoOnce = useCallback(
     (payload: unknown) => {
       if (!id || !user?.id) return;
+      if (!isActiveLobbyContextRef.current) return;
       const copy = getMatchQueueDrainReasonCopy(payload);
       if (!copy) return;
       const key = `${user.id}:${id}:${copy.reason}`;
@@ -793,6 +799,7 @@ export default function EventLobbyScreen() {
       if (result?.found && promotedSessionId) {
         await openReadyGateWithSession(promotedSessionId, 'queue_drain_interval');
       } else {
+        if (cancelled) return;
         showDrainReasonInfoOnce(result);
       }
       await refreshQueueAndSuperVibe();
@@ -820,21 +827,27 @@ export default function EventLobbyScreen() {
     sameEventActiveSession?.kind,
     openReadyGateWithSession,
     refreshQueueAndSuperVibe,
+    showDrainReasonInfoOnce,
   ]);
 
   useEffect(() => {
     if (!id || !user?.id) return;
+    let cancelled = false;
     const run = async () => {
       const result = await drainMatchQueue(id, user.id);
       const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && sessionId) {
         await openReadyGateWithSession(sessionId, 'queue_drain_initial');
       } else {
+        if (cancelled) return;
         showDrainReasonInfoOnce(result);
       }
       await refreshQueueAndSuperVibe();
     };
     run();
+    return () => {
+      cancelled = true;
+    };
   }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, showDrainReasonInfoOnce]);
 
   useEffect(() => {
