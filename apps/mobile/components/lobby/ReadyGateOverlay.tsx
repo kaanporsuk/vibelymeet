@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   PermissionsAndroid,
   Platform,
+  AppState,
+  type AppStateStatus,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,7 +25,7 @@ import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius, typography } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
-import { useReadyGate } from '@/lib/readyGateApi';
+import { useReadyGate, type ReadyGateTerminalDetail } from '@/lib/readyGateApi';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { supabase } from '@/lib/supabase';
@@ -48,6 +50,11 @@ import {
   shouldRetryVideoDateEntryHandoffFailure,
   type VideoDateEntryHandoffStatus,
 } from '@clientShared/matching/videoDateEntryRetryPolicy';
+import {
+  isReadyGatePrepareEntryNonRetryable,
+  resolveReadyGateTerminalRecovery,
+  type ReadyGateTerminalRecoveryInput,
+} from '@clientShared/matching/readyGateTerminalRecovery';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
 import {
   buildReadyGateToDateLatencyPayload,
@@ -70,10 +77,24 @@ type PrepareEntryFailure = {
   httpStatus?: number;
 };
 
+const NativeReadyGateEvents = {
+  TRANSITION_FAILURE: 'native_ready_gate_transition_failure',
+  TERMINAL: 'native_ready_gate_terminal',
+  PREPARE_ENTRY_FAILURE: 'native_ready_gate_prepare_entry_failure',
+  PREPARE_ENTRY_EVENT_INACTIVE: 'native_ready_gate_prepare_entry_event_inactive',
+  DUPLICATE_NAV_SUPPRESSED: 'native_ready_gate_duplicate_nav_suppressed',
+  DUPLICATE_TERMINAL_SUPPRESSED: 'native_ready_gate_duplicate_terminal_suppressed',
+} as const;
+
 function prepareEntryFailureMessage(code: string): string {
+  const recovery = resolveReadyGateTerminalRecovery({
+    code,
+    errorCode: code,
+    source: 'prepare_entry',
+  });
+  if (!recovery.retryable || code === 'EVENT_NOT_ACTIVE') return recovery.body;
   if (code === 'UNAUTHORIZED' || code === 'auth') return 'Please sign in again, then try once more.';
   if (code === 'SESSION_ENDED') return 'This Ready Gate has already ended.';
-  if (code === 'EVENT_NOT_ACTIVE') return 'This Ready Gate is no longer available.';
   if (code === 'ACCESS_DENIED' || code === 'BLOCKED_PAIR') return 'This date is no longer available.';
   if (code === 'DAILY_AUTH_FAILED' || code === 'DAILY_CREDENTIALS_INVALID') {
     return 'Video setup is unavailable right now. Please try again later.';
@@ -122,6 +143,9 @@ export function ReadyGateOverlay({
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
+  const duplicateNavSuppressionKeysRef = useRef(new Set<string>());
+  const duplicateTerminalSuppressionKeysRef = useRef(new Set<string>());
+  const nonRetryablePrepareFailureRef = useRef<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(GATE_TIMEOUT_SEC);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [markingReady, setMarkingReady] = useState(false);
@@ -154,9 +178,72 @@ export function ReadyGateOverlay({
     return ok;
   }, []);
 
+  const trackNativeReadyGateEvent = useCallback(
+    (eventName: string, payload: Record<string, string | number | boolean | null | undefined>) => {
+      trackEvent(eventName, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: 'ready_gate_overlay',
+        ...payload,
+      });
+    },
+    [eventId, sessionId],
+  );
+
+  const suppressDuplicateNav = useCallback(
+    (source: string) => {
+      const key = `${sessionId}:${source}`;
+      if (duplicateNavSuppressionKeysRef.current.has(key)) return;
+      duplicateNavSuppressionKeysRef.current.add(key);
+      trackNativeReadyGateEvent(NativeReadyGateEvents.DUPLICATE_NAV_SUPPRESSED, {
+        source,
+        source_action: source,
+        ready_gate_status: 'both_ready',
+        reason: 'navigation_already_started',
+        terminal: false,
+      });
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'native_ready_gate_duplicate_nav_suppressed', {
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
+    },
+    [eventId, sessionId, trackNativeReadyGateEvent],
+  );
+
+  const suppressDuplicateTerminal = useCallback(
+    (source: string, recoveryInput?: ReadyGateTerminalRecoveryInput) => {
+      const recovery = resolveReadyGateTerminalRecovery(recoveryInput ?? { reason: source });
+      const key = `${sessionId}:${source}:${recovery.category}`;
+      if (duplicateTerminalSuppressionKeysRef.current.has(key)) return;
+      duplicateTerminalSuppressionKeysRef.current.add(key);
+      trackNativeReadyGateEvent(NativeReadyGateEvents.DUPLICATE_TERMINAL_SUPPRESSED, {
+        source,
+        source_action: source,
+        ready_gate_status: recoveryInput?.status ?? null,
+        reason: recoveryInput?.reason ?? source,
+        error_code: recoveryInput?.errorCode ?? recoveryInput?.code ?? null,
+        inactive_reason: recoveryInput?.inactiveReason ?? null,
+        terminal: true,
+        terminal_category: recovery.category,
+      });
+      rcBreadcrumb(RC_CATEGORY.readyGate, 'native_ready_gate_duplicate_terminal_suppressed', {
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+        terminal_category: recovery.category,
+      });
+    },
+    [eventId, sessionId, trackNativeReadyGateEvent],
+  );
+
   const startPrepareEntryHandoff = useCallback(
     (source: string) => {
-      if (closedRef.current || prepareEntryHandoffStartedRef.current) return;
+      if (closedRef.current || prepareEntryHandoffStartedRef.current) {
+        suppressDuplicateNav(source);
+        return;
+      }
       prepareEntryHandoffStartedRef.current = true;
       setIsTransitioning(true);
       setPrepareEntryStatus('preparing');
@@ -200,7 +287,10 @@ export function ReadyGateOverlay({
       });
 
       const navigateWithLatency = (navigateSource: string) => {
-        if (dateNavigationStartedRef.current) return;
+        if (dateNavigationStartedRef.current) {
+          suppressDuplicateNav(navigateSource);
+          return;
+        }
         dateNavigationStartedRef.current = true;
         closedRef.current = true;
         setPrepareEntryStatus('idle');
@@ -270,8 +360,53 @@ export function ReadyGateOverlay({
               return;
             }
 
-            const retryable = shouldRetryVideoDateEntryHandoffFailure(result);
+            const recoveryInput: ReadyGateTerminalRecoveryInput = {
+              code: result.code,
+              errorCode: result.code,
+              reason: result.message ?? null,
+              source: 'prepare_entry',
+            };
+            const inactivePrepareBlocker = isReadyGatePrepareEntryNonRetryable(recoveryInput);
+            const retryable = !inactivePrepareBlocker && shouldRetryVideoDateEntryHandoffFailure(result);
             const exhausted = !retryable || attempt >= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
+            const latencyMs = Math.max(0, Date.now() - observedAtMs);
+            trackNativeReadyGateEvent(NativeReadyGateEvents.PREPARE_ENTRY_FAILURE, {
+              source,
+              source_action: 'prepare_entry_failed_no_nav',
+              code: result.code,
+              error_code: result.code,
+              reason: result.message ?? null,
+              httpStatus: result.httpStatus ?? null,
+              retryable,
+              terminal: !retryable,
+              attempt: attempt + 1,
+              attempt_count: attempt + 1,
+              latency_ms: latencyMs,
+            });
+            if (inactivePrepareBlocker) {
+              const inactiveKey = `${sessionId}:${result.code}:prepare_entry`;
+              if (nonRetryablePrepareFailureRef.current !== inactiveKey) {
+                nonRetryablePrepareFailureRef.current = inactiveKey;
+                trackNativeReadyGateEvent(NativeReadyGateEvents.PREPARE_ENTRY_EVENT_INACTIVE, {
+                  source,
+                  source_action: 'prepare_entry_event_inactive',
+                  code: result.code,
+                  error_code: result.code,
+                  reason: result.message ?? null,
+                  retryable: false,
+                  terminal: true,
+                  attempt: attempt + 1,
+                  latency_ms: latencyMs,
+                });
+                rcBreadcrumb(RC_CATEGORY.readyGate, 'native_prepare_entry_event_inactive', {
+                  event_id: eventId,
+                  session_id: sessionId,
+                  source,
+                  code: result.code,
+                  attempt: attempt + 1,
+                });
+              }
+            }
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
               platform: 'native',
               session_id: sessionId,
@@ -332,7 +467,7 @@ export function ReadyGateOverlay({
                 retryable,
                 httpStatus: result.httpStatus,
               });
-              prepareEntryHandoffStartedRef.current = false;
+              prepareEntryHandoffStartedRef.current = !retryable;
               return;
             }
 
@@ -343,7 +478,7 @@ export function ReadyGateOverlay({
         }
       })();
     },
-    [eventId, onNavigateToDate, sessionId],
+    [eventId, onNavigateToDate, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent],
   );
 
   const reconcileFromCanonicalTruth = useCallback(
@@ -450,8 +585,21 @@ export function ReadyGateOverlay({
   }, [sessionId, eventId, startPrepareEntryHandoff]);
 
   const handleForfeited = useCallback(
-    async (_reason: 'timeout' | 'skip') => {
-      if (closedRef.current) return;
+    async (_reason: 'timeout' | 'skip', detail?: ReadyGateTerminalDetail) => {
+      const recoveryInput: ReadyGateTerminalRecoveryInput = {
+        status: detail?.status ?? (_reason === 'timeout' ? 'expired' : 'forfeited'),
+        reason: detail?.reason ?? (_reason === 'timeout' ? 'ready_gate_expired' : 'ready_gate_forfeit'),
+        errorCode: detail?.errorCode ?? detail?.code ?? null,
+        code: detail?.code ?? null,
+        inactiveReason: detail?.inactiveReason ?? null,
+        terminal: detail?.terminal ?? true,
+        source: 'ready_gate_terminal',
+      };
+      const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
+      if (closedRef.current || dateNavigationStartedRef.current) {
+        suppressDuplicateTerminal('ready_gate_terminal', recoveryInput);
+        return;
+      }
       const reason = pendingForfeitReasonRef.current ?? _reason;
       pendingForfeitReasonRef.current = null;
       closedRef.current = true;
@@ -461,22 +609,28 @@ export function ReadyGateOverlay({
       rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_forfeited', { reason, eventId });
       if (!terminalTimeoutRef.current) {
         terminalTimeoutRef.current = true;
+        trackNativeReadyGateEvent(NativeReadyGateEvents.TERMINAL, {
+          source_action: 'ready_gate_terminal',
+          ready_gate_status: recoveryInput.status ?? null,
+          reason: recoveryInput.reason ?? reason,
+          error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
+          inactive_reason: recoveryInput.inactiveReason ?? null,
+          terminal: true,
+          terminal_category: recovery.category,
+          retryable: recovery.retryable,
+        });
         trackEvent(LobbyPostDateEvents.READY_GATE_TIMEOUT, {
           platform: 'native',
           session_id: sessionId,
           event_id: eventId,
           reason,
+          reason_code: recoveryInput.reason ?? reason,
         });
       }
-      onLobbyUserMessage?.(
-        reason === 'timeout'
-          ? "They weren't ready. Back to browsing — your deck is waiting."
-          : 'No worries — back to browsing 💚',
-        'info',
-      );
+      onLobbyUserMessage?.(recovery.toast, 'info');
       onClose();
     },
-    [eventId, onClose, sessionId, onLobbyUserMessage],
+    [eventId, onClose, sessionId, onLobbyUserMessage, suppressDuplicateTerminal, trackNativeReadyGateEvent],
   );
 
   const {
@@ -510,6 +664,9 @@ export function ReadyGateOverlay({
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
+    duplicateNavSuppressionKeysRef.current.clear();
+    duplicateTerminalSuppressionKeysRef.current.clear();
+    nonRetryablePrepareFailureRef.current = null;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
     setTimeLeft(GATE_TIMEOUT_SEC);
     setIsTransitioning(false);
@@ -547,6 +704,18 @@ export function ReadyGateOverlay({
       });
     }
   }, [sessionId, eventId]);
+
+  useEffect(() => {
+    const sync = () => {
+      void syncSession();
+    };
+    sync();
+    const handleAppState = (state: AppStateStatus) => {
+      if (state === 'active') sync();
+    };
+    const sub = AppState.addEventListener('change', handleAppState);
+    return () => sub.remove();
+  }, [sessionId, syncSession]);
 
   useEffect(() => {
     let cancelled = false;
@@ -715,8 +884,15 @@ export function ReadyGateOverlay({
         retryable: true,
         error_name: e instanceof Error ? e.name : 'unknown',
       });
+      trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
+        action: 'forfeit',
+        source_action: dismissVariant,
+        reason: 'ready_gate_forfeit_failed',
+        error_code: 'ready_gate_forfeit_failed',
+        terminal: false,
+      });
     }
-  }, [eventId, forfeit, handleForfeited, iAmReady, sessionId]);
+  }, [eventId, forfeit, handleForfeited, iAmReady, sessionId, trackNativeReadyGateEvent]);
 
   useEffect(() => {
     if (isTransitioning || iAmReady || markingReady || snoozedByPartner || terminalActionPending) return;
@@ -983,6 +1159,13 @@ export function ReadyGateOverlay({
                         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_mark_ready_exception', {
                           message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
                         });
+                        trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
+                          action: 'mark_ready',
+                          source_action: 'ready_tap',
+                          reason: 'ready_gate_mark_ready_failed',
+                          error_code: 'ready_gate_mark_ready_failed',
+                          terminal: false,
+                        });
                       } finally {
                         setMarkingReady(false);
                       }
@@ -1015,6 +1198,13 @@ export function ReadyGateOverlay({
                           setTerminalActionError("We couldn't snooze this match. Check your connection and try again.");
                           rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_snooze_exception', {
                             message_snippet: e instanceof Error ? e.message.slice(0, 120) : 'unknown',
+                          });
+                          trackNativeReadyGateEvent(NativeReadyGateEvents.TRANSITION_FAILURE, {
+                            action: 'snooze',
+                            source_action: 'snooze_tap',
+                            reason: 'ready_gate_snooze_failed',
+                            error_code: 'ready_gate_snooze_failed',
+                            terminal: false,
                           });
                         } finally {
                           setRequestingSnooze(false);
