@@ -73,6 +73,7 @@ type PrepareEntryFailure = {
 function prepareEntryFailureMessage(code: string): string {
   if (code === 'UNAUTHORIZED' || code === 'auth') return 'Please sign in again, then try once more.';
   if (code === 'SESSION_ENDED') return 'This Ready Gate has already ended.';
+  if (code === 'EVENT_NOT_ACTIVE') return 'This Ready Gate is no longer available.';
   if (code === 'ACCESS_DENIED' || code === 'BLOCKED_PAIR') return 'This date is no longer available.';
   if (code === 'DAILY_AUTH_FAILED' || code === 'DAILY_CREDENTIALS_INVALID') {
     return 'Video setup is unavailable right now. Please try again later.';
