@@ -22,6 +22,7 @@ let initialized = false;
 let overLimitTagWritesSuppressed = false;
 let lastAppliedTagDigest: string | null = null;
 let activeIdentityUserId: string | null = null;
+let lastLoggedInUserId: string | null = null;
 let identityGeneration = 0;
 
 function syncResult(
@@ -122,9 +123,14 @@ export function bindOneSignalExternalUser(userId: string): number {
   }
   const generation = identityGeneration;
   if (!APP_ID || !userId) return generation;
+  if (lastLoggedInUserId === userId) return generation;
   try {
     OneSignal.login(userId);
+    if (isCurrentOneSignalIdentity(userId, generation)) {
+      lastLoggedInUserId = userId;
+    }
   } catch (e) {
+    lastLoggedInUserId = null;
     console.warn('[Vibely] OneSignal login failed:', e);
   }
   return generation;
@@ -225,6 +231,7 @@ export async function syncPushWithBackendIfPermissionGranted(userId: string): Pr
 export function logoutOneSignal(): void {
   identityGeneration += 1;
   activeIdentityUserId = null;
+  lastLoggedInUserId = null;
   try {
     OneSignal.logout();
   } catch {}
