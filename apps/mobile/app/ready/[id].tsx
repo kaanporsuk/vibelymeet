@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
+import { StyleSheet, View, Text, Pressable, Image, ScrollView, ActivityIndicator, PermissionsAndroid, Platform, AppState, type AppStateStatus } from 'react-native';
 import { useLocalSearchParams, usePathname, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,6 +33,10 @@ import {
   getReadyGateRemainingSeconds,
   READY_GATE_DEFAULT_TIMEOUT_SECONDS,
 } from '@clientShared/matching/readyGateCountdown';
+import {
+  isReadyGatePrepareEntryNonRetryable,
+  resolveReadyGateTerminalRecovery,
+} from '@clientShared/matching/readyGateTerminalRecovery';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
@@ -59,6 +63,11 @@ export default function ReadyGateScreen() {
     isBothReady,
     isForfeited,
     isSnoozed,
+    status,
+    reason,
+    inactiveReason,
+    errorCode,
+    terminal,
   } = useReadyGate(sessionId ?? null, user?.id ?? null);
 
   const [partnerAvatar, setPartnerAvatar] = useState<string | null>(null);
@@ -77,6 +86,9 @@ export default function ReadyGateScreen() {
   const invalidSessionLoggedRef = useRef(false);
   /** At most one explain-then-navigate dialog per mount / session id (stale vs invalid deep link). */
   const redirectExplainedRef = useRef(false);
+  const dateNavigationStartedRef = useRef(false);
+  const terminalRecoveryKeyRef = useRef<string | null>(null);
+  const nonRetryablePrepareBlockerRef = useRef<string | null>(null);
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
@@ -146,6 +158,15 @@ export default function ReadyGateScreen() {
       });
 
       if (startable.ok) {
+        if (dateNavigationStartedRef.current) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_duplicate_date_nav_suppressed', {
+            session_id: sid,
+            source,
+            startable_reason: startable.reason,
+          });
+          return true;
+        }
+        dateNavigationStartedRef.current = true;
         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_navigate_to_date', {
           session_id: sid,
           source,
@@ -167,6 +188,9 @@ export default function ReadyGateScreen() {
             });
           },
         });
+        if (!navigated) {
+          setTransitioning(false);
+        }
         if (source === 'both_ready' && navigated) {
           videoDateLaunchBreadcrumb('ready_standalone_navigate_to_date', {
             session_id: sid,
@@ -184,6 +208,16 @@ export default function ReadyGateScreen() {
       // Terminal / lobby fallback. Always clear latch so the new route cannot be suppressed by a
       // stale entry latch from a previous attempt.
       clearDateEntryTransition(sid);
+      if (
+        startable.reason === 'prepare_entry_event_inactive' ||
+        isReadyGatePrepareEntryNonRetryable({
+          code: startable.reason,
+          errorCode: startable.reason,
+          source: 'prepare_entry',
+        })
+      ) {
+        nonRetryablePrepareBlockerRef.current = `${sid}:${startable.reason}`;
+      }
       router.replace(startable.recommendHref);
       return true;
     },
@@ -204,6 +238,9 @@ export default function ReadyGateScreen() {
     setSessionLookupDone(false);
     setPermissionRequestEligible(false);
     redirectExplainedRef.current = false;
+    dateNavigationStartedRef.current = false;
+    terminalRecoveryKeyRef.current = null;
+    nonRetryablePrepareBlockerRef.current = null;
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT_SEC * 1000;
@@ -226,6 +263,18 @@ export default function ReadyGateScreen() {
       cancelled = true;
     };
   }, [permissionRequestEligible, sessionId, user?.id]);
+
+  useEffect(() => {
+    if (!sessionId || !user?.id || !sessionLookupDone) return;
+    const handleAppState = (state: AppStateStatus) => {
+      if (state !== 'active') return;
+      void syncSession();
+      void reconcileFromCanonicalTruth('app_foreground');
+    };
+    handleAppState(AppState.currentState);
+    const sub = AppState.addEventListener('change', handleAppState);
+    return () => sub.remove();
+  }, [reconcileFromCanonicalTruth, sessionId, sessionLookupDone, syncSession, user?.id]);
 
   useEffect(() => {
     if (!sessionId || !user?.id) return;
@@ -348,14 +397,40 @@ export default function ReadyGateScreen() {
     if (isForfeited) {
       setTerminalActionPending(false);
       setTerminalActionError(null);
+      const recoveryInput = {
+        status,
+        reason,
+        inactiveReason,
+        errorCode,
+        terminal: terminal ?? true,
+        source: 'ready_standalone_terminal',
+      };
+      const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
+      const terminalKey = `${sessionId ?? 'none'}:${recovery.category}:${reason ?? errorCode ?? status}`;
+      if (terminalRecoveryKeyRef.current === terminalKey) return;
+      terminalRecoveryKeyRef.current = terminalKey;
       rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_forfeited', {
         session_id: sessionId ?? null,
         event_id: eventId,
+        terminal_category: recovery.category,
+        reason: reason ?? null,
+        error_code: errorCode ?? null,
+        inactive_reason: inactiveReason ?? null,
       });
-      if (eventId) router.replace(eventLobbyHref(eventId));
-      else if (sessionLookupDone) router.replace(tabsRootHref());
+      showDialog({
+        title: recovery.title,
+        message: recovery.body,
+        variant: 'info',
+        primaryAction: {
+          label: eventId ? 'Back to lobby' : 'Continue',
+          onPress: () => {
+            if (eventId) router.replace(eventLobbyHref(eventId));
+            else router.replace(tabsRootHref());
+          },
+        },
+      });
     }
-  }, [isForfeited, eventId, sessionLookupDone, sessionId]);
+  }, [errorCode, eventId, inactiveReason, isForfeited, reason, sessionId, showDialog, status, terminal]);
 
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);

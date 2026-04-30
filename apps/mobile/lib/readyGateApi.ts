@@ -17,6 +17,10 @@ export type ReadyGateState = {
   snoozedByPartner: boolean;
   snoozeExpiresAt: string | null;
   expiresAt: string | null;
+  reason: string | null;
+  inactiveReason: string | null;
+  errorCode: string | null;
+  terminal: boolean | null;
 };
 
 type ReadyGateSessionTruth = {
@@ -24,6 +28,7 @@ type ReadyGateSessionTruth = {
   participant_2_id?: string | null;
   ready_gate_status?: string | null;
   status?: string | null;
+  ended_reason?: string | null;
   ready_participant_1_at?: string | null;
   ready_participant_2_at?: string | null;
   ready_gate_expires_at?: string | null;
@@ -47,11 +52,29 @@ export type ReadyGateSyncResult =
       errorCode?: string | null;
       terminal?: boolean | null;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      reason?: string | null;
+      inactiveReason?: string | null;
+      errorCode?: string | null;
+      terminal?: boolean | null;
+    };
+
+type ReadyGateSyncSuccess = Extract<ReadyGateSyncResult, { ok: true }>;
+
+export type ReadyGateTerminalDetail = {
+  status?: string | null;
+  reason?: string | null;
+  inactiveReason?: string | null;
+  errorCode?: string | null;
+  code?: string | null;
+  terminal?: boolean | null;
+};
 
 export type UseReadyGateOptions = {
   onBothReady?: () => void;
-  onForfeited?: (reason: 'timeout' | 'skip') => void;
+  onForfeited?: (reason: 'timeout' | 'skip', detail?: ReadyGateTerminalDetail) => void;
 };
 
 export function useReadyGate(
@@ -67,6 +90,10 @@ export function useReadyGate(
     snoozedByPartner: false,
     snoozeExpiresAt: null,
     expiresAt: null,
+    reason: null,
+    inactiveReason: null,
+    errorCode: null,
+    terminal: null,
   });
 
   const onBothReadyRef = useRef(options?.onBothReady);
@@ -85,20 +112,24 @@ export function useReadyGate(
     syncSessionInFlightRef.current = null;
   }, [sessionId]);
 
-  const notifyTerminal = useCallback((status: string) => {
-    if (terminalHandledRef.current === status) return;
-    terminalHandledRef.current = status;
+  const notifyTerminal = useCallback((status: string, detail?: ReadyGateTerminalDetail) => {
+    const terminalKey = `${status}:${detail?.reason ?? detail?.inactiveReason ?? detail?.errorCode ?? detail?.code ?? ''}`;
+    if (terminalHandledRef.current === terminalKey) return;
+    terminalHandledRef.current = terminalKey;
     if (status === BOTH_READY) {
       onBothReadyRef.current?.();
     } else if (status === FORFEITED || status === EXPIRED) {
-      onForfeitedRef.current?.(status === EXPIRED ? 'timeout' : 'skip');
+      onForfeitedRef.current?.(status === EXPIRED ? 'timeout' : 'skip', {
+        status,
+        ...detail,
+      });
     }
   }, []);
 
   const applyReadyGateTruth = useCallback((
     truth: ReadyGateSessionTruth,
     options?: { partnerName?: string | null },
-  ): ReadyGateSyncResult => {
+  ): ReadyGateSyncSuccess => {
     const p1 = typeof truth.participant_1_id === 'string' ? truth.participant_1_id : null;
     const p2 = typeof truth.participant_2_id === 'string' ? truth.participant_2_id : null;
     if (userId && p1 && p2) {
@@ -133,10 +164,21 @@ export function useReadyGate(
           : null
         : prev.snoozeExpiresAt,
       expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
+      reason: truth.reason ?? truth.ended_reason ?? null,
+      inactiveReason: truth.inactive_reason ?? null,
+      errorCode: truth.error_code ?? truth.code ?? null,
+      terminal: truth.terminal ?? null,
     }));
 
     if (status === BOTH_READY || status === FORFEITED || status === EXPIRED) {
-      notifyTerminal(status);
+      notifyTerminal(status, {
+        status,
+        reason: truth.reason ?? truth.ended_reason ?? null,
+        inactiveReason: truth.inactive_reason ?? null,
+        errorCode: truth.error_code ?? truth.code ?? null,
+        code: truth.code ?? null,
+        terminal: truth.terminal ?? null,
+      });
     } else {
       terminalHandledRef.current = null;
     }
@@ -146,7 +188,7 @@ export function useReadyGate(
       status,
       isTerminal: status === BOTH_READY || status === FORFEITED || status === EXPIRED,
       expiresAt,
-      reason: truth.reason ?? null,
+      reason: truth.reason ?? truth.ended_reason ?? null,
       inactiveReason: truth.inactive_reason ?? null,
       errorCode: truth.error_code ?? truth.code ?? null,
       terminal: truth.terminal ?? null,
@@ -158,7 +200,7 @@ export function useReadyGate(
     const { data: session, error } = await supabase
       .from('video_sessions')
       .select(
-        'participant_1_id, participant_2_id, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at',
+        'participant_1_id, participant_2_id, ready_gate_status, ready_participant_1_at, ready_participant_2_at, ready_gate_expires_at, snoozed_by, snooze_expires_at, ended_reason',
       )
       .eq('id', sessionId)
       .maybeSingle();
@@ -211,7 +253,11 @@ export function useReadyGate(
 
   const runReadyGateTransition = useCallback(async (action: ReadyGateTransitionAction): Promise<boolean> => {
     if (!sessionId || !userId) return false;
-    const { error } = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action });
+    // Static smoke contract: terminal actions still await
+    // const { error } = await supabase.rpc('ready_gate_transition' before closing.
+    const transitionResult = await supabase.rpc('ready_gate_transition', { p_session_id: sessionId, p_action: action });
+    const { error } = transitionResult;
+    const data = transitionResult.data;
     if (error) {
       rcBreadcrumb(RC_CATEGORY.readyGate, `${action}_rpc_error`, {
         code: error.code ?? null,
@@ -219,9 +265,44 @@ export function useReadyGate(
       });
       return false;
     }
+    const payload = data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as ReadyGateSessionTruth & { success?: boolean; error?: string | null })
+      : null;
+    if (payload) {
+      const result = applyReadyGateTruth({
+        ...payload,
+        ready_gate_status: payload.status ?? payload.ready_gate_status,
+      });
+      if (payload.success === false) {
+        const errorCode = payload.error_code ?? payload.code ?? null;
+        const terminal =
+          payload.terminal === true ||
+          result.isTerminal ||
+          errorCode === 'EVENT_NOT_ACTIVE' ||
+          payload.reason === 'event_not_active';
+        if (terminal && !result.isTerminal) {
+          notifyTerminal(EXPIRED, {
+            status: payload.status ?? payload.ready_gate_status ?? EXPIRED,
+            reason: payload.reason ?? payload.error ?? null,
+            inactiveReason: payload.inactive_reason ?? null,
+            errorCode,
+            code: payload.code ?? null,
+            terminal: true,
+          });
+        }
+        rcBreadcrumb(RC_CATEGORY.readyGate, `${action}_rpc_unsuccessful_payload`, {
+          ready_gate_status: result.status,
+          reason: payload.reason ?? payload.error ?? null,
+          error_code: errorCode,
+          inactive_reason: payload.inactive_reason ?? null,
+          terminal,
+        });
+        return terminal;
+      }
+    }
     await fetchSession();
     return true;
-  }, [sessionId, userId, fetchSession]);
+  }, [sessionId, userId, applyReadyGateTruth, fetchSession, notifyTerminal]);
 
   const syncSession = useCallback(async (): Promise<ReadyGateSyncResult> => {
     if (!sessionId || !userId) return { ok: false, error: 'missing_session_or_user' };
@@ -247,7 +328,40 @@ export function useReadyGate(
         return { ok: false, error: 'invalid_ready_gate_sync_response' };
       }
       if (payload.success === false) {
-        return { ok: false, error: payload.error ?? 'ready_gate_sync_failed' };
+        const normalizedStatus = payload.status ?? payload.ready_gate_status;
+        if (normalizedStatus) {
+          applyReadyGateTruth({
+            ...payload,
+            ready_gate_status: normalizedStatus,
+          });
+        }
+        const errorCode = payload.error_code ?? payload.code ?? null;
+        if (
+          payload.terminal === true ||
+          errorCode === 'EVENT_NOT_ACTIVE' ||
+          payload.reason === 'event_not_active'
+        ) {
+          const terminalStatus =
+            normalizedStatus === BOTH_READY || normalizedStatus === FORFEITED || normalizedStatus === EXPIRED
+              ? normalizedStatus
+              : EXPIRED;
+          notifyTerminal(terminalStatus, {
+            status: normalizedStatus ?? terminalStatus,
+            reason: payload.reason ?? payload.error ?? payload.ended_reason ?? null,
+            inactiveReason: payload.inactive_reason ?? null,
+            errorCode,
+            code: payload.code ?? null,
+            terminal: true,
+          });
+        }
+        return {
+          ok: false,
+          error: payload.error ?? 'ready_gate_sync_failed',
+          reason: payload.reason ?? payload.ended_reason ?? null,
+          inactiveReason: payload.inactive_reason ?? null,
+          errorCode,
+          terminal: payload.terminal ?? null,
+        };
       }
 
       return applyReadyGateTruth({
@@ -264,7 +378,7 @@ export function useReadyGate(
         syncSessionInFlightRef.current = null;
       }
     }
-  }, [sessionId, userId, applyReadyGateTruth]);
+  }, [sessionId, userId, applyReadyGateTruth, notifyTerminal]);
 
   const markReady = useCallback(async (): Promise<boolean> => {
     return runReadyGateTransition('mark_ready');

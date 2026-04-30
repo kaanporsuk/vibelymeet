@@ -34,6 +34,7 @@ import {
   videoSessionRowReadyGateEligible,
   type VideoSessionTruthRouteDecision,
 } from '@clientShared/matching/activeSession';
+import { isReadyGatePrepareEntryNonRetryable } from '@clientShared/matching/readyGateTerminalRecovery';
 import {
   eventLobbyHref,
   readyGateHref,
@@ -253,6 +254,31 @@ export async function ensureVideoDateStartableBeforeNavigation(
         });
         return { ok: true, reason: 'startable_after_handshake', truth };
       }
+    }
+
+    if (!prepareOk && isReadyGatePrepareEntryNonRetryable({
+      code: prepareCode,
+      errorCode: prepareCode,
+      source: 'prepare_entry',
+    })) {
+      const fallback = lobbyOrTabsHref(truth?.event_id);
+      emit('ensure_video_date_startable_after', {
+        session_id: sessionId,
+        user_id: userId,
+        source,
+        ok: false,
+        reason: 'prepare_entry_event_inactive',
+        recommend: 'ended',
+        prepare_code: prepareCode,
+        ...snapshotTruth(truth),
+      });
+      return {
+        ok: false,
+        recommend: 'ended',
+        recommendHref: fallback.href,
+        reason: 'prepare_entry_event_inactive',
+        truth,
+      };
     }
 
     // Either prepare failed (often READY_GATE_NOT_READY due to replica lag) or it succeeded
