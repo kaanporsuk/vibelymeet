@@ -1,6 +1,7 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCreditPack } from '../_shared/creditPacks.ts'
+import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -21,6 +22,9 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  let observedUserId: string | null = null
+  let observedPackId: string | null = null
+
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
@@ -40,8 +44,10 @@ Deno.serve(async (req) => {
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
+    observedUserId = user.id
 
     const { packId } = await req.json()
+    observedPackId = typeof packId === 'string' ? packId : null
 
     const pack = getCreditPack(packId)
     if (!pack) {
@@ -108,12 +114,39 @@ Deno.serve(async (req) => {
       },
     })
 
+    await recordPaymentObservability(supabase, {
+      category: 'checkout_session_created',
+      status: 'created',
+      result: 'credits_checkout_created',
+      checkout_session_id: session.id,
+      stripe_customer_id: customerId,
+      user_id: user.id,
+      pack_id: packId,
+      amount: Math.round(pack.priceEur * 100),
+      currency: 'eur',
+      metadata_summary: {
+        mode: 'payment',
+        type: 'credits_pack',
+        extra_time_credits: pack.grants.extra_time_credits,
+        extended_vibe_credits: pack.grants.extended_vibe_credits,
+      },
+    })
+
     return new Response(
       JSON.stringify({ success: true, url: session.url }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
+    await recordPaymentObservability(supabase, {
+      category: 'checkout_session_failed',
+      status: 'failed',
+      result: 'credits_checkout_failed',
+      error_code: error instanceof Error ? error.message : 'unknown_error',
+      user_id: observedUserId,
+      pack_id: observedPackId,
+      metadata_summary: { mode: 'payment', type: 'credits_pack' },
+    })
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
