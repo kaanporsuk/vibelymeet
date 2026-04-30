@@ -91,7 +91,7 @@ export function useReadyGate(
     if (status === BOTH_READY) {
       onBothReadyRef.current?.();
     } else if (status === FORFEITED || status === EXPIRED) {
-      onForfeitedRef.current?.('timeout');
+      onForfeitedRef.current?.(status === EXPIRED ? 'timeout' : 'skip');
     }
   }, []);
 

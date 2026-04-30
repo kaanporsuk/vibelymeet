@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import * as Sentry from "@sentry/react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
 import { useReadyGate } from "@/hooks/useReadyGate";
 import { vdbg } from "@/lib/vdbg";
@@ -33,6 +34,11 @@ import {
   shouldRetryVideoDateEntryHandoffFailure,
   type VideoDateEntryHandoffStatus,
 } from "@clientShared/matching/videoDateEntryRetryPolicy";
+import {
+  isReadyGatePrepareEntryNonRetryable,
+  resolveReadyGateTerminalRecovery,
+  type ReadyGateTerminalRecoveryInput,
+} from "@clientShared/matching/readyGateTerminalRecovery";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -58,6 +64,15 @@ type PrepareEntryFailureState = {
   httpStatus?: number;
 } | null;
 
+type ReadyGateTerminalDetail = {
+  status?: string | null;
+  reason?: string | null;
+  inactiveReason?: string | null;
+  errorCode?: string | null;
+  code?: string | null;
+  terminal?: boolean | null;
+};
+
 function readyGateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
   console.log(`[ReadyGateOverlay] ${message}`, data ?? {});
@@ -68,6 +83,13 @@ function sleep(ms: number) {
 }
 
 function prepareEntryFailureMessage(code?: string): string {
+  const recovery = resolveReadyGateTerminalRecovery({
+    code,
+    errorCode: code,
+    source: "prepare_entry",
+  });
+  if (!recovery.retryable) return recovery.body;
+
   switch (code) {
     case "UNAUTHORIZED":
       return "Please sign in again, then try once more.";
@@ -99,6 +121,7 @@ function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: Prepare
 
 const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
   const { user } = useUserProfile();
+  const prefersReducedMotion = useReducedMotion();
 
   const [partnerPhotos, setPartnerPhotos] = useState<string[] | null>(null);
   const [partnerAvatarUrl, setPartnerAvatarUrl] = useState<string | null>(null);
@@ -131,13 +154,91 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
   const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalActionInFlightRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const duplicateNavSuppressionKeysRef = useRef<Set<string>>(new Set());
+  const duplicateTerminalSuppressionKeysRef = useRef<Set<string>>(new Set());
+  const terminalToastKeyRef = useRef<string | null>(null);
+  const nonRetryablePrepareFailureRef = useRef<string | null>(null);
+
+  const trackReadyGateClientEvent = useCallback(
+    (eventName: string, payload: Record<string, unknown>) => {
+      trackEvent(eventName, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "ready_gate_overlay",
+        ...payload,
+      });
+    },
+    [eventId, sessionId],
+  );
+
+  const addReadyGateBreadcrumb = useCallback(
+    (message: string, data?: Record<string, unknown>) => {
+      Sentry.addBreadcrumb({
+        category: "ready-gate",
+        level: "info",
+        message,
+        data: {
+          sessionId,
+          eventId,
+          ...data,
+        },
+      });
+    },
+    [eventId, sessionId],
+  );
+
+  const suppressDuplicateNav = useCallback(
+    (source: string) => {
+      const key = `${sessionId}:${source}`;
+      if (duplicateNavSuppressionKeysRef.current.has(key)) return;
+      duplicateNavSuppressionKeysRef.current.add(key);
+      trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_DUPLICATE_NAV_SUPPRESSED, {
+        source,
+        source_action: source,
+        ready_gate_status: "both_ready",
+        reason: "navigation_already_started",
+        terminal: false,
+      });
+      addReadyGateBreadcrumb("duplicate_date_navigation_suppressed", { source });
+    },
+    [addReadyGateBreadcrumb, sessionId, trackReadyGateClientEvent],
+  );
+
+  const suppressDuplicateTerminal = useCallback(
+    (source: string, recoveryInput?: ReadyGateTerminalRecoveryInput) => {
+      const recovery = resolveReadyGateTerminalRecovery(recoveryInput ?? { reason: source });
+      const key = `${sessionId}:${source}:${recovery.category}`;
+      if (duplicateTerminalSuppressionKeysRef.current.has(key)) return;
+      duplicateTerminalSuppressionKeysRef.current.add(key);
+      trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_DUPLICATE_TERMINAL_SUPPRESSED, {
+        source,
+        source_action: source,
+        reason: recoveryInput?.reason ?? source,
+        error_code: recoveryInput?.errorCode ?? recoveryInput?.code ?? null,
+        inactive_reason: recoveryInput?.inactiveReason ?? null,
+        terminal: true,
+        terminal_category: recovery.category,
+      });
+      addReadyGateBreadcrumb("duplicate_terminal_recovery_suppressed", {
+        source,
+        terminalCategory: recovery.category,
+      });
+    },
+    [addReadyGateBreadcrumb, sessionId, trackReadyGateClientEvent],
+  );
 
   const navigateToDate = useCallback(
     (source: string) => {
-      if (dateNavigationStartedRef.current) return;
+      if (dateNavigationStartedRef.current) {
+        suppressDuplicateNav(source);
+        return;
+      }
       dateNavigationStartedRef.current = true;
       closedRef.current = true;
       setIsTransitioning(true);
+      addReadyGateBreadcrumb("date_navigation_started", { source });
       readyGateDebug("success-path navigation to date", { sessionId, source });
       const latencyContext = recordReadyGateToDateLatencyCheckpoint({
         sessionId,
@@ -179,7 +280,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       });
       onNavigateToDate(sessionId, `ready_gate_overlay_${source}`);
     },
-    [sessionId, eventId, onNavigateToDate]
+    [sessionId, eventId, onNavigateToDate, suppressDuplicateNav, addReadyGateBreadcrumb]
   );
 
   const markRealtimeDegraded = useCallback(
@@ -201,7 +302,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current && !dateNavigationStartedRef.current) return;
-    if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) return;
+    if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) {
+      suppressDuplicateNav(prepareEntryHandoffStartedRef.current ? "prepare_entry_inflight" : "date_navigation_inflight");
+      return;
+    }
     prepareEntryHandoffStartedRef.current = true;
     const runId = prepareEntryRunIdRef.current + 1;
     prepareEntryRunIdRef.current = runId;
@@ -293,8 +397,47 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
             return;
           }
 
-          const retryable = shouldRetryVideoDateEntryHandoffFailure(result);
+          const recoveryInput: ReadyGateTerminalRecoveryInput = {
+            code: result.code,
+            errorCode: result.code,
+            reason: result.message ?? null,
+            source: "prepare_entry",
+          };
+          const inactivePrepareBlocker = isReadyGatePrepareEntryNonRetryable(recoveryInput);
+          const retryable = !inactivePrepareBlocker && shouldRetryVideoDateEntryHandoffFailure(result);
           const exhausted = !retryable || attempt >= VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS.length;
+          trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_FAILURE, {
+            source_action: "prepare_entry_failed_no_nav",
+            code: result.code,
+            error_code: result.code,
+            reason: result.message ?? null,
+            httpStatus: result.httpStatus ?? null,
+            retryable,
+            terminal: !retryable,
+            attempt: attempt + 1,
+            attempt_count: attempt + 1,
+            latency_ms: Math.max(0, Date.now() - observedAtMs),
+          });
+          if (inactivePrepareBlocker) {
+            const inactiveKey = `${sessionId}:${result.code}:prepare_entry`;
+            if (nonRetryablePrepareFailureRef.current !== inactiveKey) {
+              nonRetryablePrepareFailureRef.current = inactiveKey;
+              trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_PREPARE_ENTRY_EVENT_INACTIVE, {
+                source_action: "prepare_entry_event_inactive",
+                code: result.code,
+                error_code: result.code,
+                reason: result.message ?? null,
+                retryable: false,
+                terminal: true,
+                attempt: attempt + 1,
+                latency_ms: Math.max(0, Date.now() - observedAtMs),
+              });
+              addReadyGateBreadcrumb("prepare_entry_event_inactive", {
+                code: result.code,
+                attempt: attempt + 1,
+              });
+            }
+          }
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV, {
             platform: "web",
             session_id: sessionId,
@@ -355,7 +498,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         window.clearTimeout(slowWaitTimer);
       }
     })();
-  }, [eventId, navigateToDate, sessionId]);
+  }, [eventId, navigateToDate, sessionId, suppressDuplicateNav, trackReadyGateClientEvent, addReadyGateBreadcrumb]);
 
   const retryPrepareEntry = useCallback(() => {
     if (dateNavigationStartedRef.current) return;
@@ -366,15 +509,39 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   }, [handleBothReady]);
 
   const handleForfeited = useCallback(
-    (reason: "timeout" | "skip") => {
-      if (closedRef.current || dateNavigationStartedRef.current) return;
+    (reason: "timeout" | "skip", detail?: ReadyGateTerminalDetail) => {
+      const recoveryInput: ReadyGateTerminalRecoveryInput = {
+        status: detail?.status ?? (reason === "timeout" ? "expired" : "forfeited"),
+        reason: detail?.reason ?? (reason === "timeout" ? "ready_gate_expired" : "ready_gate_forfeit"),
+        errorCode: detail?.errorCode ?? null,
+        code: detail?.code ?? null,
+        inactiveReason: detail?.inactiveReason ?? null,
+        terminal: detail?.terminal ?? true,
+        source: "ready_gate_terminal",
+      };
+      const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
+      if (closedRef.current || dateNavigationStartedRef.current) {
+        suppressDuplicateTerminal("ready_gate_terminal", recoveryInput);
+        return;
+      }
       closedRef.current = true;
       terminalActionInFlightRef.current = false;
       setTerminalActionPending(false);
       setTerminalActionError(null);
-      readyGateDebug("terminal ready-gate close", { sessionId, reason });
+      readyGateDebug("terminal ready-gate close", { sessionId, reason, terminalCategory: recovery.category });
       if (!terminalOutcomeRef.current) {
         terminalOutcomeRef.current = true;
+        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TERMINAL, {
+          source_action: "ready_gate_terminal",
+          ready_gate_status: recoveryInput.status ?? null,
+          reason: recoveryInput.reason ?? reason,
+          error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
+          inactive_reason: recoveryInput.inactiveReason ?? null,
+          terminal: true,
+          terminal_category: recovery.category,
+          retryable: recovery.retryable,
+          elapsed_ms: Math.max(0, Date.now() - readyGateOpenedAtMsRef.current),
+        });
         trackEvent(LobbyPostDateEvents.READY_GATE_TIMEOUT, {
           platform: "web",
           session_id: sessionId,
@@ -385,32 +552,58 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           realtime_healthy: !realtimeDegraded,
         });
       }
-      toast(reason === "timeout" ? "They weren't ready. Back to browsing — your deck is waiting." : "No worries — back to browsing 💚", {
+      toast(recovery.toast, {
         duration: 2500,
       });
       onClose();
     },
-    [onClose, sessionId, eventId, realtimeDegraded]
+    [onClose, sessionId, eventId, realtimeDegraded, trackReadyGateClientEvent, suppressDuplicateTerminal]
   );
 
   const closeAsStale = useCallback(
     (source: string, detail?: Record<string, unknown>) => {
-      if (closedRef.current || dateNavigationStartedRef.current) return;
+      const recoveryInput: ReadyGateTerminalRecoveryInput = {
+        status: typeof detail?.status === "string" ? detail.status : null,
+        reason: typeof detail?.reason === "string" ? detail.reason : source,
+        errorCode: typeof detail?.errorCode === "string" ? detail.errorCode : null,
+        code: typeof detail?.code === "string" ? detail.code : null,
+        inactiveReason: typeof detail?.inactiveReason === "string" ? detail.inactiveReason : null,
+        terminal: typeof detail?.terminal === "boolean" ? detail.terminal : true,
+        source,
+      };
+      const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
+      if (closedRef.current || dateNavigationStartedRef.current) {
+        suppressDuplicateTerminal(source, recoveryInput);
+        return;
+      }
       closedRef.current = true;
       readyGateDebug("stale ready-gate close", { sessionId, source, ...(detail ?? {}) });
+      trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TERMINAL, {
+        source,
+        source_action: source,
+        ready_gate_status: recoveryInput.status ?? null,
+        reason: recoveryInput.reason ?? source,
+        error_code: recoveryInput.errorCode ?? recoveryInput.code ?? null,
+        inactive_reason: recoveryInput.inactiveReason ?? null,
+        terminal: true,
+        terminal_category: recovery.category,
+        retryable: recovery.retryable,
+      });
       trackEvent(LobbyPostDateEvents.READY_GATE_STALE_CLOSE, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,
         reason: String((detail as { reason?: unknown } | undefined)?.reason ?? source),
       });
-      if (!invalidCloseToastRef.current) {
+      const toastKey = `${sessionId}:${recovery.category}:${recoveryInput.reason ?? source}`;
+      if (!invalidCloseToastRef.current && terminalToastKeyRef.current !== toastKey) {
         invalidCloseToastRef.current = true;
-        toast.info(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
+        terminalToastKeyRef.current = toastKey;
+        toast.info(recovery.toast || READY_GATE_STALE_OR_ENDED_USER_MESSAGE, { duration: 3600 });
       }
       onClose();
     },
-    [onClose, sessionId, eventId]
+    [onClose, sessionId, eventId, trackReadyGateClientEvent, suppressDuplicateTerminal]
   );
 
   const {
@@ -480,10 +673,17 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           retryable: true,
           error_name: error instanceof Error ? error.name : "unknown",
         });
+        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
+          action: "forfeit",
+          source_action: dismissVariant,
+          reason: "ready_gate_forfeit_failed",
+          error_code: "ready_gate_forfeit_failed",
+          terminal: false,
+        });
         toast.error(message, { duration: 3200 });
       }
     },
-    [eventId, handleForfeited, sessionId, skip],
+    [eventId, handleForfeited, sessionId, skip, trackReadyGateClientEvent],
   );
 
   const reconcileSession = useCallback(
@@ -499,6 +699,18 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
             source,
             error: syncResult.error,
           });
+          const recoveryInput = {
+            reason: syncResult.reason ?? syncResult.error,
+            errorCode: syncResult.errorCode ?? null,
+            inactiveReason: syncResult.inactiveReason ?? null,
+            terminal: syncResult.terminal ?? null,
+            source,
+          };
+          const recovery = resolveReadyGateTerminalRecovery(recoveryInput);
+          if (!recovery.retryable || recovery.terminal) {
+            closeAsStale(source, recoveryInput);
+            return;
+          }
         }
       }
 
@@ -729,6 +941,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     realtimeFallbackLoggedRef.current = false;
     readyGateRealtimeDegradedLoggedRef.current = false;
     terminalActionInFlightRef.current = false;
+    duplicateNavSuppressionKeysRef.current = new Set();
+    duplicateTerminalSuppressionKeysRef.current = new Set();
+    terminalToastKeyRef.current = null;
+    nonRetryablePrepareFailureRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
@@ -777,6 +993,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       prepareEntryRunIdRef.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, [sessionId]);
 
   useEffect(() => {
     if (isTransitioning || !iAmReady || partnerReady || snoozedByPartner) return;
@@ -890,6 +1110,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ready-gate-title"
+      aria-describedby="ready-gate-description"
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4"
     >
       {/* Backdrop */}
@@ -903,10 +1127,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
             animate={{ opacity: 1, scale: 1 }}
             className="absolute inset-0 z-10 bg-background flex items-center justify-center"
           >
-            <div className="text-center space-y-4">
+            <div className="text-center space-y-4" role="status" aria-live="polite" aria-atomic="true">
               <motion.div
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
+                animate={prefersReducedMotion ? undefined : { scale: [1, 1.2, 1] }}
+                transition={prefersReducedMotion ? undefined : { duration: 1.5, repeat: Infinity }}
+                aria-hidden="true"
               >
                 {prepareEntryStatus === "failed" ? (
                   <X className="w-12 h-12 text-destructive mx-auto" />
@@ -924,6 +1149,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     <button
                       onClick={retryPrepareEntry}
                       disabled={terminalActionPending}
+                      aria-label="Try video setup again"
                       className="px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium"
                     >
                       Try again
@@ -934,6 +1160,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                       void runTerminalAction("prepare_failed_back");
                     }}
                     disabled={terminalActionPending}
+                    aria-label="Leave this Ready Gate and return to the lobby"
+                    aria-busy={terminalActionPending}
                     className="px-4 py-2 rounded-full border border-border text-sm font-medium text-foreground disabled:opacity-50"
                   >
                     {terminalActionPending ? "Leaving..." : "Back to lobby"}
@@ -950,10 +1178,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
       {/* Card */}
       <motion.div
-        initial={{ y: 100, scale: 0.95, opacity: 0 }}
-        animate={{ y: 0, scale: 1, opacity: 1 }}
-        exit={{ y: 100, scale: 0.95, opacity: 0 }}
-        transition={{ type: "spring", stiffness: 300, damping: 28 }}
+        ref={dialogRef}
+        tabIndex={-1}
+        initial={prefersReducedMotion ? { opacity: 0 } : { y: 100, scale: 0.95, opacity: 0 }}
+        animate={prefersReducedMotion ? { opacity: 1 } : { y: 0, scale: 1, opacity: 1 }}
+        exit={prefersReducedMotion ? { opacity: 0 } : { y: 100, scale: 0.95, opacity: 0 }}
+        transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 28 }}
         className="relative z-10 w-full max-w-sm rounded-3xl border border-white/10 overflow-hidden mb-4 sm:mb-0"
         style={{
           background:
@@ -964,10 +1194,10 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         <div className="p-6 space-y-5">
           {/* Heading */}
           <div className="text-center space-y-1">
-            <h2 className="text-xl font-display font-bold text-foreground">
+            <h2 id="ready-gate-title" className="text-xl font-display font-bold text-foreground">
               Ready to vibe?
             </h2>
-            <p className="text-sm text-muted-foreground">
+            <p id="ready-gate-description" className="text-sm text-muted-foreground">
               You matched with {partnerName || "someone"}.
             </p>
           </div>
@@ -1013,9 +1243,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
+                role="status"
+                aria-live="polite"
                 className="flex items-center justify-center gap-2 py-2"
               >
-                <Check className="w-4 h-4 text-green-400" />
+                <Check className="w-4 h-4 text-green-400" aria-hidden="true" />
                 <span className="text-sm text-green-400 font-medium">
                   {partnerName} is ready!
                 </span>
@@ -1029,9 +1261,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
+                role="status"
+                aria-live="polite"
                 className="flex items-center justify-center gap-2 py-2"
               >
-                <Clock className="w-4 h-4 text-muted-foreground" />
+                <Clock className="w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <span className="text-sm text-muted-foreground">
                   {partnerName} needs a moment...
                 </span>
@@ -1041,12 +1275,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
           {/* Action area */}
           {showRealtimeFallbackCopy && !isTransitioning && (
-            <p className="text-center text-xs text-muted-foreground">
+            <p className="text-center text-xs text-muted-foreground" role="status" aria-live="polite">
               Syncing your date status...
             </p>
           )}
           {terminalActionError && !isTransitioning && (
-            <p className="text-center text-xs text-destructive">
+            <p className="text-center text-xs text-destructive" role="alert">
               {terminalActionError}
             </p>
           )}
@@ -1057,7 +1291,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               {/* Ready button with countdown ring */}
               <div className="flex justify-center">
                 <motion.button
-                  whileTap={{ scale: 0.92 }}
+                  whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze || terminalActionPending) return;
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
@@ -1105,6 +1339,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                           sessionId,
                           message: error instanceof Error ? error.message : String(error),
                         });
+                        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
+                          action: "mark_ready",
+                          source_action: "ready_tap",
+                          reason: "ready_gate_mark_ready_failed",
+                          error_code: "ready_gate_mark_ready_failed",
+                          terminal: false,
+                        });
                         toast.error(message, { duration: 3200 });
                       } finally {
                         setMarkingReady(false);
@@ -1112,6 +1353,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     })();
                   }}
                   disabled={markingReady || requestingSnooze || terminalActionPending}
+                  aria-label={markingReady ? "Marking you ready" : `Mark ready, ${timeLeft} seconds left`}
+                  aria-busy={markingReady}
                   className="relative"
                 >
                   <svg
@@ -1119,6 +1362,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     height={ringSize}
                     viewBox={`0 0 ${ringSize} ${ringSize}`}
                     className="absolute inset-0 -rotate-90"
+                    aria-hidden="true"
                   >
                     <circle
                       cx={ringSize / 2}
@@ -1144,11 +1388,14 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   </svg>
                   <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/30">
                     <span className="text-sm font-display font-bold text-primary-foreground text-center leading-tight px-1">
-                      {markingReady ? "Marking ready..." : "I'm Ready ✨"}
+                      {markingReady ? "Marking ready..." : "I'm Ready"}
                     </span>
                   </div>
                 </motion.button>
               </div>
+              <p className="sr-only">
+                {timeLeft > 0 ? `${timeLeft} seconds left in this Ready Gate.` : "Ready Gate countdown ended."}
+              </p>
               <p className="text-center text-xs text-muted-foreground">
                 Snooze gives you up to 2 extra minutes. Step away exits this match attempt.
               </p>
@@ -1177,6 +1424,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                           sessionId,
                           message: error instanceof Error ? error.message : String(error),
                         });
+                        trackReadyGateClientEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
+                          action: "snooze",
+                          source_action: "snooze_tap",
+                          reason: "ready_gate_snooze_failed",
+                          error_code: "ready_gate_snooze_failed",
+                          terminal: false,
+                        });
                         toast.error(message, { duration: 3200 });
                       } finally {
                         setRequestingSnooze(false);
@@ -1184,6 +1438,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     })();
                   }}
                   disabled={requestingSnooze || markingReady || terminalActionPending}
+                  aria-label="Snooze this Ready Gate for two minutes"
+                  aria-busy={requestingSnooze}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {requestingSnooze ? "Snoozing..." : "Snooze — give me 2 min"}
@@ -1194,6 +1450,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     void runTerminalAction("skip_this_one");
                   }}
                   disabled={markingReady || requestingSnooze || terminalActionPending}
+                  aria-label="Step away from this Ready Gate"
+                  aria-busy={terminalActionPending}
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {terminalActionPending ? "Leaving..." : "Step away"}
@@ -1203,11 +1461,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           ) : (
             <div className="text-center space-y-3">
               <motion.div
-                animate={{ scale: [1, 1.05, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
+                animate={prefersReducedMotion ? undefined : { scale: [1, 1.05, 1] }}
+                transition={prefersReducedMotion ? undefined : { duration: 2, repeat: Infinity }}
+                role="status"
+                aria-live="polite"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/20"
               >
-                <Check className="w-4 h-4 text-primary" />
+                <Check className="w-4 h-4 text-primary" aria-hidden="true" />
                 <span className="text-sm font-medium text-foreground">
                   You're ready. Waiting for {partnerName}...
                 </span>
@@ -1217,6 +1477,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   void runTerminalAction("cancel_go_back");
                 }}
                 disabled={requestingSnooze || markingReady || terminalActionPending}
+                aria-label="Step away while waiting for your match"
+                aria-busy={terminalActionPending}
                 className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
                 {terminalActionPending ? "Leaving..." : "Step away"}
