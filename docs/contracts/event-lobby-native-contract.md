@@ -494,11 +494,25 @@ Rollout notes:
 - do not change backend semantics from native unless a separate backend stream is opened
 - do not redesign Event Lobby or Ready Gate UI in the contract-following implementation
 
+## Prompt 9 Implementation Status
+
+Branch `fix/native-event-lobby-parity` implements the native contract-following pass.
+
+- Native gates deck fetches behind event/user/registration/pause/live checks and now treats backend `event_not_active` deck or swipe responses as a terminal lobby-closed state.
+- Native swipe handling normalizes `outcome`, `result`, and `error` before telemetry, duplicate suppression, Ready Gate routing, toast handling, and deck advancement.
+- Native covers duplicate/idempotent, unavailable, paused, registration, active-session conflict, Super Vibe limit/retry, and inactive-event outcomes without client-owned notification side effects.
+- Native consumes safe deck payload fields for media, premium/photo verification, and availability display; non-`available` candidates are not presented as normal swipe targets.
+- Ready Gate opening remains deduped by `video_session_id` and routed through backend session truth.
+- Regression coverage lives in `shared/matching/nativeEventLobbyContractParity.test.ts` and the Event Lobby harness.
+- No schema, RPC, Edge Function, provider, or environment changes were made by the native implementation stream.
+
 ## Rebuild Delta
 
-This stream is documentation-only.
+Prompt 8 was documentation-only; Prompt 9 adds native/shared client implementation coverage.
 
 - New canonical contract: `docs/contracts/event-lobby-native-contract.md`
+- Native implementation audit: `docs/audits/native-event-lobby-parity-implementation.md`
+- Native branch delta: `docs/branch-deltas/fix-native-event-lobby-parity.md`
 - No schema changes
 - No RPC return-shape changes
 - No Edge Function changes

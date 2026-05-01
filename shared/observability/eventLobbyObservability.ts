@@ -119,11 +119,15 @@ export function classifyDeckFetchError(error: unknown): DeckEmptyReason {
   if (!error) return "unknown";
   const source =
     typeof error === "object" && error !== null
-      ? `${"code" in error ? String((error as { code?: unknown }).code ?? "") : ""} ${
-          "message" in error ? String((error as { message?: unknown }).message ?? "") : ""
-        }`
+      ? [
+          "code" in error ? String((error as { code?: unknown }).code ?? "") : "",
+          "message" in error ? String((error as { message?: unknown }).message ?? "") : "",
+          "details" in error ? String((error as { details?: unknown }).details ?? "") : "",
+          "hint" in error ? String((error as { hint?: unknown }).hint ?? "") : "",
+        ].join(" ")
       : String(error);
   const normalized = source.toLowerCase();
+  if (normalized.includes("event_not_active")) return "event_not_active";
   if (
     normalized.includes("network") ||
     normalized.includes("failed to fetch") ||

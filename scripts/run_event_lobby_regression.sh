@@ -138,6 +138,7 @@ require_file "shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts"
 require_file "shared/matching/webEventLobbyGating.test.ts"
 require_file "shared/matching/eventLobbyReadyQueueContract.test.ts"
 require_file "shared/matching/eventLobbyDeckPayloadMedia.test.ts"
+require_file "shared/matching/nativeEventLobbyContractParity.test.ts"
 require_file "shared/observability/eventLobbyObservability.test.ts"
 require_file "supabase/functions/_shared/matching/videoSessionFlow.test.ts"
 
@@ -152,6 +153,7 @@ run_step npx tsx shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts
 run_step npx tsx shared/matching/webEventLobbyGating.test.ts
 run_step npx tsx shared/matching/eventLobbyReadyQueueContract.test.ts
 run_step npx tsx shared/matching/eventLobbyDeckPayloadMedia.test.ts
+run_step npx tsx shared/matching/nativeEventLobbyContractParity.test.ts
 run_step npx tsx shared/observability/eventLobbyObservability.test.ts
 run_step npx tsx supabase/functions/_shared/matching/videoSessionFlow.test.ts
 run_step git diff --check
