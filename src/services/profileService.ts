@@ -95,6 +95,7 @@ interface DbProfile {
   
   bunny_video_uid: string | null;
   bunny_video_status: string;
+  vibe_caption?: string | null;
   photo_verified: boolean | null;
   phone_verified: boolean | null;
   events_attended?: number | null;
@@ -194,9 +195,9 @@ export const dbToProfile = (dbProfile: DbProfile, vibes: string[] = []): Profile
     photos: dbProfile.photos || [],
     avatarUrl: dbProfile.avatar_url,
     
-    bunnyVideoUid: (dbProfile as any).bunny_video_uid || null,
-    bunnyVideoStatus: (dbProfile as any).bunny_video_status || "none",
-    vibeCaption: (dbProfile as any).vibe_caption || "",
+    bunnyVideoUid: dbProfile.bunny_video_uid || null,
+    bunnyVideoStatus: dbProfile.bunny_video_status || "none",
+    vibeCaption: dbProfile.vibe_caption || "",
     photoVerified: dbProfile.photo_verified || false,
     phoneVerified: dbProfile.phone_verified || false,
     stats: {
@@ -283,7 +284,7 @@ export const fetchMyProfile = async (): Promise<ProfileData | null> => {
   if (profileResult.error) throw profileResult.error;
   if (!profileResult.data) return null;
 
-  type VibeRow = { vibe_tags: any };
+  type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
   const vibes =
     (vibesResult.data as VibeRow[] | null)?.map((v) => {
       const vt = v.vibe_tags;

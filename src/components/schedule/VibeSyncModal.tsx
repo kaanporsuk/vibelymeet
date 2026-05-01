@@ -5,7 +5,7 @@ import { X, Sparkles, Calendar, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TimeBlockCell } from "./TimeBlockCell";
 import { DateProposalSheet } from "./DateProposalSheet";
-import { useMutualAvailability, TimeBlock, getTimeBlockInfo } from "@/hooks/useSchedule";
+import { useMutualAvailability, TimeBlock, getTimeBlockInfo, type DateProposal } from "@/hooks/useSchedule";
 import { cn } from "@/lib/utils";
 
 interface VibeSyncModalProps {
@@ -14,7 +14,7 @@ interface VibeSyncModalProps {
   matchName: string;
   matchAvatar: string;
   matchId: string;
-  onProposalSent?: (proposal: any) => void;
+  onProposalSent?: (proposal: DateProposal) => void;
 }
 
 export const VibeSyncModal = ({
@@ -40,7 +40,7 @@ export const VibeSyncModal = ({
     setSelectedSlot(null);
   };
 
-  const handleProposalSent = (proposal: any) => {
+  const handleProposalSent = (proposal: DateProposal) => {
     setSelectedSlot(null);
     onClose();
     onProposalSent?.(proposal);

@@ -31,8 +31,8 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
       if (error) throw error;
       setEmailSaved(true);
       setMessage('Check your inbox to confirm this account email. You can add the email trust badge later from Settings.');
-    } catch (error: any) {
-      setErrorMessage(String(error?.message || 'Could not save email. Please try again.'));
+    } catch (error: unknown) {
+      setErrorMessage(getErrorMessage(error, 'Could not save email. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -66,3 +66,6 @@ export default function EmailCollectionStep({ onNext, onSkip }: { onNext: () => 
 }
 
 const styles = StyleSheet.create({ root: { gap: 10 }, h1: { fontSize: 30, fontWeight: '700' }, sub: { fontSize: 14 }, input: { borderWidth: 1, borderRadius: 14, minHeight: 48, paddingHorizontal: 12 } });
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}

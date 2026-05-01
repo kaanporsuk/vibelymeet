@@ -8,6 +8,54 @@ import {
   DAILY_DROP_REPLY_MAX_LENGTH,
 } from '@/lib/dailyDropSchedule';
 
+type DailyDropRow = Omit<
+  DailyDropData,
+  'status' | 'user_a_viewed' | 'user_b_viewed' | 'chat_unlocked' | 'pick_reasons' | 'affinity_score'
+> & {
+  status: DailyDropData['status'];
+  user_a_viewed?: boolean | null;
+  user_b_viewed?: boolean | null;
+  chat_unlocked?: boolean | null;
+  pick_reasons?: unknown;
+  affinity_score?: number | null;
+};
+
+type DailyDropActionPayload = {
+  drop?: DailyDropRow;
+  match_id?: string;
+};
+
+function normalizePickReasons(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((reason): reason is string => typeof reason === 'string')
+    : [];
+}
+
+function toDailyDropData(d: DailyDropRow): DailyDropData {
+  return {
+    id: d.id,
+    user_a_id: d.user_a_id,
+    user_b_id: d.user_b_id,
+    drop_date: d.drop_date,
+    starts_at: d.starts_at,
+    expires_at: d.expires_at,
+    status: d.status,
+    user_a_viewed: d.user_a_viewed ?? false,
+    user_b_viewed: d.user_b_viewed ?? false,
+    opener_sender_id: d.opener_sender_id,
+    opener_text: d.opener_text,
+    opener_sent_at: d.opener_sent_at,
+    reply_sender_id: d.reply_sender_id,
+    reply_text: d.reply_text,
+    reply_sent_at: d.reply_sent_at,
+    chat_unlocked: d.chat_unlocked ?? false,
+    match_id: d.match_id,
+    passed_by_user_id: d.passed_by_user_id,
+    pick_reasons: normalizePickReasons(d.pick_reasons),
+    affinity_score: d.affinity_score ?? 0,
+  };
+}
+
 export function useDailyDrop() {
   const { user } = useUserProfile();
   const [drop, setDrop] = useState<DailyDropData | null>(null);
@@ -101,28 +149,7 @@ export function useDailyDrop() {
     }
 
     if (data) {
-      const dropData: DailyDropData = {
-        id: data.id,
-        user_a_id: data.user_a_id,
-        user_b_id: data.user_b_id,
-        drop_date: data.drop_date,
-        starts_at: data.starts_at,
-        expires_at: data.expires_at,
-        status: data.status as DailyDropData['status'],
-        user_a_viewed: data.user_a_viewed ?? false,
-        user_b_viewed: data.user_b_viewed ?? false,
-        opener_sender_id: data.opener_sender_id,
-        opener_text: data.opener_text,
-        opener_sent_at: data.opener_sent_at,
-        reply_sender_id: data.reply_sender_id,
-        reply_text: data.reply_text,
-        reply_sent_at: data.reply_sent_at,
-        chat_unlocked: data.chat_unlocked ?? false,
-        match_id: data.match_id,
-        passed_by_user_id: data.passed_by_user_id,
-        pick_reasons: (data.pick_reasons as string[]) ?? [],
-        affinity_score: data.affinity_score ?? 0,
-      };
+      const dropData = toDailyDropData(data as DailyDropRow);
       setDrop(dropData);
 
       const pid = dropData.user_a_id === user.id ? dropData.user_b_id : dropData.user_a_id;
@@ -198,29 +225,7 @@ export function useDailyDrop() {
         table: 'daily_drops',
         filter: `id=eq.${drop.id}`,
       }, (payload) => {
-        const d = payload.new as any;
-        setDrop({
-          id: d.id,
-          user_a_id: d.user_a_id,
-          user_b_id: d.user_b_id,
-          drop_date: d.drop_date,
-          starts_at: d.starts_at,
-          expires_at: d.expires_at,
-          status: d.status,
-          user_a_viewed: d.user_a_viewed ?? false,
-          user_b_viewed: d.user_b_viewed ?? false,
-          opener_sender_id: d.opener_sender_id,
-          opener_text: d.opener_text,
-          opener_sent_at: d.opener_sent_at,
-          reply_sender_id: d.reply_sender_id,
-          reply_text: d.reply_text,
-          reply_sent_at: d.reply_sent_at,
-          chat_unlocked: d.chat_unlocked ?? false,
-          match_id: d.match_id,
-          passed_by_user_id: d.passed_by_user_id,
-          pick_reasons: (d.pick_reasons as string[]) ?? [],
-          affinity_score: d.affinity_score ?? 0,
-        });
+        setDrop(toDailyDropData(payload.new as DailyDropRow));
       })
       .subscribe();
 
@@ -254,31 +259,9 @@ export function useDailyDrop() {
       console.error('Error marking daily drop viewed:', error);
       return;
     }
-    const payload = data as any;
+    const payload = data as DailyDropActionPayload | null;
     if (payload?.drop) {
-      const d = payload.drop as any;
-      setDrop({
-        id: d.id,
-        user_a_id: d.user_a_id,
-        user_b_id: d.user_b_id,
-        drop_date: d.drop_date,
-        starts_at: d.starts_at,
-        expires_at: d.expires_at,
-        status: d.status,
-        user_a_viewed: d.user_a_viewed ?? false,
-        user_b_viewed: d.user_b_viewed ?? false,
-        opener_sender_id: d.opener_sender_id,
-        opener_text: d.opener_text,
-        opener_sent_at: d.opener_sent_at,
-        reply_sender_id: d.reply_sender_id,
-        reply_text: d.reply_text,
-        reply_sent_at: d.reply_sent_at,
-        chat_unlocked: d.chat_unlocked ?? false,
-        match_id: d.match_id,
-        passed_by_user_id: d.passed_by_user_id,
-        pick_reasons: (d.pick_reasons as string[]) ?? [],
-        affinity_score: d.affinity_score ?? 0,
-      });
+      setDrop(toDailyDropData(payload.drop));
     }
   }, [drop, user, myRole]);
 
@@ -300,31 +283,9 @@ export function useDailyDrop() {
       console.error('Error sending daily drop opener:', error);
       return;
     }
-    const payload = data as any;
+    const payload = data as DailyDropActionPayload | null;
     if (payload?.drop) {
-      const d = payload.drop as any;
-      setDrop({
-        id: d.id,
-        user_a_id: d.user_a_id,
-        user_b_id: d.user_b_id,
-        drop_date: d.drop_date,
-        starts_at: d.starts_at,
-        expires_at: d.expires_at,
-        status: d.status,
-        user_a_viewed: d.user_a_viewed ?? false,
-        user_b_viewed: d.user_b_viewed ?? false,
-        opener_sender_id: d.opener_sender_id,
-        opener_text: d.opener_text,
-        opener_sent_at: d.opener_sent_at,
-        reply_sender_id: d.reply_sender_id,
-        reply_text: d.reply_text,
-        reply_sent_at: d.reply_sent_at,
-        chat_unlocked: d.chat_unlocked ?? false,
-        match_id: d.match_id,
-        passed_by_user_id: d.passed_by_user_id,
-        pick_reasons: (d.pick_reasons as string[]) ?? [],
-        affinity_score: d.affinity_score ?? 0,
-      });
+      setDrop(toDailyDropData(payload.drop));
     }
   }, [drop, user, partnerId]);
 
@@ -346,32 +307,10 @@ export function useDailyDrop() {
       console.error('Error sending daily drop reply:', error);
       return;
     }
-    const payload = data as any;
-    const newMatchId = payload?.match_id as string | undefined;
+    const payload = data as DailyDropActionPayload | null;
+    const newMatchId = payload?.match_id;
     if (payload?.drop) {
-      const d = payload.drop as any;
-      setDrop({
-        id: d.id,
-        user_a_id: d.user_a_id,
-        user_b_id: d.user_b_id,
-        drop_date: d.drop_date,
-        starts_at: d.starts_at,
-        expires_at: d.expires_at,
-        status: d.status,
-        user_a_viewed: d.user_a_viewed ?? false,
-        user_b_viewed: d.user_b_viewed ?? false,
-        opener_sender_id: d.opener_sender_id,
-        opener_text: d.opener_text,
-        opener_sent_at: d.opener_sent_at,
-        reply_sender_id: d.reply_sender_id,
-        reply_text: d.reply_text,
-        reply_sent_at: d.reply_sent_at,
-        chat_unlocked: d.chat_unlocked ?? false,
-        match_id: d.match_id,
-        passed_by_user_id: d.passed_by_user_id,
-        pick_reasons: (d.pick_reasons as string[]) ?? [],
-        affinity_score: d.affinity_score ?? 0,
-      });
+      setDrop(toDailyDropData(payload.drop));
     }
   }, [drop, user, partnerId, partner?.name]);
 
@@ -386,31 +325,9 @@ export function useDailyDrop() {
       console.error('Error passing daily drop:', error);
       return;
     }
-    const payload = data as any;
+    const payload = data as DailyDropActionPayload | null;
     if (payload?.drop) {
-      const d = payload.drop as any;
-      setDrop({
-        id: d.id,
-        user_a_id: d.user_a_id,
-        user_b_id: d.user_b_id,
-        drop_date: d.drop_date,
-        starts_at: d.starts_at,
-        expires_at: d.expires_at,
-        status: d.status,
-        user_a_viewed: d.user_a_viewed ?? false,
-        user_b_viewed: d.user_b_viewed ?? false,
-        opener_sender_id: d.opener_sender_id,
-        opener_text: d.opener_text,
-        opener_sent_at: d.opener_sent_at,
-        reply_sender_id: d.reply_sender_id,
-        reply_text: d.reply_text,
-        reply_sent_at: d.reply_sent_at,
-        chat_unlocked: d.chat_unlocked ?? false,
-        match_id: d.match_id,
-        passed_by_user_id: d.passed_by_user_id,
-        pick_reasons: (d.pick_reasons as string[]) ?? [],
-        affinity_score: d.affinity_score ?? 0,
-      });
+      setDrop(toDailyDropData(payload.drop));
     }
   }, [drop, user]);
 

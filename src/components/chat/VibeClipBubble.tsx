@@ -22,6 +22,10 @@ import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds, threadBucketFromCount } from "../../../shared/chat/vibeClipAnalytics";
 import { cn } from "@/lib/utils";
 
+type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
   isMine: boolean;
@@ -168,8 +172,9 @@ export const VibeClipBubble = ({
       if (!video) return;
       if (video.requestFullscreen) {
         video.requestFullscreen();
-      } else if ((video as any).webkitEnterFullscreen) {
-        (video as any).webkitEnterFullscreen();
+      } else {
+        const webkitVideo = video as VideoElementWithWebkitFullscreen;
+        webkitVideo.webkitEnterFullscreen?.();
       }
     },
     [onRequestImmersive],

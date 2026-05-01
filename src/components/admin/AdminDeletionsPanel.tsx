@@ -8,6 +8,23 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+type DeletionRequest = {
+  id: string;
+  user_id: string;
+  status: "pending" | "completed" | "cancelled" | string;
+  requested_at: string;
+  scheduled_deletion_at?: string | null;
+  reason?: string | null;
+  cancelled_at?: string | null;
+};
+
+type DeletionProfile = {
+  id: string;
+  name: string | null;
+  email_verified?: boolean | null;
+  avatar_url?: string | null;
+};
+
 const AdminDeletionsPanel = () => {
   const queryClient = useQueryClient();
 
@@ -20,12 +37,12 @@ const AdminDeletionsPanel = () => {
         .order("requested_at", { ascending: false });
 
       if (error) throw error;
-      return data || [];
+      return (data || []) as DeletionRequest[];
     },
   });
 
   // Fetch profile names for display
-  const userIds = [...new Set(requests.map((r: any) => r.user_id))];
+  const userIds = [...new Set(requests.map((r) => r.user_id))];
   const { data: profiles = [] } = useQuery({
     queryKey: ["admin-deletion-profiles", userIds],
     queryFn: async () => {
@@ -34,16 +51,16 @@ const AdminDeletionsPanel = () => {
         .from("profiles")
         .select("id, name, email_verified, avatar_url")
         .in("id", userIds);
-      return data || [];
+      return (data || []) as DeletionProfile[];
     },
     enabled: userIds.length > 0,
   });
 
-  const profileMap = new Map(profiles.map((p: any) => [p.id, p]));
+  const profileMap = new Map(profiles.map((p) => [p.id, p]));
 
   const processNow = useMutation({
     mutationFn: async (requestId: string) => {
-      const request = requests.find((r: any) => r.id === requestId);
+      const request = requests.find((r) => r.id === requestId);
       if (!request) throw new Error("Request not found");
 
       // Mark as completed
@@ -63,9 +80,9 @@ const AdminDeletionsPanel = () => {
     },
   });
 
-  const pending = requests.filter((r: any) => r.status === "pending");
-  const completed = requests.filter((r: any) => r.status === "completed");
-  const cancelled = requests.filter((r: any) => r.status === "cancelled");
+  const pending = requests.filter((r) => r.status === "pending");
+  const completed = requests.filter((r) => r.status === "completed");
+  const cancelled = requests.filter((r) => r.status === "cancelled");
 
   const statusBadge = (status: string) => {
     switch (status) {
@@ -80,7 +97,7 @@ const AdminDeletionsPanel = () => {
     }
   };
 
-  const renderRequestRow = (request: any, showProcessButton = false) => {
+  const renderRequestRow = (request: DeletionRequest, showProcessButton = false) => {
     const profile = profileMap.get(request.user_id);
     return (
       <div key={request.id} className="flex items-center justify-between p-4 rounded-xl bg-secondary/40 border border-border/50">
@@ -161,7 +178,7 @@ const AdminDeletionsPanel = () => {
           {pending.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No pending deletion requests</p>
           ) : (
-            pending.map((r: any) => renderRequestRow(r, true))
+            pending.map((r) => renderRequestRow(r, true))
           )}
         </TabsContent>
 
@@ -169,7 +186,7 @@ const AdminDeletionsPanel = () => {
           {completed.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No completed deletions</p>
           ) : (
-            completed.map((r: any) => renderRequestRow(r))
+            completed.map((r) => renderRequestRow(r))
           )}
         </TabsContent>
 
@@ -177,7 +194,7 @@ const AdminDeletionsPanel = () => {
           {cancelled.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No recovered accounts</p>
           ) : (
-            cancelled.map((r: any) => renderRequestRow(r))
+            cancelled.map((r) => renderRequestRow(r))
           )}
         </TabsContent>
       </Tabs>

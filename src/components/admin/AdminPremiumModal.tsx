@@ -36,6 +36,20 @@ interface AdminPremiumModalProps {
 
 type Duration = "1week" | "1month" | "3months" | "1year" | "custom";
 
+type PremiumHistoryEntry = {
+  id: string;
+  action: string;
+  premium_until: string | null;
+  reason: string | null;
+  created_at: string;
+  admin_id: string | null;
+  adminName: string;
+};
+
+function premiumErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 const durationOptions: { value: Duration; label: string }[] = [
   { value: "1week", label: "1 Week" },
   { value: "1month", label: "1 Month" },
@@ -135,8 +149,8 @@ const AdminPremiumModal = ({
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
       onClose();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to grant premium");
+    } catch (e: unknown) {
+      toast.error(premiumErrorMessage(e, "Failed to grant premium"));
     } finally {
       setIsSubmitting(false);
     }
@@ -173,8 +187,8 @@ const AdminPremiumModal = ({
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
       onClose();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to extend premium");
+    } catch (e: unknown) {
+      toast.error(premiumErrorMessage(e, "Failed to extend premium"));
     } finally {
       setIsSubmitting(false);
     }
@@ -208,8 +222,8 @@ const AdminPremiumModal = ({
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
       setShowRevokeConfirm(false);
       onClose();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to revoke premium");
+    } catch (e: unknown) {
+      toast.error(premiumErrorMessage(e, "Failed to revoke premium"));
     } finally {
       setIsSubmitting(false);
     }
@@ -393,7 +407,7 @@ const AdminPremiumModal = ({
             {history?.length === 0 && (
               <p className="text-xs text-muted-foreground">No history yet</p>
             )}
-            {history?.map((entry: any) => (
+            {(history as PremiumHistoryEntry[] | undefined)?.map((entry) => (
               <div key={entry.id} className="flex items-start gap-2 text-xs p-2 rounded-lg bg-secondary/30">
                 <Badge variant="outline" className={`text-[10px] shrink-0 ${actionBadgeColor[entry.action] || ""}`}>
                   {entry.action}

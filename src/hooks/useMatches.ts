@@ -56,6 +56,21 @@ type MatchLatestMessageRow = {
   structured_payload: unknown;
 };
 
+type MatchRealtimeRow = {
+  profile_id_1?: string | null;
+  profile_id_2?: string | null;
+};
+
+type ProfileVibeRow = {
+  profile_id: string;
+  vibe_tags: { label: string | null } | { label: string | null }[] | null;
+};
+
+type MatchEventRow = {
+  id: string;
+  title: string;
+};
+
 export interface Match {
   id: string;
   name: string;
@@ -111,7 +126,7 @@ export const useMatches = () => {
           table: "matches",
         },
         (payload) => {
-          const row = payload.new as any;
+          const row = payload.new as MatchRealtimeRow;
           if (row.profile_id_1 === userId || row.profile_id_2 === userId) {
             queryClient.invalidateQueries({ queryKey: ["matches"] });
             queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
@@ -126,7 +141,7 @@ export const useMatches = () => {
           table: "matches",
         },
         (payload) => {
-          const row = payload.new as any;
+          const row = payload.new as MatchRealtimeRow;
           if (row.profile_id_1 === userId || row.profile_id_2 === userId) {
             queryClient.invalidateQueries({ queryKey: ["matches"] });
           }
@@ -203,9 +218,9 @@ export const useMatches = () => {
         ]);
 
       const profiles = (profilesResult.data || []) as MatchesListProfileRow[];
-      const profileVibes = vibesResult.data || [];
+      const profileVibes = (vibesResult.data || []) as ProfileVibeRow[];
       const lastMessages = messagesResult.data || [];
-      const events = eventsResult.data || [];
+      const events = (eventsResult.data || []) as MatchEventRow[];
 
       const messagesByMatch: Record<string, MatchLatestMessageRow> = {};
       lastMessages.forEach((msg) => {
@@ -216,16 +231,22 @@ export const useMatches = () => {
       });
 
       const vibesByProfile: Record<string, string[]> = {};
-      profileVibes.forEach((pv: any) => {
+      profileVibes.forEach((pv) => {
         if (!vibesByProfile[pv.profile_id]) {
           vibesByProfile[pv.profile_id] = [];
         }
-        if (pv.vibe_tags?.label) {
-          const lbl = pv.vibe_tags.label as string;
+        const vibeTags = Array.isArray(pv.vibe_tags)
+          ? pv.vibe_tags
+          : pv.vibe_tags
+            ? [pv.vibe_tags]
+            : [];
+        vibeTags.forEach((tag) => {
+          const lbl = tag.label;
+          if (!lbl) return;
           if (!vibesByProfile[pv.profile_id].includes(lbl)) {
             vibesByProfile[pv.profile_id].push(lbl);
           }
-        }
+        });
       });
 
       const viewerProfile = profiles.find((p) => p.id === userId);
@@ -233,7 +254,7 @@ export const useMatches = () => {
       const viewerLookingFor = profileIntentForMatch(viewerProfile);
 
       const eventsById: Record<string, string> = {};
-      events.forEach((e: any) => {
+      events.forEach((e) => {
         eventsById[e.id] = e.title;
       });
 

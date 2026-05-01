@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence, PanInfo } from 'framer-motion';
+import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
 import { Mic, Trash2, Lock, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -212,12 +212,12 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
   }, [onCancel]);
 
   // Handle drag
-  const handleDrag = (_: any, info: PanInfo) => {
+  const handleDrag = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     setDragOffset({ x: info.offset.x, y: info.offset.y });
   };
 
   // Handle drag end
-  const handleDragEnd = (_: any, info: PanInfo) => {
+  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     // Slide up to lock
     if (info.offset.y < -60 && !isLocked) {
       setIsLocked(true);

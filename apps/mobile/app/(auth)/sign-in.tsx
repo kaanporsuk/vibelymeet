@@ -22,8 +22,24 @@ import { buildAppleNameMetadataPatch, createAppleAuthNoncePair, logAppleNonceDeb
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
-function mapPhoneOtpSendError(e: { message?: string; status?: number; code?: string }): string {
-  const msg = String(e?.message ?? '');
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code ?? '')
+    : undefined;
+}
+
+function errorStatus(error: unknown): number | undefined {
+  return typeof error === 'object' && error !== null && 'status' in error
+    ? Number((error as { status?: unknown }).status)
+    : undefined;
+}
+
+function mapPhoneOtpSendError(e: unknown): string {
+  const msg = errorMessage(e, '');
   const lower = msg.toLowerCase();
   if (/phone.*not.*enabled|sms.*not|provider|not supported/i.test(msg)) {
     return 'Phone sign-in isn’t available on this app build. Try email or another method, or contact support.';
@@ -31,7 +47,7 @@ function mapPhoneOtpSendError(e: { message?: string; status?: number; code?: str
   if (/invalid.*phone|malformed|format|e\.164/i.test(msg)) {
     return 'That number doesn’t look valid for the selected country. Use digits only and skip the leading 0.';
   }
-  if (/rate|too many|flood|429/i.test(lower) || e?.status === 429) {
+  if (/rate|too many|flood|429/i.test(lower) || errorStatus(e) === 429) {
     return 'Too many attempts. Wait a few minutes, then try again.';
   }
   if ((/otp|sms|send|text/i.test(lower) && /fail|error|unable/i.test(lower)) || /confirmation/i.test(lower)) {
@@ -353,7 +369,7 @@ export default function SignInScreen() {
       setView('otp');
       setResendAttempts(0);
       setResendRemaining(60);
-    } catch (e: any) {
+    } catch (e: unknown) {
       const conflict = mapAuthConflictError(e, 'phone_otp_send');
       if (conflict.message) {
         setError(conflict.message);
@@ -412,7 +428,7 @@ export default function SignInScreen() {
       const nextAttempts = resendAttempts + 1;
       setResendAttempts(nextAttempts);
       setResendRemaining(nextAttempts === 1 ? 60 : nextAttempts === 2 ? 180 : 900);
-    } catch (e: any) {
+    } catch (e: unknown) {
       const conflict = mapAuthConflictError(e, 'phone_otp_resend');
       if (conflict.message) setError(conflict.message);
       else setError(mapPhoneOtpSendError(e));
@@ -431,10 +447,10 @@ export default function SignInScreen() {
       const { error: e } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (e) throw e;
       setView('success');
-    } catch (e: any) {
+    } catch (e: unknown) {
       const conflict = mapAuthConflictError(e, 'email_sign_in');
       if (conflict.message) setError(conflict.message);
-      else setError(String(e?.message ?? 'Sign in failed'));
+      else setError(errorMessage(e, 'Sign in failed'));
     } finally {
       setLoading(false);
     }
@@ -470,13 +486,13 @@ export default function SignInScreen() {
       }
       setPendingConfirmationEmail(signupEmail);
       setView('email_signup_pending');
-    } catch (e: any) {
+    } catch (e: unknown) {
       const conflict = mapAuthConflictError(e, 'email_sign_up');
       if (conflict.message) {
         setError(conflict.message);
         if (conflict.suggestEmailSignIn) setView('email_signin');
       } else {
-        setError(e?.message ?? 'Sign up failed');
+        setError(errorMessage(e, 'Sign up failed'));
       }
     } finally {
       setLoading(false);
@@ -575,13 +591,13 @@ export default function SignInScreen() {
       }
       trackEvent('auth_social_completed', { provider: 'apple', platform: 'native' });
       setView('success');
-    } catch (e: any) {
-      if (e?.code === 'ERR_REQUEST_CANCELED') return;
+    } catch (e: unknown) {
+      if (errorCode(e) === 'ERR_REQUEST_CANCELED') return;
       const conflict = mapAuthConflictError(e, 'apple');
       if (conflict.message) {
         setError(conflict.message);
       } else {
-        setError(String(e?.message || 'Apple Sign In failed. Try another method.'));
+        setError(errorMessage(e, 'Apple Sign In failed. Try another method.'));
       }
     } finally {
       setLoading(false);

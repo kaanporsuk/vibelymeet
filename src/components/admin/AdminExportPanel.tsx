@@ -10,6 +10,7 @@ import {
   CheckCircle,
   FileSpreadsheet,
   File,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,9 +35,16 @@ interface ExportOption {
   id: ExportType;
   label: string;
   description: string;
-  icon: any;
+  icon: LucideIcon;
   color: string;
 }
+
+type ExportCell = string | number | boolean | null | undefined;
+
+type ProfileVibeExportRow = {
+  profile_id: string;
+  vibe_tags: { label: string | null } | { label: string | null }[] | null;
+};
 
 const exportOptions: ExportOption[] = [
   {
@@ -129,7 +137,7 @@ const AdminExportPanel = () => {
       .replace(/'/g, '&#039;');
   };
 
-  const generatePDFContent = (title: string, headers: string[], rows: any[][]): string => {
+  const generatePDFContent = (title: string, headers: string[], rows: ExportCell[][]): string => {
     // Generate a simple HTML table that can be printed as PDF
     // All content is escaped to prevent XSS attacks
     const tableRows = rows.map(row => 
@@ -168,7 +176,7 @@ const AdminExportPanel = () => {
     `;
   };
 
-  const downloadData = (headers: string[], rows: any[][], filename: string, title: string) => {
+  const downloadData = (headers: string[], rows: ExportCell[][], filename: string, title: string) => {
     if (exportFormat === "csv") {
       const csv = [
         headers.join(","),
@@ -238,9 +246,12 @@ const AdminExportPanel = () => {
       `);
 
     const vibesByUser: Record<string, string[]> = {};
-    vibesData?.forEach((v) => {
+    (vibesData as ProfileVibeExportRow[] | null)?.forEach((v) => {
       if (!vibesByUser[v.profile_id]) vibesByUser[v.profile_id] = [];
-      if (v.vibe_tags) vibesByUser[v.profile_id].push((v.vibe_tags as any).label);
+      const vibeTags = Array.isArray(v.vibe_tags) ? v.vibe_tags : v.vibe_tags ? [v.vibe_tags] : [];
+      vibeTags.forEach((tag) => {
+        if (tag.label) vibesByUser[v.profile_id].push(tag.label);
+      });
     });
 
     const headers = [

@@ -20,6 +20,7 @@ import {
 
 const ENTRY_RECOVERY_HREF = '/entry-recovery' as Href;
 import {
+  type SupabaseClient,
   loadOnboardingDraft,
   saveOnboardingDraft,
   executeOnboardingCompletion,
@@ -49,6 +50,7 @@ import {
 } from '@shared/onboardingTypes';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 
+const onboardingSupabase = supabase as unknown as SupabaseClient;
 const PHOTOS_STEP_INDEX = 7;
 
 export default function OnboardingV2Screen() {
@@ -110,7 +112,7 @@ export default function OnboardingV2Screen() {
       } catch { /* noop */ }
 
       // Then load authoritative server draft
-      const result = await loadOnboardingDraft(supabase as any, userId);
+      const result = await loadOnboardingDraft(onboardingSupabase, userId);
       if (result.error) {
         setDraftCloudSaveHint(
           'Could not load saved progress from the server. You can continue; we will keep saving locally and retry syncing.',
@@ -152,7 +154,7 @@ export default function OnboardingV2Screen() {
     if (!session?.user?.id || !draftLoaded || completed) return;
 
     const timer = setTimeout(() => {
-      void saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native').then((r) => {
+      void saveOnboardingDraft(onboardingSupabase, session.user.id, currentStep, data, 'native').then((r) => {
         if (r.success) setDraftCloudSaveHint(null);
         else {
           console.warn('[onboarding] server draft save failed (non-fatal)');
@@ -247,7 +249,7 @@ export default function OnboardingV2Screen() {
 
   const retryCloudDraftSync = useCallback(async () => {
     if (!session?.user?.id || !draftLoaded || completed) return;
-    const r = await saveOnboardingDraft(supabase as any, session.user.id, currentStep, data, 'native');
+    const r = await saveOnboardingDraft(onboardingSupabase, session.user.id, currentStep, data, 'native');
     if (r.success) setDraftCloudSaveHint(null);
     else {
       setDraftCloudSaveHint(
@@ -321,7 +323,7 @@ export default function OnboardingV2Screen() {
       }
 
       const result = await executeOnboardingCompletion({
-        supabase: supabase as any,
+        supabase: onboardingSupabase,
         userId: session.user.id,
         data: dataForFinalize,
         clearLocalDraft: async () => {
@@ -351,13 +353,13 @@ export default function OnboardingV2Screen() {
       setCompleted(true);
       setCompletionError(null);
       await refreshEntryState();
-    } catch (error: any) {
+    } catch (error: unknown) {
       rcBreadcrumb(RC_CATEGORY.onboardingFinalize, 'finalize_exception', {
-        message_snippet: String(error?.message ?? 'unknown').slice(0, 120),
+        message_snippet: (error instanceof Error ? error.message : 'unknown').slice(0, 120),
       });
       submitOnceRef.current = false;
       setCompletionError(
-        String(error?.message || "Couldn't save your profile. Check your connection and try again.")
+        error instanceof Error ? error.message : "Couldn't save your profile. Check your connection and try again."
       );
     } finally {
       setSubmitting(false);

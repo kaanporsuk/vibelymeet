@@ -9,6 +9,12 @@ interface VibeOption {
   category: string;
 }
 
+type VibeTagRow = {
+  label: string;
+  emoji: string;
+  category: string | null;
+};
+
 const fallbackVibes: VibeOption[] = [
   // Energy
   { label: "Playful", emoji: "😄", category: "energy" },
@@ -64,7 +70,7 @@ export const VibeTagSelector = ({
   const { data: vibeTags, isLoading } = useVibeTags();
 
   const vibeOptions: VibeOption[] = (vibeTags?.length
-    ? vibeTags.map((t: any) => ({ label: t.label, emoji: t.emoji, category: t.category || "shared_scenes" }))
+    ? (vibeTags as VibeTagRow[]).map((t) => ({ label: t.label, emoji: t.emoji, category: t.category || "shared_scenes" }))
     : fallbackVibes
   ).filter(Boolean);
 

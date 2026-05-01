@@ -42,7 +42,11 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
-import { getRelationshipIntentAliases, getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
+import {
+  getRelationshipIntentAliases,
+  getRelationshipIntentDisplaySafe,
+  type RelationshipIntentId,
+} from "@shared/profileContracts";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -112,6 +116,7 @@ const AdminUsersPanel = () => {
           
           email_verified,
           photo_verified,
+          is_premium,
           is_suspended,
           created_at,
           updated_at,
@@ -136,7 +141,7 @@ const AdminUsersPanel = () => {
       }
 
       if (lookingForFilter !== 'all') {
-        const aliases = getRelationshipIntentAliases(lookingForFilter as any);
+        const aliases = getRelationshipIntentAliases(lookingForFilter as RelationshipIntentId);
         const relOr = aliases.map((a) => `relationship_intent.eq.${a}`).join(',');
         const lfOr = aliases.map((a) => `looking_for.eq.${a}`).join(',');
         query = query.or(`${relOr},${lfOr}`);
@@ -417,7 +422,7 @@ const AdminUsersPanel = () => {
                         <div>
                           <p className="font-medium text-foreground flex items-center gap-2">
                             {user.name}
-                            {(user as any).is_premium && (
+                            {user.is_premium && (
                               <Crown className="w-4 h-4 text-primary shrink-0" />
                             )}
                             {user.photo_verified && (

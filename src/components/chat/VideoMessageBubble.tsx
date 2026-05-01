@@ -15,6 +15,10 @@ interface VideoMessageBubbleProps {
   threadVisualRecede?: boolean;
 }
 
+type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+};
+
 const formatDuration = (s: number) => {
   const m = Math.floor(s / 60);
   const sec = s % 60;
@@ -131,8 +135,9 @@ export const VideoMessageBubble = ({
       if (!video) return;
       if (video.requestFullscreen) {
         video.requestFullscreen();
-      } else if ((video as any).webkitEnterFullscreen) {
-        (video as any).webkitEnterFullscreen();
+      } else {
+        const webkitVideo = video as VideoElementWithWebkitFullscreen;
+        webkitVideo.webkitEnterFullscreen?.();
       }
     },
     [onRequestImmersive],

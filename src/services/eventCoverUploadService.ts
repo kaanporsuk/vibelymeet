@@ -1,5 +1,11 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
+type UploadEventCoverResponse = {
+  success?: boolean;
+  error?: string;
+  url: string;
+};
+
 export async function uploadEventCoverToBunny(
   file: File,
   accessToken: string,
@@ -22,9 +28,9 @@ export async function uploadEventCoverToBunny(
     }
   );
 
-  let data: any;
+  let data: UploadEventCoverResponse;
   try {
-    data = await res.json();
+    data = await res.json() as UploadEventCoverResponse;
   } catch {
     throw new Error("Upload service unavailable. Please try again.");
   }

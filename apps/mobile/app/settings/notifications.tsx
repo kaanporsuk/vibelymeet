@@ -44,6 +44,8 @@ import { getCalendars } from 'expo-localization';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
 const AMBER = '#F59E0B';
 
 const NOTIFICATION_SECTIONS = [
@@ -503,7 +505,7 @@ export default function NotificationsSettingsScreen() {
       return (
         <View style={[styles.statusCard, { backgroundColor: withAlpha(theme.border, 0.4), borderColor: theme.glassBorder }]}>
           <View style={[styles.statusIconWrap, { backgroundColor: withAlpha(theme.mutedForeground, 0.1) }]}>
-            <Ionicons name={'bell-off-outline' as any} size={28} color={theme.mutedForeground} />
+            <Ionicons name={'bell-off-outline' as IoniconName} size={28} color={theme.mutedForeground} />
           </View>
           <Text style={{ fontSize: 12, color: theme.mutedForeground, marginTop: 10 }}>Push notifications</Text>
           <Text style={{ fontSize: 17, fontWeight: '700', color: theme.mutedForeground }}>Disabled</Text>

@@ -31,7 +31,34 @@ import { notifyAttendeesOfEventCancellation } from "@/lib/adminEventCancellation
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const getComputedStatus = (event: any): string => {
+type AdminEventRow = {
+  id: string;
+  title: string;
+  description?: string | null;
+  cover_image: string | null;
+  event_date: string;
+  duration_minutes: number | null;
+  current_attendees: number | null;
+  max_attendees: number | null;
+  status: string | null;
+  ended_at?: string | null;
+  archived_at?: string | null;
+  archived_by?: string | null;
+  city?: string | null;
+  country?: string | null;
+  scope?: "global" | "regional" | "local" | null;
+  radius_km?: number | null;
+  is_recurring?: boolean | null;
+  parent_event_id?: string | null;
+  occurrence_number?: number | null;
+  recurrence_type?: "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly" | null;
+};
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+const getComputedStatus = (event: AdminEventRow): string => {
   if (event.status === 'cancelled') return 'cancelled';
   if (event.status === 'ended' || event.ended_at) return 'ended';
   if (event.status === 'draft') return 'draft';
@@ -58,7 +85,7 @@ const SCOPE_BADGE: Record<string, string> = {
   local:    '📍 Local',
 };
 
-const getRecurrenceSummary = (event: any): string => {
+const getRecurrenceSummary = (event: AdminEventRow): string => {
   switch (event.recurrence_type) {
     case 'weekly':    return `Every week`;
     case 'biweekly':  return `Every 2 weeks`;
@@ -81,8 +108,8 @@ const AdminEventsPanel = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBatchImport, setShowBatchImport] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<any>(null);
-  const [viewingAttendeesEvent, setViewingAttendeesEvent] = useState<any>(null);
+  const [editingEvent, setEditingEvent] = useState<AdminEventRow | null>(null);
+  const [viewingAttendeesEvent, setViewingAttendeesEvent] = useState<AdminEventRow | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all");
@@ -112,8 +139,10 @@ const AdminEventsPanel = () => {
       const { data, error } = await query;
       if (error) throw error;
 
+      const rows = (data || []) as AdminEventRow[];
+
       // Auto-update stale statuses
-      const staleIds = (data || [])
+      const staleIds = rows
         .filter(e => {
           const end = new Date(new Date(e.event_date).getTime() + (e.duration_minutes || 60) * 60000);
           return new Date() > end && !['ended', 'completed', 'cancelled'].includes(e.status || '');
@@ -125,7 +154,7 @@ const AdminEventsPanel = () => {
       }
 
       // Auto-live events that have started but are still 'upcoming'
-      const liveIds = (data || [])
+      const liveIds = rows
         .filter(e => {
           const now2 = new Date();
           const start = new Date(e.event_date);
@@ -138,7 +167,7 @@ const AdminEventsPanel = () => {
         await supabase.from('events').update({ status: 'live' }).in('id', liveIds);
       }
 
-      return data || [];
+      return rows;
     },
   });
 
@@ -205,7 +234,7 @@ const AdminEventsPanel = () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success('Event permanently deleted');
     },
-    onError: (err: any) => toast.error(`Failed to delete: ${err.message}`),
+    onError: (err: unknown) => toast.error(`Failed to delete: ${errorMessage(err, "delete_failed")}`),
   });
 
   const cancelEvent = useMutation({
@@ -229,7 +258,7 @@ const AdminEventsPanel = () => {
       const w = counts?.waitlistSent ?? 0;
       toast.success(`Event cancelled — push sent: ${c} confirmed, ${w} waitlisted`);
     },
-    onError: (err: any) => toast.error(err?.message || 'Failed to cancel event'),
+    onError: (err: unknown) => toast.error(errorMessage(err, 'Failed to cancel event')),
   });
 
   // Archive entire series
@@ -285,7 +314,7 @@ const AdminEventsPanel = () => {
     else setSelectedIds(new Set(filteredEvents.map(e => e.id)));
   };
 
-  const renderEventRow = (event: any, isChild = false) => {
+  const renderEventRow = (event: AdminEventRow, isChild = false) => {
     const computed = getComputedStatus(event);
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];

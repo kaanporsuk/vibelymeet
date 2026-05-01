@@ -93,6 +93,15 @@ export interface IdentityLinkingState {
   linkingProvider: ProviderType | null;
 }
 
+function isRequestCancelledError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ERR_REQUEST_CANCELED'
+  );
+}
+
 // ---------- hook ----------
 
 export function useIdentityLinking() {
@@ -269,7 +278,7 @@ export function useIdentityLinking() {
         setState(prev => ({ ...prev, isLinking: false, linkingProvider: null }));
       } catch (err) {
         // Swallow Apple cancellation silently
-        if ((err as any)?.code === 'ERR_REQUEST_CANCELED') {
+        if (isRequestCancelledError(err)) {
           setState(prev => ({ ...prev, isLinking: false, linkingProvider: null }));
           return;
         }

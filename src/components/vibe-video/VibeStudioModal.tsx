@@ -34,6 +34,14 @@ const COACH_TIPS = [
 
 const RECORDING_DURATION = MAX_VIBE_VIDEO_DURATION_S;
 
+type ZoomMediaTrackCapabilities = MediaTrackCapabilities & {
+  zoom?: { min?: number };
+};
+
+type ZoomMediaTrackConstraints = MediaTrackConstraints & {
+  advanced?: Array<MediaTrackConstraintSet & { zoom?: number }>;
+};
+
 export const VibeStudioModal = ({
   open,
   onOpenChange,
@@ -118,9 +126,12 @@ export const VibeStudioModal = ({
         // Reset zoom to minimum if the browser supports it (iOS Safari safety net)
         try {
           const videoTrack = stream.getVideoTracks()[0];
-          const caps = (videoTrack as any).getCapabilities?.();
+          const caps = videoTrack.getCapabilities?.() as ZoomMediaTrackCapabilities | undefined;
           if (caps?.zoom && typeof caps.zoom === 'object' && 'min' in caps.zoom) {
-            await (videoTrack as any).applyConstraints({ advanced: [{ zoom: (caps.zoom as any).min }] } as any);
+            const constraints: ZoomMediaTrackConstraints = {
+              advanced: [{ zoom: caps.zoom.min }],
+            };
+            await videoTrack.applyConstraints(constraints);
           }
         } catch (_) {
           // Not all browsers support zoom constraint — that's fine

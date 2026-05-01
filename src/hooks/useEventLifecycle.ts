@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
+type EventLifecyclePayload = {
+  status?: string | null;
+};
+
 interface UseEventLifecycleOptions {
   eventId: string | undefined;
   onEventEnded?: () => void;
@@ -68,7 +72,7 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
           filter: `id=eq.${eventId}`,
         },
         (payload) => {
-          const event = payload.new as any;
+          const event = payload.new as EventLifecyclePayload;
           if (event.status === "ended") {
             setIsEventActive(false);
             onEventEnded?.();

@@ -20,6 +20,19 @@ interface SimplePhotoVerificationProps {
 
 type Screen = "intro" | "camera" | "preview" | "uploading" | "submitted" | "error";
 
+function browserErrorName(error: unknown): string {
+  if (error instanceof Error) return error.name;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    typeof error.name === "string"
+  ) {
+    return error.name;
+  }
+  return "";
+}
+
 export function SimplePhotoVerification({
   open,
   onOpenChange,
@@ -85,11 +98,12 @@ export function SimplePhotoVerification({
           console.warn("play() failed, autoPlay should handle it:", e);
         }
       }
-    } catch (err: any) {
-      console.error("Camera error:", err.name, err.message);
-      if (err.name === "NotAllowedError") {
+    } catch (err: unknown) {
+      const errorName = browserErrorName(err);
+      console.error("Camera error:", err);
+      if (errorName === "NotAllowedError") {
         setCameraError("Camera access denied. Please allow camera in your browser settings, then reload the page.");
-      } else if (err.name === "NotFoundError") {
+      } else if (errorName === "NotFoundError") {
         setCameraError("No front camera found on this device.");
       } else {
         setCameraError("Could not access camera. Please try again.");
@@ -185,7 +199,7 @@ export function SimplePhotoVerification({
         onSubmissionComplete();
         onOpenChange(false);
       }, 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Verification upload failed:", err);
       setCameraError("Failed to upload selfie. Please try again.");
       setScreen("error");

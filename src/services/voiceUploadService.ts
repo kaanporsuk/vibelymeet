@@ -1,5 +1,11 @@
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
+type UploadVoiceResponse = {
+  success?: boolean;
+  error?: string;
+  url: string;
+};
+
 export async function uploadVoiceToBunny(
   blob: Blob,
   accessToken: string,
@@ -31,9 +37,9 @@ export async function uploadVoiceToBunny(
     }
   );
 
-  let data: any;
+  let data: UploadVoiceResponse;
   try {
-    data = await res.json();
+    data = await res.json() as UploadVoiceResponse;
   } catch {
     throw new Error("Upload service unavailable. Please try again.");
   }

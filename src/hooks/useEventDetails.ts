@@ -102,7 +102,7 @@ export const useEventDetails = (eventId: string | undefined) => {
           .eq("profile_id", user.id);
 
         if (userVibesData) {
-          type VibeRow = { vibe_tags: any };
+          type VibeRow = { vibe_tags: { label: string } | { label: string }[] | null };
           userVibes =
             (userVibesData as VibeRow[])
               .map((v) => {

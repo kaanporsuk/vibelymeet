@@ -17,7 +17,7 @@ interface LogActivityParams {
   actionType: ActionType;
   targetType: TargetType;
   targetId?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 export const useAdminActivityLog = () => {

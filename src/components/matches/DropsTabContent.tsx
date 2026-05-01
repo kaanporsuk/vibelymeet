@@ -14,6 +14,7 @@ import { VibeTag } from '@/components/VibeTag';
 import { VibeVideoThumbnail } from '@/components/vibe-video/VibeVideoThumbnail';
 import { resolveWebVibeVideoState } from '@/lib/vibeVideo/webVibeVideoState';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
+import type { DailyDropPartner, PastDrop } from '@/types/dailyDrop';
 
 function formatTimeRemaining(seconds: number) {
   const h = Math.floor(seconds / 3600);
@@ -296,7 +297,7 @@ function CountdownBadge({ seconds }: { seconds: number }) {
   );
 }
 
-function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: string[] }) {
+function PartnerCard({ partner, pickReasons }: { partner: DailyDropPartner | null; pickReasons: string[] }) {
   if (!partner) return null;
 
   const photo = resolvePrimaryProfilePhotoPath({
@@ -370,7 +371,7 @@ function PartnerCard({ partner, pickReasons }: { partner: any; pickReasons: stri
 }
 
 function PastDropsSection({ pastDrops, showPastDrops, setShowPastDrops }: {
-  pastDrops: any[];
+  pastDrops: PastDrop[];
   showPastDrops: boolean;
   setShowPastDrops: (v: boolean) => void;
 }) {

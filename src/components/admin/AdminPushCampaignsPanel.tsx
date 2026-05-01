@@ -24,6 +24,7 @@ import {
   ChevronUp,
   BarChart3,
   FileText,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,6 +84,12 @@ interface TargetSegment {
   vibes?: string[];
   dropResponseStatus?: 'all' | 'responded' | 'unresponded';
 }
+
+type VibeTagRow = {
+  id: string;
+  label: string;
+  emoji?: string | null;
+};
 
 const AdminPushCampaignsPanel = () => {
   const queryClient = useQueryClient();
@@ -177,7 +184,7 @@ const AdminPushCampaignsPanel = () => {
         .from('vibe_tags')
         .select('*')
         .order('category');
-      return data || [];
+      return (data || []) as VibeTagRow[];
     },
   });
 
@@ -340,7 +347,7 @@ const AdminPushCampaignsPanel = () => {
     children 
   }: { 
     title: string; 
-    icon: any; 
+    icon: LucideIcon;
     sectionKey: keyof typeof expandedSections;
     children: React.ReactNode;
   }) => {
@@ -709,7 +716,7 @@ const AdminPushCampaignsPanel = () => {
                           <Label>User Activity</Label>
                           <Select
                             value={segment.activityLevel}
-                            onValueChange={(v: any) => setSegment(prev => ({ ...prev, activityLevel: v }))}
+                            onValueChange={(v) => setSegment(prev => ({ ...prev, activityLevel: v as TargetSegment['activityLevel'] }))}
                           >
                             <SelectTrigger className="bg-secondary/50">
                               <SelectValue />
@@ -742,7 +749,7 @@ const AdminPushCampaignsPanel = () => {
                           <Label>Daily Drop Response</Label>
                           <Select
                             value={segment.dropResponseStatus}
-                            onValueChange={(v: any) => setSegment(prev => ({ ...prev, dropResponseStatus: v }))}
+                            onValueChange={(v) => setSegment(prev => ({ ...prev, dropResponseStatus: v as TargetSegment['dropResponseStatus'] }))}
                           >
                             <SelectTrigger className="bg-secondary/50">
                               <SelectValue />
@@ -817,7 +824,7 @@ const AdminPushCampaignsPanel = () => {
                     {/* Vibes */}
                     <SegmentSection title="Vibes & Interests" icon={Sparkles} sectionKey="vibes">
                       <div className="flex flex-wrap gap-2">
-                        {vibeTags.map((tag: any) => (
+                        {vibeTags.map((tag) => (
                           <Button
                             key={tag.id}
                             type="button"

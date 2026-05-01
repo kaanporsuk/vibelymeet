@@ -52,8 +52,10 @@ import { withAlpha } from '@/lib/colorUtils';
 
 // ---------- types ----------
 
+type Theme = typeof import('@/constants/Colors').default.light;
+
 interface LinkedSignInMethodsProps {
-  theme: any;
+  theme: Theme;
 }
 
 type EmailSheetMode = null | 'add_password' | 'add_email' | 'email_pending';

@@ -19,6 +19,7 @@ import {
   UserX,
   Camera,
   Frown,
+  type LucideIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -57,8 +58,27 @@ import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/res
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
+type ReportActionType = "dismiss" | "warn" | "suspend";
 
-const reasonIcons: Record<ReportReasonId, any> = {
+type UserReportRow = {
+  id: string;
+  reporter_id: string;
+  reported_id: string;
+  reason: ReportReasonId;
+  details: string | null;
+  status: string;
+  created_at: string;
+};
+
+type ReportProfileRow = {
+  id: string;
+  name: string | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+  avatarUrl: string;
+};
+
+const reasonIcons: Record<ReportReasonId, LucideIcon> = {
   harassment: MessageSquareWarning,
   fake: UserX,
   inappropriate: Camera,
@@ -78,10 +98,10 @@ const AdminReportsPanel = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [selectedReport, setSelectedReport] = useState<UserReportRow | null>(null);
   const [showActionDialog, setShowActionDialog] = useState(false);
   const [actionNotes, setActionNotes] = useState("");
-  const [actionType, setActionType] = useState<"dismiss" | "warn" | "suspend">("dismiss");
+  const [actionType, setActionType] = useState<ReportActionType>("dismiss");
 
   // Fetch all reports
   const { data: reports, isLoading } = useQuery({
@@ -98,7 +118,7 @@ const AdminReportsPanel = () => {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data || [];
+      return (data || []) as UserReportRow[];
     },
   });
 
@@ -119,7 +139,7 @@ const AdminReportsPanel = () => {
         .select("id, name, avatar_url, photos")
         .in("id", Array.from(userIds));
 
-      const profileMap: Record<string, any> = {};
+      const profileMap: Record<string, ReportProfileRow> = {};
       for (const p of data || []) {
         const resolvedAvatar = avatarPreset(
           resolvePrimaryProfilePhotoPath({
@@ -216,7 +236,7 @@ const AdminReportsPanel = () => {
       dismissed: "bg-gray-500/10 text-gray-400 border-gray-500/30",
     };
 
-    const icons: Record<string, any> = {
+    const icons: Record<string, LucideIcon> = {
       pending: Clock,
       reviewed: Eye,
       action_taken: CheckCircle,
@@ -441,7 +461,7 @@ const AdminReportsPanel = () => {
               {/* Action type */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Action</label>
-                <Select value={actionType} onValueChange={(v: any) => setActionType(v)}>
+                <Select value={actionType} onValueChange={(v) => setActionType(v as ReportActionType)}>
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />
                   </SelectTrigger>

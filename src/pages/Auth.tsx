@@ -34,6 +34,19 @@ type AuthView =
   | "email_signup_pending"
   | "success";
 
+function getAuthErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+  return fallback;
+}
+
 const Auth = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -262,12 +275,12 @@ const Auth = () => {
       setView("otp");
       setResendAttempts(0);
       setResendRemaining(60);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const conflict = mapAuthConflictError(err, "phone_otp_send");
       if (conflict.message) {
         setError(conflict.message);
       } else {
-        setError(String(err?.message || "Something went wrong. Please try again."));
+        setError(getAuthErrorMessage(err, "Something went wrong. Please try again."));
       }
     } finally {
       setLoading(false);
@@ -288,7 +301,7 @@ const Auth = () => {
       if (error) throw error;
       trackEvent("auth_otp_verified", { platform: "web" });
       setView("success");
-    } catch (err: any) {
+    } catch {
       setOtpError("Invalid code. Please try again.");
     } finally {
       setLoading(false);
@@ -309,7 +322,7 @@ const Auth = () => {
       setResendAttempts(attempt);
       const nextCooldown = attempt === 1 ? 60 : attempt === 2 ? 180 : 900;
       setResendRemaining(nextCooldown);
-    } catch (err: any) {
+    } catch (err: unknown) {
       const conflict = mapAuthConflictError(err, "phone_otp_resend");
       setOtpError(
         conflict.message || "Could not resend code. Please try again in a moment."
@@ -357,12 +370,12 @@ const Auth = () => {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       setView("success");
-    } catch (err: any) {
+    } catch (err: unknown) {
       const conflict = mapAuthConflictError(err, "email_sign_in");
       if (conflict.message) {
         setError(conflict.message);
       } else {
-        setError(String(err?.message || "Invalid email or password"));
+        setError(getAuthErrorMessage(err, "Invalid email or password"));
       }
     } finally {
       setLoading(false);
@@ -404,7 +417,7 @@ const Auth = () => {
       }
       setPendingConfirmationEmail(signupEmail);
       setView("email_signup_pending");
-    } catch (err: any) {
+    } catch (err: unknown) {
       const conflict = mapAuthConflictError(err, "email_sign_up");
       if (conflict.message) {
         setError(conflict.message);
@@ -412,7 +425,7 @@ const Auth = () => {
           setView("email_signin");
         }
       } else {
-        setError(err?.message || "Sign up failed. Please try again.");
+        setError(getAuthErrorMessage(err, "Sign up failed. Please try again."));
       }
     } finally {
       setLoading(false);

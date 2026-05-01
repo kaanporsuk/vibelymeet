@@ -1,6 +1,6 @@
 declare global {
   interface Window {
-    OneSignalDeferred?: Array<(oneSignal: any) => void>;
+    OneSignalDeferred?: Array<(oneSignal: OneSignalWebSdk) => void>;
   }
 }
 
@@ -12,6 +12,36 @@ import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 const PLAYER_ID_POLL_ATTEMPTS = 10;
 const PLAYER_ID_INITIAL_POLL_MS = 500;
 const PLAYER_ID_MAX_POLL_MS = 4000;
+
+type OneSignalClickEvent = {
+  notification?: {
+    data?: {
+      url?: unknown;
+    };
+  };
+};
+
+type OneSignalWebSdk = {
+  init: (options: {
+    appId: string;
+    notifyButton: { enable: boolean };
+    allowLocalhostAsSecureOrigin: boolean;
+    serviceWorkerParam: { scope: string };
+  }) => Promise<unknown>;
+  Notifications: {
+    addEventListener: (event: "click", listener: (event: OneSignalClickEvent) => void) => void;
+    requestPermission: () => Promise<unknown>;
+  };
+  User?: {
+    PushSubscription?: {
+      id?: string | null;
+      optedIn?: boolean | null;
+      addEventListener?: (event: "change", listener: () => void) => void;
+    };
+  };
+  login: (userId: string) => Promise<unknown>;
+  logout: () => Promise<unknown>;
+};
 
 /** OneSignal domain restriction throws e.g. "This web push config can only be used on https://www.vibelymeet.com". */
 function isOneSignalDomainError(e: unknown): boolean {
@@ -172,7 +202,7 @@ export const initOneSignal = () => {
   });
 
   ensureDeferredArray();
-  window.OneSignalDeferred!.push(async (OneSignal: any) => {
+  window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
     try {
       await unregisterLegacyCustomServiceWorker();
       await OneSignal.init({
@@ -185,7 +215,7 @@ export const initOneSignal = () => {
       sdkUsable = true;
       vibelyOsLog("onesignal:init success", { appIdTail: appId.slice(-6) });
 
-      OneSignal.Notifications.addEventListener("click", (event: any) => {
+      OneSignal.Notifications.addEventListener("click", (event: OneSignalClickEvent) => {
         const url = event.notification?.data?.url;
         const deepLink = classifyPushDeepLink(url);
         recordPushDeliveryTelemetry("push_notification_tap", {
@@ -253,7 +283,7 @@ export const promptForPush = (): Promise<boolean> => {
       return;
     }
     ensureDeferredArray();
-    window.OneSignalDeferred!.push(async (OneSignal: any) => {
+    window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
       const ok = await afterInit();
       if (!ok) {
         resolve(false);
@@ -294,7 +324,7 @@ export const getPlayerId = (options: GetPlayerIdOptions = {}): Promise<string | 
       return;
     }
     ensureDeferredArray();
-    window.OneSignalDeferred!.push(async (OneSignal: any) => {
+    window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
       const ok = await afterInit();
       if (!ok) {
         resolve(null);
@@ -302,7 +332,7 @@ export const getPlayerId = (options: GetPlayerIdOptions = {}): Promise<string | 
       }
       try {
         for (let i = 0; i < attempts; i++) {
-          const id = await OneSignal.User.PushSubscription.id;
+          const id = await OneSignal.User?.PushSubscription?.id;
           vibelyOsLog("getPlayerId:poll", { attempt: i + 1, hasId: Boolean(id) });
           if (id) {
             resolve(id);
@@ -327,14 +357,14 @@ export const isSubscribed = (): Promise<boolean> => {
       return;
     }
     ensureDeferredArray();
-    window.OneSignalDeferred!.push(async (OneSignal: any) => {
+    window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
       const ok = await afterInit();
       if (!ok) {
         resolve(false);
         return;
       }
       try {
-        const optedIn = OneSignal.User.PushSubscription.optedIn;
+        const optedIn = OneSignal.User?.PushSubscription?.optedIn;
         const sub = !!optedIn;
         vibelyOsLog("isSubscribed:result", { optedIn: sub });
         resolve(sub);
@@ -367,7 +397,7 @@ export const setExternalUserId = (userId: string): number => {
   if (lastLoggedInUserId === userId) return generation;
 
   ensureDeferredArray();
-  window.OneSignalDeferred!.push(async (OneSignal: any) => {
+  window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
     const ok = await afterInit();
     if (!ok) return;
     if (!isCurrentOneSignalIdentity(userId, generation)) return;
@@ -395,7 +425,7 @@ export const removeExternalUserId = () => {
   lastLoggedInUserId = null;
 
   ensureDeferredArray();
-  window.OneSignalDeferred!.push(async (OneSignal: any) => {
+  window.OneSignalDeferred!.push(async (OneSignal: OneSignalWebSdk) => {
     const ok = await afterInit();
     if (!ok) return;
     if (generation !== identityGeneration) return;
