@@ -62,6 +62,14 @@ test("deck empty reason taxonomy stays coarse and safe", () => {
   assert.equal(resolveDeckEmptyReason({ deckEnabled: false, gateKind: "ended" }), "event_not_active");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: false, gateKind: "not_registered" }), "user_not_eligible");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, deckError: true, deckErrorValue: new Error("timeout") }), "network_error");
+  assert.equal(
+    resolveDeckEmptyReason({
+      deckEnabled: true,
+      deckError: true,
+      deckErrorValue: { code: "P0001", message: "event_not_active", details: "event_ended" },
+    }),
+    "event_not_active",
+  );
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, totalProfiles: 3, visibleProfiles: 0 }), "all_candidates_seen_locally");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true, queuedCount: 1 }), "all_candidates_busy_or_unavailable");
   assert.equal(resolveDeckEmptyReason({ deckEnabled: true }), "no_confirmed_candidates");

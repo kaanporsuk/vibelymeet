@@ -22,7 +22,7 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 ## Events and lobby
 
-Event Lobby route behavior is governed by `docs/contracts/event-lobby-native-contract.md`. Native should use that contract for backend-owned eligibility, deck payload, swipe outcomes, queue promotion, Ready Gate recovery, media fallback, and observability instead of deriving behavior from web component details.
+Event Lobby route behavior is governed by `docs/contracts/event-lobby-native-contract.md`. Native should use that contract for backend-owned eligibility, deck payload, swipe outcomes, queue promotion, Ready Gate recovery, media fallback, and observability instead of deriving behavior from web component details. Prompt 9 implementation evidence is recorded in `docs/audits/native-event-lobby-parity-implementation.md`.
 
 | Web route | Web component | Native route | Hooks / services | RPCs / Edge / Realtime | Platform adapters | Parity priority |
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|

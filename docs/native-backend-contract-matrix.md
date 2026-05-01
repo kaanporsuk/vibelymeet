@@ -4,7 +4,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 **Source of truth:** `supabase/migrations`, `supabase/functions`. Web usage from `src/` (hooks, pages, services).
 
-**Event Lobby native implementation source:** `docs/contracts/event-lobby-native-contract.md`. Use that contract for native lobby/deck/swipe/queue/Ready Gate behavior instead of reverse-engineering web screens.
+**Event Lobby native implementation source:** `docs/contracts/event-lobby-native-contract.md`. Use that contract for native lobby/deck/swipe/queue/Ready Gate behavior instead of reverse-engineering web screens. Prompt 9 native parity evidence is in `docs/audits/native-event-lobby-parity-implementation.md`.
 
 ---
 

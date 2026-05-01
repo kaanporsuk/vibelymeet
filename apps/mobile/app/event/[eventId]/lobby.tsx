@@ -45,6 +45,7 @@ import {
   bucketEventLobbyCount,
   buildLobbySwipeResultPayload,
   EventLobbyObservabilityEvents,
+  getSwipeOutcome,
   getSwipeNotificationSuppressionReason,
   isDuplicateSwipeResult,
   resolveDeckEmptyReason,
@@ -199,6 +200,8 @@ export default function EventLobbyScreen() {
     eventStatus === 'ended' ||
     eventStatus === 'completed' ||
     (eventEndTimeMs != null && lobbyClockMs >= eventEndTimeMs);
+  const [serverInactiveEventReason, setServerInactiveEventReason] = useState<string | null>(null);
+  const isEventInactiveByServer = serverInactiveEventReason != null;
 
   useEffect(() => {
     if (!eventDateValue) return;
@@ -209,7 +212,14 @@ export default function EventLobbyScreen() {
 
   const isLiveWindow = useMemo(() => {
     if (!eventDateValue || !eventEndTimeMs) return false;
-    if (eventStatus !== 'live' || isEventCancelled || isEventArchived || isEventDraft || isEventEndedByTruth) {
+    if (
+      eventStatus !== 'live' ||
+      isEventCancelled ||
+      isEventArchived ||
+      isEventDraft ||
+      isEventEndedByTruth ||
+      isEventInactiveByServer
+    ) {
       return false;
     }
     const start = new Date(eventDateValue).getTime();
@@ -222,6 +232,7 @@ export default function EventLobbyScreen() {
     isEventCancelled,
     isEventDraft,
     isEventEndedByTruth,
+    isEventInactiveByServer,
     lobbyClockMs,
   ]);
 
@@ -275,6 +286,7 @@ export default function EventLobbyScreen() {
     deckLoadedTrackedRef.current = false;
     deckEmptyTrackedRef.current = false;
     deckErrorTrackedRef.current = false;
+    setServerInactiveEventReason(null);
   }, [id]);
 
   useEffect(() => {
@@ -1177,7 +1189,9 @@ export default function EventLobbyScreen() {
       switch (result) {
         case 'vibe_recorded':
         case 'swipe_recorded':
+        case 'pass_recorded':
         case 'already_swiped':
+        case 'swipe_already_recorded':
           break;
         case 'match':
           show({
@@ -1252,6 +1266,31 @@ export default function EventLobbyScreen() {
             primaryAction: { label: 'OK', onPress: () => {} },
           });
           break;
+        case 'account_paused':
+          show({
+            title: 'Account paused',
+            message: 'Resume your account before swiping in this event.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'not_registered':
+          show({
+            title: 'Registration required',
+            message: 'Only confirmed guests can swipe in this lobby.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
+        case 'target_unavailable':
+        case 'target_not_found':
+          show({
+            title: 'Not available',
+            message: 'This person is no longer available in the lobby.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
         case 'blocked':
         case 'reported':
           show({
@@ -1274,6 +1313,9 @@ export default function EventLobbyScreen() {
   const thirdProfile = sortedProfiles[2] ?? null;
   const hasCards = sortedProfiles.length > 0;
   const isEmpty = !hasCards || !current;
+  const currentAvailabilityState = current?.availability_state ?? 'available';
+  const currentIsSwipeable = currentAvailabilityState === 'available';
+  const swipeActionsDisabled = processing || !currentIsSwipeable;
 
   const convergenceImpressionRef = useRef(false);
   const emptyStateImpressionRef = useRef(false);
@@ -1296,6 +1338,7 @@ export default function EventLobbyScreen() {
     if (isEventArchived) return 'archived';
     if (isEventDraft) return 'draft';
     if (isEventEndedByTruth) return 'ended';
+    if (isEventInactiveByServer) return 'event_not_active';
     if (!isLiveWindow) return 'not_live';
     return 'live';
   }, [
@@ -1306,6 +1349,7 @@ export default function EventLobbyScreen() {
     isEventCancelled,
     isEventDraft,
     isEventEndedByTruth,
+    isEventInactiveByServer,
     isLiveWindow,
     pauseStatus.isPaused,
     regSnapshot?.isWaitlisted,
@@ -1387,6 +1431,10 @@ export default function EventLobbyScreen() {
       deckErrorTrackedRef.current = false;
       return;
     }
+    if (deckEmptyReason === 'event_not_active') {
+      setServerInactiveEventReason('event_not_active');
+      void queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+    }
     if (deckErrorTrackedRef.current) return;
     deckErrorTrackedRef.current = true;
     trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_ERROR, {
@@ -1401,7 +1449,7 @@ export default function EventLobbyScreen() {
       message: EventLobbyObservabilityEvents.LOBBY_DECK_ERROR,
       data: { eventId: id, reason: deckEmptyReason },
     });
-  }, [deckEmptyReason, deckError, id]);
+  }, [deckEmptyReason, deckError, id, queryClient]);
 
   useEffect(() => {
     if (!id || eventLoading || regLoading || deckLoading || deckError) {
@@ -1619,6 +1667,22 @@ export default function EventLobbyScreen() {
     );
   }
 
+  if (isEventInactiveByServer) {
+    return (
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="This lobby is closed"
+            message="The backend says this event is no longer active. Head back to the event page for the latest status."
+            actionLabel="Back to event"
+            onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
+          />
+        </View>
+        {dialog}
+      </>
+    );
+  }
+
   if (!isConfirmedSeat) {
     return (
       <>
@@ -1679,6 +1743,15 @@ export default function EventLobbyScreen() {
       });
       return;
     }
+    if (!currentIsSwipeable) {
+      show({
+        title: 'Not available',
+        message: 'This person is not available for a new match right now.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
     setProcessing(true);
     const targetId = current.id;
     try {
@@ -1717,27 +1790,44 @@ export default function EventLobbyScreen() {
       }
 
       const envelope = result as SwipeResult;
+      const normalizedEnvelope = {
+        ...envelope,
+        result: envelope.result ?? envelope.outcome ?? envelope.error ?? null,
+      } as SwipeResult;
       if (envelope.success === false) {
+        const failureOutcome = getSwipeOutcome(normalizedEnvelope);
         trackEvent(
           EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT,
           buildLobbySwipeResultPayload({
             eventId: id,
             platform: 'native',
             swipeType,
-            result: envelope,
+            result: normalizedEnvelope,
           }),
         );
-        show({
-          title: 'Unable to swipe',
-          message: envelope.message ?? 'Try again in a moment.',
-          variant: 'warning',
-          primaryAction: { label: 'OK', onPress: () => {} },
-        });
+        if (failureOutcome === 'event_not_active') {
+          const failureReason =
+            'reason' in envelope && typeof envelope.reason === 'string'
+              ? envelope.reason
+              : envelope.error ?? 'event_not_active';
+          setServerInactiveEventReason(failureReason);
+          cancelSearch();
+          void queryClient.invalidateQueries({ queryKey: ['event-details', id] });
+        }
+        showSwipeToast(failureOutcome);
+        if (failureOutcome === 'unknown') {
+          show({
+            title: 'Unable to swipe',
+            message: envelope.message ?? 'Try again in a moment.',
+            variant: 'warning',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+        }
         return;
       }
 
-      const code = envelope.result;
-      if (!code) {
+      const outcome = getSwipeOutcome(normalizedEnvelope);
+      if (outcome === 'unknown') {
         trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
           event_id: id,
           platform: 'native',
@@ -1758,7 +1848,6 @@ export default function EventLobbyScreen() {
         return;
       }
 
-      const outcome = code === 'swipe_recorded' ? 'vibe_recorded' : code;
       trackEvent('swipe', {
         event_id: id,
         swipe_type: swipeType,
@@ -1768,16 +1857,16 @@ export default function EventLobbyScreen() {
         eventId: id,
         platform: 'native',
         swipeType,
-        result: envelope,
+        result: normalizedEnvelope,
       });
       trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, lobbySwipeResultPayload);
-      if (isDuplicateSwipeResult(envelope)) {
+      if (isDuplicateSwipeResult(normalizedEnvelope)) {
         trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_DUPLICATE_SUPPRESSED, {
           platform: 'native',
           event_id: id,
           swipe_type: swipeType,
           outcome,
-          reason: getSwipeNotificationSuppressionReason(envelope) ?? 'already_swiped',
+          reason: getSwipeNotificationSuppressionReason(normalizedEnvelope) ?? 'already_swiped',
           source_surface: 'event_lobby',
         });
       }
@@ -1794,8 +1883,8 @@ export default function EventLobbyScreen() {
         },
       });
 
-      const videoSessionId = videoSessionIdFromSwipePayload(envelope);
-      const openingReadyGate = shouldOpenReadyGateFromSwipePayload(envelope);
+      const videoSessionId = videoSessionIdFromSwipePayload(normalizedEnvelope);
+      const openingReadyGate = shouldOpenReadyGateFromSwipePayload(normalizedEnvelope);
       const conflictDetected =
         outcome === 'already_matched' || outcome === 'participant_has_active_session_conflict';
       const recoveryStartedAtMs = conflictDetected ? Date.now() : null;
@@ -1851,10 +1940,10 @@ export default function EventLobbyScreen() {
       if (openingReadyGate && videoSessionId) {
         lastOpenedSessionRef.current = videoSessionId;
         logVdbgSessionStage('ready_gate_open', videoSessionId, {
-          trigger: code === 'already_matched' ? 'swipe_already_matched' : 'swipe_match',
+          trigger: outcome === 'already_matched' ? 'swipe_already_matched' : 'swipe_match',
           eventId: id,
           swipeType,
-          result: code,
+          result: outcome,
         });
         setActiveSessionId(videoSessionId);
         setActiveSessionPartnerName(current?.name ?? null);
@@ -1882,12 +1971,16 @@ export default function EventLobbyScreen() {
         refetchDeck();
       }
 
-      showSwipeToast(code, { openingReadyGate });
-      if (code === 'super_vibe_sent' || code === 'limit_reached' || code === 'match_queued') {
+      showSwipeToast(outcome, { openingReadyGate });
+      if (outcome === 'super_vibe_sent' || outcome === 'limit_reached' || outcome === 'match_queued') {
         refreshQueueAndSuperVibe();
       }
 
-      if (!shouldAdvanceLobbyDeckAfterSwipe(code)) {
+      const shouldAdvanceDeck =
+        shouldAdvanceLobbyDeckAfterSwipe(outcome) &&
+        outcome !== 'target_unavailable' &&
+        outcome !== 'account_paused';
+      if (!shouldAdvanceDeck) {
         return;
       }
 
@@ -2253,10 +2346,10 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCirclePass,
                   { backgroundColor: withAlpha(theme.text, 0.06), borderColor: withAlpha(theme.text, 0.14) },
-                  processing && styles.actionDisabled,
+                  swipeActionsDisabled && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('pass')}
-                disabled={processing}
+                disabled={swipeActionsDisabled}
                 accessibilityLabel="Pass"
               >
                 <Ionicons name="close" size={28} color="rgba(255,255,255,0.55)" />
@@ -2266,11 +2359,11 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCircleSuper,
                   { backgroundColor: withAlpha(theme.neonYellow, 0.14), borderColor: withAlpha(theme.neonYellow, 0.55) },
-                  processing && styles.actionDisabled,
+                  swipeActionsDisabled && styles.actionDisabled,
                   superVibeRemaining <= 0 && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('super_vibe')}
-                disabled={processing || superVibeRemaining <= 0}
+                disabled={swipeActionsDisabled || superVibeRemaining <= 0}
                 accessibilityLabel="Super vibe"
               >
                 <Ionicons name="star" size={24} color={theme.neonYellow} />
@@ -2285,10 +2378,10 @@ export default function EventLobbyScreen() {
                   styles.actionCircle,
                   styles.actionCirclePrimary,
                   { overflow: 'hidden' },
-                  processing && styles.actionDisabled,
+                  swipeActionsDisabled && styles.actionDisabled,
                 ]}
                 onPress={() => handleSwipe('vibe')}
-                disabled={processing}
+                disabled={swipeActionsDisabled}
                 accessibilityLabel="Vibe"
               >
                 <LinearGradient
@@ -2433,7 +2526,11 @@ function LobbyProfileCard({
       avatar_url: profile.avatar_url,
     });
   const uri = photo ? deckCardUrl(photo) : '';
-  const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
+  const availabilityState = profile.availability_state ?? 'available';
+  const isUnavailable = availabilityState !== 'available';
+  const showQueueBadge =
+    isUnavailable || (profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status));
+  const queueBadgeLabel = isUnavailable ? 'Unavailable' : 'In session';
   const sharedCount = profile.shared_vibe_count;
   const heightLabel = formatHeightCm(profile.height_cm);
   const showTrustStrip =
@@ -2501,7 +2598,7 @@ function LobbyProfileCard({
       <View style={styles.cardTopRight}>
         {showQueueBadge ? (
           <View style={[styles.queueBadge, { backgroundColor: withAlpha(theme.text, 0.12), borderColor: withAlpha(theme.text, 0.2) }]}>
-            <Text style={[styles.queueBadgeText, { color: 'rgba(255,255,255,0.78)' }]}>In session</Text>
+            <Text style={[styles.queueBadgeText, { color: 'rgba(255,255,255,0.78)' }]}>{queueBadgeLabel}</Text>
           </View>
         ) : null}
         {premiumBadge ? (
