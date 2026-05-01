@@ -567,7 +567,11 @@ export default function AccountSettingsScreen() {
             backdropDismissible: false,
           });
         }
-        console.error('Restore purchases error:', sdk.error);
+        if (__DEV__) {
+          console.warn('[RevenueCat] restore purchases failed', {
+            code: sdk.errorCode ?? 'unknown',
+          });
+        }
         return;
       }
 
