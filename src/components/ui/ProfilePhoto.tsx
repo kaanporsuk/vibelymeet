@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { getImageUrl, avatarUrl as avatarPreset, thumbnailUrl as thumbPreset } from "@/utils/imageUrl";
+import { avatarUrl as avatarPreset, deckCardUrl as deckCardPreset, thumbnailUrl as thumbPreset } from "@/utils/imageUrl";
+import { resolvePrimaryProfilePhotoPath } from "@clientShared/profilePhoto/resolvePrimaryProfilePhotoPath";
 
 const BUNNY_CDN = import.meta.env.VITE_BUNNY_CDN_HOSTNAME ?? "";
 
@@ -12,6 +13,7 @@ function appendCdnParams(src: string, params: string): string {
 interface ProfilePhotoProps {
   photos?: string[] | null;
   avatarUrl?: string | null;
+  primaryPhotoPath?: string | null;
   name?: string;
   size?: "sm" | "md" | "lg" | "xl" | "full";
   className?: string;
@@ -60,6 +62,7 @@ function getInitials(name?: string): string {
 export const ProfilePhoto = ({
   photos,
   avatarUrl,
+  primaryPhotoPath,
   name,
   size = "md",
   className,
@@ -69,9 +72,15 @@ export const ProfilePhoto = ({
   const [stage, setStage] = useState<"primary" | "avatar" | "fallback">("primary");
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const sizePreset = size === "sm" || size === "md" ? avatarPreset : thumbPreset;
-  const primaryUrl = sizePreset(photos?.[0]);
-  const fallbackUrl = sizePreset(avatarUrl);
+  const sizePreset = size === "full" ? deckCardPreset : size === "sm" || size === "md" ? avatarPreset : thumbPreset;
+  const primaryPath =
+    primaryPhotoPath ??
+    resolvePrimaryProfilePhotoPath({
+      photos,
+      avatar_url: null,
+    });
+  const primaryUrl = primaryPath ? sizePreset(primaryPath) : null;
+  const fallbackUrl = avatarUrl ? sizePreset(avatarUrl) : null;
 
   const currentSrc =
     stage === "primary" && primaryUrl

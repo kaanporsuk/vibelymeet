@@ -89,6 +89,9 @@ export const avatarUrl = (path: string | null | undefined) =>
 export const swipeCardUrl = (path: string | null | undefined) =>
   getImageUrl(path, { width: 720, crop: "center" });
 
+export const deckCardUrl = (path: string | null | undefined) =>
+  getImageUrl(path, { width: 1080, height: 1440, crop: "center", quality: 88 });
+
 export const thumbnailUrl = (path: string | null | undefined) =>
   getImageUrl(path, { width: 400, height: 400, crop: "center" });
 

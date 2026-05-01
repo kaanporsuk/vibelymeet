@@ -18,11 +18,64 @@ export type EventDeckProfileRow = {
   is_already_connected: boolean;
   has_super_vibed: boolean;
   shared_vibe_count: number;
+  primary_photo_path: string | null;
+  photo_verified: boolean | null;
+  premium_badge: string | null;
+  availability_state: "available" | string | null;
 };
 
-export type EventDeckProfile = Omit<EventDeckProfileRow, "profile_id"> & {
+export type EventDeckProfile = Omit<
+  EventDeckProfileRow,
+  "profile_id" | "photo_verified" | "premium_badge" | "availability_state"
+> & {
   id: ProfileId;
+  photo_verified: boolean;
+  premium_badge: "premium" | "vip" | null;
+  availability_state: string;
 };
+
+function sanitizeDeckString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let out = value.trim();
+  if (!out) return null;
+
+  while (
+    out.length >= 2 &&
+    ((out.startsWith('"') && out.endsWith('"')) ||
+      (out.startsWith("'") && out.endsWith("'")))
+  ) {
+    out = out.slice(1, -1).trim();
+  }
+
+  return out.length > 0 ? out : null;
+}
+
+function sanitizePhotoList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const photos = value.flatMap((photo) => {
+    const sanitized = sanitizeDeckString(photo);
+    return sanitized ? [sanitized] : [];
+  });
+  return photos.length > 0 ? photos : null;
+}
+
+function resolvePrimaryDeckPhotoPath(row: {
+  primary_photo_path?: unknown;
+  photos?: unknown;
+  avatar_url?: unknown;
+}): string | null {
+  const primary = sanitizeDeckString(row.primary_photo_path);
+  if (primary) return primary;
+
+  const photos = sanitizePhotoList(row.photos);
+  if (photos?.[0]) return photos[0];
+
+  return sanitizeDeckString(row.avatar_url);
+}
+
+function toPremiumBadge(value: unknown): "premium" | "vip" | null {
+  return value === "premium" || value === "vip" ? value : null;
+}
 
 export function toEventDeckProfile(row: EventDeckProfileRow): EventDeckProfile {
   return {
@@ -43,6 +96,10 @@ export function toEventDeckProfile(row: EventDeckProfileRow): EventDeckProfile {
     is_already_connected: row.is_already_connected === true,
     has_super_vibed: row.has_super_vibed === true,
     shared_vibe_count: typeof row.shared_vibe_count === "number" ? row.shared_vibe_count : 0,
+    primary_photo_path: resolvePrimaryDeckPhotoPath(row),
+    photo_verified: row.photo_verified === true,
+    premium_badge: toPremiumBadge(row.premium_badge),
+    availability_state: sanitizeDeckString(row.availability_state) ?? "available",
   };
 }
 
@@ -61,9 +118,7 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
         age: typeof source.age === "number" ? source.age : null,
         gender: typeof source.gender === "string" ? source.gender : "",
         avatar_url: typeof source.avatar_url === "string" ? source.avatar_url : null,
-        photos: Array.isArray(source.photos)
-          ? source.photos.filter((photo): photo is string => typeof photo === "string")
-          : null,
+        photos: sanitizePhotoList(source.photos),
         about_me: typeof source.about_me === "string" ? source.about_me : null,
         job: typeof source.job === "string" ? source.job : null,
         location: typeof source.location === "string" ? source.location : null,
@@ -75,6 +130,10 @@ export function parseEventDeckProfiles(data: unknown): EventDeckProfile[] {
         is_already_connected: source.is_already_connected === true,
         has_super_vibed: source.has_super_vibed === true,
         shared_vibe_count: typeof source.shared_vibe_count === "number" ? source.shared_vibe_count : 0,
+        primary_photo_path: resolvePrimaryDeckPhotoPath(source),
+        photo_verified: source.photo_verified === true,
+        premium_badge: toPremiumBadge(source.premium_badge),
+        availability_state: sanitizeDeckString(source.availability_state) ?? "available",
       }),
     ];
   });

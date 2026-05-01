@@ -22,6 +22,7 @@ run_step npx tsx shared/matching/nativeReadyGateParityContract.test.ts
 run_step npx tsx shared/matching/swipeRetryIdempotencyNotificationDedupe.test.ts
 run_step npx tsx shared/matching/webEventLobbyGating.test.ts
 run_step npx tsx shared/matching/eventLobbyReadyQueueContract.test.ts
+run_step npx tsx shared/matching/eventLobbyDeckPayloadMedia.test.ts
 run_step npx tsx shared/matching/realtimeSubscriptionTightening.test.ts
 run_step npx tsx shared/matching/premiumCreditsObservability.test.ts
 run_step npx tsx shared/matching/nativeVideoDateContractRecovery.test.ts
