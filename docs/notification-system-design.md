@@ -44,7 +44,7 @@ This document is the result of a full audit of web and native notification code,
 - **Event lobby vibes (web):** `useEventVibes` invokes **`send-notification`** with categories **`mutual_vibe`** / **`someone_vibed_you`** and lobby URL (pre-event table only). **Swipe-actions** sends **`ready_gate`** pushes for deck outcomes **`match`** / **`match_queued`** with lobby + `video_session_id` (see §1.1 rows 1–2).
 - **daily-drop-actions:** send_opener → daily_drop to partner; send_reply → new_match to opener.
 - **generate-daily-drops:** cron; creates pairs, then send-notification daily_drop to each user.
-- **email-drip:** cron; profile-complete (profile live + 2+ photos, 1h–7d old); first-event-nudge (1–7d old, no registrations). Resend; unsubscribe via UNSUB_HMAC_SECRET.
+- **email-drip / unsubscribe:** retired from current source/config/live function inventory after the dead-function cleanup; historical docs describe a CRON_SECRET drip worker and UNSUB_HMAC_SECRET unsubscribe link handler, but Stream 14 treats them as inactive until deliberately restored.
 
 ---
 
