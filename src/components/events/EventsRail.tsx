@@ -102,8 +102,8 @@ export const EventsRail = ({
               city={event.city}
               country={event.country}
               distanceKm={event.distance_km}
-              eventDateRaw={(event as any).event_date_raw}
-              durationMinutes={(event as any).duration_minutes}
+              eventDateRaw={event.event_date_raw}
+              durationMinutes={event.duration_minutes}
               language={event.language}
             />
           </motion.div>

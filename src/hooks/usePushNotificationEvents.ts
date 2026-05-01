@@ -39,6 +39,38 @@ export interface NotificationStats {
   byPlatform: Record<NotificationPlatform, number>;
 }
 
+type PushNotificationEventRow = {
+  id?: string | number | null;
+  campaign_id?: string | null;
+  user_id?: string | null;
+  device_token?: string | null;
+  platform?: NotificationPlatform | string | null;
+  status?: NotificationStatus | string | null;
+  fcm_message_id?: string | null;
+  apns_message_id?: string | null;
+  error_code?: string | null;
+  error_message?: string | null;
+  queued_at?: string | null;
+  sent_at?: string | null;
+  delivered_at?: string | null;
+  opened_at?: string | null;
+  clicked_at?: string | null;
+  created_at?: string | null;
+};
+
+function isNotificationStatus(value: string): value is NotificationStatus {
+  return (
+    value === "queued" ||
+    value === "sending" ||
+    value === "sent" ||
+    value === "delivered" ||
+    value === "opened" ||
+    value === "clicked" ||
+    value === "failed" ||
+    value === "bounced"
+  );
+}
+
 export function usePushNotificationEvents(limit: number = 50) {
   const [events, setEvents] = useState<PushNotificationEvent[]>([]);
   const [stats, setStats] = useState<NotificationStats>({
@@ -150,8 +182,8 @@ export function usePushNotificationEvents(limit: number = 50) {
 
     eventList.forEach(event => {
       // Count by status
-      if (event.status in newStats) {
-        (newStats as any)[event.status]++;
+      if (isNotificationStatus(event.status)) {
+        newStats[event.status]++;
       }
       // Count by platform
       if (event.platform in newStats.byPlatform) {
@@ -181,7 +213,10 @@ export function usePushNotificationEvents(limit: number = 50) {
           console.log("Push notification event update:", payload);
 
           if (payload.eventType === "INSERT") {
-            const newEvent = payload.new as any;
+            const newEvent = payload.new as PushNotificationEventRow;
+            if (!newEvent.id || !newEvent.user_id || !newEvent.queued_at || !newEvent.created_at) {
+              return;
+            }
             
             // Fetch user name
             const { data: profile } = await supabase
@@ -228,20 +263,21 @@ export function usePushNotificationEvents(limit: number = 50) {
               return updated;
             });
           } else if (payload.eventType === "UPDATE") {
-            const updatedEvent = payload.new as any;
+            const updatedEvent = payload.new as PushNotificationEventRow;
+            if (!updatedEvent.id) return;
             
             setEvents(prev => {
               const updated = prev.map(e => {
-                if (e.id === updatedEvent.id) {
+                if (e.id === String(updatedEvent.id)) {
                   return {
                     ...e,
-                    status: updatedEvent.status,
-                    sent_at: updatedEvent.sent_at,
-                    delivered_at: updatedEvent.delivered_at,
-                    opened_at: updatedEvent.opened_at,
-                    clicked_at: updatedEvent.clicked_at,
-                    error_code: updatedEvent.error_code,
-                    error_message: updatedEvent.error_message,
+                    status: (updatedEvent.status ?? e.status) as NotificationStatus,
+                    sent_at: updatedEvent.sent_at ?? null,
+                    delivered_at: updatedEvent.delivered_at ?? null,
+                    opened_at: updatedEvent.opened_at ?? null,
+                    clicked_at: updatedEvent.clicked_at ?? null,
+                    error_code: updatedEvent.error_code ?? null,
+                    error_message: updatedEvent.error_message ?? null,
                   };
                 }
                 return e;

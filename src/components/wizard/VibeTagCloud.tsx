@@ -15,6 +15,12 @@ interface TagItem {
   category: string;
 }
 
+type VibeTagRow = {
+  emoji: string;
+  label: string;
+  category: string | null;
+};
+
 const fallbackTags: TagItem[] = [
   { emoji: "😄", label: "Playful", category: "energy" },
   { emoji: "💬", label: "Deep Talker", category: "energy" },
@@ -54,7 +60,7 @@ const VibeTagCloud = ({ selectedTags, onTagsChange, maxTags = 5 }: VibeTagCloudP
   const { data: vibeTags, isLoading } = useVibeTags();
 
   const allTags: TagItem[] = vibeTags?.length
-    ? vibeTags.map((t: any) => ({ label: t.label, emoji: t.emoji, category: t.category || "shared_scenes" }))
+    ? (vibeTags as VibeTagRow[]).map((t) => ({ label: t.label, emoji: t.emoji, category: t.category || "shared_scenes" }))
     : fallbackTags;
 
   const toggleTag = (label: string) => {

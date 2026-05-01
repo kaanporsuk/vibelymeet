@@ -77,9 +77,9 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
           filter: `id=eq.${sessionId}`,
         },
         (payload) => {
-          const newQuestions = (payload.new as any).vibe_questions as string[] | null;
+          const newQuestions = (payload.new as { vibe_questions?: unknown }).vibe_questions;
           if (newQuestions && Array.isArray(newQuestions) && newQuestions.length > 0) {
-            setQuestions(newQuestions);
+            setQuestions(newQuestions.filter((question): question is string => typeof question === "string"));
           }
         }
       )

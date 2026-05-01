@@ -9,6 +9,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 
 export type MatchAction = 'unmatch' | 'archive' | 'block' | 'mute' | 'report';
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 type MatchActionsSheetProps = {
   visible: boolean;
@@ -47,14 +48,14 @@ export function MatchActionsSheet({
 
   if (!visible) return null;
 
-  const row = (icon: string, label: string, onPress: () => void, destructive?: boolean) => (
+  const row = (icon: IoniconName, label: string, onPress: () => void, destructive?: boolean) => (
     <Pressable
       key={label}
       onPress={() => { onPress(); onClose(); }}
       style={({ pressed }) => [styles.row, { borderBottomColor: theme.border }, pressed && { opacity: 0.7 }]}
       disabled={!!loading}
     >
-      <Ionicons name={icon as any} size={22} color={destructive ? theme.danger : theme.text} />
+      <Ionicons name={icon} size={22} color={destructive ? theme.danger : theme.text} />
       <Text style={[styles.rowLabel, { color: destructive ? theme.danger : theme.text }]}>{label}</Text>
       {loading ? <ActivityIndicator size="small" color={theme.tint} /> : null}
     </Pressable>

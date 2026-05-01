@@ -66,6 +66,31 @@ interface ValidatedEvent extends ParsedEvent {
 
 const VALID_STATUSES = ["draft", "scheduled", "upcoming", "live"];
 
+type RawImportEvent = Record<string, unknown>;
+
+function stringValue(value: unknown): string {
+  if (value == null) return "";
+  return String(value);
+}
+
+function numberValue(value: unknown): number {
+  const parsed = Number.parseFloat(stringValue(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => stringValue(item).trim()).filter(Boolean);
+  }
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return stringArrayValue(parsed);
+  } catch {
+    return value.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+}
+
 const TEMPLATE_EVENTS: ParsedEvent[] = [
   {
     title: "Friday Night Vibes",
@@ -105,12 +130,12 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
   },
 ];
 
-function validateEvent(ev: any, index: number): ValidatedEvent {
+function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
   const errors: string[] = [];
-  const title = ev.title?.toString().trim() || "";
+  const title = stringValue(ev.title).trim();
   if (!title) errors.push("Title is required");
 
-  const eventDate = ev.event_date?.toString().trim() || "";
+  const eventDate = stringValue(ev.event_date).trim();
   const parsedDate = new Date(eventDate);
   if (!eventDate || isNaN(parsedDate.getTime())) {
     errors.push("Invalid date format");
@@ -118,43 +143,36 @@ function validateEvent(ev: any, index: number): ValidatedEvent {
     errors.push("Date must be in the future");
   }
 
-  const duration = parseInt(ev.duration_minutes) || 0;
+  const duration = Math.trunc(numberValue(ev.duration_minutes));
   if (duration < 15 || duration > 480) errors.push("Duration must be 15–480 min");
 
-  const maxAttendees = parseInt(ev.max_attendees) || 0;
+  const maxAttendees = Math.trunc(numberValue(ev.max_attendees));
   if (maxAttendees <= 0) errors.push("Attendees must be > 0");
 
-  const status = ev.status?.toString().trim().toLowerCase() || "scheduled";
+  const status = stringValue(ev.status).trim().toLowerCase() || "scheduled";
   if (!VALID_STATUSES.includes(status)) errors.push(`Status must be: ${VALID_STATUSES.join(", ")}`);
 
-  // Parse arrays that may come as strings
-  let tags = ev.tags;
-  if (typeof tags === "string") {
-    try { tags = JSON.parse(tags); } catch { tags = tags.split(",").map((t: string) => t.trim()).filter(Boolean); }
-  }
-  let vibes = ev.vibe_tags;
-  if (typeof vibes === "string") {
-    try { vibes = JSON.parse(vibes); } catch { vibes = vibes.split(",").map((t: string) => t.trim()).filter(Boolean); }
-  }
+  const tags = stringArrayValue(ev.tags);
+  const vibes = stringArrayValue(ev.vibe_tags);
 
   return {
     title,
-    description: ev.description?.toString() || "",
+    description: stringValue(ev.description),
     event_date: eventDate,
     duration_minutes: duration || 60,
     max_attendees: maxAttendees || 50,
-    max_male_attendees: parseInt(ev.max_male_attendees) || undefined,
-    max_female_attendees: parseInt(ev.max_female_attendees) || undefined,
-    max_nonbinary_attendees: parseInt(ev.max_nonbinary_attendees) || undefined,
+    max_male_attendees: Math.trunc(numberValue(ev.max_male_attendees)) || undefined,
+    max_female_attendees: Math.trunc(numberValue(ev.max_female_attendees)) || undefined,
+    max_nonbinary_attendees: Math.trunc(numberValue(ev.max_nonbinary_attendees)) || undefined,
     is_free: ev.is_free === true || ev.is_free === "true" || ev.is_free === undefined,
-    price_amount: parseFloat(ev.price_amount) || 0,
-    cover_image: ev.cover_image?.toString() || "",
-    location_name: ev.location_name?.toString() || "",
+    price_amount: numberValue(ev.price_amount),
+    cover_image: stringValue(ev.cover_image),
+    location_name: stringValue(ev.location_name),
     is_location_specific: ev.is_location_specific === true || ev.is_location_specific === "true",
     status,
-    visibility: ev.visibility?.toString() || "all",
-    tags: Array.isArray(tags) ? tags : [],
-    vibe_tags: Array.isArray(vibes) ? vibes : [],
+    visibility: stringValue(ev.visibility) || "all",
+    tags,
+    vibe_tags: vibes,
     _index: index,
     _valid: errors.length === 0,
     _errors: errors,
@@ -181,7 +199,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
       reader.onload = (e) => {
         try {
           const parsed = JSON.parse(e.target?.result as string);
-          const arr = Array.isArray(parsed) ? parsed : [parsed];
+          const arr = (Array.isArray(parsed) ? parsed : [parsed]) as RawImportEvent[];
           setEvents(arr.map((ev, i) => validateEvent(ev, i)));
         } catch {
           toast.error("Invalid JSON file");
@@ -194,7 +212,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         header: true,
         skipEmptyLines: true,
         complete: (results) => {
-          setEvents((results.data as any[]).map((ev, i) => validateEvent(ev, i)));
+          setEvents((results.data as RawImportEvent[]).map((ev, i) => validateEvent(ev, i)));
         },
         error: () => toast.error("Failed to parse CSV"),
       });
@@ -291,8 +309,10 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
       );
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       onClose();
-    } catch (err: any) {
-      toast.error("Import failed", { description: err.message });
+    } catch (err: unknown) {
+      toast.error("Import failed", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
     } finally {
       setIsImporting(false);
     }

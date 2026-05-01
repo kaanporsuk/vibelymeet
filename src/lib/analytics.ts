@@ -1,7 +1,9 @@
 import posthog from 'posthog-js';
 
+type AnalyticsProperties = Record<string, unknown>;
+
 // Identify user (call on login)
-export const identifyUser = (userId: string, properties?: Record<string, any>) => {
+export const identifyUser = (userId: string, properties?: AnalyticsProperties) => {
   posthog.identify(userId, properties);
 };
 
@@ -11,11 +13,11 @@ export const resetAnalytics = () => {
 };
 
 // Track a custom event
-export const trackEvent = (eventName: string, properties?: Record<string, any>) => {
+export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
   posthog.capture(eventName, properties);
 };
 
 // Set user properties (non-event, just profile updates)
-export const setUserProperties = (properties: Record<string, any>) => {
+export const setUserProperties = (properties: AnalyticsProperties) => {
   posthog.people.set(properties);
 };

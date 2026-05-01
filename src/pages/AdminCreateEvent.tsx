@@ -189,8 +189,10 @@ const AdminCreateEvent = () => {
                     const url = await uploadEventCoverToBunny(file, session.access_token);
                     setCoverImage(url);
                     toast.success("Cover uploaded");
-                  } catch (err: any) {
-                    toast.error("Upload failed", { description: err.message });
+                  } catch (err: unknown) {
+                    toast.error("Upload failed", {
+                      description: err instanceof Error ? err.message : "Please try again.",
+                    });
                   } finally {
                     setIsUploadingCover(false);
                   }

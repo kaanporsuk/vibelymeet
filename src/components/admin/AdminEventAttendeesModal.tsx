@@ -33,8 +33,34 @@ import { sendNotification } from "@/lib/notifications";
 import { toast } from "sonner";
 import { format } from "date-fns";
 
+type AdminAttendeesEvent = {
+  id: string;
+  title: string;
+  event_date: string;
+};
+
+type AttendeeProfile = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  gender: string | null;
+  avatar_url: string | null;
+  email_verified: boolean | null;
+  photo_verified: boolean | null;
+};
+
+type EventRegistrationWithProfile = {
+  id: string;
+  registered_at: string;
+  admission_status: string | null;
+  attended: boolean | null;
+  attendance_marked: boolean | null;
+  profile_id: string | null;
+  profiles: AttendeeProfile | null;
+};
+
 interface AdminEventAttendeesModalProps {
-  event: any;
+  event: AdminAttendeesEvent;
   onClose: () => void;
 }
 
@@ -90,11 +116,11 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
       if (error) throw error;
       
       // Filter by search if needed
-      let filtered = data || [];
+      let filtered = ((data || []) as unknown as EventRegistrationWithProfile[]);
       if (searchQuery) {
         const lowerSearch = searchQuery.toLowerCase();
         filtered = filtered.filter(reg => 
-          (reg.profiles as any)?.name?.toLowerCase().includes(lowerSearch)
+          reg.profiles?.name?.toLowerCase().includes(lowerSearch)
         );
       }
       
@@ -232,7 +258,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     const csvContent = [
       ['Name', 'Age', 'Gender', 'Registered', 'Admission', 'Attendance'].join(','),
       ...registrations.map(reg => {
-        const profile = reg.profiles as any;
+        const profile = reg.profiles;
         const att = reg.attendance_marked
           ? (reg.attended ? 'Attended' : 'No Show')
           : 'Pending';
@@ -479,7 +505,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
               </div>
 
               {filteredRegistrations?.map((reg, index) => {
-                const profile = reg.profiles as any;
+                const profile = reg.profiles;
                 return (
                   <motion.div
                     key={reg.id}

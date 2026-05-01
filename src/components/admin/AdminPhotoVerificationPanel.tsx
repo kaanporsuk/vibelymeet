@@ -36,6 +36,25 @@ type ResolvedVerificationUrls = {
   };
 };
 
+type PhotoVerificationRow = {
+  id: string;
+  user_id: string;
+  profile_photo_url: string | null;
+  selfie_url: string | null;
+  status: string;
+  created_at: string;
+  client_confidence_score: number | null;
+  client_match_result: boolean | null;
+  rejection_reason: string | null;
+};
+
+type VerificationProfileRow = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  avatar_url: string | null;
+};
+
 const REJECTION_REASONS = [
   "Photos don't match",
   "Face not clearly visible",
@@ -78,12 +97,12 @@ const AdminPhotoVerificationPanel = () => {
 
       const { data, error } = await query.limit(50);
       if (error) throw error;
-      return data || [];
+      return (data || []) as PhotoVerificationRow[];
     },
   });
 
   // Fetch profile names for display
-  const userIds = verifications.map((v: any) => v.user_id);
+  const userIds = verifications.map((v) => v.user_id);
   const { data: profiles = [] } = useQuery({
     queryKey: ["admin-verification-profiles", userIds.join(",")],
     queryFn: async () => {
@@ -92,13 +111,13 @@ const AdminPhotoVerificationPanel = () => {
         .from("profiles")
         .select("id, name, age, avatar_url")
         .in("id", userIds);
-      return data || [];
+      return (data || []) as VerificationProfileRow[];
     },
     enabled: userIds.length > 0,
   });
 
   const profileMap = useMemo(
-    () => Object.fromEntries(profiles.map((p: any) => [p.id, p])),
+    () => Object.fromEntries(profiles.map((p) => [p.id, p])),
     [profiles]
   );
 
@@ -232,7 +251,7 @@ const AdminPhotoVerificationPanel = () => {
   });
 
   const approveMutation = useMutation({
-    mutationFn: async (verification: any) => {
+    mutationFn: async (verification: PhotoVerificationRow) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
@@ -250,8 +269,8 @@ const AdminPhotoVerificationPanel = () => {
       queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
       queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
     },
-    onError: (err: any) => {
-      toast.error("Failed to approve: " + (err.message || "Unknown error"));
+    onError: (err: unknown) => {
+      toast.error("Failed to approve: " + (err instanceof Error ? err.message : "Unknown error"));
     },
   });
 
@@ -276,8 +295,8 @@ const AdminPhotoVerificationPanel = () => {
       queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
       queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
     },
-    onError: (err: any) => {
-      toast.error("Failed to reject: " + (err.message || "Unknown error"));
+    onError: (err: unknown) => {
+      toast.error("Failed to reject: " + (err instanceof Error ? err.message : "Unknown error"));
     },
   });
 
@@ -379,7 +398,7 @@ const AdminPhotoVerificationPanel = () => {
         </div>
       ) : (
         <div className="space-y-4">
-          {verifications.map((v: any) => {
+          {verifications.map((v) => {
             const profile = profileMap[v.user_id];
             const urls = resolvedUrls[v.id];
             return (

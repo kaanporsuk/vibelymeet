@@ -80,6 +80,7 @@ export const useEvents = () => {
         tags: string[] | null;
         status: string | null;
         duration_minutes: number | null;
+        language: string | null;
       }>;
 
       // Filter using shared visibility helper (includes grace period)
@@ -111,7 +112,7 @@ export const useEvents = () => {
             eventDate,
             event_date_raw: event.event_date,
             duration_minutes: event.duration_minutes || 60,
-            language: (event as any).language ?? null,
+            language: event.language ?? null,
           };
         });
     },
@@ -144,6 +145,7 @@ export const useInfiniteEvents = () => {
         tags: string[] | null;
         status: string | null;
         duration_minutes: number | null;
+        language: string | null;
       }>;
 
       // Filter using shared visibility helper
@@ -175,7 +177,7 @@ export const useInfiniteEvents = () => {
           eventDate,
           event_date_raw: event.event_date,
           duration_minutes: event.duration_minutes || 60,
-          language: (event as any).language ?? null,
+          language: event.language ?? null,
         };
       });
 

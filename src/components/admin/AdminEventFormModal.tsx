@@ -23,7 +23,7 @@ import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import React from "react";
 
 interface AdminEventFormModalProps {
-  event?: any;
+  event?: AdminEventFormEvent | null;
   onClose: () => void;
 }
 
@@ -49,6 +49,72 @@ const DAYS_FULL = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 type Scope = "global" | "regional" | "local";
 type RecurrenceType = "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly";
 type RecurrenceEnd = "never" | "after" | "on_date";
+
+type VibeTagRow = {
+  id: string;
+  label: string;
+  emoji?: string | null;
+};
+
+type AdminEventFormEvent = {
+  id: string;
+  title?: string | null;
+  description?: string | null;
+  language?: string | null;
+  cover_image?: string | null;
+  event_date?: string | null;
+  duration_minutes?: number | null;
+  tags?: string[] | null;
+  vibes?: string[] | null;
+  max_male_attendees?: number | null;
+  max_female_attendees?: number | null;
+  max_nonbinary_attendees?: number | null;
+  current_attendees?: number | null;
+  scope?: Scope | null;
+  city?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  radius_km?: number | null;
+  visibility?: string | null;
+  is_free?: boolean | null;
+  price_amount?: number | null;
+  price_currency?: string | null;
+  is_recurring?: boolean | null;
+  recurrence_type?: RecurrenceType | null;
+  recurrence_days?: number[] | null;
+};
+
+type EventSavePayload = {
+  title: string;
+  description: string;
+  cover_image: string;
+  language: string | null;
+  event_date: string;
+  duration_minutes: number;
+  max_attendees: number;
+  tags: string[];
+  vibes: string[];
+  max_male_attendees: number | null;
+  max_female_attendees: number | null;
+  max_nonbinary_attendees: number | null;
+  visibility: string;
+  is_free: boolean;
+  price_amount: number;
+  price_currency: string;
+  scope: Scope;
+  latitude: number | null;
+  longitude: number | null;
+  radius_km: number | null;
+  city: string | null;
+  country: string | null;
+  is_recurring: boolean;
+  recurrence_type: RecurrenceType | null;
+  recurrence_days: number[] | null;
+  recurrence_count: number | null;
+  recurrence_ends_at: string | null;
+  status?: string;
+};
 
 interface GeoResult {
   lat: number;
@@ -285,8 +351,10 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       const url = await uploadEventCoverToBunny(file, session.access_token, event?.id ?? undefined);
       setCoverImage(url);
       toast.success('Cover image uploaded');
-    } catch (error: any) {
-      toast.error('Failed to upload image', { description: error.message });
+    } catch (error: unknown) {
+      toast.error('Failed to upload image', {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
     } finally {
       setIsUploading(false);
     }
@@ -314,7 +382,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const saveEvent = useMutation({
     mutationFn: async () => {
       const eventDateTime = new Date(`${eventDate}T${eventTime}`);
-      const eventData: any = {
+      const eventData: EventSavePayload = {
         title, description,
         cover_image: coverImage,
         language: language || null,
@@ -863,7 +931,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             onToggle={() => toggleSection('vibes')}
             badge={selectedVibes.length > 0 ? `${selectedVibes.length} selected` : undefined}>
             <div className="flex flex-wrap gap-2">
-              {vibeTags.map((vibe: any) => (
+              {(vibeTags as VibeTagRow[]).map((vibe) => (
                 <motion.button key={vibe.id} type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                   onClick={() => toggleVibe(vibe.label)}
                   className={`px-3 py-2 rounded-full border transition-all text-sm ${selectedVibes.includes(vibe.label)

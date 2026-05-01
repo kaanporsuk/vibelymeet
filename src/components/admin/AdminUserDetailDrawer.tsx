@@ -50,6 +50,28 @@ interface AdminUserDetailDrawerProps {
   onClose: () => void;
 }
 
+type UserVibeRow = {
+  label: string | null;
+  emoji: string | null;
+  category?: string | null;
+};
+
+type AdminDailyDropRow = {
+  id: string;
+  user_a_id: string;
+  user_b_id: string;
+  status: string;
+  drop_date: string;
+  created_at: string;
+};
+
+type AdminMatchRow = {
+  id: string;
+  matched_at: string;
+  profile_id_1: string;
+  profile_id_2: string;
+};
+
 const ADMIN_PROFILE_DETAIL_SELECT = `
   id,
   name,
@@ -130,7 +152,12 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           )
         `)
         .eq('profile_id', userId);
-      return data?.map(v => v.vibe_tags) || [];
+      const rows = (data || []) as unknown as Array<{
+        vibe_tags: UserVibeRow | UserVibeRow[] | null;
+      }>;
+      return rows.flatMap((v) =>
+        Array.isArray(v.vibe_tags) ? v.vibe_tags : v.vibe_tags ? [v.vibe_tags] : []
+      );
     },
   });
 
@@ -149,7 +176,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
         .order('matched_at', { ascending: false })
         .limit(20);
-      return data || [];
+      return (data || []) as AdminMatchRow[];
     },
   });
 
@@ -187,7 +214,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
         .order('created_at', { ascending: false })
         .limit(50);
-      return data || [];
+      return (data || []) as AdminDailyDropRow[];
     },
   });
 
@@ -471,7 +498,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       Vibes
                     </h4>
                     <div className="flex flex-wrap gap-2">
-                      {vibes?.map((vibe: any, i: number) => (
+                      {vibes?.map((vibe, i: number) => (
                         <Badge key={i} variant="secondary" className="gap-1">
                           {vibe?.emoji} {vibe?.label}
                         </Badge>
@@ -608,7 +635,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 <TabsContent value="activity" className="mt-4 space-y-4">
                   <h4 className="font-semibold text-foreground">Daily Drop Activity</h4>
                   <div className="space-y-2">
-                    {dailyDrops?.map((drop: any) => {
+                    {dailyDrops?.map((drop) => {
                       const partnerId = drop.user_a_id === userId ? drop.user_b_id : drop.user_a_id;
                       const partner = dropProfiles?.[partnerId];
                       return (

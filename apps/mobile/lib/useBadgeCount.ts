@@ -9,12 +9,21 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { DAILY_DROP_ACTIONABLE_STATUSES } from '@/lib/dailyDropSchedule';
 
-let OneSignal: any = null;
+type NativeOneSignalModule = {
+  Notifications?: {
+    setBadgeCount?: (count: number) => void;
+  };
+};
+
+let OneSignal: NativeOneSignalModule | null = null;
 try {
   /* Optional native module — may be absent in some builds. */
   /* eslint-disable @typescript-eslint/no-require-imports -- Metro optional native import */
-  OneSignal =
-    require('react-native-onesignal').OneSignal ?? require('react-native-onesignal').default;
+  const oneSignalModule = require('react-native-onesignal') as {
+    OneSignal?: NativeOneSignalModule;
+    default?: NativeOneSignalModule;
+  };
+  OneSignal = oneSignalModule.OneSignal ?? oneSignalModule.default ?? null;
   /* eslint-enable @typescript-eslint/no-require-imports */
 } catch {}
 
@@ -64,7 +73,7 @@ export function useBadgeCount(): number {
 
   // Set the app badge via OneSignal
   useEffect(() => {
-    if (OneSignal?.Notifications) {
+    if (OneSignal?.Notifications?.setBadgeCount) {
       try {
         OneSignal.Notifications.setBadgeCount(badgeCount);
       } catch {}

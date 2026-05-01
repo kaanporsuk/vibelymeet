@@ -1521,8 +1521,8 @@ const VideoDate = () => {
           filter: `id=eq.${id}`,
         },
         (payload) => {
-          const row = payload.new as any;
-          setHandshakeTruth({ id, ...(row as VideoDateHandshakeTruth) });
+          const row = payload.new as VideoDateHandshakeTruth;
+          setHandshakeTruth({ id, ...row });
           const newState = row.state || row.phase;
 
           if (row.ended_at || newState === "ended") {

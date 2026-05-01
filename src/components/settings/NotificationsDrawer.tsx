@@ -21,6 +21,7 @@ import {
   Layers,
   AlertTriangle,
   AlarmClock,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -165,7 +166,7 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     prefKey,
     iconColor = "text-muted-foreground",
   }: {
-    icon: any;
+    icon: LucideIcon;
     label: string;
     description: string;
     prefKey: keyof typeof prefs;

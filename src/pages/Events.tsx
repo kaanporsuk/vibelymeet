@@ -509,9 +509,9 @@ const Events = () => {
                       <EventCardPremium id={event.id} title={event.title} image={event.image}
                         date={event.date} time={event.time} attendees={event.attendees}
                         tags={event.tags} status={event.status}
-                        scope={(event as any).scope} city={(event as any).city}
-                        country={(event as any).country} distanceKm={(event as any).distance_km}
-                        language={(event as any).language} />
+                        scope={event.scope} city={event.city}
+                        country={event.country} distanceKm={event.distance_km}
+                        language={event.language} />
                     </motion.div>
                   ))}
                 </motion.div>
@@ -537,7 +537,7 @@ const Events = () => {
                   eventDate={featuredEvent.eventDate} attendees={featuredEvent.attendees}
                   tags={featuredEvent.tags} status={featuredEvent.status}
                   durationMinutes={featuredEvent.duration_minutes}
-                  language={(featuredEvent as any).language} />
+                  language={featuredEvent.language} />
               </div>
             )}
 
