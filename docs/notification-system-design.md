@@ -52,14 +52,18 @@ This document is the result of a full audit of web and native notification code,
 
 ### 2.1 OneSignal
 
-- **Init:** `apps/mobile/lib/onesignal.ts` — `initOneSignal()` with `EXPO_PUBLIC_ONESIGNAL_APP_ID`; called from `main.tsx` and from `PushRegistration` component.
-- **Registration:** After auth, `PushRegistration` (in `_layout.tsx`) calls `registerPushWithBackend(user.id)`: requestPermission(false), OneSignal.login(userId), get subscription ID via `OneSignal.User.pushSubscription.getIdAsync()` (with 1.5s retry), upsert `notification_preferences` with `mobile_onesignal_player_id` and `mobile_onesignal_subscribed: true`. On sign out, `logoutOneSignal()` (no DB clear of player id).
+- **Init:** `apps/mobile/lib/onesignal.ts` — `initOneSignal()` initializes the SDK only when `EXPO_PUBLIC_ONESIGNAL_APP_ID` is configured. `PushRegistration` mounts in the root layout and calls init once.
+- **Identity binding:** On auth, `PushRegistration` calls `bindOneSignalExternalUser(user.id)` so the SDK identity follows the Supabase user without prompting for OS notification permission on every app open.
+- **Backend registration:** `registerPushWithBackend(user.id)` is now sync-only: it first confirms OS push permission is already granted, then logs in/binds identity, retries OneSignal subscription ID lookup with the shared retry budget, and upserts `notification_preferences.mobile_onesignal_player_id` / `mobile_onesignal_subscribed`.
+- **Foreground sync:** `PushRegistration` calls `syncNativePushDeliveryOnForeground` on auth readiness and `AppState` foreground return so already-granted users refresh backend player state without a prompt.
+- **Sign out:** native `signOut` clears `mobile_onesignal_player_id` / `mobile_onesignal_subscribed`; `logoutOneSignal()` clears SDK identity and local tag/write guards.
+- **Deep links:** `NotificationDeepLinkHandler` is mounted in the root layout. It accepts `additionalData.url`, `deep_link`, `deepLink`, and `launchURL`, queues protected links until entry state is ready, and reconciles `/date/:id` against backend video-session truth before routing.
 - **App config:** `app.config.js` — OneSignal plugin; production APNs for EAS preview/production.
 
 ### 2.2 Permission flow
 
-- **usePushPermission** (`lib/usePushPermission.ts`): reads OneSignal.Notifications.getPermissionAsync(); requestPermission() → OneSignal.Notifications.requestPermission(false); openSettings() for device settings.
-- **NotificationPermissionFlow** (`components/notifications/NotificationPermissionFlow.tsx`): modal steps intro → requesting → success/denied; “Open Settings” when denied. Used on dashboard and in settings.
+- **usePushPermission / osPushPermission** (`lib/usePushPermission.ts`, `lib/osPushPermission.ts`): reads OS/OneSignal permission state, requests permission only from explicit user action, and keeps denied/not-yet-prompted copy distinct where the native APIs allow.
+- **NotificationPermissionFlow** (`components/notifications/NotificationPermissionFlow.tsx`): modal steps intro → requesting → success/denied; “Open Settings” when denied. Dashboard and settings grant paths call permission request, then backend sync/foreground recovery when granted.
 - **Settings → Notifications** (`app/settings/notifications.tsx`): shows push status (Enabled/Disabled/Not set), Enable / Open Settings; toggles for notify_messages, notify_new_match, notify_date_reminder, notify_event_reminder, notify_ready_gate, notify_daily_drop, notify_product_updates; link to “Open notification settings on web” for quiet hours and sounds.
 
 ### 2.3 What native can receive
@@ -68,7 +72,8 @@ This document is the result of a full audit of web and native notification code,
 
 ### 2.4 Display and deep links
 
-- OS banner, sound, badge (OneSignal default). No in-app notification center; no custom “notification history” screen. Deep link from tap: handled by OneSignal/Expo; exact route mapping (e.g. data.url → Expo route) depends on Expo/OneSignal config (e.g. vibelymeet:// or custom scheme + path).
+- OS banner, sound, and provider display behavior remain OneSignal/native-owned. No in-app notification center or custom notification history screen is implemented.
+- Tap routing is repo-owned through `NotificationDeepLinkHandler`: payload URLs are normalized to Expo routes; chat links prefer `other_user_id` when present; video-date links must pass backend route truth before navigating to `/date/:id`.
 
 ### 2.5 Preferences
 
@@ -93,8 +98,8 @@ This document is the result of a full audit of web and native notification code,
 | **Account/safety** | No push for account deletion scheduled/cancelled, pause/resume, report update. |
 | **Re-engagement** | No “haven’t opened in X days” or weekly summary. |
 | **In-app center** | Web has NotificationContainer (match/message/event/date_proposal toasts); native has no in-app list/history. |
-| **Badge** | Native does not set/clear badge from unread counts. |
-| **Deep link map** | data.url is web path: `/chat/…`, `/matches`, `/event/{id}/lobby` (often with `pendingVideoSession` + legacy `pendingMatch` query params — both encode **`video_sessions.id`** for session-stage). Native must map to Expo routes (e.g. /chat/[id], /(tabs)/matches, /event/[eventId]/lobby). |
+| **Badge** | Native does not set/clear OS app-icon badge counts from unread counts. |
+| **Deep link map** | Implemented through `NotificationDeepLinkHandler` for URL/deep-link payloads, with backend truth checks for `/date/:id`. Continue extending this map as new notification routes are added. |
 | **Rich notifications** | send-notification supports image_url (chrome_web_image); native image in notification depends on OneSignal payload (large_icon, etc.). Not consistently used per type. |
 | **Sounds** | preference sound_enabled exists; no per-category sound or custom sounds in implementation. |
 
