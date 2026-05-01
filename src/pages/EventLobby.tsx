@@ -1068,7 +1068,7 @@ const EventLobby = () => {
     const code = result.result === "swipe_recorded" ? "vibe_recorded" : result.result;
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
-    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", profile_id: targetId });
+    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
 
     if (code === "match" || code === "match_queued") {
       haptics.medium();
@@ -1086,7 +1086,7 @@ const EventLobby = () => {
     const code = result.result;
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
-    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", profile_id: targetId });
+    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
 
     afterSuccessfulSwipe(targetId);
   }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
@@ -1103,10 +1103,10 @@ const EventLobby = () => {
 
     if (code === "super_vibe_sent") {
       setSuperVibeRemaining((prev) => Math.max(0, prev - 1));
-      trackEvent("super_vibe_used", { event_id: eventId, profile_id: targetId });
+      trackEvent("super_vibe_used", { event_id: eventId, target_present: true });
     }
 
-    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", profile_id: targetId });
+    trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", target_present: true });
 
     afterSuccessfulSwipe(targetId);
   }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
