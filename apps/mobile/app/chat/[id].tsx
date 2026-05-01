@@ -76,7 +76,7 @@ import { GamesPickerSheet, type GamesPickerGameId } from '@/components/chat/game
 import { useMatchDateSuggestions, type DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { useQueryClient } from '@tanstack/react-query';
 import { useMatchCall } from '@/lib/useMatchCall';
-import { useIsOffline } from '@/lib/useNetworkStatus';
+import { useConnectivity } from '@/lib/useConnectivity';
 import { chatFriendlyErrorFromUnknown, isLikelyNetworkFailure } from '@/lib/networkErrorMessage';
 import { avatarUrl } from '@/lib/imageUrl';
 import { getChatPartnerActivityLine } from '@/lib/chatActivityStatus';
@@ -971,7 +971,7 @@ export default function ChatThreadScreen() {
     })(),
   });
 
-  const isOffline = useIsOffline();
+  const isOffline = useConnectivity() === 'offline';
 
   const handleInputChange = useCallback((text: string) => {
     setInput(text);
