@@ -213,13 +213,13 @@ Create a clean frontend env file for local use.
 See root **`.env.example`** for the canonical list. Use `KEY=value` with no spaces around `=`.
 
 - **Required:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (or legacy `VITE_SUPABASE_ANON_KEY` as fallback).
-- **Optional:** `VITE_BUNNY_STREAM_CDN_HOSTNAME`, `VITE_BUNNY_CDN_HOSTNAME`, `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_HOST`, `VITE_SENTRY_DSN`, `VITE_ONESIGNAL_APP_ID` (each has in-code fallback or is optional).
+- **Optional:** `VITE_BUNNY_STREAM_CDN_HOSTNAME`, `VITE_BUNNY_CDN_HOSTNAME`, `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_HOST`, `VITE_SENTRY_DSN`, `VITE_ONESIGNAL_APP_ID`. OneSignal is disabled when its app ID is unset; the other optional values either have explicit fallbacks or disable their optional integration safely.
 
 ### Notes
 
 - Do **not** put server secrets in `VITE_*` (e.g. Twilio auth token, Resend API key, Supabase project ID). They are browser-exposed.
 - `VITE_SUPABASE_PROJECT_ID` is not required by the app runtime.
-- OneSignal App ID is now **env-backed with fallback** via `VITE_ONESIGNAL_APP_ID`; if unset, the historical App ID is used.
+- OneSignal App ID is **env-backed only** via `VITE_ONESIGNAL_APP_ID`; if unset or blank, web push initialization is skipped for that runtime.
 - Sentry DSN is now **env-backed with fallback** via `VITE_SENTRY_DSN`; if unset, the historical DSN is used.
 - PostHog host is now **env-backed with fallback** via `VITE_POSTHOG_HOST`; if unset, it defaults to the EU cloud host.
 
@@ -245,7 +245,7 @@ The repo provides a shim at:
 
 which delegates to the official OneSignal CDN worker. A successful rebuild/deploy **must** ensure this file is published at the root so that requests like:
 
-- `https://www.vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
+- `https://www.vibelymeet.com/OneSignalSDK.sw.js?appId=<onesignal-app-id>&sdkVersion=...`
 
 do **not** 404 and OneSignal’s service worker can register correctly. OneSignal health still depends on the provider-side app/origin/service-worker configuration in the OneSignal dashboard.
 
