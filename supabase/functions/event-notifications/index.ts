@@ -19,7 +19,7 @@ interface EventNotificationRequest {
 // Send email via Resend API
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
   if (!RESEND_API_KEY) {
-    console.log("RESEND_API_KEY not configured, skipping email");
+    console.log("Resend email provider not configured, skipping event notification email");
     return;
   }
 
@@ -39,7 +39,10 @@ async function sendEmail(to: string, subject: string, html: string): Promise<voi
 
   if (!response.ok) {
     const error = await response.text();
-    console.error(`Failed to send email to ${to}:`, error);
+    console.error("event-notifications resend_failed", {
+      status: response.status,
+      bodyLength: error.length,
+    });
   }
 }
 
@@ -134,6 +137,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from("profiles")
         .select("id, name, verified_email")
         .eq("email_verified", true)
+        .eq("email_unsubscribed", false)
         .not("verified_email", "is", null);
 
       console.log(`Sending new event notification to ${profiles?.length || 0} users`);
@@ -211,6 +215,7 @@ const handler = async (req: Request): Promise<Response> => {
         .select("id, name, verified_email")
         .in("id", profileIds)
         .eq("email_verified", true)
+        .eq("email_unsubscribed", false)
         .not("verified_email", "is", null);
 
       console.log(`Sending capacity alert to ${profiles?.length || 0} registered users`);
