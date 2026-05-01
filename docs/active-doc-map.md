@@ -57,6 +57,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Native physical-device QA readiness** | `docs/qa/native-physical-device-qa-runbook.md`; branch delta `docs/branch-deltas/qa-native-physical-device-flow.md`; regression assertion `shared/matching/nativePhysicalDeviceQaReadiness.test.ts` |
 | **RevenueCat native entitlement readiness** | `docs/branch-deltas/fix-revenuecat-native-entitlement-readiness.md`; regression assertion `shared/matching/revenueCatNativeEntitlementReadiness.test.ts` |
 | **Post-stream provider/native deep audit and tidy** | `docs/audits/post-stream-provider-native-readiness-audit-2026-05-01.md` |
+| **Screenshot-led native visual parity capture plan** | `docs/qa/screenshot-led-native-visual-parity-capture-plan.md`; branch delta `docs/branch-deltas/fix-screenshot-led-native-visual-parity.md`; regression assertion `shared/matching/screenshotLedNativeVisualParity.test.ts` |
 | **Recent hardening deep audit and cleanup (historical partial pass)** | `docs/audits/recent-hardening-deep-audit-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-recent-hardening.md` |
 
 ---
@@ -83,6 +84,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Event Lobby native/backend contract** | `docs/contracts/event-lobby-native-contract.md` |
 | **Native RC smoke pack (iOS/Android operator checklist)** | `docs/qa/native-rc-smoke-pack.md` |
 | **Native physical-device QA runbook** | `docs/qa/native-physical-device-qa-runbook.md` |
+| **Screenshot-led native visual parity capture plan** | `docs/qa/screenshot-led-native-visual-parity-capture-plan.md` |
 | **Provider readiness evidence pack (OneSignal, Bunny, Daily, Resend, Twilio, RevenueCat)** | Stream deltas in `docs/branch-deltas/` plus assertions in `shared/matching/*ProviderOperationalQa.test.ts` and `shared/matching/revenueCatNativeEntitlementReadiness.test.ts` |
 | **Web push / OneSignal production verification** | `docs/web-push-production-checklist.md` |
 | **Native runtime provider hardening (push boundary + iOS React source-build fix)** | `docs/native-runtime-provider-hardening.md` |
