@@ -45,6 +45,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Event Lobby deck payload and media contract** | `docs/contracts/event-lobby-deck-payload-contract.md`, `docs/audits/event-lobby-deck-payload-media-verification.md`; branch delta `docs/branch-deltas/fix-event-lobby-deck-payload-media.md`; migration `20260501230000_event_lobby_deck_payload_media.sql` |
 | **Event Lobby observability taxonomy** | `docs/contracts/event-lobby-observability.md`, `docs/audits/event-lobby-observability-verification.md`; branch delta `docs/branch-deltas/fix-event-lobby-observability.md`; Edge Function `swipe-actions` |
 | **Event Lobby regression harness** | `scripts/run_event_lobby_regression.sh`, `docs/golden-path-event-lobby-regression-runbook.md`, `docs/audits/event-lobby-regression-harness-verification.md`; branch delta `docs/branch-deltas/test-event-lobby-regression-harness.md` |
+| **Event Lobby native/backend contract** | `docs/contracts/event-lobby-native-contract.md`, `docs/audits/event-lobby-native-contract-verification.md`; branch delta `docs/branch-deltas/docs-event-lobby-native-contract.md` |
 | **Recent hardening deep audit and cleanup** | `docs/audits/recent-hardening-deep-audit-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-recent-hardening.md` |
 
 ---
@@ -68,6 +69,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Phased operator detail | `docs/native-sprint6-launch-closure-runbook.md` |
 | **Web regression harness (static + manual checklist)** | `scripts/run_golden_path_smoke.sh` → `docs/golden-path-regression-runbook.md` |
 | **Event Lobby regression harness (focused static + staging checklist)** | `scripts/run_event_lobby_regression.sh` → `docs/golden-path-event-lobby-regression-runbook.md` |
+| **Event Lobby native/backend contract** | `docs/contracts/event-lobby-native-contract.md` |
 | **Native RC smoke pack (iOS/Android operator checklist)** | `docs/qa/native-rc-smoke-pack.md` |
 | **Web push / OneSignal production verification** | `docs/web-push-production-checklist.md` |
 | **Native runtime provider hardening (push boundary + iOS React source-build fix)** | `docs/native-runtime-provider-hardening.md` |
