@@ -119,7 +119,7 @@ For each domain, the target is that all three clients operate on the **same back
   - Parity requirements:
     - All swipe actions (vibe, super vibe, match) must:
       - Call `swipe-actions` (or an equivalent backend endpoint) rather than writing to `matches` or swipe logs directly.
-      - Receive the same result taxonomy (`match`, `match_queued`, `super_vibe_sent`, `vibe_recorded`, `already_matched`, etc.).
+      - Receive the same result taxonomy (`match`, `match_queued`, `super_vibe_sent`, `vibe_recorded`, `already_swiped`, `already_matched`, etc.).
     - Match creation, “It’s a match” signaling, and any Ready Gate queueing must behave identically across clients.
 
 - **Daily Drop**
@@ -757,4 +757,3 @@ After Sprints 1–6 are complete, use the following for integration and release 
 - **`docs/native-manual-test-matrix.md`** — Manual test matrix for auth, onboarding, events, lobby, swipes, matches, chat, push, Daily Drop, Ready Gate, video date, premium, and cross-platform (web ↔ iOS/Android).
 - **`docs/native-deployment-validation-sequence.md`** — Ordered merge, backend rollout, external dashboard setup, dev-build validation, release gates, and known limitations.
 - **`docs/native-pr-summary.md`** — Concise PR/merge summary and reviewer focus areas.
-

@@ -14,13 +14,15 @@ const corsHeaders = {
  */
 type HandleSwipeSessionPayload = {
   success?: boolean;
-  result: string;
+  result?: string;
+  outcome?: string;
   error?: string;
   reason?: string;
   match_id?: string;
   video_session_id?: string;
   event_id?: string;
   immediate?: boolean;
+  duplicate?: boolean;
   idempotent?: boolean;
   replay?: boolean;
   notification_suppressed?: boolean;
@@ -53,6 +55,8 @@ function logLifecycle(payload: {
   category: string;
   result: string;
   swipe_type?: string | null;
+  duplicate?: boolean;
+  notification_suppressed?: boolean;
   dedupe_reason?: string | null;
   error_reason?: string | null;
 }) {
@@ -60,12 +64,22 @@ function logLifecycle(payload: {
 }
 
 function shouldSuppressSwipeNotification(result: HandleSwipeSessionPayload): boolean {
-  const outcome = result.result ?? result.error;
+  const outcome = result.outcome ?? result.result ?? result.error;
+  const explicitNoNotifyOutcomes = new Set([
+    "already_swiped",
+    "swipe_already_recorded",
+    "event_not_active",
+    "blocked",
+    "reported",
+    "account_paused",
+    "target_unavailable",
+    "participant_has_active_session_conflict",
+  ]);
   return result.notification_suppressed === true ||
+    result.duplicate === true ||
     result.idempotent === true ||
     result.replay === true ||
-    outcome === "swipe_already_recorded" ||
-    outcome === "event_not_active";
+    explicitNoNotifyOutcomes.has(outcome ?? "");
 }
 
 serve(async (req) => {
@@ -137,6 +151,7 @@ serve(async (req) => {
       ...raw,
       // Canonicalize historical alias at the edge boundary.
       result: raw.result === "swipe_recorded" ? "vibe_recorded" : raw.result,
+      outcome: raw.outcome ?? (raw.result === "swipe_recorded" ? "vibe_recorded" : raw.result),
     };
     if (result.result === "match" || result.result === "match_queued") {
       if (result.match_id && !result.video_session_id) {
@@ -148,6 +163,7 @@ serve(async (req) => {
     const sessionId = result.video_session_id ?? result.match_id;
     const eventIdStr = typeof result.event_id === "string" ? result.event_id : String(event_id);
     const suppressNotifications = shouldSuppressSwipeNotification(result);
+    const duplicate = result.duplicate === true || result.idempotent === true || result.replay === true;
 
     logLifecycle({
       event_id: eventIdStr,
@@ -155,8 +171,10 @@ serve(async (req) => {
       user_id: actorId,
       target_id: String(target_id),
       category: "swipe_action",
-      result: result.result ?? "ok",
+      result: result.outcome ?? result.result ?? result.error ?? "ok",
       swipe_type: String(swipe_type),
+      duplicate,
+      notification_suppressed: suppressNotifications,
       dedupe_reason: result.dedupe_reason ?? null,
       error_reason: null,
     });
@@ -171,7 +189,9 @@ serve(async (req) => {
           category: "swipe_notification_dedupe",
           result: "notification_suppressed",
           swipe_type: String(swipe_type),
-          dedupe_reason: result.dedupe_reason ?? result.error ?? result.result ?? "idempotent_replay",
+          duplicate,
+          notification_suppressed: true,
+          dedupe_reason: result.dedupe_reason ?? result.error ?? result.outcome ?? result.result ?? "idempotent_replay",
           error_reason: null,
         });
       } else if (result.result === "match" && sessionId) {

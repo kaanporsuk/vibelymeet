@@ -1103,6 +1103,7 @@ export default function EventLobbyScreen() {
       switch (result) {
         case 'vibe_recorded':
         case 'swipe_recorded':
+        case 'already_swiped':
           break;
         case 'match':
           show({

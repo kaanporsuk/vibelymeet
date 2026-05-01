@@ -74,5 +74,6 @@ test("match_immediate and match_queued semantics remain distinct", () => {
 
 test("already_matched remains a no-advance deck result even when routable", () => {
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("already_matched"), false);
+  assert.equal(shouldAdvanceLobbyDeckAfterSwipe("already_swiped"), false);
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("swipe_recorded"), true);
 });

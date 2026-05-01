@@ -253,7 +253,7 @@ test("legacy direct session creation surfaces are deprecated rather than bypasse
 });
 
 test("swipe-actions suppresses inactive-event notification side effects", () => {
-  assert.match(swipeActions, /outcome === "event_not_active"/);
+  assert.match(swipeActions, /"event_not_active"/);
   assert.match(swipeActions, /result\.notification_suppressed === true/);
   assert.doesNotMatch(swipeActions, /event_not_active[\s\S]{0,300}send-notification/);
 });
