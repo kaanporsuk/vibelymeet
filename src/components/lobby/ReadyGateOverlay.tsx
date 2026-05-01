@@ -13,6 +13,7 @@ import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSe
 import { trackEvent } from "@/lib/analytics";
 import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import { EventLobbyObservabilityEvents } from "@clientShared/observability/eventLobbyObservability";
 import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
@@ -619,6 +620,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     refetchSession,
   } = useReadyGate({
     sessionId,
+    eventId,
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
@@ -978,6 +980,13 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         }),
       );
       trackEvent(LobbyPostDateEvents.READY_GATE_IMPRESSION, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "ready_gate_overlay",
+        source_action: "impression",
+      });
+      trackEvent(EventLobbyObservabilityEvents.READY_GATE_SHOWN, {
         platform: "web",
         session_id: sessionId,
         event_id: eventId,

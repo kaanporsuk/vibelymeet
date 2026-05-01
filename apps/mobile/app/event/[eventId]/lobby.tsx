@@ -41,6 +41,14 @@ import { useMysteryMatch } from '@/lib/useMysteryMatch';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
+import {
+  bucketEventLobbyCount,
+  buildLobbySwipeResultPayload,
+  EventLobbyObservabilityEvents,
+  getSwipeNotificationSuppressionReason,
+  isDuplicateSwipeResult,
+  resolveDeckEmptyReason,
+} from '@clientShared/observability/eventLobbyObservability';
 import { bucketVideoDateLatencyMs } from '@clientShared/observability/videoDateOperatorMetrics';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { useVibelyDialog } from '@/components/VibelyDialog';
@@ -228,7 +236,13 @@ export default function EventLobbyScreen() {
       isLiveWindow
   );
   const deckQueryEnabled = lobbySideEffectsEnabled;
-  const { data: profiles = [], isLoading: deckLoading, isError: deckError, refetch: refetchDeck } = useEventDeck(
+  const {
+    data: profiles = [],
+    isLoading: deckLoading,
+    isError: deckError,
+    error: deckErrorValue,
+    refetch: refetchDeck,
+  } = useEventDeck(
     id,
     user?.id ?? null,
     deckQueryEnabled
@@ -258,6 +272,9 @@ export default function EventLobbyScreen() {
     setPostSurveyReturnContext(false);
     setPostSurveyBridgeVisible(false);
     postSurveyRouteTrackedRef.current = null;
+    deckLoadedTrackedRef.current = false;
+    deckEmptyTrackedRef.current = false;
+    deckErrorTrackedRef.current = false;
   }, [id]);
 
   useEffect(() => {
@@ -310,6 +327,9 @@ export default function EventLobbyScreen() {
   const [userVibes, setUserVibes] = useState<string[]>([]);
   const lastOpenedSessionRef = useRef<string | null>(null);
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
+  const deckLoadedTrackedRef = useRef(false);
+  const deckEmptyTrackedRef = useRef(false);
+  const deckErrorTrackedRef = useRef(false);
   /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
@@ -405,6 +425,14 @@ export default function EventLobbyScreen() {
           void refetchActiveSession();
           return;
         }
+
+        trackEvent(EventLobbyObservabilityEvents.DATE_ENTERED_FROM_LOBBY, {
+          platform: 'native',
+          event_id: id,
+          session_id_present: true,
+          source_surface: 'event_lobby',
+          source_action: trigger,
+        });
 
         const navigated = navigateToDateSessionGuarded({
           sessionId: sessionIdToOpen,
@@ -705,7 +733,10 @@ export default function EventLobbyScreen() {
 
   useEffect(() => {
     if (!id || !user?.id || !lobbySideEffectsEnabled) return;
-    trackEvent('lobby_entered', { event_id: id });
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_ENTERED, {
+      platform: 'native',
+      event_id: id,
+    });
   }, [id, user?.id, lobbySideEffectsEnabled]);
 
   const openReadyGateWithSession = useCallback(
@@ -1255,6 +1286,59 @@ export default function EventLobbyScreen() {
     !deckError &&
     !showConvergenceYieldUi &&
     !showQueuedStyleConvergenceUi;
+  const deckGateKind = useMemo(() => {
+    if (!id) return 'missing_event';
+    if (!user?.id) return 'missing_user';
+    if (pauseStatus.isPaused) return 'account_paused';
+    if (!hasEvent) return 'missing_event';
+    if (!isConfirmedSeat) return regSnapshot?.isWaitlisted ? 'not_confirmed' : 'not_registered';
+    if (isEventCancelled) return 'cancelled';
+    if (isEventArchived) return 'archived';
+    if (isEventDraft) return 'draft';
+    if (isEventEndedByTruth) return 'ended';
+    if (!isLiveWindow) return 'not_live';
+    return 'live';
+  }, [
+    hasEvent,
+    id,
+    isConfirmedSeat,
+    isEventArchived,
+    isEventCancelled,
+    isEventDraft,
+    isEventEndedByTruth,
+    isLiveWindow,
+    pauseStatus.isPaused,
+    regSnapshot?.isWaitlisted,
+    user?.id,
+  ]);
+  const deckEmptyReason = useMemo(
+    () =>
+      resolveDeckEmptyReason({
+        deckEnabled: deckQueryEnabled,
+        gateKind: deckGateKind,
+        deckError,
+        deckErrorValue,
+        totalProfiles: profiles.length,
+        visibleProfiles: sortedProfiles.length,
+        deckEverLoaded: deckLoadedTrackedRef.current,
+        queuedCount: queuedMatchCount,
+        yieldingToReadyGate: yieldingToReadyGateUi,
+        yieldingToVideoDate: yieldingToVideoDateUi,
+        userPaused: pauseStatus.isPaused,
+      }),
+    [
+      deckError,
+      deckErrorValue,
+      deckGateKind,
+      deckQueryEnabled,
+      pauseStatus.isPaused,
+      profiles.length,
+      queuedMatchCount,
+      sortedProfiles.length,
+      yieldingToReadyGateUi,
+      yieldingToVideoDateUi,
+    ],
+  );
   const secondsUntilEventEnd = secondsUntilPostDateEventEnd(eventEndTime);
   const postSurveyContinuityDecision = useMemo(
     () =>
@@ -1280,6 +1364,77 @@ export default function EventLobbyScreen() {
       yieldingToVideoDateUi,
     ]
   );
+
+  useEffect(() => {
+    if (!id || !deckQueryEnabled || deckLoading || deckError || profiles.length === 0) {
+      if (!deckQueryEnabled) deckLoadedTrackedRef.current = false;
+      return;
+    }
+    if (deckLoadedTrackedRef.current) return;
+    deckLoadedTrackedRef.current = true;
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_LOADED, {
+      platform: 'native',
+      event_id: id,
+      deck_count_bucket: bucketEventLobbyCount(profiles.length),
+      visible_count_bucket: bucketEventLobbyCount(sortedProfiles.length),
+      has_visible_cards: sortedProfiles.length > 0,
+      source_surface: 'event_lobby',
+    });
+  }, [deckError, deckLoading, deckQueryEnabled, id, profiles.length, sortedProfiles.length]);
+
+  useEffect(() => {
+    if (!id || !deckError) {
+      deckErrorTrackedRef.current = false;
+      return;
+    }
+    if (deckErrorTrackedRef.current) return;
+    deckErrorTrackedRef.current = true;
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_ERROR, {
+      platform: 'native',
+      event_id: id,
+      reason: deckEmptyReason,
+      source_surface: 'event_lobby',
+    });
+    Sentry.addBreadcrumb({
+      category: 'event-lobby',
+      level: 'warning',
+      message: EventLobbyObservabilityEvents.LOBBY_DECK_ERROR,
+      data: { eventId: id, reason: deckEmptyReason },
+    });
+  }, [deckEmptyReason, deckError, id]);
+
+  useEffect(() => {
+    if (!id || eventLoading || regLoading || deckLoading || deckError) {
+      deckEmptyTrackedRef.current = false;
+      return;
+    }
+    const shouldTrackEmpty = !deckQueryEnabled || isEmpty;
+    if (!shouldTrackEmpty) {
+      deckEmptyTrackedRef.current = false;
+      return;
+    }
+    if (deckEmptyTrackedRef.current) return;
+    deckEmptyTrackedRef.current = true;
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_EMPTY, {
+      platform: 'native',
+      event_id: id,
+      reason: deckEmptyReason,
+      deck_count_bucket: bucketEventLobbyCount(profiles.length),
+      visible_count_bucket: bucketEventLobbyCount(sortedProfiles.length),
+      source_surface: 'event_lobby',
+    });
+  }, [
+    deckEmptyReason,
+    deckError,
+    deckLoading,
+    deckQueryEnabled,
+    eventLoading,
+    id,
+    isEmpty,
+    profiles.length,
+    regLoading,
+    sortedProfiles.length,
+  ]);
 
   useEffect(() => {
     if (!id || !showConvergenceYieldUi) {
@@ -1527,8 +1682,31 @@ export default function EventLobbyScreen() {
     setProcessing(true);
     const targetId = current.id;
     try {
+      trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_SUBMITTED, {
+        platform: 'native',
+        event_id: id,
+        swipe_type: swipeType,
+        source_surface: 'event_lobby',
+      });
+      Sentry.addBreadcrumb({
+        category: 'event-lobby',
+        level: 'info',
+        message: EventLobbyObservabilityEvents.LOBBY_SWIPE_SUBMITTED,
+        data: { eventId: id, swipeType },
+      });
       const result = await swipe(id, targetId, swipeType);
       if (!result) {
+        trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
+          event_id: id,
+          platform: 'native',
+          swipe_type: swipeType,
+          outcome: 'invoke_error',
+          reason: 'network_error',
+          session_id_present: false,
+          notification_attempted: false,
+          notification_suppressed_reason: 'network_error',
+          duplicate: false,
+        });
         show({
           title: 'Something went wrong',
           message: 'Check your connection and try again.',
@@ -1540,6 +1718,15 @@ export default function EventLobbyScreen() {
 
       const envelope = result as SwipeResult;
       if (envelope.success === false) {
+        trackEvent(
+          EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT,
+          buildLobbySwipeResultPayload({
+            eventId: id,
+            platform: 'native',
+            swipeType,
+            result: envelope,
+          }),
+        );
         show({
           title: 'Unable to swipe',
           message: envelope.message ?? 'Try again in a moment.',
@@ -1551,6 +1738,17 @@ export default function EventLobbyScreen() {
 
       const code = envelope.result;
       if (!code) {
+        trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
+          event_id: id,
+          platform: 'native',
+          swipe_type: swipeType,
+          outcome: 'missing_result_code',
+          reason: 'missing_result_code',
+          session_id_present: false,
+          notification_attempted: false,
+          notification_suppressed_reason: 'missing_result_code',
+          duplicate: false,
+        });
         show({
           title: 'Something went wrong',
           message: 'Tap to try again, or refresh the deck.',
@@ -1565,6 +1763,35 @@ export default function EventLobbyScreen() {
         event_id: id,
         swipe_type: swipeType,
         result: outcome,
+      });
+      const lobbySwipeResultPayload = buildLobbySwipeResultPayload({
+        eventId: id,
+        platform: 'native',
+        swipeType,
+        result: envelope,
+      });
+      trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, lobbySwipeResultPayload);
+      if (isDuplicateSwipeResult(envelope)) {
+        trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_DUPLICATE_SUPPRESSED, {
+          platform: 'native',
+          event_id: id,
+          swipe_type: swipeType,
+          outcome,
+          reason: getSwipeNotificationSuppressionReason(envelope) ?? 'already_swiped',
+          source_surface: 'event_lobby',
+        });
+      }
+      Sentry.addBreadcrumb({
+        category: 'event-lobby',
+        level: 'info',
+        message: EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT,
+        data: {
+          eventId: id,
+          swipeType,
+          outcome,
+          duplicate: lobbySwipeResultPayload.duplicate,
+          sessionIdPresent: lobbySwipeResultPayload.session_id_present,
+        },
       });
 
       const videoSessionId = videoSessionIdFromSwipePayload(envelope);
@@ -1671,7 +1898,24 @@ export default function EventLobbyScreen() {
       if (remainingVisible === 0) {
         void refetchDeck();
       }
-    } catch {
+    } catch (error) {
+      trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
+        event_id: id,
+        platform: 'native',
+        swipe_type: swipeType,
+        outcome: 'client_exception',
+        reason: 'client_exception',
+        session_id_present: false,
+        notification_attempted: false,
+        notification_suppressed_reason: 'client_exception',
+        duplicate: false,
+      });
+      Sentry.addBreadcrumb({
+        category: 'event-lobby',
+        level: 'error',
+        message: 'lobby_swipe_exception',
+        data: { eventId: id, swipeType, errorName: error instanceof Error ? error.name : 'unknown' },
+      });
       show({
         title: 'Something went wrong',
         message: 'Tap the card to try again, or pull to refresh the deck.',

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import * as Sentry from "@sentry/react";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
 import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio, AlertCircle } from "lucide-react";
@@ -44,6 +45,11 @@ import {
   QUEUED_MATCH_TIMED_OUT_USER_MESSAGE,
   shouldAdvanceLobbyDeckAfterSwipe,
 } from "@shared/matching/videoSessionFlow";
+import {
+  bucketEventLobbyCount,
+  EventLobbyObservabilityEvents,
+  resolveDeckEmptyReason,
+} from "@clientShared/observability/eventLobbyObservability";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
 
@@ -139,6 +145,7 @@ const EventLobby = () => {
     profiles,
     isLoading: deckLoading,
     isError: deckError,
+    error: deckFetchError,
     refetch: refetchDeck,
   } = useEventDeck({
     eventId: eventId || "",
@@ -174,6 +181,9 @@ const EventLobby = () => {
   const prepareNavigationInFlightRef = useRef<Set<string>>(new Set());
   const lobbyEnteredEventRef = useRef<string | null>(null);
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
+  const deckLoadedTrackedRef = useRef<string | null>(null);
+  const deckEmptyTrackedRef = useRef<string | null>(null);
+  const deckErrorTrackedRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -310,6 +320,15 @@ const EventLobby = () => {
         target: `/date/${sessionId}`,
         eventId,
       });
+      if (eventId) {
+        trackEvent(EventLobbyObservabilityEvents.DATE_ENTERED_FROM_LOBBY, {
+          platform: "web",
+          event_id: eventId,
+          session_id_present: true,
+          source_surface: "event_lobby",
+          source_action: source,
+        });
+      }
       navigate(`/date/${sessionId}`, { replace: true });
     },
     [eventId, location.pathname, navigate]
@@ -480,6 +499,9 @@ const EventLobby = () => {
     setPostSurveyReturnContext(false);
     setCheckingNextDateAfterSurvey(false);
     postSurveyRouteTrackedRef.current = null;
+    deckLoadedTrackedRef.current = null;
+    deckEmptyTrackedRef.current = null;
+    deckErrorTrackedRef.current = null;
   }, [eventId]);
 
   /** Remaining super vibes this event (server caps at 3 per event on event_swipes). */
@@ -592,7 +614,7 @@ const EventLobby = () => {
   useEffect(() => {
     if (!eventId || !lobbySideEffectsEnabled || lobbyEnteredEventRef.current === eventId) return;
     lobbyEnteredEventRef.current = eventId;
-    trackEvent('lobby_entered', { event_id: eventId });
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_ENTERED, { event_id: eventId, platform: "web" });
   }, [eventId, lobbySideEffectsEnabled]);
 
   useEffect(() => {
@@ -920,7 +942,67 @@ const EventLobby = () => {
     [eventEndsAtForContinuity]
   );
 
+  const deckEmptyReason = useMemo(
+    () =>
+      resolveDeckEmptyReason({
+        deckEnabled,
+        gateKind: lobbyGate.kind,
+        deckError,
+        deckErrorValue: deckFetchError,
+        totalProfiles: profiles.length,
+        visibleProfiles: sortedProfiles.length,
+        deckEverLoaded: deckEverLoadedRef.current,
+        queuedCount,
+        userPaused: user?.isPaused ?? false,
+      }),
+    [
+      deckEnabled,
+      deckError,
+      deckFetchError,
+      lobbyGate.kind,
+      profiles.length,
+      queuedCount,
+      sortedProfiles.length,
+      user?.isPaused,
+    ],
+  );
+
   // Track deck loaded / exhausted
+  useEffect(() => {
+    if (!eventId || !deckEnabled || deckLoading || deckError) return;
+    const key = `${eventId}:${profiles.length}:${sortedProfiles.length}`;
+    if (deckLoadedTrackedRef.current === key) return;
+    deckLoadedTrackedRef.current = key;
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_LOADED, {
+      platform: "web",
+      event_id: eventId,
+      deck_count_bucket: bucketEventLobbyCount(profiles.length),
+      visible_count_bucket: bucketEventLobbyCount(sortedProfiles.length),
+    });
+  }, [deckEnabled, deckError, deckLoading, eventId, profiles.length, sortedProfiles.length]);
+
+  useEffect(() => {
+    if (!eventId || !deckError || !deckEnabled) return;
+    const key = `${eventId}:${deckEmptyReason}`;
+    if (deckErrorTrackedRef.current === key) return;
+    deckErrorTrackedRef.current = key;
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_ERROR, {
+      platform: "web",
+      event_id: eventId,
+      reason: deckEmptyReason,
+    });
+    Sentry.addBreadcrumb({
+      category: "event-lobby",
+      message: "lobby_deck_error",
+      level: "warning",
+      data: {
+        event_id: eventId,
+        reason: deckEmptyReason,
+        gate_kind: lobbyGate.kind,
+      },
+    });
+  }, [deckEmptyReason, deckEnabled, deckError, eventId, lobbyGate.kind]);
+
   useEffect(() => {
     if (sortedProfiles.length > 0) {
       deckEverLoadedRef.current = true;
@@ -940,6 +1022,32 @@ const EventLobby = () => {
       trackEvent("lobby_deck_exhausted", { event_id: eventId });
     }
   }, [sortedProfiles.length, deckLoading, eventId]);
+
+  useEffect(() => {
+    if (!eventId) return;
+    const canReportEmpty =
+      (!deckEnabled && lobbyGate.kind !== "loading") ||
+      (deckEnabled && !deckLoading && sortedProfiles.length === 0);
+    if (!canReportEmpty) return;
+    const key = `${eventId}:${deckEmptyReason}`;
+    if (deckEmptyTrackedRef.current === key) return;
+    deckEmptyTrackedRef.current = key;
+    trackEvent(EventLobbyObservabilityEvents.LOBBY_DECK_EMPTY, {
+      platform: "web",
+      event_id: eventId,
+      reason: deckEmptyReason,
+      deck_count_bucket: bucketEventLobbyCount(profiles.length),
+      visible_count_bucket: bucketEventLobbyCount(sortedProfiles.length),
+    });
+  }, [
+    deckEmptyReason,
+    deckEnabled,
+    deckLoading,
+    eventId,
+    lobbyGate.kind,
+    profiles.length,
+    sortedProfiles.length,
+  ]);
 
   const afterSuccessfulSwipe = useCallback(
     (targetId: string) => {

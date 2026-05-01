@@ -4,6 +4,10 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { ReadyGateStatus } from "@/domain/enums";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import {
+  EventLobbyObservabilityEvents,
+  sanitizeReasonCode,
+} from "@clientShared/observability/eventLobbyObservability";
 
 interface ReadyGateState {
   status: ReadyGateStatus;
@@ -17,6 +21,7 @@ interface ReadyGateState {
 
 interface UseReadyGateOptions {
   sessionId: string;
+  eventId?: string | null;
   onBothReady: () => void;
   onForfeited: (reason: "timeout" | "skip", detail?: ReadyGateTerminalDetail) => void;
 }
@@ -108,7 +113,7 @@ function readyGateDebug(message: string, data?: Record<string, unknown>) {
   console.log(`[useReadyGate] ${message}`, data ?? {});
 }
 
-export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGateOptions) => {
+export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: UseReadyGateOptions) => {
   const { user } = useUserProfile();
   const [state, setState] = useState<ReadyGateState>({
     status: ReadyGateStatus.Queued,
@@ -238,7 +243,7 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
       applyReadyGateTruth(session as ReadyGateSessionTruth, {
         partnerName: partnerProfile?.name || "Your match",
       });
-  }, [sessionId, user?.id, applyReadyGateTruth, notifyTerminal]);
+  }, [sessionId, user?.id, applyReadyGateTruth]);
 
   // Fetch initial state and determine participant position
   useEffect(() => {
@@ -289,10 +294,23 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
     const { error } = transitionResult;
     const data = transitionResult.data;
     if (error) {
+      const reason = sanitizeReasonCode(error.code ?? "rpc_error", "rpc_error");
       readyGateDebug(`${action} transition failed`, {
         sessionId,
         code: error.code ?? null,
         message: error.message,
+      });
+      trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
+        platform: "web",
+        event_id: eventId ?? null,
+        session_id: sessionId,
+        action,
+        outcome: "rpc_error",
+        reason,
+        ready_gate_status: null,
+        terminal: false,
+        latency_ms: Date.now() - startedAt,
+        source_surface: "use_ready_gate",
       });
       trackEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
         platform: "web",
@@ -313,10 +331,14 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
         ...payload,
         ready_gate_status: payload.status ?? payload.ready_gate_status,
       });
+      const errorCode = payload.error_code ?? payload.code ?? null;
+      const transitionStatus = result.ok === true ? result.status : normalizeReadyGateStatus(payload.status ?? payload.ready_gate_status);
+      const transitionTerminal = result.ok === true ? result.isTerminal : isTerminalReadyGateStatus(transitionStatus);
+      const reason = sanitizeReasonCode(
+        payload.reason ?? payload.error ?? errorCode ?? transitionStatus ?? action,
+        action,
+      );
       if (payload.success === false) {
-        const errorCode = payload.error_code ?? payload.code ?? null;
-        const transitionStatus = result.ok === true ? result.status : normalizeReadyGateStatus(payload.status ?? payload.ready_gate_status);
-        const transitionTerminal = result.ok === true ? result.isTerminal : isTerminalReadyGateStatus(transitionStatus);
         if (errorCode === "EVENT_NOT_ACTIVE" || payload.reason === "event_not_active") {
           notifyTerminal(ReadyGateStatus.Expired, {
             status: payload.status ?? payload.ready_gate_status ?? ReadyGateStatus.Expired,
@@ -326,6 +348,18 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
             terminal: true,
           });
         }
+        trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
+          platform: "web",
+          event_id: eventId ?? null,
+          session_id: sessionId,
+          action,
+          outcome: "rejected",
+          reason,
+          ready_gate_status: transitionStatus,
+          terminal: payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE",
+          latency_ms: Date.now() - startedAt,
+          source_surface: "use_ready_gate",
+        });
         trackEvent(LobbyPostDateEvents.READY_GATE_CLIENT_TRANSITION_FAILURE, {
           platform: "web",
           session_id: sessionId,
@@ -340,9 +374,34 @@ export const useReadyGate = ({ sessionId, onBothReady, onForfeited }: UseReadyGa
         });
         return payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE";
       }
+      trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
+        platform: "web",
+        event_id: eventId ?? null,
+        session_id: sessionId,
+        action,
+        outcome: transitionTerminal ? "terminal" : "success",
+        reason,
+        ready_gate_status: transitionStatus,
+        terminal: payload.terminal === true || transitionTerminal,
+        latency_ms: Date.now() - startedAt,
+        source_surface: "use_ready_gate",
+      });
+    } else {
+      trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
+        platform: "web",
+        event_id: eventId ?? null,
+        session_id: sessionId,
+        action,
+        outcome: "success",
+        reason: action,
+        ready_gate_status: null,
+        terminal: false,
+        latency_ms: Date.now() - startedAt,
+        source_surface: "use_ready_gate",
+      });
     }
     return true;
-  }, [sessionId, user?.id, applyReadyGateTruth, notifyTerminal]);
+  }, [sessionId, eventId, user?.id, applyReadyGateTruth, notifyTerminal]);
 
   const syncSession = useCallback(async (): Promise<ReadyGateSyncResult> => {
     if (!sessionId || !user?.id) {
