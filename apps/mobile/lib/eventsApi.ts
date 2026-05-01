@@ -48,6 +48,8 @@ export type EventRow = {
   current_attendees: number | null;
   tags: string[] | null;
   status: string | null;
+  archived_at?: string | null;
+  ended_at?: string | null;
   duration_minutes: number | null;
   max_attendees: number | null;
   language?: string | null;
