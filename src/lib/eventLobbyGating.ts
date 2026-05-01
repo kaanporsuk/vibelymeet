@@ -29,6 +29,8 @@ type EventLike = {
   status?: string | null;
   eventDate?: Date | string | number | null;
   durationMinutes?: number | null;
+  archivedAt?: Date | string | number | null;
+  endedAt?: Date | string | number | null;
 } | null;
 
 type RegistrationLike = {
@@ -125,6 +127,7 @@ export function getWebEventLobbyGateState(input: {
   }
 
   const status = (input.event.status ?? "").toLowerCase();
+
   if (status === "cancelled") {
     return blockedState(
       "cancelled",
@@ -133,7 +136,7 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  if (status === "archived") {
+  if (input.event.archivedAt != null || status === "archived") {
     return blockedState(
       "archived",
       "This event is archived",
@@ -151,7 +154,7 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  if (status === "ended" || status === "completed") {
+  if (input.event.endedAt != null || status === "ended" || status === "completed") {
     return blockedState(
       "ended",
       "This event has ended",

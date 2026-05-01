@@ -1,6 +1,6 @@
 # Active doc map
 
-Date: 2026-04-30
+Date: 2026-05-01
 Purpose: Keep one current execution path visible for native launch closure and make older planning/runbook references explicitly historical.
 
 ---
@@ -40,6 +40,8 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | Clean rebuild rehearsal log | `docs/rebuild-rehearsal-log.md` |
 | Ready Gate registration ownership hardening | `docs/ready-gate-server-owned-registration-status.md`, `docs/ready-gate-server-owned-registration-status-final-audit.md`; migrations `20260501141000_ready_gate_server_owned_registration_status.sql`, `20260501142000_ready_gate_client_lifecycle_overwrite_guard.sql` |
 | **Video Date Handshake release: timer starts after both Daily joins** | `docs/vibely-canonical-project-reference.md` §4.1 and `docs/video-date-hardening-closure-report.md` §Video Date Handshake release-status addendum; migration `20260501170000_video_date_handshake_starts_after_daily_join.sql`; Edge Function `daily-room` |
+| **Event Lobby active-event, swipe retry, and web/native lobby gating closure** | `docs/audits/event-lobby-active-event-contract-verification.md`, `docs/audits/event-lobby-swipe-idempotency-verification.md`, `docs/audits/event-lobby-web-gating-verification.md`; branch deltas `docs/branch-deltas/fix-event-lobby-active-event-contract.md`, `docs/branch-deltas/fix-swipe-retry-idempotency-notification-dedupe.md`, `docs/branch-deltas/fix-event-lobby-web-gating.md`; migrations `20260501223000_event_lobby_canonical_active_state.sql`, `20260501224000_event_lobby_swipe_already_swiped.sql`; Edge Function `swipe-actions` |
+| **Recent hardening deep audit and cleanup** | `docs/audits/recent-hardening-deep-audit-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-recent-hardening.md` |
 
 ---
 
@@ -51,6 +53,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Architecture, providers, import boundaries (`@shared/*` vs root `shared/`)** | `docs/vibely-canonical-project-reference.md` |
 | **Native v1 architecture lock (routes, backend contracts, providers, gap list)** | `docs/native-sprint0-architecture-lock.md` |
 | **Ready Gate / video-date registration ownership** | `docs/ready-gate-server-owned-registration-status-final-audit.md` |
+| **Ready Gate and Event Lobby backend contract** | `docs/ready-gate-backend-contract.md` |
 | **Sprint 5 launch-polish triage (static matrix + implemented handoff fixes)** | `docs/native-sprint5-launch-polish-triage.md` |
 | Operator execution sheet | `docs/kaan-launch-closure-execution-sheet.md` |
 | Canonical launch-closure runbook | `docs/native-launch-closure-master-runbook.md` |

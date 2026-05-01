@@ -6,9 +6,13 @@ import { getWebEventLobbyGateState } from "../../src/lib/eventLobbyGating";
 
 const root = process.cwd();
 const webLobby = readFileSync(join(root, "src/pages/EventLobby.tsx"), "utf8");
+const useEventDetails = readFileSync(join(root, "src/hooks/useEventDetails.ts"), "utf8");
 const useEventDeck = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
 const useMatchQueue = readFileSync(join(root, "src/hooks/useMatchQueue.ts"), "utf8");
 const useEventStatus = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
+const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
+const nativeEventStatus = readFileSync(join(root, "apps/mobile/lib/eventStatus.ts"), "utf8");
+const nativeEventsApi = readFileSync(join(root, "apps/mobile/lib/eventsApi.ts"), "utf8");
 
 const liveStart = new Date("2026-05-01T12:00:00.000Z");
 const now = new Date("2026-05-01T12:15:00.000Z").getTime();
@@ -17,6 +21,8 @@ type TestEvent = {
   status: string | null;
   eventDate: Date;
   durationMinutes: number;
+  archivedAt?: Date | string | number | null;
+  endedAt?: Date | string | number | null;
 };
 
 function event(overrides: Partial<TestEvent> = {}): TestEvent {
@@ -64,7 +70,9 @@ test("scheduled/not-started, ended, cancelled, archived, and draft events block 
   assert.equal(gate({ nowMs: new Date("2026-05-01T13:01:00.000Z").getTime() }).kind, "ended");
   assert.equal(gate({ event: event({ status: "cancelled" }) }).kind, "cancelled");
   assert.equal(gate({ event: event({ status: "archived" }) }).kind, "archived");
+  assert.equal(gate({ event: event({ archivedAt: "2026-05-01T12:05:00.000Z" }) }).kind, "archived");
   assert.equal(gate({ event: event({ status: "draft" }) }).kind, "draft");
+  assert.equal(gate({ event: event({ endedAt: "2026-05-01T12:05:00.000Z" }) }).kind, "ended");
   for (const status of ["not_started", "ended", "cancelled", "archived", "draft"] as const) {
     const result =
       status === "not_started"
@@ -92,6 +100,8 @@ test("only live confirmed unpaused events enable deck fetch and actions", () => 
 test("web EventLobby wires the gate into deck, queue/status side effects, actions, and ended-state UI", () => {
   assert.match(webLobby, /getWebEventLobbyGateState/);
   assert.match(webLobby, /const deckEnabled = lobbyGate\.canFetchDeck/);
+  assert.match(useEventDetails, /archivedAt: data\.archived_at \? new Date\(data\.archived_at\) : null/);
+  assert.match(useEventDetails, /endedAt: data\.ended_at \? new Date\(data\.ended_at\) : null/);
   assert.match(webLobby, /const lobbySideEffectsEnabled = lobbyGate\.canUseLobbySideEffects/);
   assert.match(webLobby, /const lobbyActionsEnabled = lobbyGate\.canUseLobbyActions && !showEventEndedModal/);
   assert.match(webLobby, /useEventDeck\(\{[\s\S]*enabled: deckEnabled/);
@@ -110,4 +120,17 @@ test("related hooks honor disabled state instead of polling or writing stale lob
   assert.match(useMatchQueue, /setQueuedCount\(0\)/);
   assert.match(useEventStatus, /enabledRef/);
   assert.match(useEventStatus, /if \(!enabledRef\.current\) return/);
+});
+
+test("native EventLobby blocks stale deck, status, foreground, and queue side effects with the same local truths", () => {
+  assert.match(nativeEventsApi, /archived_at\?: string \| null/);
+  assert.match(nativeEventsApi, /ended_at\?: string \| null/);
+  assert.match(nativeLobby, /const lobbySideEffectsEnabled = Boolean\(/);
+  assert.match(nativeLobby, /const deckQueryEnabled = lobbySideEffectsEnabled/);
+  assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
+  assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
+  assert.match(nativeLobby, /status === 'ended' \|\| status === 'completed' \|\| row\.ended_at/);
+  assert.match(nativeLobby, /status === 'cancelled' \|\| status === 'archived' \|\| status === 'draft' \|\| row\.archived_at/);
+  assert.match(nativeEventStatus, /enabledRef/);
+  assert.match(nativeEventStatus, /if \(!enabledRef\.current\) return/);
 });

@@ -25,6 +25,9 @@ export interface EventDetails {
   currentAttendees: number;
   /** DB row status — use for cancelled / ended truth. */
   status: string | null;
+  /** DB terminal/archive markers — backend active-event truth also honors these. */
+  archivedAt: Date | null;
+  endedAt: Date | null;
   tags: string[];
   isFree: boolean;
   eventVibes: string[];
@@ -138,6 +141,8 @@ export const useEventDetails = (eventId: string | undefined) => {
         maxAttendees: data.max_attendees ?? 50,
         currentAttendees: data.current_attendees ?? 0,
         status: data.status ?? null,
+        archivedAt: data.archived_at ? new Date(data.archived_at) : null,
+        endedAt: data.ended_at ? new Date(data.ended_at) : null,
         tags: tags.map((t: string) => {
           if (t.includes("Electronic") || t.includes("Music")) return "🎧 " + t;
           if (t.includes("Tech") || t.includes("Gaming")) return "💻 " + t;

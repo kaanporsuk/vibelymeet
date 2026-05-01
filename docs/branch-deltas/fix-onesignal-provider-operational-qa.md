@@ -34,11 +34,11 @@ No Ready Gate, swipe, payment, realtime, pricing, notification category, provide
 
 ## Production Static Asset Checks
 
-Read-only production checks were run against `https://vibelymeet.com` with redirects followed:
+Read-only production checks were normalized to the canonical app origin:
 
-- `curl -I -L https://vibelymeet.com/OneSignalSDK.sw.js` -> 307 to `www`, then HTTP 200
-- `curl -I -L https://vibelymeet.com/OneSignalSDKWorker.js` -> 307 to `www`, then HTTP 200
-- `curl -I -L https://vibelymeet.com/sw.js` -> 307 to `www`, then HTTP 200
+- `curl -I -L https://www.vibelymeet.com/OneSignalSDK.sw.js` -> HTTP 200
+- `curl -I -L https://www.vibelymeet.com/OneSignalSDKWorker.js` -> HTTP 200
+- `curl -I -L https://www.vibelymeet.com/sw.js` -> HTTP 200
 
 Local static posture:
 

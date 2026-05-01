@@ -1,6 +1,6 @@
 # Surface inventory candidates (mechanical)
 
-**Generated:** 2026-04-14 via `node scripts/surface-inventory-audit.mjs`
+**Generated:** 2026-05-01 via `node scripts/surface-inventory-audit.mjs`
 
 ## Method
 
@@ -13,7 +13,7 @@ Static import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientSh
 | `src/pages` | **0** |
 | `src/hooks` | **0** |
 | `src/components` | **41** |
-| Modules in graph | **453** |
+| Modules in graph | **499** |
 
 ## Orphan pages (0)
 
@@ -27,6 +27,7 @@ _None._
 
 - `src/components/DashboardGreeting.tsx`
 - `src/components/EventCard.tsx`
+- `src/components/LazyImage.tsx`
 - `src/components/NavLink.tsx`
 - `src/components/OnboardingStep.tsx`
 - `src/components/PageTransition.tsx`
@@ -73,6 +74,6 @@ _None._
 - Dynamic import() and string-based lazy() paths are not analyzed.
 - Files only loaded by Vite glob or runtime strings may false-positive as orphans.
 
-## Interpretation (2026-04-14 triage)
+## Interpretation (2026-05-01 audit refresh)
 
-Legacy **video-date checkpoint / unused survey** orphans were **removed** — see `docs/audits/orphan-triage-2026-04-14.md`. Remaining rows are mostly **shadcn `ui/*`**, **wizard/**, **safety/**, and marketing-style components — **do not mass-delete** without product sign-off.
+Legacy **video-date checkpoint / unused survey** orphans were already removed — see `docs/audits/orphan-triage-2026-04-14.md`. The current candidate list still contains mostly shadcn `ui/*`, wizard, safety, and marketing-style components. Treat this file as a triage queue, not a deletion manifest; do not mass-delete without product or route-level proof.

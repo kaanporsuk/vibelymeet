@@ -2,7 +2,7 @@
 
 ## Executive verdict
 
-The web Vibe Video Date root cause was deterministic: the remote participant video used `object-cover`, so any mismatch between the encoded camera frame and the viewer viewport silently cropped the remote user's camera. Commit `6644dd134f` changed the web date remote video to `object-contain` on a black container. The current production bundle at `https://vibelymeet.com/` includes the equivalent `bg-black` + `object-contain` remote date video cluster.
+The web Vibe Video Date root cause was deterministic: the remote participant video used `object-cover`, so any mismatch between the encoded camera frame and the viewer viewport silently cropped the remote user's camera. Commit `6644dd134f` changed the web date remote video to `object-contain` on a black container. The current production bundle at `https://www.vibelymeet.com/` includes the equivalent `bg-black` + `object-contain` remote date video cluster.
 
 This sprint locks the product invariant on web and native:
 

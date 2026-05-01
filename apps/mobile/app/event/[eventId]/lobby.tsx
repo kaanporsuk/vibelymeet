@@ -117,11 +117,13 @@ function formatHeightCm(cm: number | null | undefined): string | null {
 
 function useCountdown(endTime: Date | null): string {
   const [timeRemaining, setTimeRemaining] = useState('');
+  const endTimeMs = endTime?.getTime() ?? null;
+
   useEffect(() => {
-    if (!endTime) return;
+    if (endTimeMs == null) return;
     let intervalId: ReturnType<typeof setInterval> | null = null;
     const tick = () => {
-      const diff = Math.max(0, Math.floor((endTime.getTime() - Date.now()) / 1000));
+      const diff = Math.max(0, Math.floor((endTimeMs - Date.now()) / 1000));
       if (diff <= 0) {
         setTimeRemaining('Ended');
         if (intervalId != null) {
@@ -139,7 +141,7 @@ function useCountdown(endTime: Date | null): string {
     return () => {
       if (intervalId != null) clearInterval(intervalId);
     };
-  }, [endTime?.getTime()]);
+  }, [endTimeMs]);
   return timeRemaining;
 }
 
@@ -167,20 +169,65 @@ export default function EventLobbyScreen() {
   const { data: event, isLoading: eventLoading } = useEventDetails(id);
   const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(id, user?.id);
   const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
+  const [lobbyClockMs, setLobbyClockMs] = useState(() => Date.now());
+  const hasEvent = event != null;
+  const eventDateValue = event?.event_date ?? null;
+  const eventDurationMinutes = event?.duration_minutes ?? null;
+  const eventArchivedAt = event?.archived_at ?? null;
+  const eventEndedAt = event?.ended_at ?? null;
+  const eventStatusRaw = event?.status ?? null;
 
   const eventEndTime = useMemo(
-    () => (event ? getEventEndTime(event.event_date, event.duration_minutes) : null),
-    [event?.event_date, event?.duration_minutes]
+    () => (eventDateValue ? getEventEndTime(eventDateValue, eventDurationMinutes) : null),
+    [eventDateValue, eventDurationMinutes]
   );
+  const eventEndTimeMs = eventEndTime?.getTime() ?? null;
+  const eventStatus = (eventStatusRaw ?? '').toLowerCase();
+  const isEventArchived = Boolean(eventArchivedAt) || eventStatus === 'archived';
+  const isEventCancelled = eventStatus === 'cancelled';
+  const isEventDraft = eventStatus === 'draft';
+  const isEventEndedByTruth =
+    Boolean(eventEndedAt) ||
+    eventStatus === 'ended' ||
+    eventStatus === 'completed' ||
+    (eventEndTimeMs != null && lobbyClockMs >= eventEndTimeMs);
+
+  useEffect(() => {
+    if (!eventDateValue) return;
+    setLobbyClockMs(Date.now());
+    const interval = setInterval(() => setLobbyClockMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [eventDateValue, eventEndTimeMs, eventEndedAt, eventArchivedAt, eventStatusRaw]);
 
   const isLiveWindow = useMemo(() => {
-    if (!event || !eventEndTime) return false;
-    const now = Date.now();
-    const start = new Date(event.event_date).getTime();
-    return now >= start && now < eventEndTime.getTime();
-  }, [event, eventEndTime]);
+    if (!eventDateValue || !eventEndTimeMs) return false;
+    if (eventStatus !== 'live' || isEventCancelled || isEventArchived || isEventDraft || isEventEndedByTruth) {
+      return false;
+    }
+    const start = new Date(eventDateValue).getTime();
+    return lobbyClockMs >= start && lobbyClockMs < eventEndTimeMs;
+  }, [
+    eventDateValue,
+    eventEndTimeMs,
+    eventStatus,
+    isEventArchived,
+    isEventCancelled,
+    isEventDraft,
+    isEventEndedByTruth,
+    lobbyClockMs,
+  ]);
 
-  const deckQueryEnabled = Boolean(id && user?.id && !pauseStatus.isPaused && isLiveWindow);
+  const lobbySideEffectsEnabled = Boolean(
+    id &&
+      user?.id &&
+      event &&
+      !eventLoading &&
+      !regLoading &&
+      isConfirmedSeat &&
+      !pauseStatus.isPaused &&
+      isLiveWindow
+  );
+  const deckQueryEnabled = lobbySideEffectsEnabled;
   const { data: profiles = [], isLoading: deckLoading, isError: deckError, refetch: refetchDeck } = useEventDeck(
     id,
     user?.id ?? null,
@@ -241,6 +288,8 @@ export default function EventLobbyScreen() {
   }, []);
 
   const sortedProfiles = useMemo(() => {
+    // deckNonce intentionally invalidates the ref-filtered deck after a card is marked seen.
+    void deckNonce;
     const filtered = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id));
     filtered.sort((a, b) => {
       if (a.has_super_vibed && !b.has_super_vibed) return -1;
@@ -573,11 +622,12 @@ export default function EventLobbyScreen() {
   }, [
     sessionHydrated,
     activeSessionId,
+    id,
     sameEventActiveSession?.kind,
     sameEventActiveSession?.sessionId,
   ]);
 
-  useEventStatus(id, user?.id ?? undefined, !!id && !!user?.id);
+  useEventStatus(id, user?.id ?? undefined, lobbySideEffectsEnabled);
 
   useFocusEffect(
     useCallback(() => {
@@ -592,8 +642,8 @@ export default function EventLobbyScreen() {
   }, []);
 
   useEffect(() => {
-    isActiveLobbyContextRef.current = isLobbyFocused && appState === 'active';
-  }, [appState, isLobbyFocused]);
+    isActiveLobbyContextRef.current = lobbySideEffectsEnabled && isLobbyFocused && appState === 'active';
+  }, [appState, isLobbyFocused, lobbySideEffectsEnabled]);
 
   useEffect(() => {
     queuedTtlExpiryNotifiedIdsRef.current.clear();
@@ -616,7 +666,7 @@ export default function EventLobbyScreen() {
 
   useEffect(() => {
     if (!id || !user?.id) return;
-    if (!isLobbyFocused || appState !== 'active') return;
+    if (!lobbySideEffectsEnabled || !isLobbyFocused || appState !== 'active') return;
 
     const stampForeground = async () => {
       try {
@@ -632,7 +682,7 @@ export default function EventLobbyScreen() {
     }, 30000);
 
     return () => clearInterval(intervalId);
-  }, [id, user?.id, isLobbyFocused, appState]);
+  }, [id, user?.id, lobbySideEffectsEnabled, isLobbyFocused, appState]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -654,9 +704,9 @@ export default function EventLobbyScreen() {
   }, [user?.id]);
 
   useEffect(() => {
-    if (!id || !user?.id || !isConfirmedSeat || !isLiveWindow || pauseStatus.isPaused) return;
+    if (!id || !user?.id || !lobbySideEffectsEnabled) return;
     trackEvent('lobby_entered', { event_id: id });
-  }, [id, user?.id, isConfirmedSeat, isLiveWindow, pauseStatus.isPaused]);
+  }, [id, user?.id, lobbySideEffectsEnabled]);
 
   const openReadyGateWithSession = useCallback(
     async (sessionId: string, trigger = 'unknown') => {
@@ -735,7 +785,10 @@ export default function EventLobbyScreen() {
   );
 
   const refreshQueueAndSuperVibe = useCallback(async () => {
-    if (!id || !user?.id) return;
+    if (!id || !user?.id || !lobbySideEffectsEnabled) {
+      setQueuedMatchCount(0);
+      return;
+    }
     const [count, remaining] = await Promise.all([
       getQueuedMatchCount(id, user.id),
       getSuperVibeRemaining(id, user.id),
@@ -743,12 +796,12 @@ export default function EventLobbyScreen() {
     setQueuedMatchCount(count);
     setSuperVibeRemaining(remaining);
     void refetchActiveSession();
-  }, [id, user?.id, refetchActiveSession]);
+  }, [id, user?.id, lobbySideEffectsEnabled, refetchActiveSession]);
 
   useEffect(() => {
-    if (!id || !user?.id || !isLobbyFocused || appState !== 'active') return;
+    if (!id || !user?.id || !lobbySideEffectsEnabled || !isLobbyFocused || appState !== 'active') return;
     void refreshQueueAndSuperVibe();
-  }, [id, user?.id, isLobbyFocused, appState, refreshQueueAndSuperVibe]);
+  }, [id, user?.id, lobbySideEffectsEnabled, isLobbyFocused, appState, refreshQueueAndSuperVibe]);
 
   useEffect(() => {
     if (!sessionHydrated || !id) return;
@@ -783,7 +836,7 @@ export default function EventLobbyScreen() {
    */
   useEffect(() => {
     if (!id || !user?.id) return;
-    if (!isLobbyFocused || appState !== 'active') return;
+    if (!lobbySideEffectsEnabled || !isLobbyFocused || appState !== 'active') return;
     if (queuedMatchCount <= 0 && sameEventActiveSession?.kind !== 'syncing') return;
     if (activeSessionId) return;
     if (sameEventActiveSession?.kind === 'video') return;
@@ -822,6 +875,7 @@ export default function EventLobbyScreen() {
     user?.id,
     isLobbyFocused,
     appState,
+    lobbySideEffectsEnabled,
     queuedMatchCount,
     activeSessionId,
     sameEventActiveSession?.kind,
@@ -831,7 +885,7 @@ export default function EventLobbyScreen() {
   ]);
 
   useEffect(() => {
-    if (!id || !user?.id) return;
+    if (!id || !user?.id || !lobbySideEffectsEnabled) return;
     let cancelled = false;
     const run = async () => {
       const result = await drainMatchQueue(id, user.id);
@@ -848,7 +902,7 @@ export default function EventLobbyScreen() {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, showDrainReasonInfoOnce]);
+  }, [id, user?.id, lobbySideEffectsEnabled, openReadyGateWithSession, refreshQueueAndSuperVibe, showDrainReasonInfoOnce]);
 
   useEffect(() => {
     if (!id) return;
@@ -861,8 +915,8 @@ export default function EventLobbyScreen() {
   }, [id, pendingVideoSession, pendingMatch, openReadyGateWithSession]);
 
   useEffect(() => {
-    if (id && user?.id) refreshQueueAndSuperVibe();
-  }, [id, user?.id, refreshQueueAndSuperVibe]);
+    if (id && user?.id && lobbySideEffectsEnabled) refreshQueueAndSuperVibe();
+  }, [id, user?.id, lobbySideEffectsEnabled, refreshQueueAndSuperVibe]);
 
   useEffect(() => {
     if (!user?.id || !id) return;
@@ -1023,12 +1077,8 @@ export default function EventLobbyScreen() {
   const timeRemaining = useCountdown(eventEndTime);
 
   useEffect(() => {
-    if (!event || !id) return;
-    if (event.status === 'ended') {
-      setShowEventEndedModal(true);
-      return;
-    }
-    if (eventEndTime && new Date() >= eventEndTime) {
+    if (!hasEvent || !id) return;
+    if (isEventEndedByTruth) {
       setShowEventEndedModal(true);
       return;
     }
@@ -1038,11 +1088,12 @@ export default function EventLobbyScreen() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'events', filter: `id=eq.${id}` },
         (payload) => {
-          const row = payload.new as { status?: string };
-          if (row.status === 'ended') setShowEventEndedModal(true);
-          if (row.status === 'cancelled') {
+          const row = payload.new as { status?: string | null; archived_at?: string | null; ended_at?: string | null };
+          const status = (row.status ?? '').toLowerCase();
+          if (status === 'ended' || status === 'completed' || row.ended_at) setShowEventEndedModal(true);
+          if (status === 'cancelled' || status === 'archived' || status === 'draft' || row.archived_at) {
             show({
-              title: 'This event was cancelled',
+              title: status === 'cancelled' ? 'This event was cancelled' : 'This event is not available',
               message: 'You’ll be taken back to the event page.',
               variant: 'warning',
               primaryAction: { label: 'OK', onPress: () => {} },
@@ -1055,25 +1106,17 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, event?.status, eventEndTime, show]);
+  }, [hasEvent, id, isEventEndedByTruth, show]);
 
   useEffect(() => {
     if (!eventEndTime) return;
     const interval = setInterval(() => {
-      if (new Date() >= eventEndTime) setShowEventEndedModal(true);
+      if (Date.now() >= eventEndTime.getTime()) setShowEventEndedModal(true);
     }, 30000);
     return () => clearInterval(interval);
   }, [eventEndTime]);
 
-  const mysteryMatchEnabled = Boolean(
-    id &&
-      user?.id &&
-      event &&
-      !eventLoading &&
-      isConfirmedSeat &&
-      !pauseStatus.isPaused &&
-      isLiveWindow
-  );
+  const mysteryMatchEnabled = lobbySideEffectsEnabled;
   const { findMysteryMatch, cancelSearch, isSearching, isWaiting } = useMysteryMatch({
     eventId: id,
     onMatchFound: (sessionId) => {
@@ -1212,10 +1255,7 @@ export default function EventLobbyScreen() {
     !deckError &&
     !showConvergenceYieldUi &&
     !showQueuedStyleConvergenceUi;
-  const secondsUntilEventEnd = useMemo(
-    () => secondsUntilPostDateEventEnd(eventEndTime),
-    [eventEndTime?.getTime()]
-  );
+  const secondsUntilEventEnd = secondsUntilPostDateEventEnd(eventEndTime);
   const postSurveyContinuityDecision = useMemo(
     () =>
       getPostDateLobbyContinuityDecision({
@@ -1385,13 +1425,36 @@ export default function EventLobbyScreen() {
     );
   }
 
-  if (event.status === 'cancelled') {
+  const isEventEndedForLobby = isEventEndedByTruth;
+
+  if (isEventCancelled || isEventArchived || isEventDraft) {
+    const title = isEventCancelled
+      ? 'This event was cancelled'
+      : isEventArchived
+        ? 'This event is archived'
+        : 'This event is not available yet';
     return (
       <>
         <View style={[styles.centered, { backgroundColor: theme.background }]}>
           <ErrorState
-            title="This event was cancelled"
+            title={title}
             message="Head back to the event page for details and booking options."
+            actionLabel="Back to event"
+            onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
+          />
+        </View>
+        {dialog}
+      </>
+    );
+  }
+
+  if (isEventEndedForLobby) {
+    return (
+      <>
+        <View style={[styles.centered, { backgroundColor: theme.background }]}>
+          <ErrorState
+            title="This event has ended"
+            message="The live lobby is closed. Head back to the event for details."
             actionLabel="Back to event"
             onActionPress={() => router.replace(`/(tabs)/events/${id}` as const)}
           />
@@ -1420,10 +1483,6 @@ export default function EventLobbyScreen() {
       </>
     );
   }
-
-  const isEventEndedForLobby =
-    event.status === 'ended' ||
-    (eventEndTime != null && Date.now() >= eventEndTime.getTime());
 
   if (!isLiveWindow) {
     return (
@@ -1455,7 +1514,7 @@ export default function EventLobbyScreen() {
   );
 
   const handleSwipe = async (swipeType: 'vibe' | 'pass' | 'super_vibe') => {
-    if (!current || processing) return;
+    if (!current || processing || !lobbySideEffectsEnabled) return;
     if (isOffline) {
       show({
         title: 'You’re offline',
