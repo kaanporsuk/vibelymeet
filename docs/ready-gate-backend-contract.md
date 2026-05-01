@@ -11,6 +11,7 @@ This document freezes the contract after:
 - Stream 1: `20260501180000_event_lobby_active_event_contract.sql`
 - Stream 2: `20260501190000_ready_gate_transition_expiry_rowcount.sql`
 - Stream 3: `20260501200000_ready_gate_event_ended_terminalization.sql`
+- Canonical active-state follow-up: `20260501223000_event_lobby_canonical_active_state.sql`
 
 ## Canonical Backend Surfaces
 
@@ -30,20 +31,27 @@ Event Lobby backend actions are allowed only when backend truth says:
 
 - event exists
 - `events.status = 'live'`
+- `events.status <> 'draft'`
+- `events.status <> 'cancelled'`
+- `events.status <> 'archived'`
 - `events.ended_at IS NULL`
 - `events.archived_at IS NULL`
-- database time is inside `event_date + COALESCE(duration_minutes, 60)`
+- database time is not before `event_date`
+- database time is before `event_date + COALESCE(duration_minutes, 60)`
 - caller auth and participation checks for the specific RPC pass
 
 Inactive reasons are machine-readable and user-safe after eligibility checks:
 
+- `event_not_found`
+- `event_draft`
 - `event_archived`
 - `event_cancelled`
 - `event_ended`
 - `event_not_live`
+- `event_not_started`
 - `event_outside_live_window`
 
-Stream 1 blocks new deck/swipe/mystery/queue/promotion work outside this live window.
+The canonical helper is `get_event_lobby_active_state(uuid, timestamptz)`, which returns `is_active`, `reason`, and `event_status`. Compatibility helpers `get_event_lobby_inactive_reason(uuid)` and `is_event_lobby_active(uuid)` delegate to it. Event Lobby blocks new deck/swipe/mystery/queue/promotion work outside this live window.
 
 ## Ready Gate Actions
 
