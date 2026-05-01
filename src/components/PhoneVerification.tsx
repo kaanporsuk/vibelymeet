@@ -76,6 +76,18 @@ function detectCountryFromLocale(): string {
   return "US";
 }
 
+function phoneVerifyDiagEnabled(): boolean {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      import.meta.env.DEV &&
+      window.localStorage?.getItem("__vibely_diag") === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function PhoneVerification({ open, onOpenChange, onVerified, initialPhoneE164 }: PhoneVerificationProps) {
   const detectedCountry = detectCountryFromLocale();
   const defaultDialCode = COUNTRY_CODES.find(c => c.country === detectedCountry)?.code || "+1";
@@ -129,14 +141,17 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
   // Health check (dev-only diagnostic)
   useEffect(() => {
     if (open) {
-      const diagOn = typeof window !== "undefined" && window.localStorage?.getItem("__vibely_diag") === "1";
-      if (!import.meta.env.DEV || !diagOn) return;
+      if (!phoneVerifyDiagEnabled()) return;
       supabase.functions
         .invoke("phone-verify", { body: { action: "health_check", phoneNumber: "+0" } })
         .then(({ data, error: invokeError }) => {
-          if (invokeError) console.error("Phone verify health check failed:", invokeError);
+          if (invokeError) console.error("Phone verify health check failed.");
           else if (data && (!data.hasSid || !data.hasToken || !data.hasVerify)) {
-            console.error("⚠️ Twilio secrets missing!", data);
+            console.error("Phone verify provider config incomplete.", {
+              hasSid: !!data.hasSid,
+              hasToken: !!data.hasToken,
+              hasVerify: !!data.hasVerify,
+            });
           }
         });
     }
@@ -162,18 +177,14 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
     setIsLoading(true);
     setError(null);
 
-    console.log("Sending OTP to:", fullPhoneNumber);
-
     try {
       const { data, error: invokeError } = await supabase.functions.invoke("phone-verify", {
         body: { action: "send_otp", phoneNumber: fullPhoneNumber },
       });
 
-      console.log("Send OTP response:", JSON.stringify({ data, invokeError }));
-
       // Network-level failure (offline, CORS, function crashed)
       if (invokeError) {
-        console.error("Function invoke error:", invokeError);
+        console.error("Phone verify invoke failed.");
         setError("Could not reach server. Check your connection.");
         setIsLoading(false);
         return;
@@ -181,19 +192,21 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
 
       // Application-level error (always HTTP 200, check data.success)
       if (!data?.success) {
-        console.error("Phone verify error:", data?.error, data?.twilioCode);
+        console.error("Phone verify send failed.", {
+          errorType: data?.errorType ?? null,
+          twilioCode: data?.twilioCode ?? null,
+        });
         setError(data?.error || "Failed to send code.");
         setIsLoading(false);
         return;
       }
 
       // Success
-      console.log("OTP sent successfully");
       setScreen("otp");
       setResendCooldown(60);
       setTimeout(() => otpRefs.current[0]?.focus(), 100);
-    } catch (err: any) {
-      console.error("Unexpected error sending OTP:", err);
+    } catch {
+      console.error("Unexpected error sending OTP.");
       setError("Network error. Please check your connection and try again.");
     } finally {
       setIsLoading(false);
@@ -212,9 +225,8 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
         body: { action: "verify_otp", phoneNumber: fullNumber, code: otpCode },
       });
 
-      console.log("Verify OTP response:", JSON.stringify({ data, invokeError }));
-
       if (invokeError) {
+        console.error("Phone verify code invoke failed.");
         setError("Could not reach server.");
         setIsLoading(false);
         return;
@@ -246,8 +258,8 @@ export function PhoneVerification({ open, onOpenChange, onVerified, initialPhone
         onVerified();
         onOpenChange(false);
       }, 2000);
-    } catch (err: any) {
-      console.error("Unexpected error verifying OTP:", err);
+    } catch {
+      console.error("Unexpected error verifying OTP.");
       setError("Network error. Please try again.");
     } finally {
       setIsLoading(false);

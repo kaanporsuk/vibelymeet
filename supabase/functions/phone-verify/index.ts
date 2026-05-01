@@ -16,29 +16,65 @@ function jsonResponse(body: Record<string, unknown>) {
   });
 }
 
+function maskPhoneForLog(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 0) return "invalid";
+  const prefix = value.trim().startsWith("+") ? "+" : "";
+  if (digits.length <= 4) return `${prefix}****`;
+  return `${prefix}${digits.slice(0, 2)}****${digits.slice(-2)}`;
+}
+
+function logInfo(stage: string, meta: Record<string, unknown> = {}) {
+  console.log(JSON.stringify({ source: "phone-verify", stage, ...meta }));
+}
+
+function logWarn(stage: string, meta: Record<string, unknown> = {}) {
+  console.warn(JSON.stringify({ source: "phone-verify", stage, ...meta }));
+}
+
+function logError(stage: string, meta: Record<string, unknown> = {}) {
+  console.error(JSON.stringify({ source: "phone-verify", stage, ...meta }));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const requestId = crypto.randomUUID();
+
   try {
     const body = await req.json();
     const { action, phoneNumber, code } = body;
-    console.log("📱 Request:", { action, phone: phoneNumber?.slice(0, 6) + "****" });
+    const loggedPhone = maskPhoneForLog(phoneNumber);
+    logInfo("request_received", { requestId, action, phone: loggedPhone });
 
     if (!action || !phoneNumber) {
       return jsonResponse({ success: false, error: "Missing action or phone number." });
     }
 
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      logWarn("auth_header_missing", { requestId });
+      return jsonResponse({ success: false, error: "Not authenticated." });
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      logWarn("auth_failed", { requestId, message: authError?.message ?? "missing_user" });
+      return jsonResponse({ success: false, error: "Authentication failed. Please log in again." });
+    }
+    logInfo("auth_resolved", { requestId, userId: user.id });
+
     const TWILIO_SID = Deno.env.get("TWILIO_ACCOUNT_SID");
     const TWILIO_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
     const TWILIO_VERIFY_SID = Deno.env.get("TWILIO_VERIFY_SERVICE_SID");
-
-    console.log("🔑 Secrets:", {
-      sid: TWILIO_SID ? TWILIO_SID.slice(0, 6) + "..." : "MISSING",
-      token: TWILIO_TOKEN ? `${TWILIO_TOKEN.length} chars` : "MISSING",
-      verify: TWILIO_VERIFY_SID ? TWILIO_VERIFY_SID.slice(0, 6) + "..." : "MISSING",
-    });
 
     if (action === "health_check") {
       return jsonResponse({
@@ -55,29 +91,12 @@ serve(async (req) => {
         !TWILIO_TOKEN && "TWILIO_AUTH_TOKEN",
         !TWILIO_VERIFY_SID && "TWILIO_VERIFY_SERVICE_SID",
       ].filter(Boolean);
-      console.error("❌ Missing secrets:", missing);
+      logError("twilio_config_missing", { requestId, missingCount: missing.length });
       return jsonResponse({
         success: false,
         error: "SMS service not configured. Missing: " + missing.join(", "),
       });
     }
-
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return jsonResponse({ success: false, error: "Not authenticated." });
-    }
-
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      console.error("❌ Auth failed:", authError?.message);
-      return jsonResponse({ success: false, error: "Authentication failed. Please log in again." });
-    }
-    console.log("✅ User:", user.id);
 
     const admin = createClient(supabaseUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_TOKEN}`);
@@ -109,7 +128,7 @@ serve(async (req) => {
         });
         const lookupData = await lookupRes.json();
         const lineType = lookupData?.line_type_intelligence?.type;
-        console.log("📞 Lookup:", { lineType, phone: phoneNumber.slice(0, 6) });
+        logInfo("lookup_complete", { requestId, lineType: lineType ?? null, phone: loggedPhone });
 
         if (lineType && lineType !== "mobile" && lineType !== "cellphone") {
           return jsonResponse({
@@ -118,9 +137,9 @@ serve(async (req) => {
             errorType: "invalid_number_type",
           });
         }
-      } catch (lookupErr) {
+      } catch {
         // If Lookup fails, continue anyway (don't block legitimate users)
-        console.warn("⚠️ Lookup failed, continuing:", lookupErr);
+        logWarn("lookup_failed_continue", { requestId });
       }
 
       // Check duplicate phone
@@ -147,7 +166,7 @@ serve(async (req) => {
       });
 
       const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/Verifications`;
-      console.log("📤 Twilio send:", { to: phoneNumber, url: url.slice(0, 60) });
+      logInfo("twilio_send_start", { requestId, phone: loggedPhone });
 
       const res = await fetch(url, {
         method: "POST",
@@ -159,12 +178,17 @@ serve(async (req) => {
       });
 
       const data = await res.json();
-      console.log("📥 Twilio:", { status: res.status, sid: data?.sid?.slice(0, 8), code: data?.code, msg: data?.message });
+      logInfo("twilio_send_response", {
+        requestId,
+        status: res.status,
+        providerStatus: data?.status ?? null,
+        hasErrorCode: data?.code !== undefined,
+      });
 
       if (!res.ok) {
         const twilioCode = data?.code;
         const msg = data?.message || "Unknown error";
-        console.error("❌ Twilio error:", twilioCode, msg);
+        logError("twilio_send_error", { requestId, twilioCode: twilioCode ?? null });
 
         const errorMap: Record<number, string> = {
           20003: "SMS authentication error — check Twilio credentials.",
@@ -185,7 +209,7 @@ serve(async (req) => {
         });
       }
 
-      console.log("✅ OTP sent:", data.status);
+      logInfo("otp_send_accepted", { requestId, providerStatus: data?.status ?? null });
       return jsonResponse({ success: true });
     }
 
@@ -196,7 +220,7 @@ serve(async (req) => {
       }
 
       const url = `https://verify.twilio.com/v2/Services/${TWILIO_VERIFY_SID}/VerificationCheck`;
-      console.log("🔍 Verify OTP for:", phoneNumber.slice(0, 6) + "****");
+      logInfo("twilio_verify_start", { requestId, phone: loggedPhone });
 
       const res = await fetch(url, {
         method: "POST",
@@ -208,7 +232,12 @@ serve(async (req) => {
       });
 
       const data = await res.json();
-      console.log("📥 Verify:", { status: res.status, approved: data?.status, code: data?.code });
+      logInfo("twilio_verify_response", {
+        requestId,
+        status: res.status,
+        providerStatus: data?.status ?? null,
+        hasErrorCode: data?.code !== undefined,
+      });
 
       if (!res.ok) {
         const errCode = data?.code;
@@ -248,17 +277,20 @@ serve(async (req) => {
         .eq("id", user.id);
 
       if (updateErr) {
-        console.error("❌ Profile update:", updateErr.message);
+        logError("profile_update_failed", { requestId, code: updateErr.code ?? "unknown" });
         return jsonResponse({ success: false, error: "Verified but profile update failed. Try again." });
       }
 
-      console.log("✅ Phone verified for:", user.id);
+      logInfo("phone_verified", { requestId, userId: user.id });
       return jsonResponse({ success: true, verified: true });
     }
 
     return jsonResponse({ success: false, error: "Invalid action." });
   } catch (err) {
-    console.error("💥 Crash:", err);
+    logError("unhandled_error", {
+      requestId,
+      errorType: err instanceof Error ? err.name : typeof err,
+    });
     return jsonResponse({ success: false, error: "An unexpected error occurred. Please try again." });
   }
 });

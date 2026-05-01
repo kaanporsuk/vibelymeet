@@ -268,6 +268,7 @@ Twilio powers phone verification and optional line-type checks.
 
 **Frontend**
 - `src/components/PhoneVerification.tsx`
+- `apps/mobile/components/verification/PhoneVerificationFlow.tsx`
 
 ### Secrets/config expected by code
 - `TWILIO_ACCOUNT_SID`
@@ -281,12 +282,17 @@ Twilio powers phone verification and optional line-type checks.
 - Lookup API availability if line-type checks are expected
 
 ### Rebuild-critical notes
-- this is the only function explicitly configured with `verify_jwt = true` at the Supabase gateway
+- `phone-verify` is explicitly configured with `verify_jwt = true` at the Supabase gateway and also requires authenticated user context in code
 - operational correctness depends on both Twilio credentials and the existence of the configured Verify service SID
+- current actions are `send_otp` and `verify_otp`; callers expect HTTP 200 with structured `{ success: false, error }` bodies for application errors
+- send attempts are capped at 5 per authenticated user per hour through `verification_attempts`
+- Lookup line-type checks block known non-mobile numbers, but Lookup failures fail open to avoid blocking legitimate users during provider outages
 
 ### Known unknowns to verify
 - exact Verify service settings
+- whether the Verify SMS body remains WebOTP-friendly in dashboard-managed templates/sender configuration
 - any fraud-control or country restrictions applied in dashboard
+- Lookup API and `line_type_intelligence` availability for the production Twilio account
 
 ---
 

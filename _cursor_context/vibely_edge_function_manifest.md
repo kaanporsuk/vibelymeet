@@ -405,11 +405,11 @@ The function exists in source but is not represented in `supabase/config.toml`.
 ### `phone-verify`
 - **Purpose:** sends phone verification OTPs and verifies submitted OTP codes
 - **Auth posture:** Class C — `verify_jwt = true` in config and also expects authenticated user context in code
-- **Frontend call sites:** `src/components/PhoneVerification.tsx`
+- **Frontend call sites:** `src/components/PhoneVerification.tsx`, `apps/mobile/components/verification/PhoneVerificationFlow.tsx`
 - **Primary tables touched:** `profiles`, `verification_attempts`
 - **External services:** Twilio Verify, Twilio Lookup
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`
-- **Rebuild notes:** the only function explicitly gateway-protected by JWT in the checked-in config; do not accidentally normalize it to the looser posture used elsewhere
+- **Rebuild notes:** preserve `verify_jwt = true`, authenticated user resolution in code, `send_otp` / `verify_otp` action names, Twilio Verify service SID usage, Lookup line-type guard, 5/hour attempt cap, and 1:1 verified-phone association checks
 
 ---
 
