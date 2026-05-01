@@ -13,7 +13,7 @@ Static import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientSh
 | `src/pages` | **0** |
 | `src/hooks` | **0** |
 | `src/components` | **41** |
-| Modules in graph | **499** |
+| Modules in graph | **500** |
 
 ## Orphan pages (0)
 

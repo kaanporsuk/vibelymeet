@@ -4,6 +4,14 @@ Branch: `chore/deep-audit-recent-hardening`<br>
 Base commit: `5a5a24de92663544c938a39158433a3f74ee915d`<br>
 Supabase project ref: `schdyxcunwcvddlcshwd`
 
+> Historical note: this audit was accurate for the `chore/deep-audit-recent-hardening`
+> branch at base commit `5a5a24de92663544c938a39158433a3f74ee915d`.
+> It predates the later Event Lobby Ready Queue, deck payload/media, observability,
+> regression harness, native contract, native parity, and final closure streams.
+> For current Event Lobby launch posture, use
+> `docs/audits/event-lobby-closure-report.md` and
+> `docs/audits/event-lobby-deep-cleanup-audit-2026-05-01.md`.
+
 ## Scope
 
 This audit reviewed the recently landed Event Lobby / Ready Gate / Video Date hardening work, with special attention to whether the shipped source, Supabase deployment, docs, and cleanup posture still agree.

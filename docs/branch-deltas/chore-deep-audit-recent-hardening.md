@@ -2,6 +2,11 @@
 
 Branch: `chore/deep-audit-recent-hardening`
 
+Historical note: this branch delta predates the final Event Lobby Ready Queue,
+deck payload/media, observability, regression harness, native contract, native parity,
+and closure streams. Use `docs/audits/event-lobby-closure-report.md` plus
+`docs/audits/event-lobby-deep-cleanup-audit-2026-05-01.md` for current Event Lobby status.
+
 ## Problem
 
 After the Event Lobby active-event, swipe retry, web gating, Ready Gate, Video Date, OneSignal, and payment hardening streams landed, the repo needed one more pass to verify deployed state, tidy stale docs/local artifacts, and close any small client/backend contract drift found during review.

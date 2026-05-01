@@ -138,6 +138,12 @@ const report = {
 
 console.log(JSON.stringify(report, null, 2));
 
+const interpretation = [
+  "Legacy **video-date checkpoint / unused survey** orphans were already removed — see `docs/audits/orphan-triage-2026-04-14.md`.",
+  "The current candidate list still contains mostly shadcn `ui/*`, wizard, safety, and marketing-style components.",
+  "Treat this file as a triage queue, not a deletion manifest; do not mass-delete without product or route-level proof.",
+].join(" ");
+
 const outMd = path.join(ROOT, "docs", "audits", "surface-inventory-candidates-2026-04-14.md");
 fs.writeFileSync(
   outMd,
@@ -174,6 +180,10 @@ ${orphanComponents.length > 150 ? `\n\n… (${orphanComponents.length - 150} mor
 ## Caveats
 
 ${report.caveats.map((c) => `- ${c}`).join("\n")}
+
+## Interpretation (${report.generated_at} audit refresh)
+
+${interpretation}
 `
 );
 console.error(`\nWrote ${path.relative(ROOT, outMd)}`);
