@@ -162,6 +162,8 @@
 
 ### Event lobby (Web: EventLobby.tsx | Native: event/[eventId]/lobby.tsx)
 
+2026-05-01 update: web lobby gating now mirrors the native lobby guard surface for missing/stale event links, scheduled/not-started events, not-confirmed registrations, cancelled/archived/draft states, ended events, and paused accounts. Web deck polling, lobby status writes, queue drains, and swipe actions are disabled unless the route gate resolves to a live confirmed lobby. Backend RPCs remain the source of truth.
+
 | Aspect | Web | Native | Gap |
 |--------|-----|--------|-----|
 | Hooks | useEventDetails, useIsRegisteredForEvent, useEventDeck, useSwipeAction, useEventStatus, useMatchQueue | useEventDetails, useIsRegisteredForEvent, useEventDeck, swipe() from eventsApi | Native: no useEventStatus, no useMatchQueue, no useSwipeAction (uses swipe() only) |
