@@ -452,77 +452,103 @@ supabase secrets list
 
 ## 13. Edge Function inventory to deploy
 
-Deploy all function directories except `_shared`:
+Current repo state:
 
-> Historical baseline note: the explicit list below predates later function additions. For exact current repo inventory, prefer `find supabase/functions -mindepth 1 -maxdepth 1 -type d` and the machine-readable inventory. For Sprint 2 media lifecycle rollout, the targeted function deploy set is `create-video-upload`, `delete-vibe-video`, and `upload-image` after applying migration `20260417110000_media_lifecycle_profile_media_wiring.sql`.
+- 49 deployable function directories exist under `supabase/functions`, excluding `_shared`.
+- 49 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
+- Source-of-truth inventory files are `supabase/config.toml`, `_cursor_context/vibely_edge_function_manifest.md`, and `_cursor_context/vibely_machine_readable_inventory.json`.
 
-- `account-pause`
-- `account-resume`
+Confirm the deployable inventory before any broad rebuild:
+
+```bash
+find supabase/functions -mindepth 1 -maxdepth 1 -type d -not -name _shared | sort
+```
+
+### Deploy strategy
+
+For a full rebuild/cutover where every current function needs alignment:
+
+```bash
+supabase functions deploy --project-ref schdyxcunwcvddlcshwd
+```
+
+For scoped repairs, deploy only the changed function(s), for example:
+
+```bash
+supabase functions deploy <function-name> --project-ref schdyxcunwcvddlcshwd
+```
+
+Do not deploy all functions for a scoped repair unless the release plan explicitly calls for a full rebuild. `supabase/config.toml` drives gateway JWT behavior; do not pass broad `--no-verify-jwt` flags from memory.
+
+### JWT behavior
+
+`supabase/config.toml` configures all 49 current function entries.
+
+**31 functions** have `verify_jwt = true`:
+
+- `admin-media-lifecycle-controls`
+- `admin-proof-selfie-sign`
 - `admin-review-verification`
+- `admin-video-date-ops`
 - `cancel-deletion`
 - `create-checkout-session`
-- `create-credits-checkout`
 - `create-event-checkout`
 - `create-portal-session`
 - `create-video-upload`
+- `daily-drop-actions`
 - `daily-room`
+- `date-suggestion-actions`
 - `delete-account`
 - `delete-vibe-video`
-- `email-drip`
 - `email-verification`
 - `event-notifications`
 - `forward-geocode`
-- `generate-daily-drops`
 - `geocode`
 - `phone-verify`
-- `push-webhook`
-- `request-account-deletion`
-- `send-notification`
+- `post-date-verdict`
+- `send-game-event`
 - `send-message`
-- `stripe-webhook`
+- `send-notification`
+- `send-support-reply`
 - `swipe-actions`
-- `daily-drop-actions`
-- `unsubscribe`
+- `sync-revenuecat-subscriber`
+- `upload-chat-video`
 - `upload-event-cover`
 - `upload-image`
 - `upload-voice`
-- `upload-chat-video`
 - `verify-admin`
-- `vibe-notification`
+
+**18 functions** have `verify_jwt = false`:
+
+- `create-credits-checkout`
+- `credit-replenish`
+- `date-reminder-cron`
+- `date-suggestion-expiry`
+- `event-reminders`
+- `generate-daily-drops`
+- `health`
+- `match-call-room-cleanup`
+- `post-date-verdict-reminders`
+- `process-media-delete-jobs`
+- `process-waitlist-promotion-notify-queue`
+- `push-webhook`
+- `request-account-deletion`
+- `revenuecat-webhook`
+- `send-email`
+- `stripe-webhook`
+- `video-date-room-cleanup`
 - `video-webhook`
 
-### Deploy strategy
-
-Preferred approach:
-
-```bash
-supabase functions deploy --project-ref schdyxcunwcvddlcshwd
-```
-
-If you deploy functions individually, do so deliberately and preserve JWT behavior.
-
-### JWT behavior (post-hardening)
-
-`supabase/config.toml` configures **all 30** baseline functions shown in this historical section. No gaps at that snapshot.
-
-- **23 functions** have `verify_jwt = true` (JWT enforced at gateway): account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
-- **7 functions** have `verify_jwt = false` (public-but-protected by secret/token in code): stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
+Gateway-public functions are still protected by function-specific controls where applicable, such as webhook secrets, cron secrets, admin/service checks, provider signatures, or intentionally health-only behavior. The Supabase CLI function list does not expose `verify_jwt`, so repo config plus deployment logs/dashboard review remain the source of truth for gateway posture.
 
 ### Required secrets for hardened behavior
 
-- `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus all existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal vars).
-
-### Deploy strategy
-
-Deploy with project ref; config.toml drives verify_jwt per function. No need to pass `--no-verify-jwt` for the 7 public functions if deploying from repo with current config.
-
-```bash
-supabase functions deploy --project-ref schdyxcunwcvddlcshwd
-```
+Provider and scheduler functions require their documented secret names to be present before production operation. Confirm names only, never values, with `supabase secrets list --project-ref schdyxcunwcvddlcshwd`.
 
 ### Recommended operator rule
 
-After deployment, verify in the Supabase dashboard that JWT behavior matches config and that required secrets are set.
+After deployment, verify in the Supabase dashboard that JWT behavior matches `supabase/config.toml` and that required secrets are set. Do not restore removed historical function names without a separate recovery review.
 
 ---
 
