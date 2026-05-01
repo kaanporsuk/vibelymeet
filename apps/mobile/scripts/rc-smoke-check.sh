@@ -13,6 +13,8 @@ cd "$REPO_ROOT"
 npx eslint \
   apps/mobile/lib/nativeRcDiagnostics.ts \
   apps/mobile/app/index.tsx \
+  apps/mobile/app/premium.tsx \
+  apps/mobile/app/settings/account.tsx \
   apps/mobile/context/AuthContext.tsx \
   apps/mobile/app/_layout.tsx \
   apps/mobile/components/NotificationDeepLinkHandler.tsx \

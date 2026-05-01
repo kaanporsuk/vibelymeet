@@ -49,6 +49,14 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Event Lobby native parity implementation** | `docs/audits/native-event-lobby-parity-implementation.md`; branch delta `docs/branch-deltas/fix-native-event-lobby-parity.md`; regression assertion `shared/matching/nativeEventLobbyContractParity.test.ts` |
 | **Event Lobby final closure audit** | `docs/audits/event-lobby-closure-report.md`; source status pointer `docs/audits/event-lobby-deck-deep-dive.md`; branch delta `docs/branch-deltas/audit-event-lobby-closure.md` |
 | **Event Lobby deep cleanup audit** | `docs/audits/event-lobby-deep-cleanup-audit-2026-05-01.md`; branch delta `docs/branch-deltas/audit-event-lobby-deep-cleanup.md` |
+| **Provider operational QA: OneSignal push** | `docs/branch-deltas/fix-onesignal-provider-operational-qa.md`; provider sheet `_cursor_context/vibely_onesignal_provider_sheet.md`; regression assertion `shared/matching/onesignalProviderOperationalQa.test.ts` |
+| **Provider operational QA: Bunny media** | `docs/branch-deltas/fix-bunny-provider-operational-qa.md`; provider sheet `_cursor_context/vibely_bunny_provider_sheet.md`; regression assertion `shared/matching/bunnyProviderOperationalQa.test.ts` |
+| **Provider operational QA: Daily calls** | `docs/branch-deltas/fix-daily-provider-operational-qa.md`; provider sheet `_cursor_context/vibely_daily_provider_sheet.md`; regression assertion `shared/matching/dailyProviderOperationalQa.test.ts` |
+| **Provider operational QA: Resend email** | `docs/branch-deltas/fix-resend-email-provider-operational-qa.md`; regression assertion `shared/matching/resendEmailProviderOperationalQa.test.ts` |
+| **Provider operational QA: Twilio phone verification** | `docs/branch-deltas/fix-twilio-phone-verification-qa.md`; regression assertion `shared/matching/twilioPhoneVerificationQa.test.ts` |
+| **Native physical-device QA readiness** | `docs/qa/native-physical-device-qa-runbook.md`; branch delta `docs/branch-deltas/qa-native-physical-device-flow.md`; regression assertion `shared/matching/nativePhysicalDeviceQaReadiness.test.ts` |
+| **RevenueCat native entitlement readiness** | `docs/branch-deltas/fix-revenuecat-native-entitlement-readiness.md`; regression assertion `shared/matching/revenueCatNativeEntitlementReadiness.test.ts` |
+| **Post-stream provider/native deep audit and tidy** | `docs/audits/post-stream-provider-native-readiness-audit-2026-05-01.md` |
 | **Recent hardening deep audit and cleanup (historical partial pass)** | `docs/audits/recent-hardening-deep-audit-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-recent-hardening.md` |
 
 ---
@@ -74,6 +82,8 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Event Lobby regression harness (focused static + staging checklist)** | `scripts/run_event_lobby_regression.sh` → `docs/golden-path-event-lobby-regression-runbook.md` |
 | **Event Lobby native/backend contract** | `docs/contracts/event-lobby-native-contract.md` |
 | **Native RC smoke pack (iOS/Android operator checklist)** | `docs/qa/native-rc-smoke-pack.md` |
+| **Native physical-device QA runbook** | `docs/qa/native-physical-device-qa-runbook.md` |
+| **Provider readiness evidence pack (OneSignal, Bunny, Daily, Resend, Twilio, RevenueCat)** | Stream deltas in `docs/branch-deltas/` plus assertions in `shared/matching/*ProviderOperationalQa.test.ts` and `shared/matching/revenueCatNativeEntitlementReadiness.test.ts` |
 | **Web push / OneSignal production verification** | `docs/web-push-production-checklist.md` |
 | **Native runtime provider hardening (push boundary + iOS React source-build fix)** | `docs/native-runtime-provider-hardening.md` |
 | **Authenticated proof / rebuild policy** | `docs/authenticated-proof-and-rebuild-plan.md` |
