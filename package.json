@@ -25,6 +25,7 @@
     "test:daily-room-contract": "tsx supabase/functions/daily-room/dailyRoomContracts.test.ts",
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
     "test:hardening-contracts": "bash scripts/run_hardening_contract_tests.sh",
+    "test:event-lobby-regression": "bash scripts/run_event_lobby_regression.sh",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",
     "audit:surfaces": "node scripts/surface-inventory-audit.mjs",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts"
