@@ -6,6 +6,8 @@
 /** RPC + swipe-actions body for mutual vibe / queue outcomes (session stage only). */
 export type SwipeSessionStageResult = {
   result?: string;
+  /** Additive canonical outcome, when present. Mirrors `result` for new SQL/Edge paths. */
+  outcome?: string;
   /** @deprecated Same as `video_session_id` when result is `match` or `match_queued` — not `matches.id`. */
   match_id?: string;
   /** Canonical: `video_sessions.id` for ready gate / video date. */
@@ -17,6 +19,7 @@ export type SwipeSessionStageResult = {
   success?: boolean;
   error?: string;
   message?: string;
+  duplicate?: boolean;
   idempotent?: boolean;
   replay?: boolean;
   notification_suppressed?: boolean;
@@ -142,6 +145,8 @@ export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
   "event_not_active",
   /** Retry conflict: the natural event/actor/target swipe key already has a different recorded type. */
   "swipe_already_recorded",
+  /** Retry/no-op: the same natural swipe key and same swipe type were already recorded. */
+  "already_swiped",
 ]);
 
 export function shouldAdvanceLobbyDeckAfterSwipe(result: string | null | undefined): boolean {

@@ -2,6 +2,14 @@
 
 Branch: `fix/swipe-retry-idempotency-notification-dedupe`
 
+2026-05-01 follow-up: `fix/event-lobby-swipe-idempotency` adds
+`20260501224000_event_lobby_swipe_already_swiped.sql`, changing same-type
+duplicate/no-op swipes from fresh-looking replay outcomes to explicit
+`result/outcome = "already_swiped"`. The mutation and notification dedupe guard
+from this stream remains in force; `swipe-actions` now also suppresses on
+`duplicate: true` and logs the suppression reason. See
+`docs/audits/event-lobby-swipe-idempotency-verification.md`.
+
 ## Problem
 
 Streams 1-6 made the Event Lobby and Ready Gate backend contract authoritative. The remaining swipe-path risk was retry behavior: `event_swipes` already has a natural unique key, but `handle_swipe` used `ON CONFLICT DO NOTHING` without returning replay truth. A client/server retry could therefore receive a fresh-looking `vibe_recorded` or related outcome, and `swipe-actions` could emit duplicate user-visible notifications.
@@ -55,7 +63,9 @@ Same-type replay:
 - does not create/reuse another Ready Gate/session as a fresh outcome
 - does not deduct or count super-vibe-like accounting a second time
 - does not trigger notification side effects
+- returns `result: "already_swiped"` / `outcome: "already_swiped"` when no existing active mutual session is present
 - returns additive markers:
+  - `duplicate: true`
   - `idempotent: true`
   - `replay: true`
   - `existing_swipe_type`
@@ -93,9 +103,11 @@ Changed:
 
 Suppression conditions include:
 
+- `duplicate: true`
 - `notification_suppressed: true`
 - `idempotent: true`
 - `replay: true`
+- `result/outcome/error = "already_swiped"`
 - `result/error = "swipe_already_recorded"`
 - `result/error = "event_not_active"`
 
@@ -108,7 +120,7 @@ Fresh successful outcomes still send existing notifications for:
 
 No broad `send-notification` rewrite was required.
 
-The shared swipe payload type now tolerates the additive replay fields and treats `swipe_already_recorded` as a no-advance deck outcome.
+The shared swipe payload type now tolerates the additive replay fields and treats `already_swiped` and `swipe_already_recorded` as no-advance deck outcomes.
 
 ## Observability
 

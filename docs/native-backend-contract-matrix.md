@@ -49,7 +49,7 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
 | `swipe-actions` | Edge Function | handle_swipe + notifications | Same; no direct match writes |
-| `handle_swipe` | RPC (called by EF) | Swipe outcome (match, super_vibe, etc.) | Via swipe-actions only |
+| `handle_swipe` | RPC (called by EF) | Swipe outcome (`match`, `super_vibe_sent`, `already_swiped`, etc.) | Via swipe-actions only; treat `already_swiped` as a quiet no-advance retry/no-op |
 | `matches` | Table | Match list, archive, mute, block | Same; useMatches, useBlockUser, etc. |
 
 ---
