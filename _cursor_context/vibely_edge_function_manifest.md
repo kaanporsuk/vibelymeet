@@ -28,9 +28,15 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 - **`match-call-room-cleanup`:** `verify_jwt = false`; auth via `Authorization: Bearer CRON_SECRET` (same as other cron drainers). Deletes Daily.co rooms for **terminal** `match_calls` rows older than ~2 minutes (best-effort if client `delete_room` missed). Env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DAILY_API_KEY`, `CRON_SECRET`. Optional schedule: `20260414190000_schedule_match_call_room_cleanup_cron.sql` (pg_cron + pg_net).
 - **`daily-room` (`create_match_call`):** After inserting `match_calls`, invokes **`send-notification`** with category **`match_call`** (OneSignal + deep link to `/chat/:callerId`). Per-bucket prefs: **`notify_match_calls`** (quiet hours still bypassed for `match_call`).
 
+### Current-state addendum (2026-05-01)
+
+- Current repo inventory is **49** deployable function directories and **49** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
+- **`forward-geocode`:** Explicitly configured with `verify_jwt = true`. It also resolves the Supabase user in code, permits admin/premium users plus onboarding city search, rate-limits by user, and then queries OpenStreetMap Nominatim.
+- **`push-webhook`:** Explicitly configured with `verify_jwt = false` because provider callbacks cannot present a Supabase JWT. It fail-closes unless `PUSH_WEBHOOK_SECRET` is set and the request sends the matching `x-webhook-secret` header. Repo evidence treats it as generic FCM/APNs/web receipt telemetry; OneSignal receipt dashboard wiring is not proven from source.
+
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **46** deployable functions as of 2026-04-14 — see §2):
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **49** deployable functions as of 2026-05-01 — see §2):
 
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
@@ -73,8 +79,8 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 | Item | Count |
 |------|------:|
-| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **46** |
-| `[functions.<name>]` entries in `supabase/config.toml` | **46** |
+| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **49** |
+| `[functions.<name>]` entries in `supabase/config.toml` | **49** |
 
 The `_shared` directory is shared Deno helpers only — **not** a deployable function slug.
 
@@ -82,15 +88,15 @@ For a machine-readable list, see `_cursor_context/vibely_machine_readable_invent
 
 ### Historical baseline (frozen golden; superseded)
 
-The original golden export documented **34** deployable functions; subsequent notes sometimes said **45** while the repo grew. **Neither matches the current tree.** Use **46** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
+The original golden export documented **34** deployable functions; subsequent notes sometimes said **45** or **46** while the repo grew. **None of those older counts matches the current tree.** Use **49** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
 
 ### Gateway JWT posture from config (post-hardening)
 
 **JWT-at-gateway (`verify_jwt = true`):**  
-account-pause, account-resume, phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification, daily-drop-actions, send-message, swipe-actions.
+daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
 
 **Public-but-protected (`verify_jwt = false`):**  
-stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops, process-waitlist-promotion-notify-queue (Bearer `CRON_SECRET`), plus additional entries in `supabase/config.toml` (e.g. credit-replenish, date-reminder-cron).
+event-reminders, video-webhook, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email.
 
 ---
 
@@ -390,13 +396,13 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Rebuild notes:** preserve provider usage policy and user-agent behavior if refactored
 
 ### `forward-geocode`
-- **Purpose:** forward-geocodes place queries for event creation/admin location search
-- **Auth posture:** Class C — `verify_jwt = true`; JWT + admin role check + rate limiting
-- **Frontend call sites:** `src/components/admin/AdminEventFormModal.tsx`
+- **Purpose:** forward-geocodes place queries for event creation, event filters, discovery settings, and onboarding location selection
+- **Auth posture:** Class C — `verify_jwt = true`; code also resolves the caller and permits admin/premium users, plus onboarding city search when the profile is not complete
+- **Frontend call sites:** `src/components/admin/AdminEventFormModal.tsx`, `src/pages/onboarding/steps/LocationStep.tsx`, `src/components/events/EventsFilterBar.tsx`, `src/components/settings/DiscoveryDrawer.tsx`, `apps/mobile/components/onboarding/steps/LocationStep.tsx`, `apps/mobile/components/events/EventFilterSheet.tsx`, `apps/mobile/app/settings/discovery.tsx`
 - **Primary tables touched:** none
 - **External services:** OpenStreetMap Nominatim (search endpoint)
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
-- **Rebuild notes:** admin-only; uses shared rate-limiter; listed in config.toml
+- **Rebuild notes:** preserve `verify_jwt = true`, caller resolution, admin/premium/onboarding gating, per-user rate limit, and Nominatim user-agent behavior
 
 ---
 
@@ -467,7 +473,7 @@ The function exists in source but is not represented in `supabase/config.toml`.
 - **Primary tables touched:** `push_notification_events`
 - **External services:** webhook payloads for FCM/APNs/web push style events
 - **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUSH_WEBHOOK_SECRET`
-- **Rebuild notes:** listed in config.toml; external webhook source(s) must send `x-webhook-secret` matching `PUSH_WEBHOOK_SECRET`
+- **Rebuild notes:** listed in config.toml; external webhook source(s) must send `x-webhook-secret` matching `PUSH_WEBHOOK_SECRET`; OneSignal receipt wiring is not proven from repo source and must be confirmed in the provider dashboard before treating this table as transactional OneSignal delivery truth
 
 ---
 

@@ -103,9 +103,15 @@ verify_jwt = true
 [functions.post-date-verdict-reminders]
 verify_jwt = false
 
+# External receipt telemetry endpoint. Supabase JWT must stay off so provider
+# callbacks can reach it; the function itself fail-closes unless
+# x-webhook-secret matches PUSH_WEBHOOK_SECRET.
 [functions.push-webhook]
 verify_jwt = false
 
+# Authenticated city-search proxy. Keep gateway JWT on; the function also
+# resolves the caller, gates admin/premium/onboarding access, and rate-limits
+# before querying OpenStreetMap Nominatim.
 [functions.forward-geocode]
 verify_jwt = true
 

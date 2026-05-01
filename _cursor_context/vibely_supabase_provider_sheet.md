@@ -99,13 +99,13 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **28**
+Deployable functions: **49**
 
 Shared helper directory:
 - `_shared`
 
 ### Function config (post-hardening)
-All 28 functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 21 functions. Public-but-protected (verify_jwt false): stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops.
+All 49 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 31 functions. Public-but-protected (verify_jwt false): 18 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `generate-daily-drops`, and scheduled cleanup/drainer functions.
 
 ## D. Secrets/runtime layer
 Supabase stores and exposes runtime secrets used by Edge Functions.
@@ -175,9 +175,9 @@ Verify:
 
 ## D. Edge Function parity
 Verify:
-- all 28 deployable functions are present and listed in config.toml
+- all 49 deployable functions are present and listed in config.toml
 - `_shared` compiles into dependents correctly
-- 21 functions deployed with JWT enforced; 7 public-but-protected with correct secrets/tokens set
+- 31 functions deployed with JWT enforced; 18 public-but-protected with correct secrets/tokens set
 
 ## E. Secrets parity
 Verify all required secrets exist before testing function flows.
@@ -229,13 +229,17 @@ Do not assume the checked-in root `.env` covers this set. It does not.
 ## 8. Supabase function deployment sheet (post-hardening)
 
 ### Function count
-- 28 deployable functions; all listed in `supabase/config.toml`.
+- 49 deployable functions; all listed in `supabase/config.toml`.
 
 ### JWT-at-gateway (`verify_jwt = true`)
-phone-verify, forward-geocode, daily-room, verify-admin, admin-review-verification, create-checkout-session, create-portal-session, create-event-checkout, create-credits-checkout, delete-account, event-notifications, email-verification, vibe-notification, geocode, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-event-cover, cancel-deletion, send-notification.
+daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
 
 ### Public-but-protected (`verify_jwt = false`)
-stripe-webhook, push-webhook, video-webhook, email-drip, unsubscribe, request-account-deletion, generate-daily-drops. These use provider secrets, URL tokens, or CRON_SECRET/admin JWT in code.
+event-reminders, video-webhook, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email. These use provider secrets, URL tokens, service-role/admin controls, or CRON_SECRET-style guards in code.
+
+### Stream 19 rebuild-sensitive posture notes
+- `forward-geocode`: `verify_jwt = true`; also resolves the Supabase user in code, gates admin/premium/onboarding city search, applies a per-user rate limit, and then calls OpenStreetMap Nominatim.
+- `push-webhook`: `verify_jwt = false`; external providers cannot present a Supabase user JWT, so the function fail-closes unless `x-webhook-secret` matches `PUSH_WEBHOOK_SECRET`. Repo evidence treats it as generic FCM/APNs/web receipt telemetry, not proven OneSignal receipt wiring.
 
 ### Required secrets for hardened behavior
 - `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus existing Stripe/Bunny/Daily/Resend/Twilio/OneSignal).

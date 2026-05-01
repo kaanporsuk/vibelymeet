@@ -24,7 +24,7 @@
 | **`schema_migrations` includes `20260416100000` and `20260416110000`** | Run when connected to the correct project | Supabase MCP `list_migrations`, or SQL against `supabase_migrations.schema_migrations`, or `supabase migration list` with CLI |
 | **`get_visible_events` comment matches product rules** | Optional spot-check | `SELECT obj_description('public.get_visible_events(uuid, double precision, double precision, boolean, double precision, double precision, double precision)'::regprocedure, 'pg_proc');` |
 | **`update_profile_location` exists** | Spot-check | `\df+ update_profile_location` or MCP `execute_sql` on `pg_proc` |
-| **Edge Functions `forward-geocode` and `push-webhook` deployed** | Dashboard or MCP `list_edge_functions` | Compare `verify_jwt` with [`supabase/config.toml`](../supabase/config.toml) |
+| **Edge Functions `forward-geocode` and `push-webhook` deployed** | Dashboard, MCP `list_edge_functions`, or `supabase functions list --project-ref schdyxcunwcvddlcshwd` | `forward-geocode` should be active with repo config `verify_jwt = true`; `push-webhook` should be active with repo config `verify_jwt = false` plus `PUSH_WEBHOOK_SECRET` / `x-webhook-secret` enforcement in code |
 
 **Placeholder migration row:** If `schema_migrations` shows **`20260411134909`** as well as **`20260416100000`**, see [§7.2 in vibely-canonical-project-reference.md](./vibely-canonical-project-reference.md) — history alignment, not necessarily duplicate DDL.
 
