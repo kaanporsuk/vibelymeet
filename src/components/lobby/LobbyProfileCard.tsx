@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sparkles,
@@ -10,10 +9,8 @@ import {
   HeartHandshake,
 } from "lucide-react";
 import { DeckProfile } from "@/hooks/useEventDeck";
-import { supabase } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { PremiumBadge } from "@/components/premium/PremiumBadge";
-import { getUserBadge } from "@/hooks/useEntitlements";
 import { cn } from "@/lib/utils";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 
@@ -31,21 +28,8 @@ function formatHeightCm(cm: number | null | undefined): string | null {
 const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfileCardProps) => {
   void userVibes; // Partner vibe tags come from `get_event_deck.shared_vibe_count` only (avoid per-card profile_vibes fetches).
   const navigate = useNavigate();
-  const [profileBadge, setProfileBadge] = useState<"premium" | "vip" | null>(null);
-  const [photoVerified, setPhotoVerified] = useState(false);
-
-  useEffect(() => {
-    if (isBehind) return;
-    (async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("subscription_tier, photo_verified")
-        .eq("id", profile.id)
-        .maybeSingle();
-      setProfileBadge(getUserBadge(data?.subscription_tier as string | null | undefined));
-      setPhotoVerified(Boolean(data?.photo_verified));
-    })();
-  }, [profile.id, isBehind]);
+  const profileBadge = profile.premium_badge;
+  const photoVerified = profile.photo_verified === true;
 
   const sharedCount = profile.shared_vibe_count;
 
@@ -69,6 +53,7 @@ const LobbyProfileCard = ({ profile, userVibes, isBehind = false }: LobbyProfile
         <ProfilePhoto
           photos={profile.photos as string[]}
           avatarUrl={profile.avatar_url}
+          primaryPhotoPath={profile.primary_photo_path}
           name={profile.name}
           size="full"
           rounded="2xl"

@@ -20,7 +20,7 @@ select
   and bool_and(proconfig @> array['search_path=public'])
   and bool_and(def like '%public.get_event_lobby_active_state(p_event_id, now())%')
   and bool_and(def like '%RAISE EXCEPTION ''event_not_active''%')
-  and bool_and(def like '%COALESCE(deck.queue_status, ''idle'') IN (''browsing'', ''idle'')%')
+  and bool_and(def like '%COALESCE(%queue_status, ''idle'') IN (''browsing'', ''idle'')%')
   and bool_and(def like '%vs.ready_gate_status IN (''ready'', ''ready_a'', ''ready_b'', ''both_ready'', ''snoozed'')%')
   and bool_and(def like '%vs.state IN (''handshake'', ''date'')%')
   and bool_and(def like '%vs.phase IN (''handshake'', ''date'')%')

@@ -4657,7 +4657,11 @@ export type Database = {
           location: string
           looking_for: string
           name: string
+          availability_state: string
+          photo_verified: boolean
           photos: string[]
+          premium_badge: string
+          primary_photo_path: string
           profile_id: string
           queue_status: string
           shared_vibe_count: number

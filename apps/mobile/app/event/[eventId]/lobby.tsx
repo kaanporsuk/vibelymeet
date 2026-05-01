@@ -2179,21 +2179,15 @@ function LobbyProfileCard({
   isBehind?: boolean;
 }) {
   void userVibes;
-  const [photoVerified, setPhotoVerified] = useState(false);
+  const photoVerified = profile.photo_verified === true;
+  const premiumBadge = profile.premium_badge;
 
-  useEffect(() => {
-    if (isBehind) return;
-    (async () => {
-      const { data } = await supabase.rpc('get_profile_for_viewer', { p_target_id: profile.id });
-      const pr = data as { photo_verified?: boolean } | null;
-      setPhotoVerified(Boolean(pr?.photo_verified));
-    })();
-  }, [profile.id, isBehind]);
-
-  const photo = resolvePrimaryProfilePhotoPath({
-    photos: profile.photos,
-    avatar_url: profile.avatar_url,
-  });
+  const photo =
+    profile.primary_photo_path ??
+    resolvePrimaryProfilePhotoPath({
+      photos: profile.photos,
+      avatar_url: profile.avatar_url,
+    });
   const uri = photo ? deckCardUrl(photo) : '';
   const showQueueBadge = profile.queue_status && !['browsing', 'idle'].includes(profile.queue_status);
   const sharedCount = profile.shared_vibe_count;
@@ -2264,6 +2258,13 @@ function LobbyProfileCard({
         {showQueueBadge ? (
           <View style={[styles.queueBadge, { backgroundColor: withAlpha(theme.text, 0.12), borderColor: withAlpha(theme.text, 0.2) }]}>
             <Text style={[styles.queueBadgeText, { color: 'rgba(255,255,255,0.78)' }]}>In session</Text>
+          </View>
+        ) : null}
+        {premiumBadge ? (
+          <View style={[styles.queueBadge, { backgroundColor: withAlpha(theme.tint, 0.18), borderColor: withAlpha(theme.tint, 0.4) }]}>
+            <Text style={[styles.queueBadgeText, { color: '#f5f3ff' }]}>
+              {premiumBadge === 'vip' ? 'VIP' : 'Premium'}
+            </Text>
           </View>
         ) : null}
       </View>
