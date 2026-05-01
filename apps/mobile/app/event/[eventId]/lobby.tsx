@@ -36,7 +36,7 @@ import { avatarUrl, deckCardUrl } from '@/lib/imageUrl';
 import { ReadyGateOverlay } from '@/components/lobby/ReadyGateOverlay';
 import { EventEndedModal } from '@/components/events/EventEndedModal';
 import { useEventStatus } from '@/lib/eventStatus';
-import { useIsOffline } from '@/lib/useNetworkStatus';
+import { useConnectivity } from '@/lib/useConnectivity';
 import { useMysteryMatch } from '@/lib/useMysteryMatch';
 import { supabase } from '@/lib/supabase';
 import { trackEvent } from '@/lib/analytics';
@@ -1307,7 +1307,7 @@ export default function EventLobbyScreen() {
     [show]
   );
 
-  const isOffline = useIsOffline();
+  const isOffline = useConnectivity() === 'offline';
   const current = sortedProfiles[0] ?? null;
   const nextProfile = sortedProfiles[1] ?? null;
   const thirdProfile = sortedProfiles[2] ?? null;
