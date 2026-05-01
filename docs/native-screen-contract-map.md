@@ -22,11 +22,13 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 
 ## Events and lobby
 
+Event Lobby route behavior is governed by `docs/contracts/event-lobby-native-contract.md`. Native should use that contract for backend-owned eligibility, deck payload, swipe outcomes, queue promotion, Ready Gate recovery, media fallback, and observability instead of deriving behavior from web component details.
+
 | Web route | Web component | Native route | Hooks / services | RPCs / Edge / Realtime | Platform adapters | Parity priority |
 |----------|---------------|--------------|------------------|------------------------|-------------------|-----------------|
 | `/events` | `Events` | `app/(tabs)/events/index` | useVisibleEvents, useOtherCityEvents, useUserProfile | geocode (EF), profiles update (location_data) | — | P0 |
 | `/events/:id` | `EventDetails` | `app/(tabs)/events/[id]` | useEventDetails, useEventAttendees, useIsRegisteredForEvent, useRegisterForEvent, useRealtimeEvents, useEventVibes, useSubscription | — | — | P0 |
-| `/event/:eventId/lobby` | `EventLobby` | `app/event/[eventId]/lobby` | useEventDetails, useIsRegisteredForEvent, useEventDeck, useSwipeAction, useEventStatus, useMatchQueue | get_event_deck (RPC), swipe-actions (EF), update_participant_status (RPC), drain_match_queue (RPC) | — | P0 |
+| `/event/:eventId/lobby` | `EventLobby` | `app/event/[eventId]/lobby` | useEventDetails, useIsRegisteredForEvent, useEventDeck, useSwipeAction, useEventStatus, useMatchQueue | get_event_deck (RPC), swipe-actions (EF), update_participant_status (RPC), drain_match_queue (RPC); canonical contract: `docs/contracts/event-lobby-native-contract.md` | — | P0 |
 
 ---
 
@@ -98,4 +100,4 @@ Map of every native-v1 screen to web source, native route, hooks/services, RPCs/
 - **Sprint 4:** Public profile (`/user/:userId`), match celebration (unread → celebration → chat), credits (pack selection + checkout URL). Schedule remains web handoff with explicit copy.
 - **P2 / web-only:** Legal/marketing content, admin.
 
-See `docs/native-backend-contract-matrix.md` for RPC/EF details and `docs/native-platform-adapter-matrix.md` for adapters (RevenueCat, OneSignal, Daily, Bunny, Supabase).
+See `docs/native-backend-contract-matrix.md` for RPC/EF details, `docs/contracts/event-lobby-native-contract.md` for Event Lobby native behavior, and `docs/native-platform-adapter-matrix.md` for adapters (RevenueCat, OneSignal, Daily, Bunny, Supabase).

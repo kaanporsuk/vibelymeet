@@ -4,6 +4,8 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 **Source of truth:** `supabase/migrations`, `supabase/functions`. Web usage from `src/` (hooks, pages, services).
 
+**Event Lobby native implementation source:** `docs/contracts/event-lobby-native-contract.md`. Use that contract for native lobby/deck/swipe/queue/Ready Gate behavior instead of reverse-engineering web screens.
+
 ---
 
 ## Auth and session
@@ -37,9 +39,9 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 |----------|------|---------|------------|
 | `get_visible_events` | RPC | Events list (location-aware) | Same |
 | `get_other_city_events` | RPC | Other cities | Same |
-| `get_event_deck` | RPC | Deck for lobby (pause-aware, auth guard); filters targets by viewer **`profiles.preferred_age_min` / `preferred_age_max`** when target **`profiles.age`** is non-null (migration `20260415100000_get_event_deck_preferred_age.sql`) | Same |
+| `get_event_deck` | RPC | Canonical Event Lobby deck. Enforces auth, active-event rejection (`event_not_active`), confirmed-registration/safety filters, busy-user hiding, preferred age filters, and viewer-safe payload fields. | Same; use `docs/contracts/event-lobby-native-contract.md` for payload, media, empty-state, and polling rules. |
 | `update_participant_status` | RPC | Lobby status (browsing, in_room, etc.) | Same |
-| `drain_match_queue` | RPC | Drain match queue on lobby | Same |
+| `drain_match_queue` | RPC | Backend-owned queued-match promotion with active-event and active-session conflict guards | Same; clients request drain/recovery only, never promote or create sessions. |
 | `events`, `event_registrations` | Tables | Event detail, register/unregister | Same |
 
 ---
@@ -48,8 +50,8 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
-| `swipe-actions` | Edge Function | handle_swipe + notifications | Same; no direct match writes |
-| `handle_swipe` | RPC (called by EF) | Swipe outcome (`match`, `super_vibe_sent`, `already_swiped`, etc.) | Via swipe-actions only; treat `already_swiped` as a quiet no-advance retry/no-op |
+| `swipe-actions` | Edge Function | Canonical lobby swipe API: calls `handle_swipe`, returns idempotency/outcome metadata, and owns notification side effects/suppression | Same; no direct match/session/swipe writes. |
+| `handle_swipe` | RPC (called by EF) | Swipe outcome (`pass_recorded`, `vibe_recorded`, `super_vibe_sent`, `match`, `match_queued`, `already_matched`, `already_swiped`, `swipe_already_recorded`, `participant_has_active_session_conflict`, `event_not_active`, etc.) | Via `swipe-actions` only; treat `already_swiped` as a quiet no-advance retry/no-op and backend outcomes as final truth. |
 | `matches` | Table | Match list, archive, mute, block | Same; useMatches, useBlockUser, etc. |
 
 ---
@@ -77,8 +79,8 @@ Backend contracts used by native-v1 screens. All clients (web and native) use th
 
 | Contract | Type | Purpose | Native use |
 |----------|------|---------|------------|
-| `ready_gate_transition` | RPC | ready, snooze, forfeit | Same |
-| `video_sessions` / ready_gate state | Table | Session state for Ready Gate UI | Same |
+| `ready_gate_transition` | RPC | Ready Gate `mark_ready`, `snooze`, `forfeit`, and `sync`; backend-owned terminal and active-event handling | Same; route/open Ready Gate from backend session truth and dedupe by `video_session_id`. |
+| `video_sessions` / ready_gate state | Table | Session state for Ready Gate UI, queued promotion, active-session recovery, and date-entry truth | Same; read/realtime only for clients, no client-created sessions. |
 
 ---
 

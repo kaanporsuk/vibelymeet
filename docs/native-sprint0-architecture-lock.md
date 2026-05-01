@@ -58,6 +58,8 @@
 
 ### 2.4 Swipe / match path
 
+**Canonical Event Lobby contract:** `docs/contracts/event-lobby-native-contract.md`. Native lobby work must use this contract for backend-owned eligibility, deck payload, swipe outcome, queue, Ready Gate, media, realtime, and observability behavior instead of reverse-engineering web screens.
+
 | Item | Backend source of truth | Native status |
 |------|-------------------------|---------------|
 | Deck | RPC **`get_event_deck`** | `eventsApi.ts` |
@@ -125,7 +127,7 @@
 | Ready gate | `ready_gate_transition` + `video_sessions` | **Good** | Minor UX/diagnostics | Good |
 | Video date | `daily-room` + `video_date_transition` | **Good** | Minor UX only | **Aligned** on in-call vibe + extend feedback (Sprint 4); survey path per Sprint 1 |
 | Daily drop | `daily_drop_transition` + tables | **Good** | UI polish | Good |
-| Swipe/match | `get_event_deck` + `swipe-actions` + drain | **Good** | — | Good |
+| Swipe/match | `get_event_deck` + `swipe-actions` + drain; see `docs/contracts/event-lobby-native-contract.md` | **Good** | Prompt 9 should use the contract checklist for native empty/terminal/outcome polish | Good |
 | Chat | `send-message` + outbox + **`mark_match_messages_read`** | **Good** | Edge-case polish only | **Aligned** (Sprint 2: web RPC + read ticks; native focus/foreground mark) |
 | Events/location | `get_visible_events` | **Good** | — | Good |
 | Vibe video | TUS + Bunny + profile columns | **Good** | Processing edge cases | Good |
@@ -151,12 +153,15 @@
 
 Further launch-polish items live in `docs/native-sprint5-launch-polish-triage.md`; this doc stays focused on the locked contract and the landed state.
 
+Event Lobby native follow-up work should start from `docs/contracts/event-lobby-native-contract.md` and keep backend ownership intact for eligibility, swipe persistence, queue promotion, Ready Gate, and session creation.
+
 ---
 
 ## 7. Doc alignment
 
 - **Canonical project reference:** `docs/vibely-canonical-project-reference.md` (import boundaries, `@shared`).
 - **Active entry map:** `docs/active-doc-map.md` — this file is the **native architecture lock** for v1 planning.
+- **Event Lobby native contract:** `docs/contracts/event-lobby-native-contract.md` — implementation-ready backend/native contract and Prompt 9 checklist.
 - **Mobile sprints:** `apps/mobile/README.md`, `docs/mobile-sprint4.md`–`sprint6`, `docs/native-external-setup-checklist.md`.
 
 ---
