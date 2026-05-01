@@ -2,6 +2,8 @@
 
 Canonical PostHog event names live in `shared/analytics/lobbyToPostDateJourney.ts` (`LobbyPostDateEvents`). Web and native use the same string values.
 
+Event Lobby operator diagnostics now also use `shared/observability/eventLobbyObservability.ts`; the full taxonomy lives in `docs/contracts/event-lobby-observability.md`.
+
 ## Rules
 
 - **No PII**: no freeform text, messages, partner identifiers, or raw profile fields in analytics props.
@@ -14,6 +16,10 @@ Canonical PostHog event names live in `shared/analytics/lobbyToPostDateJourney.t
 
 | Event | When | Props (required / optional) |
 |-------|------|-------------------------------|
+| `lobby_entered` | User enters a backend-eligible live lobby surface. | `platform`, `event_id` |
+| `lobby_deck_loaded` | Deck fetch completed without error. | `platform`, `event_id`, bucketed deck/visible counts |
+| `lobby_deck_empty` | Deck is empty or disabled by safe lobby gating. | `platform`, `event_id`, `reason`, bucketed counts |
+| `lobby_deck_error` | Deck fetch failed. | `platform`, `event_id`, `reason`: `rpc_error` \| `network_error` |
 | `lobby_empty_state_impression` | User sees persistent empty deck UI (deck clear / exhausted path). | `platform`, `event_id` |
 | `lobby_empty_state_refresh_tap` | User taps refresh on empty deck. | `platform`, `event_id` |
 | `lobby_convergence_impression` | Lobby yields UI to “Opening Ready Gate…” / “Joining your date…” while session converges. | `platform`, `event_id`, optional `source_surface`: `ready_gate` \| `video_date` |
@@ -22,10 +28,26 @@ Canonical PostHog event names live in `shared/analytics/lobbyToPostDateJourney.t
 | `mystery_match_outcome` | RPC/search produced a session or entered waiting loop. | `platform`, `event_id`, `outcome`: `matched` \| `waiting` \| `error` |
 | `mystery_match_cancel` | User cancels Mystery search / waiting. | `platform`, `event_id` |
 
+Safe `lobby_deck_empty.reason` values: `event_not_active`, `user_not_eligible`, `no_confirmed_candidates`, `all_candidates_filtered`, `all_candidates_seen_locally`, `all_candidates_busy_or_unavailable`, `rpc_error`, `network_error`, `unknown`.
+
+### A2. Swipe / queue / notification operator events
+
+| Event | When | Props |
+|-------|------|-------|
+| `lobby_swipe_submitted` | Client submits a swipe to `swipe-actions`. | `platform`, `event_id`, `swipe_type` |
+| `lobby_swipe_result` | Swipe resolves locally or in Edge structured logs. | `platform`, `event_id`, `swipe_type`, `outcome`, `reason`, `session_id_present`, `notification_attempted`, `notification_suppressed_reason`, `duplicate` |
+| `lobby_swipe_duplicate_suppressed` | Duplicate/idempotent swipe detected. | `platform`, `event_id`, `swipe_type`, `outcome`, `reason` |
+| `queue_drain_attempted` | Client asks backend to drain queued matches. | `platform`, `event_id`, `source_surface`, `source_action` |
+| `queue_drain_result` | Backend queue drain returns or fails. | `platform`, `event_id`, `outcome`, `reason`, `session_id_present` |
+| `notification_suppressed` | Edge logs notification skipped or safely failed. | `event_id`, `platform: edge`, `outcome`, `reason`, `notification_suppressed_reason` |
+| `notification_sent` | Edge logs notification sent. | `event_id`, `platform: edge`, `category`, `session_id_present` |
+
 ### B. Ready Gate
 
 | Event | When | Props |
 |-------|------|-------|
+| `ready_gate_shown` | In-lobby Ready Gate overlay is shown. | `platform`, `session_id`, `event_id`, `source_surface` |
+| `ready_gate_transition` | Ready Gate transition RPC resolves or fails. | `platform`, `session_id`, `event_id`, `action`, `outcome`, `reason`, `ready_gate_status`, `terminal`, `latency_ms` |
 | `ready_gate_impression` | Ready Gate card shown for a session. | `platform`, `session_id`, `event_id` |
 | `ready_gate_opening_wait_impression` | Native: permission / “Opening…” gate before main card. Web: optional loading parity. | `platform`, `session_id`, `event_id` |
 | `ready_gate_permission_blocked` | Camera/mic not granted (native blocking UI). | `platform`, `session_id`, `event_id` |
@@ -35,6 +57,7 @@ Canonical PostHog event names live in `shared/analytics/lobbyToPostDateJourney.t
 | `ready_gate_timeout` | Gate closes due to countdown or server forfeited/expired while overlay still eligible. | `platform`, `session_id`, `event_id` |
 | `ready_gate_stale_close` | Overlay closes because session/registration invalid or room mismatch. | `platform`, `session_id`, `event_id`, `reason` (machine-readable enum / code, no user text) |
 | `ready_gate_both_ready` | Handoff to video date navigation begins. | `platform`, `session_id`, `event_id`, optional `source` |
+| `date_entered_from_lobby` | Lobby starts backend-verified navigation to date. | `platform`, `event_id`, `session_id_present`, `source_surface`, `source_action` |
 
 ### C. Video date join / peer-missing
 

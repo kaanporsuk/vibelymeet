@@ -11,6 +11,10 @@ import { getMatchQueueDrainReasonCopy } from "@clientShared/matching/matchQueueD
 import { isMatchQueueDrainEligible } from "@clientShared/matching/matchQueueDrainEligibility";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import {
+  buildQueueDrainResultPayload,
+  EventLobbyObservabilityEvents,
+} from "@clientShared/observability/eventLobbyObservability";
 
 interface UseMatchQueueOptions {
   eventId: string | undefined;
@@ -100,12 +104,28 @@ export const useMatchQueue = ({
 
     const drainQueue = async () => {
       setIsDraining(true);
+      trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
+        platform: "web",
+        event_id: eventId,
+        source_surface: "event_lobby",
+        source_action: "use_match_queue",
+        queue_status: currentStatus,
+      });
       try {
         const { data } = await supabase.rpc("drain_match_queue", {
           p_event_id: eventId,
         });
 
         const result = data as DrainMatchQueueResult;
+        trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
+          ...buildQueueDrainResultPayload({
+            eventId,
+            platform: "web",
+            result,
+            sourceAction: "use_match_queue",
+          }),
+          queue_status: currentStatus,
+        });
         const reason =
           data && typeof data === "object" && "reason" in data
             ? String((data as { reason?: unknown }).reason ?? "")
@@ -146,6 +166,15 @@ export const useMatchQueue = ({
         }
       } catch (err) {
         console.error("Error draining queue:", err);
+        trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT, {
+          ...buildQueueDrainResultPayload({
+            eventId,
+            platform: "web",
+            error: err,
+            sourceAction: "use_match_queue",
+          }),
+          queue_status: currentStatus,
+        });
       } finally {
         setIsDraining(false);
       }

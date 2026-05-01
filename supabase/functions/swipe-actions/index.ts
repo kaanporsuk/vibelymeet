@@ -50,21 +50,71 @@ function logLifecycle(payload: {
   session_id: string | null;
   user_id: string | null;
   target_id?: string | null;
+  event_name?: string;
+  platform?: "edge";
   admission_status?: string | null;
   queue_id?: string | null;
   category: string;
   result: string;
+  outcome?: string | null;
+  reason?: string | null;
   swipe_type?: string | null;
   duplicate?: boolean;
+  session_id_present?: boolean;
+  notification_attempted?: boolean;
   notification_suppressed?: boolean;
+  notification_suppressed_reason?: string | null;
   dedupe_reason?: string | null;
   error_reason?: string | null;
 }) {
-  console.log("lifecycle.swipe_actions", JSON.stringify(payload));
+  const {
+    user_id,
+    target_id,
+    error_reason,
+    dedupe_reason,
+    notification_suppressed_reason,
+    reason,
+    ...rest
+  } = payload;
+  console.log("lifecycle.swipe_actions", JSON.stringify({
+    platform: "edge",
+    actor_present: Boolean(user_id),
+    target_present: Boolean(target_id),
+    reason: sanitizeReasonCode(reason ?? error_reason ?? dedupe_reason ?? rest.result),
+    notification_suppressed_reason: notification_suppressed_reason == null
+      ? null
+      : sanitizeReasonCode(notification_suppressed_reason),
+    dedupe_reason: dedupe_reason == null ? null : sanitizeReasonCode(dedupe_reason),
+    ...rest,
+  }));
+}
+
+function sanitizeReasonCode(value: unknown, fallback = "unknown"): string {
+  if (typeof value !== "string") return fallback;
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_:-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+function getSwipeOutcome(result: HandleSwipeSessionPayload): string {
+  return sanitizeReasonCode(result.outcome ?? result.result ?? result.error ?? "ok");
+}
+
+function isDuplicateSwipeResult(result: HandleSwipeSessionPayload): boolean {
+  const outcome = getSwipeOutcome(result);
+  return result.duplicate === true ||
+    result.idempotent === true ||
+    result.replay === true ||
+    outcome === "already_swiped" ||
+    outcome === "swipe_already_recorded";
 }
 
 function shouldSuppressSwipeNotification(result: HandleSwipeSessionPayload): boolean {
-  const outcome = result.outcome ?? result.result ?? result.error;
+  const outcome = getSwipeOutcome(result);
   const explicitNoNotifyOutcomes = new Set([
     "already_swiped",
     "swipe_already_recorded",
@@ -76,10 +126,31 @@ function shouldSuppressSwipeNotification(result: HandleSwipeSessionPayload): boo
     "participant_has_active_session_conflict",
   ]);
   return result.notification_suppressed === true ||
-    result.duplicate === true ||
-    result.idempotent === true ||
-    result.replay === true ||
-    explicitNoNotifyOutcomes.has(outcome ?? "");
+    isDuplicateSwipeResult(result) ||
+    explicitNoNotifyOutcomes.has(outcome);
+}
+
+function notificationSuppressionReason(
+  result: HandleSwipeSessionPayload,
+  suppressNotifications: boolean,
+): string | null {
+  if (!suppressNotifications) return null;
+  return sanitizeReasonCode(
+    result.dedupe_reason ?? result.reason ?? result.error ?? result.outcome ?? result.result ?? "suppressed",
+    "suppressed",
+  );
+}
+
+function shouldAttemptSwipeNotification(
+  result: HandleSwipeSessionPayload,
+  suppressNotifications: boolean,
+): boolean {
+  if (suppressNotifications) return false;
+  const outcome = getSwipeOutcome(result);
+  return outcome === "match" ||
+    outcome === "match_queued" ||
+    outcome === "vibe_recorded" ||
+    outcome === "super_vibe_sent";
 }
 
 serve(async (req) => {
@@ -136,9 +207,16 @@ serve(async (req) => {
         event_id: String(event_id),
         session_id: null,
         user_id: actorId,
+        event_name: "lobby_swipe_result",
         category: "swipe_action",
         result: "rpc_error",
-        error_reason: error.message,
+        outcome: "rpc_error",
+        reason: error.code ?? "rpc_error",
+        session_id_present: false,
+        notification_attempted: false,
+        notification_suppressed: true,
+        notification_suppressed_reason: "rpc_error",
+        error_reason: error.code ?? "rpc_error",
       });
       return new Response(
         JSON.stringify({ success: false, error: "swipe_failed" }),
@@ -163,21 +241,51 @@ serve(async (req) => {
     const sessionId = result.video_session_id ?? result.match_id;
     const eventIdStr = typeof result.event_id === "string" ? result.event_id : String(event_id);
     const suppressNotifications = shouldSuppressSwipeNotification(result);
-    const duplicate = result.duplicate === true || result.idempotent === true || result.replay === true;
+    const duplicate = isDuplicateSwipeResult(result);
+    const outcome = getSwipeOutcome(result);
+    const suppressedReason = notificationSuppressionReason(result, suppressNotifications);
+    const notificationAttempted = shouldAttemptSwipeNotification(result, suppressNotifications);
 
     logLifecycle({
       event_id: eventIdStr,
       session_id: sessionId ?? null,
       user_id: actorId,
       target_id: String(target_id),
+      event_name: "lobby_swipe_result",
       category: "swipe_action",
-      result: result.outcome ?? result.result ?? result.error ?? "ok",
+      result: outcome,
+      outcome,
+      reason: result.reason ?? result.dedupe_reason ?? outcome,
       swipe_type: String(swipe_type),
       duplicate,
+      session_id_present: Boolean(sessionId),
+      notification_attempted: notificationAttempted,
       notification_suppressed: suppressNotifications,
-      dedupe_reason: result.dedupe_reason ?? null,
+      notification_suppressed_reason: suppressedReason,
+      dedupe_reason: result.dedupe_reason ?? suppressedReason,
       error_reason: null,
     });
+    if (duplicate) {
+      logLifecycle({
+        event_id: eventIdStr,
+        session_id: sessionId ?? null,
+        user_id: actorId,
+        target_id: String(target_id),
+        event_name: "lobby_swipe_duplicate_suppressed",
+        category: "swipe_action",
+        result: "duplicate_suppressed",
+        outcome,
+        reason: suppressedReason ?? "already_swiped",
+        swipe_type: String(swipe_type),
+        duplicate: true,
+        session_id_present: Boolean(sessionId),
+        notification_attempted: false,
+        notification_suppressed: true,
+        notification_suppressed_reason: suppressedReason ?? "already_swiped",
+        dedupe_reason: suppressedReason ?? "already_swiped",
+        error_reason: null,
+      });
+    }
 
     try {
       if (suppressNotifications) {
@@ -186,12 +294,18 @@ serve(async (req) => {
           session_id: sessionId ?? null,
           user_id: actorId,
           target_id: String(target_id),
+          event_name: "notification_suppressed",
           category: "swipe_notification_dedupe",
           result: "notification_suppressed",
+          outcome,
+          reason: suppressedReason ?? "suppressed",
           swipe_type: String(swipe_type),
           duplicate,
+          session_id_present: Boolean(sessionId),
+          notification_attempted: false,
           notification_suppressed: true,
-          dedupe_reason: result.dedupe_reason ?? result.error ?? result.outcome ?? result.result ?? "idempotent_replay",
+          notification_suppressed_reason: suppressedReason ?? "suppressed",
+          dedupe_reason: suppressedReason ?? "suppressed",
           error_reason: null,
         });
       } else if (result.result === "match" && sessionId) {
@@ -211,9 +325,16 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: String(target_id),
             target_id: String(target_id),
+            event_name: "notification_sent",
             category: "ready_gate",
             result: "notify_sent",
+            outcome: "notification_sent",
+            reason: "match",
             swipe_type: String(swipe_type),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: false,
+            notification_suppressed_reason: null,
             error_reason: null,
           });
         } catch (e) {
@@ -223,10 +344,17 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: String(target_id),
             target_id: String(target_id),
+            event_name: "notification_suppressed",
             category: "ready_gate",
             result: "notify_error",
+            outcome: "notify_error",
+            reason: "notify_error",
             swipe_type: String(swipe_type),
-            error_reason: e instanceof Error ? e.message : String(e),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: true,
+            notification_suppressed_reason: "notify_error",
+            error_reason: "notify_error",
           });
         }
         try {
@@ -238,9 +366,16 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: actorId,
             target_id: String(target_id),
+            event_name: "notification_sent",
             category: "ready_gate",
             result: "notify_sent",
+            outcome: "notification_sent",
+            reason: "match",
             swipe_type: String(swipe_type),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: false,
+            notification_suppressed_reason: null,
             error_reason: null,
           });
         } catch (e) {
@@ -250,10 +385,17 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: actorId,
             target_id: String(target_id),
+            event_name: "notification_suppressed",
             category: "ready_gate",
             result: "notify_error",
+            outcome: "notify_error",
+            reason: "notify_error",
             swipe_type: String(swipe_type),
-            error_reason: e instanceof Error ? e.message : String(e),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: true,
+            notification_suppressed_reason: "notify_error",
+            error_reason: "notify_error",
           });
         }
         // No email: legacy `new_match` template implied persistent chat + /matches — incorrect for session stage.
@@ -277,9 +419,16 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: String(target_id),
             target_id: String(target_id),
+            event_name: "notification_sent",
             category: "ready_gate",
             result: "notify_sent",
+            outcome: "notification_sent",
+            reason: "match_queued",
             swipe_type: String(swipe_type),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: false,
+            notification_suppressed_reason: null,
             error_reason: null,
           });
         } catch (e) {
@@ -289,10 +438,17 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: String(target_id),
             target_id: String(target_id),
+            event_name: "notification_suppressed",
             category: "ready_gate",
             result: "notify_error",
+            outcome: "notify_error",
+            reason: "notify_error",
             swipe_type: String(swipe_type),
-            error_reason: e instanceof Error ? e.message : String(e),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: true,
+            notification_suppressed_reason: "notify_error",
+            error_reason: "notify_error",
           });
         }
         try {
@@ -309,9 +465,16 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: actorId,
             target_id: String(target_id),
+            event_name: "notification_sent",
             category: "ready_gate",
             result: "notify_sent",
+            outcome: "notification_sent",
+            reason: "match_queued",
             swipe_type: String(swipe_type),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: false,
+            notification_suppressed_reason: null,
             error_reason: null,
           });
         } catch (e) {
@@ -321,10 +484,17 @@ serve(async (req) => {
             session_id: sessionId,
             user_id: actorId,
             target_id: String(target_id),
+            event_name: "notification_suppressed",
             category: "ready_gate",
             result: "notify_error",
+            outcome: "notify_error",
+            reason: "notify_error",
             swipe_type: String(swipe_type),
-            error_reason: e instanceof Error ? e.message : String(e),
+            session_id_present: true,
+            notification_attempted: true,
+            notification_suppressed: true,
+            notification_suppressed_reason: "notify_error",
+            error_reason: "notify_error",
           });
         }
       } else if (
@@ -345,9 +515,16 @@ serve(async (req) => {
           session_id: null,
           user_id: String(target_id),
           target_id: String(target_id),
+          event_name: "notification_sent",
           category: "someone_vibed_you",
           result: "notify_sent",
+          outcome: "notification_sent",
+          reason: result.result ?? result.outcome ?? "vibe_recorded",
           swipe_type: String(swipe_type),
+          session_id_present: false,
+          notification_attempted: true,
+          notification_suppressed: false,
+          notification_suppressed_reason: null,
           error_reason: null,
         });
       }
@@ -358,10 +535,17 @@ serve(async (req) => {
         session_id: sessionId ?? null,
         user_id: actorId,
         target_id: String(target_id),
+        event_name: "notification_suppressed",
         category: "swipe_action",
         result: "notify_error",
+        outcome: "notify_error",
+        reason: "notify_error",
         swipe_type: String(swipe_type),
-        error_reason: notifyError instanceof Error ? notifyError.message : String(notifyError),
+        session_id_present: Boolean(sessionId),
+        notification_attempted: true,
+        notification_suppressed: true,
+        notification_suppressed_reason: "notify_error",
+        error_reason: "notify_error",
       });
     }
 
@@ -375,9 +559,16 @@ serve(async (req) => {
       event_id: null,
       session_id: null,
       user_id: null,
+      event_name: "lobby_swipe_result",
       category: "swipe_action",
       result: "error",
-      error_reason: err instanceof Error ? err.message : String(err),
+      outcome: "error",
+      reason: "internal_error",
+      session_id_present: false,
+      notification_attempted: false,
+      notification_suppressed: true,
+      notification_suppressed_reason: "internal_error",
+      error_reason: "internal_error",
     });
     return new Response(
       JSON.stringify({ success: false, error: "internal_error" }),

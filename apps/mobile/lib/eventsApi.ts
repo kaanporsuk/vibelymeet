@@ -12,6 +12,10 @@ import {
   type EventAttendeePreview as PreviewRevealedAttendee,
   type EventDeckProfile as DeckProfile,
 } from '@shared/eventProfileAdapters';
+import {
+  buildQueueDrainResultPayload,
+  EventLobbyObservabilityEvents,
+} from '@clientShared/observability/eventLobbyObservability';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -591,11 +595,38 @@ export async function drainMatchQueue(
   eventId: string,
   userId: string,
 ): Promise<DrainMatchQueueResult | null> {
+  trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
+    platform: 'native',
+    event_id: eventId,
+    source_surface: 'event_lobby',
+    source_action: 'drain_match_queue',
+  });
   const { data, error } = await supabase.rpc('drain_match_queue', {
     p_event_id: eventId,
   });
-  if (error) return null;
-  return data as DrainMatchQueueResult;
+  if (error) {
+    trackEvent(
+      EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
+      buildQueueDrainResultPayload({
+        eventId,
+        platform: 'native',
+        error,
+        sourceAction: 'drain_match_queue',
+      }),
+    );
+    return null;
+  }
+  const result = data as DrainMatchQueueResult;
+  trackEvent(
+    EventLobbyObservabilityEvents.QUEUE_DRAIN_RESULT,
+    buildQueueDrainResultPayload({
+      eventId,
+      platform: 'native',
+      result,
+      sourceAction: 'drain_match_queue',
+    }),
+  );
+  return result;
 }
 
 /** Count of queued matches (ready_gate_status = 'queued') for this user in this event. */

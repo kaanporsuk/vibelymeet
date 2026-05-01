@@ -56,6 +56,7 @@ import {
   type ReadyGateTerminalRecoveryInput,
 } from '@clientShared/matching/readyGateTerminalRecovery';
 import { LobbyPostDateEvents } from '@clientShared/analytics/lobbyToPostDateJourney';
+import { EventLobbyObservabilityEvents } from '@clientShared/observability/eventLobbyObservability';
 import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
@@ -645,6 +646,7 @@ export function ReadyGateOverlay({
     syncSession,
     isBothReady,
   } = useReadyGate(sessionId, userId, {
+    eventId,
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
@@ -696,6 +698,13 @@ export function ReadyGateOverlay({
         }),
       );
       trackEvent(LobbyPostDateEvents.READY_GATE_IMPRESSION, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: 'ready_gate_overlay',
+        source_action: 'impression',
+      });
+      trackEvent(EventLobbyObservabilityEvents.READY_GATE_SHOWN, {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId,

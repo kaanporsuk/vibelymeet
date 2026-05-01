@@ -5,6 +5,12 @@ import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import {
+  buildLobbySwipeResultPayload,
+  EventLobbyObservabilityEvents,
+  getSwipeNotificationSuppressionReason,
+  isDuplicateSwipeResult,
+} from "@clientShared/observability/eventLobbyObservability";
 import { bucketVideoDateLatencyMs } from "@clientShared/observability/videoDateOperatorMetrics";
 import {
   type SwipeSessionStageResult,
@@ -57,6 +63,17 @@ export const useSwipeAction = ({
 
       setIsProcessing(true);
       try {
+        trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_SUBMITTED, {
+          event_id: eventId,
+          platform: "web",
+          swipe_type: swipeType,
+        });
+        Sentry.addBreadcrumb({
+          category: "event-lobby",
+          message: "lobby_swipe_submitted",
+          level: "info",
+          data: { event_id: eventId, swipe_type: swipeType },
+        });
         const { data, error } = await supabase.functions.invoke("swipe-actions", {
           body: {
             event_id: eventId,
@@ -67,18 +84,65 @@ export const useSwipeAction = ({
 
         if (error) {
           console.error("Swipe error:", error);
+          trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
+            ...buildLobbySwipeResultPayload({
+              eventId,
+              platform: "web",
+              swipeType,
+              result: { result: "invoke_error", reason: "network_error", notification_suppressed: true },
+            }),
+          });
+          Sentry.addBreadcrumb({
+            category: "event-lobby",
+            message: "lobby_swipe_error",
+            level: "warning",
+            data: { event_id: eventId, swipe_type: swipeType, reason: "invoke_error" },
+          });
           toast.error("Something went wrong. Try again.");
           return null;
         }
 
         const raw = data as unknown as SwipeSessionStageResult;
         if (raw && typeof raw === "object" && raw.success === false) {
+          trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
+            ...buildLobbySwipeResultPayload({
+              eventId,
+              platform: "web",
+              swipeType,
+              result: raw,
+            }),
+          });
           toast.error(raw.message || "Unable to complete swipe");
           return null;
         }
 
         const outcome =
           raw.result === "swipe_recorded" ? "vibe_recorded" : raw.result;
+
+        const lobbySwipeResultPayload = buildLobbySwipeResultPayload({
+          eventId,
+          platform: "web",
+          swipeType,
+          result: raw,
+        });
+        trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, lobbySwipeResultPayload);
+        const suppressionReason = getSwipeNotificationSuppressionReason(raw);
+        if (isDuplicateSwipeResult(raw)) {
+          trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_DUPLICATE_SUPPRESSED, {
+            event_id: eventId,
+            platform: "web",
+            swipe_type: swipeType,
+            outcome: lobbySwipeResultPayload.outcome,
+            reason: suppressionReason ?? "duplicate",
+            notification_suppressed_reason: suppressionReason ?? "duplicate",
+          });
+        }
+        Sentry.addBreadcrumb({
+          category: "event-lobby",
+          message: "lobby_swipe_result",
+          level: "info",
+          data: lobbySwipeResultPayload,
+        });
 
         trackEvent("swipe", {
           event_id: eventId,
@@ -227,6 +291,20 @@ export const useSwipeAction = ({
         }
       } catch (err) {
         console.error("Swipe error:", err);
+        trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
+          ...buildLobbySwipeResultPayload({
+            eventId,
+            platform: "web",
+            swipeType,
+            result: { result: "client_exception", reason: "unknown", notification_suppressed: true },
+          }),
+        });
+        Sentry.addBreadcrumb({
+          category: "event-lobby",
+          message: "lobby_swipe_exception",
+          level: "warning",
+          data: { event_id: eventId, swipe_type: swipeType },
+        });
         toast.error("Something went wrong.");
         return null;
       } finally {
