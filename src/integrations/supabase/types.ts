@@ -2224,6 +2224,69 @@ export type Database = {
         }
         Relationships: []
       }
+      payment_observability_events: {
+        Row: {
+          amount: number | null
+          category: string
+          checkout_session_id: string | null
+          created_at: string
+          currency: string | null
+          error_code: string | null
+          event_type: string | null
+          id: string
+          metadata_summary: Json
+          pack_id: string | null
+          paid_event_id: string | null
+          plan: string | null
+          result: string | null
+          status: string
+          stripe_customer_id: string | null
+          stripe_event_id: string | null
+          stripe_subscription_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          category: string
+          checkout_session_id?: string | null
+          created_at?: string
+          currency?: string | null
+          error_code?: string | null
+          event_type?: string | null
+          id?: string
+          metadata_summary?: Json
+          pack_id?: string | null
+          paid_event_id?: string | null
+          plan?: string | null
+          result?: string | null
+          status: string
+          stripe_customer_id?: string | null
+          stripe_event_id?: string | null
+          stripe_subscription_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          category?: string
+          checkout_session_id?: string | null
+          created_at?: string
+          currency?: string | null
+          error_code?: string | null
+          event_type?: string | null
+          id?: string
+          metadata_summary?: Json
+          pack_id?: string | null
+          paid_event_id?: string | null
+          plan?: string | null
+          result?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_event_id?: string | null
+          stripe_subscription_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       photo_verifications: {
         Row: {
           client_confidence_score: number | null
@@ -2989,6 +3052,66 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      stripe_webhook_events: {
+        Row: {
+          checkout_session_id: string | null
+          error_code: string | null
+          event_type: string
+          metadata_summary: Json
+          pack_id: string | null
+          paid_event_id: string | null
+          plan: string | null
+          processed_at: string | null
+          processing_started_at: string | null
+          received_at: string
+          result: string | null
+          status: string
+          stripe_customer_id: string | null
+          stripe_event_id: string
+          stripe_subscription_id: string | null
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          checkout_session_id?: string | null
+          error_code?: string | null
+          event_type: string
+          metadata_summary?: Json
+          pack_id?: string | null
+          paid_event_id?: string | null
+          plan?: string | null
+          processed_at?: string | null
+          processing_started_at?: string | null
+          received_at?: string
+          result?: string | null
+          status: string
+          stripe_customer_id?: string | null
+          stripe_event_id: string
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          checkout_session_id?: string | null
+          error_code?: string | null
+          event_type?: string
+          metadata_summary?: Json
+          pack_id?: string | null
+          paid_event_id?: string | null
+          plan?: string | null
+          processed_at?: string | null
+          processing_started_at?: string | null
+          received_at?: string
+          result?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_event_id?: string
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       subscriptions: {
         Row: {
@@ -4438,6 +4561,15 @@ export type Database = {
         }
         Returns: Json
       }
+      confirm_video_date_entry_prepared_20260501200000_event_inactive: {
+        Args: {
+          p_entry_attempt_id?: string
+          p_room_name: string
+          p_room_url: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       create_media_session: {
         Args: {
           p_caption?: string
@@ -4497,6 +4629,10 @@ export type Database = {
         Returns: number
       }
       drain_match_queue: { Args: { p_event_id: string }; Returns: Json }
+      drain_match_queue_20260501180000_active_base: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       enqueue_media_delete: {
         Args: { p_asset_id: string; p_job_type?: string }
         Returns: Json
@@ -4590,6 +4726,10 @@ export type Database = {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
+      find_mystery_match_20260501180000_active_base: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
       find_video_date_match: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
@@ -4647,6 +4787,7 @@ export type Database = {
         Returns: {
           about_me: string
           age: number
+          availability_state: string
           avatar_url: string
           gender: string
           has_met_before: boolean
@@ -4657,7 +4798,6 @@ export type Database = {
           location: string
           looking_for: string
           name: string
-          availability_state: string
           photo_verified: boolean
           photos: string[]
           premium_badge: string
@@ -4667,6 +4807,40 @@ export type Database = {
           shared_vibe_count: number
           tagline: string
         }[]
+      }
+      get_event_deck_20260501180000_active_base: {
+        Args: { p_event_id: string; p_limit?: number; p_user_id: string }
+        Returns: {
+          about_me: string
+          age: number
+          avatar_url: string
+          gender: string
+          has_met_before: boolean
+          has_super_vibed: boolean
+          height_cm: number
+          is_already_connected: boolean
+          job: string
+          location: string
+          looking_for: string
+          name: string
+          photos: string[]
+          profile_id: string
+          queue_status: string
+          shared_vibe_count: number
+          tagline: string
+        }[]
+      }
+      get_event_lobby_active_state: {
+        Args: { p_event_id: string; p_now?: string }
+        Returns: {
+          event_status: string
+          is_active: boolean
+          reason: string
+        }[]
+      }
+      get_event_lobby_inactive_reason: {
+        Args: { p_event_id: string }
+        Returns: string
       }
       get_event_visible_attendees: {
         Args: { p_event_id: string; p_viewer_id: string }
@@ -4818,6 +4992,24 @@ export type Database = {
         }
         Returns: Json
       }
+      handle_swipe_20260501180000_active_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260501210000_idempotency_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -4833,6 +5025,7 @@ export type Database = {
         Args: { user1_id: string; user2_id: string }
         Returns: boolean
       }
+      is_event_lobby_active: { Args: { p_event_id: string }; Returns: boolean }
       is_profile_discoverable: {
         Args: { p_target_id: string; p_viewer_id?: string }
         Returns: boolean
@@ -4955,6 +5148,10 @@ export type Database = {
         Args: { p_event_id: string; p_uid: string }
         Returns: Json
       }
+      promote_ready_gate_if_eligible_20260501180000_active_base: {
+        Args: { p_event_id: string; p_uid: string }
+        Returns: Json
+      }
       promote_waitlist_for_event: {
         Args: { p_event_id: string }
         Returns: Json
@@ -4980,6 +5177,18 @@ export type Database = {
         Returns: Json
       }
       ready_gate_transition_20260501135000_observability_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      ready_gate_transition_20260501170000_both_ready_grace_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      ready_gate_transition_20260501190000_expiry_rowcount_prior: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      ready_gate_transition_20260501200000_event_inactive_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
@@ -5025,6 +5234,10 @@ export type Database = {
         Returns: Json
       }
       repair_stale_video_date_prepare_entries: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
+      repair_stale_video_date_prepare_entries_20260501170000_both_joi: {
         Args: { p_limit?: number }
         Returns: number
       }
@@ -5118,6 +5331,10 @@ export type Database = {
         Args: { p_avatar_path?: string; p_photos: string[]; p_user_id: string }
         Returns: Json
       }
+      terminalize_event_ready_gates: {
+        Args: { p_event_id: string; p_reason?: string }
+        Returns: Json
+      }
       unblock_user: { Args: { p_blocked_id: string }; Returns: Json }
       update_media_session_status: {
         Args: {
@@ -5191,6 +5408,10 @@ export type Database = {
         Returns: Json
       }
       video_date_transition_20260501145000_peer_missing_end_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260501200000_event_inactive_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
