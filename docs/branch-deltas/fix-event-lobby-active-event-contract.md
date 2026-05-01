@@ -2,6 +2,8 @@
 
 Branch: `fix/event-lobby-active-event-contract`
 
+2026-05-01 follow-up: `20260501223000_event_lobby_canonical_active_state.sql` supersedes the original inactive-reason helper with `get_event_lobby_active_state(uuid, timestamptz)`, keeps the original helpers as compatibility wrappers, and changes `get_event_deck` inactive behavior from silent empty deck to explicit `event_not_active` rejection. See `docs/audits/event-lobby-active-event-contract-verification.md` for the current rebuild delta and remote verification.
+
 ## Problem
 
 Production verification showed that Event Lobby backend entrypoints could still be called outside the true live event window. Stale links, direct RPC calls, native retries, or queue drains could reach deck, swipe, mystery match, or queued Ready Gate promotion logic after an event was not live anymore.

@@ -13,6 +13,7 @@ run_step() {
 }
 
 run_step npx tsx shared/matching/eventLobbyActiveEventContract.test.ts
+run_step npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts
 run_step npx tsx shared/matching/readyGateTransitionExpiryRowcount.test.ts
 run_step npx tsx shared/matching/readyGateEventEndedTerminalization.test.ts
 run_step npx tsx shared/matching/readyGateContractConsumerCompliance.test.ts
