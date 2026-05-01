@@ -47,6 +47,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Event Lobby regression harness** | `scripts/run_event_lobby_regression.sh`, `docs/golden-path-event-lobby-regression-runbook.md`, `docs/audits/event-lobby-regression-harness-verification.md`; branch delta `docs/branch-deltas/test-event-lobby-regression-harness.md` |
 | **Event Lobby native/backend contract** | `docs/contracts/event-lobby-native-contract.md`, `docs/audits/event-lobby-native-contract-verification.md`; branch delta `docs/branch-deltas/docs-event-lobby-native-contract.md` |
 | **Event Lobby native parity implementation** | `docs/audits/native-event-lobby-parity-implementation.md`; branch delta `docs/branch-deltas/fix-native-event-lobby-parity.md`; regression assertion `shared/matching/nativeEventLobbyContractParity.test.ts` |
+| **Event Lobby final closure audit** | `docs/audits/event-lobby-closure-report.md`; source status pointer `docs/audits/event-lobby-deck-deep-dive.md`; branch delta `docs/branch-deltas/audit-event-lobby-closure.md` |
 | **Recent hardening deep audit and cleanup** | `docs/audits/recent-hardening-deep-audit-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-recent-hardening.md` |
 
 ---
