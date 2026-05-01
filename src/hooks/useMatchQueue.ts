@@ -15,6 +15,7 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 interface UseMatchQueueOptions {
   eventId: string | undefined;
   currentStatus: string;
+  enabled?: boolean;
   /**
    * When true, post-date survey (`/date/:id`) may poll `drain_match_queue` while local status is `in_survey`
    * (fallback if `video_sessions` realtime lags). Lobby callers should omit this.
@@ -29,6 +30,7 @@ interface UseMatchQueueOptions {
 export const useMatchQueue = ({
   eventId,
   currentStatus,
+  enabled = true,
   enableSurveyPhaseDrain,
   onVideoSessionReady,
   onQueuedSessionExpired,
@@ -66,7 +68,10 @@ export const useMatchQueue = ({
   }, []);
 
   const refreshQueueCount = useCallback(async () => {
-    if (!eventId || !user?.id) return;
+    if (!enabled || !eventId || !user?.id) {
+      setQueuedCount(0);
+      return;
+    }
 
     const { count } = await supabase
       .from("video_sessions")
@@ -77,10 +82,21 @@ export const useMatchQueue = ({
       .or(`participant_1_id.eq.${user.id},participant_2_id.eq.${user.id}`);
 
     setQueuedCount(count || 0);
-  }, [eventId, user?.id]);
+  }, [enabled, eventId, user?.id]);
 
   useEffect(() => {
-    if (!eventId || !user?.id || !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })) return;
+    if (enabled) return;
+    setQueuedCount(0);
+    setIsDraining(false);
+  }, [enabled]);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !eventId ||
+      !user?.id ||
+      !isMatchQueueDrainEligible(currentStatus, { enableSurveyPhaseDrain })
+    ) return;
 
     const drainQueue = async () => {
       setIsDraining(true);
@@ -137,10 +153,10 @@ export const useMatchQueue = ({
 
     drainQueue();
     refreshQueueCount();
-  }, [eventId, user?.id, currentStatus, enableSurveyPhaseDrain, refreshQueueCount, notifyReadyOnce]);
+  }, [enabled, eventId, user?.id, currentStatus, enableSurveyPhaseDrain, refreshQueueCount, notifyReadyOnce]);
 
   useEffect(() => {
-    if (!eventId || !user?.id) return;
+    if (!enabled || !eventId || !user?.id) return;
 
     const handleUpdate = (payload: {
       new: Record<string, unknown>;
@@ -223,13 +239,13 @@ export const useMatchQueue = ({
           handleUpdate
         )
         .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "video_sessions",
-          filter,
-        },
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "video_sessions",
+            filter,
+          },
           handleInsert
         );
     }
@@ -238,7 +254,7 @@ export const useMatchQueue = ({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [eventId, user?.id, refreshQueueCount, notifyReadyOnce]);
+  }, [enabled, eventId, user?.id, refreshQueueCount, notifyReadyOnce]);
 
   return { queuedCount, refreshQueueCount, isDraining };
 };

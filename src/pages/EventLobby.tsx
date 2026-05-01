@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { motion, AnimatePresence, useMotionValue, useTransform, PanInfo } from "framer-motion";
-import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio } from "lucide-react";
+import { ArrowLeft, X, Heart, Star, Clock, Sparkles, Moon, Radio, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isVdbgEnabled, vdbg } from "@/lib/vdbg";
 import { haptics } from "@/lib/haptics";
@@ -19,8 +19,10 @@ import { addMinutes, differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
+import { EventEndedModal } from "@/components/events/EventEndedModal";
 import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
+import { getWebEventLobbyGateState, type EventLobbyGateState } from "@/lib/eventLobbyGating";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   buildReadyGateToDateLatencyPayload,
@@ -89,12 +91,50 @@ const EventLobby = () => {
   const { user, refreshProfile } = useUserProfile();
   const queryClient = useQueryClient();
   const [endingBreak, setEndingBreak] = useState(false);
+  const [showEventEndedModal, setShowEventEndedModal] = useState(false);
+  const [lobbyClockMs, setLobbyClockMs] = useState(() => Date.now());
+  const [eventLifecycleOverride, setEventLifecycleOverride] = useState<
+    "ended" | "completed" | "cancelled" | "archived" | "draft" | null
+  >(null);
 
   // Data hooks
   const { data: event, isLoading: eventLoading } = useEventDetails(eventId);
   const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
-  const isConfirmedSeat = regSnapshot?.isConfirmed ?? false;
-  const deckEnabled = Boolean(eventId && user?.id && !user.isPaused);
+  const eventEndTime = useMemo(
+    () => (event ? addMinutes(event.eventDate, event.durationMinutes) : null),
+    [event]
+  );
+  const eventEndTimeMs = eventEndTime?.getTime() ?? null;
+  const eventForLobbyGate = useMemo(
+    () => (event && eventLifecycleOverride ? { ...event, status: eventLifecycleOverride } : event),
+    [event, eventLifecycleOverride]
+  );
+  const lobbyGate = useMemo(
+    () =>
+      getWebEventLobbyGateState({
+        eventId,
+        userId: user?.id,
+        userPaused: user?.isPaused ?? false,
+        event: eventForLobbyGate,
+        eventLoading,
+        registration: regSnapshot,
+        registrationLoading: regLoading,
+        nowMs: lobbyClockMs,
+      }),
+    [
+      eventForLobbyGate,
+      eventId,
+      eventLoading,
+      lobbyClockMs,
+      regLoading,
+      regSnapshot,
+      user?.id,
+      user?.isPaused,
+    ]
+  );
+  const deckEnabled = lobbyGate.canFetchDeck;
+  const lobbySideEffectsEnabled = lobbyGate.canUseLobbySideEffects;
+  const lobbyActionsEnabled = lobbyGate.canUseLobbyActions && !showEventEndedModal;
   const {
     profiles,
     isLoading: deckLoading,
@@ -104,7 +144,7 @@ const EventLobby = () => {
     eventId: eventId || "",
     enabled: deckEnabled,
   });
-  const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: !!eventId && !!user?.id });
+  const { setStatus, currentStatus } = useEventStatus({ eventId, enabled: lobbySideEffectsEnabled });
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -124,6 +164,10 @@ const EventLobby = () => {
     }
     return scopedSession;
   }, [sessionHydrated, eventId, scopedSession]);
+  const scopedSessionId = sameEventScopedSession?.sessionId ?? null;
+  const scopedSessionKind = sameEventScopedSession?.kind ?? null;
+  const scopedSessionQueueStatus = sameEventScopedSession?.queueStatus ?? null;
+  const hasScopedSession = scopedSessionId !== null;
   const activeSessionIdRef = useRef<string | null>(null);
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
@@ -140,11 +184,28 @@ const EventLobby = () => {
   }, [dateNavigationSessionId]);
 
   useEffect(() => {
-    activeServerSessionRef.current = sameEventScopedSession?.sessionId ?? activeSessionId ?? null;
-  }, [sameEventScopedSession?.sessionId, activeSessionId]);
+    activeServerSessionRef.current = scopedSessionId ?? activeSessionId ?? null;
+  }, [scopedSessionId, activeSessionId]);
+
+  useEffect(() => {
+    setLobbyClockMs(Date.now());
+    if (!eventEndTimeMs) return;
+    const intervalId = setInterval(() => setLobbyClockMs(Date.now()), 1000);
+    return () => clearInterval(intervalId);
+  }, [eventEndTimeMs]);
 
   const openReadyGateSession = useCallback((sessionId: string, source: string) => {
     if (!sessionId || dateNavigationSessionIdRef.current) return;
+    const isBackendHydratedSession = scopedSessionId === sessionId;
+    if (!lobbyActionsEnabled && !isBackendHydratedSession) {
+      lobbyDebug("ready gate open suppressed by lobby gate", {
+        sessionId,
+        source,
+        gate: lobbyGate.kind,
+      });
+      void refetchScopedSession();
+      return;
+    }
     if (activeSessionIdRef.current !== sessionId) {
       lobbyDebug("activeSessionId set", { sessionId, source });
     }
@@ -156,7 +217,13 @@ const EventLobby = () => {
     });
     activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
-  }, [eventId]);
+  }, [
+    eventId,
+    lobbyActionsEnabled,
+    lobbyGate.kind,
+    refetchScopedSession,
+    scopedSessionId,
+  ]);
 
   const clearReadyGateSession = useCallback((source: string) => {
     if (dateNavigationSessionIdRef.current) {
@@ -172,6 +239,52 @@ const EventLobby = () => {
     activeSessionIdRef.current = null;
     setActiveSessionId(null);
   }, []);
+
+  useEffect(() => {
+    if (!eventId || !event) return;
+
+    if (lobbyGate.kind === "ended") {
+      setShowEventEndedModal(true);
+    }
+
+    if (lobbyGate.kind !== "live" && activeSessionId && scopedSessionId !== activeSessionId) {
+      clearReadyGateSession(`lobby_gate_${lobbyGate.kind}`);
+    }
+
+    const channel = supabase
+      .channel(`web-event-lifecycle-${eventId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${eventId}` },
+        (payload) => {
+          const row = payload.new as { status?: string | null };
+          const status = (row.status ?? "").toLowerCase();
+          void queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
+          setLobbyClockMs(Date.now());
+          if (status === "ended" || status === "completed") {
+            setEventLifecycleOverride(status);
+            setShowEventEndedModal(true);
+          }
+          if (status === "cancelled" || status === "archived" || status === "draft") {
+            setEventLifecycleOverride(status);
+            clearReadyGateSession(`event_status_${status}`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [
+    activeSessionId,
+    clearReadyGateSession,
+    event,
+    eventId,
+    lobbyGate.kind,
+    queryClient,
+    scopedSessionId,
+  ]);
 
   const navigateToDateSession = useCallback(
     (sessionId: string, source: string) => {
@@ -362,6 +475,8 @@ const EventLobby = () => {
     prepareNavigationInFlightRef.current.clear();
     setActiveSessionId(null);
     setDateNavigationSessionId(null);
+    setShowEventEndedModal(false);
+    setEventLifecycleOverride(null);
     setPostSurveyReturnContext(false);
     setCheckingNextDateAfterSurvey(false);
     postSurveyRouteTrackedRef.current = null;
@@ -387,6 +502,7 @@ const EventLobby = () => {
   const { queuedCount, refreshQueueCount, isDraining: queueDrainInFlight } = useMatchQueue({
     eventId,
     currentStatus: currentStatus || "browsing",
+    enabled: lobbySideEffectsEnabled,
     onVideoSessionReady: () => {
       void refetchScopedSession();
     },
@@ -421,7 +537,7 @@ const EventLobby = () => {
 
   // Super vibes left this event (same rule as handle_swipe: max 3 per event). Non-fatal: lobby must mount if this fails.
   useEffect(() => {
-    if (!user?.id || !eventId) return;
+    if (!user?.id || !eventId || !deckEnabled) return;
     const diagKey = `${eventId}:${user.id}`;
     let cancelled = false;
     void (async () => {
@@ -439,8 +555,8 @@ const EventLobby = () => {
             lobbyDebug("super_vibe_count_load_failed", {
               eventId,
               userId: user.id,
-              sessionKind: sameEventScopedSession?.kind ?? null,
-              sessionId: sameEventScopedSession?.sessionId ?? null,
+              sessionKind: scopedSessionKind,
+              sessionId: scopedSessionId,
               message: error.message,
             });
           } else {
@@ -460,8 +576,8 @@ const EventLobby = () => {
           lobbyDebug("super_vibe_count_load_failed", {
             eventId,
             userId: user.id,
-            sessionKind: sameEventScopedSession?.kind ?? null,
-            sessionId: sameEventScopedSession?.sessionId ?? null,
+            sessionKind: scopedSessionKind,
+            sessionId: scopedSessionId,
             message: "exception",
           });
         }
@@ -470,20 +586,28 @@ const EventLobby = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, eventId]);
+  }, [user?.id, eventId, deckEnabled, scopedSessionKind, scopedSessionId]);
 
   // Lobby presence only when no backend-owned active session is in flight.
   useEffect(() => {
-    if (!eventId || lobbyEnteredEventRef.current === eventId) return;
+    if (!eventId || !lobbySideEffectsEnabled || lobbyEnteredEventRef.current === eventId) return;
     lobbyEnteredEventRef.current = eventId;
     trackEvent('lobby_entered', { event_id: eventId });
-  }, [eventId]);
+  }, [eventId, lobbySideEffectsEnabled]);
 
   useEffect(() => {
-    if (!eventId || !sessionHydrated) return;
-    if (dateNavigationSessionId || activeSessionId || sameEventScopedSession) return;
+    if (!eventId || !sessionHydrated || !lobbySideEffectsEnabled) return;
+    if (dateNavigationSessionId || activeSessionId || hasScopedSession) return;
     void setStatus("browsing");
-  }, [eventId, sessionHydrated, dateNavigationSessionId, activeSessionId, sameEventScopedSession, setStatus]);
+  }, [
+    eventId,
+    sessionHydrated,
+    lobbySideEffectsEnabled,
+    dateNavigationSessionId,
+    activeSessionId,
+    hasScopedSession,
+    setStatus,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -500,7 +624,7 @@ const EventLobby = () => {
 
   // Canonical lobby foreground proof: stamp only while this lobby route is visible in the foreground.
   useEffect(() => {
-    if (!eventId || !user?.id) return;
+    if (!eventId || !user?.id || !lobbySideEffectsEnabled) return;
 
     const expectedPath = `/event/${eventId}/lobby`;
     const isOnLobbyRoute = location.pathname === expectedPath;
@@ -535,7 +659,7 @@ const EventLobby = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(intervalId);
     };
-  }, [eventId, user?.id, location.pathname, currentStatus, refreshQueueCount]);
+  }, [eventId, user?.id, lobbySideEffectsEnabled, location.pathname, currentStatus, refreshQueueCount]);
 
   // Backend-truth-first: scoped active session for this event (ready gate vs /date)
   useEffect(() => {
@@ -543,33 +667,37 @@ const EventLobby = () => {
     vdbg("lobby_mount_active_session", {
       eventId,
       hydrated: sessionHydrated,
-      activeSessionExists: Boolean(sameEventScopedSession),
-      activeSessionKind: sameEventScopedSession?.kind ?? null,
-      activeSessionId: sameEventScopedSession?.sessionId ?? null,
-      activeSessionQueueStatus: sameEventScopedSession?.queueStatus ?? null,
+      activeSessionExists: hasScopedSession,
+      activeSessionKind: scopedSessionKind,
+      activeSessionId: scopedSessionId,
+      activeSessionQueueStatus: scopedSessionQueueStatus,
       stickySessionId: activeSessionIdRef.current,
     });
-    if (sameEventScopedSession?.sessionId) {
-      logVdbgSessionStage("lobby_mount_active_session_detail", sameEventScopedSession.sessionId, {
+    if (scopedSessionId) {
+      logVdbgSessionStage("lobby_mount_active_session_detail", scopedSessionId, {
         eventId,
-        activeSessionKind: sameEventScopedSession.kind,
-        activeSessionQueueStatus: sameEventScopedSession.queueStatus ?? null,
+        activeSessionKind: scopedSessionKind,
+        activeSessionQueueStatus: scopedSessionQueueStatus,
       });
     }
     lobbyDebug("active session hydration observed", {
       hydrated: sessionHydrated,
       eventId,
-      kind: sameEventScopedSession?.kind ?? null,
-      sessionId: sameEventScopedSession?.sessionId ?? null,
-      queueStatus: sameEventScopedSession?.queueStatus ?? null,
+      kind: scopedSessionKind,
+      sessionId: scopedSessionId,
+      queueStatus: scopedSessionQueueStatus,
       stickySessionId: activeSessionIdRef.current,
     });
-    if (sameEventScopedSession?.kind === "video") {
-      navigateToDateSession(sameEventScopedSession.sessionId, "active_session_hydration");
+    if (!lobbyActionsEnabled && !scopedSessionId) {
+      clearReadyGateSession("lobby_gate_inactive_hydration");
       return;
     }
-    if (sameEventScopedSession?.kind === "ready_gate") {
-      openReadyGateSession(sameEventScopedSession.sessionId, "active_session_hydration");
+    if (scopedSessionKind === "video" && scopedSessionId) {
+      navigateToDateSession(scopedSessionId, "active_session_hydration");
+      return;
+    }
+    if (scopedSessionKind === "ready_gate" && scopedSessionId) {
+      openReadyGateSession(scopedSessionId, "active_session_hydration");
       return;
     }
     if (activeSessionIdRef.current) {
@@ -580,11 +708,14 @@ const EventLobby = () => {
   }, [
     sessionHydrated,
     eventId,
-    sameEventScopedSession?.kind,
-    sameEventScopedSession?.sessionId,
-    sameEventScopedSession?.queueStatus,
+    hasScopedSession,
+    scopedSessionKind,
+    scopedSessionId,
+    scopedSessionQueueStatus,
+    lobbyActionsEnabled,
     navigateToDateSession,
     openReadyGateSession,
+    clearReadyGateSession,
   ]);
 
   // Returning from video date / survey: fresh deck, no stale overlay.
@@ -766,37 +897,6 @@ const EventLobby = () => {
     return () => clearInterval(interval);
   }, [event]);
 
-  // Guards: redirect if not live or not registered
-  useEffect(() => {
-    if (eventLoading || regLoading || !event) return;
-
-    if (event.status === "cancelled") {
-      toast.error("This event was cancelled.", { duration: 3500 });
-      navigate(`/events/${eventId}`, { replace: true });
-      return;
-    }
-
-    const now = new Date();
-    const endTime = addMinutes(event.eventDate, event.durationMinutes);
-    const isLive = now >= event.eventDate && now < endTime;
-
-    if (!isLive) {
-      toast("This event isn't live yet.", { duration: 2500 });
-      navigate(`/events/${eventId}`, { replace: true });
-      return;
-    }
-
-    if (!isConfirmedSeat) {
-      toast(
-        regSnapshot?.isWaitlisted
-          ? "You're on the waitlist — we'll notify you if a spot opens."
-          : "Register for this event first!",
-        { duration: 3000 }
-      );
-      navigate(`/events/${eventId}`, { replace: true });
-    }
-  }, [event, eventLoading, regLoading, regSnapshot, isConfirmedSeat, eventId, navigate]);
-
   // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {
     const filtered = profiles.filter((p) => !seenProfileIds.current.has(p.id));
@@ -851,7 +951,7 @@ const EventLobby = () => {
   );
 
   const handleVibe = useCallback(async () => {
-    if (!currentProfile || isProcessing) return;
+    if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
     const targetId = currentProfile.id;
     haptics.light();
     const result = await swipe(targetId, "vibe");
@@ -867,10 +967,10 @@ const EventLobby = () => {
     }
 
     afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
 
   const handlePass = useCallback(async () => {
-    if (!currentProfile || isProcessing) return;
+    if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
     const targetId = currentProfile.id;
     const result = await swipe(targetId, "pass");
     if (!result || result.success === false) return;
@@ -881,10 +981,10 @@ const EventLobby = () => {
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", profile_id: targetId });
 
     afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
 
   const handleSuperVibe = useCallback(async () => {
-    if (!currentProfile || isProcessing) return;
+    if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
     haptics.light();
     const targetId = currentProfile.id;
     const result = await swipe(targetId, "super_vibe");
@@ -901,7 +1001,7 @@ const EventLobby = () => {
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", profile_id: targetId });
 
     afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, swipe, afterSuccessfulSwipe, eventId]);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
 
   const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
   const yieldingToReadyGateUi = Boolean(
@@ -944,6 +1044,12 @@ const EventLobby = () => {
     !(currentProfile && !deckLoading);
   const suppressDeckUiForConvergence =
     yieldingToVideoDateUi || yieldingToReadyGateUi || showPostSurveyQueueCheck;
+  const readyGateOverlayAllowed = Boolean(
+    activeSessionId &&
+      eventId &&
+      !yieldingToVideoDateUi &&
+      (lobbyGate.kind === "live" || sameEventScopedSession?.sessionId === activeSessionId)
+  );
 
   useEffect(() => {
     if (!postSurveyReturnContext || !eventId) return;
@@ -1014,11 +1120,20 @@ const EventLobby = () => {
   }, [eventId, showPostSurveyQueueCheck, suppressDeckUiForConvergence, yieldingToVideoDateUi]);
 
   // Loading state
-  if (eventLoading || regLoading) {
+  if (lobbyGate.kind === "loading") {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <div className="w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin shadow-[0_0_24px_hsl(var(--primary)/0.35)]" />
       </div>
+    );
+  }
+
+  if (lobbyGate.kind !== "live" && lobbyGate.kind !== "paused") {
+    return (
+      <>
+        <LobbyUnavailableState gate={lobbyGate} eventId={eventId} onNavigate={navigate} />
+        <EventEndedModal isOpen={showEventEndedModal} />
+      </>
     );
   }
 
@@ -1253,7 +1368,7 @@ const EventLobby = () => {
                   userVibes={userVibes}
                   onSwipeLeft={handlePass}
                   onSwipeRight={handleVibe}
-                  disabled={isProcessing}
+                  disabled={isProcessing || !lobbyActionsEnabled}
                 />
               )}
             </AnimatePresence>
@@ -1273,7 +1388,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handlePass}
-              disabled={isProcessing}
+              disabled={isProcessing || !lobbyActionsEnabled}
               className="w-[58px] h-[58px] rounded-full bg-white/[0.04] border-2 border-white/12 flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-400/35 transition-all active:scale-[0.92] disabled:opacity-40 shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
               aria-label="Pass"
             >
@@ -1284,7 +1399,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handleSuperVibe}
-              disabled={isProcessing || superVibeRemaining <= 0}
+              disabled={isProcessing || !lobbyActionsEnabled || superVibeRemaining <= 0}
               className="relative w-[52px] h-[52px] rounded-full bg-neon-yellow/12 border-2 border-neon-yellow/50 flex items-center justify-center hover:bg-neon-yellow/22 transition-all active:scale-[0.92] disabled:opacity-30 shadow-[0_0_28px_hsl(var(--neon-yellow)/0.2)]"
               aria-label="Super vibe"
             >
@@ -1300,7 +1415,7 @@ const EventLobby = () => {
             <button
               type="button"
               onClick={handleVibe}
-              disabled={isProcessing}
+              disabled={isProcessing || !lobbyActionsEnabled}
               className="w-[58px] h-[58px] rounded-full bg-gradient-to-br from-primary via-fuchsia-500 to-accent flex items-center justify-center hover:shadow-[0_0_36px_hsl(var(--primary)/0.45)] transition-all active:scale-[0.92] disabled:opacity-40 border border-white/20 neon-glow-pink"
               aria-label="Vibe"
             >
@@ -1316,7 +1431,7 @@ const EventLobby = () => {
 
       {/* Ready Gate Overlay */}
       <AnimatePresence>
-        {activeSessionId && eventId && !yieldingToVideoDateUi && (
+        {readyGateOverlayAllowed && activeSessionId && eventId && (
           <ReadyGateOverlay
             sessionId={activeSessionId}
             eventId={eventId}
@@ -1331,6 +1446,62 @@ const EventLobby = () => {
           />
         )}
       </AnimatePresence>
+    </div>
+  );
+};
+
+const LobbyUnavailableState = ({
+  gate,
+  eventId,
+  onNavigate,
+}: {
+  gate: EventLobbyGateState;
+  eventId: string | undefined;
+  onNavigate: ReturnType<typeof useNavigate>;
+}) => {
+  const handleAction = () => {
+    if (gate.redirectTo === "auth") {
+      onNavigate("/auth", { replace: true });
+      return;
+    }
+    if (gate.redirectTo === "events") {
+      onNavigate("/events", { replace: true });
+      return;
+    }
+    if (gate.redirectTo === "matches") {
+      onNavigate("/matches", { replace: true });
+      return;
+    }
+    if (gate.redirectTo === "dashboard" || !eventId) {
+      onNavigate("/dashboard", { replace: true });
+      return;
+    }
+    onNavigate(`/events/${eventId}`, { replace: true });
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-zinc-950 px-4 py-8 text-foreground">
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 120% 80% at 50% -20%, hsl(var(--neon-violet) / 0.18) 0%, transparent 50%), radial-gradient(ellipse 80% 50% at 100% 60%, hsl(var(--neon-cyan) / 0.06) 0%, transparent 45%), linear-gradient(180deg, hsl(240 10% 6%) 0%, hsl(240 8% 4%) 40%, hsl(0 0% 2%) 100%)",
+        }}
+      />
+      <div className="relative z-10 w-full max-w-sm rounded-3xl border border-white/[0.12] bg-zinc-950/80 p-7 text-center shadow-[0_24px_80px_-24px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
+          <AlertCircle className="h-7 w-7 text-white/70" strokeWidth={1.6} />
+        </div>
+        <h1 className="text-xl font-display font-bold text-white">{gate.title}</h1>
+        <p className="mt-2 text-sm leading-relaxed text-white/55">{gate.message}</p>
+        <Button
+          type="button"
+          onClick={handleAction}
+          className="mt-6 w-full rounded-2xl bg-gradient-to-r from-primary to-accent text-primary-foreground"
+        >
+          {gate.actionLabel}
+        </Button>
+      </div>
     </div>
   );
 };

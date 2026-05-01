@@ -25,8 +25,13 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
   const { user } = useUserProfile();
   const { session } = useAuth();
   const accessTokenRef = useRef<string | null>(null);
+  const enabledRef = useRef(enabled);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [currentStatus, setCurrentStatus] = useState<ParticipantStatus>("idle");
+
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
 
   useEffect(() => {
     accessTokenRef.current = session?.access_token ?? null;
@@ -34,6 +39,7 @@ export const useEventStatus = ({ eventId, enabled = true }: UseEventStatusOption
 
   const setStatus = useCallback(
     async (status: ClientWritableParticipantStatus) => {
+      if (!enabledRef.current) return;
       if (!eventId || !user?.id) return;
       setCurrentStatus(status);
 
