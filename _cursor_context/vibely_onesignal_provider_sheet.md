@@ -15,7 +15,7 @@ It is meant to answer:
 - how push identity is established in the frontend
 - how push delivery is triggered in backend functions
 - where OneSignal fits relative to Vibely’s own notification/service-worker layer
-- what is hardcoded vs env-driven
+- which OneSignal values are env-driven versus provider-dashboard state
 - what dashboard/webhook/origin state must exist outside the repo
 - what can silently fail during rebuild even when the app still boots
 
@@ -102,12 +102,11 @@ Do not treat “browser notifications work” as proof that OneSignal is healthy
 
 ## 5. OneSignal config surface
 
-## Frontend hardcoded config
+## Frontend env config
 `src/lib/onesignal.ts` uses:
-- `ONESIGNAL_APP_ID_FALLBACK = "97e52ea2-6a27-4486-a678-4dd8a0d49e94"`
-- `ONESIGNAL_APP_ID = import.meta.env.VITE_ONESIGNAL_APP_ID || ONESIGNAL_APP_ID_FALLBACK`
+- `import.meta.env.VITE_ONESIGNAL_APP_ID`
 
-This means the frontend app ID is now **env-backed with fallback**; the env and fallback values must both refer to the same OneSignal app used by the backend.
+The frontend app ID is **env-backed only**. If `VITE_ONESIGNAL_APP_ID` is unset or blank, `initOneSignal()` logs a safe warning and disables web push initialization for that session rather than falling back to a checked-in app ID.
 
 ## Backend env config
 Functions expect:
@@ -121,7 +120,7 @@ Functions expect:
 
 ### Important implication
 The system has two sources of truth for the OneSignal app:
-- hardcoded frontend app ID
+- frontend `VITE_ONESIGNAL_APP_ID`
 - backend env app ID
 
 They must point to the **same** OneSignal app.
@@ -132,7 +131,7 @@ If they drift, Vibely can register subscriptions in one app while sending throug
 
 OneSignal v16 web push requires a root-served service worker script. The browser will request:
 
-- `https://www.vibelymeet.com/OneSignalSDK.sw.js?appId=97e52ea2-6a27-4486-a678-4dd8a0d49e94&sdkVersion=...`
+- `https://www.vibelymeet.com/OneSignalSDK.sw.js?appId=<onesignal-app-id>&sdkVersion=...`
 
 The repo now provides a **shim** at:
 
@@ -160,10 +159,12 @@ A healthy deploy must ensure that `OneSignalSDK.sw.js` is actually served from t
 
 ### `initOneSignal()` behavior
 Observed settings:
-- `appId` = hardcoded Vibely OneSignal app ID
+- `appId` = `VITE_ONESIGNAL_APP_ID`
 - `notifyButton.enable = false`
 - `allowLocalhostAsSecureOrigin = true`
 - `serviceWorkerParam.scope = "/"`
+
+If `VITE_ONESIGNAL_APP_ID` is missing, web push initialization is skipped and no OneSignal app is initialized.
 
 ### Click behavior
 A notification click listener reads:
@@ -362,7 +363,7 @@ So it is possible for OneSignal delivery to work while `push_notification_events
 
 ## Clear / strongly evidenced
 - OneSignal web SDK is loaded in the browser
-- OneSignal app ID is hardcoded in source
+- OneSignal app ID is read from `VITE_ONESIGNAL_APP_ID`
 - backend sends to OneSignal REST API
 - frontend binds Vibely user ID via `OneSignal.login(userId)`
 - player ID and subscription state are persisted in `notification_preferences`
@@ -410,7 +411,7 @@ without proving that OneSignal remote push is healthy.
 The repo proves the code contract, but not the provider-side setup.
 
 ### Required provider-side reality
-- a OneSignal app matching the hardcoded frontend app ID and backend env app ID
+- a OneSignal app matching frontend `VITE_ONESIGNAL_APP_ID` and backend `ONESIGNAL_APP_ID`
 - REST API key for that same app
 - web push configuration in OneSignal dashboard
 - allowed site origin(s) for Vibely web push
@@ -429,7 +430,7 @@ The repo proves the code contract, but not the provider-side setup.
 ## 14. What the repo proves vs what it does not prove
 
 ## What the repo proves strongly
-- hardcoded app ID in frontend
+- env-backed frontend app ID usage through `VITE_ONESIGNAL_APP_ID`
 - SDK load path and init settings
 - external user binding to Supabase user ID
 - `onesignal_player_id` persistence into `notification_preferences`
@@ -450,7 +451,7 @@ The repo proves the code contract, but not the provider-side setup.
 ## 15. OneSignal-specific rebuild risks
 
 ## Risk 1 — Split source of truth for app ID
-Frontend app ID is hardcoded.
+Frontend app ID comes from `VITE_ONESIGNAL_APP_ID`.
 Backend app ID comes from env.
 
 If they drift, Vibely can subscribe in one app and send in another.
@@ -481,7 +482,7 @@ The repo loads the OneSignal SDK and uses `/` scope, but successful web push als
 
 ### Step 1 — App identity verification
 Confirm:
-- frontend hardcoded app ID
+- frontend `VITE_ONESIGNAL_APP_ID`
 - backend `ONESIGNAL_APP_ID`
 - OneSignal dashboard app
 
@@ -528,11 +529,11 @@ Verify separately that local/service-worker notifications still behave as intend
 
 ## 17. Known unknowns to resolve in the next OneSignal-focused audit
 
-1. Does the backend `ONESIGNAL_APP_ID` exactly match the hardcoded frontend app ID in production?  
+1. Does the backend `ONESIGNAL_APP_ID` exactly match frontend `VITE_ONESIGNAL_APP_ID` in production?
 2. What exact site origin(s) and service-worker settings are configured in the OneSignal dashboard for Vibely?  
 3. Is `push-webhook` actively wired to OneSignal receipts/events in production, or is it only a planned/generalized ingestion path?  
 4. Are there production cases where users are subscribed in OneSignal but missing `onesignal_player_id` locally?  
-5. Should the hardcoded frontend app ID be centralized later to avoid drift between frontend and backend configuration?  
+5. Does production always set `VITE_ONESIGNAL_APP_ID`, and does unset local/test behavior intentionally disable web push?
 
 ---
 
