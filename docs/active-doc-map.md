@@ -54,6 +54,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Provider operational QA: Daily calls** | `docs/branch-deltas/fix-daily-provider-operational-qa.md`; provider sheet `_cursor_context/vibely_daily_provider_sheet.md`; regression assertion `shared/matching/dailyProviderOperationalQa.test.ts` |
 | **Provider operational QA: Resend email** | `docs/branch-deltas/fix-resend-email-provider-operational-qa.md`; regression assertion `shared/matching/resendEmailProviderOperationalQa.test.ts` |
 | **Provider operational QA: Twilio phone verification** | `docs/branch-deltas/fix-twilio-phone-verification-qa.md`; regression assertion `shared/matching/twilioPhoneVerificationQa.test.ts` |
+| **Provider/notification deep tidy audit** | `docs/audits/deep-audit-implemented-work-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-implemented-work-tidy.md`; regression assertion `shared/matching/deepAuditImplementedWorkTidy.test.ts` |
 | **Native physical-device QA readiness** | `docs/qa/native-physical-device-qa-runbook.md`; branch delta `docs/branch-deltas/qa-native-physical-device-flow.md`; regression assertion `shared/matching/nativePhysicalDeviceQaReadiness.test.ts` |
 | **RevenueCat native entitlement readiness** | `docs/branch-deltas/fix-revenuecat-native-entitlement-readiness.md`; regression assertion `shared/matching/revenueCatNativeEntitlementReadiness.test.ts` |
 | **Post-stream provider/native deep audit and tidy** | `docs/audits/post-stream-provider-native-readiness-audit-2026-05-01.md` |
