@@ -152,7 +152,7 @@ A working frontend alone is not enough. The function secrets must also be correc
 These are rebuild-sensitive because they are not fully env-driven.
 
 ### A. Hardcoded tus endpoint
-`VibeStudioModal` uploads to:
+The web and native hero Vibe Video upload controllers upload to:
 - `https://video.bunnycdn.com/tusupload`
 
 ### B. Hardcoded Bunny API host patterns in Edge Functions
@@ -174,8 +174,11 @@ Changing provider shape, region, or hostname strategy is not purely an env chang
 This is the most complex Bunny-backed flow in Vibely.
 
 ### Phase 1 — Client requests upload authorization
-Frontend component:
-- `src/components/vibe-video/VibeStudioModal.tsx`
+Frontend/native entry points:
+- `src/components/vibe-video/VibeStudioModal.tsx` starts the web hero upload controller after local confirm
+- `src/lib/heroVideo/heroVideoUploadController.ts`
+- `apps/mobile/lib/nativeHeroVideoUploadController.ts`
+- `apps/mobile/lib/vibeVideoApi.ts`
 
 Calls function:
 - `create-video-upload`
@@ -184,10 +187,10 @@ Calls function:
 `create-video-upload`:
 1. authenticates the user via bearer token  
 2. loads current `profiles.bunny_video_uid`  
-3. if an old video exists, tries to delete it from Bunny Stream  
-4. creates a new Bunny Stream video object in the configured library  
-5. computes a SHA-256 signature for Bunny tus upload auth  
-6. updates `profiles` with:
+3. creates a new Bunny Stream video object in the configured library
+4. computes a SHA-256 signature for Bunny tus upload auth
+5. creates/updates lifecycle session state so replacement cleanup is durable/deferred rather than an immediate product-blocking delete
+6. activates the current profile Vibe Video through lifecycle RPCs, updating:
    - `bunny_video_uid = <new video id>`
    - `bunny_video_status = "uploading"`
 7. returns to the client:
@@ -279,7 +282,7 @@ This can create delayed/orphaned remote media if Stream credentials, retention c
 3. validates max file size (10MB)  
 4. writes to Bunny Storage at path pattern:
    - `photos/{userId}/{timestamp}.{ext}`
-5. optionally deletes previous Bunny file if `old_path` is supplied and starts with `photos/`  
+5. preserves currently published assets during draft upload; replacement cleanup happens later through publish/finalize lifecycle paths
 6. returns the relative storage path, not the full URL
 
 ### URL resolution behavior
@@ -339,10 +342,10 @@ Event covers depend on:
 1. authenticates user  
 2. validates audio file type  
 3. validates max size (10MB)  
-4. uploads to Bunny Storage path:
+4. requires `conversation_id` and verifies the sender belongs to that match
+5. uploads to Bunny Storage path:
    - `voice/{conversationId}/{userId}_{timestamp}.{ext}`
-   - or fallback `voice/{userId}/{timestamp}.{ext}`
-5. returns:
+6. returns:
    - `path`
    - `url = https://${BUNNY_CDN_HOSTNAME}/{optional-prefix}/${storagePath}`
 
