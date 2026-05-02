@@ -5336,8 +5336,7 @@ export default function VideoDateScreen() {
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
-  const showJoiningOverlay =
-    !showFeedback && (joining || isConnecting) && !localInDailyRoom && !preJoinFailed && !peerMissingTerminal;
+  const showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom && !showFeedback && !preJoinFailed && !peerMissingTerminal;
   const showPeerWaitOverlay =
     !showFeedback &&
     localInDailyRoom &&

@@ -1152,7 +1152,7 @@ test("native date entry reuses same-session Daily joins across remounts and resc
   assert.match(nativeVideoDateRoute, /daily_call_singleton_reuse_join_in_flight/);
   assert.match(nativeVideoDateRoute, /await sharedCall\.joinPromise/);
   assert.match(nativeVideoDateRoute, /hydrateJoinedSharedCall/);
-  assert.match(nativeVideoDateRoute, /showJoiningOverlay =[\s\S]*!showFeedback && \(joining \|\| isConnecting\) && !localInDailyRoom/);
+  assert.match(nativeVideoDateRoute, /showJoiningOverlay =[\s\S]*\(joining \|\| isConnecting\) && !localInDailyRoom[\s\S]*!showFeedback/);
   assert.match(nativeVideoDateRoute, /showPeerWaitOverlay =\s*!showFeedback &&\s*localInDailyRoom/s);
   assert.doesNotMatch(nativeVideoDateRoute, /reuse_probe_not_joined/);
   assert.doesNotMatch(nativeVideoDateRoute, /allowMultipleCallInstances/);
