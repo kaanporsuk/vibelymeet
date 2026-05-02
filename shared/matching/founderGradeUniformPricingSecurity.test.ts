@@ -28,6 +28,37 @@ test("event webhook verifies checkout intent amount and currency before settleme
   assert.match(webhook, /Webhook signature verification failed[\s\S]*status: 400/);
 });
 
+test("founder-grade service helpers are not executable by client roles", () => {
+  const grantMigration = read("supabase/migrations/20260502133000_founder_grade_function_grants.sql");
+  const validation = read("supabase/validation/founder_grade_uniform_pricing_security.sql");
+
+  for (const signature of [
+    "verify_event_ticket_checkout_intent(text, uuid, uuid, integer, text, text)",
+    "recompute_profile_subscription_entitlement(uuid)",
+    "record_public_account_deletion_request(text, text)",
+  ]) {
+    const escapedSignature = signature.replace(/[()]/g, "\\$&");
+    assert.match(
+      grantMigration,
+      new RegExp(`REVOKE ALL ON FUNCTION public\\.${escapedSignature}[\\s\\S]*FROM PUBLIC, anon, authenticated;`),
+      signature,
+    );
+    assert.match(
+      grantMigration,
+      new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${escapedSignature}[\\s\\S]*TO service_role;`),
+      signature,
+    );
+  }
+
+  assert.match(
+    grantMigration,
+    /REVOKE ALL ON FUNCTION public\.sync_profiles_is_premium_from_subscriptions\(\)[\s\S]*FROM PUBLIC, anon, authenticated, service_role;/,
+  );
+  assert.match(validation, /not has_function_privilege\(\s*'anon'/);
+  assert.match(validation, /not has_function_privilege\(\s*'authenticated'/);
+  assert.match(validation, /not has_function_privilege\(\s*'service_role',\s*'public\.sync_profiles_is_premium_from_subscriptions\(\)'/);
+});
+
 test("web and native event pricing surfaces no longer expose gender-specific prices", () => {
   const files = [
     "src/pages/EventDetails.tsx",
