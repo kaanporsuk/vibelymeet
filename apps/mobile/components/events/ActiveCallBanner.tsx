@@ -47,7 +47,7 @@ export function ActiveCallBanner({
     mode === 'ready_gate'
       ? 'Your match is waiting!'
       : mode === 'survey'
-        ? 'Date feedback pending'
+        ? 'Finish your date feedback'
         : 'You have an active date!';
   const subtitle =
     mode === 'ready_gate'
@@ -55,9 +55,7 @@ export function ActiveCallBanner({
         ? `${partnerName} — tap Continue to open Ready Gate`
         : 'Tap Continue to open Ready Gate and sync up 💚'
       : mode === 'survey'
-        ? partnerName
-          ? `${partnerName} — finish your feedback`
-          : 'Finish your post-date feedback'
+        ? 'Tell us how it went'
         : partnerName
           ? `With ${partnerName} — tap Rejoin`
           : 'Tap Rejoin to return 💚';

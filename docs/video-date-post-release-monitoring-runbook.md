@@ -210,6 +210,7 @@ Red-alert signals:
 - User with ended date and no feedback cannot recover survey.
 - `date_feedback` exists but UI still asks the same user to submit.
 - Mutual match creation contradicts blocked/reported state.
+- Home shows an active-date banner for a session that is ended, older than the 24-hour survey recovery window, or already has that user's `date_feedback`.
 
 Immediate action for pending survey not recovered:
 
@@ -218,6 +219,40 @@ Immediate action for pending survey not recovered:
 3. Confirm no `date_feedback` row exists for that user.
 4. Confirm route emits no `video_date_survey_recovered`.
 5. Escalate as a recovery regression with session id, user id, and current `event_registrations` snapshot.
+
+Immediate read-only check for a false home active-session banner:
+
+```sql
+select
+  er.profile_id,
+  er.event_id,
+  er.queue_status,
+  er.current_room_id,
+  er.current_partner_id,
+  vs.id as session_id,
+  vs.state,
+  vs.phase,
+  vs.ready_gate_status,
+  vs.started_at,
+  vs.handshake_started_at,
+  vs.date_started_at,
+  vs.ended_at,
+  vs.ended_reason,
+  df.id as my_feedback_id
+from public.event_registrations er
+left join public.video_sessions vs
+  on vs.id = er.current_room_id
+left join public.date_feedback df
+  on df.session_id = vs.id
+ and df.user_id = er.profile_id
+where er.profile_id = '<USER_UUID>'
+order by er.last_active_at desc nulls last;
+```
+
+Interpretation:
+
+- `queue_status = in_survey` should show the home feedback banner only when `vs.ended_at` and `vs.date_started_at` exist, `df.id` is null, and `vs.ended_at` is within 24 hours.
+- Old ended sessions, sessions with existing feedback, and stale non-ended sessions should emit `stale_active_session_detected` and not show active-date copy.
 
 ## After Event Cleanup
 
@@ -290,4 +325,3 @@ Escalate immediately when:
 ## Native Delivery Caveat
 
 PRs #563, #564, #567, and #568 changed native runtime files. The post-release monitoring result for native is valid only after the shipped native bundle includes those changes. No new native dependency was added in the hardening chain, so OTA should be sufficient when the currently installed binary already supports the existing native modules.
-

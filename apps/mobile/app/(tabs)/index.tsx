@@ -6,6 +6,7 @@ import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import {
   View,
   Text,
+  Alert,
   ScrollView,
   Pressable,
   Image,
@@ -74,6 +75,23 @@ import {
 } from '@clientShared/eventTimingBuckets';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
+
+function transitionFailureMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const result = payload as {
+    success?: unknown;
+    error?: unknown;
+    code?: unknown;
+    error_code?: unknown;
+  };
+  if (result.success !== false) return null;
+  return (
+    (typeof result.error === 'string' && result.error) ||
+    (typeof result.error_code === 'string' && result.error_code) ||
+    (typeof result.code === 'string' && result.code) ||
+    'Transition failed'
+  );
+}
 
 function getTimeGreeting(): string {
   const h = new Date().getHours();
@@ -508,15 +526,28 @@ export default function DashboardScreen() {
     if (activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey') {
       return;
     }
-    if (activeSession.kind === 'ready_gate') {
-      await supabase.rpc('ready_gate_transition', {
-        p_session_id: activeSession.sessionId,
-        p_action: 'forfeit',
-      });
-    } else {
-      await endVideoDate(activeSession.sessionId);
+    try {
+      if (activeSession.kind === 'ready_gate') {
+        const { data, error } = await supabase.rpc('ready_gate_transition', {
+          p_session_id: activeSession.sessionId,
+          p_action: 'forfeit',
+        });
+        if (error) throw error;
+        const failureMessage = transitionFailureMessage(data);
+        if (failureMessage) throw new Error(failureMessage);
+      } else {
+        const ok = await endVideoDate(activeSession.sessionId);
+        if (!ok) throw new Error('Transition failed');
+      }
+    } catch (error) {
+      if (__DEV__) console.warn('[home] active session end failed:', error);
+      Alert.alert(
+        activeSession.kind === 'ready_gate' ? "Couldn't leave Ready Gate" : "Couldn't end the date",
+        'Check your connection and try again.',
+      );
+    } finally {
+      await refetchActiveSession();
     }
-    await refetchActiveSession();
   }, [activeSession, user?.id, refetchActiveSession]);
 
   const loading = nextEventLoading || eventsLoading || matchesLoading;

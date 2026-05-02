@@ -23,6 +23,7 @@ export type VideoSessionTruthRouteDecision = "navigate_date" | "navigate_ready" 
 type VideoSessionDailyRoomTruth = {
   daily_room_name?: string | null;
   daily_room_url?: string | null;
+  date_extra_seconds?: number | null;
   date_started_at?: string | null;
   ended_at?: string | null;
   ended_reason?: string | null;
@@ -32,8 +33,17 @@ type VideoSessionDailyRoomTruth = {
   phase?: string | null;
   ready_gate_expires_at?: string | number | null;
   ready_gate_status?: string | null;
+  reconnect_grace_ends_at?: string | null;
   state?: string | null;
+  started_at?: string | null;
+  state_updated_at?: string | null;
 };
+
+export const POST_DATE_SURVEY_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const ACTIVE_SESSION_HANDSHAKE_FRESH_MS = 2 * 60 * 1000;
+export const ACTIVE_SESSION_DATE_BASE_SECONDS = 300;
+export const ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS = 120;
+export const ACTIVE_SESSION_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000;
 
 export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "ready_gate_forfeit",
@@ -69,6 +79,30 @@ function readyGateExpiryMs(
       ? rawExpiry
       : Date.parse(String(rawExpiry));
   return Number.isFinite(expiresMs) ? expiresMs : null;
+}
+
+function timestampMs(raw: string | number | null | undefined): number | null {
+  if (raw == null) return null;
+  const ms = typeof raw === "number" ? raw : Date.parse(String(raw));
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function isTimestampFresh(
+  raw: string | number | null | undefined,
+  nowMs: number,
+  maxAgeMs: number,
+): boolean {
+  const ms = timestampMs(raw);
+  if (ms == null) return false;
+  return nowMs - ms <= maxAgeMs;
+}
+
+function activeReconnectGraceIsOpen(
+  row: Pick<VideoSessionDailyRoomTruth, "reconnect_grace_ends_at"> | null,
+  nowMs: number,
+): boolean {
+  const graceEndsMs = timestampMs(row?.reconnect_grace_ends_at);
+  return graceEndsMs != null && graceEndsMs > nowMs;
 }
 
 /**
@@ -170,6 +204,15 @@ export function videoSessionRowIsEnded(
 
 export function videoSessionHasRecoverablePostDateSurveyTruth(
   row: VideoSessionPendingSurveyTruth | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!videoSessionHasPostDateSurveyTruth(row)) return false;
+  const endedMs = timestampMs(row?.ended_at);
+  return endedMs != null && nowMs - endedMs <= POST_DATE_SURVEY_RECOVERY_WINDOW_MS;
+}
+
+export function videoSessionHasPostDateSurveyTruth(
+  row: VideoSessionPendingSurveyTruth | null,
 ): boolean {
   if (!row?.ended_at) return false;
   if (!row.date_started_at) return false;
@@ -193,11 +236,12 @@ export function pickRecoverablePendingPostDateSurveySession<
   rows: readonly T[] | null | undefined,
   feedbackSessionIdsForUser: ReadonlySet<string>,
   userId: string,
+  nowMs: number = Date.now(),
 ): T | null {
   for (const row of rows ?? []) {
     if (!row.id || !row.event_id) continue;
     if (!getVideoSessionPartnerIdForUser(row, userId)) continue;
-    if (!videoSessionHasRecoverablePostDateSurveyTruth(row)) continue;
+    if (!videoSessionHasRecoverablePostDateSurveyTruth(row, nowMs)) continue;
     if (feedbackSessionIdsForUser.has(row.id)) continue;
     return row;
   }
@@ -230,6 +274,67 @@ export function decideVideoSessionRouteFromTruth(
   if (videoSessionRowIndicatesHandshakeOrDate(row)) return "navigate_date";
   if (videoSessionRowReadyGateEligible(row, nowMs)) return "navigate_ready";
   return "stay_lobby";
+}
+
+export function isActiveSessionDirectFallbackFresh(
+  row: VideoSessionDailyRoomTruth | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!row || row.ended_at) return false;
+  if (activeReconnectGraceIsOpen(row, nowMs)) return true;
+
+  const decision = decideVideoSessionRouteFromTruth(row, nowMs);
+  if (decision === "navigate_ready") return videoSessionRowReadyGateEligible(row, nowMs);
+  if (!canAttemptDailyRoomFromVideoSessionTruth(row, nowMs) && decision !== "navigate_date") {
+    return false;
+  }
+
+  const dateStartedMs = timestampMs(row.date_started_at);
+  if (dateStartedMs != null) {
+    const extraSeconds =
+      typeof row.date_extra_seconds === "number" && Number.isFinite(row.date_extra_seconds)
+        ? Math.max(0, row.date_extra_seconds)
+        : 0;
+    const maxDateAgeMs =
+      (ACTIVE_SESSION_DATE_BASE_SECONDS + extraSeconds + ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS) * 1000;
+    return nowMs - dateStartedMs <= maxDateAgeMs;
+  }
+
+  if (row.state === "date" || row.phase === "date") {
+    return (
+      isTimestampFresh(row.state_updated_at, nowMs, ACTIVE_SESSION_FALLBACK_MAX_AGE_MS) ||
+      isTimestampFresh(row.started_at, nowMs, ACTIVE_SESSION_FALLBACK_MAX_AGE_MS)
+    );
+  }
+
+  if (row.handshake_started_at) {
+    return isTimestampFresh(row.handshake_started_at, nowMs, ACTIVE_SESSION_HANDSHAKE_FRESH_MS);
+  }
+
+  if (row.state === "handshake") {
+    return (
+      isTimestampFresh(row.state_updated_at, nowMs, ACTIVE_SESSION_HANDSHAKE_FRESH_MS) ||
+      isTimestampFresh(row.started_at, nowMs, ACTIVE_SESSION_HANDSHAKE_FRESH_MS)
+    );
+  }
+
+  return false;
+}
+
+export function activeSessionDirectFallbackStaleReason(
+  row: VideoSessionDailyRoomTruth | null,
+  nowMs: number = Date.now(),
+): "direct_video_session_fallback_stale" | null {
+  if (!row || row.ended_at) return null;
+  const decision = decideVideoSessionRouteFromTruth(row, nowMs);
+  const routeable =
+    canAttemptDailyRoomFromVideoSessionTruth(row, nowMs) ||
+    decision === "navigate_date" ||
+    decision === "navigate_ready";
+  if (!routeable) return null;
+  return isActiveSessionDirectFallbackFresh(row, nowMs)
+    ? null
+    : "direct_video_session_fallback_stale";
 }
 
 /** Best-effort queue_status aligned with session row when registration still says `in_ready_gate`. */
