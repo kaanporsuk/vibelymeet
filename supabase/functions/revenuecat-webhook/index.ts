@@ -28,6 +28,24 @@ type RCEvent = {
   store?: string
 }
 
+function timingSafeEqualString(a: string, b: string): boolean {
+  const enc = new TextEncoder()
+  const aBytes = enc.encode(a)
+  const bBytes = enc.encode(b)
+  const max = Math.max(aBytes.length, bBytes.length)
+  let diff = aBytes.length ^ bBytes.length
+  for (let i = 0; i < max; i += 1) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0)
+  }
+  return diff === 0
+}
+
+function revenueCatAuthMatches(authHeader: string | null, expectedAuth: string): boolean {
+  if (!authHeader) return false
+  return timingSafeEqualString(authHeader, expectedAuth)
+    || timingSafeEqualString(authHeader, `Bearer ${expectedAuth}`)
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -41,7 +59,7 @@ Deno.serve(async (req) => {
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
-  if (authHeader !== expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
+  if (!revenueCatAuthMatches(authHeader, expectedAuth)) {
     return new Response(
       JSON.stringify({ success: false, error: 'Unauthorized' }),
       { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -72,6 +90,35 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
+
+    if (event.id?.trim()) {
+      const { error: idemError } = await supabase
+        .from('revenuecat_webhook_events')
+        .insert({
+          revenuecat_event_id: event.id.trim(),
+          app_user_id: appUserId,
+          event_type: eventType ?? null,
+          status: 'processing',
+          metadata_summary: {
+            environment: event.environment ?? null,
+            store: event.store ?? null,
+            product_id_present: Boolean(event.product_id),
+          },
+        })
+
+      if (idemError?.code === '23505') {
+        return new Response(
+          JSON.stringify({ success: true, received: true, duplicate: true }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+      if (idemError) {
+        return new Response(
+          JSON.stringify({ success: false, error: idemError.message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+    }
 
     switch (eventType) {
       case 'INITIAL_PURCHASE':
@@ -137,6 +184,13 @@ Deno.serve(async (req) => {
 
       default:
         break
+    }
+
+    if (event.id?.trim()) {
+      await supabase
+        .from('revenuecat_webhook_events')
+        .update({ status: 'processed', processed_at: new Date().toISOString() })
+        .eq('revenuecat_event_id', event.id.trim())
     }
 
     return new Response(

@@ -13,9 +13,7 @@ interface PaymentModalProps {
   eventId: string;
   eventTitle: string;
   eventDate: string;
-  userGender: "Male" | "Female";
-  priceMale: number;
-  priceFemale: number;
+  price: number;
 }
 
 const PaymentModal = ({
@@ -25,14 +23,10 @@ const PaymentModal = ({
   eventId,
   eventTitle,
   eventDate,
-  userGender,
-  priceMale,
-  priceFemale,
+  price,
 }: PaymentModalProps) => {
   const [agreed, setAgreed] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-
-  const price = userGender === "Male" ? priceMale : priceFemale;
 
   const handlePay = async () => {
     if (!agreed) return;
@@ -48,9 +42,6 @@ const PaymentModal = ({
     const { data, error } = await supabase.functions.invoke("create-event-checkout", {
       body: {
         eventId,
-        eventTitle,
-        price,
-        currency: "eur",
       },
     });
 
@@ -126,7 +117,7 @@ const PaymentModal = ({
                 
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Ticket ({userGender})</span>
+                    <span className="text-sm text-muted-foreground">Ticket</span>
                   </div>
                   <span className="text-xl font-bold text-foreground">
                     €{price.toFixed(2)}

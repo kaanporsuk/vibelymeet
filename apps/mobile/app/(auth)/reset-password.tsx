@@ -13,6 +13,7 @@ import {
   isPasswordRecoveryStatus,
   type PasswordRecoveryStatus,
 } from '@shared/authRedirect';
+import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 const WEB_APP_ORIGIN = (process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com').replace(/\/$/, '');
 
@@ -91,8 +92,9 @@ export default function ResetPasswordScreen() {
   };
 
   const handleUpdatePassword = async () => {
-    if (!newPassword || newPassword.length < 6) {
-      setError('Password must be at least 6 characters.');
+    const passwordPolicy = validatePasswordPolicy(newPassword);
+    if (!newPassword || !passwordPolicy.valid) {
+      setError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
     if (newPassword !== confirmPassword) {

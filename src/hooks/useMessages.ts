@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tansta
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
 import { collapseVibeGameRowsForWeb, type WebHydratedGameSessionView } from "@/lib/webChatGameSessions";
+import { resolveChatMessageMediaForDisplay } from "@/lib/chatMediaResolver";
 import { toRenderableMessageKind } from "../../shared/chat/messageRouting";
 import { threadMessagesQueryKey, type ThreadInvalidateScope } from "../../shared/chat/queryKeys";
 import { resolvePrimaryProfilePhotoPath } from "../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
@@ -160,6 +161,8 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
         structured_payload: (msg as { structured_payload?: unknown }).structured_payload ?? null,
       })));
 
+      const displayRows = await Promise.all(collapsedRows.map((row) => resolveChatMessageMediaForDisplay(row)));
+
       return {
         matchId: match.id,
         otherUser: otherUser
@@ -173,7 +176,7 @@ export const useMessages = (otherUserId: string, currentUserId?: string) => {
               is_online: presence?.is_online ?? false,
             }
           : null,
-        messages: collapsedRows.map((row) => {
+        messages: displayRows.map((row) => {
           return {
             id: row.id,
             text: row.content,

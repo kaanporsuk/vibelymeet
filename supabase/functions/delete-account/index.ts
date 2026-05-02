@@ -2,19 +2,24 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { checkRateLimit, createRateLimitResponse } from "../_shared/rate-limiter.ts";
 import { applyAccountDeletionMediaHold } from "../_shared/media-lifecycle.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  jsonResponse,
+  preflightResponse,
+} from "../_shared/cors.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return preflightResponse(req);
   }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: "origin_not_allowed" }, { status: 403 });
+  }
+  const corsHeaders = corsHeadersForRequest(req);
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -90,7 +95,7 @@ serve(async (req) => {
           status: "pending",
         });
 
-      if (insertError) {
+      if (insertError && insertError.code !== "23505") {
         console.error("Error inserting deletion request:", insertError.message);
         return new Response(
           JSON.stringify({ success: false, error: "Failed to create deletion request" }),
@@ -138,10 +143,13 @@ serve(async (req) => {
               .update({ status: "canceled" })
               .eq("user_id", userId)
               .eq("provider", "stripe");
-            await supabaseAdmin
-              .from("profiles")
-              .update({ is_premium: false, subscription_tier: "free" })
-              .eq("id", userId);
+            const { error: recomputeError } = await supabaseAdmin.rpc(
+              "recompute_profile_subscription_entitlement",
+              { p_user_id: userId },
+            );
+            if (recomputeError) {
+              console.error("Failed to recompute profile entitlement after Stripe cancellation:", recomputeError.message);
+            }
           } else {
             console.error("Failed to cancel Stripe subscription:", cancelBody);
           }

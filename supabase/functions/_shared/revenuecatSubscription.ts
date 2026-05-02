@@ -16,6 +16,12 @@ export function profileTierFromProductId(productId: string): 'vip' | 'premium' {
 }
 
 // deno-lint-ignore no-explicit-any
+async function recomputeProfileEntitlement(supabase: any, appUserId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('recompute_profile_subscription_entitlement', { p_user_id: appUserId })
+  return { error: error?.message ?? null }
+}
+
+// deno-lint-ignore no-explicit-any
 export async function upsertActiveRevenueCatSubscription(supabase: any, appUserId: string, input: {
   productId: string
   expirationAtMs: number | null | undefined
@@ -42,10 +48,7 @@ export async function upsertActiveRevenueCatSubscription(supabase: any, appUserI
     { onConflict: 'user_id,provider' }
   )
   if (error) return { error: error.message }
-  const tier = profileTierFromProductId(input.productId)
-  const { error: pErr } = await supabase.from('profiles').update({ subscription_tier: tier }).eq('id', appUserId)
-  if (pErr) return { error: pErr.message }
-  return { error: null }
+  return await recomputeProfileEntitlement(supabase, appUserId)
 }
 
 // deno-lint-ignore no-explicit-any
@@ -65,14 +68,7 @@ export async function downgradeRevenueCatSubscriptionRow(supabase: any, appUserI
     .eq('user_id', appUserId)
     .eq('provider', 'revenuecat')
   if (error) return { error: error.message }
-  const { data: profile } = await supabase.from('profiles').select('premium_until').eq('id', appUserId).maybeSingle()
-  const adminActive = profile?.premium_until && new Date(profile.premium_until) > new Date()
-  const { error: pErr } = await supabase
-    .from('profiles')
-    .update({ subscription_tier: adminActive ? 'premium' : 'free' })
-    .eq('id', appUserId)
-  if (pErr) return { error: pErr.message }
-  return { error: null }
+  return await recomputeProfileEntitlement(supabase, appUserId)
 }
 
 /** Pick best active entitlement from RevenueCat GET /v1/subscribers response JSON. */

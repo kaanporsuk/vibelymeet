@@ -2,6 +2,13 @@ import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getCreditPack } from '../_shared/creditPacks.ts'
 import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  jsonResponse,
+  preflightResponse,
+  requestOriginOrDefault,
+} from '../_shared/cors.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -13,14 +20,13 @@ const supabase = createClient(
 )
 
 Deno.serve(async (req) => {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-  }
-
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return preflightResponse(req)
   }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: 'origin_not_allowed' }, { status: 403 })
+  }
+  const corsHeaders = corsHeadersForRequest(req)
 
   let observedUserId: string | null = null
   let observedPackId: string | null = null
@@ -57,18 +63,7 @@ Deno.serve(async (req) => {
       )
     }
 
-    const origin =
-      (req.headers.get('origin') ?? '').trim() ||
-      (Deno.env.get('CREDITS_CHECKOUT_APP_ORIGIN') ?? '').trim()
-    if (!origin) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: 'Missing Origin for checkout redirect (set CREDITS_CHECKOUT_APP_ORIGIN for clients without Origin)',
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
+    const origin = requestOriginOrDefault(req)
 
     // Get or create Stripe customer (web uses Stripe provider)
     const { data: subData } = await supabase
@@ -90,7 +85,6 @@ Deno.serve(async (req) => {
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
-      payment_method_types: ['card'],
       line_items: [{
         price_data: {
           currency: 'eur',
@@ -138,17 +132,18 @@ Deno.serve(async (req) => {
     )
 
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     await recordPaymentObservability(supabase, {
       category: 'checkout_session_failed',
       status: 'failed',
       result: 'credits_checkout_failed',
-      error_code: error instanceof Error ? error.message : 'unknown_error',
+      error_code: message,
       user_id: observedUserId,
       pack_id: observedPackId,
       metadata_summary: { mode: 'payment', type: 'credits_pack' },
     })
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

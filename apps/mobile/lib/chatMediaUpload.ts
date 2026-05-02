@@ -8,25 +8,8 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { generateChatVibeClipThumbnailFile } from '@/lib/chatVibeClipThumbnail';
 import { supabase } from '@/lib/supabase';
-import { getImageUrl } from '@/lib/imageUrl';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-
-function assertUsableChatImagePublicUrl(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error('Photo CDN is not configured. Try again later.');
-  }
-
-  const isHttp = parsed.protocol === 'https:' || parsed.protocol === 'http:';
-  const isPlaceholder = parsed.protocol === 'data:' || parsed.hostname === 'placehold.co';
-  const hasPhotoPath = parsed.pathname.includes('/photos/');
-  if (!isHttp || isPlaceholder || parsed.hostname === 'undefined' || !hasPhotoPath) {
-    throw new Error('Photo CDN is not configured. Try again later.');
-  }
-}
 
 export async function uploadVoiceMessage(audioUri: string, matchId: string): Promise<string> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -59,8 +42,9 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
   }
 
   const data = await res.json();
-  if (!data.success || !data.url) throw new Error(data.error ?? 'Voice upload failed');
-  return data.url;
+  const mediaRef = typeof data.path === 'string' && data.path ? data.path : data.url;
+  if (!data.success || !mediaRef) throw new Error(data.error ?? 'Voice upload failed');
+  return mediaRef;
 }
 
 export async function uploadChatVideoMessage(
@@ -133,16 +117,24 @@ export async function uploadChatVideoMessage(
 
   const data = await res.json() as {
     success?: boolean;
+    path?: string;
     url?: string;
+    thumbnail_path?: string | null;
     thumbnail_url?: string | null;
     poster_source?: 'uploaded_thumbnail' | 'first_frame';
     aspect_ratio?: number | null;
     error?: string;
   };
-  if (!data.success || !data.url) throw new Error(data.error ?? 'Video upload failed');
+  const videoRef = typeof data.path === 'string' && data.path ? data.path : data.url;
+  if (!data.success || !videoRef) throw new Error(data.error ?? 'Video upload failed');
   return {
-    videoUrl: data.url,
-    thumbnailUrl: typeof data.thumbnail_url === 'string' && data.thumbnail_url ? data.thumbnail_url : null,
+    videoUrl: videoRef,
+    thumbnailUrl:
+      typeof data.thumbnail_path === 'string' && data.thumbnail_path
+        ? data.thumbnail_path
+        : typeof data.thumbnail_url === 'string' && data.thumbnail_url
+          ? data.thumbnail_url
+          : null,
     posterSource: data.poster_source === 'uploaded_thumbnail' ? 'uploaded_thumbnail' : 'first_frame',
     aspectRatio:
       typeof data.aspect_ratio === 'number' && Number.isFinite(data.aspect_ratio) && data.aspect_ratio > 0
@@ -196,7 +188,5 @@ export async function uploadChatImageMessage(
   if (!res.ok || !data.success || !data.path) {
     throw new Error(data.error || `Upload failed with status ${res.status}`);
   }
-  const publicUrl = getImageUrl(data.path, { quality: 88 });
-  assertUsableChatImagePublicUrl(publicUrl);
-  return publicUrl;
+  return data.path;
 }

@@ -3,6 +3,7 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 type UploadVoiceResponse = {
   success?: boolean;
   error?: string;
+  path?: string;
   url: string;
 };
 
@@ -48,6 +49,5 @@ export async function uploadVoiceToBunny(
     throw new Error(data.error || "Voice upload failed");
   }
 
-  // Return the full CDN URL — pass to send-message (message_kind: voice), not client messages.insert
-  return data.url;
+  return data.path || data.url;
 }

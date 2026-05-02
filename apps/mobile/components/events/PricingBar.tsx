@@ -1,5 +1,5 @@
 /**
- * Sticky bottom pricing bar — parity with web: price/Free, capacity state, gender label, Purchase CTA.
+ * Sticky bottom pricing bar — parity with web: price/Free, capacity state, Purchase CTA.
  */
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
@@ -15,7 +15,6 @@ type PricingBarProps = {
   price: number;
   capacityStatus: CapacityStatus;
   spotsLeft: number;
-  genderLabel: string;
   onPurchase: () => void;
   isPurchasing?: boolean;
   /** Web: Sold Out when no spots */
@@ -30,7 +29,6 @@ export function PricingBar({
   price,
   capacityStatus,
   spotsLeft,
-  genderLabel,
   onPurchase,
   isPurchasing = false,
   soldOut = false,
@@ -76,8 +74,8 @@ export function PricingBar({
               </View>
             )}
           </View>
-          <Text style={[styles.genderLabel, { color: theme.textSecondary }]}>
-            {eventEnded ? 'This event has ended' : soldOut ? 'No spots left' : `Ticket price for ${genderLabel}`}
+          <Text style={[styles.priceNote, { color: theme.textSecondary }]}>
+            {eventEnded ? 'This event has ended' : soldOut ? 'No spots left' : 'Ticket price'}
           </Text>
         </View>
         <VibelyButton
@@ -111,5 +109,5 @@ const styles = StyleSheet.create({
   price: { fontSize: 22, fontWeight: '700' },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   badgeText: { fontSize: 11, fontWeight: '600' },
-  genderLabel: { fontSize: 12, marginTop: 4 },
+  priceNote: { fontSize: 12, marginTop: 4 },
 });

@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/react";
-import posthog from "posthog-js";
+import { trackEvent } from "@/lib/analytics";
 
 type DiagnosticPrimitive = string | number | boolean | null;
 type DiagnosticValue =
@@ -207,11 +207,7 @@ export function recordBrowserEvent(
     /* diagnostics must never affect app behavior */
   }
 
-  try {
-    posthog.capture(eventName, data);
-  } catch {
-    /* diagnostics must never affect app behavior */
-  }
+  trackEvent(eventName, data);
 
   if (safeImportEnvFlag("VITE_BROWSER_DIAGNOSTICS_DEBUG") || (import.meta.env?.DEV && !isLocalhost())) {
     console.info("[BrowserDiagnostics]", eventName, data);

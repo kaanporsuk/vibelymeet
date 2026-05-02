@@ -224,7 +224,9 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: true,
+        path: storagePath,
         url: videoUrl,
+        thumbnail_path: thumbnailPath,
         thumbnail_url: thumbnailUrl,
         poster_source: thumbnailUrl ? "uploaded_thumbnail" : "first_frame",
         aspect_ratio: aspectRatio,

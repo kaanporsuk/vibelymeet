@@ -4,7 +4,6 @@ import { captureSupabaseError } from "@/lib/errorTracking";
 import { uploadVoiceToBunny } from "@/services/voiceUploadService";
 import { uploadChatVideoToBunny } from "@/services/chatVideoUploadService";
 import { uploadImageToBunny } from "@/services/imageUploadService";
-import { getImageUrl } from "@/utils/imageUrl";
 import { formatChatImageMessageContent } from "@/lib/chatMessageContent";
 import { invalidateAfterThreadMutation } from "@/hooks/useMessages";
 import { getOutboxBlob } from "./blobIdb";
@@ -73,22 +72,6 @@ function assertSendMessagePayload(payload: SendMessagePayload | null | undefined
       throw new Error(BLOCKED_MESSAGE_COPY);
     }
     throw new Error(payload?.error || fallback);
-  }
-}
-
-function assertUsableChatImagePublicUrl(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new WebOutboxExecuteError("Photo CDN is not configured. Try again later.");
-  }
-
-  const isHttp = parsed.protocol === "https:" || parsed.protocol === "http:";
-  const isPlaceholder = parsed.protocol === "data:" || parsed.hostname === "placehold.co";
-  const hasPhotoPath = parsed.pathname.includes("/photos/");
-  if (!isHttp || isPlaceholder || parsed.hostname === "undefined" || !hasPhotoPath) {
-    throw new WebOutboxExecuteError("Photo CDN is not configured. Try again later.");
   }
 }
 
@@ -190,24 +173,18 @@ export async function executeWebOutboxItem(
       });
       serverMessageId = getServerMessageId(row);
     } else if (payload.kind === "image") {
-      let publicUrl = item.uploadedPublicUrl;
-      if (!publicUrl) {
+      let mediaRef = item.uploadedPublicUrl;
+      if (!mediaRef) {
         const blob = await getOutboxBlob(payload.blobKey);
         if (!blob) throw new WebOutboxExecuteError("Photo data missing — try choosing the image again.");
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) throw new Error("Not authenticated");
         const file = new File([blob], "chat.jpg", { type: payload.mimeType || blob.type || "image/jpeg" });
         const { path } = await uploadImageToBunny(file, session.access_token, "chat", matchId);
-        publicUrl = getImageUrl(path, { quality: 88 });
+        mediaRef = path;
       }
-      try {
-        assertUsableChatImagePublicUrl(publicUrl);
-      } catch (e) {
-        uploadedPublicUrl = "";
-        throw e;
-      }
-      uploadedPublicUrl = publicUrl;
-      const content = formatChatImageMessageContent(publicUrl);
+      uploadedPublicUrl = mediaRef;
+      const content = formatChatImageMessageContent(mediaRef);
       const row = await invokeSendMessageEdge({ matchId, content, clientRequestId });
       serverMessageId = getServerMessageId(row);
     } else if (payload.kind === "voice") {

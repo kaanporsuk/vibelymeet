@@ -1,6 +1,13 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  jsonResponse,
+  preflightResponse,
+  requestOriginOrDefault,
+} from '../_shared/cors.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -12,14 +19,13 @@ const supabase = createClient(
 )
 
 Deno.serve(async (req) => {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-  }
-
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return preflightResponse(req)
   }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: 'origin_not_allowed' }, { status: 403 })
+  }
+  const corsHeaders = corsHeadersForRequest(req)
 
   let observedUserId: string | null = null
   let observedCustomerId: string | null = null
@@ -62,7 +68,7 @@ Deno.serve(async (req) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: sub.stripe_customer_id,
-      return_url: `${req.headers.get('origin')}/settings`,
+      return_url: `${requestOriginOrDefault(req)}/settings`,
     })
 
     await recordPaymentObservability(supabase, {
@@ -80,16 +86,17 @@ Deno.serve(async (req) => {
     )
 
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     await recordPaymentObservability(supabase, {
       category: 'portal_session_failed',
       status: 'failed',
       result: 'stripe_portal_session_failed',
-      error_code: error instanceof Error ? error.message : 'unknown_error',
+      error_code: message,
       stripe_customer_id: observedCustomerId,
       user_id: observedUserId,
     })
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

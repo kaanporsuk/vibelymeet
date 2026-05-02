@@ -25,6 +25,7 @@ import { useIdentityLinking, type ProviderType } from '@/hooks/useIdentityLinkin
 import { Button } from '@/components/ui/button';
 import { Loader2, Check, AlertCircle, Mail, Phone, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 // ---------- types ----------
 
@@ -150,8 +151,9 @@ export function LinkedSignInMethods() {
   };
 
   const handleAddPassword = async () => {
-    if (passwordInput.length < 8) {
-      showError('Password must be at least 8 characters.');
+    const passwordPolicy = validatePasswordPolicy(passwordInput);
+    if (!passwordPolicy.valid) {
+      showError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
     setEmailBusy(true);
@@ -393,7 +395,7 @@ export function LinkedSignInMethods() {
                       </p>
                       <input
                         type="password"
-                        placeholder="New password (min 8 characters)"
+                        placeholder={`New password (min ${PASSWORD_MIN_LENGTH} characters)`}
                         value={passwordInput}
                         onChange={e => setPasswordInput(e.target.value)}
                         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
@@ -403,7 +405,7 @@ export function LinkedSignInMethods() {
                         <Button
                           size="sm"
                           onClick={handleAddPassword}
-                          disabled={passwordInput.length < 8 || emailBusy}
+                          disabled={passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy}
                           className="flex-1"
                         >
                           {emailBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Set password'}

@@ -32,8 +32,8 @@ if (!DAILY_DOMAIN_ENV) {
   }));
 }
 const DAILY_API_URL = "https://api.daily.co/v1";
-const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 7_200;
-const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 7_200;
+const DAILY_MATCH_CALL_TOKEN_TTL_SECONDS = 30 * 60;
+const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 * 60;
 // Video dates can be extended with credits; keep provider credentials finite
 // while covering the normal 5-minute flow plus generous extension/reconnect room.
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
@@ -936,6 +936,7 @@ function videoDateRoomProperties(): Record<string, unknown> {
     max_participants: 2,
     enable_chat: false,
     enable_screenshare: false,
+    enable_recording: false,
     enable_knocking: false,
     enforce_unique_user_ids: true,
     start_video_off: false,
@@ -950,10 +951,13 @@ function matchCallRoomProperties(callTypeValue: "voice" | "video"): Record<strin
     max_participants: 2,
     enable_chat: false,
     enable_screenshare: false,
+    enable_recording: false,
+    enable_knocking: false,
+    enforce_unique_user_ids: true,
     start_video_off: callTypeValue === "voice",
     start_audio_off: false,
     exp: Math.floor(Date.now() / 1000) + DAILY_MATCH_CALL_ROOM_TTL_SECONDS,
-    eject_at_room_exp: false,
+    eject_at_room_exp: true,
   };
 }
 
@@ -1459,6 +1463,8 @@ async function maybeCreateMatchCallRetryResponse(params: {
       providerRoom.roomName,
       params.request.callerId,
       DAILY_MATCH_CALL_TOKEN_TTL_SECONDS,
+      undefined,
+      { ejectAtTokenExp: true },
     );
 
     console.log(
@@ -2719,7 +2725,13 @@ serve(async (req) => {
       const roomUrl = matchCallRoomUrlForName(roomName);
       let callerToken: string;
       try {
-        callerToken = await createMeetingToken(roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
+        callerToken = await createMeetingToken(
+          roomName,
+          user.id,
+          DAILY_MATCH_CALL_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
+        );
       } catch (tokenErr) {
         await deleteDailyRoom(roomName);
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
@@ -2968,7 +2980,13 @@ serve(async (req) => {
           roomUrl: call.daily_room_url,
           callType: call.call_type === "voice" ? "voice" : "video",
         });
-        token = await createMeetingToken(providerRoom.roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
+        token = await createMeetingToken(
+          providerRoom.roomName,
+          user.id,
+          DAILY_MATCH_CALL_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
+        );
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
         if (isDailyProviderError(tokenErr)) {
@@ -3160,7 +3178,13 @@ serve(async (req) => {
           roomUrl: callForToken.daily_room_url,
           callType: callTypeValue,
         });
-        token = await createMeetingToken(providerRoom.roomName, user.id, DAILY_MATCH_CALL_TOKEN_TTL_SECONDS);
+        token = await createMeetingToken(
+          providerRoom.roomName,
+          user.id,
+          DAILY_MATCH_CALL_TOKEN_TTL_SECONDS,
+          undefined,
+          { ejectAtTokenExp: true },
+        );
       } catch (tokenErr) {
         const detail = tokenErr instanceof Error ? tokenErr.message : String(tokenErr);
         if (isDailyProviderError(tokenErr)) {

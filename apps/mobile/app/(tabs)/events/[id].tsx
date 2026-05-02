@@ -75,7 +75,6 @@ export default function EventDetailScreen() {
   const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
   const hasAdmission = isConfirmed || isWaitlisted;
   const { registerForEvent, unregisterFromEvent, isRegistering, isUnregistering } = useRegisterForEvent();
-  const [userGender, setUserGender] = useState<string>('male');
   const [showManageBooking, setShowManageBooking] = useState(false);
   const [showTicket, setShowTicket] = useState(false);
   const [isPurchasing, setIsPurchasing] = useState(false);
@@ -157,14 +156,6 @@ export default function EventDetailScreen() {
     [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes, showDialog, router]
   );
 
-  useEffect(() => {
-    if (!user?.id) return;
-    (async () => {
-      const { data } = await supabase.from('profiles').select('gender').eq('id', user.id).maybeSingle();
-      if (data?.gender) setUserGender(String(data.gender).toLowerCase());
-    })();
-  }, [user?.id]);
-
   const refreshEventPhoneNudgeStatus = useCallback(async () => {
     if (!user?.id) return;
     const { data } = await supabase
@@ -211,8 +202,7 @@ export default function EventDetailScreen() {
   const ev = event as EventDetailsRow | undefined;
   const isFree = ev?.is_free !== false;
   const priceAmount = ev?.price_amount ?? 0;
-  const isFemale = userGender === 'female' || userGender === 'woman';
-  const userPrice = !event || isFree ? 0 : (isFemale ? priceAmount * 0.6 : priceAmount);
+  const userPrice = !event || isFree ? 0 : priceAmount;
 
   const performRegisterCore = useCallback(async () => {
     if (!event) return;
@@ -374,11 +364,7 @@ export default function EventDetailScreen() {
     }
     const endMs = new Date(event.event_date).getTime() + (event.duration_minutes ?? 60) * 60 * 1000;
     if (Date.now() > endMs) return;
-    const maxMen = (event as EventDetailsRow).max_male_attendees ?? Math.floor(((event as EventDetailsRow).max_attendees ?? 50) / 2);
-    const maxWomen = (event as EventDetailsRow).max_female_attendees ?? Math.ceil(((event as EventDetailsRow).max_attendees ?? 50) / 2);
-    const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
-    const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
-    const spots = userGender === 'female' || userGender === 'woman' ? maxWomen - currentWomen : maxMen - currentMen;
+    const spots = Math.max(0, ((event as EventDetailsRow).max_attendees ?? 50) - (event.current_attendees ?? 0));
     if (spots <= 0) return;
     if (hasAdmission) return;
     if (isPurchasing || isRegistering) return;
@@ -399,7 +385,7 @@ export default function EventDetailScreen() {
         return;
       }
       const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
-        body: { eventId: event.id, eventTitle: event.title, price: userPrice, currency: 'eur' },
+        body: { eventId: event.id },
       });
       const result = checkout as { success?: boolean; url?: string; error?: string } | null;
       if (checkoutError || !result?.success) {
@@ -415,7 +401,7 @@ export default function EventDetailScreen() {
     } finally {
       setIsPurchasing(false);
     }
-  }, [event, isFree, userPrice, userGender, hasAdmission, isPurchasing, isRegistering, handleRegister, showDialog]);
+  }, [event, isFree, userPrice, hasAdmission, isPurchasing, isRegistering, handleRegister, showDialog]);
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
@@ -549,15 +535,10 @@ export default function EventDetailScreen() {
   const dateStr = format(eventDate, 'EEEE, MMMM d');
   const timeStr = format(eventDate, 'h:mm a');
   const isVirtual = !eventRow.is_location_specific;
-  const maxMen = eventRow.max_male_attendees ?? Math.floor((eventRow.max_attendees ?? 50) / 2);
-  const maxWomen = eventRow.max_female_attendees ?? Math.ceil((eventRow.max_attendees ?? 50) / 2);
-  const currentMen = Math.floor((event.current_attendees ?? 0) / 2);
-  const currentWomen = Math.ceil((event.current_attendees ?? 0) / 2);
-  const spotsLeft = isFemale ? maxWomen - currentWomen : maxMen - currentMen;
+  const spotsLeft = Math.max(0, (eventRow.max_attendees ?? 50) - (event.current_attendees ?? 0));
   const soldOut = spotsLeft <= 0;
   const capacityStatus: 'available' | 'filling' | 'almostFull' =
     spotsLeft <= 2 ? 'almostFull' : spotsLeft <= 5 ? 'filling' : 'available';
-  const genderLabel = isFemale ? 'Female' : 'Male';
   const durationMin = event.duration_minutes ?? 60;
   const eventPhase = deriveEventPhase({
     eventDate,
@@ -994,7 +975,6 @@ export default function EventDetailScreen() {
           price={userPrice}
           capacityStatus={capacityStatus}
           spotsLeft={Math.max(0, spotsLeft)}
-          genderLabel={genderLabel}
           onPurchase={handlePurchase}
           isPurchasing={isPurchasing || isRegistering}
           soldOut={soldOut}

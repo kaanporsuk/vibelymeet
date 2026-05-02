@@ -17,8 +17,7 @@ export interface EventDetails {
   isVirtual: boolean;
   venue: string;
   address: string;
-  priceMale: number;
-  priceFemale: number;
+  price: number;
   /** Total cap from DB; admission/FIFO logic uses this (and current_attendees), not per-gender fields. */
   maxAttendees: number;
   /** Confirmed headcount only (matches events.current_attendees). */
@@ -136,8 +135,7 @@ export const useEventDetails = (eventId: string | undefined) => {
         isVirtual: !data.is_location_specific,
         venue: data.location_name || (data.is_location_specific ? "TBA" : "Digital Lobby"),
         address: data.location_address || (data.is_location_specific ? "" : "Video Speed Dating"),
-        priceMale: data.price_amount || 0,
-        priceFemale: (data.price_amount || 0) * 0.6, // 40% discount for women
+        price: data.price_amount || 0,
         maxAttendees: data.max_attendees ?? 50,
         currentAttendees: data.current_attendees ?? 0,
         status: data.status ?? null,

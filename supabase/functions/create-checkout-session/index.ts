@@ -1,6 +1,13 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { recordPaymentObservability } from '../_shared/paymentObservability.ts'
+import {
+  corsHeadersForRequest,
+  isBrowserOriginRejected,
+  jsonResponse,
+  preflightResponse,
+  requestOriginOrDefault,
+} from '../_shared/cors.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -12,14 +19,13 @@ const supabase = createClient(
 )
 
 Deno.serve(async (req) => {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  }
-
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return preflightResponse(req)
   }
+  if (isBrowserOriginRejected(req)) {
+    return jsonResponse(req, { success: false, error: 'origin_not_allowed' }, { status: 403 })
+  }
+  const corsHeaders = corsHeadersForRequest(req)
 
   let observedUserId: string | null = null
   let observedPlan: string | null = null
@@ -77,14 +83,15 @@ Deno.serve(async (req) => {
       customerId = customer.id
     }
 
+    const origin = requestOriginOrDefault(req)
+
     // Create checkout session
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
-      payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: 'subscription',
-      success_url: `${req.headers.get('origin')}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.get('origin')}/subscription/cancel`,
+      success_url: `${origin}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/subscription/cancel`,
       metadata: {
         supabase_user_id: user.id,
         plan,
@@ -114,17 +121,18 @@ Deno.serve(async (req) => {
     )
 
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     await recordPaymentObservability(supabase, {
       category: 'checkout_session_failed',
       status: 'failed',
       result: 'subscription_checkout_failed',
-      error_code: error instanceof Error ? error.message : 'unknown_error',
+      error_code: message,
       user_id: observedUserId,
       plan: observedPlan,
       metadata_summary: { mode: 'subscription' },
     })
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

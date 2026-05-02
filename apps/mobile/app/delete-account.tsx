@@ -1,5 +1,5 @@
 /**
- * Scheduled account deletion (~30-day grace) via request-account-deletion — same contract as web public form.
+ * Scheduled account deletion (~30-day grace) via authenticated delete-account.
  */
 import React, { useCallback, useState } from 'react';
 import {
@@ -41,7 +41,6 @@ export default function DeleteAccountScreen() {
   const insets = useSafeAreaInsets();
   const theme = Colors[useColorScheme()];
   const { user } = useAuth();
-  const email = user?.email ?? '';
   const [isDeleting, setIsDeleting] = useState(false);
   const [step, setStep] = useState<FlowStep>('warning');
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
@@ -66,19 +65,10 @@ export default function DeleteAccountScreen() {
   );
 
   const requestAccountDeletion = async (reason: string | null) => {
-    if (!email?.includes('@')) {
-      showDialog({
-        title: 'Email needed',
-        message: 'We need a valid email on your account to schedule deletion.',
-        variant: 'warning',
-        primaryAction: { label: 'OK', onPress: () => {} },
-      });
-      return;
-    }
     setIsDeleting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('request-account-deletion', {
-        body: { email, reason, source: 'native' },
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        body: { reason },
       });
       if (error || (data as { success?: boolean })?.success !== true) {
         showDialog({
@@ -176,7 +166,7 @@ export default function DeleteAccountScreen() {
             {step === 'warning' ? (
               <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.surface }]}>
                 <Text style={[styles.cardTitle, { color: theme.text }]}>What happens</Text>
-                <Bullet theme={theme} text="We submit a deletion request for your account email." />
+                <Bullet theme={theme} text="We submit a deletion request for your signed-in account." />
                 <Bullet theme={theme} text="A final removal date is set about 30 days out (shown in the banner after you continue)." />
                 <Bullet theme={theme} text="Until that date you stay signed in and can use Vibely as usual." />
                 <Bullet theme={theme} text="You can cancel the request anytime before that date — your account will stay active." />

@@ -18,24 +18,15 @@ export const useDeleteAccount = () => {
         return false;
       }
 
-      const email = session.user.email ?? "";
-      if (!email.includes("@")) {
-        toast.error("A valid account email is required to schedule deletion.");
-        setIsDeleting(false);
-        return false;
-      }
-
-      const { data, error } = await supabase.functions.invoke("request-account-deletion", {
+      const { data, error } = await supabase.functions.invoke("delete-account", {
         body: {
-          email,
           reason,
-          source: "web_settings",
         },
       });
 
       if (error) {
         console.error("Delete account error:", error);
-        captureSupabaseError("request-account-deletion", error);
+        captureSupabaseError("delete-account", error);
         toast.error("Failed to schedule account deletion. Please try again.");
         setIsDeleting(false);
         return false;

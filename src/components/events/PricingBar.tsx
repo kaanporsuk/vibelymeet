@@ -6,7 +6,6 @@ interface PricingBarProps {
   price: number;
   capacityStatus: "available" | "filling" | "almostFull";
   spotsLeft: number;
-  genderLabel: string;
   onPurchase: () => void;
   isPurchasing?: boolean;
   soldOut?: boolean;
@@ -17,7 +16,6 @@ const PricingBar = ({
   price,
   capacityStatus,
   spotsLeft,
-  genderLabel,
   onPurchase,
   isPurchasing = false,
   soldOut = false,
@@ -80,7 +78,7 @@ const PricingBar = ({
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {eventEnded ? "This event has ended" : soldOut ? "No spots left" : `Ticket price for ${genderLabel}`}
+              {eventEnded ? "This event has ended" : soldOut ? "No spots left" : "Ticket price"}
             </p>
           </div>
 

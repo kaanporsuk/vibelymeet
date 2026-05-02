@@ -13,7 +13,6 @@ import {
   Image,
   Save,
   Eye,
-  Zap,
   Upload,
   Loader2,
 } from "lucide-react";
@@ -53,9 +52,7 @@ const AdminCreateEvent = () => {
   const [maxMen, setMaxMen] = useState("12");
   const [maxWomen, setMaxWomen] = useState("12");
   
-  // Dynamic Pricing
-  const [priceMen, setPriceMen] = useState("25.00");
-  const [priceWomen, setPriceWomen] = useState("10.00");
+  const [ticketPrice, setTicketPrice] = useState("25.00");
   
   const [isPublishing, setIsPublishing] = useState(false);
 
@@ -348,58 +345,34 @@ const AdminCreateEvent = () => {
             </div>
           </div>
 
-          {/* Dynamic Pricing */}
+          {/* Ticket Pricing */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-500" />
+              <DollarSign className="w-4 h-4 text-yellow-500" />
               <label className="text-sm font-medium text-muted-foreground">
-                Dynamic Pricing Engine
+                Ticket Price
               </label>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="p-4 rounded-xl border-2 border-blue-500/30 bg-blue-500/5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <DollarSign className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm font-medium text-blue-400">Price for Men</span>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 font-medium">
-                      $
-                    </span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={priceMen}
-                      onChange={(e) => setPriceMen(e.target.value)}
-                      className="pl-8 bg-blue-500/10 border-blue-500/30 text-foreground font-semibold text-lg"
-                    />
-                  </div>
-                </div>
+            <div className="p-4 rounded-xl border-2 border-primary/30 bg-primary/5">
+              <div className="flex items-center gap-2 mb-3">
+                <DollarSign className="w-4 h-4 text-primary" />
+                <span className="text-sm font-medium text-primary">Uniform ticket price</span>
               </div>
-              <div className="space-y-2">
-                <div className="p-4 rounded-xl border-2 border-pink-500/30 bg-pink-500/5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <DollarSign className="w-4 h-4 text-pink-400" />
-                    <span className="text-sm font-medium text-pink-400">Price for Women</span>
-                  </div>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-pink-400 font-medium">
-                      $
-                    </span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={priceWomen}
-                      onChange={(e) => setPriceWomen(e.target.value)}
-                      className="pl-8 bg-pink-500/10 border-pink-500/30 text-foreground font-semibold text-lg"
-                    />
-                  </div>
-                </div>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-primary font-medium">
+                  $
+                </span>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={ticketPrice}
+                  onChange={(e) => setTicketPrice(e.target.value)}
+                  className="pl-8 bg-primary/10 border-primary/30 text-foreground font-semibold text-lg"
+                />
               </div>
             </div>
             <p className="text-xs text-muted-foreground text-center">
-              Set different prices to balance your gender ratio
+              This event uses the same ticket price for every attendee.
             </p>
           </div>
         </motion.div>
@@ -413,18 +386,16 @@ const AdminCreateEvent = () => {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-muted-foreground">Potential Revenue (Full Capacity)</p>
-              <p className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                ${(
-                  parseFloat(priceMen || "0") * parseInt(maxMen || "0") +
-                  parseFloat(priceWomen || "0") * parseInt(maxWomen || "0")
-                ).toFixed(2)}
-              </p>
-            </div>
-            <div className="text-right text-xs text-muted-foreground">
-              <p>{maxMen} × ${priceMen} = ${(parseFloat(priceMen || "0") * parseInt(maxMen || "0")).toFixed(2)}</p>
-              <p>{maxWomen} × ${priceWomen} = ${(parseFloat(priceWomen || "0") * parseInt(maxWomen || "0")).toFixed(2)}</p>
-            </div>
+	              <p className="text-sm text-muted-foreground">Potential Revenue (Full Capacity)</p>
+	              <p className="text-3xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+	                ${(
+	                  parseFloat(ticketPrice || "0") * (parseInt(maxMen || "0") + parseInt(maxWomen || "0"))
+	                ).toFixed(2)}
+	              </p>
+	            </div>
+	            <div className="text-right text-xs text-muted-foreground">
+	              <p>{parseInt(maxMen || "0") + parseInt(maxWomen || "0")} × ${ticketPrice}</p>
+	            </div>
           </div>
         </motion.div>
 
