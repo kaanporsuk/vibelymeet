@@ -5,6 +5,7 @@ import { avatarUrl } from '@/lib/imageUrl';
 import { resolvePrimaryProfilePhotoPath } from '../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { bestMatchSortKey, compatibilityPercent, type MatchScoreInput } from '@/lib/matchSortScore';
 import { uploadVoiceMessage } from '@/lib/chatMediaUpload';
+import { resolveChatMessageMediaForDisplay } from '@/lib/chatMediaResolver';
 import {
   collapseVibeGameMessageRows,
   type ChatGameSessionMessageRow,
@@ -444,10 +445,14 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
         };
       });
 
+      const resolvedRowsForGames = await Promise.all(
+        rowsForGames.map((row) => resolveChatMessageMediaForDisplay(row)),
+      );
+
       return {
         matchId: match.id,
         otherUser,
-        messages: collapseVibeGameMessageRows(rowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage),
+        messages: collapseVibeGameMessageRows(resolvedRowsForGames, currentUserId, otherUserId, mapDbRowToChatMessage),
       };
     },
     enabled: !!otherUserId && !!currentUserId,

@@ -10,7 +10,7 @@ import {
   type RefObject,
   type ReactNode,
 } from "react";
-import DailyIframe, { type DailyCall, type DailyParticipant } from "@daily-co/daily-js";
+import type { DailyCall, DailyParticipant } from "@daily-co/daily-js";
 import { AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
@@ -23,6 +23,15 @@ import {
   parseMatchCallEdgeCode,
 } from "@clientShared/chat/matchCallEdgeCodes";
 import { logMatchCallDiag } from "@clientShared/chat/matchCallDiag";
+
+type DailyIframeModule = typeof import("@daily-co/daily-js").default;
+
+let dailyIframeLoader: Promise<DailyIframeModule> | null = null;
+
+function loadDailyIframe(): Promise<DailyIframeModule> {
+  dailyIframeLoader ??= import("@daily-co/daily-js").then((mod) => mod.default);
+  return dailyIframeLoader;
+}
 
 type MatchCallStatus = "ringing" | "active" | "ended" | "missed" | "declined";
 type MatchCallType = "voice" | "video";
@@ -595,6 +604,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       setIncomingCall(null);
       startDurationTimer();
 
+      const DailyIframe = await loadDailyIframe();
       const callObject = DailyIframe.createCallObject({
         audioSource: true,
         videoSource: pendingIncoming.callType === "video",
@@ -683,6 +693,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
 
+        const DailyIframe = await loadDailyIframe();
         const callObject = DailyIframe.createCallObject({
           audioSource: true,
           videoSource: type === "video",
@@ -843,6 +854,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        const DailyIframe = await loadDailyIframe();
         const callObject = DailyIframe.createCallObject({
           audioSource: true,
           videoSource: nextCallType === "video",

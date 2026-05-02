@@ -52,6 +52,7 @@ import { useStatusDialog } from '@/components/ui/StatusDialog';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { fetchMyPhotoVerificationState, type PhotoVerificationState } from '@/lib/photoVerificationState';
 import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from '@shared/verificationSemantics';
+import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -113,9 +114,9 @@ function formatBreakEnd(d: Date | null): string {
 }
 
 function passwordStrengthLabel(pw: string): { label: string; tone: 'weak' | 'fair' | 'strong' } {
-  if (pw.length < 8) return { label: 'Weak', tone: 'weak' };
+  if (pw.length < PASSWORD_MIN_LENGTH) return { label: 'Weak', tone: 'weak' };
   let score = 0;
-  if (pw.length >= 10) score++;
+  if (pw.length >= PASSWORD_MIN_LENGTH) score++;
   if (/[A-Z]/.test(pw)) score++;
   if (/[a-z]/.test(pw)) score++;
   if (/[0-9]/.test(pw)) score++;
@@ -1138,10 +1139,15 @@ export default function AccountSettingsScreen() {
           hasEmailPasswordIdentity ? (
             <Pressable
               onPress={async () => {
-                if (newPassword.length < 8 || newPassword !== confirmNewPassword) {
+                const passwordPolicy = validatePasswordPolicy(newPassword);
+                if (!passwordPolicy.valid || newPassword !== confirmNewPassword) {
                   show({
                     title: 'Check your password',
-                    message: 'Use at least 8 characters and make sure both new fields match.',
+                    message:
+                      passwordPolicy.message ??
+                      (newPassword !== confirmNewPassword
+                        ? 'Make sure both new password fields match.'
+                        : passwordPolicyMessage()),
                     variant: 'warning',
                     primaryAction: { label: 'OK', onPress: () => {} },
                   });
@@ -1209,7 +1215,7 @@ export default function AccountSettingsScreen() {
               style={[styles.input, { color: theme.text, borderColor: theme.border }]}
             />
             <TextInput
-              placeholder="New password (min 8 characters)"
+              placeholder={`New password (min ${PASSWORD_MIN_LENGTH} characters)`}
               placeholderTextColor={theme.mutedForeground}
               secureTextEntry
               value={newPassword}

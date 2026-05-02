@@ -11,7 +11,7 @@ import {
   sanitizeDiagnosticText,
   sanitizeDiagnosticUrl,
 } from "./lib/browserDiagnostics";
-import posthog from 'posthog-js';
+import { initAnalytics } from "./lib/analytics";
 import "./lib/webAuthReturnBootstrap";
 import App from "./App.tsx";
 import "./index.css";
@@ -20,10 +20,6 @@ const SENTRY_DSN_FALLBACK =
   "https://64343f6a6cacbaf88c3aa31954a1da26@o4511012069113856.ingest.de.sentry.io/4511012079403088";
 const SENTRY_DSN =
   import.meta.env.VITE_SENTRY_DSN || SENTRY_DSN_FALLBACK;
-
-const POSTHOG_HOST_FALLBACK = "https://eu.i.posthog.com";
-const POSTHOG_HOST =
-  import.meta.env.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
 
 function isLocalBrowserOrigin(): boolean {
   return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
@@ -69,14 +65,8 @@ Sentry.init({
       : "development",
   integrations: [
     Sentry.browserTracingIntegration(),
-    Sentry.replayIntegration({
-      maskAllText: true,
-      blockAllMedia: true,
-    }),
   ],
   tracesSampleRate: 0.2,
-  replaysSessionSampleRate: 0,
-  replaysOnErrorSampleRate: 1.0,
   beforeSend(event) {
     if (event.user) {
       delete event.user.email;
@@ -89,25 +79,7 @@ Sentry.init({
   },
 });
 
-posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
-  api_host: POSTHOG_HOST,
-  person_profiles: 'identified_only',
-  capture_pageview: false,
-  capture_pageleave: false,
-  autocapture: false,
-  persistence: 'localStorage+cookie',
-  disable_session_recording: true,
-  session_recording: {
-    maskAllInputs: true,
-    blockClass: 'ph-no-capture',
-  },
-  loaded: (posthog) => {
-    if (isLocalBrowserOrigin()) {
-      posthog.opt_out_capturing();
-    }
-  },
-});
-
+initAnalytics();
 initializeBrowserDiagnostics();
 
 // Init OneSignal only on allowlisted hosts (see `src/lib/oneSignalWebOrigin.ts`) to avoid dashboard domain errors.

@@ -90,7 +90,9 @@ export async function uploadChatVideoToBunny(
 
   let data: {
     success?: boolean;
+    path?: string;
     url?: string;
+    thumbnail_path?: string | null;
     thumbnail_url?: string | null;
     poster_source?: "uploaded_thumbnail" | "first_frame";
     aspect_ratio?: number | null;
@@ -106,13 +108,19 @@ export async function uploadChatVideoToBunny(
     throw new Error(data.error || "Video upload failed");
   }
 
-  if (!data.url) {
+  const videoRef = data.path || data.url;
+  if (!videoRef) {
     throw new Error("Video upload failed");
   }
 
   return {
-    videoUrl: data.url,
-    thumbnailUrl: typeof data.thumbnail_url === "string" && data.thumbnail_url ? data.thumbnail_url : null,
+    videoUrl: videoRef,
+    thumbnailUrl:
+      typeof data.thumbnail_path === "string" && data.thumbnail_path
+        ? data.thumbnail_path
+        : typeof data.thumbnail_url === "string" && data.thumbnail_url
+          ? data.thumbnail_url
+          : null,
     posterSource: data.poster_source === "uploaded_thumbnail" ? "uploaded_thumbnail" : "first_frame",
     aspectRatio:
       typeof data.aspect_ratio === "number" && Number.isFinite(data.aspect_ratio) && data.aspect_ratio > 0

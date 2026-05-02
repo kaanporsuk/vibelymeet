@@ -98,22 +98,6 @@ const EventDetails = () => {
     },
   });
   
-  // Fetch current user's profile for gender-based pricing
-  const [userProfile, setUserProfile] = useState<{ gender: string } | null>(null);
-  
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user?.id) return;
-      const { data } = await supabase
-        .from("profiles")
-        .select("gender")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (data) setUserProfile(data);
-    };
-    fetchProfile();
-  }, [user?.id]);
-  
   // UI state
   const [scrollY, setScrollY] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -197,10 +181,7 @@ const EventDetails = () => {
   };
 
   const capacityInfo = getCapacityStatus();
-  const userGender = userProfile?.gender?.toLowerCase() || "male";
-  const isFemale = userGender === "female" || userGender === "woman";
-  const userPrice = event.isFree ? 0 : (isFemale ? event.priceFemale : event.priceMale);
-  const genderLabel = isFemale ? "Female" : "Male";
+  const userPrice = event.isFree ? 0 : event.price;
   const soldOut = capacityInfo.spotsLeft <= 0;
   const eventEnded = Date.now() > event.eventDate.getTime() + event.durationMinutes * 60_000;
   const isCancelled = event.status === "cancelled";
@@ -607,12 +588,11 @@ const EventDetails = () => {
 
       {/* Sticky Bottom Bar - Only show when not registered */}
       {!hasEventAdmission && !isCancelled && (
-        <PricingBar
-          price={userPrice}
-          capacityStatus={capacityInfo.status}
-          spotsLeft={capacityInfo.spotsLeft}
-          genderLabel={genderLabel}
-          onPurchase={() => void handlePurchasePress()}
+            <PricingBar
+              price={userPrice}
+              capacityStatus={capacityInfo.status}
+              spotsLeft={capacityInfo.spotsLeft}
+              onPurchase={() => void handlePurchasePress()}
           isPurchasing={freeRegisterBusy}
           soldOut={soldOut}
           eventEnded={eventEnded}
@@ -680,9 +660,7 @@ const EventDetails = () => {
         eventId={event.id}
         eventTitle={event.title}
         eventDate={formatDate(event.eventDate)}
-        userGender={genderLabel}
-        priceMale={event.priceMale}
-        priceFemale={event.priceFemale}
+        price={userPrice}
       />
 
       <ManageBookingModal

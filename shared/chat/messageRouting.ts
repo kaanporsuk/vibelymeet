@@ -92,10 +92,16 @@ export type ParseChatImageMessageOptions = {
    * labels should keep the default strict http(s)-only behavior.
    */
   allowLocalPreviewUrls?: boolean;
+  /** Server/client DB rows may store a private provider path instead of a public URL. */
+  allowPrivateMediaRefs?: boolean;
 };
 
 function isLocalPreviewImageUrl(url: string): boolean {
   return url.startsWith("blob:") || url.startsWith("file:") || url.startsWith("data:image/");
+}
+
+function isPrivateChatImageRef(url: string): boolean {
+  return /^photos\/[^?#\s]+/i.test(url);
 }
 
 /** Returns image URL when this text should render as a photo bubble. */
@@ -108,6 +114,7 @@ export function parseChatImageMessageContent(
     const u = t.slice(CHAT_IMAGE_MESSAGE_PREFIX.length).trim();
     if (/^https?:\/\//i.test(u)) return u;
     if (options?.allowLocalPreviewUrls && isLocalPreviewImageUrl(u)) return u;
+    if (options?.allowPrivateMediaRefs && isPrivateChatImageRef(u)) return u;
     return null;
   }
   // Legacy / plain URL-only photo sends (Supabase storage or CDN)

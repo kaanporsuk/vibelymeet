@@ -39,7 +39,8 @@ import { NotificationPauseForeground } from '@/components/NotificationPauseForeg
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
 import { connectivityService } from '@/lib/connectivityService';
-import { identifyUser, resetAnalytics, setPostHogClient, setUserProperties } from '@/lib/analytics';
+import { identifyUser, resetAnalytics, screen, setPostHogClient, setUserProperties } from '@/lib/analytics';
+import { hydrateRuntimeAnalyticsConsent, subscribeNativeAnalyticsConsent } from '@/lib/analyticsConsent';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useBackendSubscription } from '@/lib/subscriptionApi';
 import { initRevenueCat, isRevenueCatConfigured, setRevenueCatUserId } from '@/lib/revenuecat';
@@ -190,7 +191,7 @@ function PostHogScreenTracker() {
 
   useEffect(() => {
     if (pathname && posthog) {
-      posthog.capture('$screen', { $screen_name: pathname });
+      screen(pathname);
     }
   }, [pathname, posthog]);
 
@@ -433,6 +434,7 @@ function RootLayoutNav() {
   useCurrentRouteTracker();
   const [, setCdnHostInitTick] = useState(0);
   const [referralSyncTick, setReferralSyncTick] = useState(0);
+  const [analyticsConsentGranted, setAnalyticsConsentGranted] = useState(false);
 
   useEffect(() => {
     initRevenueCat();
@@ -442,9 +444,23 @@ function RootLayoutNav() {
 
   useEffect(() => {
     // Keep analytics wrappers safe and quiet when PostHog is disabled.
-    if (!POSTHOG_ENABLED) {
+    if (!POSTHOG_ENABLED || !analyticsConsentGranted) {
       setPostHogClient(null);
     }
+  }, [analyticsConsentGranted]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unsubscribe = subscribeNativeAnalyticsConsent((state) => {
+      setAnalyticsConsentGranted(state === 'granted');
+    });
+    void hydrateRuntimeAnalyticsConsent().then((state) => {
+      if (!cancelled) setAnalyticsConsentGranted(state === 'granted');
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -513,7 +529,7 @@ function RootLayoutNav() {
           <PostDateOutboxRunner />
           <View style={{ flex: 1 }}>
             <View style={{ flex: 1 }}>
-              {POSTHOG_ENABLED ? (
+              {POSTHOG_ENABLED && analyticsConsentGranted ? (
                 <PostHogProvider apiKey={POSTHOG_KEY} options={{ host: POSTHOG_HOST }}>
                   <PostHogScreenTracker />
                   {gatedStack}

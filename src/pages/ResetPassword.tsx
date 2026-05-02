@@ -24,6 +24,7 @@ import {
   subscribeWebPasswordRecoveryState,
   type WebPasswordRecoveryState,
 } from "@/lib/webPasswordRecovery";
+import { validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
 
 type ResetMode = "request" | "update" | "success";
 type SuccessKind = "request" | "update";
@@ -152,8 +153,9 @@ const ResetPassword = () => {
       return;
     }
 
-    if (password.length < 6) {
-      setFormError("Password must be at least 6 characters");
+    const passwordPolicy = validatePasswordPolicy(password);
+    if (!passwordPolicy.valid) {
+      setFormError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
 

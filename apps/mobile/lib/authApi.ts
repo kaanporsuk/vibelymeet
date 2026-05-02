@@ -5,6 +5,7 @@ import {
   resolveEntryState as resolveSharedEntryState,
   type EntryStateResponse,
 } from '@shared/entryState';
+import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 export type OnboardingStatus = 'complete' | 'incomplete' | 'unknown';
 
@@ -26,6 +27,17 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true } 
 }
 
 export async function updatePassword(newPassword: string): Promise<{ ok: true } | { ok: false; error: ReturnType<typeof normalizeContractError> }> {
+  const passwordPolicy = validatePasswordPolicy(newPassword);
+  if (!passwordPolicy.valid) {
+    return {
+      ok: false,
+      error: {
+        code: 'auth_password_policy_failed',
+        message: passwordPolicy.message ?? passwordPolicyMessage(),
+        retryable: false,
+      },
+    };
+  }
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) {
     return { ok: false, error: normalizeContractError(error, 'auth_password_update_failed', 'Could not update password.') };

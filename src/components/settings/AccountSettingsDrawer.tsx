@@ -53,6 +53,7 @@ import { fetchMyPhoneVerificationProfile } from "@/lib/phoneVerificationState";
 import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { isCurrentEmailVerified, resolveCanonicalAuthEmail } from "@shared/verificationSemantics";
 import { LinkedSignInMethods } from "@/components/settings/LinkedSignInMethods";
+import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
 
 interface AccountSettingsDrawerProps {
   open: boolean;
@@ -187,7 +188,7 @@ export const AccountSettingsDrawer = ({
 
   const getPasswordStrength = (password: string) => {
     if (password.length === 0) return { score: 0, label: "", color: "" };
-    if (password.length < 6) return { score: 1, label: "Too short", color: "text-destructive" };
+    if (password.length < PASSWORD_MIN_LENGTH) return { score: 1, label: "Too short", color: "text-destructive" };
     
     let score = 0;
     if (password.length >= 8) score++;
@@ -230,8 +231,9 @@ export const AccountSettingsDrawer = ({
   };
 
   const handlePasswordChange = async () => {
-    if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    const passwordPolicy = validatePasswordPolicy(newPassword);
+    if (!passwordPolicy.valid) {
+      toast.error(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
 

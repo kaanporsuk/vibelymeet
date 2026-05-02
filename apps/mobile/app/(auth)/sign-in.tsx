@@ -21,6 +21,7 @@ import { getDefaultPhoneCountry, isValidSignInPhone } from '@/lib/phoneSignInNor
 import { buildAppleNameMetadataPatch, createAppleAuthNoncePair, logAppleNonceDebug } from '@/lib/appleAuth';
 import { mapAuthConflictError } from '@shared/authConflictMessages';
 import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
+import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -458,8 +459,9 @@ export default function SignInScreen() {
 
   const handleEmailSignUp = async () => {
     if (!email.trim() || !password || !name.trim()) return;
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    const passwordPolicy = validatePasswordPolicy(password);
+    if (!passwordPolicy.valid) {
+      setError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
     setLoading(true);

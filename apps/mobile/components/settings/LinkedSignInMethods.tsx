@@ -49,6 +49,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useIdentityLinking, type ProviderType } from '../../hooks/useIdentityLinking';
 import { withAlpha } from '@/lib/colorUtils';
+import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 // ---------- types ----------
 
@@ -191,8 +192,9 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
   };
 
   const handleAddPassword = async () => {
-    if (passwordInput.length < 8) {
-      showError('Password must be at least 8 characters.');
+    const passwordPolicy = validatePasswordPolicy(passwordInput);
+    if (!passwordPolicy.valid) {
+      showError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
     setEmailBusy(true);
@@ -469,7 +471,7 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
                   </Text>
                   <TextInput
                     style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
-                    placeholder="New password (min 8 characters)"
+                    placeholder={`New password (min ${PASSWORD_MIN_LENGTH} characters)`}
                     placeholderTextColor={theme.mutedForeground}
                     value={passwordInput}
                     onChangeText={setPasswordInput}
@@ -478,10 +480,10 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
                   />
                   <Pressable
                     onPress={handleAddPassword}
-                    disabled={passwordInput.length < 8 || emailBusy}
+                    disabled={passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy}
                     style={({ pressed }) => [
                       styles.primaryBtn,
-                      { backgroundColor: theme.tint, opacity: (passwordInput.length < 8 || emailBusy || pressed) ? 0.6 : 1 },
+                      { backgroundColor: theme.tint, opacity: (passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy || pressed) ? 0.6 : 1 },
                     ]}
                   >
                     {emailBusy

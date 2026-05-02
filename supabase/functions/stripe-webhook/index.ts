@@ -1,6 +1,7 @@
 import Stripe from 'https://esm.sh/stripe@14.21.0'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { recordPaymentObservability, safeText, safeUuid } from '../_shared/paymentObservability.ts'
+import { corsHeadersForRequest, preflightResponse } from '../_shared/cors.ts'
 
 const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
   apiVersion: '2023-10-16',
@@ -122,6 +123,36 @@ async function recordWebhookEvent(
     currency: context.currency,
     metadata_summary: metadataSummary ?? context.metadata_summary,
   })
+}
+
+async function markEventTicketIntent(
+  checkoutSessionId: string,
+  status: 'settled' | 'settlement_failed' | 'ignored',
+  stripeEventId: string,
+) {
+  const update: Record<string, unknown> = {
+    status,
+    stripe_event_id: stripeEventId,
+    updated_at: new Date().toISOString(),
+  }
+  if (status === 'settled') update.settled_at = new Date().toISOString()
+
+  const { error } = await supabase
+    .from('stripe_event_ticket_checkout_intents')
+    .update(update)
+    .eq('checkout_session_id', checkoutSessionId)
+
+  if (error) {
+    console.error('stripe_event_ticket_checkout_intents status update failed:', error)
+  }
+}
+
+async function recomputeProfileEntitlement(userId: string, context: string) {
+  const { error } = await supabase.rpc('recompute_profile_subscription_entitlement', { p_user_id: userId })
+  if (error) {
+    console.error(`recompute_profile_subscription_entitlement failed (${context}):`, error)
+  }
+  return error
 }
 
 async function beginWebhookProcessing(context: WebhookContext) {
@@ -261,13 +292,10 @@ function stripeRetryResponse(
 }
 
 Deno.serve(async (req) => {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  }
+  const corsHeaders = corsHeadersForRequest(req)
 
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return preflightResponse(req)
   }
 
   let activeWebhookContext: WebhookContext | null = null
@@ -279,7 +307,7 @@ Deno.serve(async (req) => {
     if (!signature) {
       return new Response(
         JSON.stringify({ success: false, error: 'No stripe signature' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
@@ -292,9 +320,10 @@ Deno.serve(async (req) => {
         Deno.env.get('STRIPE_WEBHOOK_SECRET')!
       )
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
       return new Response(
-        JSON.stringify({ success: false, error: `Webhook signature verification failed: ${err.message}` }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: `Webhook signature verification failed: ${detail}` }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
 
@@ -335,8 +364,62 @@ Deno.serve(async (req) => {
         // Handle event ticket purchase
         if (session.metadata?.type === 'event_ticket') {
           const eventId = session.metadata?.event_id
+          const amountTotal = typeof session.amount_total === 'number' ? session.amount_total : null
+          const currency = typeof session.currency === 'string' ? session.currency : null
 
           if (userId && eventId) {
+            if (amountTotal == null || !currency) {
+              finalStatus = 'ignored'
+              finalResult = 'event_ticket_missing_amount'
+              finalErrorCode = 'missing_amount_or_currency'
+              await markEventTicketIntent(session.id, 'ignored', event.id)
+              logLifecycle({
+                event_id: eventId,
+                user_id: userId,
+                admission_status: null,
+                category: 'stripe_event_ticket_settlement',
+                result: 'rejected',
+                error_reason: 'missing_amount_or_currency',
+              })
+              break
+            }
+
+            const { data: verifyResult, error: verifyError } = await supabase.rpc(
+              'verify_event_ticket_checkout_intent',
+              {
+                p_checkout_session_id: session.id,
+                p_profile_id: userId,
+                p_event_id: eventId,
+                p_amount_total: amountTotal,
+                p_currency: currency,
+                p_stripe_event_id: event.id,
+              },
+            )
+
+            if (verifyError) {
+              console.error('verify_event_ticket_checkout_intent error:', verifyError)
+              requestStripeRetry = true
+              finalResult = 'event_ticket_intent_verification_failed'
+              finalErrorCode = 'verify_event_ticket_checkout_intent_error'
+              break
+            }
+
+            const verified = verifyResult as { success?: boolean; code?: string } | null
+            if (verified?.success !== true) {
+              finalStatus = 'ignored'
+              finalResult = `event_ticket_${verified?.code ?? 'intent_verification_rejected'}`
+              finalErrorCode = verified?.code ?? 'intent_verification_rejected'
+              logLifecycle({
+                event_id: eventId,
+                user_id: userId,
+                admission_status: null,
+                category: 'stripe_event_ticket_settlement',
+                result: 'rejected',
+                error_reason: finalErrorCode,
+              })
+              break
+            }
+
             const { data: settleResult, error: settleError } = await supabase.rpc(
               'settle_event_ticket_checkout',
               {
@@ -347,6 +430,7 @@ Deno.serve(async (req) => {
             )
             if (settleError) {
               console.error('settle_event_ticket_checkout error:', settleError)
+              await markEventTicketIntent(session.id, 'settlement_failed', event.id)
               logLifecycle({
                 event_id: eventId,
                 user_id: userId,
@@ -362,6 +446,11 @@ Deno.serve(async (req) => {
             }
             console.log('settle_event_ticket_checkout:', JSON.stringify(settleResult))
             const settled = settleResult as { success?: boolean; idempotent?: boolean } | null
+            await markEventTicketIntent(
+              session.id,
+              settled?.success === false ? 'settlement_failed' : 'settled',
+              event.id,
+            )
             finalResult = `event_ticket_${pickResultCode(settleResult)}`
             finalErrorCode = settled?.success === false ? (settled as { code?: string }).code ?? 'business_reject' : null
             logLifecycle({
@@ -596,15 +685,8 @@ Deno.serve(async (req) => {
           break
         }
 
-        const planMeta = (plan || 'premium') as string
-        const tier = planMeta.toLowerCase().includes('vip') ? 'vip' : 'premium'
-        const { error: profileTierErr } = await supabase
-          .from('profiles')
-          .update({ subscription_tier: tier })
-          .eq('id', userId)
-
+        const profileTierErr = await recomputeProfileEntitlement(userId, 'checkout.session.completed')
         if (profileTierErr) {
-          console.error('profiles subscription_tier update (checkout.session.completed):', profileTierErr)
           requestStripeRetry = true
           finalResult = 'subscription_checkout_profile_tier_failed'
           finalErrorCode = 'profiles_tier_update_failed'
@@ -657,47 +739,12 @@ Deno.serve(async (req) => {
           break
         }
 
-        if (subscription.status === 'active' || subscription.status === 'trialing') {
-          const price = subscription.items.data[0]?.price as { lookup_key?: string | null } | undefined
-          const tierPlanHint = (subscription.metadata?.plan || price?.lookup_key || 'premium') as string
-          const tier = tierPlanHint.toLowerCase().includes('vip') ? 'vip' : 'premium'
-          const { error: activeTierErr } = await supabase
-            .from('profiles')
-            .update({ subscription_tier: tier })
-            .eq('id', userId)
-          if (activeTierErr) {
-            console.error('profiles subscription_tier update (customer.subscription.updated, active):', activeTierErr)
-            requestStripeRetry = true
-            finalResult = 'subscription_updated_profile_tier_failed'
-            finalErrorCode = 'profiles_tier_update_failed'
-            break
-          }
-        } else {
-          const { data: profileRow, error: profileReadErr } = await supabase
-            .from('profiles')
-            .select('premium_until')
-            .eq('id', userId)
-            .maybeSingle()
-          if (profileReadErr) {
-            console.error('profiles select premium_until (customer.subscription.updated):', profileReadErr)
-            requestStripeRetry = true
-            finalResult = 'subscription_updated_profile_read_failed'
-            finalErrorCode = 'profiles_read_failed'
-            break
-          }
-          const adminActive = profileRow?.premium_until &&
-            new Date(profileRow.premium_until) > new Date()
-          const { error: inactiveTierErr } = await supabase
-            .from('profiles')
-            .update({ subscription_tier: adminActive ? 'premium' : 'free' })
-            .eq('id', userId)
-          if (inactiveTierErr) {
-            console.error('profiles subscription_tier update (customer.subscription.updated, inactive):', inactiveTierErr)
-            requestStripeRetry = true
-            finalResult = 'subscription_updated_profile_tier_failed'
-            finalErrorCode = 'profiles_tier_update_failed'
-            break
-          }
+        const tierErr = await recomputeProfileEntitlement(userId, 'customer.subscription.updated')
+        if (tierErr) {
+          requestStripeRetry = true
+          finalResult = 'subscription_updated_profile_tier_failed'
+          finalErrorCode = 'profiles_tier_update_failed'
+          break
         }
 
         finalResult = `subscription_${subscription.status}`
@@ -738,25 +785,8 @@ Deno.serve(async (req) => {
           break
         }
 
-        const { data: profile, error: profileReadErr } = await supabase
-          .from('profiles')
-          .select('premium_until')
-          .eq('id', userId)
-          .maybeSingle()
-        if (profileReadErr) {
-          console.error('profiles select premium_until (customer.subscription.deleted):', profileReadErr)
-          requestStripeRetry = true
-          finalResult = 'subscription_deleted_profile_read_failed'
-          finalErrorCode = 'profiles_read_failed'
-          break
-        }
-        const adminActive = profile?.premium_until && new Date(profile.premium_until) > new Date()
-        const { error: deletedTierErr } = await supabase
-          .from('profiles')
-          .update({ subscription_tier: adminActive ? 'premium' : 'free' })
-          .eq('id', userId)
+        const deletedTierErr = await recomputeProfileEntitlement(userId, 'customer.subscription.deleted')
         if (deletedTierErr) {
-          console.error('profiles subscription_tier update (customer.subscription.deleted):', deletedTierErr)
           requestStripeRetry = true
           finalResult = 'subscription_deleted_profile_tier_failed'
           finalErrorCode = 'profiles_tier_update_failed'

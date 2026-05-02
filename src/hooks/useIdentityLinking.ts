@@ -33,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { mapIdentityLinkingError } from '@shared/authConflictMessages';
+import { validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
 
 // ---------- types ----------
 
@@ -261,6 +262,10 @@ export function useIdentityLinking() {
       if (!session?.user?.id) throw new Error('You must be signed in.');
       if (!session.user.email) {
         throw new Error('No email on this account. Add an email address first.');
+      }
+      const passwordPolicy = validatePasswordPolicy(password);
+      if (!passwordPolicy.valid) {
+        throw new Error(passwordPolicy.message ?? passwordPolicyMessage());
       }
 
       setState(prev => ({ ...prev, isLinking: true, linkingProvider: 'email', error: null }));

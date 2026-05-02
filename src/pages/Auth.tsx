@@ -26,6 +26,7 @@ import {
   parseOAuthCallbackErrorDescription,
 } from "@shared/authConflictMessages";
 import { applyBrowserReferralAttribution, captureBrowserReferral } from "@/lib/referrals";
+import { validatePasswordPolicy, passwordPolicyMessage } from "@clientShared/passwordPolicy";
 
 type AuthView =
   | "welcome"
@@ -398,8 +399,9 @@ const Auth = () => {
       setError("Please fill in all fields");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+    const passwordPolicy = validatePasswordPolicy(password);
+    if (!passwordPolicy.valid) {
+      setError(passwordPolicy.message ?? passwordPolicyMessage());
       return;
     }
     setLoading(true);

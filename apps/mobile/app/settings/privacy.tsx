@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Modal,
   Linking,
+  Switch,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -51,6 +52,11 @@ import {
   normalizeActivityStatusVisibility,
   type ActivityStatusVisibility,
 } from '@clientShared/activityStatusVisibility';
+import {
+  loadNativeAnalyticsConsent,
+  saveNativeAnalyticsConsent,
+  type NativeAnalyticsConsentState,
+} from '@/lib/analyticsConsent';
 
 const CYAN = '#22D3EE';
 const AMBER = '#F59E0B';
@@ -251,9 +257,25 @@ export default function PrivacySettingsScreen() {
   const [audienceSaving, setAudienceSaving] = useState<DiscoveryAudience | null>(null);
   const [activitySaving, setActivitySaving] = useState<ActivityStatusVisibility | null>(null);
   const [distanceSaving, setDistanceSaving] = useState<DistanceVisibility | null>(null);
+  const [analyticsConsent, setAnalyticsConsentState] = useState<NativeAnalyticsConsentState>('unset');
 
   const invalidatePrivacy = () => {
     qc.invalidateQueries({ queryKey: ['privacy-profile', user?.id] });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadNativeAnalyticsConsent().then((state) => {
+      if (!cancelled) setAnalyticsConsentState(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAnalyticsConsentChange = async (granted: boolean) => {
+    setAnalyticsConsentState(granted ? 'granted' : 'denied');
+    await saveNativeAnalyticsConsent(granted);
   };
 
   const invalidateLocationSurfaces = useCallback(async () => {
@@ -906,6 +928,20 @@ export default function PrivacySettingsScreen() {
 
             <SectionLabel text="DATA & PERMISSIONS" theme={theme} />
             <SectionCard theme={theme}>
+              <SettingsRow
+                icon={<Ionicons name="analytics-outline" size={20} color={theme.mutedForeground} />}
+                title="Analytics"
+                subtitle="Help improve reliability and product quality"
+                right={
+                  <Switch
+                    value={analyticsConsent === 'granted'}
+                    onValueChange={(next) => void handleAnalyticsConsentChange(next)}
+                    trackColor={{ false: theme.border, true: withAlpha(theme.tint, 0.45) }}
+                    thumbColor={analyticsConsent === 'granted' ? theme.tint : theme.mutedForeground}
+                  />
+                }
+              />
+              <View style={[styles.hairline, { backgroundColor: theme.border }]} />
               <SelectorRow
                 theme={theme}
                 icon="camera-outline"

@@ -45,10 +45,13 @@ function imageMarkerUrl(trimmed: string): string | null {
   return url || null;
 }
 
-function publicUrlHasStorageSegment(url: string, segment: "photos" | "voice" | "chat-videos"): boolean {
+function mediaRefHasStorageSegment(value: string, segment: "photos" | "voice" | "chat-videos"): boolean {
+  const raw = value.trim();
+  if (raw.startsWith(`${segment}/`) && !raw.includes("..")) return true;
+
   let parsed: URL;
   try {
-    parsed = new URL(url);
+    parsed = new URL(raw);
   } catch {
     return false;
   }
@@ -255,8 +258,8 @@ serve(async (req) => {
       const posterSource = thumbnailUrl ? "uploaded_thumbnail" : "first_frame";
 
       if (
-        !publicUrlHasStorageSegment(videoUrl, "chat-videos") ||
-        (thumbnailUrl && !publicUrlHasStorageSegment(thumbnailUrl, "chat-videos"))
+        !mediaRefHasStorageSegment(videoUrl, "chat-videos") ||
+        (thumbnailUrl && !mediaRefHasStorageSegment(thumbnailUrl, "chat-videos"))
       ) {
         return new Response(
           JSON.stringify({ success: false, error: "invalid_media_url" }),
@@ -373,7 +376,7 @@ serve(async (req) => {
     // ── Voice message canonical publish path ──
     if (isVoice) {
       const audioUrl = (body.audio_url as string).trim();
-      if (!publicUrlHasStorageSegment(audioUrl, "voice")) {
+      if (!mediaRefHasStorageSegment(audioUrl, "voice")) {
         return new Response(
           JSON.stringify({ success: false, error: "invalid_media_url" }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -485,7 +488,7 @@ serve(async (req) => {
     // ── Standard text/image message path (unchanged) ──
     const trimmed = content!.trim();
     const chatImageMarkerUrl = imageMarkerUrl(trimmed);
-    if (chatImageMarkerUrl && !publicUrlHasStorageSegment(chatImageMarkerUrl, "photos")) {
+    if (chatImageMarkerUrl && !mediaRefHasStorageSegment(chatImageMarkerUrl, "photos")) {
       return new Response(
         JSON.stringify({ success: false, error: "invalid_media_url" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
