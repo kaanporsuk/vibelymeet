@@ -85,6 +85,7 @@ test("regression runner is safe by default and refuses ambiguous production smok
 
 test("regression runner executes the focused Event Lobby contract pack", () => {
   for (const command of [
+    "npx tsx scripts/runtime-copy-entities.test.ts",
     "npx tsx shared/matching/eventLobbyRegressionHarness.test.ts",
     "npx tsx shared/matching/eventLobbyActiveEventContract.test.ts",
     "npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts",
@@ -100,6 +101,7 @@ test("regression runner executes the focused Event Lobby contract pack", () => {
   }
 
   assert.equal(packageJson.scripts?.["test:event-lobby-regression"], "bash scripts/run_event_lobby_regression.sh");
+  assert.equal(packageJson.scripts?.["test:copy-entities"], "tsx scripts/runtime-copy-entities.test.ts");
 });
 
 test("automated coverage maps to the fixed backend/client contracts", () => {
