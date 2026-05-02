@@ -6,7 +6,10 @@ import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
-import { dailyCallObjectOptions } from "@/lib/dailyCallObjectConfig";
+import {
+  dailyVideoDateCallObjectOptions,
+  videoDateWebMediaStreamConstraints,
+} from "@/lib/dailyCallObjectConfig";
 import {
   prepareVideoDateEntry,
   rejectPreparedVideoDateEntry,
@@ -23,6 +26,11 @@ import {
   type DailyRoomFailureKind,
 } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
+import {
+  isVideoDateCameraConstraintError,
+  videoDateAspectRatio,
+  type VideoDateMediaCaptureProfile,
+} from "@clientShared/matching/videoDateMediaContract";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -58,6 +66,18 @@ const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
 const DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
+
+function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined) {
+  if (!track || typeof track.getSettings !== "function") return null;
+  const settings = track.getSettings();
+  return {
+    width: typeof settings.width === "number" ? settings.width : null,
+    height: typeof settings.height === "number" ? settings.height : null,
+    aspectRatio: videoDateAspectRatio(settings.width, settings.height),
+    frameRate: typeof settings.frameRate === "number" ? settings.frameRate : null,
+    facingMode: typeof settings.facingMode === "string" ? settings.facingMode : null,
+  };
+}
 
 type VideoDateTruthRow = {
   id: string;
@@ -193,6 +213,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
   const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
   const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
+  const [captureProfile, setCaptureProfile] = useState<VideoDateMediaCaptureProfile>("ideal");
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -221,6 +242,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const reconnectSyncRequestedRef = useRef(false);
   const mediaPermissionDeniedRef = useRef(false);
   const playbackBlockedRef = useRef(false);
+  const captureProfileRef = useRef<VideoDateMediaCaptureProfile>("ideal");
   const activePreparedEntryCacheRef = useRef<PreparedVideoDateEntryCacheEntry | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
   const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
@@ -459,7 +481,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       source: string,
       opts: { isLocal: boolean; participant: DailyParticipant | undefined; roomName: string | null }
     ) => {
-      const videoTrackId = opts.participant?.tracks?.video?.persistentTrack?.id ?? "";
+      const videoTrack = opts.participant?.tracks?.video?.persistentTrack;
+      const videoTrackId = videoTrack?.id ?? "";
       const audioTrackId = opts.isLocal
         ? ""
         : (opts.participant?.tracks?.audio?.persistentTrack?.id ?? "");
@@ -476,7 +499,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         userId: optionsRef.current?.userId ?? null,
         roomName: opts.roomName,
         source,
+        captureProfile: captureProfileRef.current,
         videoTrackId: videoTrackId || null,
+        videoTrack: summarizeVideoTrackSettings(videoTrack),
         audioTrackId: audioTrackId || null,
       });
     },
@@ -505,7 +530,35 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       }
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        let stream: MediaStream | null = null;
+        let nextCaptureProfile: VideoDateMediaCaptureProfile = "ideal";
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints("ideal"));
+        } catch (idealError) {
+          if (!isVideoDateCameraConstraintError(idealError)) {
+            throw idealError;
+          }
+          nextCaptureProfile = "fallback";
+          vdbg("daily_media_permission_preflight_constraint_fallback", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId: userId ?? null,
+            error:
+              idealError instanceof Error
+                ? { name: idealError.name, message: idealError.message }
+                : String(idealError),
+          });
+          stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints("fallback"));
+        }
+
+        if (!stream) {
+          throw new Error("Media permission preflight returned no stream");
+        }
+
+        captureProfileRef.current = nextCaptureProfile;
+        setCaptureProfile(nextCaptureProfile);
+        const videoTrackSettings = summarizeVideoTrackSettings(stream.getVideoTracks()[0]);
         stream.getTracks().forEach((track) => track.stop());
         setHasPermission(true);
         setMediaPermissionError(null);
@@ -513,6 +566,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           sessionId,
           eventId: eventId ?? null,
           userId: userId ?? null,
+          captureProfile: nextCaptureProfile,
+          videoTrack: videoTrackSettings,
         });
         if (mediaPermissionDeniedRef.current) {
           mediaPermissionDeniedRef.current = false;
@@ -1011,11 +1066,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         roomNameRef.current = roomData.room_name;
 
+        const captureProfileForCall = captureProfileRef.current;
         const callObject = DailyIframe.createCallObject(
-          dailyCallObjectOptions({
-            audioSource: true,
-            videoSource: true,
-          })
+          dailyVideoDateCallObjectOptions(captureProfileForCall)
         );
         callObjectRef.current = callObject;
         vdbg("daily_call_object_created", {
@@ -1023,6 +1076,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: truthRow.event_id ?? eventId,
           userId,
           roomName: roomData.room_name,
+          captureProfile: captureProfileForCall,
           entryAttemptId,
           videoDateTraceId,
           reusedCallObject: false,
@@ -1532,6 +1586,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           userId,
           roomName: roomData.room_name,
           hasToken: Boolean(roomData.token),
+          captureProfile: captureProfileForCall,
           prepareToJoinStartMs,
           cachedPrepareEntry: roomResult.cached,
           entryAttemptId,
@@ -1543,6 +1598,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           event_id: truthRow.event_id ?? eventId,
           source_surface: "video_date_daily",
           source_action: opts?.internalRetry ? "daily_join_retry_started" : "daily_join_started",
+          capture_profile: captureProfileForCall,
           prepareToJoinStartMs,
           duration_ms: prepareToJoinStartMs,
           latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
@@ -1560,6 +1616,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: truthRow.event_id ?? eventId,
           userId,
           roomName: roomData.room_name,
+          captureProfile: captureProfileForCall,
           joinDurationMs,
           entryAttemptId,
           videoDateTraceId,
@@ -1591,6 +1648,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           event_id: truthRow.event_id ?? eventId,
           source_surface: "video_date_daily",
           source_action: "daily_join_success",
+          capture_profile: captureProfileForCall,
           joinDurationMs,
           duration_ms: joinDurationMs,
           latency_bucket: bucketVideoDateLatencyMs(joinDurationMs),
@@ -1605,6 +1663,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           platform: "web",
           session_id: sessionId,
           event_id: truthRow.event_id ?? eventId,
+          capture_profile: captureProfileForCall,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
         });
@@ -1853,6 +1912,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId,
           userId,
           roomName: roomNameRef.current,
+          captureProfile: captureProfileRef.current,
           error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
           entryAttemptId: preparedEntryAtFailure?.entryAttemptId ?? null,
           videoDateTraceId: preparedEntryAtFailure?.value.video_date_trace_id ?? preparedEntryAtFailure?.entryAttemptId ?? null,
@@ -1863,6 +1923,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           event_id: eventId,
           source_surface: "video_date_daily",
           source_action: "daily_join_failure",
+          capture_profile: captureProfileRef.current,
           reason: "daily_join_failed",
           reason_code: "daily_join_failed",
           entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? null,
@@ -2062,6 +2123,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     peerMissing,
     dailyReconnectState,
     reconnectGraceTimeLeft,
+    captureProfile,
     localVideoRef,
     remoteVideoRef,
     localStream,

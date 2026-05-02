@@ -67,6 +67,11 @@ import {
   buildVideoDateTimerDriftRecoveredPayload,
   recordReadyGateToDateLatencyCheckpoint,
 } from "@clientShared/observability/videoDateOperatorMetrics";
+import {
+  VIDEO_DATE_REMOTE_OBJECT_FIT,
+  VIDEO_DATE_REMOTE_OBJECT_POSITION,
+  videoDateAspectRatio,
+} from "@clientShared/matching/videoDateMediaContract";
 
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
@@ -457,6 +462,7 @@ const VideoDate = () => {
     clearMediaPermissionError,
     dailyReconnectState,
     reconnectGraceTimeLeft,
+    captureProfile,
   } = useVideoCall({
     roomId: id,
     userId: user?.id,
@@ -542,17 +548,21 @@ const VideoDate = () => {
         sessionId: id ?? null,
         eventId: eventId ?? null,
         phase,
+        captureProfile,
         videoIntrinsic: {
           width: videoEl.videoWidth,
           height: videoEl.videoHeight,
+          aspectRatio: videoDateAspectRatio(videoEl.videoWidth, videoEl.videoHeight),
         },
         renderedRect: {
           width: Math.round(videoRect.width),
           height: Math.round(videoRect.height),
+          aspectRatio: videoDateAspectRatio(videoRect.width, videoRect.height),
         },
         containerRect: {
           width: Math.round(containerRect.width),
           height: Math.round(containerRect.height),
+          aspectRatio: videoDateAspectRatio(containerRect.width, containerRect.height),
         },
         css: {
           objectFit: computed.objectFit,
@@ -560,10 +570,11 @@ const VideoDate = () => {
           transform: computed.transform,
         },
         trackSettings,
+        trackAspectRatio: videoDateAspectRatio(trackSettings?.width, trackSettings?.height),
         videoTrackId: videoTrack?.id ?? null,
       });
     },
-    [eventId, id, phase, remoteVideoRef]
+    [captureProfile, eventId, id, phase, remoteVideoRef]
   );
 
   useEffect(() => {
@@ -2962,6 +2973,11 @@ const VideoDate = () => {
           onPlaying={() => logRemoteVideoLayout("playing")}
           onResize={() => logRemoteVideoLayout("resize")}
           style={{
+            width: "100%",
+            height: "100%",
+            backgroundColor: "#000",
+            objectFit: VIDEO_DATE_REMOTE_OBJECT_FIT,
+            objectPosition: VIDEO_DATE_REMOTE_OBJECT_POSITION,
             filter: `blur(${blurAmount}px)`,
             transition: "filter 10s linear",
           }}
