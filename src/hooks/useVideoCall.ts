@@ -6,6 +6,7 @@ import { vdbg } from "@/lib/vdbg";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
+import { dailyCallObjectOptions } from "@/lib/dailyCallObjectConfig";
 import {
   prepareVideoDateEntry,
   rejectPreparedVideoDateEntry,
@@ -1010,10 +1011,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         roomNameRef.current = roomData.room_name;
 
-        const callObject = DailyIframe.createCallObject({
-          audioSource: true,
-          videoSource: true,
-        });
+        const callObject = DailyIframe.createCallObject(
+          dailyCallObjectOptions({
+            audioSource: true,
+            videoSource: true,
+          })
+        );
         callObjectRef.current = callObject;
         vdbg("daily_call_object_created", {
           sessionId,

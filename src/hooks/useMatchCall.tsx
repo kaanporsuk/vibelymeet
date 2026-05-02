@@ -15,6 +15,7 @@ import { AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import { dailyCallObjectOptions } from "@/lib/dailyCallObjectConfig";
 import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
 import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 import {
@@ -605,10 +606,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       startDurationTimer();
 
       const DailyIframe = await loadDailyIframe();
-      const callObject = DailyIframe.createCallObject({
-        audioSource: true,
-        videoSource: pendingIncoming.callType === "video",
-      });
+      const callObject = DailyIframe.createCallObject(
+        dailyCallObjectOptions({
+          audioSource: true,
+          videoSource: pendingIncoming.callType === "video",
+        })
+      );
       callObjectRef.current = callObject;
       setupCallEvents(callObject, pendingIncoming.callType);
 
@@ -694,10 +697,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         roomNameRef.current = createdRoomName;
 
         const DailyIframe = await loadDailyIframe();
-        const callObject = DailyIframe.createCallObject({
-          audioSource: true,
-          videoSource: type === "video",
-        });
+        const callObject = DailyIframe.createCallObject(
+          dailyCallObjectOptions({
+            audioSource: true,
+            videoSource: type === "video",
+          })
+        );
         callObjectRef.current = callObject;
         setupCallEvents(callObject, type);
 
@@ -855,10 +860,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }
 
         const DailyIframe = await loadDailyIframe();
-        const callObject = DailyIframe.createCallObject({
-          audioSource: true,
-          videoSource: nextCallType === "video",
-        });
+        const callObject = DailyIframe.createCallObject(
+          dailyCallObjectOptions({
+            audioSource: true,
+            videoSource: nextCallType === "video",
+          })
+        );
         callObjectRef.current = callObject;
         setupCallEvents(callObject, nextCallType);
         setCallPhase("in_call");

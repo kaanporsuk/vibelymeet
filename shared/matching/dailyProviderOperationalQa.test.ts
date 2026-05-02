@@ -47,6 +47,7 @@ const videoDateCleanup = read("supabase/functions/video-date-room-cleanup/index.
 const supabaseConfig = read("supabase/config.toml");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const webMatchCall = read("src/hooks/useMatchCall.tsx");
+const webDailyCallObjectConfig = read("src/lib/dailyCallObjectConfig.ts");
 const webVideoDatePage = read("src/pages/VideoDate.tsx");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
@@ -165,6 +166,19 @@ test("web and native Daily runtime paths preserve join, reconnect, leave, and te
   assert.match(webVideoDatePage, /action:\s*"video_date_leave"/);
   assert.match(nativeDateRoute, /markReconnectPartnerAway/);
   assert.match(nativeDateRoute, /syncVideoDateReconnect/);
+});
+
+test("web Daily call objects use the CSP-friendly avoidEval path", () => {
+  assert.match(webDailyCallObjectConfig, /dailyConfig:\s*\{\s*avoidEval:\s*true/s);
+  assert.match(webVideoCall, /dailyCallObjectOptions/);
+  assert.match(webMatchCall, /dailyCallObjectOptions/);
+  for (const [label, source] of [
+    ["web video date", webVideoCall],
+    ["web match call", webMatchCall],
+  ] as const) {
+    const rawCreateCallObjectCalls = source.match(/createCallObject\(\s*\{/g) ?? [];
+    assert.deepEqual(rawCreateCallObjectCalls, [], `${label} must use dailyCallObjectOptions for createCallObject`);
+  }
 });
 
 test("existing match-call paths remain present on web and native", () => {
