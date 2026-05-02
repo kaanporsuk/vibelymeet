@@ -40,6 +40,22 @@ function assertOrder(source: string, labels: Array<[string, string]>): void {
   }
 }
 
+function vercelCspDirective(name: string): string[] {
+  const parsed = JSON.parse(read("vercel.json")) as {
+    headers?: Array<{ headers?: Array<{ key?: string; value?: string }> }>;
+  };
+  const csp = parsed.headers
+    ?.flatMap((entry) => entry.headers ?? [])
+    .find((entry) => entry.key === "Content-Security-Policy")?.value;
+  assert.ok(csp, "production Content-Security-Policy header should exist");
+  const directive = csp
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name} `));
+  assert.ok(directive, `${name} directive should exist in production CSP`);
+  return directive.split(/\s+/).slice(1);
+}
+
 const dailyRoom = read("supabase/functions/daily-room/index.ts");
 const dailyRoomContracts = read("supabase/functions/daily-room/dailyRoomContracts.ts");
 const matchCallCleanup = read("supabase/functions/match-call-room-cleanup/index.ts");
@@ -179,6 +195,15 @@ test("web Daily call objects use the CSP-friendly avoidEval path", () => {
     const rawCreateCallObjectCalls = source.match(/createCallObject\(\s*\{/g) ?? [];
     assert.deepEqual(rawCreateCallObjectCalls, [], `${label} must use dailyCallObjectOptions for createCallObject`);
   }
+});
+
+test("web Daily CSP supports CSP-safe script loading and websocket signaling", () => {
+  assert.match(webDailyCallObjectConfig, /avoidEval:\s*true/);
+  assert.ok(vercelCspDirective("script-src").includes("https://*.daily.co"));
+  assert.ok(!vercelCspDirective("script-src").includes("'unsafe-eval'"));
+  assert.ok(vercelCspDirective("connect-src").includes("https://*.daily.co"));
+  assert.ok(vercelCspDirective("connect-src").includes("wss://*.daily.co"));
+  assert.ok(vercelCspDirective("frame-src").includes("https://*.daily.co"));
 });
 
 test("existing match-call paths remain present on web and native", () => {
