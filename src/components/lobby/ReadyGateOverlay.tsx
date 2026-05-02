@@ -1226,7 +1226,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           {/* Blurred partner photo */}
           <div className="flex justify-center">
             <div className="relative w-28 h-28 rounded-full overflow-hidden border-2 border-primary/30">
-              <div style={{ filter: "blur(15px)" }}>
+              <div>
                 <ProfilePhoto
                   photos={partnerPhotos}
                   avatarUrl={partnerAvatarUrl}

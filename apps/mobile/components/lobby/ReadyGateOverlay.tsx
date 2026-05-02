@@ -19,7 +19,6 @@ import {
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
-import { BlurView } from 'expo-blur';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
@@ -1060,7 +1059,6 @@ export function ReadyGateOverlay({
               {partnerImageUri ? (
                 <>
                   <Image source={{ uri: partnerImageUri }} style={styles.avatarImage} />
-                  <BlurView intensity={22} tint="dark" style={StyleSheet.absoluteFillObject} />
                   <View style={styles.avatarNameScrim} pointerEvents="none">
                     <Text style={styles.avatarNameText} numberOfLines={1}>
                       {displayName}
