@@ -1,6 +1,6 @@
 /**
  * Product-grade event timing taxonomy for dashboard rails and time filters (web + native).
- * Headings: Live Now -> About to Start -> Later Today -> Tomorrow -> This Weekend -> This Week -> Next Week -> Upcoming.
+ * Headings: Live Now -> About to Start -> Later Today -> Tomorrow -> This Weekend -> This Week -> Next Week -> Upcoming -> Recently Ended.
  */
 
 export type EventTimingHeading =
@@ -11,7 +11,8 @@ export type EventTimingHeading =
   | "This Weekend"
   | "This Week"
   | "Next Week"
-  | "Upcoming";
+  | "Upcoming"
+  | "Recently Ended";
 
 export const EVENT_TIMING_TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
@@ -172,7 +173,7 @@ export function getDashboardEventRailHeading(
     .filter((e) => e.status !== "cancelled")
     .filter((e) => isNotEndedOrIsLive(e, n))
     .sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime())[0];
-  if (!first) return "Upcoming";
+  if (!first) return events.some((e) => e.status === "ended") ? "Recently Ended" : "Upcoming";
   return classifyEventTimingHeading({
     eventStart: first.eventDate,
     durationMinutes: first.duration_minutes,

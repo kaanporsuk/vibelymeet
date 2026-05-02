@@ -108,6 +108,24 @@ test("dashboard heading uses earliest eligible live or upcoming event", () => {
   );
 });
 
+test("dashboard heading does not call ended grace-window rows upcoming", () => {
+  const now = new Date("2026-04-30T12:00:00");
+
+  assert.equal(
+    getDashboardEventRailHeading(
+      [
+        {
+          eventDate: new Date("2026-04-30T10:00:00"),
+          duration_minutes: 60,
+          status: "ended",
+        },
+      ],
+      now,
+    ),
+    "Recently Ended",
+  );
+});
+
 test("this-week filter keeps only future starts later in the current local week", () => {
   const mondayNoon = new Date("2026-05-04T12:00:00");
 
