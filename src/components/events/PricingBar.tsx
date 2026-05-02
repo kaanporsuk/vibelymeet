@@ -84,6 +84,7 @@ const PricingBar = ({
 
           {/* Purchase Button */}
           <motion.div
+            className="rounded-full"
             animate={{
               boxShadow: [
                 "0 0 20px hsl(var(--primary) / 0.3)",
@@ -98,7 +99,7 @@ const PricingBar = ({
               size="lg"
               onClick={purchaseBlocked ? () => {} : onPurchase}
               disabled={isPurchasing || purchaseBlocked}
-              className="min-w-[160px]"
+              className="min-w-[160px] rounded-full"
             >
               {isPurchasing && !purchaseBlocked ? (
                 <span className="flex items-center gap-2">

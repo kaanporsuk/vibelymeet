@@ -85,6 +85,7 @@ export function PricingBar({
           disabled={isPurchasing || purchaseBlocked}
           variant="primary"
           size="lg"
+          style={styles.ctaButton}
         />
       </View>
     </View>
@@ -110,4 +111,5 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
   badgeText: { fontSize: 11, fontWeight: '600' },
   priceNote: { fontSize: 12, marginTop: 4 },
+  ctaButton: { borderRadius: 999 },
 });
