@@ -17,47 +17,41 @@ type Props = {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
-  /** Server Last Chance grace: local user still owes a decision. */
-  graceSecondsRemaining?: number | null;
 };
 
 function formatWarmHint(
-  inGrace: boolean,
-  graceSecondsRemaining: number | null | undefined,
-  isProminent: boolean,
+  isFinalTenSeconds: boolean,
   hasDecided: boolean
 ): string | null {
   if (hasDecided) return null;
-  if (inGrace && graceSecondsRemaining != null) return `${graceSecondsRemaining}s for your choice`;
-  if (isProminent) return 'A quiet nudge before warm-up ends';
+  if (isFinalTenSeconds) return 'A quiet nudge before warm-up ends';
   return null;
 }
 
-export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, graceSecondsRemaining }: Props) {
+export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [submitting, setSubmitting] = React.useState<'vibe' | 'pass' | null>(null);
   const submittingRef = useRef(false);
-  const inGrace = graceSecondsRemaining != null;
-  const isProminent = inGrace || timeLeft <= 20;
+  const isFinalTenSeconds = timeLeft <= 10;
   const hasDecided = decision === true || decision === false;
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const lastChanceFlash = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!isProminent || hasDecided) return;
+    if (!isFinalTenSeconds || hasDecided) return;
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 410, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 410, useNativeDriver: true }),
       ])
     );
     loop.start();
     return () => loop.stop();
-  }, [isProminent, hasDecided, pulseAnim]);
+  }, [isFinalTenSeconds, hasDecided, pulseAnim]);
 
   useEffect(() => {
-    if (!inGrace || hasDecided) {
+    if (!isFinalTenSeconds || hasDecided) {
       lastChanceFlash.setValue(1);
       return;
     }
@@ -72,7 +66,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
       loop.stop();
       lastChanceFlash.setValue(1);
     };
-  }, [inGrace, hasDecided, lastChanceFlash]);
+  }, [isFinalTenSeconds, hasDecided, lastChanceFlash]);
 
   const handlePress = async (action: 'vibe' | 'pass') => {
     if (hasDecided || disabled || submittingRef.current) return;
@@ -92,9 +86,9 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
     }
   };
 
-  const hint = formatWarmHint(inGrace, graceSecondsRemaining, isProminent, hasDecided);
-  const vibeScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.04] });
-  const lastChanceLabelOpacity = inGrace && !hasDecided ? lastChanceFlash : 1;
+  const hint = formatWarmHint(isFinalTenSeconds, hasDecided);
+  const vibeScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+  const lastChanceLabelOpacity = isFinalTenSeconds && !hasDecided ? lastChanceFlash : 1;
 
   if (hasDecided) {
     return (
@@ -110,11 +104,11 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
 
   return (
     <View style={styles.stripWrap}>
-      {inGrace && !hasDecided ? (
+      {isFinalTenSeconds && !hasDecided ? (
         <Animated.Text
           style={[styles.lastChanceTag, { color: theme.neonPink, opacity: lastChanceLabelOpacity }]}
         >
-          Gentle check-in
+          Warm-up ending
         </Animated.Text>
       ) : null}
 
@@ -141,7 +135,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
           )}
         </Pressable>
 
-        <Animated.View style={isProminent ? { transform: [{ scale: vibeScale }] } : undefined}>
+        <Animated.View style={isFinalTenSeconds ? { transform: [{ scale: vibeScale }] } : undefined}>
           <Pressable
             onPress={() => void handlePress('vibe')}
             disabled={disabled || submitting !== null}
@@ -167,7 +161,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled, 
       </View>
 
       {hint ? (
-        <Text style={[styles.hint, { color: inGrace ? theme.neonPink : theme.mutedForeground }]}>{hint}</Text>
+        <Text style={[styles.hint, { color: isFinalTenSeconds ? theme.neonPink : theme.mutedForeground }]}>{hint}</Text>
       ) : null}
     </View>
   );

@@ -406,11 +406,7 @@ export default function VideoDateScreen() {
   const [nativeBackgroundGraceSeconds, setNativeBackgroundGraceSeconds] = useState(0);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
-  const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
-  const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
   const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
-  /** True during grace when the server says the local user's decision is still pending. */
-  const [handshakeGraceWaitingForSelf, setHandshakeGraceWaitingForSelf] = useState(false);
 
   const callRef = useRef<ReturnType<typeof Daily.createCallObject> | null>(null);
   const roomNameRef = useRef<string | null>(null);
@@ -459,8 +455,7 @@ export default function VideoDateScreen() {
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
-  const handshakeGraceRetryTriggeredRef = useRef(false);
-  /** Opacity blink for Last Chance grace (server-owned countdown). */
+  /** Opacity heartbeat for the final 10 seconds of handshake. */
   const lastChanceBlinkOpacity = useRef(new Animated.Value(1)).current;
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
@@ -898,30 +893,7 @@ export default function VideoDateScreen() {
     }
   }, [sessionId, phase, session?.state, session?.phase, session?.date_started_at]);
 
-  const clearHandshakeGraceState = useCallback(() => {
-    setHandshakeGraceExpiresAt(null);
-    setHandshakeGraceSecondsRemaining(null);
-    setHandshakeGraceWaitingForSelf(false);
-    handshakeGraceRetryTriggeredRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    if (!handshakeGraceExpiresAt) {
-      lastChanceBlinkOpacity.setValue(1);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(lastChanceBlinkOpacity, { toValue: 0.42, duration: 360, useNativeDriver: true }),
-        Animated.timing(lastChanceBlinkOpacity, { toValue: 1, duration: 360, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      lastChanceBlinkOpacity.setValue(1);
-    };
-  }, [handshakeGraceExpiresAt, lastChanceBlinkOpacity]);
+  const clearHandshakeGraceState = useCallback(() => {}, []);
 
   const hasRemotePartner = !!remoteParticipant;
   /** Remote participant's first Daily join stamp (null = they have not opened/joined this date yet). */
@@ -1500,45 +1472,6 @@ export default function VideoDateScreen() {
     if (session.event_id) setEventId(session.event_id);
     setIsParticipant1(user.id === session.participant_1_id);
   }, [session, user?.id]);
-
-  useEffect(() => {
-    if (phase !== 'handshake') {
-      clearHandshakeGraceState();
-      return;
-    }
-    // Refresh/reconnect resilience: rebuild grace countdown from canonical session expiry.
-    const graceExpiresAtRaw = session?.handshake_grace_expires_at ?? null;
-    if (!graceExpiresAtRaw) {
-      if ((localTimeLeft ?? 0) > 0) {
-        clearHandshakeGraceState();
-      }
-      return;
-    }
-    if ((localTimeLeft ?? 0) > 0) {
-      clearHandshakeGraceState();
-      return;
-    }
-    const graceRemaining = Math.max(0, Math.ceil((new Date(graceExpiresAtRaw).getTime() - Date.now()) / 1000));
-    if (graceRemaining > 0) {
-      handshakeGraceRetryTriggeredRef.current = false;
-      setHandshakeGraceExpiresAt(graceExpiresAtRaw);
-      setHandshakeGraceSecondsRemaining(graceRemaining);
-      const isP1 = user?.id === session?.participant_1_id;
-      const decidedAt = isP1 ? session?.participant_1_decided_at : session?.participant_2_decided_at;
-      setHandshakeGraceWaitingForSelf(!decidedAt);
-    } else {
-      clearHandshakeGraceState();
-    }
-  }, [
-    phase,
-    session?.handshake_grace_expires_at,
-    session?.participant_1_id,
-    session?.participant_1_decided_at,
-    session?.participant_2_decided_at,
-    user?.id,
-    localTimeLeft,
-    clearHandshakeGraceState,
-  ]);
 
   useEffect(() => {
     if (!sessionId || !user?.id || !localInDailyRoom) return;
@@ -4596,7 +4529,6 @@ export default function VideoDateScreen() {
   useEffect(() => {
     if (phase !== 'ended' || !sessionId) return;
     clearHandshakeGraceState();
-    if (!dateEstablishedRef.current) return;
     void handleCallEnd('server_end');
   }, [phase, sessionId, handleCallEnd, clearHandshakeGraceState]);
 
@@ -4691,30 +4623,30 @@ export default function VideoDateScreen() {
           return;
         }
 
-        if (result.waiting_for_partner === true || result.waiting_for_self === true) {
-          const graceExpiresAt =
-            typeof result.grace_expires_at === 'string'
-              ? result.grace_expires_at
-              : null;
-          const serverSeconds =
-            typeof result.seconds_remaining === 'number' &&
-            Number.isFinite(result.seconds_remaining)
-              ? Math.max(0, Math.ceil(result.seconds_remaining))
-              : null;
-          const derivedSeconds =
-            graceExpiresAt !== null
-              ? Math.max(0, Math.ceil((new Date(graceExpiresAt).getTime() - Date.now()) / 1000))
-              : null;
-          handshakeGraceRetryTriggeredRef.current = false;
-          setHandshakeGraceExpiresAt(graceExpiresAt);
-          setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
-          setHandshakeGraceWaitingForSelf(result.waiting_for_self === true);
+        if (result.state === 'handshake') {
+          clearHandshakeGraceState();
+          vdbg('complete_handshake_uncertain', {
+            sessionId,
+            source,
+            reason: 'handshake_deadline_not_terminal',
+            result,
+          });
+          await refetchVideoSession();
+          if (allowRetry && phaseRef.current === 'handshake') {
+            if (handshakeCompletionRetryTimerRef.current) {
+              clearTimeout(handshakeCompletionRetryTimerRef.current);
+            }
+            handshakeCompletionRetryTimerRef.current = setTimeout(() => {
+              handshakeCompletionRetryTimerRef.current = null;
+              void completeHandshakeFromServerDeadline(`${source}_retry`, false);
+            }, 1500);
+          }
           return;
         }
 
         if (result.state === 'ended' || result.already_ended) {
           clearHandshakeGraceState();
-          if (result.reason === 'handshake_grace_expired') {
+          if (result.reason === 'handshake_timeout') {
             const message = result.waiting_for_self
               ? "Your warm-up choice wasn't saved in time."
               : result.waiting_for_partner
@@ -4730,6 +4662,8 @@ export default function VideoDateScreen() {
               local_decision_persisted: result.local_decision_persisted ?? null,
               partner_decision_persisted: result.partner_decision_persisted ?? null,
             });
+          } else if (result.reason === 'handshake_grace_expired') {
+            setCallError('The warm-up ended before both choices were saved.');
           }
           void handleCallEnd('server_end');
           return;
@@ -4754,8 +4688,7 @@ export default function VideoDateScreen() {
       !sessionId ||
       phase !== 'handshake' ||
       showFeedback ||
-      session?.ended_at ||
-      handshakeGraceSecondsRemaining !== null
+      session?.ended_at
     ) {
       return;
     }
@@ -4777,7 +4710,6 @@ export default function VideoDateScreen() {
     return () => clearTimeout(timer);
   }, [
     completeHandshakeFromServerDeadline,
-    handshakeGraceSecondsRemaining,
     phase,
     session?.ended_at,
     session?.handshake_started_at,
@@ -4799,9 +4731,7 @@ export default function VideoDateScreen() {
       showFeedback ||
       !hasRemotePartner ||
       phase === 'ended' ||
-      isTimerPaused ||
-      // Pause base handshake timer while grace mode owns the countdown.
-      (phase === 'handshake' && handshakeGraceSecondsRemaining !== null)
+      isTimerPaused
     )
       return;
     const interval = setInterval(() => {
@@ -4828,8 +4758,9 @@ export default function VideoDateScreen() {
           if (phaseRef.current === 'handshake') {
             vdbg('handshake_visible_countdown_elapsed', {
               sessionId: sessionId ?? null,
-              trigger: 'display_only',
+              trigger: 'complete_handshake',
             });
+            void completeHandshakeFromServerDeadline('handshake_visible_countdown_elapsed');
           } else {
             handleCallEnd('local_end');
           }
@@ -4848,53 +4779,9 @@ export default function VideoDateScreen() {
     isTimerPaused,
     sessionId,
     handleCallEnd,
-    handshakeGraceSecondsRemaining,
+    completeHandshakeFromServerDeadline,
     session?.date_extra_seconds,
     session?.date_started_at,
-  ]);
-
-  useEffect(() => {
-    if (
-      !sessionId ||
-      phase !== 'handshake' ||
-      showFeedback ||
-      handshakeGraceSecondsRemaining === null ||
-      handshakeGraceRetryTriggeredRef.current
-    ) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const derivedFromExpiry = handshakeGraceExpiresAt
-        ? Math.max(0, Math.ceil((new Date(handshakeGraceExpiresAt).getTime() - Date.now()) / 1000))
-        : null;
-      const nextValue =
-        derivedFromExpiry !== null
-          ? derivedFromExpiry
-          : Math.max(0, (handshakeGraceSecondsRemaining ?? 0) - 1);
-
-      setHandshakeGraceSecondsRemaining(nextValue);
-
-      if (nextValue <= 0 && !handshakeGraceRetryTriggeredRef.current) {
-        if (phaseRef.current !== 'handshake') {
-          clearHandshakeGraceState();
-          return;
-        }
-        // One-shot guard prevents repeated force-retries in grace expiry race windows.
-        handshakeGraceRetryTriggeredRef.current = true;
-        void completeHandshakeFromServerDeadline('handshake_grace_expiry');
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [
-    sessionId,
-    phase,
-    showFeedback,
-    handshakeGraceExpiresAt,
-    handshakeGraceSecondsRemaining,
-    clearHandshakeGraceState,
-    completeHandshakeFromServerDeadline,
   ]);
 
   const toggleMute = useCallback(() => {
@@ -4920,7 +4807,27 @@ export default function VideoDateScreen() {
       : effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds);
   const displayTimeLeft = localTimeLeft ?? totalTime;
   const handshakeTimerStarted =
-    phase !== 'handshake' || Boolean(session?.handshake_started_at) || handshakeGraceSecondsRemaining !== null;
+    phase !== 'handshake' || Boolean(session?.handshake_started_at);
+  const handshakeDeadlineUrgent =
+    phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10;
+
+  useEffect(() => {
+    if (!handshakeDeadlineUrgent) {
+      lastChanceBlinkOpacity.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(lastChanceBlinkOpacity, { toValue: 0.42, duration: 360, useNativeDriver: true }),
+        Animated.timing(lastChanceBlinkOpacity, { toValue: 1, duration: 360, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      lastChanceBlinkOpacity.setValue(1);
+    };
+  }, [handshakeDeadlineUrgent, lastChanceBlinkOpacity]);
 
   /** Local user is in Daily but server has no join stamp for the peer yet — distinct from reconnect / ambiguous absence. */
   const peerNotOpenedVideoDateYet = useMemo(
@@ -5007,15 +4914,6 @@ export default function VideoDateScreen() {
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
-  // During grace, only show "waiting for partner" pill when the local decision is already saved.
-  // If the local user still needs to tap, we show the Vibe CTA instead (handled by showHandshakeChrome).
-  const showHandshakeGraceWait =
-    phase === 'handshake' &&
-    hasRemotePartner &&
-    !peerMissingTerminal &&
-    handshakeGraceSecondsRemaining !== null &&
-    !handshakeGraceWaitingForSelf;
-
   const showJoiningOverlay = (joining || isConnecting) && !preJoinFailed && !peerMissingTerminal;
   const showPeerWaitOverlay =
     localInDailyRoom &&
@@ -5026,13 +4924,12 @@ export default function VideoDateScreen() {
     !joining &&
     !isConnecting;
 
-  // Show the Vibe/Pass CTA during normal handshake AND during grace when the local user still needs to decide.
+  // Show the Vibe/Pass CTA during the hard-deadline handshake.
   const showHandshakeChrome =
     phase === 'handshake' &&
     handshakeTimerStarted &&
     hasRemotePartner &&
-    !peerMissingTerminal &&
-    (handshakeGraceSecondsRemaining === null || handshakeGraceWaitingForSelf);
+    !peerMissingTerminal;
   const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
   const localHandshakeDecision = useMemo<boolean | null>(() => {
     if (!session || !user?.id) return null;
@@ -5432,26 +5329,6 @@ export default function VideoDateScreen() {
               </Text>
             </View>
           </View>
-        ) : showHandshakeGraceWait ? (
-          <View style={styles.topBarFullWidth}>
-            <View style={styles.waitingTimerPill}>
-              <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
-                <Text style={[styles.waitingTimerText, { color: theme.text }]}>
-                  Gentle check-in · {handshakeGraceSecondsRemaining}s — waiting softly
-                </Text>
-              </Animated.View>
-            </View>
-          </View>
-        ) : handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null ? (
-          <View style={styles.topBarFullWidth}>
-            <View style={[styles.waitingTimerPill, { backgroundColor: theme.tintSoft }]}>
-              <Animated.View style={{ opacity: lastChanceBlinkOpacity }}>
-                <Text style={[styles.waitingTimerText, { color: theme.tint }]}>
-                  Gentle check-in · {handshakeGraceSecondsRemaining}s — choose when ready
-                </Text>
-              </Animated.View>
-            </View>
-          </View>
         ) : hasRemotePartner ? (
           <View style={styles.phaseHudRow}>
             {netQualityTier !== 'good' ? (
@@ -5465,13 +5342,21 @@ export default function VideoDateScreen() {
               </Text>
             ) : null}
             <View style={[styles.phaseTimePill, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
-              <Text style={[styles.phaseTimeText, { color: theme.text }]}>
+              <Animated.Text
+                style={[
+                  styles.phaseTimeText,
+                  {
+                    color: handshakeDeadlineUrgent ? theme.neonPink : theme.text,
+                    opacity: handshakeDeadlineUrgent ? lastChanceBlinkOpacity : 1,
+                  },
+                ]}
+              >
                 {phase === 'handshake'
                   ? handshakeTimerStarted
                     ? `Warm up · ${formatVideoDateCountdown(Math.max(0, displayTimeLeft))}`
                     : 'Settling in softly'
                   : `Live · ${formatVideoDateCountdown(Math.max(0, displayTimeLeft))}`}
-              </Text>
+              </Animated.Text>
             </View>
           </View>
         ) : null}
@@ -5487,13 +5372,10 @@ export default function VideoDateScreen() {
             />
           ) : null}
           <VibeCheckButton
-            timeLeft={handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null
-              ? handshakeGraceSecondsRemaining
-              : displayTimeLeft}
+            timeLeft={displayTimeLeft}
             decision={localHandshakeDecision}
             onVibe={handleUserVibe}
             onPass={handleUserPass}
-            graceSecondsRemaining={handshakeGraceWaitingForSelf ? handshakeGraceSecondsRemaining : null}
           />
         </View>
       )}

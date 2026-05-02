@@ -122,6 +122,10 @@ const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
   "utf8",
 );
+const handshakeDeadlineFinalizerMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260502143000_video_date_handshake_deadline_finalizer.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -208,8 +212,20 @@ const webVideoDatePage = readFileSync(
   join(process.cwd(), "src/pages/VideoDate.tsx"),
   "utf8",
 );
+const webVibeCheckButton = readFileSync(
+  join(process.cwd(), "src/components/video-date/VibeCheckButton.tsx"),
+  "utf8",
+);
+const webHandshakeTimer = readFileSync(
+  join(process.cwd(), "src/components/video-date/HandshakeTimer.tsx"),
+  "utf8",
+);
 const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
+  "utf8",
+);
+const nativeVibeCheckButton = readFileSync(
+  join(process.cwd(), "apps/mobile/components/video-date/VibeCheckButton.tsx"),
   "utf8",
 );
 const adminVideoDateOpsFunction = readFileSync(
@@ -1504,6 +1520,51 @@ test("partial join cleanup polish removes accidental identifier truncation and e
   );
   assert.match(videoDateValidationSql, /partial_join_cleanup_helper_has_intentional_name/);
   assert.match(videoDateValidationSql, /timeline_includes_stale_cleanup_events/);
+});
+
+test("handshake deadline finalizer removes grace and finalizes all due decision states", () => {
+  assert.match(handshakeDeadlineFinalizerMigration, /CREATE OR REPLACE FUNCTION public\.finalize_video_date_handshake_deadline/);
+  assert.match(handshakeDeadlineFinalizerMigration, /handshake_started_at \+ interval '60 seconds' <= v_now/);
+  assert.match(handshakeDeadlineFinalizerMigration, /v_terminal_reason := 'handshake_not_mutual'/);
+  assert.match(handshakeDeadlineFinalizerMigration, /v_terminal_reason := 'handshake_timeout'/);
+  assert.match(handshakeDeadlineFinalizerMigration, /handshake_deadline_completed_mutual/);
+  assert.match(handshakeDeadlineFinalizerMigration, /handshake_deadline_not_mutual/);
+  assert.match(handshakeDeadlineFinalizerMigration, /handshake_deadline_timeout/);
+  assert.match(handshakeDeadlineFinalizerMigration, /handshake_grace_removed', true/);
+  assert.doesNotMatch(handshakeDeadlineFinalizerMigration, /v_now \+ interval '10 seconds'/);
+  assert.doesNotMatch(handshakeDeadlineFinalizerMigration, /handshake_grace_started/);
+});
+
+test("both-joined handshakes past the 60s deadline are no longer preserved forever", () => {
+  assert.match(handshakeDeadlineFinalizerMigration, /CREATE OR REPLACE FUNCTION public\.expire_due_joined_video_date_handshakes_bounded/);
+  assert.match(
+    handshakeDeadlineFinalizerMigration,
+    /participant_1_joined_at IS NOT NULL[\s\S]*participant_2_joined_at IS NOT NULL[\s\S]*handshake_started_at \+ interval '60 seconds' <= v_now/s,
+  );
+  assert.match(
+    handshakeDeadlineFinalizerMigration,
+    /v_due := public\.expire_due_joined_video_date_handshakes_bounded\(v_limit\)/,
+  );
+  assert.match(
+    handshakeDeadlineFinalizerMigration,
+    /'handshake_deadline_timeout', COALESCE\(\(v_due->>'handshake_deadline_timeout'\)::int, 0\)/,
+  );
+  assert.match(handshakeDeadlineFinalizerMigration, /server_cleanup_due_joined_handshake/);
+});
+
+test("web and native countdown-zero paths complete handshake and last-10s urgency is bounded to handshake", () => {
+  assert.match(webVideoDatePage, /handshake_visible_countdown_elapsed[\s\S]{0,220}trigger: "complete_handshake"/);
+  assert.match(webVideoDatePage, /checkMutualVibeRef\.current\?\.\("handshake_visible_countdown_elapsed"\)/);
+  assert.doesNotMatch(webVideoDatePage, /handshake_grace_expiry/);
+  assert.match(nativeVideoDateRoute, /handshake_visible_countdown_elapsed[\s\S]{0,220}trigger: 'complete_handshake'/);
+  assert.match(nativeVideoDateRoute, /completeHandshakeFromServerDeadline\('handshake_visible_countdown_elapsed'\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
+  assert.match(webVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
+  assert.match(webVibeCheckButton, /Warm-up ending/);
+  assert.match(webHandshakeTimer, /const isUrgent = timeLeft <= 10/);
+  assert.match(nativeVideoDateRoute, /phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10/);
+  assert.match(nativeVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
+  assert.match(nativeVibeCheckButton, /Warm-up ending/);
 });
 
 test("partial join terminal reason is excluded from post-date survey contracts", () => {

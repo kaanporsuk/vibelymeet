@@ -7,6 +7,10 @@ const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260430170000_video_date_explicit_handshake_decisions.sql"),
   "utf8",
 );
+const deadlineFinalizerMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260502143000_video_date_handshake_deadline_finalizer.sql"),
+  "utf8",
+);
 
 test("migration adds explicit handshake decision timestamps", () => {
   assert.match(migration, /ADD COLUMN IF NOT EXISTS participant_1_decided_at timestamptz/);
@@ -39,4 +43,30 @@ test("safe client payload exposes actor-relative waiting state", () => {
   assert.match(migration, /'waiting_for_partner', v_waiting_for_partner/);
   assert.match(migration, /'local_decision_persisted', NOT v_waiting_for_self/);
   assert.match(migration, /'partner_decision_persisted', NOT v_waiting_for_partner/);
+});
+
+test("deadline finalizer removes Last Chance grace while preserving explicit-decision semantics", () => {
+  assert.match(deadlineFinalizerMigration, /CREATE OR REPLACE FUNCTION public\.finalize_video_date_handshake_deadline/);
+  assert.match(deadlineFinalizerMigration, /v_p1_explicit_pass := v_p1_decided AND v_session\.participant_1_liked IS FALSE/);
+  assert.match(deadlineFinalizerMigration, /v_p2_explicit_pass := v_p2_decided AND v_session\.participant_2_liked IS FALSE/);
+  assert.match(deadlineFinalizerMigration, /v_terminal_reason := 'handshake_not_mutual'/);
+  assert.match(deadlineFinalizerMigration, /v_terminal_reason := 'handshake_timeout'/);
+  assert.match(deadlineFinalizerMigration, /handshake_started_at \+ interval '60 seconds' <= v_now/);
+  assert.doesNotMatch(deadlineFinalizerMigration, /v_now \+ interval '10 seconds'/);
+  assert.doesNotMatch(deadlineFinalizerMigration, /handshake_grace_started/);
+});
+
+test("late Vibe or Pass taps after the deadline finalize instead of persisting new choices", () => {
+  assert.match(
+    deadlineFinalizerMigration,
+    /IF p_action IN \('vibe', 'pass'\)[\s\S]*v_due := v_session\.handshake_started_at \+ interval '60 seconds' <= now\(\)/s,
+  );
+  assert.match(
+    deadlineFinalizerMigration,
+    /'late_' \|\| p_action \|\| '_after_handshake_deadline'/,
+  );
+  assert.match(
+    deadlineFinalizerMigration,
+    /RETURN public\.finalize_video_date_handshake_deadline\(/,
+  );
 });

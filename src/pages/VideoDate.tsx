@@ -56,7 +56,6 @@ import {
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
 import {
-  HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
   handshakeDecisionFailureIndicatesSessionEnded,
   handshakeTruthLogPayload,
@@ -208,10 +207,6 @@ const VideoDate = () => {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
-  const [handshakeGraceExpiresAt, setHandshakeGraceExpiresAt] = useState<string | null>(null);
-  const [handshakeGraceSecondsRemaining, setHandshakeGraceSecondsRemaining] = useState<number | null>(null);
-  /** True when server `complete_handshake` says the local user still owes a decision during grace. */
-  const [handshakeGraceWaitingForSelf, setHandshakeGraceWaitingForSelf] = useState(false);
   const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
   const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
@@ -231,11 +226,11 @@ const VideoDate = () => {
   const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
   const eventIdRef = useRef<string | undefined>(undefined);
-  const handshakeGraceRetryTriggeredRef = useRef(false);
   const handshakeCompletionInFlightRef = useRef(false);
   const handshakeDecisionInFlightRef = useRef(false);
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const checkMutualVibeRef = useRef<((source?: string, allowRetry?: boolean) => void) | null>(null);
   // Canonical Daily room name loaded from video_sessions; used for safe beforeunload cleanup.
   const canonicalRoomNameRef = useRef<string | null>(null);
   const hasEnteredDateFlowRef = useRef(false);
@@ -259,12 +254,7 @@ const VideoDate = () => {
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
 
-  const clearHandshakeGraceState = useCallback(() => {
-    setHandshakeGraceExpiresAt(null);
-    setHandshakeGraceSecondsRemaining(null);
-    setHandshakeGraceWaitingForSelf(false);
-    handshakeGraceRetryTriggeredRef.current = false;
-  }, []);
+  const clearHandshakeGraceState = useCallback(() => {}, []);
 
   const { credits, refetch: refetchCredits } = useCredits();
   const { setStatus } = useEventStatus({ eventId });
@@ -676,7 +666,6 @@ const VideoDate = () => {
         callStarted,
         callStartFailure: callStartFailure?.kind ?? null,
         showMutualToast,
-        handshakeGraceSecondsRemaining,
         reconnect_partner_disconnected: reconnection.isPartnerDisconnected,
         reconnect_timer_paused: reconnection.isTimerPaused,
       },
@@ -695,7 +684,6 @@ const VideoDate = () => {
     callStarted,
     callStartFailure?.kind,
     showMutualToast,
-    handshakeGraceSecondsRemaining,
     reconnection.isPartnerDisconnected,
     reconnection.isTimerPaused,
   ]);
@@ -1290,31 +1278,11 @@ const VideoDate = () => {
         const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
         const handshakeRemaining = Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed));
         setTimeLeft(handshakeRemaining);
-        // Refresh/reconnect resilience: rebuild grace countdown from canonical server expiry.
-        const graceExpiresAtRaw =
-          (data as { handshake_grace_expires_at?: string | null }).handshake_grace_expires_at ?? null;
-        if (handshakeRemaining <= 0 && graceExpiresAtRaw) {
-          const graceRemaining = Math.max(0, Math.ceil((new Date(graceExpiresAtRaw).getTime() - Date.now()) / 1000));
-          if (graceRemaining > 0) {
-            setHandshakeGraceExpiresAt(graceExpiresAtRaw);
-            setHandshakeGraceSecondsRemaining(graceRemaining);
-            const uid = user?.id;
-            const p1 = (data as { participant_1_id?: string | null }).participant_1_id;
-            const p2 = (data as { participant_2_id?: string | null }).participant_2_id;
-            if (uid && p1 && p2) {
-              const isP1 = uid === p1;
-              const decidedAt = isP1
-                ? (data as { participant_1_decided_at?: string | null }).participant_1_decided_at
-                : (data as { participant_2_decided_at?: string | null }).participant_2_decided_at;
-              setHandshakeGraceWaitingForSelf(!decidedAt);
-            } else {
-              setHandshakeGraceWaitingForSelf(false);
-            }
-          } else {
-            clearHandshakeGraceState();
-          }
-        } else {
-          clearHandshakeGraceState();
+        clearHandshakeGraceState();
+        if (handshakeRemaining <= 0) {
+          window.setTimeout(() => {
+            void checkMutualVibeRef.current?.("handshake_timing_refetch_deadline_elapsed");
+          }, 0);
         }
         setTimingReady(true);
         return;
@@ -1591,6 +1559,10 @@ const VideoDate = () => {
               clearHandshakeGraceState();
               setPhase("ended");
               setTimeLeft(0);
+              void (async () => {
+                await endCall("server_handshake_terminal");
+                await handleCallEndRef.current?.();
+              })();
             }
             return;
           }
@@ -1620,28 +1592,9 @@ const VideoDate = () => {
             const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
             const handshakeRemaining = Math.ceil(Math.max(0, HANDSHAKE_TIME - elapsed));
             setTimeLeft(handshakeRemaining);
-            const graceExpiresAtRaw =
-              typeof row.handshake_grace_expires_at === "string" ? row.handshake_grace_expires_at : null;
-            if (handshakeRemaining <= 0 && graceExpiresAtRaw) {
-              const graceRemaining = Math.max(0, Math.ceil((new Date(graceExpiresAtRaw).getTime() - Date.now()) / 1000));
-              if (graceRemaining > 0) {
-                setHandshakeGraceExpiresAt(graceExpiresAtRaw);
-                setHandshakeGraceSecondsRemaining(graceRemaining);
-                const uid = user?.id;
-                const p1 = row.participant_1_id as string | undefined;
-                const p2 = row.participant_2_id as string | undefined;
-                if (uid && p1 && p2) {
-                  const isP1 = uid === p1;
-                  const decidedAt = isP1 ? row.participant_1_decided_at : row.participant_2_decided_at;
-                  setHandshakeGraceWaitingForSelf(!decidedAt);
-                } else {
-                  setHandshakeGraceWaitingForSelf(false);
-                }
-              } else {
-                clearHandshakeGraceState();
-              }
-            } else {
-              clearHandshakeGraceState();
+            clearHandshakeGraceState();
+            if (handshakeRemaining <= 0) {
+              void checkMutualVibeRef.current?.("handshake_realtime_deadline_elapsed");
             }
             setPhase("handshake");
           }
@@ -1657,6 +1610,7 @@ const VideoDate = () => {
     user?.id,
     videoDateAccess,
     clearHandshakeGraceState,
+    endCall,
     markDateFlowEntered,
     openPostDateSurvey,
     trackTimerDriftRecovery,
@@ -1683,9 +1637,7 @@ const VideoDate = () => {
       showFeedback ||
       !isConnected ||
       phase === "ended" ||
-      reconnection.isTimerPaused ||
-      // Pause base handshake timer while grace mode owns the countdown.
-      (phase === "handshake" && handshakeGraceSecondsRemaining !== null)
+      reconnection.isTimerPaused
     )
       return;
 
@@ -1714,8 +1666,9 @@ const VideoDate = () => {
           if (phaseRef.current === "handshake") {
             vdbg("handshake_visible_countdown_elapsed", {
               sessionId: id ?? null,
-              trigger: "display_only",
+              trigger: "complete_handshake",
             });
+            void checkMutualVibeRef.current?.("handshake_visible_countdown_elapsed");
           } else {
             toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
             void handleCallEndRef.current?.();
@@ -1735,7 +1688,6 @@ const VideoDate = () => {
     isConnected,
     phase,
     reconnection.isTimerPaused,
-    handshakeGraceSecondsRemaining,
     dateStartedAt,
     dateExtraSeconds,
   ]);
@@ -2222,29 +2174,9 @@ const VideoDate = () => {
           }),
         );
         setShowMutualToast(true);
-      } else if (payload?.waiting_for_partner === true || payload?.waiting_for_self === true) {
-        const graceExpiresAt =
-          typeof payload?.grace_expires_at === "string" ? payload.grace_expires_at : null;
-        const serverSeconds =
-          typeof payload?.seconds_remaining === "number" && Number.isFinite(payload.seconds_remaining)
-            ? Math.max(0, Math.ceil(payload.seconds_remaining))
-            : null;
-        const derivedSeconds =
-          graceExpiresAt !== null
-            ? Math.max(0, Math.ceil((new Date(graceExpiresAt).getTime() - Date.now()) / 1000))
-            : null;
-
-        handshakeGraceRetryTriggeredRef.current = false;
-        setHandshakeGraceExpiresAt(graceExpiresAt);
-        setHandshakeGraceSecondsRemaining(derivedSeconds ?? serverSeconds ?? 0);
-        setHandshakeGraceWaitingForSelf(payload.waiting_for_self === true);
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_HANDSHAKE_GRACE_STARTED, {
-          platform: "web",
-          session_id: id,
-          event_id: eventId,
-          waiting_for_self: payload.waiting_for_self === true,
-          waiting_for_partner: payload.waiting_for_partner === true,
-        });
+      } else if (payload?.state === "handshake") {
+        clearHandshakeGraceState();
+        scheduleRetry("handshake_deadline_not_terminal");
         return;
       } else {
         clearHandshakeGraceState();
@@ -2254,13 +2186,15 @@ const VideoDate = () => {
           event_id: eventId,
           reason: payload?.reason ?? null,
         });
-        if (payload?.reason === "handshake_grace_expired") {
+        if (payload?.reason === "handshake_timeout") {
           const message = payload.waiting_for_self
             ? "Your warm-up choice wasn't saved in time."
             : payload.waiting_for_partner
               ? "Their warm-up choice wasn't saved in time."
               : "The warm-up ended before both choices were saved.";
           toast.error(message, { duration: 3000 });
+        } else if (payload?.reason === "handshake_grace_expired") {
+          toast.error("The warm-up ended before both choices were saved.", { duration: 3000 });
         } else {
           toast("Great meeting you! 👋", { duration: 2500 });
         }
@@ -2282,11 +2216,19 @@ const VideoDate = () => {
   }, [id, eventId, endCall, clearHandshakeGraceState, markDateFlowEntered]);
 
   useEffect(() => {
+    checkMutualVibeRef.current = checkMutualVibe;
+    return () => {
+      if (checkMutualVibeRef.current === checkMutualVibe) {
+        checkMutualVibeRef.current = null;
+      }
+    };
+  }, [checkMutualVibe]);
+
+  useEffect(() => {
     if (
       !id ||
       phase !== "handshake" ||
       showFeedback ||
-      handshakeGraceSecondsRemaining !== null ||
       !handshakeStartedAt
     ) {
       return;
@@ -2307,56 +2249,10 @@ const VideoDate = () => {
     return () => clearTimeout(timer);
   }, [
     checkMutualVibe,
-    handshakeGraceSecondsRemaining,
     handshakeStartedAt,
     id,
     phase,
     showFeedback,
-  ]);
-
-  // Handshake grace countdown. One forced complete_handshake retry at expiry.
-  useEffect(() => {
-    if (
-      !id ||
-      phase !== "handshake" ||
-      showFeedback ||
-      handshakeGraceSecondsRemaining === null ||
-      handshakeGraceRetryTriggeredRef.current
-    ) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const derivedFromExpiry = handshakeGraceExpiresAt
-        ? Math.max(0, Math.ceil((new Date(handshakeGraceExpiresAt).getTime() - Date.now()) / 1000))
-        : null;
-      const nextValue =
-        derivedFromExpiry !== null
-          ? derivedFromExpiry
-          : Math.max(0, (handshakeGraceSecondsRemaining ?? 0) - 1);
-
-      setHandshakeGraceSecondsRemaining(nextValue);
-
-      if (nextValue <= 0 && !handshakeGraceRetryTriggeredRef.current) {
-        if (phaseRef.current !== "handshake") {
-          clearHandshakeGraceState();
-          return;
-        }
-        // One-shot guard prevents repeated force-retries in grace expiry race windows.
-        handshakeGraceRetryTriggeredRef.current = true;
-        void checkMutualVibe("handshake_grace_expiry");
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [
-    id,
-    phase,
-    showFeedback,
-    handshakeGraceExpiresAt,
-    handshakeGraceSecondsRemaining,
-    checkMutualVibe,
-    clearHandshakeGraceState,
   ]);
 
   const handleMutualToastComplete = useCallback(async () => {
@@ -2714,13 +2610,10 @@ const VideoDate = () => {
 
   const totalTime =
     phase === "handshake" ? HANDSHAKE_TIME : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);
-  const handshakeInGraceCountdown = phase === "handshake" && handshakeGraceSecondsRemaining !== null;
-  const handshakeTimerDisplayLeft = handshakeInGraceCountdown
-    ? (handshakeGraceSecondsRemaining ?? 0)
-    : (timeLeft ?? 0);
-  const handshakeTimerTotal = handshakeInGraceCountdown ? HANDSHAKE_LAST_CHANCE_GRACE_SECONDS : totalTime;
+  const handshakeTimerDisplayLeft = timeLeft ?? 0;
+  const handshakeTimerTotal = totalTime;
   const handshakeTimerStarted =
-    phase !== "handshake" || Boolean(handshakeStartedAt) || handshakeInGraceCountdown;
+    phase !== "handshake" || Boolean(handshakeStartedAt);
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
   const transportReconnectVisible =
     dailyReconnectState === "interrupted" ||
@@ -3044,23 +2937,6 @@ const VideoDate = () => {
               <span className="text-[10px] text-muted-foreground">Waiting together</span>
             </motion.div>
           )}
-          {isConnected && phase === "handshake" && handshakeGraceSecondsRemaining !== null && (
-            <motion.div
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30"
-            >
-              <motion.span
-                className="text-[10px] font-medium text-amber-500 block"
-                animate={{ opacity: [1, 0.45, 1] }}
-                transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
-              >
-                {handshakeGraceWaitingForSelf
-                  ? `Gentle check-in · ${handshakeGraceSecondsRemaining}s — choose when ready`
-                  : `Gentle check-in · ${handshakeGraceSecondsRemaining}s — waiting softly`}
-              </motion.span>
-            </motion.div>
-          )}
         </div>
 
         {/* Keep the Vibe — credits extension (date phase only) */}
@@ -3161,15 +3037,10 @@ const VideoDate = () => {
             className="absolute bottom-28 left-0 right-0 z-25 flex justify-center"
           >
             <VibeCheckButton
-              timeLeft={
-                handshakeGraceWaitingForSelf && handshakeGraceSecondsRemaining !== null
-                  ? handshakeGraceSecondsRemaining
-                  : (timeLeft ?? 0)
-              }
+              timeLeft={timeLeft ?? 0}
               decision={localHandshakeDecision}
               onVibe={handleUserVibe}
               onPass={handleUserPass}
-              graceSecondsRemaining={handshakeGraceWaitingForSelf ? handshakeGraceSecondsRemaining : null}
             />
           </motion.div>
         )}

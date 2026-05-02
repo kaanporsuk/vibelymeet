@@ -8,8 +8,6 @@ interface VibeCheckButtonProps {
   onVibe: () => void | Promise<boolean | void>;
   onPass: () => void | Promise<boolean | void>;
   disabled?: boolean;
-  /** Server Last Chance grace: local user still owes a decision. */
-  graceSecondsRemaining?: number | null;
 }
 
 export const VibeCheckButton = ({
@@ -18,12 +16,10 @@ export const VibeCheckButton = ({
   onVibe,
   onPass,
   disabled,
-  graceSecondsRemaining,
 }: VibeCheckButtonProps) => {
   const [submitting, setSubmitting] = useState<"vibe" | "pass" | null>(null);
   const submittingRef = useRef(false);
-  const inGrace = graceSecondsRemaining != null;
-  const isProminent = inGrace || timeLeft <= 20;
+  const isFinalTenSeconds = timeLeft <= 10;
   const hasDecided = decision === true || decision === false;
 
   const handleTap = async (action: "vibe" | "pass") => {
@@ -58,13 +54,13 @@ export const VibeCheckButton = ({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      {inGrace && !hasDecided ? (
+      {isFinalTenSeconds && !hasDecided ? (
         <motion.p
           className="text-[11px] font-display font-bold tracking-widest text-primary uppercase"
           animate={{ opacity: [1, 0.4, 1] }}
           transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
         >
-          Gentle check-in
+          Warm-up ending
         </motion.p>
       ) : null}
       <p
@@ -89,18 +85,18 @@ export const VibeCheckButton = ({
           disabled={disabled || submitting !== null}
           whileTap={{ scale: 0.92 }}
           animate={
-            isProminent
+            isFinalTenSeconds
               ? {
-                  scale: [1, 1.05, 1],
+                  scale: [1, 1.08, 1],
                   boxShadow: [
                     "0 0 0px hsl(var(--primary) / 0)",
-                    "0 0 24px hsl(var(--primary) / 0.5)",
+                    "0 0 30px hsl(var(--primary) / 0.65)",
                     "0 0 0px hsl(var(--primary) / 0)",
                   ],
                 }
               : {}
           }
-          transition={isProminent ? { duration: 1.8, repeat: Infinity, ease: "easeInOut" } : {}}
+          transition={isFinalTenSeconds ? { duration: 0.82, repeat: Infinity, ease: "easeInOut" } : {}}
           className="relative flex items-center gap-2 px-5 py-3 rounded-full border-2 border-primary/80 bg-primary text-primary-foreground shadow-lg transition-colors disabled:opacity-60"
         >
           <Heart className="w-5 h-5 fill-primary-foreground/30" />
@@ -110,13 +106,11 @@ export const VibeCheckButton = ({
         </motion.button>
       </div>
       <p
-        className={`max-w-[240px] text-center text-[10px] leading-snug ${inGrace ? "text-primary font-medium" : "text-muted-foreground/70"}`}
+        className={`max-w-[240px] text-center text-[10px] leading-snug ${isFinalTenSeconds ? "text-primary font-medium" : "text-muted-foreground/70"}`}
       >
-        {inGrace
-          ? `${graceSecondsRemaining}s left for your choice.`
-          : isProminent
-            ? "A quiet nudge before the warm-up ends."
-            : "Your choice only continues after it saves."}
+        {isFinalTenSeconds
+          ? "A quiet nudge before the warm-up ends."
+          : "Your choice only continues after it saves."}
       </p>
     </div>
   );
