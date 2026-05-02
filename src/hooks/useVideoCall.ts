@@ -1184,7 +1184,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         };
 
         const recoverTransport = (reason: string) => {
-          if (!reconnectGraceActiveRef.current) return;
+          if (!reconnectGraceActiveRef.current) {
+            reconnectSyncRequestedRef.current = false;
+            setReconnectGraceTimeLeft(0);
+            setDailyReconnectState("connected");
+            return;
+          }
           setDailyReconnectState("partner_reconnecting");
           clearReconnectGrace(reason, true);
           if (reconnectPartnerAwayTriggeredRef.current) {
@@ -1424,6 +1429,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             return;
           }
           if (event?.event === "reconnecting") {
+            startReconnectGrace("network_reconnecting");
             setDailyReconnectState("partner_reconnecting");
             logTransportState("daily_transport_reconnecting", { networkEvent: event.event });
             return;

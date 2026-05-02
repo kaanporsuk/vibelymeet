@@ -1492,6 +1492,7 @@ test("web and native expose clear peer-missing choices instead of toast-only tim
   assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_ATTEMPT/);
   assert.match(webVideoCallHook, /VIDEO_DATE_NO_REMOTE_RECOVERY_FAILED/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_RETRY_TAP/);
+  assert.match(webVideoDatePage, /endCall\("peer_missing_retry"\)/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_KEEP_WAITING_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP/);
   assert.match(webVideoDatePage, /VIDEO_DATE_NO_REMOTE_USER_EXIT/);
@@ -1526,6 +1527,31 @@ test("web video date access recovery covers permission denial and playback-block
   assert.match(webVideoDatePage, /clearMediaPermissionError\(\)/);
   assert.match(webConnectionOverlay, /Resume audio\/video/);
   assert.match(webConnectionOverlay, /browser paused the video or audio/);
+});
+
+test("web Daily reconnect states cannot suppress the connection overlay forever", () => {
+  assert.match(
+    webVideoCallHook,
+    /if \(!reconnectGraceActiveRef\.current\) \{[\s\S]*setReconnectGraceTimeLeft\(0\);[\s\S]*setDailyReconnectState\("connected"\);[\s\S]*return;/,
+  );
+  assert.match(
+    webVideoCallHook,
+    /if \(event\?\.event === "reconnecting"\) \{[\s\S]*startReconnectGrace\("network_reconnecting"\);[\s\S]*setDailyReconnectState\("partner_reconnecting"\);/,
+  );
+  assert.match(
+    webVideoCallHook,
+    /if \(event\?\.event === "reconnected" \|\| event\?\.event === "connected"\) \{[\s\S]*recoverTransport\(`network_\$\{event\.event\}`\);/,
+  );
+});
+
+test("web video-date loading guard emits production-safe slow-path diagnostics", () => {
+  assert.match(lobbyToPostDateJourney, /VIDEO_DATE_ROUTE_GUARD_SLOW: 'video_date_route_guard_slow'/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000/);
+  assert.match(webVideoDatePage, /VIDEO_DATE_ROUTE_GUARD_SLOW/);
+  assert.match(webVideoDatePage, /video_date_route_guard_slow/);
+  assert.match(webVideoDatePage, /date_guard_loading_watchdog/);
+  assert.match(webVideoDatePage, /setVideoDateAccess\("allowed"\);[\s\S]*get_profile_for_viewer/);
+  assert.match(webVideoDatePage, /date_guard_partner_profile_failed/);
 });
 
 test("observability v1 logs ready-gate transitions without owning semantics", () => {
