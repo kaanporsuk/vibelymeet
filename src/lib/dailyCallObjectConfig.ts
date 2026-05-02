@@ -43,7 +43,6 @@ export function dailyVideoDateCallObjectOptions(
     },
     dailyConfig: {
       avoidEval: true,
-      userMediaVideoConstraints: videoConstraints,
     },
   };
 }

@@ -104,9 +104,14 @@ assert(
 assert(
   webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
     webDailyConfig.includes("videoDateWebMediaStreamConstraints") &&
-    webDailyConfig.includes("userMediaVideoConstraints: videoConstraints") &&
+    webDailyConfig.includes("inputSettings") &&
+    webDailyConfig.includes("settings: videoConstraints") &&
     webDailyConfig.includes("avoidEval: true"),
   `${webDailyConfigPath}: web Video Date Daily options must use the shared CSP-safe media helper`
+);
+assert(
+  !webDailyConfig.includes("userMediaVideoConstraints"),
+  `${webDailyConfigPath}: web Video Date Daily options must not use deprecated userMediaVideoConstraints`
 );
 assert(
   webVideoCall.includes("dailyVideoDateCallObjectOptions(captureProfileForCall)"),

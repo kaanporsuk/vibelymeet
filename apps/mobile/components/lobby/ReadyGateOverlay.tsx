@@ -113,6 +113,7 @@ export type ReadyGateOverlayProps = {
   partnerImageUri?: string | null;
   onNavigateToDate: (sessionId: string) => void;
   onClose: () => void;
+  onManualExitConfirmed?: (sessionId: string) => void;
   /** Sonner-equivalent feedback on the lobby after close (forfeit / stale) — avoids blocking modal alerts. */
   onLobbyUserMessage?: (message: string, variant?: 'info' | 'success') => void;
 };
@@ -124,6 +125,7 @@ export function ReadyGateOverlay({
   partnerImageUri,
   onNavigateToDate,
   onClose,
+  onManualExitConfirmed,
   onLobbyUserMessage,
 }: ReadyGateOverlayProps) {
   const colorScheme = useColorScheme();
@@ -139,6 +141,7 @@ export function ReadyGateOverlay({
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const terminalActionInFlightRef = useRef(false);
+  const manualExitRequestedRef = useRef(false);
   const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
@@ -627,10 +630,22 @@ export function ReadyGateOverlay({
           reason_code: recoveryInput.reason ?? reason,
         });
       }
+      if (manualExitRequestedRef.current) {
+        onManualExitConfirmed?.(sessionId);
+      }
+      manualExitRequestedRef.current = false;
       onLobbyUserMessage?.(recovery.toast, 'info');
       onClose();
     },
-    [eventId, onClose, sessionId, onLobbyUserMessage, suppressDuplicateTerminal, trackNativeReadyGateEvent],
+    [
+      eventId,
+      onClose,
+      onManualExitConfirmed,
+      sessionId,
+      onLobbyUserMessage,
+      suppressDuplicateTerminal,
+      trackNativeReadyGateEvent,
+    ],
   );
 
   const {
@@ -662,6 +677,7 @@ export function ReadyGateOverlay({
     expirySyncInFlightRef.current = false;
     expirySyncRetryAtMsRef.current = 0;
     terminalActionInFlightRef.current = false;
+    manualExitRequestedRef.current = false;
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
@@ -856,9 +872,32 @@ export function ReadyGateOverlay({
       event_id: eventId,
       dismiss_variant: dismissVariant,
     });
+    manualExitRequestedRef.current = true;
     try {
-      const ok = await forfeit();
-      if (!ok) throw new Error('ready_gate_forfeit_failed');
+      const result = await forfeit();
+      if (!result.ok) throw new Error('ready_gate_forfeit_failed');
+      if (result.status === 'both_ready') {
+        manualExitRequestedRef.current = false;
+        terminalActionInFlightRef.current = false;
+        pendingForfeitReasonRef.current = null;
+        setTerminalActionPending(false);
+        trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: 'ready_gate_overlay',
+          source_action: dismissVariant,
+          outcome: 'both_ready_race',
+          reason: 'both_ready',
+        });
+        return;
+      }
+      const terminal =
+        result.terminal === true ||
+        result.isTerminal === true ||
+        result.status === 'forfeited' ||
+        result.status === 'expired';
+      if (!terminal) throw new Error('ready_gate_forfeit_not_terminal');
       trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
         platform: 'native',
         session_id: sessionId,
@@ -868,10 +907,18 @@ export function ReadyGateOverlay({
         outcome: 'success',
         reason: 'forfeit',
       });
-      await handleForfeited(reason);
+      await handleForfeited(result.status === 'expired' ? 'timeout' : reason, {
+        status: result.status ?? 'forfeited',
+        reason: result.reason ?? 'ready_gate_forfeit',
+        inactiveReason: result.inactiveReason ?? null,
+        errorCode: result.errorCode ?? result.code ?? null,
+        code: result.code ?? null,
+        terminal: true,
+      });
     } catch (e) {
       terminalActionInFlightRef.current = false;
       pendingForfeitReasonRef.current = null;
+      manualExitRequestedRef.current = false;
       if (closedRef.current || dateNavigationStartedRef.current) return;
       const message = "We couldn't step away. Check your connection and try again.";
       setTerminalActionPending(false);
@@ -1159,8 +1206,8 @@ export function ReadyGateOverlay({
                     void (async () => {
                       try {
                         setTerminalActionError(null);
-                        const ok = await markReady();
-                        if (!ok) throw new Error('ready_gate_mark_ready_failed');
+                        const result = await markReady();
+                        if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
                       } catch (e) {
                         setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
                         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_mark_ready_exception', {
@@ -1199,8 +1246,8 @@ export function ReadyGateOverlay({
                       void (async () => {
                         try {
                           setTerminalActionError(null);
-                          const ok = await snooze();
-                          if (!ok) throw new Error('ready_gate_snooze_failed');
+                          const result = await snooze();
+                          if (!result.ok) throw new Error('ready_gate_snooze_failed');
                         } catch (e) {
                           setTerminalActionError("We couldn't snooze this match. Check your connection and try again.");
                           rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_snooze_exception', {

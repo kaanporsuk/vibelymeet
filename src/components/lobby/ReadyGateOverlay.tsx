@@ -47,6 +47,7 @@ interface ReadyGateOverlayProps {
   eventId: string;
   onClose: () => void;
   onNavigateToDate: (sessionId: string, source: string) => void;
+  onManualExitConfirmed?: (sessionId: string) => void;
 }
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
@@ -121,7 +122,13 @@ function prepareEntryTransitionCopy(status: PrepareEntryStatus, failure: Prepare
   return getVideoDateEntryHandoffStatusCopy(status, failure?.message);
 }
 
-const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: ReadyGateOverlayProps) => {
+const ReadyGateOverlay = ({
+  sessionId,
+  eventId,
+  onClose,
+  onNavigateToDate,
+  onManualExitConfirmed,
+}: ReadyGateOverlayProps) => {
   const { user } = useUserProfile();
   const prefersReducedMotion = useReducedMotion();
 
@@ -156,6 +163,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
   const realtimeFallbackCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalActionInFlightRef = useRef(false);
+  const manualExitRequestedRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const duplicateNavSuppressionKeysRef = useRef<Set<string>>(new Set());
   const duplicateTerminalSuppressionKeysRef = useRef<Set<string>>(new Set());
@@ -565,12 +573,24 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           realtime_healthy: !realtimeDegraded,
         });
       }
+      if (manualExitRequestedRef.current) {
+        onManualExitConfirmed?.(sessionId);
+      }
+      manualExitRequestedRef.current = false;
       toast(recovery.toast, {
         duration: 2500,
       });
       onClose();
     },
-    [onClose, sessionId, eventId, realtimeDegraded, trackReadyGateClientEvent, suppressDuplicateTerminal]
+    [
+      onClose,
+      onManualExitConfirmed,
+      sessionId,
+      eventId,
+      realtimeDegraded,
+      trackReadyGateClientEvent,
+      suppressDuplicateTerminal,
+    ]
   );
 
   const closeAsStale = useCallback(
@@ -649,10 +669,34 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
         event_id: eventId,
         dismiss_variant: dismissVariant,
       });
+      manualExitRequestedRef.current = true;
       try {
-        const ok = await skip();
-        if (!ok) {
+        const result = await skip();
+        if (!result.ok) {
           throw new Error("ready_gate_forfeit_failed");
+        }
+        if (result.status === "both_ready") {
+          manualExitRequestedRef.current = false;
+          terminalActionInFlightRef.current = false;
+          setTerminalActionPending(false);
+          trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId,
+            source_surface: "ready_gate_overlay",
+            source_action: dismissVariant,
+            outcome: "both_ready_race",
+            reason: "both_ready",
+          });
+          return;
+        }
+        const terminal =
+          result.terminal === true ||
+          result.isTerminal === true ||
+          result.status === "forfeited" ||
+          result.status === "expired";
+        if (!terminal) {
+          throw new Error("ready_gate_forfeit_not_terminal");
         }
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
         trackEvent(LobbyPostDateEvents.READY_GATE_TERMINAL_ACTION_SUCCESS, {
@@ -664,9 +708,17 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
           outcome: "success",
           reason: "forfeit",
         });
-        handleForfeited("skip");
+        handleForfeited(result.status === "expired" ? "timeout" : "skip", {
+          status: result.status ?? "forfeited",
+          reason: result.reason ?? "ready_gate_forfeit",
+          inactiveReason: result.inactiveReason ?? null,
+          errorCode: result.errorCode ?? result.code ?? null,
+          code: result.code ?? null,
+          terminal: true,
+        });
       } catch (error) {
         terminalActionInFlightRef.current = false;
+        manualExitRequestedRef.current = false;
         if (!mountedRef.current || dateNavigationStartedRef.current) return;
         const message = "We couldn't step away. Check your connection and try again.";
         setTerminalActionPending(false);
@@ -955,6 +1007,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
     realtimeFallbackLoggedRef.current = false;
     readyGateRealtimeDegradedLoggedRef.current = false;
     terminalActionInFlightRef.current = false;
+    manualExitRequestedRef.current = false;
     duplicateNavSuppressionKeysRef.current = new Set();
     duplicateTerminalSuppressionKeysRef.current = new Set();
     terminalToastKeyRef.current = null;
@@ -1168,6 +1221,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                 <div className="flex items-center justify-center gap-3 pt-2">
                   {prepareEntryFailure?.retryable && (
                     <button
+                      type="button"
                       onClick={retryPrepareEntry}
                       disabled={terminalActionPending}
                       aria-label="Try video setup again"
@@ -1177,6 +1231,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     </button>
                   )}
                   <button
+                    type="button"
                     onClick={() => {
                       void runTerminalAction("prepare_failed_back");
                     }}
@@ -1312,6 +1367,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
               {/* Ready button with countdown ring */}
               <div className="flex justify-center">
                 <motion.button
+                  type="button"
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze || terminalActionPending) return;
@@ -1354,8 +1410,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     void (async () => {
                       try {
                         setTerminalActionError(null);
-                        const ok = await markReady();
-                        if (!ok) {
+                        const result = await markReady();
+                        if (!result.ok) {
                           throw new Error("ready_gate_mark_ready_failed");
                         }
                       } catch (error) {
@@ -1428,6 +1484,7 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
 
               <div className="flex items-center justify-center gap-2">
                 <button
+                  type="button"
                   onClick={() => {
                     if (requestingSnooze || markingReady || terminalActionPending) return;
                     trackEvent(LobbyPostDateEvents.READY_GATE_SNOOZE_TAP, {
@@ -1439,8 +1496,8 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                     void (async () => {
                       try {
                         setTerminalActionError(null);
-                        const ok = await snooze();
-                        if (!ok) {
+                        const result = await snooze();
+                        if (!result.ok) {
                           throw new Error("ready_gate_snooze_failed");
                         }
                       } catch (error) {
@@ -1466,19 +1523,20 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   disabled={requestingSnooze || markingReady || terminalActionPending}
                   aria-label="Snooze this Ready Gate for two minutes"
                   aria-busy={requestingSnooze}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  className="rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {requestingSnooze ? "Snoozing..." : "Snooze — give me 2 min"}
                 </button>
                 <span className="text-muted-foreground/70">·</span>
                 <button
+                  type="button"
                   onClick={() => {
                     void runTerminalAction("skip_this_one");
                   }}
                   disabled={markingReady || requestingSnooze || terminalActionPending}
                   aria-label="Step away from this Ready Gate"
                   aria-busy={terminalActionPending}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  className="rounded-full px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                 >
                   {terminalActionPending ? "Leaving..." : "Step away"}
                 </button>
@@ -1499,13 +1557,14 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                 </span>
               </motion.div>
               <button
+                type="button"
                 onClick={() => {
                   void runTerminalAction("cancel_go_back");
                 }}
                 disabled={requestingSnooze || markingReady || terminalActionPending}
                 aria-label="Step away while waiting for your match"
                 aria-busy={terminalActionPending}
-                className="block mx-auto text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                className="block mx-auto rounded-full px-5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               >
                 {terminalActionPending ? "Leaving..." : "Step away"}
               </button>

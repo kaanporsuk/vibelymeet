@@ -446,8 +446,19 @@ export default function ReadyGateScreen() {
       setTerminalActionPending(true);
       setTerminalActionError(null);
       try {
-        const ok = await forfeit();
-        if (!ok) throw new Error('ready_gate_forfeit_failed');
+        const result = await forfeit();
+        if (!result.ok) throw new Error('ready_gate_forfeit_failed');
+        if (result.status === 'both_ready') {
+          setTerminalActionPending(false);
+          setTerminalActionError(null);
+          return;
+        }
+        const terminal =
+          result.terminal === true ||
+          result.isTerminal === true ||
+          result.status === 'forfeited' ||
+          result.status === 'expired';
+        if (!terminal) throw new Error('ready_gate_forfeit_not_terminal');
         setTerminalActionPending(false);
         setTerminalActionError(null);
         if (eventId) router.replace(eventLobbyHref(eventId));
@@ -681,10 +692,10 @@ export default function ReadyGateScreen() {
                   if (markingReady || requestingSnooze || terminalActionPending) return;
                   setMarkingReady(true);
                   void (async () => {
-                    try {
-                      setTerminalActionError(null);
-                      const ok = await markReady();
-                      if (!ok) throw new Error('ready_gate_mark_ready_failed');
+                      try {
+                        setTerminalActionError(null);
+                        const result = await markReady();
+                        if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
                     } catch (e) {
                       setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
                       rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_mark_ready_failed_kept_open', {
@@ -713,8 +724,8 @@ export default function ReadyGateScreen() {
                     void (async () => {
                       try {
                         setTerminalActionError(null);
-                        const ok = await snooze();
-                        if (!ok) throw new Error('ready_gate_snooze_failed');
+                        const result = await snooze();
+                        if (!result.ok) throw new Error('ready_gate_snooze_failed');
                       } catch (e) {
                         setTerminalActionError("We couldn't snooze this match. Check your connection and try again.");
                         rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_snooze_failed_kept_open', {

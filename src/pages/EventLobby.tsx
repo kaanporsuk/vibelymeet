@@ -54,6 +54,7 @@ import {
 } from "@clientShared/observability/eventLobbyObservability";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
+const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 
 function lobbyDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -199,6 +200,7 @@ const EventLobby = () => {
   const activeServerSessionRef = useRef<string | null>(null);
   const dateNavigationSessionIdRef = useRef<string | null>(null);
   const prepareNavigationInFlightRef = useRef<Set<string>>(new Set());
+  const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(new Map());
   const lobbyEnteredEventRef = useRef<string | null>(null);
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
   const deckLoadedTrackedRef = useRef<string | null>(null);
@@ -217,6 +219,16 @@ const EventLobby = () => {
   useEffect(() => {
     activeServerSessionRef.current = scopedSessionId ?? activeSessionId ?? null;
   }, [scopedSessionId, activeSessionId]);
+
+  const isReadyGateManualExitSuppressed = useCallback((sessionId: string): boolean => {
+    const suppressUntil = readyGateManualExitSuppressUntilRef.current.get(sessionId);
+    if (!suppressUntil) return false;
+    if (suppressUntil <= Date.now()) {
+      readyGateManualExitSuppressUntilRef.current.delete(sessionId);
+      return false;
+    }
+    return true;
+  }, []);
 
   useEffect(() => {
     if (!eventForLobbyGate || !resolvedEventLifecycle) return;
@@ -250,6 +262,11 @@ const EventLobby = () => {
 
   const openReadyGateSession = useCallback((sessionId: string, source: string) => {
     if (!sessionId || dateNavigationSessionIdRef.current) return;
+    if (isReadyGateManualExitSuppressed(sessionId)) {
+      lobbyDebug("ready gate open suppressed after manual exit", { sessionId, source });
+      void refetchScopedSession();
+      return;
+    }
     const isBackendHydratedSession = scopedSessionId === sessionId;
     if (!lobbyActionsEnabled && !isBackendHydratedSession) {
       lobbyDebug("ready gate open suppressed by lobby gate", {
@@ -273,6 +290,7 @@ const EventLobby = () => {
     setActiveSessionId(sessionId);
   }, [
     eventId,
+    isReadyGateManualExitSuppressed,
     lobbyActionsEnabled,
     lobbyGate.kind,
     refetchScopedSession,
@@ -293,6 +311,16 @@ const EventLobby = () => {
     activeSessionIdRef.current = null;
     setActiveSessionId(null);
   }, []);
+
+  const suppressReadyGateSessionAfterManualExit = useCallback((sessionId: string) => {
+    readyGateManualExitSuppressUntilRef.current.set(
+      sessionId,
+      Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS,
+    );
+    if (activeSessionIdRef.current === sessionId) {
+      clearReadyGateSession("ready_gate_manual_exit_confirmed");
+    }
+  }, [clearReadyGateSession]);
 
   useEffect(() => {
     if (!eventId || !event) return;
@@ -1626,6 +1654,7 @@ const EventLobby = () => {
             sessionId={activeSessionId}
             eventId={eventId}
             onNavigateToDate={navigateToDateSession}
+            onManualExitConfirmed={suppressReadyGateSessionAfterManualExit}
             onClose={() => {
               clearReadyGateSession("ready_gate_overlay_close");
               void refetchScopedSession();
