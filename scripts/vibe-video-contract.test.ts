@@ -434,7 +434,7 @@ test("webhook validation rejects unsafe payloads before profile mutation", () =>
   const webhook = read("supabase/functions/video-webhook/index.ts");
 
   assert.match(webhook, /req\.method !== "POST"/);
-  assert.match(webhook, /BUNNY_STREAM_API_KEY/);
+  assert.match(webhook, /BUNNY_WEBHOOK_SIGNING_KEY/);
   assert.match(webhook, /req\.text\(\)/);
   assert.doesNotMatch(webhook, /req\.json\(\)/);
   assert.match(webhook, /verifyBunnyStreamWebhookSignature/);
@@ -469,10 +469,10 @@ test("webhook validation rejects unsafe payloads before profile mutation", () =>
   assert.doesNotMatch(webhook, /console\.log\(`\[video-webhook\]/);
 });
 
-test("Bunny Stream webhook signature helper validates official v1 raw-body HMAC contract with stream API key", async () => {
+test("Bunny Stream webhook signature helper validates official v1 raw-body HMAC contract with read-only signing key", async () => {
   const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
-  const streamApiKey = "stream-api-key";
-  const signature = createHmac("sha256", streamApiKey).update(rawBody).digest("hex");
+  const webhookSigningKey = "stream-read-only-api-key";
+  const signature = createHmac("sha256", webhookSigningKey).update(rawBody).digest("hex");
   const headers = new Headers({
     "X-BunnyStream-Signature-Version": "v1",
     "X-BunnyStream-Signature-Algorithm": "hmac-sha256",
@@ -481,9 +481,13 @@ test("Bunny Stream webhook signature helper validates official v1 raw-body HMAC 
 
   assert.equal(hasAnyBunnyStreamSignatureHeader(headers), true);
   assert.deepEqual(
-    await verifyBunnyStreamWebhookSignature(headers, rawBody, streamApiKey),
+    await verifyBunnyStreamWebhookSignature(headers, rawBody, webhookSigningKey),
     { ok: true },
   );
+
+  const webhook = read("supabase/functions/video-webhook/index.ts");
+  assert.match(webhook, /const webhookSigningKey = Deno\.env\.get\("BUNNY_WEBHOOK_SIGNING_KEY"\)/);
+  assert.doesNotMatch(webhook, /verifyBunnyStreamWebhookSignature\([\s\S]*?streamApiKey/);
 });
 
 test("Bunny Stream webhook missing signing key is explicit and rollout fallback remains possible", async () => {
@@ -514,7 +518,7 @@ test("Bunny Stream webhook missing signing key is explicit and rollout fallback 
 
 test("invalid Bunny Stream signature with valid legacy token still rejects before JSON trust", async () => {
   const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
-  const streamApiKey = "stream-api-key";
+  const webhookSigningKey = "stream-read-only-api-key";
   const wrongSignature = createHmac("sha256", "wrong-key").update(rawBody).digest("hex");
 
   assert.deepEqual(
@@ -525,7 +529,7 @@ test("invalid Bunny Stream signature with valid legacy token still rejects befor
         "X-BunnyStream-Signature": wrongSignature,
       }),
       rawBody,
-      streamApiKey,
+      webhookSigningKey,
     ),
     { ok: false, reason: "invalid_signature" },
   );
@@ -551,8 +555,8 @@ test("invalid Bunny Stream signature with valid legacy token still rejects befor
 
 test("Bunny Stream webhook signature helper rejects malformed and invalid signatures", async () => {
   const rawBody = '{"VideoGuid":"11111111-1111-4111-8111-111111111111","Status":3}';
-  const streamApiKey = "stream-api-key";
-  const signature = createHmac("sha256", streamApiKey).update(rawBody).digest("hex");
+  const webhookSigningKey = "stream-read-only-api-key";
+  const signature = createHmac("sha256", webhookSigningKey).update(rawBody).digest("hex");
   const invalidSignature = `${signature.slice(0, -1)}${signature.endsWith("0") ? "1" : "0"}`;
 
   assert.deepEqual(
@@ -563,7 +567,7 @@ test("Bunny Stream webhook signature helper rejects malformed and invalid signat
         "X-BunnyStream-Signature": signature.toUpperCase(),
       }),
       rawBody,
-      streamApiKey,
+      webhookSigningKey,
     ),
     { ok: false, reason: "malformed_signature" },
   );
@@ -576,7 +580,7 @@ test("Bunny Stream webhook signature helper rejects malformed and invalid signat
         "X-BunnyStream-Signature": invalidSignature,
       }),
       rawBody,
-      streamApiKey,
+      webhookSigningKey,
     ),
     { ok: false, reason: "invalid_signature" },
   );
@@ -587,10 +591,32 @@ test("Bunny Stream webhook signature helper rejects malformed and invalid signat
         "X-BunnyStream-Signature": signature,
       }),
       rawBody,
-      streamApiKey,
+      webhookSigningKey,
     ),
     { ok: false, reason: "missing_signature_version" },
   );
+});
+
+test("authenticated Vibe Video status sync repairs uploaded Bunny videos without exposing secrets", () => {
+  const config = read("supabase/config.toml");
+  const syncFunction = read("supabase/functions/sync-vibe-video-status/index.ts");
+  const controller = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const studio = read("src/pages/VibeStudio.tsx");
+  const webSync = read("src/lib/vibeVideo/syncVibeVideoStatus.ts");
+
+  assert.match(config, /\[functions\.sync-vibe-video-status\][\s\S]*?verify_jwt = true/);
+  assert.match(syncFunction, /BUNNY_WEBHOOK_SIGNING_KEY/);
+  assert.match(syncFunction, /BUNNY_STREAM_API_KEY/);
+  assert.match(syncFunction, /GET/);
+  assert.match(syncFunction, /https:\/\/video\.bunnycdn\.com\/library\/\$\{libraryId\}\/videos\/\$\{requestedVideoId\}/);
+  assert.match(syncFunction, /status === 3 \|\| status === 4/);
+  assert.match(syncFunction, /status === 5 \|\| status === 8/);
+  assert.match(syncFunction, /update_media_session_status/);
+  assert.match(syncFunction, /requestedVideoId !== currentVideoId/);
+  assert.doesNotMatch(syncFunction, /provider_meta|signature|expirationTime|AccessKey: apiKey,/);
+  assert.match(webSync, /supabase\.functions\.invoke<SyncVibeVideoStatusResult>\(\s*"sync-vibe-video-status"/);
+  assert.match(controller, /syncCurrentVibeVideoStatus\(expectedVideoId, "processing_poll"\)/);
+  assert.match(studio, /syncCurrentVibeVideoStatus\(effectiveVibeVideo\.bunnyVideoUid, "manual_refresh"\)/);
 });
 
 test("Vibe Video telemetry events are wired on web and native", () => {

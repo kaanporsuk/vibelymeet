@@ -36,6 +36,9 @@ verify_jwt = true
 [functions.video-webhook]
 verify_jwt = false
 
+[functions.sync-vibe-video-status]
+verify_jwt = true
+
 [functions.delete-vibe-video]
 verify_jwt = true
 

@@ -52,10 +52,10 @@ async function authenticateWebhook(
   req: Request,
   rawBody: string,
   webhookToken: string,
-  streamApiKey: string,
+  webhookSigningKey: string,
 ): Promise<WebhookAuthResult> {
   const hasSignatureHeaders = hasAnyBunnyStreamSignatureHeader(req.headers);
-  const signatureKeyConfigured = streamApiKey.length > 0;
+  const signatureKeyConfigured = webhookSigningKey.length > 0;
   const bearerToken = getBearerToken(req.headers);
   const url = new URL(req.url);
   const legacyToken = url.searchParams.get("token");
@@ -65,7 +65,7 @@ async function authenticateWebhook(
     const signatureResult = await verifyBunnyStreamWebhookSignature(
       req.headers,
       rawBody,
-      streamApiKey,
+      webhookSigningKey,
     );
     if (signatureResult.ok) {
       return {
@@ -137,7 +137,7 @@ serve(async (req) => {
   }
 
   const webhookToken = Deno.env.get("BUNNY_VIDEO_WEBHOOK_TOKEN")?.trim() ?? "";
-  const streamApiKey = Deno.env.get("BUNNY_STREAM_API_KEY")?.trim() ?? "";
+  const webhookSigningKey = Deno.env.get("BUNNY_WEBHOOK_SIGNING_KEY")?.trim() ?? "";
 
   let rawBody: string;
   try {
@@ -155,7 +155,7 @@ serve(async (req) => {
     req,
     rawBody,
     webhookToken,
-    streamApiKey,
+    webhookSigningKey,
   );
   if (!authResult.ok) {
     logVibeVideo("warn", "video_webhook_rejected", {

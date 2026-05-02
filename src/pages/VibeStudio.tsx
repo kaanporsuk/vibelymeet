@@ -24,6 +24,7 @@ import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { MAX_VIBE_CAPTION_LEN } from "@/lib/vibeVideo/constants";
+import { syncCurrentVibeVideoStatus } from "@/lib/vibeVideo/syncVibeVideoStatus";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { heroVideoReset, heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
@@ -222,7 +223,8 @@ const VibeStudio = () => {
     }
   }, [readyAwaitingPlaybackUrl, videoInfo.state]);
 
-  const refreshProfile = () => {
+  const refreshProfile = async () => {
+    await syncCurrentVibeVideoStatus(effectiveVibeVideo.bunnyVideoUid, "manual_refresh");
     setRefreshKey((key) => key + 1);
     heroVideoResumePollingForProfile(effectiveVibeVideo, { source: "manual_refresh" });
   };
