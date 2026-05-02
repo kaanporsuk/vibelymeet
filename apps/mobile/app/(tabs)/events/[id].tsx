@@ -543,6 +543,8 @@ export default function EventDetailScreen() {
   const eventPhase = deriveEventPhase({
     eventDate,
     eventDurationMinutes: durationMin,
+    status: eventRow.status,
+    ended_at: eventRow.ended_at,
     nowMs: phaseClockMs,
   });
   const eventEnded = eventPhase.isEnded;
@@ -816,6 +818,8 @@ export default function EventDetailScreen() {
           address={eventRow.location_address ?? undefined}
           eventDate={eventDate}
           eventDurationMinutes={durationMin}
+          eventStatus={eventRow.status}
+          eventEndedAt={eventRow.ended_at}
           currentTimeMs={phaseClockMs}
           eventId={event.id}
           isRegistered={isConfirmed}

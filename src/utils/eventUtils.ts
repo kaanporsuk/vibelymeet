@@ -3,6 +3,7 @@
  * Single source of truth for deciding whether an event is expired,
  * visible, or still in its grace period.
  */
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 /** Hours after an event ends before it disappears from feeds */
 export const GRACE_HOURS = 6;
@@ -21,18 +22,20 @@ export const getEventEndTime = (event: {
 export const isEventExpired = (event: {
   event_date: string;
   duration_minutes?: number | null;
+  status?: string | null;
+  ended_at?: string | null;
 }): boolean => {
-  return getEventEndTime(event) < new Date();
+  return resolveEventLifecycle(event).isEnded;
 };
 
 /** True when the event is currently live. */
 export const isEventLive = (event: {
   event_date: string;
   duration_minutes?: number | null;
+  status?: string | null;
+  ended_at?: string | null;
 }): boolean => {
-  const now = new Date();
-  const start = new Date(event.event_date);
-  return now >= start && now < getEventEndTime(event);
+  return resolveEventLifecycle(event).isLive;
 };
 
 /**

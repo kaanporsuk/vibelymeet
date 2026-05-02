@@ -41,16 +41,15 @@ export const FeaturedEventCard = ({
   const { data: eventAttendees = [], preview: attendeePreview } = useEventAttendees(id, 5);
   const attendeeCountLabel =
     attendeePreview?.success === true ? `+${attendeePreview.visible_other_count} visible to you` : `${attendees} registered`;
-  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [isLive, setIsLive] = useState(status === "live");
-  const [imageFailed, setImageFailed] = useState(false);
-  const coverSrc = eventCoverHeroUrl(image);
   const pastScheduledEnd = isEventExpired({
     event_date: eventDate.toISOString(),
     duration_minutes: durationMinutes,
   });
-  /** Server `ended` includes grace window; early admin end may set ended before scheduled end. */
-  const showEnded = status === "ended" || pastScheduledEnd;
+  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  const [isLive, setIsLive] = useState(status === "live" && !pastScheduledEnd);
+  const [imageFailed, setImageFailed] = useState(false);
+  const coverSrc = eventCoverHeroUrl(image);
+  const showEnded = !isLive && (status === "ended" || pastScheduledEnd);
 
   const isConfirmedSeat = admission.confirmedEventIds.includes(id);
   const isWaitlistedSeat = admission.waitlistedEventIds.includes(id);

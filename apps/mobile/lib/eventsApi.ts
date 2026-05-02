@@ -16,6 +16,7 @@ import {
   buildQueueDrainResultPayload,
   EventLobbyObservabilityEvents,
 } from '@clientShared/observability/eventLobbyObservability';
+import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -98,10 +99,13 @@ type VisibleEventRpcRow = {
 
 function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
   const eventDate = new Date(row.event_date);
-  const durationMs = (row.duration_minutes || 60) * 60 * 1000;
-  const now = new Date();
-  const isLive = now >= eventDate && now < new Date(eventDate.getTime() + durationMs);
-  const rawStatus = row.computed_status ?? row.status ?? 'upcoming';
+  const rawStatus =
+    row.computed_status ??
+    resolveEventLifecycle({
+      status: row.status,
+      event_date: row.event_date,
+      duration_minutes: row.duration_minutes,
+    }).lifecycle;
   return {
     id: row.id,
     title: row.title,
@@ -111,7 +115,7 @@ function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
     time: formatEventTime(eventDate),
     attendees: row.current_attendees ?? 0,
     tags: Array.isArray(row.tags) ? row.tags : [],
-    status: isLive ? 'live' : rawStatus,
+    status: rawStatus,
     eventDate,
     duration_minutes: row.duration_minutes ?? 60,
     language: row.language ?? null,
@@ -393,7 +397,7 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
 
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language')
+        .select('id, title, description, cover_image, event_date, current_attendees, tags, status, ended_at, duration_minutes, max_attendees, language')
         .in('id', eventIds)
         .order('event_date', { ascending: true });
 
@@ -407,10 +411,13 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
         })
       );
       const notEnded = visible.filter((e) => {
-        const eventDate = new Date(e.event_date);
-        const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
-        const eventEnd = new Date(eventDate.getTime() + durationMs);
-        return now < eventEnd;
+        return !resolveEventLifecycle({
+          status: e.status,
+          event_date: e.event_date,
+          duration_minutes: e.duration_minutes,
+          ended_at: e.ended_at,
+          nowMs: now.getTime(),
+        }).isEnded;
       });
       if (notEnded.length > 0) {
         notEnded.sort((a, b) => {
@@ -423,14 +430,18 @@ export function useNextRegisteredEvent(userId: string | null | undefined, canCit
         });
         const e = notEnded[0];
         const eventDate = new Date(e.event_date);
-        const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
-        const end = new Date(eventDate.getTime() + durationMs);
-        const isLive = now >= eventDate && now < end;
+        const lifecycle = resolveEventLifecycle({
+          status: e.status,
+          event_date: e.event_date,
+          duration_minutes: e.duration_minutes,
+          ended_at: e.ended_at,
+          nowMs: now.getTime(),
+        });
         const st = statusByEvent.get(e.id) ?? '';
         const isConfirmed = st === 'confirmed';
         const isWaitlisted = st === 'waitlisted';
         return {
-          event: rowToEventListItem(e, eventDate, isLive),
+          event: rowToEventListItem(e, eventDate, lifecycle.isLive),
           isRegistered: isConfirmed,
           isWaitlisted,
           hasEventAdmission: isConfirmed || isWaitlisted,
@@ -447,8 +458,12 @@ function rowToEventListItem(
   eventDate: Date,
   isLive: boolean
 ): EventListItem {
-  const durationMs = (e.duration_minutes ?? 60) * 60 * 1000;
-  const end = new Date(eventDate.getTime() + durationMs);
+  const lifecycle = resolveEventLifecycle({
+    status: e.status,
+    event_date: e.event_date,
+    duration_minutes: e.duration_minutes,
+    ended_at: e.ended_at,
+  });
   return {
     id: e.id,
     title: e.title,
@@ -458,7 +473,7 @@ function rowToEventListItem(
     time: formatEventTime(eventDate),
     attendees: e.current_attendees ?? 0,
     tags: e.tags ?? [],
-    status: isLive ? 'live' : (e.status || 'upcoming'),
+    status: isLive ? 'live' : lifecycle.lifecycle,
     eventDate,
     duration_minutes: e.duration_minutes ?? 60,
   };

@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 type EventLifecyclePayload = {
   status?: string | null;
+  event_date?: string | null;
+  duration_minutes?: number | null;
+  ended_at?: string | null;
 };
 
 interface UseEventLifecycleOptions {
@@ -21,7 +25,7 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
     const fetchEvent = async () => {
       const { data } = await supabase
         .from("events")
-        .select("event_date, duration_minutes, status")
+        .select("event_date, duration_minutes, status, ended_at")
         .eq("id", eventId)
         .maybeSingle();
 
@@ -32,8 +36,8 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
       );
       setEventEndsAt(endsAt);
 
-      const now = new Date();
-      if (now >= endsAt || data.status === "ended") {
+      const lifecycle = resolveEventLifecycle(data);
+      if (lifecycle.isEnded) {
         setIsEventActive(false);
         onEventEnded?.();
       }
@@ -73,7 +77,8 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
         },
         (payload) => {
           const event = payload.new as EventLifecyclePayload;
-          if (event.status === "ended") {
+          const lifecycle = resolveEventLifecycle(event);
+          if (lifecycle.isEnded) {
             setIsEventActive(false);
             onEventEnded?.();
           }
@@ -91,18 +96,13 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
 
     const { data } = await supabase
       .from("events")
-      .select("event_date, duration_minutes, status")
+      .select("event_date, duration_minutes, status, ended_at")
       .eq("id", eventId)
       .maybeSingle();
 
     if (!data) return false;
 
-    if (data.status === "ended") return false;
-
-    const endsAt = new Date(
-      new Date(data.event_date).getTime() + (data.duration_minutes || 60) * 60000
-    );
-    return new Date() < endsAt;
+    return !resolveEventLifecycle(data).isEnded;
   }, [eventId]);
 
   return { isEventActive, eventEndsAt, checkEventActive };

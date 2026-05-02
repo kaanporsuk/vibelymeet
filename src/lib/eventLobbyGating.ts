@@ -1,3 +1,5 @@
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+
 export type EventLobbyGateKind =
   | "loading"
   | "missing_event_id"
@@ -66,12 +68,6 @@ function blockedState(
     actionLabel,
     redirectTo,
   };
-}
-
-function asTimestamp(value: Date | string | number | null | undefined): number {
-  if (value == null) return Number.NaN;
-  if (value instanceof Date) return value.getTime();
-  return new Date(value).getTime();
 }
 
 export function getWebEventLobbyGateState(input: {
@@ -154,23 +150,15 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  if (input.event.endedAt != null || status === "ended" || status === "completed") {
-    return blockedState(
-      "ended",
-      "This event has ended",
-      "The live lobby is closed. Check your matches to keep the conversation going.",
-      "View matches",
-      "matches",
-    );
-  }
+  const lifecycle = resolveEventLifecycle({
+    status: input.event.status,
+    eventDate: input.event.eventDate,
+    durationMinutes: input.event.durationMinutes,
+    endedAt: input.event.endedAt,
+    nowMs,
+  });
 
-  const startsAtMs = asTimestamp(input.event.eventDate);
-  const durationMinutes = input.event.durationMinutes ?? 60;
-  const endsAtMs = Number.isFinite(startsAtMs)
-    ? startsAtMs + Math.max(durationMinutes, 0) * 60_000
-    : Number.NaN;
-
-  if (!Number.isFinite(startsAtMs) || !Number.isFinite(endsAtMs)) {
+  if (!lifecycle.startsAt || !lifecycle.endsAt) {
     return blockedState(
       "not_live",
       "Lobby is not available",
@@ -178,7 +166,7 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  if (nowMs >= endsAtMs) {
+  if (lifecycle.isEnded) {
     return blockedState(
       "ended",
       "This event has ended",
@@ -188,7 +176,7 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  if (nowMs < startsAtMs) {
+  if (lifecycle.lifecycle === "upcoming") {
     return blockedState(
       "not_started",
       "This event isn't live yet",
@@ -196,9 +184,7 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  const scheduledActiveStatus = status === "" || status === "upcoming" || status === "live";
-
-  if (!scheduledActiveStatus) {
+  if (!lifecycle.isLive) {
     return blockedState(
       "not_live",
       "Lobby is not live",
