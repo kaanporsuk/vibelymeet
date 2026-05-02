@@ -16,7 +16,7 @@ import { useActiveSession } from "@/hooks/useActiveSession";
 import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { toast } from "sonner";
-import { addMinutes, differenceInSeconds } from "date-fns";
+import { differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
 import LobbyEmptyState from "@/components/lobby/LobbyEmptyState";
 import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
@@ -25,6 +25,7 @@ import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { getWebEventLobbyGateState, type EventLobbyGateState } from "@/lib/eventLobbyGating";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   buildReadyGateToDateLatencyPayload,
@@ -101,21 +102,39 @@ const EventLobby = () => {
   const [showEventEndedModal, setShowEventEndedModal] = useState(false);
   const [lobbyClockMs, setLobbyClockMs] = useState(() => Date.now());
   const [eventLifecycleOverride, setEventLifecycleOverride] = useState<
-    "ended" | "completed" | "cancelled" | "archived" | "draft" | null
+    "cancelled" | "archived" | "draft" | null
   >(null);
+  const [eventEndedAtOverride, setEventEndedAtOverride] = useState<string | null>(null);
 
   // Data hooks
   const { data: event, isLoading: eventLoading } = useEventDetails(eventId);
   const { data: regSnapshot, isLoading: regLoading } = useIsRegisteredForEvent(eventId, user?.id);
-  const eventEndTime = useMemo(
-    () => (event ? addMinutes(event.eventDate, event.durationMinutes) : null),
-    [event]
-  );
-  const eventEndTimeMs = eventEndTime?.getTime() ?? null;
   const eventForLobbyGate = useMemo(
-    () => (event && eventLifecycleOverride ? { ...event, status: eventLifecycleOverride } : event),
-    [event, eventLifecycleOverride]
+    () =>
+      event
+        ? {
+            ...event,
+            status: eventLifecycleOverride ?? event.status,
+            endedAt: eventEndedAtOverride ? new Date(eventEndedAtOverride) : event.endedAt,
+          }
+        : event,
+    [event, eventEndedAtOverride, eventLifecycleOverride]
   );
+  const resolvedEventLifecycle = useMemo(
+    () =>
+      eventForLobbyGate
+        ? resolveEventLifecycle({
+            status: eventForLobbyGate.status,
+            eventDate: eventForLobbyGate.eventDate,
+            durationMinutes: eventForLobbyGate.durationMinutes,
+            endedAt: eventForLobbyGate.endedAt,
+            nowMs: lobbyClockMs,
+          })
+        : null,
+    [eventForLobbyGate, lobbyClockMs]
+  );
+  const eventEndTime = resolvedEventLifecycle?.endsAt ?? null;
+  const eventEndTimeMs = eventEndTime?.getTime() ?? null;
   const lobbyGate = useMemo(
     () =>
       getWebEventLobbyGateState({
@@ -185,6 +204,7 @@ const EventLobby = () => {
   const deckLoadedTrackedRef = useRef<string | null>(null);
   const deckEmptyTrackedRef = useRef<string | null>(null);
   const deckErrorTrackedRef = useRef<string | null>(null);
+  const lifecycleDebugKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
@@ -197,6 +217,29 @@ const EventLobby = () => {
   useEffect(() => {
     activeServerSessionRef.current = scopedSessionId ?? activeSessionId ?? null;
   }, [scopedSessionId, activeSessionId]);
+
+  useEffect(() => {
+    if (!eventForLobbyGate || !resolvedEventLifecycle) return;
+    const rawEndedAt = eventEndedAtOverride ?? eventForLobbyGate.endedAt?.toISOString() ?? null;
+    const debugKey = [
+      eventForLobbyGate.id,
+      eventForLobbyGate.status ?? "",
+      eventForLobbyGate.eventDate.toISOString(),
+      eventForLobbyGate.durationMinutes,
+      rawEndedAt ?? "",
+      resolvedEventLifecycle.lifecycle,
+    ].join("|");
+    if (lifecycleDebugKeyRef.current === debugKey) return;
+    lifecycleDebugKeyRef.current = debugKey;
+    lobbyDebug("event lifecycle resolved", {
+      eventId: eventForLobbyGate.id,
+      rawStatus: eventForLobbyGate.status,
+      event_date: eventForLobbyGate.eventDate.toISOString(),
+      duration_minutes: eventForLobbyGate.durationMinutes,
+      ended_at: rawEndedAt,
+      resolvedLifecycle: resolvedEventLifecycle.lifecycle,
+    });
+  }, [eventEndedAtOverride, eventForLobbyGate, resolvedEventLifecycle]);
 
   useEffect(() => {
     setLobbyClockMs(Date.now());
@@ -268,12 +311,12 @@ const EventLobby = () => {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "events", filter: `id=eq.${eventId}` },
         (payload) => {
-          const row = payload.new as { status?: string | null };
+          const row = payload.new as { status?: string | null; ended_at?: string | null };
           const status = (row.status ?? "").toLowerCase();
           void queryClient.invalidateQueries({ queryKey: ["event-details", eventId] });
           setLobbyClockMs(Date.now());
-          if (status === "ended" || status === "completed") {
-            setEventLifecycleOverride(status);
+          if (row.ended_at) {
+            setEventEndedAtOverride(row.ended_at);
             setShowEventEndedModal(true);
           }
           if (status === "cancelled" || status === "archived" || status === "draft") {
@@ -497,6 +540,7 @@ const EventLobby = () => {
     setDateNavigationSessionId(null);
     setShowEventEndedModal(false);
     setEventLifecycleOverride(null);
+    setEventEndedAtOverride(null);
     setPostSurveyReturnContext(false);
     setCheckingNextDateAfterSurvey(false);
     postSurveyRouteTrackedRef.current = null;
@@ -901,15 +945,23 @@ const EventLobby = () => {
 
   // Event countdown timer
   useEffect(() => {
-    if (!event) return;
-    const endTime = addMinutes(event.eventDate, event.durationMinutes);
+    if (!eventEndTimeMs) return;
+    const endTime = new Date(eventEndTimeMs);
 
     const tick = () => {
-      const diff = differenceInSeconds(endTime, new Date());
-      if (diff <= 0) {
+      const latestLifecycle = eventForLobbyGate
+        ? resolveEventLifecycle({
+            status: eventForLobbyGate.status,
+            eventDate: eventForLobbyGate.eventDate,
+            durationMinutes: eventForLobbyGate.durationMinutes,
+            endedAt: eventForLobbyGate.endedAt,
+          })
+        : null;
+      if (latestLifecycle?.isEnded || Date.now() >= eventEndTimeMs) {
         setTimeRemaining("Ended");
         return;
       }
+      const diff = differenceInSeconds(endTime, new Date());
       const m = Math.floor(diff / 60);
       const s = diff % 60;
       setTimeRemaining(`${m}:${String(s).padStart(2, "0")}`);
@@ -918,7 +970,7 @@ const EventLobby = () => {
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [event]);
+  }, [eventEndTimeMs, eventForLobbyGate]);
 
   // Filter out already-seen profiles, then sort: super vibes first
   const sortedProfiles = useMemo(() => {
@@ -934,10 +986,7 @@ const EventLobby = () => {
   const currentProfile = sortedProfiles[0] || null;
   const nextProfile = sortedProfiles[1] || null;
   const thirdProfile = sortedProfiles[2] || null;
-  const eventEndsAtForContinuity = useMemo(
-    () => (event ? addMinutes(event.eventDate, event.durationMinutes) : null),
-    [event]
-  );
+  const eventEndsAtForContinuity = eventEndTime;
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAtForContinuity),
     [eventEndsAtForContinuity]
@@ -1151,8 +1200,7 @@ const EventLobby = () => {
       activeSessionId !== sameEventScopedSession.sessionId
   );
   const eventLiveForContinuity = Boolean(
-    event &&
-      event.status !== "ended" &&
+    resolvedEventLifecycle?.isLive &&
       (secondsUntilEventEnd == null || secondsUntilEventEnd > 0)
   );
   const postSurveyContinuityDecision = useMemo(

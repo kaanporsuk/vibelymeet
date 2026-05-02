@@ -85,6 +85,7 @@ import {
   isVideoSessionQueuedTtlExpiryTransition,
 } from '@shared/matching/videoSessionFlow';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
+import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
@@ -195,13 +196,23 @@ export default function EventLobbyScreen() {
   const isEventArchived = Boolean(eventArchivedAt) || eventStatus === 'archived';
   const isEventCancelled = eventStatus === 'cancelled';
   const isEventDraft = eventStatus === 'draft';
-  const isEventEndedByTruth =
-    Boolean(eventEndedAt) ||
-    eventStatus === 'ended' ||
-    eventStatus === 'completed' ||
-    (eventEndTimeMs != null && lobbyClockMs >= eventEndTimeMs);
+  const resolvedEventLifecycle = useMemo(
+    () =>
+      eventDateValue
+        ? resolveEventLifecycle({
+            status: eventStatusRaw,
+            event_date: eventDateValue,
+            duration_minutes: eventDurationMinutes,
+            ended_at: eventEndedAt,
+            nowMs: lobbyClockMs,
+          })
+        : null,
+    [eventDateValue, eventDurationMinutes, eventEndedAt, eventStatusRaw, lobbyClockMs]
+  );
+  const isEventEndedByTruth = resolvedEventLifecycle?.isEnded ?? false;
   const [serverInactiveEventReason, setServerInactiveEventReason] = useState<string | null>(null);
   const isEventInactiveByServer = serverInactiveEventReason != null;
+  const lifecycleDebugKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!eventDateValue) return;
@@ -210,10 +221,31 @@ export default function EventLobbyScreen() {
     return () => clearInterval(interval);
   }, [eventDateValue, eventEndTimeMs, eventEndedAt, eventArchivedAt, eventStatusRaw]);
 
+  useEffect(() => {
+    if (!__DEV__ || !id || !eventDateValue || !resolvedEventLifecycle) return;
+    const debugKey = [
+      id,
+      eventStatusRaw ?? '',
+      eventDateValue,
+      eventDurationMinutes ?? '',
+      eventEndedAt ?? '',
+      resolvedEventLifecycle.lifecycle,
+    ].join('|');
+    if (lifecycleDebugKeyRef.current === debugKey) return;
+    lifecycleDebugKeyRef.current = debugKey;
+    console.log('[EventLobby] event lifecycle resolved', {
+      eventId: id,
+      rawStatus: eventStatusRaw,
+      event_date: eventDateValue,
+      duration_minutes: eventDurationMinutes,
+      ended_at: eventEndedAt,
+      resolvedLifecycle: resolvedEventLifecycle.lifecycle,
+    });
+  }, [eventDateValue, eventDurationMinutes, eventEndedAt, eventStatusRaw, id, resolvedEventLifecycle]);
+
   const isLiveWindow = useMemo(() => {
-    if (!eventDateValue || !eventEndTimeMs) return false;
+    if (!eventDateValue || !eventEndTimeMs || !resolvedEventLifecycle) return false;
     if (
-      eventStatus !== 'live' ||
       isEventCancelled ||
       isEventArchived ||
       isEventDraft ||
@@ -222,18 +254,16 @@ export default function EventLobbyScreen() {
     ) {
       return false;
     }
-    const start = new Date(eventDateValue).getTime();
-    return lobbyClockMs >= start && lobbyClockMs < eventEndTimeMs;
+    return resolvedEventLifecycle.isLive;
   }, [
     eventDateValue,
     eventEndTimeMs,
-    eventStatus,
     isEventArchived,
     isEventCancelled,
     isEventDraft,
     isEventEndedByTruth,
     isEventInactiveByServer,
-    lobbyClockMs,
+    resolvedEventLifecycle,
   ]);
 
   const lobbySideEffectsEnabled = Boolean(
@@ -1133,7 +1163,7 @@ export default function EventLobbyScreen() {
         (payload) => {
           const row = payload.new as { status?: string | null; archived_at?: string | null; ended_at?: string | null };
           const status = (row.status ?? '').toLowerCase();
-          if (status === 'ended' || status === 'completed' || row.ended_at) setShowEventEndedModal(true);
+          if (row.ended_at) setShowEventEndedModal(true);
           if (status === 'cancelled' || status === 'archived' || status === 'draft' || row.archived_at) {
             show({
               title: status === 'cancelled' ? 'This event was cancelled' : 'This event is not available',

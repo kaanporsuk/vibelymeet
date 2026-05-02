@@ -4,6 +4,7 @@ import { format } from "date-fns";
 import { useEffect } from "react";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { isEventVisible } from "@/utils/eventUtils";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 export interface Event {
   id: string;
@@ -65,7 +66,7 @@ export const useEvents = () => {
     queryFn: async (): Promise<Event[]> => {
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, ended_at, duration_minutes, max_attendees, language")
         .order("event_date", { ascending: true });
 
       if (error) throw error;
@@ -79,6 +80,7 @@ export const useEvents = () => {
         current_attendees: number | null;
         tags: string[] | null;
         status: string | null;
+        ended_at: string | null;
         duration_minutes: number | null;
         language: string | null;
       }>;
@@ -94,10 +96,12 @@ export const useEvents = () => {
         )
         .map((event) => {
           const eventDate = new Date(event.event_date);
-          const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-          const eventEnd = new Date(eventDate.getTime() + durationMs);
-          const now = new Date();
-          const isLive = now >= eventDate && now < eventEnd;
+          const lifecycle = resolveEventLifecycle({
+            status: event.status,
+            event_date: event.event_date,
+            duration_minutes: event.duration_minutes,
+            ended_at: event.ended_at,
+          });
           
           return {
             id: event.id,
@@ -108,7 +112,7 @@ export const useEvents = () => {
             time: format(eventDate, "h a"),
             attendees: event.current_attendees || 0,
             tags: event.tags || [],
-            status: isLive ? "live" : (event.status || "upcoming"),
+            status: lifecycle.lifecycle,
             eventDate,
             event_date_raw: event.event_date,
             duration_minutes: event.duration_minutes || 60,
@@ -129,7 +133,7 @@ export const useInfiniteEvents = () => {
 
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, duration_minutes, max_attendees, language")
+        .select("id, title, description, cover_image, event_date, current_attendees, tags, status, ended_at, duration_minutes, max_attendees, language")
         .order("event_date", { ascending: true })
         .range(from, to);
 
@@ -144,6 +148,7 @@ export const useInfiniteEvents = () => {
         current_attendees: number | null;
         tags: string[] | null;
         status: string | null;
+        ended_at: string | null;
         duration_minutes: number | null;
         language: string | null;
       }>;
@@ -159,10 +164,12 @@ export const useInfiniteEvents = () => {
 
       const events = filteredData.map((event) => {
         const eventDate = new Date(event.event_date);
-        const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-        const eventEnd = new Date(eventDate.getTime() + durationMs);
-        const now = new Date();
-        const isLive = now >= eventDate && now < eventEnd;
+        const lifecycle = resolveEventLifecycle({
+          status: event.status,
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes,
+          ended_at: event.ended_at,
+        });
         
         return {
           id: event.id,
@@ -173,7 +180,7 @@ export const useInfiniteEvents = () => {
           time: format(eventDate, "h a"),
           attendees: event.current_attendees || 0,
           tags: event.tags || [],
-          status: isLive ? "live" : (event.status || "upcoming"),
+          status: lifecycle.lifecycle,
           eventDate,
           event_date_raw: event.event_date,
           duration_minutes: event.duration_minutes || 60,
@@ -244,7 +251,8 @@ export const useNextRegisteredEvent = () => {
             id, title, cover_image, event_date, current_attendees, duration_minutes,
             scope, city, country, latitude, longitude,
             status,
-            archived_at
+            archived_at,
+            ended_at
           )
         `)
         .eq("profile_id", user.id);
@@ -265,6 +273,7 @@ export const useNextRegisteredEvent = () => {
             duration_minutes?: number | null;
             status?: string | null;
             archived_at?: string | null;
+            ended_at?: string | null;
           };
           if (ev.archived_at) return false;
           if (
@@ -276,10 +285,13 @@ export const useNextRegisteredEvent = () => {
           ) {
             return false;
           }
-          const eventStart = new Date(ev.event_date);
-          const durationMs = (ev.duration_minutes ?? 60) * 60 * 1000;
-          const eventEnd = new Date(eventStart.getTime() + durationMs);
-          return now < eventEnd;
+          return !resolveEventLifecycle({
+            status: ev.status,
+            event_date: ev.event_date,
+            duration_minutes: ev.duration_minutes,
+            ended_at: ev.ended_at,
+            nowMs: now.getTime(),
+          }).isEnded;
         })
         .sort((a: RegRow, b: RegRow) => {
           const stA = a.admission_status === "confirmed" ? 0 : a.admission_status === "waitlisted" ? 1 : 2;
@@ -299,11 +311,17 @@ export const useNextRegisteredEvent = () => {
           event_date: string;
           duration_minutes?: number | null;
           current_attendees?: number | null;
+          status?: string | null;
+          ended_at?: string | null;
         };
         const eventDate = new Date(event.event_date);
-        const durationMs = (event.duration_minutes ?? 60) * 60 * 1000;
-        const eventEnd = new Date(eventDate.getTime() + durationMs);
-        const isLive = now >= eventDate && now < eventEnd;
+        const lifecycle = resolveEventLifecycle({
+          status: event.status,
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes,
+          ended_at: event.ended_at,
+          nowMs: now.getTime(),
+        });
         const currentAttendees = event.current_attendees ?? 0;
         const isConfirmed = first.admission_status === "confirmed";
         const isWaitlisted = first.admission_status === "waitlisted";
@@ -312,11 +330,11 @@ export const useNextRegisteredEvent = () => {
           event: {
             id: event.id,
             title: event.title,
-            emoji: isLive ? "🔴" : "🎵",
-            date: isLive ? "LIVE NOW" : format(eventDate, "EEEE 'at' h a"),
+            emoji: lifecycle.isLive ? "🔴" : "🎵",
+            date: lifecycle.isLive ? "LIVE NOW" : format(eventDate, "EEEE 'at' h a"),
             eventDate,
             image: event.cover_image,
-            isLive,
+            isLive: lifecycle.isLive,
             currentAttendees,
           },
           isRegistered: isConfirmed,
@@ -328,7 +346,7 @@ export const useNextRegisteredEvent = () => {
       // No registered events - fetch a recommended event (upcoming only)
       const { data: recommendedEvent, error: recError } = await supabase
         .from("events")
-        .select("id, title, cover_image, event_date, current_attendees, duration_minutes, status, archived_at")
+        .select("id, title, cover_image, event_date, current_attendees, duration_minutes, status, archived_at, ended_at")
         .order("event_date", { ascending: true })
         .limit(20); // Fetch more to filter
 
@@ -344,6 +362,7 @@ export const useNextRegisteredEvent = () => {
         duration_minutes: number | null;
         status: string | null;
         archived_at: string | null;
+        ended_at: string | null;
       }>;
 
       const activeEvents = recRows.filter((event) => {
@@ -357,10 +376,13 @@ export const useNextRegisteredEvent = () => {
         ) {
           return false;
         }
-        const eventStart = new Date(event.event_date);
-        const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-        const eventEnd = new Date(eventStart.getTime() + durationMs);
-        return now < eventEnd;
+        return !resolveEventLifecycle({
+          status: event.status,
+          event_date: event.event_date,
+          duration_minutes: event.duration_minutes,
+          ended_at: event.ended_at,
+          nowMs: now.getTime(),
+        }).isEnded;
       });
 
       if (!activeEvents.length)
@@ -368,9 +390,13 @@ export const useNextRegisteredEvent = () => {
 
       const event = activeEvents[0];
       const eventDate = new Date(event.event_date);
-      const durationMs = (event.duration_minutes || 60) * 60 * 1000;
-      const eventEnd = new Date(eventDate.getTime() + durationMs);
-      const isLive = now >= eventDate && now < eventEnd;
+      const lifecycle = resolveEventLifecycle({
+        status: event.status,
+        event_date: event.event_date,
+        duration_minutes: event.duration_minutes,
+        ended_at: event.ended_at,
+        nowMs: now.getTime(),
+      });
 
       const currentAttendees = event.current_attendees ?? 0;
 
@@ -378,11 +404,11 @@ export const useNextRegisteredEvent = () => {
         event: {
           id: event.id,
           title: event.title,
-          emoji: isLive ? "🔴" : "🎵",
-          date: isLive ? "LIVE NOW" : format(eventDate, "EEEE 'at' h a"),
+          emoji: lifecycle.isLive ? "🔴" : "🎵",
+          date: lifecycle.isLive ? "LIVE NOW" : format(eventDate, "EEEE 'at' h a"),
           eventDate,
           image: event.cover_image,
-          isLive,
+          isLive: lifecycle.isLive,
           currentAttendees,
         },
         isRegistered: false,

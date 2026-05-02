@@ -1,8 +1,13 @@
+import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
+
 export type NativeEventPhase = 'pre-live' | 'live' | 'ended';
 
 export type EventPhaseInput = {
   eventDate: Date | string | number;
   eventDurationMinutes?: number | null;
+  status?: string | null;
+  endedAt?: Date | string | number | null;
+  ended_at?: Date | string | number | null;
   nowMs?: number;
 };
 
@@ -33,14 +38,21 @@ function toTimestampMs(value: Date | string | number): number {
 }
 
 export function deriveEventPhase(input: EventPhaseInput): EventPhaseSnapshot {
-  const startMs = toTimestampMs(input.eventDate);
+  const lifecycle = resolveEventLifecycle({
+    status: input.status,
+    eventDate: input.eventDate,
+    durationMinutes: input.eventDurationMinutes,
+    endedAt: input.endedAt ?? input.ended_at,
+    nowMs: input.nowMs,
+  });
+  const startMs = lifecycle.startsAt?.getTime() ?? toTimestampMs(input.eventDate);
   const durationMinutes = input.eventDurationMinutes ?? 60;
-  const endMs = startMs + Math.max(1, durationMinutes) * 60 * 1000;
+  const endMs = lifecycle.endsAt?.getTime() ?? startMs + Math.max(1, durationMinutes) * 60 * 1000;
   const nowMs = input.nowMs ?? Date.now();
 
-  const isEnded = nowMs >= endMs;
-  const isLive = nowMs >= startMs && nowMs < endMs;
-  const isPreLive = nowMs < startMs;
+  const isEnded = lifecycle.isEnded;
+  const isLive = lifecycle.isLive;
+  const isPreLive = lifecycle.lifecycle === 'upcoming' || lifecycle.lifecycle === 'draft' || lifecycle.lifecycle === 'cancelled';
 
   return {
     phase: isEnded ? 'ended' : isLive ? 'live' : 'pre-live',

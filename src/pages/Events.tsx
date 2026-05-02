@@ -511,6 +511,8 @@ const Events = () => {
                         tags={event.tags} status={event.status}
                         scope={event.scope} city={event.city}
                         country={event.country} distanceKm={event.distance_km}
+                        eventDateRaw={event.event_date_raw}
+                        durationMinutes={event.duration_minutes}
                         language={event.language} />
                     </motion.div>
                   ))}

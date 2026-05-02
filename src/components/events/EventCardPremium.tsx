@@ -61,11 +61,11 @@ export const EventCardPremium = ({
   durationMinutes,
   language,
 }: EventCardPremiumProps) => {
-  const isLive = status === "live";
   const pastScheduledEnd = eventDateRaw
     ? isEventExpired({ event_date: eventDateRaw, duration_minutes: durationMinutes })
     : false;
-  const showEnded = status === "ended" || pastScheduledEnd;
+  const isLive = status === "live" && !pastScheduledEnd;
+  const showEnded = !isLive && (status === "ended" || pastScheduledEnd);
   const navigate = useNavigate();
   const { data: admission = { confirmedEventIds: [], waitlistedEventIds: [] } } = useUserRegistrations();
 
