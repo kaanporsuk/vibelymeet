@@ -4,6 +4,8 @@ import { X, RefreshCw, Check, Video, Mic, MicOff, Upload, Play, Pause, SwitchCam
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -537,6 +539,10 @@ export const VibeStudioModal = ({
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="p-0 m-0 max-w-none w-full h-full border-none bg-black overflow-hidden rounded-none">
+        <DialogTitle className="sr-only">Record your Vibe Video</DialogTitle>
+        <DialogDescription className="sr-only">
+          Record, upload, preview, and caption the short video shown on your profile.
+        </DialogDescription>
         <div className="relative w-full flex flex-col overflow-hidden" style={{ height: '100dvh' }}>
           {/* Close Button */}
           <Button

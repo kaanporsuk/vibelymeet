@@ -32,6 +32,7 @@ test("production CSP allows first-party fonts, analytics assets, and CDN media",
   assert.ok(directive("script-src").includes("https://eu-assets.i.posthog.com"));
   assert.ok(directive("script-src").includes("https://api.onesignal.com"));
   assert.ok(directive("connect-src").includes("https://eu-assets.i.posthog.com"));
+  assert.ok(directive("connect-src").includes("https://video.bunnycdn.com"));
   assert.ok(directive("img-src").includes("https://cdn.vibelymeet.com"));
   assert.ok(directive("media-src").includes("https://cdn.vibelymeet.com"));
 });
