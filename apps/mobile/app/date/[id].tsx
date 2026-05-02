@@ -468,6 +468,25 @@ function shouldRecoverPendingPostDateSurvey(
   return videoSessionHasPostDateSurveyTruth(session);
 }
 
+type NativeTerminalSurveySessionRow = {
+  id?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  event_id?: string | null;
+  daily_room_name?: string | null;
+  daily_room_url?: string | null;
+  ended_at?: string | null;
+  ended_reason?: string | null;
+  date_started_at?: string | null;
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
+  state?: string | null;
+  phase?: string | null;
+};
+
+const NATIVE_TERMINAL_SURVEY_SESSION_SELECT =
+  'id, participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase';
+
 export default function VideoDateScreen() {
   const { id: sessionId } = useLocalSearchParams<{ id: string }>();
   const pathname = usePathname();
@@ -633,6 +652,91 @@ export default function VideoDateScreen() {
       vdbg(`journey_${event}`, { sessionId: sessionId ?? null, eventId: eventId || null, ...(payload ?? {}) });
     },
     [sessionId, eventId]
+  );
+
+  const openNativePostDateSurveyFromTerminalTruth = useCallback(
+    async (source: string, sessionOverride?: NativeTerminalSurveySessionRow | null) => {
+      if (!sessionId || !user?.id || showFeedback) return false;
+      const sessionRow =
+        sessionOverride ??
+        (
+          await supabase
+            .from('video_sessions')
+            .select(NATIVE_TERMINAL_SURVEY_SESSION_SELECT)
+            .eq('id', sessionId)
+            .maybeSingle()
+        ).data;
+
+      if (!sessionRow) return false;
+      const terminal =
+        Boolean(sessionRow.ended_at) ||
+        sessionRow.state === 'ended' ||
+        sessionRow.phase === 'ended';
+      if (!terminal) return false;
+
+      const { data: verdict } = await supabase
+        .from('date_feedback')
+        .select('id')
+        .eq('session_id', sessionId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      const pendingPostDateSurveyDue = shouldRecoverPendingPostDateSurvey(
+        sessionRow,
+        user.id,
+        verdict,
+      );
+      const reconnectExpiredSurveyDue =
+        sessionRow.ended_reason === 'reconnect_grace_expired' &&
+        videoSessionHasEncounterExposureTruth(sessionRow) &&
+        !verdict;
+      vdbg('terminal_post_date_survey_recovery_checked', {
+        sessionId,
+        userId: user.id,
+        source,
+        pendingPostDateSurveyDue,
+        verdictId: verdict?.id ?? null,
+        endedAt: sessionRow.ended_at ?? null,
+        endedReason: sessionRow.ended_reason ?? null,
+        state: sessionRow.state ?? null,
+        phase: sessionRow.phase ?? null,
+        participant1Joined: Boolean(sessionRow.participant_1_joined_at),
+        participant2Joined: Boolean(sessionRow.participant_2_joined_at),
+      });
+      if (!pendingPostDateSurveyDue) return false;
+
+      const recoveredPartnerId =
+        user.id === sessionRow.participant_1_id ? sessionRow.participant_2_id : sessionRow.participant_1_id;
+      if (recoveredPartnerId) setPartnerId(recoveredPartnerId);
+      if (sessionRow.event_id) setEventId(sessionRow.event_id);
+      setIsParticipant1(user.id === sessionRow.participant_1_id);
+      dateEstablishedRef.current = true;
+      logJourney('date_route_recovered', { source }, 'date_route_recovered');
+      logJourney(
+        'survey_recovered',
+        {
+          source,
+          reconnectExpiredSurveyDue,
+          pendingPostDateSurveyDue,
+        },
+        `survey_recovered_${source}`
+      );
+      logJourney('survey_lost_prevented', { source }, 'survey_lost_prevented');
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: sessionRow.event_id ?? eventId ?? null,
+        source_surface: 'video_date_route',
+        source_action: source,
+        outcome: 'recovered',
+        reason_code: source,
+        reconnectExpiredSurveyDue,
+        pendingPostDateSurveyDue,
+      });
+      setShowFeedback(true);
+      return true;
+    },
+    [eventId, logJourney, sessionId, showFeedback, user?.id]
   );
 
   const beginBootstrapTiming = useCallback((step: string, data?: Record<string, unknown>) => {
@@ -1211,53 +1315,9 @@ export default function VideoDateScreen() {
       });
       if (truthDecision === 'ended') {
         setDateEntryPermissionEligible(false);
-        const { data: verdict } = await supabase
-          .from('date_feedback')
-          .select('id')
-          .eq('session_id', sessionId)
-          .eq('user_id', user.id)
-          .maybeSingle();
+        const openedSurvey = await openNativePostDateSurveyFromTerminalTruth('ended_route_guard', vs);
         if (cancelled) return;
-        const pendingPostDateSurveyDue = shouldRecoverPendingPostDateSurvey(
-          vs,
-          user.id,
-          verdict,
-        );
-        const reconnectExpiredSurveyDue =
-          (vs as { ended_reason?: string | null }).ended_reason === 'reconnect_grace_expired' &&
-          videoSessionHasEncounterExposureTruth(vs) &&
-          !verdict;
-        if (pendingPostDateSurveyDue) {
-          const recoveredPartnerId =
-            user.id === vs.participant_1_id ? vs.participant_2_id : vs.participant_1_id;
-          if (recoveredPartnerId) setPartnerId(recoveredPartnerId);
-          if (vs.event_id) setEventId(vs.event_id as string);
-          setIsParticipant1(user.id === vs.participant_1_id);
-          dateEstablishedRef.current = true;
-          logJourney('date_route_recovered', { source: 'ended_route_guard' }, 'date_route_recovered');
-          logJourney(
-            'survey_recovered',
-            {
-              source: 'ended_route_guard',
-              queue_status: reg?.queue_status ?? null,
-              reconnectExpiredSurveyDue,
-              pendingPostDateSurveyDue,
-            },
-            'survey_recovered_ended_route_guard'
-          );
-          logJourney('survey_lost_prevented', { source: 'ended_route_guard' }, 'survey_lost_prevented');
-          trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
-            platform: 'native',
-            session_id: sessionId,
-            event_id: vs.event_id ?? eventId ?? null,
-            source_surface: 'video_date_route',
-            source_action: 'ended_route_guard',
-            outcome: 'recovered',
-            reason_code: 'ended_route_guard',
-            reconnectExpiredSurveyDue,
-            pendingPostDateSurveyDue,
-          });
-          setShowFeedback(true);
+        if (openedSurvey) {
           return;
         }
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'route_bounced_to_lobby', {
@@ -1369,7 +1429,15 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id, eventId, logJourney, beginBootstrapTiming, endBootstrapTiming]);
+  }, [
+    sessionId,
+    user?.id,
+    eventId,
+    logJourney,
+    beginBootstrapTiming,
+    endBootstrapTiming,
+    openNativePostDateSurveyFromTerminalTruth,
+  ]);
 
   const recoverFromNotStartableDateTruth = useCallback(
     async (source: 'enter_handshake' | 'create_date_room') => {
@@ -1447,6 +1515,8 @@ export default function VideoDateScreen() {
         return true;
       }
       if (decision === 'ended') {
+        const openedSurvey = await openNativePostDateSurveyFromTerminalTruth(`${source}_ended_truth`, vs);
+        if (openedSurvey) return true;
         const fallbackEventId = vs?.event_id ?? eventId;
         if (fallbackEventId) {
           const target = eventLobbyHref(fallbackEventId as string);
@@ -1528,7 +1598,7 @@ export default function VideoDateScreen() {
       });
       return false;
     },
-    [eventId, sessionId, user?.id]
+    [eventId, openNativePostDateSurveyFromTerminalTruth, sessionId, user?.id]
   );
 
   useEffect(() => {
@@ -2059,9 +2129,10 @@ export default function VideoDateScreen() {
     }
     addVideoDateBreadcrumb('Call ended (user)', 'info', { sessionId, source, dateWasEstablished });
     if (source === 'server_end') {
-      if (dateWasEstablished) {
+      const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(source);
+      if (recoveredSurvey || dateWasEstablished) {
         logJourney('survey_opened', { source }, `survey_opened_${source}`);
-        setShowFeedback(true);
+        if (!recoveredSurvey) setShowFeedback(true);
       } else {
         setShowFeedback(false);
       }
@@ -2085,13 +2156,20 @@ export default function VideoDateScreen() {
       }
 
       logJourney('survey_opened', { source: 'local_end_confirmed' }, 'survey_opened_local_end_confirmed');
-      setShowFeedback(true);
+      const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('local_end_confirmed');
+      if (!recoveredSurvey) setShowFeedback(true);
       await cleanupForAbortWithoutServerEnd();
       return;
     }
     setShowFeedback(false);
     await cleanupForAbortWithoutServerEnd();
-  }, [cleanupForAbortWithoutServerEnd, sessionId, logJourney, fetchServerTerminalTruth]);
+  }, [
+    cleanupForAbortWithoutServerEnd,
+    sessionId,
+    logJourney,
+    fetchServerTerminalTruth,
+    openNativePostDateSurveyFromTerminalTruth,
+  ]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -2480,9 +2558,14 @@ export default function VideoDateScreen() {
             endedReason: r.ended_reason ?? null,
           });
           // Any server-reported end from sync_reconnect (grace expiry, partner end, etc.) → same post-date path as web.
-          if (!reconnectEndedHandledRef.current && partnerEverJoinedRef.current) {
+          if (!reconnectEndedHandledRef.current) {
             reconnectEndedHandledRef.current = true;
-            void handleCallEndRef.current?.('server_end');
+            const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth('sync_reconnect');
+            if (recoveredSurvey) {
+              void cleanupForAbortWithoutServerEnd();
+            } else {
+              void handleCallEndRef.current?.('server_end');
+            }
           }
           setIsPartnerDisconnected(false);
           setIsTimerPaused(false);
@@ -2534,7 +2617,16 @@ export default function VideoDateScreen() {
     };
     // Reconnect polling is intentionally keyed to phase scalars; the full session object would restart active recovery loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, phase, session?.state, session?.handshake_started_at, eventId, clearReconnectSyncTimer]);
+  }, [
+    sessionId,
+    phase,
+    session?.state,
+    session?.handshake_started_at,
+    eventId,
+    clearReconnectSyncTimer,
+    cleanupForAbortWithoutServerEnd,
+    openNativePostDateSurveyFromTerminalTruth,
+  ]);
 
   useEffect(() => {
     reconnectSyncCountRef.current = 0;
@@ -4813,67 +4905,8 @@ export default function VideoDateScreen() {
     if (!isTerminalSession) return;
     let cancelled = false;
     void (async () => {
-      const regEventId = session?.event_id ?? eventId;
-      const regQuery = supabase
-        .from('event_registrations')
-        .select('queue_status')
-        .eq('profile_id', user.id);
-      if (regEventId) {
-        regQuery.eq('event_id', regEventId);
-      } else {
-        regQuery.eq('current_room_id', sessionId);
-      }
-      const [{ data: reg }, { data: verdict }] = await Promise.all([
-        regQuery.maybeSingle(),
-        supabase
-          .from('date_feedback')
-          .select('id')
-          .eq('session_id', sessionId)
-          .eq('user_id', user.id)
-          .maybeSingle(),
-      ]);
       if (cancelled) return;
-      const pendingPostDateSurveyDue = shouldRecoverPendingPostDateSurvey(
-        session,
-        user.id,
-        verdict,
-      );
-      const reconnectExpiredSurveyDue =
-        session?.ended_reason === 'reconnect_grace_expired' &&
-        videoSessionHasEncounterExposureTruth(session) &&
-        !verdict;
-      if (pendingPostDateSurveyDue) {
-        const recoveredPartnerId =
-          user.id === session?.participant_1_id ? session?.participant_2_id : session?.participant_1_id;
-        if (recoveredPartnerId) setPartnerId(recoveredPartnerId);
-        if (session?.event_id) setEventId(session.event_id);
-        setIsParticipant1(user.id === session?.participant_1_id);
-        dateEstablishedRef.current = true;
-        logJourney('date_route_recovered', { source: 'terminal_session_recovery' }, 'date_route_recovered');
-        logJourney(
-          'survey_recovered',
-          {
-            source: 'terminal_session_recovery',
-            queue_status: reg?.queue_status ?? null,
-            reconnectExpiredSurveyDue,
-            pendingPostDateSurveyDue,
-          },
-          'survey_recovered_terminal_session_recovery'
-        );
-        logJourney('survey_lost_prevented', { source: 'terminal_session_recovery' }, 'survey_lost_prevented');
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_SURVEY_RECOVERED, {
-          platform: 'native',
-          session_id: sessionId,
-          event_id: session?.event_id ?? eventId ?? null,
-          source_surface: 'video_date_route',
-          source_action: 'terminal_session_recovery',
-          outcome: 'recovered',
-          reason_code: 'terminal_session_recovery',
-          reconnectExpiredSurveyDue,
-          pendingPostDateSurveyDue,
-        });
-        setShowFeedback(true);
-      }
+      await openNativePostDateSurveyFromTerminalTruth('terminal_session_recovery', session);
     })();
     return () => {
       cancelled = true;
@@ -4894,7 +4927,7 @@ export default function VideoDateScreen() {
     session?.date_started_at,
     session?.participant_1_id,
     session?.participant_2_id,
-    logJourney,
+    openNativePostDateSurveyFromTerminalTruth,
   ]);
 
   /** Partner/backend ended session (realtime): show survey when we had joined the room; tear down Daily if still up. */
@@ -5037,6 +5070,15 @@ export default function VideoDateScreen() {
           } else if (result.reason === 'handshake_grace_expired') {
             setCallError('The warm-up ended before both choices were saved.');
           }
+          const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(
+            result.survey_required === true
+              ? 'complete_handshake_survey_required'
+              : 'complete_handshake_terminal'
+          );
+          if (recoveredSurvey) {
+            void cleanupForAbortWithoutServerEnd();
+            return;
+          }
           void handleCallEnd('server_end');
           return;
         }
@@ -5052,7 +5094,14 @@ export default function VideoDateScreen() {
         handshakeCompletionInFlightRef.current = false;
       }
     },
-    [clearHandshakeGraceState, handleCallEnd, refetchVideoSession, sessionId]
+    [
+      clearHandshakeGraceState,
+      cleanupForAbortWithoutServerEnd,
+      handleCallEnd,
+      openNativePostDateSurveyFromTerminalTruth,
+      refetchVideoSession,
+      sessionId,
+    ]
   );
 
   useEffect(() => {
@@ -5278,16 +5327,18 @@ export default function VideoDateScreen() {
     lastLoggedPostJoinStageRef.current = postJoinStage;
   }, [postJoinStage, sessionId]);
 
-  const showOpeningRoomTopPill = (joining || isConnecting) && !localInDailyRoom;
+  const showOpeningRoomTopPill = !showFeedback && (joining || isConnecting) && !localInDailyRoom;
   const showTopBarWaitingPill =
     showOpeningRoomTopPill ||
-    (localInDailyRoom &&
+    (!showFeedback &&
+      localInDailyRoom &&
       !hasRemotePartner &&
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
-  const showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom && !preJoinFailed && !peerMissingTerminal;
+  const showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom && !showFeedback && !preJoinFailed && !peerMissingTerminal;
   const showPeerWaitOverlay =
+    !showFeedback &&
     localInDailyRoom &&
     !hasRemotePartner &&
     !partnerEverJoined &&
@@ -5296,11 +5347,12 @@ export default function VideoDateScreen() {
 
   // Show the Vibe/Pass CTA during the hard-deadline handshake.
   const showHandshakeChrome =
+    !showFeedback &&
     phase === 'handshake' &&
     handshakeTimerStarted &&
     hasRemotePartner &&
     !peerMissingTerminal;
-  const showDatePhaseChrome = phase === 'date' && hasRemotePartner;
+  const showDatePhaseChrome = !showFeedback && phase === 'date' && hasRemotePartner;
   const localHandshakeDecision = useMemo<boolean | null>(() => {
     if (!session || !user?.id) return null;
     if (session.participant_1_id === user.id) {
@@ -5621,7 +5673,7 @@ export default function VideoDateScreen() {
           />
         )}
 
-        {preJoinFailed && !localInDailyRoom && (
+        {!showFeedback && preJoinFailed && !localInDailyRoom && (
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>Could not start your date</Text>
@@ -5649,7 +5701,7 @@ export default function VideoDateScreen() {
           </View>
         )}
 
-        {peerMissingTerminal && (
+        {!showFeedback && peerMissingTerminal && (
           <View style={styles.initialTimeoutWrap}>
             <View style={[styles.initialTimeoutCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
               <Text style={[styles.initialTimeoutTitle, { color: theme.text }]}>

@@ -81,6 +81,7 @@ const DATE_TIME = 300;
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
 const VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000;
 const VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS = 2_500;
+const TERMINAL_SURVEY_RECONCILE_INTERVAL_MS = 2_500;
 const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Product invariant: remote date video preserves the full encoded camera frame.
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
@@ -212,7 +213,29 @@ type CompleteHandshakePayload = {
   seconds_remaining?: number;
   already_ended?: boolean;
   reason?: string | null;
+  survey_required?: boolean;
 };
+
+type TerminalSurveySessionRow = {
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  event_id?: string | null;
+  daily_room_name?: string | null;
+  daily_room_url?: string | null;
+  ended_at?: string | null;
+  ended_reason?: string | null;
+  state?: string | null;
+  phase?: string | null;
+  handshake_started_at?: string | null;
+  date_started_at?: string | null;
+  ready_gate_status?: string | null;
+  ready_gate_expires_at?: string | number | null;
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
+};
+
+const TERMINAL_SURVEY_SESSION_SELECT =
+  "participant_1_id, participant_2_id, event_id, daily_room_name, daily_room_url, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, participant_1_joined_at, participant_2_joined_at";
 
 function videoDateDebug(message: string, data?: Record<string, unknown>) {
   if (!import.meta.env.DEV) return;
@@ -224,18 +247,6 @@ function videoSessionIndicatesTerminalEnd(
 ): boolean {
   if (!row) return false;
   return Boolean(row.ended_at || row.state === "ended" || row.phase === "ended");
-}
-
-function videoSessionHasDatePhaseEvidence(
-  row: {
-    date_started_at?: string | null;
-    participant_1_joined_at?: string | null;
-    participant_2_joined_at?: string | null;
-    state?: string | null;
-    phase?: string | null;
-  } | null
-): boolean {
-  return videoSessionHasEncounterExposureTruth(row);
 }
 
 function shouldOpenPostDateSurveyForTerminalSession(
@@ -425,6 +436,84 @@ const VideoDate = () => {
     [id, user?.id],
   );
 
+  const recoverTerminalPostDateSurvey = useCallback(
+    async (source: string, sessionOverride?: TerminalSurveySessionRow | null) => {
+      if (!id || !user?.id) return false;
+      const sessionRow =
+        sessionOverride ??
+        (
+          await supabase
+            .from("video_sessions")
+            .select(TERMINAL_SURVEY_SESSION_SELECT)
+            .eq("id", id)
+            .maybeSingle()
+        ).data;
+
+      if (!sessionRow) {
+        setVideoDateAccess("not_found");
+        return true;
+      }
+
+      if (!videoSessionIndicatesTerminalEnd(sessionRow)) {
+        return false;
+      }
+
+      const { data: verdict } = await supabase
+        .from("date_feedback")
+        .select("id")
+        .eq("session_id", id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
+      vdbg("terminal_post_date_survey_recovery_checked", {
+        sessionId: id,
+        userId: user.id,
+        source,
+        shouldOpenSurvey,
+        verdictId: verdict?.id ?? null,
+        endedAt: sessionRow.ended_at ?? null,
+        endedReason: sessionRow.ended_reason ?? null,
+        state: sessionRow.state ?? null,
+        phase: sessionRow.phase ?? null,
+        participant1Joined: Boolean(sessionRow.participant_1_joined_at),
+        participant2Joined: Boolean(sessionRow.participant_2_joined_at),
+      });
+
+      if (shouldOpenSurvey) {
+        hydrateTerminalSurveyContext(sessionRow, source);
+        openPostDateSurvey(source);
+        return true;
+      }
+
+      clearHandshakeGraceState();
+      setPhase("ended");
+      setTimeLeft(0);
+      setShowFeedback(false);
+      const target = sessionRow.event_id
+        ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
+        : "/events";
+      clearDateEntryTransition(id);
+      vdbgRedirect(target, source, {
+        sessionId: id,
+        userId: user.id,
+        eventId: sessionRow.event_id ?? null,
+        endedAt: sessionRow.ended_at ?? null,
+        endedReason: sessionRow.ended_reason ?? null,
+      });
+      navigate(target, { replace: true });
+      return true;
+    },
+    [
+      clearHandshakeGraceState,
+      hydrateTerminalSurveyContext,
+      id,
+      navigate,
+      openPostDateSurvey,
+      user?.id,
+    ],
+  );
+
   const recoverFromNotStartableDateTruth = useCallback(
     async (source: string) => {
       if (!id || !user?.id) return false;
@@ -491,60 +580,15 @@ const VideoDate = () => {
       }
 
       if (decision === "ended") {
-        return false;
+        return recoverTerminalPostDateSurvey(`${source}_ended_truth`);
       }
 
       return false;
     },
-    [eventId, id, logJourney, navigate, user?.id]
+    [eventId, id, logJourney, navigate, recoverTerminalPostDateSurvey, user?.id]
   );
 
-  const recoverFromEndedSessionTruth = useCallback(
-    async (source: string) => {
-      if (!id || !user?.id) return;
-      const { data: sessionRow } = await supabase
-        .from("video_sessions")
-        .select("participant_1_id, participant_2_id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url")
-        .eq("id", id)
-        .maybeSingle();
-
-      if (!sessionRow) {
-        setVideoDateAccess("not_found");
-        return;
-      }
-
-      const { data: verdict } = await supabase
-        .from("date_feedback")
-        .select("id")
-        .eq("session_id", id)
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
-
-      if (shouldOpenSurvey) {
-        hydrateTerminalSurveyContext(sessionRow, source);
-        openPostDateSurvey(source);
-        return;
-      }
-
-      clearHandshakeGraceState();
-      setPhase("ended");
-      setTimeLeft(0);
-      const target = sessionRow.event_id
-        ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-        : "/events";
-      clearDateEntryTransition(id);
-      vdbgRedirect(target, source, {
-        sessionId: id,
-        userId: user.id,
-        eventId: sessionRow.event_id,
-        endedAt: sessionRow.ended_at,
-      });
-      navigate(target, { replace: true });
-    },
-    [clearHandshakeGraceState, hydrateTerminalSurveyContext, id, navigate, openPostDateSurvey, user?.id]
-  );
+  const recoverFromEndedSessionTruth = recoverTerminalPostDateSurvey;
 
   const {
     isConnecting,
@@ -811,50 +855,18 @@ const VideoDate = () => {
     if (!id || !user?.id || showFeedback || phase !== "ended") return;
     let cancelled = false;
     void (async () => {
-      const { data: sessionRow, error: sessionErr } = await supabase
-        .from("video_sessions")
-        .select("event_id, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase")
-        .eq("id", id)
-        .maybeSingle();
-      if (cancelled || sessionErr || !sessionRow) return;
-
-      const eventIdForReg = (sessionRow as { event_id?: string | null }).event_id;
-      const [{ data: reg }, { data: verdict }] = await Promise.all([
-        eventIdForReg
-          ? supabase
-              .from("event_registrations")
-              .select("queue_status")
-              .eq("profile_id", user.id)
-              .eq("event_id", eventIdForReg)
-              .maybeSingle()
-          : Promise.resolve({ data: null as { queue_status: string } | null }),
-        supabase
-          .from("date_feedback")
-          .select("id")
-          .eq("session_id", id)
-          .eq("user_id", user.id)
-          .maybeSingle(),
-      ]);
       if (cancelled) return;
-      const reconnectExpiredSurveyDue =
-        ((sessionRow as { ended_reason?: string | null } | null)?.ended_reason === "reconnect_grace_expired") &&
-        videoSessionHasDatePhaseEvidence(sessionRow) &&
-        !verdict;
-      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
-      if (shouldOpenSurvey) {
+      const recovered = await recoverTerminalPostDateSurvey("ended_phase_hydration_recovery");
+      if (cancelled || !recovered) return;
+      if (surveyOpenedRef.current) {
         logJourney("date_route_recovered", { source: "ended_phase_hydration_recovery" }, "date_route_recovered");
-        logJourney("survey_lost_prevented", {
-          source: "ended_phase_hydration_recovery",
-          queueStatus: reg?.queue_status ?? null,
-          reconnectExpiredSurveyDue,
-        });
-        openPostDateSurvey("ended_phase_hydration_recovery");
+        logJourney("survey_lost_prevented", { source: "ended_phase_hydration_recovery" });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, showFeedback, phase, openPostDateSurvey, logJourney]);
+  }, [id, user?.id, showFeedback, phase, recoverTerminalPostDateSurvey, logJourney]);
 
   useLayoutEffect(() => {
     if (!id) return;
@@ -1059,49 +1071,7 @@ const VideoDate = () => {
         if (cancelled) return;
 
         if (videoSessionIndicatesTerminalEnd(sessionRow)) {
-          const { data: verdict } = await supabase
-            .from("date_feedback")
-            .select("id")
-            .eq("session_id", id)
-            .eq("user_id", user.id)
-            .maybeSingle();
-          if (cancelled) return;
-          const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
-          if (shouldOpenSurvey) {
-            hydrateTerminalSurveyContext(sessionRow, "session_load_terminal");
-            openPostDateSurvey("session_load_terminal");
-          } else {
-            clearDateEntryTransition(id);
-            toast.info("This date has already ended.", { duration: 2800 });
-            const target = sessionRow.event_id
-              ? `/event/${encodeURIComponent(sessionRow.event_id)}/lobby`
-              : "/home";
-            videoDateDebug("date_refresh_routing", {
-              outcome: "redirect_lobby",
-              reason: "session_ended",
-              sessionId: id,
-              queueStatus: reg?.queue_status ?? null,
-              sessionTruth: {
-                state: sessionRow.state ?? null,
-                phase: sessionRow.phase ?? null,
-                handshake_started_at: sessionRow.handshake_started_at ?? null,
-                date_started_at: sessionRow.date_started_at ?? null,
-                ended_at: sessionRow.ended_at ?? null,
-              },
-              target,
-            });
-            vdbgRedirect(target, "session_ended", {
-              sessionId: id,
-              userId: user.id,
-              eventId: sessionRow.event_id,
-              endedAt: sessionRow.ended_at,
-            });
-            logJourney("date_route_bounced", {
-              reason: "session_ended",
-              target,
-            });
-            navigate(target, { replace: true });
-          }
+          await recoverTerminalPostDateSurvey("session_load_terminal", sessionRow);
           return;
         }
 
@@ -1312,7 +1282,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, navigate, openPostDateSurvey, logJourney, hydrateTerminalSurveyContext]);
+  }, [id, user?.id, navigate, logJourney, recoverTerminalPostDateSurvey]);
 
   // Server-side phase timing + enter_handshake (only after participant guard passes).
   useEffect(() => {
@@ -1358,13 +1328,7 @@ const VideoDate = () => {
       if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
         setHandshakeStartedAt(null);
-        if (videoSessionHasPostDateSurveyTruth(data)) {
-          openPostDateSurvey("timing_terminal");
-        } else {
-          clearHandshakeGraceState();
-          setPhase("ended");
-          setTimeLeft(0);
-        }
+        await recoverTerminalPostDateSurvey("timing_terminal");
         setDateStartedAt(typeof data.date_started_at === "string" ? data.date_started_at : null);
         setTimingReady(true);
         return;
@@ -1429,7 +1393,7 @@ const VideoDate = () => {
     videoDateAccess,
     clearHandshakeGraceState,
     markDateFlowEntered,
-    openPostDateSurvey,
+    recoverTerminalPostDateSurvey,
     timingRefreshNonce,
     trackTimerDriftRecovery,
   ]);
@@ -1500,6 +1464,16 @@ const VideoDate = () => {
               code: error.code ?? null,
             });
           }
+          const reconnectPayload = data as { ended?: boolean; state?: string | null; phase?: string | null } | null;
+          if (
+            !error &&
+            (reconnectPayload?.ended === true ||
+              reconnectPayload?.state === "ended" ||
+              reconnectPayload?.phase === "ended")
+          ) {
+            const handled = await recoverTerminalPostDateSurvey(`${source}_sync_reconnect_terminal`);
+            if (handled) return;
+          }
           setTimingRefreshNonce((n) => n + 1);
         } catch (error) {
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_FOREGROUND_RECONCILE_FAILED, {
@@ -1524,7 +1498,7 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
     };
-  }, [eventId, id, showFeedback, videoDateAccess]);
+  }, [eventId, id, recoverTerminalPostDateSurvey, showFeedback, videoDateAccess]);
 
   // Start Daily only when timing/handshake bootstrap succeeded (or session already in progress).
   useEffect(() => {
@@ -1671,17 +1645,7 @@ const VideoDate = () => {
           if (row.ended_at || newState === "ended") {
             setHandshakeStartedAt(null);
             setDateStartedAt(typeof row.date_started_at === "string" ? row.date_started_at : null);
-            if (videoSessionHasPostDateSurveyTruth(row)) {
-              openPostDateSurvey("realtime_terminal");
-            } else {
-              clearHandshakeGraceState();
-              setPhase("ended");
-              setTimeLeft(0);
-              void (async () => {
-                await endCall("server_handshake_terminal");
-                await handleCallEndRef.current?.();
-              })();
-            }
+            void recoverTerminalPostDateSurvey("realtime_terminal", row);
             return;
           }
 
@@ -1728,9 +1692,8 @@ const VideoDate = () => {
     user?.id,
     videoDateAccess,
     clearHandshakeGraceState,
-    endCall,
     markDateFlowEntered,
-    openPostDateSurvey,
+    recoverTerminalPostDateSurvey,
     trackTimerDriftRecovery,
   ]);
 
@@ -2335,6 +2298,15 @@ const VideoDate = () => {
         } else {
           toast("Great meeting you! 👋", { duration: 2500 });
         }
+        const handledTerminalSurvey = await recoverTerminalPostDateSurvey(
+          payload?.survey_required === true
+            ? "complete_handshake_survey_required"
+            : "complete_handshake_terminal",
+        );
+        if (handledTerminalSurvey) {
+          void endCall("complete_handshake_not_mutual");
+          return;
+        }
         await endCall("complete_handshake_not_mutual");
         void handleCallEndRef.current?.();
       }
@@ -2350,7 +2322,7 @@ const VideoDate = () => {
     } finally {
       handshakeCompletionInFlightRef.current = false;
     }
-  }, [id, eventId, endCall, clearHandshakeGraceState, markDateFlowEntered]);
+  }, [id, eventId, endCall, clearHandshakeGraceState, markDateFlowEntered, recoverTerminalPostDateSurvey]);
 
   useEffect(() => {
     checkMutualVibeRef.current = checkMutualVibe;
@@ -2578,13 +2550,14 @@ const VideoDate = () => {
           .select("ended_at, ended_reason, state, phase, date_started_at, participant_1_joined_at, participant_2_joined_at")
           .eq("id", id)
           .maybeSingle();
-        if (
-          videoSessionIndicatesTerminalEnd(sessionRow) &&
-          shouldOpenPostDateSurveyForTerminalSession(sessionRow, null)
-        ) {
+        if (videoSessionIndicatesTerminalEnd(sessionRow)) {
+          const recovered = await recoverTerminalPostDateSurvey("local_end_recovered_after_rpc_error");
+          if (!recovered) {
+            toast.error("Couldn't finish ending the date. Please try again.");
+            explicitEndRequestedRef.current = "idle";
+            return;
+          }
           explicitEndRequestedRef.current = "acked";
-          markDateFlowEntered();
-          openPostDateSurvey("local_end_recovered_after_rpc_error");
           return;
         }
         toast.error("Couldn't finish ending the date. Please try again.");
@@ -2604,14 +2577,16 @@ const VideoDate = () => {
         .select("ended_at, ended_reason, state, phase, date_started_at, participant_1_joined_at, participant_2_joined_at")
         .eq("id", id)
         .maybeSingle();
-      const serverEndedDate =
-        videoSessionIndicatesTerminalEnd(sessionRow) &&
-        shouldOpenPostDateSurveyForTerminalSession(sessionRow, null);
+      if (videoSessionIndicatesTerminalEnd(sessionRow)) {
+        const recovered = await recoverTerminalPostDateSurvey("local_end");
+        if (recovered) {
+          markDateFlowEntered();
+          return;
+        }
+      }
 
-      if (serverEndedDate) {
+      {
         markDateFlowEntered();
-        openPostDateSurvey("local_end");
-      } else {
         clearHandshakeGraceState();
         setPhase("ended");
         setTimeLeft(0);
@@ -2634,7 +2609,7 @@ const VideoDate = () => {
       toast.error("Couldn't finish ending the date. Please try again.");
       explicitEndRequestedRef.current = "idle";
     }
-  }, [id, phase, timeLeft, dateExtraSeconds, dateStartedAt, openPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
+  }, [id, phase, timeLeft, dateExtraSeconds, dateStartedAt, recoverTerminalPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -2802,6 +2777,48 @@ const VideoDate = () => {
       event_id: eventId ?? null,
     });
   }, [eventId, id, peerMissing.terminal]);
+
+  useEffect(() => {
+    if (!id || videoDateAccess !== "allowed" || showFeedback || phase === "ended") return;
+    if (mediaPermissionError) return;
+    const shouldReconcileTerminalSurvey =
+      peerMissing.terminal || remotePlayback.playRejected || isConnecting || !isConnected;
+    if (!shouldReconcileTerminalSurvey) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    const reconcileTerminalSurvey = async (source: string) => {
+      if (cancelled || inFlight || surveyOpenedRef.current) return;
+      if (explicitEndRequestedRef.current !== "idle") return;
+      inFlight = true;
+      try {
+        await recoverTerminalPostDateSurvey(source);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void reconcileTerminalSurvey("peer_wait_terminal_reconcile_initial");
+    const interval = window.setInterval(() => {
+      void reconcileTerminalSurvey("peer_wait_terminal_reconcile_interval");
+    }, TERMINAL_SURVEY_RECONCILE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    id,
+    videoDateAccess,
+    showFeedback,
+    phase,
+    mediaPermissionError,
+    peerMissing.terminal,
+    remotePlayback.playRejected,
+    isConnecting,
+    isConnected,
+    recoverTerminalPostDateSurvey,
+  ]);
 
   const handlePeerMissingRetry = useCallback(() => {
     if (!id) return;
