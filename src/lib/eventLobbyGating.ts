@@ -33,12 +33,12 @@ type EventLike = {
   durationMinutes?: number | null;
   archivedAt?: Date | string | number | null;
   endedAt?: Date | string | number | null;
-} | null;
+} | null | undefined;
 
 type RegistrationLike = {
   isConfirmed?: boolean;
   isWaitlisted?: boolean;
-} | null;
+} | null | undefined;
 
 const LIVE_STATE: EventLobbyGateState = {
   kind: "live",

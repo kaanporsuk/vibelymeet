@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, type ReactNode } from "react";
 import { eventCoverThumbUrl } from "@/utils/imageUrl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -314,7 +314,7 @@ const AdminEventsPanel = () => {
     else setSelectedIds(new Set(filteredEvents.map(e => e.id)));
   };
 
-  const renderEventRow = (event: AdminEventRow, isChild = false) => {
+  const renderEventRow = (event: AdminEventRow, isChild = false): ReactNode => {
     const computed = getComputedStatus(event);
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];

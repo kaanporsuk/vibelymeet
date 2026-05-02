@@ -223,7 +223,8 @@ export const LocationStep = ({
       });
       if (error) throw error;
 
-      const items = Array.isArray(data) ? data : data?.results ?? [];
+      const payload = data as { results?: ForwardGeocodeResult[] } | ForwardGeocodeResult[] | null;
+      const items: ForwardGeocodeResult[] = Array.isArray(payload) ? payload : payload?.results ?? [];
       const nextResults = items
         .slice(0, 5)
         .map((result: ForwardGeocodeResult) => buildSearchResult(result))

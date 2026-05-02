@@ -216,7 +216,7 @@ const AdminMatchMessagesDrawer = ({
                       whileTap={{ scale: 0.99 }}
                       onClick={() => {
                         setSelectedMatchId(match.id);
-                        setSelectedOtherUser(otherUser);
+                        setSelectedOtherUser(otherUser ?? null);
                       }}
                       className="w-full glass-card p-4 rounded-xl flex items-center gap-4 text-left"
                     >

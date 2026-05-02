@@ -78,7 +78,7 @@ function detectCountryFromLocale(): string {
 
 function phoneVerifyDiagEnabled(): boolean {
   try {
-    return (
+    return Boolean(
       typeof window !== "undefined" &&
       import.meta.env.DEV &&
       window.localStorage?.getItem("__vibely_diag") === "1"
