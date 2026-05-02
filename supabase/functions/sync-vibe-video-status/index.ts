@@ -35,6 +35,79 @@ function mapBunnyVideoStatus(status: unknown): "processing" | "ready" | "failed"
   return "processing";
 }
 
+type BunnyAccessMode = "read_only" | "stream_api";
+
+type BunnyLookupResult =
+  | {
+    ok: true;
+    video: { status?: unknown; encodeProgress?: unknown };
+    accessMode: BunnyAccessMode;
+    attemptedReadKey: boolean;
+    attemptedStreamApiKey: boolean;
+  }
+  | {
+    ok: false;
+    httpStatus: number | null;
+    bodySnippetLength: number;
+    accessMode: BunnyAccessMode | null;
+    attemptedReadKey: boolean;
+    attemptedStreamApiKey: boolean;
+  };
+
+async function getBunnyVideo(
+  libraryId: string,
+  videoId: string,
+  readKey: string,
+  streamApiKey: string,
+): Promise<BunnyLookupResult> {
+  const attempts: Array<{ key: string; mode: BunnyAccessMode }> = [];
+  if (readKey) attempts.push({ key: readKey, mode: "read_only" });
+  if (streamApiKey && streamApiKey !== readKey) {
+    attempts.push({ key: streamApiKey, mode: "stream_api" });
+  }
+
+  let lastFailure: Extract<BunnyLookupResult, { ok: false }> = {
+    ok: false,
+    httpStatus: null,
+    bodySnippetLength: 0,
+    accessMode: null,
+    attemptedReadKey: attempts.some((attempt) => attempt.mode === "read_only"),
+    attemptedStreamApiKey: attempts.some((attempt) => attempt.mode === "stream_api"),
+  };
+
+  for (const attempt of attempts) {
+    const response = await fetch(
+      `https://video.bunnycdn.com/library/${libraryId}/videos/${videoId}`,
+      {
+        method: "GET",
+        headers: { AccessKey: attempt.key },
+      },
+    );
+
+    if (response.ok) {
+      return {
+        ok: true,
+        video: await response.json().catch(() => ({})) as { status?: unknown; encodeProgress?: unknown },
+        accessMode: attempt.mode,
+        attemptedReadKey: attempts.some((item) => item.mode === "read_only"),
+        attemptedStreamApiKey: attempts.some((item) => item.mode === "stream_api"),
+      };
+    }
+
+    const text = await response.text().catch(() => "");
+    lastFailure = {
+      ok: false,
+      httpStatus: response.status,
+      bodySnippetLength: text.length,
+      accessMode: attempt.mode,
+      attemptedReadKey: attempts.some((item) => item.mode === "read_only"),
+      attemptedStreamApiKey: attempts.some((item) => item.mode === "stream_api"),
+    };
+  }
+
+  return lastFailure;
+}
+
 serve(async (req) => {
   const projectRef = getProjectRef(Deno.env.get("SUPABASE_URL"));
 
@@ -139,40 +212,35 @@ serve(async (req) => {
 
     const libraryId = Deno.env.get("BUNNY_STREAM_LIBRARY_ID")?.trim() ?? "";
     const readKey = Deno.env.get("BUNNY_WEBHOOK_SIGNING_KEY")?.trim() ?? "";
-    const apiKey = readKey || Deno.env.get("BUNNY_STREAM_API_KEY")?.trim() || "";
+    const streamApiKey = Deno.env.get("BUNNY_STREAM_API_KEY")?.trim() ?? "";
 
-    if (!libraryId || !apiKey) {
+    if (!libraryId || (!readKey && !streamApiKey)) {
       logVibeVideo("error", "sync_vibe_video_status_missing_bunny_config", {
         project_ref: projectRef,
         user_id: user.id,
         has_library_id: !!libraryId,
         has_read_key: !!readKey,
-        has_access_key: !!apiKey,
+        has_stream_api_key: !!streamApiKey,
       });
       return json({ success: false, error: "Bunny credentials not configured", code: "missing_bunny_secret" }, 503);
     }
 
-    const bunnyResponse = await fetch(
-      `https://video.bunnycdn.com/library/${libraryId}/videos/${requestedVideoId}`,
-      {
-        method: "GET",
-        headers: { AccessKey: apiKey },
-      },
-    );
-
-    if (!bunnyResponse.ok) {
-      const text = await bunnyResponse.text().catch(() => "");
+    const bunnyLookup = await getBunnyVideo(libraryId, requestedVideoId, readKey, streamApiKey);
+    if (!bunnyLookup.ok) {
       logVibeVideo("error", "sync_vibe_video_status_bunny_lookup_failed", {
         project_ref: projectRef,
         user_id: user.id,
         video_guid: requestedVideoId,
-        http_status: bunnyResponse.status,
-        body_snippet_length: text.length,
+        http_status: bunnyLookup.httpStatus,
+        access_mode: bunnyLookup.accessMode,
+        attempted_read_key: bunnyLookup.attemptedReadKey,
+        attempted_stream_api_key: bunnyLookup.attemptedStreamApiKey,
+        body_snippet_length: bunnyLookup.bodySnippetLength,
       });
       return json({ success: false, error: "Failed to read Bunny video status", code: "bunny_lookup_failed" }, 502);
     }
 
-    const bunnyVideo = await bunnyResponse.json().catch(() => ({})) as { status?: unknown; encodeProgress?: unknown };
+    const bunnyVideo = bunnyLookup.video;
     const bunnyStatus = typeof bunnyVideo.status === "number" ? bunnyVideo.status : null;
     const mappedStatus = mapBunnyVideoStatus(bunnyStatus);
 
@@ -183,7 +251,9 @@ serve(async (req) => {
       bunny_status: bunnyStatus,
       mapped_status: mappedStatus,
       encode_progress: typeof bunnyVideo.encodeProgress === "number" ? bunnyVideo.encodeProgress : null,
-      read_key_used: !!readKey,
+      access_mode: bunnyLookup.accessMode,
+      attempted_read_key: bunnyLookup.attemptedReadKey,
+      attempted_stream_api_key: bunnyLookup.attemptedStreamApiKey,
     });
 
     const { data: sessionResult, error: sessionError } = await adminSupabase.rpc(

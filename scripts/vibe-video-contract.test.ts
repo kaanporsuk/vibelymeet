@@ -607,8 +607,11 @@ test("authenticated Vibe Video status sync repairs uploaded Bunny videos without
   assert.match(config, /\[functions\.sync-vibe-video-status\][\s\S]*?verify_jwt = true/);
   assert.match(syncFunction, /BUNNY_WEBHOOK_SIGNING_KEY/);
   assert.match(syncFunction, /BUNNY_STREAM_API_KEY/);
+  assert.match(syncFunction, /function getBunnyVideo/);
+  assert.match(syncFunction, /streamApiKey !== readKey/);
+  assert.match(syncFunction, /attemptedStreamApiKey/);
   assert.match(syncFunction, /GET/);
-  assert.match(syncFunction, /https:\/\/video\.bunnycdn\.com\/library\/\$\{libraryId\}\/videos\/\$\{requestedVideoId\}/);
+  assert.match(syncFunction, /https:\/\/video\.bunnycdn\.com\/library\/\$\{libraryId\}\/videos\/\$\{videoId\}/);
   assert.match(syncFunction, /status === 3 \|\| status === 4/);
   assert.match(syncFunction, /status === 5 \|\| status === 8/);
   assert.match(syncFunction, /update_media_session_status/);
