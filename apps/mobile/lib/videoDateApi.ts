@@ -106,6 +106,7 @@ export type CompleteHandshakeResult = {
   seconds_remaining?: number;
   already_ended?: boolean;
   reason?: string;
+  survey_required?: boolean;
 };
 
 type VideoDateTransitionDiagnostics = {
@@ -891,6 +892,7 @@ export async function completeHandshake(sessionId: string): Promise<CompleteHand
     seconds_remaining: payload?.seconds_remaining,
     already_ended: payload?.already_ended,
     reason: payload?.reason,
+    survey_required: payload?.survey_required,
   };
 }
 
