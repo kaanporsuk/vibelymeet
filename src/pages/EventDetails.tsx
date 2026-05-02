@@ -43,6 +43,7 @@ import { PremiumUpsellDialog } from "@/components/premium/PremiumUpsellDialog";
 import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { buildEventShareUrl } from "@/lib/inviteLinks";
 import { isWebShareAbortError } from "@/lib/webShare";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -183,7 +184,13 @@ const EventDetails = () => {
   const capacityInfo = getCapacityStatus();
   const userPrice = event.isFree ? 0 : event.price;
   const soldOut = capacityInfo.spotsLeft <= 0;
-  const eventEnded = Date.now() > event.eventDate.getTime() + event.durationMinutes * 60_000;
+  const eventLifecycle = resolveEventLifecycle({
+    status: event.status,
+    eventDate: event.eventDate,
+    durationMinutes: event.durationMinutes,
+    endedAt: event.endedAt,
+  });
+  const eventEnded = eventLifecycle.isEnded;
   const isCancelled = event.status === "cancelled";
   const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isCancelled;
 
@@ -577,6 +584,8 @@ const EventDetails = () => {
             address={event.address}
             eventDate={event.eventDate}
             eventDurationMinutes={event.durationMinutes}
+            eventStatus={event.status}
+            eventEndedAt={event.endedAt}
             eventId={event.id}
             isRegistered={isConfirmed}
             onAccessPress={!isConfirmed && !isCancelled ? () => void handlePurchasePress() : undefined}

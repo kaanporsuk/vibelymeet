@@ -3,6 +3,7 @@ import { MapPin, Video, ExternalLink, Clock, Wifi, Lock, Play } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 interface VenueCardProps {
   isVirtual: boolean;
@@ -10,6 +11,8 @@ interface VenueCardProps {
   address?: string;
   eventDate: Date;
   eventDurationMinutes?: number;
+  eventStatus?: string | null;
+  eventEndedAt?: Date | string | number | null;
   eventId?: string;
   isRegistered?: boolean;
   onAccessPress?: () => void;
@@ -23,6 +26,8 @@ const VenueCard = ({
   address, 
   eventDate, 
   eventDurationMinutes = 60,
+  eventStatus: rawEventStatus,
+  eventEndedAt,
   eventId,
   isRegistered = false,
   onAccessPress,
@@ -39,14 +44,21 @@ const VenueCard = ({
       const startTime = eventDate.getTime();
       const endTime = startTime + eventDurationMinutes * 60 * 1000;
       const diff = startTime - now.getTime();
+      const lifecycle = resolveEventLifecycle({
+        status: rawEventStatus,
+        eventDate,
+        durationMinutes: eventDurationMinutes,
+        endedAt: eventEndedAt,
+        nowMs: now.getTime(),
+      });
 
-      if (now.getTime() >= endTime) {
+      if (lifecycle.isEnded) {
         setEventStatus("ended");
         setTimeUntil("Event ended");
         return;
       }
 
-      if (now.getTime() >= startTime && now.getTime() < endTime) {
+      if (lifecycle.isLive) {
         setEventStatus("live");
         const remainingMs = endTime - now.getTime();
         const remainingMinutes = Math.ceil(remainingMs / (1000 * 60));
@@ -77,7 +89,7 @@ const VenueCard = ({
     updateCountdown();
     const interval = setInterval(updateCountdown, 10000);
     return () => clearInterval(interval);
-  }, [eventDate, eventDurationMinutes]);
+  }, [eventDate, eventDurationMinutes, eventEndedAt, rawEventStatus]);
 
   const handleEnterLobby = () => {
     if (eventId && eventStatus === "live") {
