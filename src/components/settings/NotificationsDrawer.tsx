@@ -37,6 +37,7 @@ import {
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
 import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -106,6 +107,10 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
 
   const handleEnablePush = async () => {
     if (!user?.id) return;
+    recordUserAction("notification_settings_push_retry_clicked", {
+      surface: "settings_notifications",
+      health_status: health.status,
+    });
     const result =
       health.status === "needs_sync" || health.status === "allowed_finishing_setup"
         ? await retryPushSync()
@@ -113,11 +118,27 @@ export function NotificationsDrawer({ open, onOpenChange }: NotificationsDrawerP
     await refreshPushHealth();
     if (result?.synced) {
       window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+      recordUserAction("notification_settings_push_retry_succeeded", {
+        surface: "settings_notifications",
+      });
       toast.success("Push notifications enabled! 🔔");
     } else if (result?.code === "no_player_id_after_retry") {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
       toast.error("Notifications are allowed, but this browser is still finishing setup. Try again in a moment.");
     } else if (result?.code === "upsert_failed") {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
       toast.error("Couldn’t save this browser for push. Please retry.");
+    } else if (result?.code) {
+      recordUserAction("notification_settings_push_retry_failed", {
+        surface: "settings_notifications",
+        reason: result.code,
+      });
     }
   };
 

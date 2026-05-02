@@ -4,6 +4,13 @@ import { initOneSignal } from "./lib/onesignal";
 import { isOneSignalWebOriginAllowed } from "./lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "./lib/onesignalWebDiagnostics";
 import { recordPushDeliveryTelemetry } from "./lib/pushDeliveryTelemetry";
+import {
+  initializeBrowserDiagnostics,
+  recordServiceWorkerState,
+  sanitizeBrowserDiagnosticPayload,
+  sanitizeDiagnosticText,
+  sanitizeDiagnosticUrl,
+} from "./lib/browserDiagnostics";
 import posthog from 'posthog-js';
 import "./lib/webAuthReturnBootstrap";
 import App from "./App.tsx";
@@ -17,6 +24,42 @@ const SENTRY_DSN =
 const POSTHOG_HOST_FALLBACK = "https://eu.i.posthog.com";
 const POSTHOG_HOST =
   import.meta.env.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
+
+function isLocalBrowserOrigin(): boolean {
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+}
+
+type SentryBeforeSendEvent = Parameters<NonNullable<Parameters<typeof Sentry.init>[0]["beforeSend"]>>[0];
+
+function sanitizeSentryEvent(event: SentryBeforeSendEvent): SentryBeforeSendEvent {
+  if (event.request) {
+    event.request.url = sanitizeDiagnosticUrl(event.request.url) ?? undefined;
+    delete event.request.cookies;
+    delete event.request.data;
+    delete event.request.headers;
+    delete event.request.query_string;
+  }
+
+  event.breadcrumbs = event.breadcrumbs?.map((breadcrumb) => ({
+    ...breadcrumb,
+    message: sanitizeDiagnosticText(breadcrumb.message, 500) ?? breadcrumb.message,
+    data:
+      breadcrumb.data && typeof breadcrumb.data === "object"
+        ? sanitizeBrowserDiagnosticPayload(breadcrumb.data as Record<string, unknown>)
+        : breadcrumb.data,
+  }));
+
+  if (event.extra && typeof event.extra === "object") {
+    event.extra = sanitizeBrowserDiagnosticPayload(event.extra as Record<string, unknown>);
+  }
+
+  event.exception?.values?.forEach((value) => {
+    value.type = sanitizeDiagnosticText(value.type, 160) ?? value.type;
+    value.value = sanitizeDiagnosticText(value.value, 500) ?? value.value;
+  });
+
+  return event;
+}
 
 Sentry.init({
   dsn: SENTRY_DSN,
@@ -39,36 +82,41 @@ Sentry.init({
       delete event.user.email;
       delete event.user.ip_address;
     }
-    if (window.location.hostname === "localhost") {
+    if (isLocalBrowserOrigin()) {
       return null;
     }
-    return event;
+    return sanitizeSentryEvent(event);
   },
 });
 
 posthog.init(import.meta.env.VITE_POSTHOG_API_KEY, {
   api_host: POSTHOG_HOST,
   person_profiles: 'identified_only',
-  capture_pageview: true,
-  capture_pageleave: true,
-  autocapture: true,
+  capture_pageview: false,
+  capture_pageleave: false,
+  autocapture: false,
   persistence: 'localStorage+cookie',
-  disable_session_recording: false,
+  disable_session_recording: true,
   session_recording: {
     maskAllInputs: true,
     blockClass: 'ph-no-capture',
   },
   loaded: (posthog) => {
-    if (window.location.hostname === 'localhost') {
+    if (isLocalBrowserOrigin()) {
       posthog.opt_out_capturing();
     }
   },
 });
 
+initializeBrowserDiagnostics();
+
 // Init OneSignal only on allowlisted hosts (see `src/lib/oneSignalWebOrigin.ts`) to avoid dashboard domain errors.
 const origin = typeof window !== "undefined" ? window.location.origin : "";
 const oneSignalInitAllowed = typeof window !== "undefined" && isOneSignalWebOriginAllowed();
 vibelyOsLog("main:boot", { origin, oneSignalInitAllowed });
+void recordServiceWorkerState("main_boot", {
+  one_signal_init_allowed: oneSignalInitAllowed,
+});
 if (oneSignalInitAllowed) {
   try {
     initOneSignal();
@@ -87,5 +135,11 @@ if (oneSignalInitAllowed) {
     sync_result_code: "sdk_not_ready",
   });
 }
+
+window.addEventListener("vibely-onesignal-init-settled", (event) => {
+  void recordServiceWorkerState("onesignal_init_settled", {
+    sdk_usable: Boolean((event as CustomEvent<{ sdkUsable?: boolean }>).detail?.sdkUsable),
+  });
+});
 
 createRoot(document.getElementById("root")!).render(<App />);

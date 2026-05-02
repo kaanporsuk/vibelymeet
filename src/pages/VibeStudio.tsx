@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { MAX_VIBE_CAPTION_LEN } from "@/lib/vibeVideo/constants";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
@@ -227,6 +228,11 @@ const VibeStudio = () => {
 
   const handleCaptionSave = async () => {
     if (!profile || !captionChanged) return;
+    recordUserAction("vibe_studio_caption_save_clicked", {
+      surface: "vibe_studio",
+      video_state: videoInfo.state,
+      caption_length_bucket: captionDraft.trim().length > 80 ? "long" : captionDraft.trim().length > 0 ? "short" : "empty",
+    });
     setIsSavingCaption(true);
     try {
       const nextCaption = captionDraft.slice(0, MAX_VIBE_CAPTION_LEN);
@@ -241,9 +247,17 @@ const VibeStudio = () => {
         });
       }
       setProfile((prev) => (prev ? { ...prev, vibeCaption: nextCaption } : prev));
+      recordUserAction("vibe_studio_caption_save_succeeded", {
+        surface: "vibe_studio",
+        video_state: videoInfo.state,
+      });
       toast.success("Caption saved.");
       refreshProfile();
     } catch (error) {
+      recordUserAction("vibe_studio_caption_save_failed", {
+        surface: "vibe_studio",
+        video_state: videoInfo.state,
+      });
       toast.error(`Could not save caption: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsSavingCaption(false);
@@ -263,6 +277,11 @@ const VibeStudio = () => {
     if (!confirmed) return;
 
     setIsDeleting(true);
+    recordUserAction("vibe_studio_delete_clicked", {
+      surface: "vibe_studio",
+      video_state: videoInfo.state,
+      deleting_pipeline_video: deletingPipelineVideo,
+    });
     trackVibeVideoEvent(VIBE_VIDEO_EVENTS.deleteRequested, {
       source: "vibe_studio_page",
       state: videoInfo.state,
@@ -287,6 +306,11 @@ const VibeStudio = () => {
       }
 
       setShowPlayer(false);
+      recordUserAction("vibe_studio_delete_succeeded", {
+        surface: "vibe_studio",
+        video_state: videoInfo.state,
+        possible_bunny_orphan: result.possibleBunnyOrphan === true,
+      });
       trackVibeVideoEvent(VIBE_VIDEO_EVENTS.deleteSucceededLocally, {
         source: "vibe_studio_page",
         state: videoInfo.state,
@@ -295,6 +319,10 @@ const VibeStudio = () => {
       toast.success(deletingPipelineVideo ? "In-progress Vibe Video removed." : "Vibe Video deleted.");
       refreshProfile();
     } catch (error) {
+      recordUserAction("vibe_studio_delete_failed", {
+        surface: "vibe_studio",
+        video_state: videoInfo.state,
+      });
       toast.error(`Could not delete video: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setIsDeleting(false);
@@ -390,7 +418,13 @@ const VibeStudio = () => {
           <div className="mt-5">
             <HeroVideoStatusCard
               profile={effectiveVibeVideo}
-              onOpenRecorder={() => setShowComposer(true)}
+              onOpenRecorder={() => {
+                recordUserAction("vibe_studio_recorder_open_clicked", {
+                  surface: "vibe_studio",
+                  video_state: videoInfo.state,
+                });
+                setShowComposer(true);
+              }}
               onOpenPlayer={() => setShowPlayer(true)}
               onRefresh={refreshProfile}
             />

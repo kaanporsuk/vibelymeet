@@ -10,6 +10,9 @@ const useEventDetails = readFileSync(join(root, "src/hooks/useEventDetails.ts"),
 const useEventDeck = readFileSync(join(root, "src/hooks/useEventDeck.ts"), "utf8");
 const useMatchQueue = readFileSync(join(root, "src/hooks/useMatchQueue.ts"), "utf8");
 const useEventStatus = readFileSync(join(root, "src/hooks/useEventStatus.ts"), "utf8");
+const useEvents = readFileSync(join(root, "src/hooks/useEvents.ts"), "utf8");
+const dashboard = readFileSync(join(root, "src/pages/Dashboard.tsx"), "utf8");
+const venueCard = readFileSync(join(root, "src/components/events/VenueCard.tsx"), "utf8");
 const nativeLobby = readFileSync(join(root, "apps/mobile/app/event/[eventId]/lobby.tsx"), "utf8");
 const nativeEventStatus = readFileSync(join(root, "apps/mobile/lib/eventStatus.ts"), "utf8");
 const nativeEventsApi = readFileSync(join(root, "apps/mobile/lib/eventsApi.ts"), "utf8");
@@ -85,16 +88,30 @@ test("scheduled/not-started, ended, cancelled, archived, and draft events block 
   }
 });
 
-test("only live confirmed unpaused events enable deck fetch and actions", () => {
+test("scheduled-active confirmed unpaused events enable deck fetch and actions", () => {
   const result = gate();
   assert.equal(result.kind, "live");
   assert.equal(result.canFetchDeck, true);
   assert.equal(result.canUseLobbyActions, true);
   assert.equal(result.canUseLobbySideEffects, true);
 
+  const scheduledUpcoming = gate({ event: event({ status: "upcoming" }) });
+  assert.equal(scheduledUpcoming.kind, "live");
+  assert.equal(scheduledUpcoming.canFetchDeck, true);
+  assert.equal(scheduledUpcoming.canUseLobbyActions, true);
+  assert.equal(scheduledUpcoming.canUseLobbySideEffects, true);
+
   const paused = gate({ userPaused: true });
   assert.equal(paused.kind, "paused");
   assert.equal(paused.canFetchDeck, false);
+});
+
+test("Enter Lobby CTA scheduled-live signals match the lobby route gate", () => {
+  const ctaGate = gate({ event: event({ status: "upcoming" }) });
+  assert.equal(ctaGate.kind, "live");
+  assert.match(useEvents, /isLive = now >= eventDate && now < eventEnd/);
+  assert.match(dashboard, /isLiveEvent && isConfirmedForNextEvent[\s\S]*label: "Enter Lobby"/);
+  assert.match(venueCard, /eventStatus === "live" && isRegistered[\s\S]*Enter Lobby/);
 });
 
 test("web EventLobby wires the gate into deck, queue/status side effects, actions, and ended-state UI", () => {

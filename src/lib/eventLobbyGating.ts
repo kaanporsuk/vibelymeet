@@ -148,7 +148,7 @@ export function getWebEventLobbyGateState(input: {
     return blockedState(
       "draft",
       "This event is not available yet",
-      "The lobby opens only after the event is published and live.",
+      "The lobby opens only after the event is published and reaches its scheduled time.",
       "Browse events",
       "events",
     );
@@ -196,7 +196,9 @@ export function getWebEventLobbyGateState(input: {
     );
   }
 
-  if (status !== "live") {
+  const scheduledActiveStatus = status === "" || status === "upcoming" || status === "live";
+
+  if (!scheduledActiveStatus) {
     return blockedState(
       "not_live",
       "Lobby is not live",

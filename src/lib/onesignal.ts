@@ -7,6 +7,7 @@ declare global {
 import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
 import { classifyPushDeepLink, recordPushDeliveryTelemetry } from "@/lib/pushDeliveryTelemetry";
+import { recordServiceWorkerState } from "@/lib/browserDiagnostics";
 import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 
 const PLAYER_ID_POLL_ATTEMPTS = 10;
@@ -108,18 +109,27 @@ async function unregisterLegacyCustomServiceWorker(): Promise<void> {
       })
     );
     legacySwCleanupRan = legacySwCleanupRan || cleanupRan;
+    const oneSignalWorkerActive = registrationDiagnostics.some((entry) =>
+      entry.scriptPaths.some(
+        (path) => path.includes("OneSignalSDK.sw.js") || path.includes("OneSignalSDKWorker.js")
+      )
+    );
     vibelyOsLog("onesignal:sw cleanup summary", {
       cleanupRan,
       cleanupRanEver: legacySwCleanupRan,
-      oneSignalWorkerActive: registrationDiagnostics.some((entry) =>
-        entry.scriptPaths.some(
-          (path) => path.includes("OneSignalSDK.sw.js") || path.includes("OneSignalSDKWorker.js")
-        )
-      ),
+      oneSignalWorkerActive,
+    });
+    void recordServiceWorkerState("onesignal_legacy_cleanup", {
+      cleanup_ran: cleanupRan,
+      cleanup_ran_ever: legacySwCleanupRan,
+      one_signal_worker_active: oneSignalWorkerActive,
     });
   } catch (e) {
     vibelyOsLog("onesignal:legacy sw unregister failed", {
       error: e instanceof Error ? e.message : String(e),
+    });
+    void recordServiceWorkerState("onesignal_legacy_cleanup_failed", {
+      error_message: e instanceof Error ? e.message : String(e),
     });
   }
 }

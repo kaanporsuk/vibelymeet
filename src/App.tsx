@@ -65,11 +65,16 @@ import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOu
 import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
+import { recordBrowserError, recordBrowserEvent } from "@/lib/browserDiagnostics";
 
 const PostHogPageTracker = () => {
   const location = useLocation();
 
   useEffect(() => {
+    recordBrowserEvent("browser.route_view", {
+      route: location.pathname,
+      current_url: window.location.href,
+    });
     posthog.capture('$pageview', {
       $current_url: window.location.href,
     });
@@ -116,6 +121,9 @@ const App = () => (
             fallback={({ resetError }) => <SentryFallback resetError={resetError} />}
             onError={(error) => {
               console.error("Caught by Sentry ErrorBoundary:", error);
+              recordBrowserError("browser.react_error_boundary", error, {
+                route: typeof window !== "undefined" ? window.location.pathname : null,
+              });
               const msg = error instanceof Error ? error.message : String(error);
               Sentry.addBreadcrumb({
                 category: "react.error_boundary",
