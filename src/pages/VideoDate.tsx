@@ -30,6 +30,7 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations
 import { resolvePhotoUrl } from "@/lib/photoUtils";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { trackEvent } from "@/lib/analytics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { Button } from "@/components/ui/button";
 import {
@@ -2076,8 +2077,24 @@ const VideoDate = () => {
     }
   }, [id, user?.id, clearHandshakeGraceState, endCall]);
 
-  const handleUserVibe = useCallback(() => handleHandshakeDecision("vibe"), [handleHandshakeDecision]);
-  const handleUserPass = useCallback(() => handleHandshakeDecision("pass"), [handleHandshakeDecision]);
+  const handleUserVibe = useCallback(() => {
+    recordUserAction("video_date_handshake_decision_clicked", {
+      surface: "video_date",
+      session_id: id,
+      decision: "vibe",
+      phase,
+    });
+    return handleHandshakeDecision("vibe");
+  }, [handleHandshakeDecision, id, phase]);
+  const handleUserPass = useCallback(() => {
+    recordUserAction("video_date_handshake_decision_clicked", {
+      surface: "video_date",
+      session_id: id,
+      decision: "pass",
+      phase,
+    });
+    return handleHandshakeDecision("pass");
+  }, [handleHandshakeDecision, id, phase]);
 
   const localHandshakeDecision = useMemo<boolean | null>(() => {
     if (!handshakeTruth || !user?.id) return null;
@@ -2477,6 +2494,12 @@ const VideoDate = () => {
   const handleCallEnd = useCallback(async (reason: VideoDateEndReason = "ended_from_client") => {
     if (explicitEndRequestedRef.current !== "idle") return;
     explicitEndRequestedRef.current = "sending";
+    recordUserAction("video_date_end_requested", {
+      surface: "video_date",
+      session_id: id,
+      phase,
+      reason,
+    });
     const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date" || Boolean(dateStartedAt);
     const analyticsBudgetSeconds =
       phase === "handshake"
@@ -2519,6 +2542,13 @@ const VideoDate = () => {
 
     try {
       if (!transitionResult.ok) {
+        recordUserAction("video_date_end_failed", {
+          surface: "video_date",
+          session_id: id,
+          phase,
+          reason,
+          failure_kind: "transition_not_ok",
+        });
         const { data: sessionRow } = await supabase
           .from("video_sessions")
           .select("ended_at, state, phase, date_started_at")
@@ -2536,6 +2566,12 @@ const VideoDate = () => {
       }
 
       explicitEndRequestedRef.current = "acked";
+      recordUserAction("video_date_end_succeeded", {
+        surface: "video_date",
+        session_id: id,
+        phase,
+        reason,
+      });
       const { data: sessionRow } = await supabase
         .from("video_sessions")
         .select("ended_at, state, phase, date_started_at")
@@ -2555,6 +2591,13 @@ const VideoDate = () => {
         setStatus("offline");
       }
     } catch (error) {
+      recordUserAction("video_date_end_failed", {
+        surface: "video_date",
+        session_id: id,
+        phase,
+        reason,
+        failure_kind: "exception",
+      });
       vdbg("video_date_transition_after", {
         action: "end",
         ok: false,
@@ -2570,11 +2613,17 @@ const VideoDate = () => {
   }, [handleCallEnd]);
 
   const handleLeave = useCallback(async (opts?: { reason?: VideoDateEndReason }) => {
+    recordUserAction("video_date_leave_clicked", {
+      surface: "video_date",
+      session_id: id,
+      phase,
+      reason: opts?.reason ?? "ended_from_client",
+    });
     clearHandshakeGraceState();
     await endCall("user_leave_button");
     toast("You left the date — stay safe! 💚", { duration: 2000 });
     await handleCallEnd(opts?.reason);
-  }, [endCall, handleCallEnd, clearHandshakeGraceState]);
+  }, [endCall, handleCallEnd, clearHandshakeGraceState, id, phase]);
 
   useEffect(() => {
     if (!peerMissing.terminal || !id) return;
@@ -3145,13 +3194,43 @@ const VideoDate = () => {
         <VideoDateControls
           isMuted={isMuted}
           isVideoOff={isVideoOff}
-          onToggleMute={toggleMute}
-          onToggleVideo={toggleVideo}
+          onToggleMute={() => {
+            recordUserAction("video_date_control_clicked", {
+              surface: "video_date",
+              session_id: id,
+              control: "mute",
+              next_muted: !isMuted,
+            });
+            toggleMute();
+          }}
+          onToggleVideo={() => {
+            recordUserAction("video_date_control_clicked", {
+              surface: "video_date",
+              session_id: id,
+              control: "camera",
+              next_video_off: !isVideoOff,
+            });
+            toggleVideo();
+          }}
           onLeave={handleLeave}
-          onViewProfile={() => setShowProfileSheet(true)}
+          onViewProfile={() => {
+            recordUserAction("video_date_control_clicked", {
+              surface: "video_date",
+              session_id: id,
+              control: "view_profile",
+            });
+            setShowProfileSheet(true);
+          }}
           onSafety={
             isConnected && !showFeedback && partnerId
-              ? () => setShowInCallSafety(true)
+              ? () => {
+                  recordUserAction("video_date_control_clicked", {
+                    surface: "video_date",
+                    session_id: id,
+                    control: "safety",
+                  });
+                  setShowInCallSafety(true);
+                }
               : undefined
           }
         />

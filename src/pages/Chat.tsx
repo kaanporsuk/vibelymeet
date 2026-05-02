@@ -77,6 +77,7 @@ import {
   threadBucketFromCount,
 } from "../../shared/chat/vibeClipAnalytics";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useMatchCall } from "@/hooks/useMatchCall";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
@@ -993,6 +994,11 @@ const Chat = () => {
 
   const handleSend = () => {
     if (!newMessage.trim()) return;
+    recordUserAction("chat_text_send_clicked", {
+      surface: "chat_thread",
+      match_id: chatData?.matchId ?? id,
+      draft_length_bucket: newMessage.trim().length > 120 ? "long" : newMessage.trim().length > 40 ? "medium" : "short",
+    });
     stickToBottomRef.current = true;
     setNewMessage("");
     setLocalTyping(false);
@@ -1019,6 +1025,11 @@ const Chat = () => {
   };
 
   const handleOpenDateComposerFromChip = () => {
+    recordUserAction("chat_date_suggestion_open_clicked", {
+      surface: "chat_thread",
+      match_id: chatData?.matchId ?? id,
+      source: "chip",
+    });
     if (matchHasOpenDateSuggestion(dateSuggestions)) {
       toast.message(
         "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
@@ -1649,6 +1660,10 @@ const Chat = () => {
                     toast.error("You're offline — try again when connected");
                     return;
                   }
+                  recordUserAction("chat_photo_add_clicked", {
+                    surface: "chat_thread",
+                    match_id: chatData.matchId,
+                  });
                   photoInputRef.current?.click();
                 }}
                 className={cn(
@@ -1670,6 +1685,10 @@ const Chat = () => {
                 disabled={composerMediaLocked}
                 onClick={() => {
                   if (composerMediaLocked) return;
+                  recordUserAction("chat_vibe_clip_record_clicked", {
+                    surface: "chat_thread",
+                    match_id: chatData?.matchId ?? id,
+                  });
                   trackVibeClipEvent("clip_entry_opened", {
                     thread_bucket: threadBucketFromCount(displayMessages.length),
                     is_sender: true,
@@ -1696,6 +1715,11 @@ const Chat = () => {
                 type="button"
                 whileTap={{ scale: 0.9 }}
                 onClick={() => {
+                  recordUserAction("chat_date_suggestion_open_clicked", {
+                    surface: "chat_thread",
+                    match_id: chatData?.matchId ?? id,
+                    source: "composer_button",
+                  });
                   if (matchHasOpenDateSuggestion(dateSuggestions)) {
                     toast.message(
                       "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",

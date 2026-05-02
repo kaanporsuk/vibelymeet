@@ -23,6 +23,7 @@ import ReadyGateOverlay from "@/components/lobby/ReadyGateOverlay";
 import { EventEndedModal } from "@/components/events/EventEndedModal";
 import { PremiumPill } from "@/components/premium/PremiumPill";
 import { trackEvent } from "@/lib/analytics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { getWebEventLobbyGateState, type EventLobbyGateState } from "@/lib/eventLobbyGating";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
@@ -1061,6 +1062,11 @@ const EventLobby = () => {
   const handleVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
     const targetId = currentProfile.id;
+    recordUserAction("event_lobby_swipe_clicked", {
+      surface: "event_lobby",
+      event_id: eventId,
+      swipe_type: "vibe",
+    });
     haptics.light();
     const result = await swipe(targetId, "vibe");
     if (!result || result.success === false) return;
@@ -1069,6 +1075,12 @@ const EventLobby = () => {
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
+    recordUserAction("event_lobby_swipe_succeeded", {
+      surface: "event_lobby",
+      event_id: eventId,
+      swipe_type: "vibe",
+      result_code: code,
+    });
 
     if (code === "match" || code === "match_queued") {
       haptics.medium();
@@ -1080,6 +1092,11 @@ const EventLobby = () => {
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
     const targetId = currentProfile.id;
+    recordUserAction("event_lobby_swipe_clicked", {
+      surface: "event_lobby",
+      event_id: eventId,
+      swipe_type: "pass",
+    });
     const result = await swipe(targetId, "pass");
     if (!result || result.success === false) return;
 
@@ -1087,6 +1104,12 @@ const EventLobby = () => {
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
+    recordUserAction("event_lobby_swipe_succeeded", {
+      surface: "event_lobby",
+      event_id: eventId,
+      swipe_type: "pass",
+      result_code: code,
+    });
 
     afterSuccessfulSwipe(targetId);
   }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
@@ -1095,6 +1118,11 @@ const EventLobby = () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
     haptics.light();
     const targetId = currentProfile.id;
+    recordUserAction("event_lobby_swipe_clicked", {
+      surface: "event_lobby",
+      event_id: eventId,
+      swipe_type: "super_vibe",
+    });
     const result = await swipe(targetId, "super_vibe");
     if (!result || result.success === false) return;
 
@@ -1107,6 +1135,12 @@ const EventLobby = () => {
     }
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "super_vibe", target_present: true });
+    recordUserAction("event_lobby_swipe_succeeded", {
+      surface: "event_lobby",
+      event_id: eventId,
+      swipe_type: "super_vibe",
+      result_code: code,
+    });
 
     afterSuccessfulSwipe(targetId);
   }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);

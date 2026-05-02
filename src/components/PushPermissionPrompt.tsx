@@ -19,6 +19,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { vibelyOneSignalDebugEnabled, vibelyOsLog } from "@/lib/onesignalWebDiagnostics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 
 const PROMPTED_KEY = "vibely_push_prompted";
 const RE_PROMPT_DAYS = 7;
@@ -83,9 +84,14 @@ export function PushPermissionPrompt() {
     try {
       localStorage.setItem(PROMPTED_KEY, Date.now().toString());
       vibelyOsLog("PushPermissionPrompt:handleEnable", { origin: window.location.origin });
+      recordUserAction("push_prompt_enable_clicked", { surface: "push_permission_prompt" });
 
       const { sdkUsable } = await waitForOneSignalInitResult();
       if (!sdkUsable) {
+        recordUserAction("push_prompt_enable_failed", {
+          surface: "push_permission_prompt",
+          reason: "sdk_not_usable",
+        });
         toast.error("Push isn’t available on this page. Try the main site over HTTPS.");
         return;
       }
@@ -95,6 +101,7 @@ export function PushPermissionPrompt() {
 
       if (result.synced) {
         window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+        recordUserAction("push_prompt_enable_succeeded", { surface: "push_permission_prompt" });
         trackEvent("push_permission_granted");
         toast.success("Notifications enabled! 🔔");
         sendNotification({
@@ -106,13 +113,29 @@ export function PushPermissionPrompt() {
           bypass_preferences: true,
         });
       } else if (Notification.permission === "denied") {
+        recordUserAction("push_prompt_enable_failed", {
+          surface: "push_permission_prompt",
+          reason: "permission_denied",
+        });
         toast.message("Notifications are blocked in your browser. You can enable them in site settings.");
       } else if (result.code === "no_player_id_after_retry") {
+        recordUserAction("push_prompt_enable_failed", {
+          surface: "push_permission_prompt",
+          reason: result.code,
+        });
         toast.error("Notifications are allowed, but this browser is still finishing setup. Try Retry in Settings.");
       } else {
+        recordUserAction("push_prompt_enable_failed", {
+          surface: "push_permission_prompt",
+          reason: result.code,
+        });
         toast.error("Couldn’t finish enabling notifications. Try again from Settings → Notifications.");
       }
     } catch (err) {
+      recordUserAction("push_prompt_enable_failed", {
+        surface: "push_permission_prompt",
+        reason: "exception",
+      });
       console.error("[Push] Permission error:", err);
       toast.error("Something went wrong enabling notifications.");
     } finally {
@@ -122,6 +145,7 @@ export function PushPermissionPrompt() {
 
   const handleDismiss = () => {
     localStorage.setItem(PROMPTED_KEY, Date.now().toString());
+    recordUserAction("push_prompt_dismissed", { surface: "push_permission_prompt" });
     trackEvent("push_permission_deferred");
     setOpen(false);
   };

@@ -4,8 +4,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const root = process.cwd();
-const migrationPath = "supabase/migrations/20260501223000_event_lobby_canonical_active_state.sql";
+const migrationPath = "supabase/migrations/20260502083000_event_lobby_scheduled_activation.sql";
 const migration = readFileSync(join(root, migrationPath), "utf8");
+const deckPayloadMigration = readFileSync(
+  join(root, "supabase/migrations/20260501230000_event_lobby_deck_payload_media.sql"),
+  "utf8",
+);
 const validation = readFileSync(join(root, "supabase/validation/event_lobby_active_event_contract.sql"), "utf8");
 const swipeActions = readFileSync(join(root, "supabase/functions/swipe-actions/index.ts"), "utf8");
 
@@ -20,14 +24,14 @@ type EventFixture = {
 
 function activeStateForFixture(event: EventFixture, nowMs: number) {
   if (event.exists === false) return { is_active: false, reason: "event_not_found" };
-  const status = event.status ?? "";
+  const status = event.status && event.status.length > 0 ? event.status : "upcoming";
   if (status === "draft") return { is_active: false, reason: "event_draft" };
   if (status === "cancelled") return { is_active: false, reason: "event_cancelled" };
   if (event.archived_at != null || status === "archived") return { is_active: false, reason: "event_archived" };
   if (event.ended_at != null || ["ended", "completed"].includes(status)) {
     return { is_active: false, reason: "event_ended" };
   }
-  if (status !== "live") return { is_active: false, reason: "event_not_live" };
+  if (!["upcoming", "live"].includes(status)) return { is_active: false, reason: "event_not_live" };
   if (event.event_date == null) return { is_active: false, reason: "event_outside_live_window" };
 
   const startMs = Date.parse(event.event_date);
@@ -66,10 +70,10 @@ test("canonical active-state migration sorts after the latest applied local migr
     .filter((version) => /^\d{14}$/.test(version))
     .sort();
 
-  assert.ok(versions.includes("20260501220000"), "test assumes premium credits tail is present");
-  assert.ok(versions.includes("20260501223000"), "canonical active-state migration must exist");
+  assert.ok(versions.includes("20260501230000"), "test assumes Event Lobby deck payload tail is present");
+  assert.ok(versions.includes("20260502083000"), "scheduled activation migration must exist");
   assert.ok(
-    versions.indexOf("20260501223000") > versions.indexOf("20260501220000"),
+    versions.indexOf("20260502083000") > versions.indexOf("20260501230000"),
     "new migration must sort strictly after the current local/remote tail",
   );
 });
@@ -83,6 +87,8 @@ test("canonical helper exposes active boolean, reason, and event status with saf
   assert.match(helper, /RETURNS TABLE\(\s*is_active boolean,\s*reason text,\s*event_status text\s*\)/);
   assert.match(helper, /p_now timestamptz DEFAULT now\(\)/);
   assert.match(helper, /SECURITY DEFINER[\s\S]*SET search_path TO 'public'/);
+  assert.match(helper, /v_status NOT IN \('upcoming', 'live'\)/);
+  assert.doesNotMatch(helper, /v_status <> 'live'/);
   for (const reason of [
     "event_not_found",
     "event_draft",
@@ -114,6 +120,14 @@ test("active-state taxonomy covers required live, missing, scheduled, terminal, 
     reason: "event_not_found",
   });
   assert.deepEqual(activeStateForFixture({ ...live }, nowMs), { is_active: true, reason: null });
+  assert.deepEqual(activeStateForFixture({ ...live, status: "upcoming" }, nowMs), {
+    is_active: true,
+    reason: null,
+  });
+  assert.deepEqual(activeStateForFixture({ ...live, status: null }, nowMs), {
+    is_active: true,
+    reason: null,
+  });
   assert.deepEqual(activeStateForFixture({ ...live, event_date: "2026-05-01T21:30:00.000Z" }, nowMs), {
     is_active: false,
     reason: "event_not_started",
@@ -134,7 +148,7 @@ test("active-state taxonomy covers required live, missing, scheduled, terminal, 
     is_active: false,
     reason: "event_draft",
   });
-  assert.deepEqual(activeStateForFixture({ ...live, status: "upcoming" }, nowMs), {
+  assert.deepEqual(activeStateForFixture({ ...live, status: "paused" }, nowMs), {
     is_active: false,
     reason: "event_not_live",
   });
@@ -152,7 +166,8 @@ test("compatibility helpers delegate to canonical active state", () => {
 });
 
 test("get_event_deck authenticates first and rejects inactive events explicitly", () => {
-  const deck = section(
+  const deck = sectionFrom(
+    deckPayloadMigration,
     "CREATE OR REPLACE FUNCTION public.get_event_deck",
     "COMMENT ON FUNCTION public.get_event_deck",
   );
@@ -172,23 +187,25 @@ test("handle_swipe rejects inactive events before every mutation or notification
     "CREATE OR REPLACE FUNCTION public.handle_swipe",
     "COMMENT ON FUNCTION public.handle_swipe",
   );
+  const idempotencyBase = section(
+    "CREATE OR REPLACE FUNCTION public.handle_swipe_20260501210000_idempotency_base",
+    "REVOKE ALL ON FUNCTION public.handle_swipe_20260501210000_idempotency_base",
+  );
   const actorAuthIndex = swipe.indexOf("auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_actor_id");
   const actorRegIndex = swipe.indexOf("profile_id = p_actor_id");
-  const activeIndex = swipe.indexOf("public.get_event_lobby_active_state(p_event_id, now())");
-  const targetRegIndex = swipe.indexOf("profile_id = p_target_id");
-  const eventSwipesIndex = swipe.indexOf("FROM public.event_swipes es");
-  const videoSessionsIndex = swipe.indexOf("FROM public.video_sessions vs");
-  const delegateIndex = swipe.indexOf("public.handle_swipe_20260501210000_idempotency_base");
+  const activeIndex = swipe.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
+  const delegateIndex = swipe.indexOf("public.handle_swipe_20260502083000_ready_queue_base");
 
   assert.ok(actorAuthIndex > 0);
   assert.ok(actorRegIndex > actorAuthIndex);
   assert.ok(activeIndex > actorRegIndex, "inactive reason details require actor registration first");
-  assert.ok(targetRegIndex > activeIndex, "target lookup should not run for inactive events");
-  assert.ok(eventSwipesIndex > activeIndex, "inactive direct swipe must insert/read no swipe state first");
-  assert.ok(videoSessionsIndex > activeIndex, "inactive direct swipe must create/reuse no video session first");
   assert.ok(delegateIndex > activeIndex, "delegated mutation path must be behind active guard");
   assert.match(swipe, /'success', false,[\s\S]*'outcome', 'event_not_active'[\s\S]*'reason', v_inactive_reason/);
   assert.doesNotMatch(swipe.slice(0, activeIndex), /\bevent_swipes\b|\bvideo_sessions\b|current_room_id|current_partner_id/);
+  assert.match(idempotencyBase, /public\.lock_event_lobby_scheduled_active_state\(p_event_id, now\(\)\)/);
+  assert.match(idempotencyBase, /FROM public\.event_swipes es/);
+  assert.match(idempotencyBase, /FROM public\.video_sessions vs/);
+  assert.doesNotMatch(idempotencyBase, /ev\.status = 'live'/);
 });
 
 test("find_mystery_match rejects inactive events before session creation", () => {
@@ -197,8 +214,8 @@ test("find_mystery_match rejects inactive events before session creation", () =>
     "COMMENT ON FUNCTION public.find_mystery_match",
   );
   const registrationIndex = mystery.indexOf("profile_id = p_user_id");
-  const activeIndex = mystery.indexOf("public.get_event_lobby_active_state(p_event_id, now())");
-  const delegateIndex = mystery.indexOf("public.find_mystery_match_20260501180000_active_base");
+  const activeIndex = mystery.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
+  const delegateIndex = mystery.indexOf("public.find_mystery_match_20260502083000_active_base");
 
   assert.ok(activeIndex > registrationIndex);
   assert.ok(delegateIndex > activeIndex, "mystery base session creation must be behind active guard");
@@ -216,15 +233,21 @@ test("queue promotion and drain block inactive events before promotion delegatio
   );
 
   const promoteRegistrationIndex = promote.indexOf("actor_registration_guard");
-  const promoteActiveIndex = promote.indexOf("public.get_event_lobby_active_state(p_event_id, now())");
-  const promoteDelegateIndex = promote.indexOf("public.promote_ready_gate_if_eligible_20260501180000_active_base");
+  const promoteActiveIndex = promote.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
+  const promoteDelegateIndex = promote.indexOf("public.promote_ready_gate_if_eligible_20260502083000_ready_queue_base");
+  const promoteBase = section(
+    "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible_20260501180000_active_base",
+    "REVOKE ALL ON FUNCTION public.promote_ready_gate_if_eligible_20260501180000_active_base",
+  );
   assert.ok(promoteActiveIndex > promoteRegistrationIndex);
   assert.ok(promoteDelegateIndex > promoteActiveIndex);
   assert.match(promote, /'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);
+  assert.match(promoteBase, /public\.lock_event_lobby_scheduled_active_state\(p_event_id, now\(\)\)/);
+  assert.doesNotMatch(promoteBase, /\be\.status = 'live'/);
 
   const drainRegistrationIndex = drain.indexOf("actor_registration_guard");
-  const drainActiveIndex = drain.indexOf("public.get_event_lobby_active_state(p_event_id, now())");
-  const drainDelegateIndex = drain.indexOf("public.drain_match_queue_20260501180000_active_base");
+  const drainActiveIndex = drain.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
+  const drainDelegateIndex = drain.indexOf("public.drain_match_queue_20260502083000_active_base");
   assert.ok(drainActiveIndex > drainRegistrationIndex);
   assert.ok(drainDelegateIndex > drainActiveIndex);
   assert.match(drain, /'found', false,[\s\S]*'reason', 'event_not_valid'[\s\S]*'inactive_reason', v_inactive_reason/);

@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { CREDIT_PACK_IDS, CREDIT_PACKS, formatPackPriceEur } from "@shared/creditPacks";
 
 const PACK_ICONS: Record<
@@ -73,7 +74,16 @@ const Credits = () => {
   }
 
   const handlePurchase = async (packId: string) => {
+    recordUserAction("credits_checkout_clicked", {
+      surface: "credits",
+      pack_id: packId,
+    });
     if (!navigator.onLine) {
+      recordUserAction("credits_checkout_failed", {
+        surface: "credits",
+        pack_id: packId,
+        reason: "offline",
+      });
       trackEvent("credit_purchase_failed", { pack_id: packId, reason: "offline" });
       toast.error("You're offline — purchases need a connection");
       return;
@@ -83,23 +93,42 @@ const Credits = () => {
     setLoadingPack(packId);
     const { data, error } = await supabase.functions.invoke("create-credits-checkout", { body: { packId } });
     if (error) {
+      recordUserAction("credits_checkout_failed", {
+        surface: "credits",
+        pack_id: packId,
+        reason: "invoke_error",
+      });
       trackEvent("credit_purchase_failed", { pack_id: packId, reason: "invoke_error" });
       toast.error("Couldn't start checkout — try again");
       setLoadingPack(null);
       return;
     }
     if (!data?.success) {
+      recordUserAction("credits_checkout_failed", {
+        surface: "credits",
+        pack_id: packId,
+        reason: "checkout_session_failed",
+      });
       trackEvent("credit_purchase_failed", { pack_id: packId, reason: "checkout_session_failed" });
       toast.error(data?.error || "Something went wrong");
       setLoadingPack(null);
       return;
     }
     if (!data.url) {
+      recordUserAction("credits_checkout_failed", {
+        surface: "credits",
+        pack_id: packId,
+        reason: "missing_checkout_url",
+      });
       trackEvent("credit_purchase_failed", { pack_id: packId, reason: "missing_checkout_url" });
       toast.error("Couldn't open payment — try again");
       setLoadingPack(null);
       return;
     }
+    recordUserAction("credits_checkout_redirecting", {
+      surface: "credits",
+      pack_id: packId,
+    });
     window.location.href = data.url;
   };
 

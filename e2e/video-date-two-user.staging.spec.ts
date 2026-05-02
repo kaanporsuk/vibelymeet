@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { attachBrowserDiagnostics, expect, test } from "./diagnostics";
 
 const enabled = process.env.VIBELY_E2E_TWO_USER_WEB === "1";
 const userAStorageState = process.env.VIBELY_E2E_USER_A_STATE;
@@ -8,7 +8,7 @@ const eventId = process.env.VIBELY_E2E_EVENT_ID;
 test.describe("staging web video date two-user harness", () => {
   test.skip(!enabled, "Set VIBELY_E2E_TWO_USER_WEB=1 to run the staging-only two-user video-date harness.");
 
-  test("ready gate handoff reaches a real two-user video date and post-date survey", async ({ browser, baseURL }) => {
+  test("ready gate handoff reaches a real two-user video date and post-date survey", async ({ browser, baseURL }, testInfo) => {
     test.skip(
       !userAStorageState || !userBStorageState || !eventId,
       "Requires VIBELY_E2E_USER_A_STATE, VIBELY_E2E_USER_B_STATE, and VIBELY_E2E_EVENT_ID.",
@@ -27,6 +27,8 @@ test.describe("staging web video date two-user harness", () => {
 
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
+    const diagnosticsA = await attachBrowserDiagnostics(pageA, testInfo, "user-a");
+    const diagnosticsB = await attachBrowserDiagnostics(pageB, testInfo, "user-b");
     try {
       await Promise.all([
         pageA.goto(`/event/${encodeURIComponent(eventId!)}/lobby`),
@@ -55,6 +57,9 @@ test.describe("staging web video date two-user harness", () => {
         timeout: 60_000,
       });
     } finally {
+      await diagnosticsA.finalize();
+      await diagnosticsB.finalize();
+      expect([...diagnosticsA.unexpected, ...diagnosticsB.unexpected], "unexpected browser diagnostics").toEqual([]);
       await contextA.close();
       await contextB.close();
     }

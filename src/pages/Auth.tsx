@@ -17,6 +17,7 @@ import {
 import { CountryCodeSelector, getDefaultCountryCode } from "@/components/CountryCodeSelector";
 import { OtpInput } from "@/components/OtpInput";
 import { trackEvent } from "@/lib/analytics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { useAuth } from "@/contexts/AuthContext";
 import { ensureProfileReady } from "@/lib/profileBootstrap";
 import { buildPhoneE164, isValidSignInPhone } from "@/lib/phoneSignInNormalize";
@@ -265,17 +266,20 @@ const Auth = () => {
     setOtpError(null);
     trackEvent("auth_method_selected", { method: "phone", platform: "web" });
     trackEvent("auth_phone_submitted", { platform: "web" });
+    recordUserAction("auth_phone_submit_clicked", { surface: "auth" });
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
         phone: fullPhone,
       });
       if (error) throw error;
+      recordUserAction("auth_phone_otp_sent", { surface: "auth" });
       setPhoneForOtp(fullPhone);
       setView("otp");
       setResendAttempts(0);
       setResendRemaining(60);
     } catch (err: unknown) {
+      recordUserAction("auth_phone_otp_send_failed", { surface: "auth" });
       const conflict = mapAuthConflictError(err, "phone_otp_send");
       if (conflict.message) {
         setError(conflict.message);
@@ -300,8 +304,10 @@ const Auth = () => {
       });
       if (error) throw error;
       trackEvent("auth_otp_verified", { platform: "web" });
+      recordUserAction("auth_otp_verified", { surface: "auth" });
       setView("success");
     } catch {
+      recordUserAction("auth_otp_verify_failed", { surface: "auth" });
       setOtpError("Invalid code. Please try again.");
     } finally {
       setLoading(false);
@@ -336,6 +342,7 @@ const Auth = () => {
     pendingOAuthProviderRef.current = "google";
     trackEvent("auth_method_selected", { method: "google", platform: "web" });
     trackEvent("auth_social_started", { provider: "google" });
+    recordUserAction("auth_social_started", { surface: "auth", provider: "google" });
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -348,6 +355,7 @@ const Auth = () => {
     pendingOAuthProviderRef.current = "apple";
     trackEvent("auth_method_selected", { method: "apple", platform: "web" });
     trackEvent("auth_social_started", { provider: "apple" });
+    recordUserAction("auth_social_started", { surface: "auth", provider: "apple" });
     await supabase.auth.signInWithOAuth({
       provider: "apple",
       options: {
@@ -365,12 +373,15 @@ const Auth = () => {
     setError(null);
     trackEvent("auth_method_selected", { method: "email", platform: "web" });
     trackEvent("auth_email_signin", { platform: "web" });
+    recordUserAction("auth_email_signin_clicked", { surface: "auth" });
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      recordUserAction("auth_email_signin_succeeded", { surface: "auth" });
       setView("success");
     } catch (err: unknown) {
+      recordUserAction("auth_email_signin_failed", { surface: "auth" });
       const conflict = mapAuthConflictError(err, "email_sign_in");
       if (conflict.message) {
         setError(conflict.message);
@@ -393,6 +404,7 @@ const Auth = () => {
     }
     setLoading(true);
     setError(null);
+    recordUserAction("auth_email_signup_clicked", { surface: "auth" });
 
     try {
       const signupEmail = email.trim();
@@ -410,6 +422,7 @@ const Auth = () => {
         throw new Error("We could not create your account. Please try again.");
       }
       trackEvent("auth_email_signup", { platform: "web" });
+      recordUserAction("auth_email_signup_succeeded", { surface: "auth" });
       setPassword("");
       if (data.session?.user) {
         setView("success");
@@ -418,6 +431,7 @@ const Auth = () => {
       setPendingConfirmationEmail(signupEmail);
       setView("email_signup_pending");
     } catch (err: unknown) {
+      recordUserAction("auth_email_signup_failed", { surface: "auth" });
       const conflict = mapAuthConflictError(err, "email_sign_up");
       if (conflict.message) {
         setError(conflict.message);

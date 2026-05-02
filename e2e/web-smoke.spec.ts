@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./diagnostics";
 
 /**
  * Minimum viable automated proof: app shell renders without JS crash on trust-critical routes.

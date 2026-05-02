@@ -35,6 +35,7 @@ import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
 import { getDashboardEventRailHeading } from "@clientShared/eventTimingBuckets";
@@ -129,11 +130,18 @@ const Dashboard = () => {
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
+    recordUserAction("dashboard_push_permission_requested", { surface: "dashboard" });
     const result = await requestWebPushPermissionAndSync(user.id);
     await refreshSubscriptionState();
     await refreshPushDeliveryHealth();
     if (result.synced) {
       window.dispatchEvent(new Event("vibely-onesignal-subscription-changed"));
+      recordUserAction("dashboard_push_permission_succeeded", { surface: "dashboard" });
+    } else {
+      recordUserAction("dashboard_push_permission_failed", {
+        surface: "dashboard",
+        reason: result.code,
+      });
     }
     return result.synced;
   }, [user?.id, refreshPushDeliveryHealth, refreshSubscriptionState]);
@@ -141,6 +149,11 @@ const Dashboard = () => {
   const handleEndActiveSession = useCallback(async () => {
     if (!activeSession) return;
     if (activeSession.kind === "video" && activeSession.queueStatus === "in_survey") return;
+    recordUserAction("dashboard_active_session_end_clicked", {
+      surface: "dashboard",
+      session_kind: activeSession.kind,
+      queue_status: activeSession.queueStatus,
+    });
 
     try {
       const { data, error } =
@@ -159,8 +172,16 @@ const Dashboard = () => {
       if (error) throw error;
       const failureMessage = transitionFailureMessage(data);
       if (failureMessage) throw new Error(failureMessage);
+      recordUserAction("dashboard_active_session_end_succeeded", {
+        surface: "dashboard",
+        session_kind: activeSession.kind,
+      });
       await refetchActiveSession();
     } catch (error) {
+      recordUserAction("dashboard_active_session_end_failed", {
+        surface: "dashboard",
+        session_kind: activeSession.kind,
+      });
       if (import.meta.env.DEV) {
         console.warn("[home] active session end failed:", error);
       }
@@ -317,6 +338,11 @@ const Dashboard = () => {
   }, [refetchNextEvent, refetchEvents, refetchMatches, refetchUnread, refetchHomeProfile]);
 
   const handleNotificationClick = () => {
+    recordUserAction("dashboard_notification_button_clicked", {
+      surface: "dashboard",
+      unread_count: unreadCount,
+      push_deliverable: pushDeliveryHealth.backendDeliverable,
+    });
     markAllAsRead();
     setShowNotificationFlow(true);
   };
@@ -511,7 +537,17 @@ const Dashboard = () => {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {nextReminder && nextReminder.urgency !== "none" && (
-              <MiniDateCountdown reminder={nextReminder} onClick={() => navigate("/schedule")} />
+              <MiniDateCountdown
+                reminder={nextReminder}
+                onClick={() => {
+                  recordUserAction("dashboard_reminder_countdown_clicked", {
+                    surface: "dashboard",
+                    reminder_id: nextReminder.id,
+                    urgency: nextReminder.urgency,
+                  });
+                  navigate("/schedule");
+                }}
+              />
             )}
             <NotificationPermissionButton
               isGranted={pushDeliveryHealth.backendDeliverable}
@@ -592,6 +628,12 @@ const Dashboard = () => {
                 key={reminder.id}
                 reminder={reminder}
                 onJoinDate={() => {
+                  recordUserAction("dashboard_reminder_join_clicked", {
+                    surface: "dashboard",
+                    reminder_id: reminder.id,
+                    urgency: reminder.urgency,
+                    active_session_kind: activeSession?.kind ?? null,
+                  });
                   if (
                     activeSession &&
                     activeSession.kind === "video" &&
@@ -604,7 +646,14 @@ const Dashboard = () => {
                   }
                   navigate("/schedule");
                 }}
-                onEnableNotifications={() => setShowNotificationFlow(true)}
+                onEnableNotifications={() => {
+                  recordUserAction("dashboard_reminder_notifications_clicked", {
+                    surface: "dashboard",
+                    reminder_id: reminder.id,
+                    urgency: reminder.urgency,
+                  });
+                  setShowNotificationFlow(true);
+                }}
                 notificationsEnabled={pushDeliveryHealth.backendDeliverable}
               />
             ))}
@@ -646,7 +695,17 @@ const Dashboard = () => {
                   return n > 0 ? `${n} people vibing` : "Jump in — the lobby is open";
                 })()}
               </p>
-              <Button variant="gradient" className="w-full" onClick={() => navigate(`/event/${nextEvent.id}/lobby`)}>
+              <Button
+                variant="gradient"
+                className="w-full"
+                onClick={() => {
+                  recordUserAction("dashboard_enter_lobby_clicked", {
+                    surface: "dashboard",
+                    event_id: nextEvent.id,
+                  });
+                  navigate(`/event/${nextEvent.id}/lobby`);
+                }}
+              >
                 Enter Lobby →
               </Button>
             </div>
@@ -923,6 +982,10 @@ const Dashboard = () => {
                 className="absolute right-2 top-2 rounded-full p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
                 aria-label="Dismiss"
                 onClick={() => {
+                  recordUserAction("dashboard_profile_readiness_dismissed", {
+                    surface: "dashboard",
+                    profile_completeness_bucket: profileCompletenessPercent >= 50 ? "50_plus" : "under_50",
+                  });
                   localStorage.setItem(PROFILE_READINESS_DISMISS_KEY, String(Date.now()));
                   setProfileReadinessDismissed(true);
                 }}

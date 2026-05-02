@@ -11,6 +11,7 @@ import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
 import { trackEvent } from "@/lib/analytics";
+import { recordUserAction } from "@/lib/browserDiagnostics";
 import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { EventLobbyObservabilityEvents } from "@clientShared/observability/eventLobbyObservability";
@@ -239,6 +240,12 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       dateNavigationStartedRef.current = true;
       closedRef.current = true;
       setIsTransitioning(true);
+      recordUserAction("ready_gate_handoff_navigating", {
+        surface: "ready_gate_overlay",
+        session_id: sessionId,
+        event_id: eventId,
+        source,
+      });
       addReadyGateBreadcrumb("date_navigation_started", { source });
       readyGateDebug("success-path navigation to date", { sessionId, source });
       const latencyContext = recordReadyGateToDateLatencyCheckpoint({
@@ -308,6 +315,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
       return;
     }
     prepareEntryHandoffStartedRef.current = true;
+    recordUserAction("ready_gate_handoff_started", {
+      surface: "ready_gate_overlay",
+      session_id: sessionId,
+      event_id: eventId,
+    });
     const runId = prepareEntryRunIdRef.current + 1;
     prepareEntryRunIdRef.current = runId;
     const isCurrentPrepareRun = () =>
@@ -1303,6 +1315,11 @@ const ReadyGateOverlay = ({ sessionId, eventId, onClose, onNavigateToDate }: Rea
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze || terminalActionPending) return;
+                    recordUserAction("ready_gate_ready_clicked", {
+                      surface: "ready_gate_overlay",
+                      session_id: sessionId,
+                      event_id: eventId,
+                    });
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
                       sessionId,
                       platform: "web",
