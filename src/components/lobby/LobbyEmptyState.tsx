@@ -70,11 +70,11 @@ const LobbyEmptyState = ({ eventId, onRefresh, badge, title, message }: LobbyEmp
               {badge ?? "Deck clear"}
             </div>
             <h3 className="text-xl font-display font-bold text-white tracking-tight">
-              {title ?? "You&apos;ve seen everyone for now"}
+              {title ?? "You've seen everyone for now"}
             </h3>
             <p className="text-sm text-white/55 leading-relaxed">
               {message ??
-                "More people may join the room — your deck refreshes every few seconds. Tap refresh if you don&apos;t want to wait."}
+                "More people may join the room — your deck refreshes every few seconds. Tap refresh if you don't want to wait."}
             </p>
           </div>
 

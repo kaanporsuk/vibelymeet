@@ -14,6 +14,7 @@
     "check:canonical-origin": "node scripts/check-canonical-origin.mjs",
     "vibely-games:typecheck": "npx tsc --noEmit -p shared/vibely-games/tsconfig.json",
     "vibely-games:selfcheck": "rm -rf shared/vibely-games/dist && npx tsc -p shared/vibely-games/tsconfig.build.json && node shared/vibely-games/dist/selfcheck.js",
+    "test:copy-entities": "tsx scripts/runtime-copy-entities.test.ts",
     "audit:mobile-keyboard-overlays": "node scripts/audit-mobile-keyboard-overlays.mjs",
     "audit:video-date-remote-frame": "node scripts/audit-video-date-remote-frame.mjs",
     "proof:browser-auth": "node scripts/browser-auth-runtime-proof.mjs",
