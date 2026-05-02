@@ -54,6 +54,8 @@ import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSi
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  videoSessionHasEncounterExposureTruth,
+  videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from "@clientShared/matching/activeSession";
 import {
@@ -225,17 +227,30 @@ function videoSessionIndicatesTerminalEnd(
 }
 
 function videoSessionHasDatePhaseEvidence(
-  row: { date_started_at?: string | null; state?: string | null; phase?: string | null } | null
+  row: {
+    date_started_at?: string | null;
+    participant_1_joined_at?: string | null;
+    participant_2_joined_at?: string | null;
+    state?: string | null;
+    phase?: string | null;
+  } | null
 ): boolean {
-  if (!row) return false;
-  return Boolean(row.date_started_at || row.state === "date" || row.phase === "date");
+  return videoSessionHasEncounterExposureTruth(row);
 }
 
 function shouldOpenPostDateSurveyForTerminalSession(
-  row: { date_started_at?: string | null } | null,
+  row: {
+    ended_at?: string | null;
+    ended_reason?: string | null;
+    date_started_at?: string | null;
+    participant_1_joined_at?: string | null;
+    participant_2_joined_at?: string | null;
+    state?: string | null;
+    phase?: string | null;
+  } | null,
   verdict: unknown,
 ): boolean {
-  return Boolean(row?.date_started_at) && !verdict;
+  return videoSessionHasPostDateSurveyTruth(row) && !verdict;
 }
 
 const VideoDate = () => {
@@ -303,6 +318,7 @@ const VideoDate = () => {
   const foregroundReconcileInFlightRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const accessLoadingWatchdogKeyRef = useRef<string | null>(null);
+  const iceBreakerReappearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoJoinCycleRef = useRef(0);
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
@@ -450,7 +466,7 @@ const VideoDate = () => {
       if (!id || !user?.id) return;
       const { data: sessionRow } = await supabase
         .from("video_sessions")
-        .select("event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, daily_room_name, daily_room_url")
+        .select("event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url")
         .eq("id", id)
         .maybeSingle();
 
@@ -758,7 +774,7 @@ const VideoDate = () => {
     void (async () => {
       const { data: sessionRow, error: sessionErr } = await supabase
         .from("video_sessions")
-        .select("event_id, ended_reason, date_started_at")
+        .select("event_id, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase")
         .eq("id", id)
         .maybeSingle();
       if (cancelled || sessionErr || !sessionRow) return;
@@ -783,10 +799,10 @@ const VideoDate = () => {
       if (cancelled) return;
       const reconnectExpiredSurveyDue =
         ((sessionRow as { ended_reason?: string | null } | null)?.ended_reason === "reconnect_grace_expired") &&
-        Boolean((sessionRow as { date_started_at?: string | null } | null)?.date_started_at) &&
+        videoSessionHasDatePhaseEvidence(sessionRow) &&
         !verdict;
-      const hasDatePhaseEvidence = videoSessionHasDatePhaseEvidence(sessionRow);
-      if (hasDatePhaseEvidence && (reg?.queue_status === "in_survey" || reconnectExpiredSurveyDue)) {
+      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
+      if (shouldOpenSurvey) {
         logJourney("date_route_recovered", { source: "ended_phase_hydration_recovery" }, "date_route_recovered");
         logJourney("survey_lost_prevented", {
           source: "ended_phase_hydration_recovery",
@@ -1272,7 +1288,7 @@ const VideoDate = () => {
       const { data, error } = await supabase
         .from("video_sessions")
         .select(
-          "handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at, participant_1_id, participant_2_id, participant_1_decided_at, participant_2_decided_at",
+          "handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at, ended_reason, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at, participant_1_decided_at, participant_2_decided_at",
         )
         .eq("id", id)
         .maybeSingle();
@@ -1302,7 +1318,7 @@ const VideoDate = () => {
       if (data.ended_at || (data.state as string) === "ended" || data.phase === "ended") {
         vdbg("date_timing_guard_ended", { sessionId: id, row: data });
         setHandshakeStartedAt(null);
-        if (hasEnteredDateFlowRef.current || videoSessionHasDatePhaseEvidence(data)) {
+        if (videoSessionHasPostDateSurveyTruth(data)) {
           openPostDateSurvey("timing_terminal");
         } else {
           clearHandshakeGraceState();
@@ -1615,7 +1631,7 @@ const VideoDate = () => {
           if (row.ended_at || newState === "ended") {
             setHandshakeStartedAt(null);
             setDateStartedAt(typeof row.date_started_at === "string" ? row.date_started_at : null);
-            if (hasEnteredDateFlowRef.current || videoSessionHasDatePhaseEvidence(row)) {
+            if (videoSessionHasPostDateSurveyTruth(row)) {
               openPostDateSurvey("realtime_terminal");
             } else {
               clearHandshakeGraceState();
@@ -1754,12 +1770,31 @@ const VideoDate = () => {
     dateExtraSeconds,
   ]);
 
-  // Auto-hide ice breaker after 20s
+  const dismissIceBreakerTemporarily = useCallback(() => {
+    if (iceBreakerReappearTimerRef.current) {
+      clearTimeout(iceBreakerReappearTimerRef.current);
+    }
+    setShowIceBreaker(false);
+    iceBreakerReappearTimerRef.current = setTimeout(() => {
+      iceBreakerReappearTimerRef.current = null;
+      setShowIceBreaker(true);
+    }, 30_000);
+  }, []);
+
   useEffect(() => {
-    if (!isConnected) return;
-    const timer = setTimeout(() => setShowIceBreaker(false), 20000);
-    return () => clearTimeout(timer);
-  }, [isConnected]);
+    if (isConnected && (phase === "handshake" || phase === "date")) {
+      setShowIceBreaker(true);
+    }
+  }, [id, isConnected, phase]);
+
+  useEffect(() => {
+    return () => {
+      if (iceBreakerReappearTimerRef.current) {
+        clearTimeout(iceBreakerReappearTimerRef.current);
+        iceBreakerReappearTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Wake lock
   useEffect(() => {
@@ -2335,7 +2370,6 @@ const VideoDate = () => {
       event_id: eventId,
     });
     setShowIceBreaker(true);
-    setTimeout(() => setShowIceBreaker(false), 30000);
 
     // Server already transitioned to date via video_date_transition; no client-owned writes needed here.
   }, [id, eventId, clearHandshakeGraceState, markDateFlowEntered, dateExtraSeconds, dateStartedAt]);
@@ -2451,7 +2485,6 @@ const VideoDate = () => {
       phase,
       reason,
     });
-    const hasDateEntryTruth = hasEnteredDateFlowRef.current || phase === "date" || Boolean(dateStartedAt);
     const analyticsBudgetSeconds =
       phase === "handshake"
         ? HANDSHAKE_TIME
@@ -2502,10 +2535,13 @@ const VideoDate = () => {
         });
         const { data: sessionRow } = await supabase
           .from("video_sessions")
-          .select("ended_at, state, phase, date_started_at")
+          .select("ended_at, ended_reason, state, phase, date_started_at, participant_1_joined_at, participant_2_joined_at")
           .eq("id", id)
           .maybeSingle();
-        if (videoSessionIndicatesTerminalEnd(sessionRow) && videoSessionHasDatePhaseEvidence(sessionRow)) {
+        if (
+          videoSessionIndicatesTerminalEnd(sessionRow) &&
+          shouldOpenPostDateSurveyForTerminalSession(sessionRow, null)
+        ) {
           explicitEndRequestedRef.current = "acked";
           markDateFlowEntered();
           openPostDateSurvey("local_end_recovered_after_rpc_error");
@@ -2525,13 +2561,14 @@ const VideoDate = () => {
       });
       const { data: sessionRow } = await supabase
         .from("video_sessions")
-        .select("ended_at, state, phase, date_started_at")
+        .select("ended_at, ended_reason, state, phase, date_started_at, participant_1_joined_at, participant_2_joined_at")
         .eq("id", id)
         .maybeSingle();
       const serverEndedDate =
-        videoSessionIndicatesTerminalEnd(sessionRow) && videoSessionHasDatePhaseEvidence(sessionRow);
+        videoSessionIndicatesTerminalEnd(sessionRow) &&
+        shouldOpenPostDateSurveyForTerminalSession(sessionRow, null);
 
-      if (hasDateEntryTruth && serverEndedDate) {
+      if (serverEndedDate) {
         markDateFlowEntered();
         openPostDateSurvey("local_end");
       } else {
@@ -2692,7 +2729,11 @@ const VideoDate = () => {
   );
 
   const handleLeave = useCallback(async (opts?: { reason?: VideoDateEndReason }) => {
-    const hasDateEntryTruth = hasEnteredDateFlowRef.current || phaseRef.current === "date" || Boolean(dateStartedAt);
+    const hasDateEntryTruth =
+      hasEnteredDateFlowRef.current ||
+      phaseRef.current === "date" ||
+      Boolean(dateStartedAt) ||
+      videoSessionHasEncounterExposureTruth(handshakeTruth);
     if (!hasDateEntryTruth) {
       await handlePreDateExit({
         reason: opts?.reason ?? "ended_from_client",
@@ -3215,18 +3256,18 @@ const VideoDate = () => {
         />
       )}
 
-      {/* ─── Ice Breaker (compact pill) ─── */}
+      {/* ─── Ice Breaker (floating prompt) ─── */}
       <AnimatePresence>
-        {isConnected && showIceBreaker && !showFeedback && (
+        {isConnected && showIceBreaker && !showFeedback && (phase === "handshake" || phase === "date") && (
           <motion.div
-            initial={{ y: 20, opacity: 0 }}
+            initial={{ y: -10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 10, opacity: 0 }}
-            className="absolute bottom-28 left-3 right-3 z-20"
+            exit={{ y: -8, opacity: 0 }}
+            className="pointer-events-auto absolute left-3 right-3 top-24 z-20 mx-auto max-w-[480px] sm:top-28"
           >
             <IceBreakerCard
               sessionId={id}
-              onDismiss={() => setShowIceBreaker(false)}
+              onDismiss={dismissIceBreakerTemporarily}
             />
           </motion.div>
         )}

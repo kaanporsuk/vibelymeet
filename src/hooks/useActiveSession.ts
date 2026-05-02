@@ -55,9 +55,8 @@ async function findPendingPostDateSurveySession(
   const nowMs = Date.now();
   const endedQuery = supabase
     .from("video_sessions")
-    .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at")
+    .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase")
     .not("ended_at", "is", null)
-    .not("date_started_at", "is", null)
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .order("ended_at", { ascending: false, nullsFirst: false })
     .limit(10);
@@ -321,17 +320,17 @@ export function useActiveSession(
     const reg = pickRegistrationForActiveSession(regs ?? []);
 
     if (!reg?.current_room_id) {
-      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
-      if (directSession) {
-        commitActiveSession(directSession, "direct_video_session_fallback");
-        return;
-      }
       const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
       if (pendingSurvey) {
         commitActiveSession(
           activeSessionFromPendingSurvey(pendingSurvey),
           pendingSurveyHydrationReason(pendingSurvey)
         );
+        return;
+      }
+      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
+      if (directSession) {
+        commitActiveSession(directSession, "direct_video_session_fallback");
       } else {
         commitActiveSession(null, "no_active_registration_room");
       }
@@ -348,6 +347,17 @@ export function useActiveSession(
       });
       commitActiveSession(null, "different_event");
       return;
+    }
+
+    if (reg.queue_status === "in_ready_gate") {
+      const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
+      if (pendingSurvey) {
+        commitActiveSession(
+          activeSessionFromPendingSurvey(pendingSurvey),
+          pendingSurveyHydrationReason(pendingSurvey)
+        );
+        return;
+      }
     }
 
     const { data: session, error: sessionError } = await supabase

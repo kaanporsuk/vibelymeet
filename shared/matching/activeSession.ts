@@ -49,9 +49,7 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
   "ready_gate_forfeit",
   "ready_gate_expired",
   "queued_ttl_expired",
-  "handshake_not_mutual",
   "handshake_grace_expired",
-  "handshake_timeout",
   "partial_join_peer_timeout",
   "blocked_pair",
 ] as const;
@@ -68,6 +66,10 @@ export type VideoSessionPendingSurveyTruth = {
   ended_at?: string | null;
   ended_reason?: string | null;
   date_started_at?: string | null;
+  participant_1_joined_at?: string | null;
+  participant_2_joined_at?: string | null;
+  phase?: string | null;
+  state?: string | null;
 };
 
 function readyGateExpiryMs(
@@ -211,13 +213,34 @@ export function videoSessionHasRecoverablePostDateSurveyTruth(
   return endedMs != null && nowMs - endedMs <= POST_DATE_SURVEY_RECOVERY_WINDOW_MS;
 }
 
-export function videoSessionHasPostDateSurveyTruth(
+export function videoSessionHasEncounterExposureTruth(
+  row: Pick<
+    VideoSessionPendingSurveyTruth,
+    "date_started_at" | "participant_1_joined_at" | "participant_2_joined_at" | "phase" | "state"
+  > | null,
+): boolean {
+  return Boolean(
+    row &&
+      (row.date_started_at ||
+        row.state === "date" ||
+        row.phase === "date" ||
+        (row.participant_1_joined_at && row.participant_2_joined_at))
+  );
+}
+
+export function videoSessionHasTerminalEncounterExposureTruth(
   row: VideoSessionPendingSurveyTruth | null,
 ): boolean {
   if (!row?.ended_at) return false;
-  if (!row.date_started_at) return false;
   const endedReason = row.ended_reason ?? "";
-  return !postDateSurveyIneligibleEndedReasons.has(endedReason);
+  if (postDateSurveyIneligibleEndedReasons.has(endedReason)) return false;
+  return videoSessionHasEncounterExposureTruth(row);
+}
+
+export function videoSessionHasPostDateSurveyTruth(
+  row: VideoSessionPendingSurveyTruth | null,
+): boolean {
+  return videoSessionHasTerminalEncounterExposureTruth(row);
 }
 
 export function getVideoSessionPartnerIdForUser(

@@ -66,6 +66,7 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   getVideoSessionPartnerIdForUser,
+  videoSessionHasEncounterExposureTruth,
   videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
@@ -454,6 +455,10 @@ function shouldRecoverPendingPostDateSurvey(
     ended_at?: string | null;
     ended_reason?: string | null;
     date_started_at?: string | null;
+    participant_1_joined_at?: string | null;
+    participant_2_joined_at?: string | null;
+    state?: string | null;
+    phase?: string | null;
   } | null,
   userId: string,
   verdict: unknown
@@ -581,6 +586,7 @@ export default function VideoDateScreen() {
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
   const abortConnectionInFlightRef = useRef(false);
+  const iceBreakerReappearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
   const firstPlayableRemoteAtMsRef = useRef(0);
 
@@ -989,15 +995,18 @@ export default function VideoDateScreen() {
       dateEstablishedRef.current = false;
       return;
     }
-    if (
-      phase === 'date' ||
-      session?.state === 'date' ||
-      session?.phase === 'date' ||
-      !!session?.date_started_at
-    ) {
+    if (phase === 'date' || videoSessionHasEncounterExposureTruth(session)) {
       dateEstablishedRef.current = true;
     }
-  }, [sessionId, phase, session?.state, session?.phase, session?.date_started_at]);
+  }, [
+    sessionId,
+    phase,
+    session?.state,
+    session?.phase,
+    session?.date_started_at,
+    session?.participant_1_joined_at,
+    session?.participant_2_joined_at,
+  ]);
 
   const clearHandshakeGraceState = useCallback(() => {}, []);
 
@@ -1216,7 +1225,7 @@ export default function VideoDateScreen() {
         );
         const reconnectExpiredSurveyDue =
           (vs as { ended_reason?: string | null }).ended_reason === 'reconnect_grace_expired' &&
-          Boolean((vs as { date_started_at?: string | null }).date_started_at) &&
+          videoSessionHasEncounterExposureTruth(vs) &&
           !verdict;
         if (pendingPostDateSurveyDue) {
           dateEstablishedRef.current = true;
@@ -1765,10 +1774,19 @@ export default function VideoDateScreen() {
   }, [clearFirstConnectWatchdog, clearHandshakeGraceState]);
 
   useEffect(() => {
-    if (!hasRemotePartner) return;
-    const t = setTimeout(() => setShowIceBreaker(false), 30000);
-    return () => clearTimeout(t);
-  }, [hasRemotePartner]);
+    if (hasRemotePartner && (phase === 'handshake' || phase === 'date')) {
+      setShowIceBreaker(true);
+    }
+  }, [hasRemotePartner, phase, sessionId]);
+
+  useEffect(() => {
+    return () => {
+      if (iceBreakerReappearTimerRef.current) {
+        clearTimeout(iceBreakerReappearTimerRef.current);
+        iceBreakerReappearTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (remoteParticipant && !remotePromotionLoggedRef.current) {
@@ -4817,7 +4835,7 @@ export default function VideoDateScreen() {
       );
       const reconnectExpiredSurveyDue =
         session?.ended_reason === 'reconnect_grace_expired' &&
-        Boolean(session?.date_started_at) &&
+        videoSessionHasEncounterExposureTruth(session) &&
         !verdict;
       if (pendingPostDateSurveyDue) {
         dateEstablishedRef.current = true;
@@ -5286,6 +5304,26 @@ export default function VideoDateScreen() {
 
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
   const handshakeBottomOffset = insets.bottom + 104;
+  const dismissIceBreakerTemporarily = useCallback(() => {
+    if (iceBreakerReappearTimerRef.current) {
+      clearTimeout(iceBreakerReappearTimerRef.current);
+    }
+    setShowIceBreaker(false);
+    iceBreakerReappearTimerRef.current = setTimeout(() => {
+      iceBreakerReappearTimerRef.current = null;
+      setShowIceBreaker(true);
+    }, 30_000);
+  }, []);
+  const showFloatingIceBreaker =
+    showIceBreaker &&
+    Boolean(currentQuestion) &&
+    !showFeedback &&
+    hasRemotePartner &&
+    !peerMissingTerminal &&
+    (phase === 'handshake' || phase === 'date');
+  const iceBreakerBottomOffset = showHandshakeChrome
+    ? handshakeBottomOffset + 96
+    : Math.max(insets.bottom + 132, 148);
 
   useEffect(() => {
     topChromeAnim.setValue(0.92);
@@ -5711,15 +5749,18 @@ export default function VideoDateScreen() {
         ) : null}
       </Animated.View>
 
+      {showFloatingIceBreaker ? (
+        <View pointerEvents="box-none" style={[styles.iceBreakerFloat, { bottom: iceBreakerBottomOffset }]}>
+          <IceBreakerCard
+            question={currentQuestion}
+            onDismiss={dismissIceBreakerTemporarily}
+            onShuffle={() => setCurrentQuestionIndex((prev) => (prev + 1) % Math.max(1, vibeQuestions.length))}
+          />
+        </View>
+      ) : null}
+
       {showHandshakeChrome && (
         <View style={[styles.handshakeBottomStack, { bottom: handshakeBottomOffset }]}> 
-          {showIceBreaker && currentQuestion ? (
-            <IceBreakerCard
-              question={currentQuestion}
-              onDismiss={() => setShowIceBreaker(false)}
-              onShuffle={() => setCurrentQuestionIndex((prev) => (prev + 1) % Math.max(1, vibeQuestions.length))}
-            />
-          ) : null}
           <VibeCheckButton
             timeLeft={displayTimeLeft}
             decision={localHandshakeDecision}
@@ -5978,6 +6019,13 @@ const styles = StyleSheet.create({
     right: 16,
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  iceBreakerFloat: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 26,
+    alignItems: 'center',
   },
   keepTheVibeWrap: { position: 'absolute', top: 110, left: 16 },
   controlsBar: { position: 'absolute', bottom: 0, left: 0, right: 0 },
