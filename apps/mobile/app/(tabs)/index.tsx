@@ -851,7 +851,13 @@ export default function DashboardScreen() {
           <ActiveCallBanner
             sessionId={activeSession.sessionId}
             partnerName={activeSession.partnerName}
-            mode={activeSession.kind === 'ready_gate' ? 'ready_gate' : 'video'}
+            mode={
+              activeSession.kind === 'ready_gate'
+                ? 'ready_gate'
+                : activeSession.queueStatus === 'in_survey'
+                  ? 'survey'
+                  : 'video'
+            }
             onRejoin={() => router.push(hrefForActiveSession(activeSession))}
             onEnd={activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey' ? undefined : handleEndActiveSession}
           />

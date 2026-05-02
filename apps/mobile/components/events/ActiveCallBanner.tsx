@@ -15,8 +15,8 @@ import { VibelyButton } from '@/components/ui';
 type ActiveCallBannerProps = {
   sessionId: string;
   partnerName?: string | null;
-  /** video = in_handshake / in_date; ready_gate = still on Ready Gate */
-  mode?: 'video' | 'ready_gate';
+  /** video = in_handshake / in_date; ready_gate = still on Ready Gate; survey = post-date verdict pending */
+  mode?: 'video' | 'ready_gate' | 'survey';
   onRejoin: () => void;
   onEnd?: () => void;
 };
@@ -43,6 +43,26 @@ export function ActiveCallBanner({
     return () => anim.stop();
   }, [pulse]);
 
+  const title =
+    mode === 'ready_gate'
+      ? 'Your match is waiting!'
+      : mode === 'survey'
+        ? 'Date feedback pending'
+        : 'You have an active date!';
+  const subtitle =
+    mode === 'ready_gate'
+      ? partnerName
+        ? `${partnerName} — tap Continue to open Ready Gate`
+        : 'Tap Continue to open Ready Gate and sync up 💚'
+      : mode === 'survey'
+        ? partnerName
+          ? `${partnerName} — finish your feedback`
+          : 'Finish your post-date feedback'
+        : partnerName
+          ? `With ${partnerName} — tap Rejoin`
+          : 'Tap Rejoin to return 💚';
+  const ctaLabel = mode === 'ready_gate' ? 'Continue' : mode === 'survey' ? 'Finish' : 'Rejoin';
+
   return (
     <View style={[styles.wrapper, { paddingTop: 8 }]}>
       <View style={[styles.gradientBorder, { backgroundColor: theme.tint }]}>
@@ -53,16 +73,10 @@ export function ActiveCallBanner({
             </Animated.View>
             <View style={styles.textWrap}>
               <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
-                {mode === 'ready_gate' ? 'Your match is waiting!' : 'You have an active date!'}
+                {title}
               </Text>
               <Text style={[styles.sub, { color: theme.textSecondary }]} numberOfLines={2}>
-                {mode === 'ready_gate'
-                  ? partnerName
-                    ? `${partnerName} — tap Continue to open Ready Gate`
-                    : 'Tap Continue to open Ready Gate and sync up 💚'
-                  : partnerName
-                    ? `With ${partnerName} — tap Rejoin`
-                    : 'Tap Rejoin to return 💚'}
+                {subtitle}
               </Text>
             </View>
           </View>
@@ -81,7 +95,7 @@ export function ActiveCallBanner({
               </Pressable>
             ) : null}
             <VibelyButton
-              label={mode === 'ready_gate' ? 'Continue' : 'Rejoin'}
+              label={ctaLabel}
               onPress={onRejoin}
               variant="primary"
               size="sm"

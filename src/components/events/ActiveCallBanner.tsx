@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 interface ActiveCallBannerProps {
   sessionId: string;
   partnerName?: string;
-  /** ready_gate = lobby overlay destination; video = /date */
-  mode?: "video" | "ready_gate";
+  /** ready_gate = lobby overlay destination; survey/video = /date */
+  mode?: "video" | "ready_gate" | "survey";
   onRejoin: () => void;
-  onEnd: () => void;
+  onEnd?: () => void;
 }
 
 export const ActiveCallBanner = ({
@@ -18,6 +18,26 @@ export const ActiveCallBanner = ({
   onRejoin,
   onEnd,
 }: ActiveCallBannerProps) => {
+  const title =
+    mode === "ready_gate"
+      ? "Ready Gate in progress"
+      : mode === "survey"
+        ? "Date feedback pending"
+        : "You have an active date!";
+  const subtitle =
+    mode === "ready_gate"
+      ? partnerName
+        ? `${partnerName} — open the event lobby to finish Ready Gate`
+        : "Open the event lobby to finish Ready Gate"
+      : mode === "survey"
+        ? partnerName
+          ? `With ${partnerName} — finish your feedback`
+          : "Finish your post-date feedback"
+        : partnerName
+          ? `With ${partnerName} — tap Rejoin`
+          : "Tap Rejoin to return 💚";
+  const rejoinLabel = mode === "ready_gate" ? "Continue" : mode === "survey" ? "Finish" : "Rejoin";
+
   return (
     <motion.div
       initial={{ y: -80, opacity: 0 }}
@@ -37,29 +57,23 @@ export const ActiveCallBanner = ({
               <Video className="w-4 h-4 text-primary" />
             </motion.div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground truncate">
-                {mode === "ready_gate" ? "Ready Gate in progress" : "You have an active date!"}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {mode === "ready_gate"
-                  ? partnerName
-                    ? `${partnerName} — open the event lobby to finish Ready Gate`
-                    : "Open the event lobby to finish Ready Gate"
-                  : partnerName
-                    ? `With ${partnerName} — tap Rejoin`
-                    : "Tap Rejoin to return 💚"}
-              </p>
+              <p className="text-sm font-semibold text-foreground truncate">{title}</p>
+              <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
             </div>
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onEnd}
-              className="w-8 h-8 rounded-full bg-destructive/15 flex items-center justify-center hover:bg-destructive/25 transition-colors"
-            >
-              <PhoneOff className="w-3.5 h-3.5 text-destructive" />
-            </button>
+            {onEnd ? (
+              <button
+                type="button"
+                aria-label={mode === "ready_gate" ? "Leave Ready Gate" : "End date"}
+                onClick={onEnd}
+                className="w-8 h-8 rounded-full bg-destructive/15 flex items-center justify-center hover:bg-destructive/25 transition-colors"
+              >
+                <PhoneOff className="w-3.5 h-3.5 text-destructive" />
+              </button>
+            ) : null}
             <Button
               variant="gradient"
               size="sm"
@@ -67,7 +81,7 @@ export const ActiveCallBanner = ({
               className="h-8 px-3 text-xs font-semibold"
             >
               <Phone className="w-3 h-3 mr-1" />
-              Rejoin
+              {rejoinLabel}
             </Button>
           </div>
         </div>

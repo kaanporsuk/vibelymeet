@@ -224,6 +224,22 @@ const adminDashboardPage = readFileSync(
   join(process.cwd(), "src/pages/admin/AdminDashboard.tsx"),
   "utf8",
 );
+const webDashboardPage = readFileSync(
+  join(process.cwd(), "src/pages/Dashboard.tsx"),
+  "utf8",
+);
+const webActiveCallBanner = readFileSync(
+  join(process.cwd(), "src/components/events/ActiveCallBanner.tsx"),
+  "utf8",
+);
+const nativeTabsHome = readFileSync(
+  join(process.cwd(), "apps/mobile/app/(tabs)/index.tsx"),
+  "utf8",
+);
+const nativeActiveCallBanner = readFileSync(
+  join(process.cwd(), "apps/mobile/components/events/ActiveCallBanner.tsx"),
+  "utf8",
+);
 
 function readMigrationRange(fromVersionInclusive: string): string {
   const dir = join(process.cwd(), "supabase/migrations");
@@ -1188,6 +1204,23 @@ test("web and native active-session recovery share pending survey contract", () 
     assert.match(source, /\.from\(["']date_feedback["']\)[\s\S]*\.select\(["']session_id["']\)[\s\S]*\.eq\(["']user_id["'], userId\)[\s\S]*\.in\(["']session_id["'], candidateSessionIds\)/);
     assert.match(source, /queueStatus: ["']in_survey["']/);
   }
+});
+
+test("home active-session banners distinguish pending survey from active calls", () => {
+  for (const source of [webActiveCallBanner, nativeActiveCallBanner]) {
+    assert.match(source, /mode\?: ['"]video['"] \| ['"]ready_gate['"] \| ['"]survey['"]/);
+    assert.match(source, /Date feedback pending/);
+    assert.match(source, /Finish your post-date feedback/);
+    assert.match(source, /mode === ['"]survey['"] \? ['"]Finish['"]/);
+  }
+
+  assert.match(webActiveCallBanner, /\{onEnd \? \(/);
+  assert.match(webDashboardPage, /activeSession\.queueStatus === "in_survey"\s*\?\s*"survey"/);
+  assert.match(webDashboardPage, /partnerName=\{activeSession\.partnerName\}/);
+  assert.match(webDashboardPage, /transitionFailureMessage\(data\)/);
+
+  assert.match(nativeActiveCallBanner, /\{onEnd \? \(/);
+  assert.match(nativeTabsHome, /activeSession\.queueStatus === 'in_survey'\s*\?\s*'survey'/);
 });
 
 test("native date route opens recovered pending surveys after current_room_id is cleared", () => {

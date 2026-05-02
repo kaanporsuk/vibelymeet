@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import {
   ChevronRight,
   Sparkles,
@@ -49,6 +50,23 @@ function getTimeGreeting(): string {
 
 const PROFILE_READINESS_DISMISS_KEY = "vibely_profile_readiness_dismissed_at";
 const PROFILE_READINESS_COOLDOWN_MS = 7 * 86400000;
+
+function transitionFailureMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const result = payload as {
+    success?: unknown;
+    error?: unknown;
+    code?: unknown;
+    error_code?: unknown;
+  };
+  if (result.success !== false) return null;
+  return (
+    (typeof result.error === "string" && result.error) ||
+    (typeof result.error_code === "string" && result.error_code) ||
+    (typeof result.code === "string" && result.code) ||
+    "Transition failed"
+  );
+}
 
 function formatStartsInSoon(eventDate: Date): string {
   const totalMin = differenceInMinutes(eventDate, new Date());
@@ -119,6 +137,42 @@ const Dashboard = () => {
     }
     return result.synced;
   }, [user?.id, refreshPushDeliveryHealth, refreshSubscriptionState]);
+
+  const handleEndActiveSession = useCallback(async () => {
+    if (!activeSession) return;
+    if (activeSession.kind === "video" && activeSession.queueStatus === "in_survey") return;
+
+    try {
+      const { data, error } =
+        activeSession.kind === "ready_gate"
+          ? await supabase.rpc("ready_gate_transition", {
+              p_session_id: activeSession.sessionId,
+              p_action: "forfeit",
+              p_reason: "dashboard_active_banner",
+            })
+          : await supabase.rpc("video_date_transition", {
+              p_session_id: activeSession.sessionId,
+              p_action: "end",
+              p_reason: "dashboard_active_banner",
+            });
+
+      if (error) throw error;
+      const failureMessage = transitionFailureMessage(data);
+      if (failureMessage) throw new Error(failureMessage);
+      await refetchActiveSession();
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn("[home] active session end failed:", error);
+      }
+      toast.error(
+        activeSession.kind === "ready_gate"
+          ? "Couldn't leave Ready Gate. Please try again."
+          : "Couldn't end the date. Please try again."
+      );
+      await refetchActiveSession();
+    }
+  }, [activeSession, refetchActiveSession]);
+
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
   const { data: unreadMessageCount = 0, refetch: refetchUnread } = useQuery({
@@ -488,28 +542,24 @@ const Dashboard = () => {
             >
               <ActiveCallBanner
                 sessionId={activeSession.sessionId}
-                mode={activeSession.kind === "ready_gate" ? "ready_gate" : "video"}
+                partnerName={activeSession.partnerName}
+                mode={
+                  activeSession.kind === "ready_gate"
+                    ? "ready_gate"
+                    : activeSession.queueStatus === "in_survey"
+                      ? "survey"
+                      : "video"
+                }
                 onRejoin={() =>
                   activeSession.kind === "ready_gate"
                     ? navigate(`/event/${activeSession.eventId}/lobby`)
                     : navigate(`/date/${activeSession.sessionId}`)
                 }
-                onEnd={activeSession.kind === "video" && activeSession.queueStatus === "in_survey" ? undefined : async () => {
-                  if (activeSession.kind === "ready_gate") {
-                    await supabase.rpc("ready_gate_transition", {
-                      p_session_id: activeSession.sessionId,
-                      p_action: "forfeit",
-                    });
-                    await refetchActiveSession();
-                    return;
-                  }
-                  await supabase.rpc("video_date_transition", {
-                    p_session_id: activeSession.sessionId,
-                    p_action: "end",
-                    p_reason: "dashboard_active_banner",
-                  });
-                  await refetchActiveSession();
-                }}
+                onEnd={
+                  activeSession.kind === "video" && activeSession.queueStatus === "in_survey"
+                    ? undefined
+                    : handleEndActiveSession
+                }
               />
             </motion.div>
           )}
