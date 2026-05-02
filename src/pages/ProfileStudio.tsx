@@ -53,6 +53,7 @@ import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
 import { heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
+import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
@@ -468,6 +469,26 @@ const ProfileStudio = () => {
     profile.updatedAt,
     profile.vibeCaption,
   ]);
+  const resolvedVibeVideo = useMemo(
+    () =>
+      resolveWebVibeVideoState({
+        bunnyVideoUid: effectiveVibeVideo.bunnyVideoUid,
+        bunnyVideoStatus: effectiveVibeVideo.bunnyVideoStatus,
+        updatedAt: effectiveVibeVideo.updatedAt,
+        vibeCaption: effectiveVibeVideo.vibeCaption,
+      }),
+    [effectiveVibeVideo],
+  );
+  const controllerHasManageableVibeVideo =
+    heroVideoUpload.phase === "uploading" ||
+    heroVideoUpload.phase === "processing" ||
+    heroVideoUpload.phase === "ready" ||
+    heroVideoUpload.phase === "stalled" ||
+    heroVideoUpload.phase === "failed";
+  const canManageVibeVideo =
+    resolvedVibeVideo.canManage ||
+    resolvedVibeVideo.state === "error" ||
+    controllerHasManageableVibeVideo;
 
   const vibeScoreProfileSnapshot = useMemo(
     (): VibeScoreProfileSnapshot => ({
@@ -1055,7 +1076,7 @@ const ProfileStudio = () => {
               <Video className="h-[18px] w-[18px] text-primary" />
               <h3 className="text-base font-display font-semibold text-white">Vibe Video</h3>
             </div>
-            {profile.bunnyVideoUid ? (
+            {canManageVibeVideo ? (
               <button
                 type="button"
                 onClick={goToVibeStudio}

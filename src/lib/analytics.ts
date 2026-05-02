@@ -4,8 +4,11 @@ import { hasAnalyticsConsent } from "@/lib/consent";
 type AnalyticsProperties = Record<string, unknown>;
 
 const POSTHOG_HOST_FALLBACK = "https://eu.i.posthog.com";
+const viteEnv = (
+  (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env ?? {}
+) as Record<string, string | undefined>;
 const POSTHOG_HOST =
-  import.meta.env.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
+  viteEnv.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
 
 let initialized = false;
 
@@ -18,7 +21,7 @@ export const initAnalytics = (): boolean => {
   if (typeof window === "undefined") return false;
   if (!hasAnalyticsConsent()) return false;
 
-  const apiKey = import.meta.env.VITE_POSTHOG_API_KEY;
+  const apiKey = viteEnv.VITE_POSTHOG_API_KEY;
   if (!apiKey) return false;
 
   posthog.init(apiKey, {

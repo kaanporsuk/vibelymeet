@@ -113,6 +113,42 @@ test("ready state still requires a playable URL before canPlay is true", () => {
   assert.equal(readyWithoutConfiguredHostname.isScoreEligible, true);
 });
 
+test("web resolver keeps UID-backed pipeline and failed states manageable", () => {
+  const processing = resolveWebVibeVideoState({
+    bunny_video_uid: "video-processing",
+    bunny_video_status: "processing",
+  });
+  assert.equal(processing.state, "processing");
+  assert.equal(processing.canManage, true);
+  assert.equal(processing.canDelete, true);
+
+  const staleProcessing = resolveWebVibeVideoState({
+    bunny_video_uid: "video-stale",
+    bunny_video_status: "processing",
+    updated_at: "2020-01-01T00:00:00.000Z",
+  });
+  assert.equal(staleProcessing.state, "stale_processing");
+  assert.equal(staleProcessing.canManage, true);
+  assert.equal(staleProcessing.canDelete, true);
+
+  const failed = resolveWebVibeVideoState({
+    bunny_video_uid: "video-failed",
+    bunny_video_status: "failed",
+  });
+  assert.equal(failed.state, "failed");
+  assert.equal(failed.canManage, true);
+  assert.equal(failed.canDelete, true);
+
+  const none = resolveWebVibeVideoState({
+    bunny_video_uid: null,
+    bunny_video_status: "none",
+  });
+  assert.equal(none.state, "none");
+  assert.equal(none.canManage, false);
+  assert.equal(none.canDelete, false);
+  assert.equal(none.canRecord, true);
+});
+
 test("delete clears score eligibility and re-upload keeps processing semantics", () => {
   const beforeDelete = resolveCanonicalVibeVideoState({
     bunnyVideoUid: "video-before-delete",
