@@ -31,6 +31,7 @@ type ReadyGateTerminalDetail = {
   reason?: string | null;
   inactiveReason?: string | null;
   errorCode?: string | null;
+  code?: string | null;
   terminal?: boolean | null;
 };
 
@@ -79,16 +80,22 @@ type ReadyGateSyncResult =
       reason?: string | null;
       inactiveReason?: string | null;
       errorCode?: string | null;
+      code?: string | null;
       terminal?: boolean | null;
     }
   | {
       ok: false;
       error: string;
+      status?: ReadyGateStatus | null;
       reason?: string | null;
       inactiveReason?: string | null;
       errorCode?: string | null;
+      code?: string | null;
+      isTerminal?: boolean;
       terminal?: boolean | null;
     };
+
+type ReadyGateTransitionResult = ReadyGateSyncResult;
 
 const READY_GATE_STATUS_VALUES = Object.values(ReadyGateStatus) as ReadyGateStatus[];
 const TERMINAL_READY_GATE_STATUS_VALUES: readonly ReadyGateStatus[] = TERMINAL_READY_GATE_STATUSES;
@@ -202,6 +209,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         reason: truth.reason ?? null,
         inactiveReason: truth.inactive_reason ?? null,
         errorCode: truth.error_code ?? truth.code ?? null,
+        code: truth.code ?? null,
         terminal: truth.terminal ?? null,
       });
     } else {
@@ -216,6 +224,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       reason: truth.reason ?? null,
       inactiveReason: truth.inactive_reason ?? null,
       errorCode: truth.error_code ?? truth.code ?? null,
+      code: truth.code ?? null,
       terminal: truth.terminal ?? null,
     };
   }, [notifyTerminal, user?.id]);
@@ -281,8 +290,16 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   // Periodic refresh is owned by ReadyGateOverlay.reconcileSession("poll") + refetchSession(),
   // so we avoid duplicate 2s timers alongside the overlay reconcile loop.
 
-  const runReadyGateTransition = useCallback(async (action: ReadyGateTransitionAction): Promise<boolean> => {
-    if (!sessionId || !user?.id) return false;
+  const runReadyGateTransition = useCallback(async (
+    action: ReadyGateTransitionAction,
+  ): Promise<ReadyGateTransitionResult> => {
+    if (!sessionId || !user?.id) {
+      return {
+        ok: false,
+        error: "missing_session_or_user",
+        terminal: false,
+      };
+    }
 
     const startedAt = Date.now();
     // Static smoke contract: terminal actions still await
@@ -321,7 +338,12 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         reason: "rpc_error",
         latency_ms: Date.now() - startedAt,
       });
-      return false;
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code ?? null,
+        terminal: false,
+      };
     }
     const payload = data && typeof data === "object" && !Array.isArray(data)
       ? (data as ReadyGateSessionTruth & { success?: boolean; error?: string | null })
@@ -372,7 +394,31 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           terminal: payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE",
           latency_ms: Date.now() - startedAt,
         });
-        return payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE";
+        const terminal = payload.terminal === true || transitionTerminal || errorCode === "EVENT_NOT_ACTIVE";
+        if (terminal) {
+          return {
+            ok: true,
+            status: transitionStatus,
+            isTerminal: true,
+            expiresAt: result.ok === true ? result.expiresAt : null,
+            reason: payload.reason ?? payload.error ?? null,
+            inactiveReason: payload.inactive_reason ?? null,
+            errorCode,
+            code: payload.code ?? null,
+            terminal: true,
+          };
+        }
+        return {
+          ok: false,
+          error: payload.error ?? "ready_gate_transition_rejected",
+          status: transitionStatus,
+          reason: payload.reason ?? null,
+          inactiveReason: payload.inactive_reason ?? null,
+          errorCode,
+          code: payload.code ?? null,
+          isTerminal: false,
+          terminal: false,
+        };
       }
       trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
         platform: "web",
@@ -386,22 +432,31 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         latency_ms: Date.now() - startedAt,
         source_surface: "use_ready_gate",
       });
-    } else {
-      trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
-        platform: "web",
-        event_id: eventId ?? null,
-        session_id: sessionId,
-        action,
-        outcome: "success",
-        reason: action,
-        ready_gate_status: null,
-        terminal: false,
-        latency_ms: Date.now() - startedAt,
-        source_surface: "use_ready_gate",
-      });
+      return result;
     }
-    return true;
-  }, [sessionId, eventId, user?.id, applyReadyGateTruth, notifyTerminal]);
+
+    trackEvent(EventLobbyObservabilityEvents.READY_GATE_TRANSITION, {
+      platform: "web",
+      event_id: eventId ?? null,
+      session_id: sessionId,
+      action,
+      outcome: "success",
+      reason: action,
+      ready_gate_status: null,
+      terminal: false,
+      latency_ms: Date.now() - startedAt,
+      source_surface: "use_ready_gate",
+    });
+
+    return {
+      ok: true,
+      status: state.status,
+      isTerminal: isTerminalReadyGateStatus(state.status),
+      expiresAt: state.expiresAt,
+      reason: action,
+      terminal: isTerminalReadyGateStatus(state.status),
+    };
+  }, [sessionId, eventId, user?.id, applyReadyGateTruth, notifyTerminal, state.expiresAt, state.status]);
 
   const syncSession = useCallback(async (): Promise<ReadyGateSyncResult> => {
     if (!sessionId || !user?.id) {
@@ -467,17 +522,17 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   }, [sessionId, user?.id, applyReadyGateTruth]);
 
   // Mark self as ready (server-owned transition)
-  const markReady = useCallback(async (): Promise<boolean> => (
+  const markReady = useCallback(async (): Promise<ReadyGateTransitionResult> => (
     runReadyGateTransition("mark_ready")
   ), [runReadyGateTransition]);
 
   // Skip — forfeit (server-owned transition)
-  const skip = useCallback(async (): Promise<boolean> => {
+  const skip = useCallback(async (): Promise<ReadyGateTransitionResult> => {
     return runReadyGateTransition("forfeit");
   }, [runReadyGateTransition]);
 
   // Snooze — request 2 more minutes (server-owned transition)
-  const snooze = useCallback(async (): Promise<boolean> => (
+  const snooze = useCallback(async (): Promise<ReadyGateTransitionResult> => (
     runReadyGateTransition("snooze")
   ), [runReadyGateTransition]);
 

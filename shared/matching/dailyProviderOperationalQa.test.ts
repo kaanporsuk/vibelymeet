@@ -207,7 +207,7 @@ test("Video Date media contract preserves full remote frame on web and native", 
   assert.match(videoDateMediaContract, /VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS/);
   assert.match(webDailyCallObjectConfig, /dailyVideoDateCallObjectOptions/);
   assert.match(webDailyCallObjectConfig, /inputSettings:[\s\S]*video:[\s\S]*settings:\s*videoConstraints/);
-  assert.match(webDailyCallObjectConfig, /userMediaVideoConstraints:\s*videoConstraints/);
+  assert.doesNotMatch(webDailyCallObjectConfig, /userMediaVideoConstraints/);
   assert.match(webVideoCall, /dailyVideoDateCallObjectOptions\(captureProfileForCall\)/);
   assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("ideal"\)\)/);
   assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("fallback"\)\)/);

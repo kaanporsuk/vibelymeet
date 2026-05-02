@@ -765,16 +765,19 @@ test("web and native ready-gate handoff use shared retry policy", () => {
 
 test("ready-gate terminal actions wait for server forfeit before closing", () => {
   assert.match(webReadyGateHook, /type ReadyGateTransitionAction = "mark_ready" \| "forfeit" \| "snooze" \| "sync"/);
-  assert.match(webReadyGateHook, /const runReadyGateTransition = useCallback\(async \(action: ReadyGateTransitionAction\): Promise<boolean> =>/);
-  assert.match(webReadyGateHook, /const skip = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(webReadyGateHook, /type ReadyGateTransitionResult = ReadyGateSyncResult/);
+  assert.match(webReadyGateHook, /Promise<ReadyGateTransitionResult>/);
+  assert.match(webReadyGateHook, /const skip = useCallback\(async \(\): Promise<ReadyGateTransitionResult> =>/);
   assert.match(webReadyGateHook, /const \{ error \} = await supabase\.rpc\("ready_gate_transition"/);
   assert.match(webReadyGateHook, /const syncSession = useCallback\(async \(\): Promise<ReadyGateSyncResult> =>/);
   assert.match(webReadyGateHook, /p_action: "sync" satisfies ReadyGateTransitionAction/);
   assert.match(webReadyGateHook, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status: payload\.status \?\? payload\.ready_gate_status/s);
-  assert.match(webReadyGateHook, /return false;[\s\S]*return true;/);
+  assert.match(webReadyGateHook, /ok: false[\s\S]*ok: true/);
   assert.match(readyGateOverlay, /const runTerminalAction = useCallback\(/);
-  assert.match(readyGateOverlay, /const ok = await skip\(\)/);
-  assert.match(readyGateOverlay, /if \(!ok\) \{[\s\S]*ready_gate_forfeit_failed/s);
+  assert.match(readyGateOverlay, /const result = await skip\(\)/);
+  assert.match(readyGateOverlay, /if \(!result\.ok\) \{[\s\S]*ready_gate_forfeit_failed/s);
+  assert.match(readyGateOverlay, /result\.status === "both_ready"/);
+  assert.match(readyGateOverlay, /manualExitRequestedRef/);
   assert.match(readyGateOverlay, /setTerminalActionError\(message\)/);
   assert.match(readyGateOverlay, /void runTerminalAction\("skip_this_one"\)/);
   assert.match(readyGateOverlay, /void runTerminalAction\("cancel_go_back"\)/);
@@ -785,16 +788,19 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
   );
 
   assert.match(nativeReadyGateApi, /type ReadyGateTransitionAction = 'mark_ready' \| 'forfeit' \| 'snooze' \| 'sync'/);
-  assert.match(nativeReadyGateApi, /const runReadyGateTransition = useCallback\(async \(action: ReadyGateTransitionAction\): Promise<boolean> =>/);
-  assert.match(nativeReadyGateApi, /const forfeit = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(nativeReadyGateApi, /export type ReadyGateTransitionResult = ReadyGateSyncResult/);
+  assert.match(nativeReadyGateApi, /Promise<ReadyGateTransitionResult>/);
+  assert.match(nativeReadyGateApi, /const forfeit = useCallback\(async \(\): Promise<ReadyGateTransitionResult> =>/);
   assert.match(nativeReadyGateApi, /const \{ error \} = await supabase\.rpc\('ready_gate_transition'/);
   assert.match(nativeReadyGateApi, /const syncSession = useCallback\(async \(\): Promise<ReadyGateSyncResult> =>/);
   assert.match(nativeReadyGateApi, /p_action: 'sync' satisfies ReadyGateTransitionAction/);
   assert.match(nativeReadyGateApi, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status: payload\.status \?\? payload\.ready_gate_status/s);
-  assert.match(nativeReadyGateApi, /return false;[\s\S]*return true;/);
+  assert.match(nativeReadyGateApi, /ok: false[\s\S]*ok: true/);
   assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'skip' = 'skip'\) =>/);
-  assert.match(nativeReadyGateOverlay, /const ok = await forfeit\(\)/);
-  assert.match(nativeReadyGateOverlay, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
+  assert.match(nativeReadyGateOverlay, /const result = await forfeit\(\)/);
+  assert.match(nativeReadyGateOverlay, /if \(!result\.ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
+  assert.match(nativeReadyGateOverlay, /result\.status === 'both_ready'/);
+  assert.match(nativeReadyGateOverlay, /manualExitRequestedRef/);
   assert.match(nativeReadyGateOverlay, /setTerminalActionError\(message\)/);
   assert.match(nativeReadyGateOverlay, /pendingForfeitReasonRef\.current = reason/);
   assert.doesNotMatch(
@@ -804,14 +810,16 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
 });
 
 test("ready-gate RPC failures surface retryable UI and web expiry syncs server truth", () => {
-  assert.match(webReadyGateHook, /const markReady = useCallback\(async \(\): Promise<boolean> =>/);
-  assert.match(webReadyGateHook, /const snooze = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(webReadyGateHook, /const markReady = useCallback\(async \(\): Promise<ReadyGateTransitionResult> =>/);
+  assert.match(webReadyGateHook, /const snooze = useCallback\(async \(\): Promise<ReadyGateTransitionResult> =>/);
   assert.match(webReadyGateHook, /runReadyGateTransition\("mark_ready"\)/);
   assert.match(webReadyGateHook, /runReadyGateTransition\("snooze"\)/);
-  assert.match(readyGateOverlay, /const ok = await markReady\(\)/);
+  assert.match(readyGateOverlay, /const result = await markReady\(\)/);
+  assert.match(readyGateOverlay, /if \(!result\.ok\) \{[\s\S]*ready_gate_mark_ready_failed/s);
   assert.match(readyGateOverlay, /throw new Error\("ready_gate_mark_ready_failed"\)/);
   assert.match(readyGateOverlay, /We couldn't mark you ready\. Check your connection and try again\./);
-  assert.match(readyGateOverlay, /const ok = await snooze\(\)/);
+  assert.match(readyGateOverlay, /const result = await snooze\(\)/);
+  assert.match(readyGateOverlay, /if \(!result\.ok\) \{[\s\S]*ready_gate_snooze_failed/s);
   assert.match(readyGateOverlay, /throw new Error\("ready_gate_snooze_failed"\)/);
   assert.match(readyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
   assert.match(readyGateOverlay, /EXPIRY_SYNC_RETRY_DELAY_MS/);
@@ -820,14 +828,16 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.doesNotMatch(readyGateOverlay, /timeout_auto_forfeit|timeoutForfeitSentRef|TIMEOUT_FORFEIT/);
   assert.doesNotMatch(readyGateOverlay, /next <= 0[\s\S]{0,320}skip\(\)/);
 
-  assert.match(nativeReadyGateApi, /const markReady = useCallback\(async \(\): Promise<boolean> =>/);
-  assert.match(nativeReadyGateApi, /const snooze = useCallback\(async \(\): Promise<boolean> =>/);
+  assert.match(nativeReadyGateApi, /const markReady = useCallback\(async \(\): Promise<ReadyGateTransitionResult> =>/);
+  assert.match(nativeReadyGateApi, /const snooze = useCallback\(async \(\): Promise<ReadyGateTransitionResult> =>/);
   assert.match(nativeReadyGateApi, /runReadyGateTransition\('mark_ready'\)/);
   assert.match(nativeReadyGateApi, /runReadyGateTransition\('snooze'\)/);
-  assert.match(nativeReadyGateOverlay, /const ok = await markReady\(\)/);
+  assert.match(nativeReadyGateOverlay, /const result = await markReady\(\)/);
+  assert.match(nativeReadyGateOverlay, /if \(!result\.ok\) throw new Error\('ready_gate_mark_ready_failed'\)/);
   assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_mark_ready_failed'\)/);
   assert.match(nativeReadyGateOverlay, /We couldn't mark you ready\. Check your connection and try again\./);
-  assert.match(nativeReadyGateOverlay, /const ok = await snooze\(\)/);
+  assert.match(nativeReadyGateOverlay, /const result = await snooze\(\)/);
+  assert.match(nativeReadyGateOverlay, /if \(!result\.ok\) throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyGateOverlay, /throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyGateOverlay, /We couldn't snooze this match\. Check your connection and try again\./);
   assert.match(nativeReadyGateOverlay, /EXPIRY_SYNC_RETRY_DELAY_MS/);
@@ -835,8 +845,8 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.doesNotMatch(nativeReadyGateOverlay, /TIMEOUT_FORFEIT|timeoutForfeit|timeout_auto_forfeit|handleSkip\('timeout'\)/);
 
   assert.match(nativeReadyRoute, /const runReadyGateForfeit = useCallback\(/);
-  assert.match(nativeReadyRoute, /const ok = await forfeit\(\)/);
-  assert.match(nativeReadyRoute, /if \(!ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
+  assert.match(nativeReadyRoute, /const result = await forfeit\(\)/);
+  assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_forfeit_failed'\)/);
   assert.match(nativeReadyRoute, /setTerminalActionError\("We couldn't step away\. Check your connection and try again\."\)/);
   assert.match(nativeReadyRoute, /EXPIRY_SYNC_RETRY_DELAY_MS/);
   assert.match(nativeReadyRoute, /const syncExpiredReadyGate = useCallback/);
@@ -845,10 +855,12 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.doesNotMatch(nativeReadyRoute, /TIMEOUT_FORFEIT|timeoutForfeit|runReadyGateForfeit\('timeout'\)/);
   assert.match(nativeReadyRoute, /primaryAction: \{ label: 'Step away', onPress: \(\) => \{ void runReadyGateForfeit\('skip'\); \} \}/);
   assert.doesNotMatch(nativeReadyRoute, /forfeit\(\);\s*return 0/);
-  assert.match(nativeReadyRoute, /const ok = await markReady\(\)/);
+  assert.match(nativeReadyRoute, /const result = await markReady\(\)/);
+  assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_mark_ready_failed'\)/);
   assert.match(nativeReadyRoute, /throw new Error\('ready_gate_mark_ready_failed'\)/);
   assert.match(nativeReadyRoute, /We couldn't mark you ready\. Check your connection and try again\./);
-  assert.match(nativeReadyRoute, /const ok = await snooze\(\)/);
+  assert.match(nativeReadyRoute, /const result = await snooze\(\)/);
+  assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyRoute, /throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyRoute, /We couldn't snooze this match\. Check your connection and try again\./);
 });

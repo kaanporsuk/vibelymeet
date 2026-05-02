@@ -16,7 +16,12 @@ const files = {
   webSurvey: "src/components/video-date/PostDateSurvey.tsx",
   webDateNavigationGuard: "src/lib/dateNavigationGuard.ts",
   webActiveSession: "src/hooks/useActiveSession.ts",
+  webReadyGate: "src/components/lobby/ReadyGateOverlay.tsx",
+  webEventLobby: "src/pages/EventLobby.tsx",
   nativeDate: "apps/mobile/app/date/[id].tsx",
+  nativeReadyGate: "apps/mobile/components/lobby/ReadyGateOverlay.tsx",
+  nativeEventLobby: "apps/mobile/app/event/[eventId]/lobby.tsx",
+  nativeStandaloneReady: "apps/mobile/app/ready/[id].tsx",
   nativeConnectionOverlay: "apps/mobile/components/video-date/ConnectionOverlay.tsx",
   nativeControls: "apps/mobile/components/video-date/VideoDateControls.tsx",
   nativeVibeCheck: "apps/mobile/components/video-date/VibeCheckButton.tsx",
@@ -97,6 +102,16 @@ mustMatch("webSafety", /onClick=\{\(\) => void submit\("end"\)\}/, "web end-and-
 mustInclude("webSurvey", "onVerdict={handleVerdict}", "web post-date verdict buttons must stay wired");
 mustInclude("webSurvey", "onReport={handleReportFromVerdict}", "web post-date report action must stay wired");
 mustInclude("webSurvey", "onClick={() => setStep(\"highlights\")}", "web post-date continue button must stay wired");
+mustInclude("webReadyGate", "const result = await skip()", "web Ready Gate Step away must await server forfeit truth");
+mustInclude("webReadyGate", "result.status === \"both_ready\"", "web Ready Gate Step away must preserve both-ready race navigation");
+mustInclude("webReadyGate", "manualExitRequestedRef", "web Ready Gate Step away must mark intentional exits before terminal close");
+mustInclude("webReadyGate", "onManualExitConfirmed?.(sessionId)", "web Ready Gate must notify the lobby after confirmed manual exit");
+mustMatch("webReadyGate", /type="button"[\s\S]*runTerminalAction\("skip_this_one"\)/, "web Ready Gate pre-ready Step away must be a real button");
+mustMatch("webReadyGate", /type="button"[\s\S]*runTerminalAction\("cancel_go_back"\)/, "web Ready Gate waiting Step away must be a real button");
+mustMatch("webReadyGate", /rounded-full px-4 py-2 text-xs text-muted-foreground/, "web Ready Gate text actions must keep a tappable hit area");
+mustInclude("webEventLobby", "READY_GATE_MANUAL_EXIT_SUPPRESS_MS", "web lobby must suppress reopening a manually exited Ready Gate");
+mustInclude("webEventLobby", "isReadyGateManualExitSuppressed(sessionId)", "web lobby must check Ready Gate manual-exit suppression before opening");
+mustInclude("webEventLobby", "onManualExitConfirmed={suppressReadyGateSessionAfterManualExit}", "web Ready Gate overlay must wire manual-exit suppression");
 
 mustInclude("nativeDate", "const handleAbortConnection = useCallback", "native must keep a dedicated connection abort path");
 mustInclude("nativeDate", "abortConnectionInFlightRef", "native connection abort must dedupe repeated taps");
@@ -115,6 +130,15 @@ mustInclude("nativeSafety", "onPress={() => void submit('report')}", "native rep
 mustInclude("nativeSafety", "onPress={() => void submit('end')}", "native end-and-report button must stay wired");
 mustInclude("nativeSurvey", "onPress={() => void handleVerdict(true)}", "native post-date Vibe verdict must stay wired");
 mustInclude("nativeSurvey", "onPress={() => void handleVerdict(false)}", "native post-date Pass verdict must stay wired");
+mustInclude("nativeReadyGate", "const result = await forfeit()", "native Ready Gate Step away must await server forfeit truth");
+mustInclude("nativeReadyGate", "result.status === 'both_ready'", "native Ready Gate Step away must preserve both-ready race navigation");
+mustInclude("nativeReadyGate", "manualExitRequestedRef", "native Ready Gate Step away must mark intentional exits before terminal close");
+mustInclude("nativeReadyGate", "onManualExitConfirmed?.(sessionId)", "native Ready Gate must notify the lobby after confirmed manual exit");
+mustInclude("nativeEventLobby", "READY_GATE_MANUAL_EXIT_SUPPRESS_MS", "native lobby must suppress reopening a manually exited Ready Gate");
+mustInclude("nativeEventLobby", "isReadyGateManualExitSuppressed(sessionId)", "native lobby must check Ready Gate manual-exit suppression before opening");
+mustInclude("nativeEventLobby", "onManualExitConfirmed={suppressReadyGateAfterManualExit}", "native Ready Gate overlay must wire manual-exit suppression");
+mustInclude("nativeStandaloneReady", "const result = await forfeit()", "standalone native Ready Gate Step away must await server forfeit truth");
+mustInclude("nativeStandaloneReady", "if (!result.ok) throw new Error('ready_gate_forfeit_failed')", "standalone native Ready Gate must keep retryable forfeit failure handling");
 
 mustOrderAfter(
   "webDate",

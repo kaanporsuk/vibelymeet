@@ -89,6 +89,7 @@ import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
 import { eventLobbyHref } from '@/lib/activeSessionRoutes';
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
+const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
 
 /**
  * If the in-lobby Ready Gate overlay stops making progress (realtime gaps, missed transitions),
@@ -368,6 +369,7 @@ export default function EventLobbyScreen() {
   const [endingBreak, setEndingBreak] = useState(false);
   const [userVibes, setUserVibes] = useState<string[]>([]);
   const lastOpenedSessionRef = useRef<string | null>(null);
+  const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(new Map());
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
   const deckLoadedTrackedRef = useRef(false);
   const deckEmptyTrackedRef = useRef(false);
@@ -781,9 +783,27 @@ export default function EventLobbyScreen() {
     });
   }, [id, user?.id, lobbySideEffectsEnabled]);
 
+  const isReadyGateManualExitSuppressed = useCallback((sessionId: string): boolean => {
+    const suppressUntil = readyGateManualExitSuppressUntilRef.current.get(sessionId);
+    if (!suppressUntil) return false;
+    if (suppressUntil <= Date.now()) {
+      readyGateManualExitSuppressUntilRef.current.delete(sessionId);
+      return false;
+    }
+    return true;
+  }, []);
+
   const openReadyGateWithSession = useCallback(
     async (sessionId: string, trigger = 'unknown') => {
       if (lastOpenedSessionRef.current === sessionId) return;
+      if (isReadyGateManualExitSuppressed(sessionId)) {
+        rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_open_suppressed_after_manual_exit', {
+          session_id: sessionId,
+          event_id: id,
+          trigger,
+        });
+        return;
+      }
       lastOpenedSessionRef.current = sessionId;
       if (user?.id) {
         void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
@@ -854,8 +874,21 @@ export default function EventLobbyScreen() {
         setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
       }
     },
-    [id, navigateToDateSession, queryClient, user?.id]
+    [id, isReadyGateManualExitSuppressed, navigateToDateSession, queryClient, user?.id]
   );
+
+  const suppressReadyGateAfterManualExit = useCallback((sessionId: string) => {
+    readyGateManualExitSuppressUntilRef.current.set(
+      sessionId,
+      Date.now() + READY_GATE_MANUAL_EXIT_SUPPRESS_MS,
+    );
+    if (lastOpenedSessionRef.current === sessionId) {
+      lastOpenedSessionRef.current = null;
+    }
+    setActiveSessionId((current) => (current === sessionId ? null : current));
+    setActiveSessionPartnerName(null);
+    setActiveSessionPartnerImage(null);
+  }, []);
 
   const refreshQueueAndSuperVibe = useCallback(async () => {
     if (!id || !user?.id || !lobbySideEffectsEnabled) {
@@ -1968,6 +2001,13 @@ export default function EventLobbyScreen() {
         }
       }
       if (openingReadyGate && videoSessionId) {
+        if (isReadyGateManualExitSuppressed(videoSessionId)) {
+          rcBreadcrumb(RC_CATEGORY.readyGate, 'swipe_ready_gate_open_suppressed_after_manual_exit', {
+            session_id: videoSessionId,
+            event_id: id,
+          });
+          return;
+        }
         lastOpenedSessionRef.current = videoSessionId;
         logVdbgSessionStage('ready_gate_open', videoSessionId, {
           trigger: outcome === 'already_matched' ? 'swipe_already_matched' : 'swipe_match',
@@ -2444,6 +2484,7 @@ export default function EventLobbyScreen() {
             setActiveSessionPartnerImage(null);
             navigateToDateSession(sessionIdToOpen, 'ready_gate_overlay', 'replace');
           }}
+          onManualExitConfirmed={suppressReadyGateAfterManualExit}
           onClose={() => {
             lastOpenedSessionRef.current = null;
             setActiveSessionId(null);
