@@ -358,6 +358,10 @@ const VideoDate = () => {
       clearHandshakeGraceState();
       setPhase("ended");
       setTimeLeft(0);
+      setVideoDateAccess("allowed");
+      setTimingReady(true);
+      setCallStarted(false);
+      setCallStartFailure(null);
       setShowFeedback(true);
       setStatus("in_survey");
       vdbg("post_date_survey_opened", { sessionId: id ?? null, reason });
@@ -385,6 +389,40 @@ const VideoDate = () => {
       return true;
     },
     [clearHandshakeGraceState, id, eventId, setStatus, logJourney]
+  );
+
+  const hydrateTerminalSurveyContext = useCallback(
+    (
+      sessionRow: {
+        participant_1_id?: string | null;
+        participant_2_id?: string | null;
+        event_id?: string | null;
+        daily_room_name?: string | null;
+      },
+      source: string,
+    ) => {
+      const isP1 = sessionRow.participant_1_id === user?.id;
+      const resolvedPartnerId = isP1 ? sessionRow.participant_2_id : sessionRow.participant_1_id;
+      if (sessionRow.daily_room_name) {
+        canonicalRoomNameRef.current = sessionRow.daily_room_name;
+      }
+      setIsParticipant1(isP1);
+      setEventId(sessionRow.event_id ?? undefined);
+      setPartnerId(resolvedPartnerId ?? "");
+      setVideoDateAccess("allowed");
+      setTimingReady(true);
+      setCallStarted(false);
+      setCallStartFailure(null);
+      vdbg("terminal_survey_context_hydrated", {
+        sessionId: id ?? null,
+        userId: user?.id ?? null,
+        source,
+        eventId: sessionRow.event_id ?? null,
+        partnerId: resolvedPartnerId ?? null,
+        isParticipant1: isP1,
+      });
+    },
+    [id, user?.id],
   );
 
   const recoverFromNotStartableDateTruth = useCallback(
@@ -466,7 +504,7 @@ const VideoDate = () => {
       if (!id || !user?.id) return;
       const { data: sessionRow } = await supabase
         .from("video_sessions")
-        .select("event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url")
+        .select("participant_1_id, participant_2_id, event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url")
         .eq("id", id)
         .maybeSingle();
 
@@ -485,6 +523,7 @@ const VideoDate = () => {
       const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
 
       if (shouldOpenSurvey) {
+        hydrateTerminalSurveyContext(sessionRow, source);
         openPostDateSurvey(source);
         return;
       }
@@ -504,7 +543,7 @@ const VideoDate = () => {
       });
       navigate(target, { replace: true });
     },
-    [clearHandshakeGraceState, id, navigate, openPostDateSurvey, user?.id]
+    [clearHandshakeGraceState, hydrateTerminalSurveyContext, id, navigate, openPostDateSurvey, user?.id]
   );
 
   const {
@@ -1029,6 +1068,7 @@ const VideoDate = () => {
           if (cancelled) return;
           const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
           if (shouldOpenSurvey) {
+            hydrateTerminalSurveyContext(sessionRow, "session_load_terminal");
             openPostDateSurvey("session_load_terminal");
           } else {
             clearDateEntryTransition(id);
@@ -1272,7 +1312,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, navigate, openPostDateSurvey, logJourney]);
+  }, [id, user?.id, navigate, openPostDateSurvey, logJourney, hydrateTerminalSurveyContext]);
 
   // Server-side phase timing + enter_handshake (only after participant guard passes).
   useEffect(() => {

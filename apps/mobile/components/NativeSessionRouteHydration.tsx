@@ -9,6 +9,7 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  videoSessionHasPostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
 
 /**
@@ -58,11 +59,13 @@ export function NativeSessionRouteHydration() {
       const truthDecision = decideVideoSessionRouteFromTruth(vs);
       const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
       if (truthDecision === 'ended') {
+        const pendingSurveyTerminalEncounter = videoSessionHasPostDateSurveyTruth(vs);
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'navigate_to_date_blocked', {
           session_id: sid,
-          reason: 'video_sessions_ended',
+          reason: pendingSurveyTerminalEncounter ? 'pending_survey_terminal_encounter' : 'video_sessions_ended',
           vs_state: vs?.state ?? null,
           vs_phase: vs?.phase ?? null,
+          survey_required: pendingSurveyTerminalEncounter,
         });
         return;
       }

@@ -10,6 +10,7 @@ const validation = read("supabase/validation/event_lobby_ready_queue_contract.sq
 const stream8Migration = read("supabase/migrations/20260501224000_event_lobby_swipe_already_swiped.sql");
 const mutualSessionBase = read("supabase/migrations/20260501092000_handle_swipe_presence_and_already_matched_session.sql");
 const activeEventMigration = read("supabase/migrations/20260501223000_event_lobby_canonical_active_state.sql");
+const encounterSurveyMigration = read("supabase/migrations/20260503090000_video_date_encounter_survey_and_pair_guard.sql");
 const readyQueueDoc = read("docs/contracts/event-lobby-ready-queue-contract.md");
 const verificationDoc = read("docs/audits/event-lobby-ready-queue-contract-verification.md");
 const webLobbyCard = read("src/components/lobby/LobbyProfileCard.tsx");
@@ -64,6 +65,7 @@ test("get_event_deck keeps active-event rejection and hides busy in-session cand
   assert.match(deck, /vs\.phase IN \('handshake', 'date'\)/);
   assert.match(deck, /vs\.handshake_started_at IS NOT NULL/);
   assert.match(deck, /vs\.date_started_at IS NOT NULL/);
+  assert.match(encounterSurveyMigration, /AND NOT public\.video_date_pair_has_terminal_encounter\(p_event_id, p_user_id, base\.profile_id\)/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck\(uuid, uuid, integer\)[\s\S]*TO authenticated, service_role/);
   assert.doesNotMatch(migration, /GRANT EXECUTE ON FUNCTION public\.get_event_deck\(uuid, uuid, integer\)[\s\S]*TO anon/);
 });

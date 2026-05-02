@@ -25,7 +25,8 @@ select
   and bool_and(def like '%vs.state IN (''handshake'', ''date'')%')
   and bool_and(def like '%vs.phase IN (''handshake'', ''date'')%')
   and bool_and(def like '%vs.handshake_started_at IS NOT NULL%')
-  and bool_and(def like '%vs.date_started_at IS NOT NULL%') as ok
+  and bool_and(def like '%vs.date_started_at IS NOT NULL%')
+  and bool_and(def like '%video_date_pair_has_terminal_encounter%') as ok
 from deck;
 
 with swipe as (
