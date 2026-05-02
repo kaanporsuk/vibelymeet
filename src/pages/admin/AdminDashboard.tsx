@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -12,30 +12,39 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
-import AdminUsersPanel from "@/components/admin/AdminUsersPanel";
-import AdminEventsPanel from "@/components/admin/AdminEventsPanel";
-import AdminStatsCards from "@/components/admin/AdminStatsCards";
-import AdminAnalyticsCharts from "@/components/admin/AdminAnalyticsCharts";
-import AdminNotificationsPanel from "@/components/admin/AdminNotificationsPanel";
-import AdminReportsPanel from "@/components/admin/AdminReportsPanel";
-import AdminExportPanel from "@/components/admin/AdminExportPanel";
-import AdminQuickActionsCards from "@/components/admin/AdminQuickActionsCards";
-import AdminLiveEventMetrics from "@/components/admin/AdminLiveEventMetrics";
-import AdminVideoDateTimelinePanel from "@/components/admin/AdminVideoDateTimelinePanel";
-import AdminActivityLog from "@/components/admin/AdminActivityLog";
-import AdminEngagementAnalytics from "@/components/admin/AdminEngagementAnalytics";
-import AdminPushCampaignsPanel from "@/components/admin/AdminPushCampaignsPanel";
-import AdminPhotoVerificationPanel from "@/components/admin/AdminPhotoVerificationPanel";
-import AdminDeletionsPanel from "@/components/admin/AdminDeletionsPanel";
-import AdminFeedbackPanel from "@/components/admin/AdminFeedbackPanel";
-import SupportInbox from "@/components/admin/SupportInbox";
-import AdminDailyDropCard from "@/components/admin/AdminDailyDropCard";
-import AdminTierConfigPanel from "@/components/admin/AdminTierConfigPanel";
-import { AdminGhostBootstrapPanel } from "@/components/admin/AdminGhostBootstrapPanel";
-import AdminMediaLifecyclePanel from "@/components/admin/AdminMediaLifecyclePanel";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 
+const AdminUsersPanel = lazy(() => import("@/components/admin/AdminUsersPanel"));
+const AdminEventsPanel = lazy(() => import("@/components/admin/AdminEventsPanel"));
+const AdminStatsCards = lazy(() => import("@/components/admin/AdminStatsCards"));
+const AdminAnalyticsCharts = lazy(() => import("@/components/admin/AdminAnalyticsCharts"));
+const AdminNotificationsPanel = lazy(() => import("@/components/admin/AdminNotificationsPanel"));
+const AdminReportsPanel = lazy(() => import("@/components/admin/AdminReportsPanel"));
+const AdminExportPanel = lazy(() => import("@/components/admin/AdminExportPanel"));
+const AdminQuickActionsCards = lazy(() => import("@/components/admin/AdminQuickActionsCards"));
+const AdminLiveEventMetrics = lazy(() => import("@/components/admin/AdminLiveEventMetrics"));
+const AdminVideoDateTimelinePanel = lazy(() => import("@/components/admin/AdminVideoDateTimelinePanel"));
+const AdminActivityLog = lazy(() => import("@/components/admin/AdminActivityLog"));
+const AdminEngagementAnalytics = lazy(() => import("@/components/admin/AdminEngagementAnalytics"));
+const AdminPushCampaignsPanel = lazy(() => import("@/components/admin/AdminPushCampaignsPanel"));
+const AdminPhotoVerificationPanel = lazy(() => import("@/components/admin/AdminPhotoVerificationPanel"));
+const AdminDeletionsPanel = lazy(() => import("@/components/admin/AdminDeletionsPanel"));
+const AdminFeedbackPanel = lazy(() => import("@/components/admin/AdminFeedbackPanel"));
+const SupportInbox = lazy(() => import("@/components/admin/SupportInbox"));
+const AdminDailyDropCard = lazy(() => import("@/components/admin/AdminDailyDropCard"));
+const AdminTierConfigPanel = lazy(() => import("@/components/admin/AdminTierConfigPanel"));
+const AdminGhostBootstrapPanel = lazy(() =>
+  import("@/components/admin/AdminGhostBootstrapPanel").then((mod) => ({
+    default: mod.AdminGhostBootstrapPanel,
+  }))
+);
+const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMediaLifecyclePanel"));
+
 type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+
+const AdminPanelFallback = () => (
+  <div className="min-h-[320px] rounded-xl border border-border/50 bg-card/30 animate-pulse" />
+);
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -47,7 +56,7 @@ const AdminDashboard = () => {
   useAdminRealtime({ enabled: true });
 
   // Fetch unread notifications count
-  const { data: unreadCount } = useQuery({
+  const { data: unreadCountData } = useQuery({
     queryKey: ['admin-unread-notifications'],
     queryFn: async () => {
       const { count } = await supabase
@@ -58,6 +67,7 @@ const AdminDashboard = () => {
     },
     refetchInterval: 30000,
   });
+  const unreadCount = unreadCountData ?? 0;
 
   // Fetch new feedback count
   const { data: feedbackCount = 0 } = useQuery({
@@ -186,53 +196,57 @@ const AdminDashboard = () => {
 
         {/* Content */}
         <main className="p-6">
-          {activePanel === 'overview' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
-            >
-              {/* Quick Actions Widgets */}
-              <AdminQuickActionsCards
-                onNavigateToReports={() => setActivePanel('reports')}
-                onNavigateToUsers={() => setActivePanel('users')}
-                onNavigateToEvents={() => setActivePanel('events')}
-              />
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <AdminDailyDropCard />
-              </div>
-              <AdminStatsCards />
-              <AdminAnalyticsCharts />
-            </motion.div>
-          )}
+          <Suspense fallback={<AdminPanelFallback />}>
+            {activePanel === 'overview' && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-6"
+              >
+                {/* Quick Actions Widgets */}
+                <AdminQuickActionsCards
+                  onNavigateToReports={() => setActivePanel('reports')}
+                  onNavigateToUsers={() => setActivePanel('users')}
+                  onNavigateToEvents={() => setActivePanel('events')}
+                />
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <AdminDailyDropCard />
+                </div>
+                <AdminStatsCards />
+                <AdminAnalyticsCharts />
+              </motion.div>
+            )}
 
-          {activePanel === 'users' && <AdminUsersPanel />}
-          {activePanel === 'events' && <AdminEventsPanel />}
-          {activePanel === 'reports' && <AdminReportsPanel />}
-          {activePanel === 'export' && <AdminExportPanel />}
-          {activePanel === 'event-analytics' && <AdminLiveEventMetrics />}
-          {activePanel === 'video-date-timeline' && <AdminVideoDateTimelinePanel />}
-          {activePanel === 'activity-log' && <AdminActivityLog />}
-          {activePanel === 'engagement' && <AdminEngagementAnalytics />}
-          {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
-          {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
-          {activePanel === 'media-lifecycle' && <AdminMediaLifecyclePanel />}
-          {activePanel === 'deletions' && <AdminDeletionsPanel />}
-          {activePanel === 'feedback' && <AdminFeedbackPanel />}
-          {activePanel === 'support' && <SupportInbox />}
-          {activePanel === 'tier-config' && <AdminTierConfigPanel />}
-          {activePanel === 'ghost-bootstrap' && <AdminGhostBootstrapPanel />}
+            {activePanel === 'users' && <AdminUsersPanel />}
+            {activePanel === 'events' && <AdminEventsPanel />}
+            {activePanel === 'reports' && <AdminReportsPanel />}
+            {activePanel === 'export' && <AdminExportPanel />}
+            {activePanel === 'event-analytics' && <AdminLiveEventMetrics />}
+            {activePanel === 'video-date-timeline' && <AdminVideoDateTimelinePanel />}
+            {activePanel === 'activity-log' && <AdminActivityLog />}
+            {activePanel === 'engagement' && <AdminEngagementAnalytics />}
+            {activePanel === 'campaigns' && <AdminPushCampaignsPanel />}
+            {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
+            {activePanel === 'media-lifecycle' && <AdminMediaLifecyclePanel />}
+            {activePanel === 'deletions' && <AdminDeletionsPanel />}
+            {activePanel === 'feedback' && <AdminFeedbackPanel />}
+            {activePanel === 'support' && <SupportInbox />}
+            {activePanel === 'tier-config' && <AdminTierConfigPanel />}
+            {activePanel === 'ghost-bootstrap' && <AdminGhostBootstrapPanel />}
+          </Suspense>
         </main>
       </div>
 
       {/* Notifications Panel */}
       <AnimatePresence>
         {showNotifications && (
-          <AdminNotificationsPanel
-            isOpen={showNotifications}
-            onClose={() => setShowNotifications(false)}
-          />
+          <Suspense fallback={null}>
+            <AdminNotificationsPanel
+              isOpen={showNotifications}
+              onClose={() => setShowNotifications(false)}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
     </div>

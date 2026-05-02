@@ -39,7 +39,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { useMatches } from '@/lib/chatApi';
 import { eventCoverUrl, getImageUrl } from '@/lib/imageUrl';
 import { hrefForActiveSession } from '@/lib/activeSessionRoutes';
-import { useActiveSession } from '@/lib/useActiveSession';
+import { useSessionHydration } from '@/context/SessionHydrationContext';
 import { ActiveCallBanner } from '@/components/events/ActiveCallBanner';
 import { useDateReminders, type DateReminder } from '@/lib/useDateReminders';
 import { useScheduleHub } from '@/lib/useScheduleHub';
@@ -126,6 +126,8 @@ type HomeProfile = {
   about_me: string | null;
   avatar_url: string | null;
   vibeCount: number;
+  phoneVerified: boolean | null;
+  phoneNumber: string | null;
 };
 
 export default function DashboardScreen() {
@@ -134,7 +136,7 @@ export default function DashboardScreen() {
   const theme = Colors[colorScheme];
   const qc = useQueryClient();
   const { user, onboardingComplete } = useAuth();
-  const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useActiveSession(user?.id);
+  const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useSessionHydration();
   const {
     pendingDeletion,
     cancelDeletion,
@@ -199,24 +201,37 @@ export default function DashboardScreen() {
     enabled: !!user?.id,
     queryFn: async (): Promise<HomeProfile | null> => {
       if (!user?.id) return null;
-      const { data: row, error } = await supabase
-        .from('profiles')
-        .select('name, photos, about_me, avatar_url')
-        .eq('id', user.id)
-        .maybeSingle();
+      const [profileResult, vibesResult] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('name, photos, about_me, avatar_url, phone_verified, phone_number')
+          .eq('id', user.id)
+          .maybeSingle(),
+        supabase
+          .from('profile_vibes')
+          .select('id', { count: 'exact', head: true })
+          .eq('profile_id', user.id),
+      ]);
+      const { data: row, error } = profileResult;
       if (error) throw error;
-      const { count, error: vErr } = await supabase
-        .from('profile_vibes')
-        .select('id', { count: 'exact', head: true })
-        .eq('profile_id', user.id);
+      const { count, error: vErr } = vibesResult;
       if (vErr && __DEV__) console.warn('[home] profile_vibes count:', vErr.message);
-      const r = row as { name?: string | null; photos?: string[] | null; about_me?: string | null; avatar_url?: string | null } | null;
+      const r = row as {
+        name?: string | null;
+        photos?: string[] | null;
+        about_me?: string | null;
+        avatar_url?: string | null;
+        phone_verified?: boolean | null;
+        phone_number?: string | null;
+      } | null;
       return {
         name: r?.name ?? null,
         photos: r?.photos ?? null,
         about_me: r?.about_me ?? null,
         avatar_url: r?.avatar_url ?? null,
         vibeCount: count ?? 0,
+        phoneVerified: r?.phone_verified ?? null,
+        phoneNumber: r?.phone_number ?? null,
       };
     },
   });
@@ -331,38 +346,35 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || homeProfile?.phoneVerified !== false) {
+      setShowPhoneNudge(false);
+      setPhoneNudgeChecked(!!user?.id && homeProfile?.phoneVerified !== undefined);
+      return;
+    }
+    let cancelled = false;
     (async () => {
       const dismissed = await AsyncStorage.getItem(PHONE_NUDGE_DISMISSED_KEY);
+      if (cancelled) return;
       if (dismissed === 'true') {
         setPhoneNudgeChecked(true);
         return;
       }
-      const { data } = await supabase
-        .from('profiles')
-        .select('phone_verified, phone_number')
-        .eq('id', user.id)
-        .maybeSingle();
-      const verified = (data as { phone_verified?: boolean } | null)?.phone_verified;
-      const phoneNumber = (data as { phone_number?: string | null } | null)?.phone_number;
-      setShowPhoneNudge(!verified);
-      setInitialPhoneE164(phoneNumber ?? null);
+      setShowPhoneNudge(true);
+      setInitialPhoneE164(homeProfile.phoneNumber ?? null);
       setPhoneNudgeChecked(true);
     })();
-  }, [user?.id]);
+    return () => {
+      cancelled = true;
+    };
+  }, [homeProfile?.phoneNumber, homeProfile?.phoneVerified, user?.id]);
 
   const refreshPhoneNudgeStatus = React.useCallback(async () => {
     if (!user?.id) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('phone_verified, phone_number')
-      .eq('id', user.id)
-      .maybeSingle();
-    const verified = (data as { phone_verified?: boolean } | null)?.phone_verified;
-    const phoneNumber = (data as { phone_number?: string | null } | null)?.phone_number;
-    setShowPhoneNudge(!verified);
-    setInitialPhoneE164(phoneNumber ?? null);
-  }, [user?.id]);
+    const result = await refetchHomeProfile();
+    const next = result.data;
+    setShowPhoneNudge(next?.phoneVerified === false);
+    setInitialPhoneE164(next?.phoneNumber ?? null);
+  }, [refetchHomeProfile, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -550,8 +562,10 @@ export default function DashboardScreen() {
     }
   }, [activeSession, user?.id, refetchActiveSession]);
 
-  const loading = nextEventLoading || eventsLoading || matchesLoading;
-  const hasError = !loading && (!!eventsError || !!matchesError);
+  const matchesRailLoading = matchesLoading;
+  const eventsRailLoading = eventsLoading;
+  const dashboardDataLoading = nextEventLoading || matchesRailLoading || eventsRailLoading;
+  const hasError = !dashboardDataLoading && (!!eventsError || !!matchesError);
   const handleRetry = useCallback(() => {
     refetchNextEvent();
     refetchEvents();
@@ -595,7 +609,7 @@ export default function DashboardScreen() {
   });
 
   function HeroBanner() {
-    if (loading && !nextEvent) {
+    if (nextEventLoading && !nextEvent) {
       return (
         <View style={[styles.heroCard, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
           <EventCardSkeleton />
@@ -1008,7 +1022,7 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-forward" size={14} color={theme.tint} />
               </Pressable>
             </View>
-            {loading ? (
+            {matchesRailLoading ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.matchRow}>
                 {[1, 2, 3, 4, 5].map((i) => (
                   <MatchAvatarSkeleton key={i} />
@@ -1075,7 +1089,7 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-forward" size={14} color={theme.tint} />
               </Pressable>
             </View>
-            {loading ? (
+            {eventsRailLoading ? (
               <View style={styles.eventRail}>
                 <DiscoverCardSkeleton />
                 <DiscoverCardSkeleton />

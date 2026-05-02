@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { EventCover } from "@/components/ui/ProfilePhoto";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { getLanguageLabel } from "@/lib/eventLanguages";
+import { preloadRoute } from "@/lib/routePreload";
 
 interface EventCardProps {
   id: string;
@@ -50,10 +51,14 @@ export const EventCard = ({
     navigate(`/events/${id}`);
   };
 
+  const prefetchDetails = () => preloadRoute("eventDetails");
+
   return (
     <div 
       className="glass-card overflow-hidden group cursor-pointer"
       onClick={handleCardClick}
+      onMouseEnter={prefetchDetails}
+      onFocus={prefetchDetails}
     >
       <div className="relative h-40 overflow-hidden">
         <EventCover src={image} title={title} className="!aspect-auto h-full w-full group-hover:scale-110 transition-transform duration-500" />

@@ -10,7 +10,7 @@ import {
   DrawerDescription,
   DrawerFooter,
 } from "@/components/ui/drawer";
-import { isSubscribed, waitForOneSignalInitResult } from "@/lib/onesignal";
+import { initOneSignal, isSubscribed, waitForOneSignalInitResult } from "@/lib/onesignal";
 import { isOneSignalWebOriginAllowed } from "@/lib/oneSignalWebOrigin";
 import { sendNotification } from "@/lib/notifications";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
@@ -38,6 +38,7 @@ export function PushPermissionPrompt() {
         return;
       }
 
+      initOneSignal();
       const { sdkUsable } = await waitForOneSignalInitResult();
       if (!sdkUsable) {
         if (import.meta.env.DEV || vibelyOneSignalDebugEnabled()) {

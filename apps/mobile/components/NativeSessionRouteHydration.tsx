@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { router, usePathname } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
+import { useSessionHydration } from '@/context/SessionHydrationContext';
 import { readyGateHref } from '@/lib/activeSessionRoutes';
-import { useActiveSession } from '@/lib/useActiveSession';
 import { isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { fetchVideoSessionDateEntryTruthCoalesced } from '@/lib/videoDateApi';
 import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
@@ -21,7 +21,7 @@ import {
 export function NativeSessionRouteHydration() {
   const pathname = usePathname();
   const { user } = useAuth();
-  const { activeSession, hydrated } = useActiveSession(user?.id);
+  const { activeSession, hydrated } = useSessionHydration();
   const lastReadyKey = useRef<string | null>(null);
 
   useEffect(() => {

@@ -62,6 +62,7 @@ import {
   resolveMatchesSpotlight,
 } from "../../shared/matches/spotlightResolver";
 import { trackEvent } from "@/lib/analytics";
+import { preloadRoute } from "@/lib/routePreload";
 
 const Matches = () => {
   const navigate = useNavigate();
@@ -499,6 +500,8 @@ const Matches = () => {
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, x: -100 }}
                               transition={{ delay: index * 0.03 }}
+                              onMouseEnter={() => preloadRoute("chat")}
+                              onFocus={() => preloadRoute("chat")}
                             >
                               <SwipeableMatchCard
                                 {...match}

@@ -7,23 +7,29 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type RefObject,
   type ReactNode,
 } from "react";
 import type { DailyCall, DailyParticipant } from "@daily-co/daily-js";
-import { AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { supabase, SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { dailyCallObjectOptions } from "@/lib/dailyCallObjectConfig";
-import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
-import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 import {
   MATCH_CALL_EDGE_CODES,
   messageForMatchCallEdgeCode,
   parseMatchCallEdgeCode,
 } from "@clientShared/chat/matchCallEdgeCodes";
 import { logMatchCallDiag } from "@clientShared/chat/matchCallDiag";
+
+const IncomingCallOverlay = lazy(() =>
+  import("@/components/chat/IncomingCallOverlay").then((mod) => ({ default: mod.IncomingCallOverlay }))
+);
+const ActiveCallOverlay = lazy(() =>
+  import("@/components/chat/ActiveCallOverlay").then((mod) => ({ default: mod.ActiveCallOverlay }))
+);
 
 type DailyIframeModule = typeof import("@daily-co/daily-js").default;
 
@@ -1151,7 +1157,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     <MatchCallContext.Provider value={contextValue}>
       {children}
 
-      <AnimatePresence>
+      <Suspense fallback={null}>
         {incomingCall && (
           <IncomingCallOverlay
             incomingCall={incomingCall}
@@ -1164,9 +1170,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             onTimeout={markIncomingCallMissed}
           />
         )}
-      </AnimatePresence>
+      </Suspense>
 
-      <AnimatePresence>
+      <Suspense fallback={null}>
         {(callPhase === "ringing" || callPhase === "in_call") && !incomingCall && (
           <ActiveCallOverlay
             isRinging={callPhase === "ringing"}
@@ -1187,7 +1193,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             }}
           />
         )}
-      </AnimatePresence>
+      </Suspense>
     </MatchCallContext.Provider>
   );
 }

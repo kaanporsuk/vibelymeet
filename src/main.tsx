@@ -1,9 +1,5 @@
 import * as Sentry from "@sentry/react";
 import { createRoot } from "react-dom/client";
-import { initOneSignal } from "./lib/onesignal";
-import { isOneSignalWebOriginAllowed } from "./lib/oneSignalWebOrigin";
-import { vibelyOsLog } from "./lib/onesignalWebDiagnostics";
-import { recordPushDeliveryTelemetry } from "./lib/pushDeliveryTelemetry";
 import {
   initializeBrowserDiagnostics,
   recordServiceWorkerState,
@@ -81,32 +77,6 @@ Sentry.init({
 
 initAnalytics();
 initializeBrowserDiagnostics();
-
-// Init OneSignal only on allowlisted hosts (see `src/lib/oneSignalWebOrigin.ts`) to avoid dashboard domain errors.
-const origin = typeof window !== "undefined" ? window.location.origin : "";
-const oneSignalInitAllowed = typeof window !== "undefined" && isOneSignalWebOriginAllowed();
-vibelyOsLog("main:boot", { origin, oneSignalInitAllowed });
-void recordServiceWorkerState("main_boot", {
-  one_signal_init_allowed: oneSignalInitAllowed,
-});
-if (oneSignalInitAllowed) {
-  try {
-    initOneSignal();
-  } catch (e) {
-    vibelyOsLog("main:initOneSignal threw", { error: String(e) });
-    if (typeof Sentry?.captureMessage === "function") {
-      Sentry.captureMessage("OneSignal init skipped or failed", { level: "warning", extra: { error: String(e) } });
-    }
-  }
-} else {
-  vibelyOsLog("main:initOneSignal skipped (host not allowlisted)", { origin });
-  recordPushDeliveryTelemetry("push_registration_sync_result", {
-    platform: "web",
-    surface: "sdk_init",
-    sdk_status: "unsupported_host",
-    sync_result_code: "sdk_not_ready",
-  });
-}
 
 window.addEventListener("vibely-onesignal-init-settled", (event) => {
   void recordServiceWorkerState("onesignal_init_settled", {

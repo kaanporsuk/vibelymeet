@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   getOneSignalWebClientSnapshot,
   getPlayerId,
+  initOneSignal,
   isCurrentOneSignalIdentity,
   isSubscribed,
   promptForPush,
@@ -38,6 +39,7 @@ export async function syncWebPushRegistrationToBackend(userId: string): Promise<
   const snapshot = getOneSignalWebClientSnapshot();
   if (!snapshot.appIdConfigured) return syncResult("app_id_missing");
 
+  initOneSignal();
   const generation = setExternalUserId(userId);
   const init = await waitForOneSignalInitResult();
   if (init.sdkStatus === "init_failed") return syncResult("init_failed");
@@ -81,6 +83,7 @@ export async function syncWebPushRegistrationToBackend(userId: string): Promise<
 export async function requestWebPushPermissionAndSync(userId: string): Promise<PushSyncResult> {
   try {
     vibelyOsLog("requestWebPushPermission:start", { userIdTail: userId.slice(-6) });
+    initOneSignal();
     const granted = await promptForPush();
     vibelyOsLog("requestWebPushPermission:after promptForPush", { granted });
     recordPushDeliveryTelemetry("push_permission_prompt_result", {
