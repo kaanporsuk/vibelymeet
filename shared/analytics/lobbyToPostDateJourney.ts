@@ -51,6 +51,7 @@ export const LobbyPostDateEvents = {
 
   // --- Video date join / peer-missing ---
   VIDEO_DATE_ROUTE_ENTERED: 'video_date_route_entered',
+  VIDEO_DATE_ROUTE_GUARD_SLOW: 'video_date_route_guard_slow',
   VIDEO_DATE_PREPARE_ENTRY_STARTED: 'video_date_prepare_entry_started',
   VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT: 'video_date_prepare_entry_slow_wait',
   VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV: 'video_date_prepare_entry_failed_no_nav',

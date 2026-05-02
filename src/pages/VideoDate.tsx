@@ -71,6 +71,7 @@ import {
 const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
+const VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000;
 const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Product invariant: remote date video preserves the full encoded camera frame.
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
@@ -243,6 +244,7 @@ const VideoDate = () => {
   const lifecycleHiddenStartedAtRef = useRef<number | null>(null);
   const foregroundReconcileInFlightRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
+  const accessLoadingWatchdogKeyRef = useRef<string | null>(null);
   const videoJoinCycleRef = useRef(0);
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
@@ -819,6 +821,67 @@ const VideoDate = () => {
   }, [eventId, id, user?.id, logJourney]);
 
   useEffect(() => {
+    if (!id || !user?.id || videoDateAccess !== "loading") return;
+    const startedAt = Date.now();
+    const key = `${id}:${user.id}`;
+    const timeoutId = setTimeout(() => {
+      if (accessLoadingWatchdogKeyRef.current === key) return;
+      accessLoadingWatchdogKeyRef.current = key;
+      const elapsedMs = Date.now() - startedAt;
+      const payload = {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+        source_surface: "video_date_route",
+        source_action: "access_loading_watchdog",
+        reason_code: "access_loading_slow",
+        elapsed_ms: elapsedMs,
+      };
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROUTE_GUARD_SLOW, payload);
+      Sentry.captureMessage("video_date_route_guard_slow", {
+        level: "warning",
+        extra: {
+          ...payload,
+          videoDateAccess,
+          timingReady,
+          handshakeStartFailed,
+          callStarted,
+          isConnecting,
+          isConnected,
+          phase,
+        },
+      });
+      vdbg("date_guard_loading_watchdog", {
+        sessionId: id,
+        eventId: eventId ?? null,
+        elapsedMs,
+        videoDateAccess,
+        timingReady,
+        handshakeStartFailed,
+        callStarted,
+        isConnecting,
+        isConnected,
+        phase,
+      });
+    }, VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [
+    callStarted,
+    eventId,
+    handshakeStartFailed,
+    id,
+    isConnected,
+    isConnecting,
+    phase,
+    timingReady,
+    user?.id,
+    videoDateAccess,
+  ]);
+
+  useEffect(() => {
     setDateExtraSeconds(0);
     setDateStartedAt(null);
     setHandshakeStartedAt(null);
@@ -1070,66 +1133,84 @@ const VideoDate = () => {
         const pId = isP1 ? sessionRow.participant_2_id : sessionRow.participant_1_id;
         setPartnerId(pId);
 
-        const { data: profile } = await supabase.rpc("get_profile_for_viewer", {
-          p_target_id: pId,
+        videoDateDebug("date_refresh_routing", {
+          outcome: "stayed_on_date_route",
+          reason: "guard_passed",
+          sessionId: id,
+          queueStatus: reg?.queue_status ?? null,
+          sessionTruth: {
+            state: sessionRow.state ?? null,
+            phase: sessionRow.phase ?? null,
+            handshake_started_at: sessionRow.handshake_started_at ?? null,
+            date_started_at: sessionRow.date_started_at ?? null,
+          },
+          latchActive: isDateEntryTransitionActive(id),
         });
+        setVideoDateAccess("allowed");
 
-        if (cancelled) return;
+        try {
+          const { data: profile, error: profileError } = await supabase.rpc("get_profile_for_viewer", {
+            p_target_id: pId,
+          });
 
-        if (profile) {
-          const row = profile as Record<string, unknown>;
-          const tags = Array.isArray(row.vibes)
-            ? row.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-            : [];
+          if (cancelled) return;
 
-          let prompts: { question: string; answer: string }[] = [];
-          if (Array.isArray(row.prompts)) {
-            prompts = (row.prompts as Array<{ question?: string; answer?: string }>).map((p) => ({
-              question: p.question || "",
-              answer: p.answer || "",
-            }));
+          if (profileError) {
+            vdbg("date_guard_partner_profile_failed", {
+              sessionId: id,
+              eventId: sessionRow.event_id ?? null,
+              error: { code: profileError.code, message: profileError.message },
+            });
           }
 
-          const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === "string") : [];
-          const avatarUrl = typeof row.avatar_url === "string" ? row.avatar_url : null;
-          const primaryPath = photoArr[0] || avatarUrl;
-          const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
-          setPartnerPhotoUrl(resolvedUrl);
+          if (profile) {
+            const row = profile as Record<string, unknown>;
+            const tags = Array.isArray(row.vibes)
+              ? row.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              : [];
 
-          const resolvedPhotos: string[] = photoArr
-            .slice(0, 6)
-            .map((p) => resolvePhoto(p))
-            .filter(Boolean) as string[];
+            let prompts: { question: string; answer: string }[] = [];
+            if (Array.isArray(row.prompts)) {
+              prompts = (row.prompts as Array<{ question?: string; answer?: string }>).map((p) => ({
+                question: p.question || "",
+                answer: p.answer || "",
+              }));
+            }
 
-          setPartner({
-            name: typeof row.name === "string" ? row.name : "Your date",
-            age: typeof row.age === "number" ? row.age : 0,
-            tags,
-            avatarUrl: resolvedUrl || undefined,
-            photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-            about_me: typeof row.about_me === "string" ? row.about_me : undefined,
-            job: typeof row.job === "string" ? row.job : undefined,
-            location: typeof row.location === "string" ? row.location : undefined,
-            heightCm: typeof row.height_cm === "number" ? row.height_cm : undefined,
-            prompts,
-          });
-        }
+            const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === "string") : [];
+            const avatarUrl = typeof row.avatar_url === "string" ? row.avatar_url : null;
+            const primaryPath = photoArr[0] || avatarUrl;
+            const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
+            setPartnerPhotoUrl(resolvedUrl);
 
-        if (!cancelled) {
-          videoDateDebug("date_refresh_routing", {
-            outcome: "stayed_on_date_route",
-            reason: "guard_passed",
-            sessionId: id,
-            queueStatus: reg?.queue_status ?? null,
-            sessionTruth: {
-              state: sessionRow.state ?? null,
-              phase: sessionRow.phase ?? null,
-              handshake_started_at: sessionRow.handshake_started_at ?? null,
-              date_started_at: sessionRow.date_started_at ?? null,
-            },
-            latchActive: isDateEntryTransitionActive(id),
-          });
-          setVideoDateAccess("allowed");
+            const resolvedPhotos: string[] = photoArr
+              .slice(0, 6)
+              .map((p) => resolvePhoto(p))
+              .filter(Boolean) as string[];
+
+            setPartner({
+              name: typeof row.name === "string" ? row.name : "Your date",
+              age: typeof row.age === "number" ? row.age : 0,
+              tags,
+              avatarUrl: resolvedUrl || undefined,
+              photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
+              about_me: typeof row.about_me === "string" ? row.about_me : undefined,
+              job: typeof row.job === "string" ? row.job : undefined,
+              location: typeof row.location === "string" ? row.location : undefined,
+              heightCm: typeof row.height_cm === "number" ? row.height_cm : undefined,
+              prompts,
+            });
+          }
+        } catch (profileErr) {
+          if (!cancelled) {
+            vdbg("date_guard_partner_profile_failed", {
+              sessionId: id,
+              eventId: sessionRow.event_id ?? null,
+              error: profileErr instanceof Error
+                ? { name: profileErr.name, message: profileErr.message }
+                : String(profileErr),
+            });
+          }
         }
       } catch (err) {
         console.error("Error loading video date session:", err);
@@ -2542,10 +2623,16 @@ const VideoDate = () => {
       event_id: eventId ?? null,
       source: "user_tap",
     });
-    clearPeerMissing();
-    setCallStartFailure(null);
-    setCallStarted(false);
-  }, [clearPeerMissing, eventId, id]);
+    void (async () => {
+      clearPeerMissing();
+      setCallStartFailure(null);
+      try {
+        await endCall("peer_missing_retry");
+      } finally {
+        setCallStarted(false);
+      }
+    })();
+  }, [clearPeerMissing, endCall, eventId, id]);
 
   const handlePeerMissingKeepWaiting = useCallback(() => {
     if (id) {
