@@ -8,6 +8,7 @@ import { clearDateEntryTransition, isDateEntryTransitionActive } from "@/lib/dat
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  videoSessionHasPostDateSurveyTruth,
 } from "@clientShared/matching/activeSession";
 
 function routeHydrationDebug(message: string, data?: Record<string, unknown>) {
@@ -50,7 +51,7 @@ export function SessionRouteHydration() {
     void (async () => {
       const { data: vs, error } = await supabase
         .from("video_sessions")
-        .select("ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
+        .select("ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
         .eq("id", sessionIdFromUrl)
         .maybeSingle();
 
@@ -86,15 +87,19 @@ export function SessionRouteHydration() {
       const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
 
       if (truthDecision === "ended") {
+        const pendingSurveyTerminalEncounter = videoSessionHasPostDateSurveyTruth(vs);
         clearDateEntryTransition(sessionIdFromUrl);
         routeHydrationDebug("blocked ready_gate bounce; video session ended", {
           sessionId: sessionIdFromUrl,
+          pendingSurveyTerminalEncounter,
         });
         vdbg("route_hydration_ready_gate_bounce_blocked", {
           sessionId: sessionIdFromUrl,
           userId: user.id,
           eventId: activeSession.eventId,
-          reason: "video_session_ended",
+          reason: pendingSurveyTerminalEncounter
+            ? "pending_survey_terminal_encounter"
+            : "video_session_ended",
           endedAt: vs.ended_at,
           latchActive: latchActiveAtStart,
         });

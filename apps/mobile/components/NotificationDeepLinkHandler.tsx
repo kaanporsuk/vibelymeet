@@ -24,6 +24,7 @@ import { fetchVideoSessionDateEntryTruth } from '@/lib/videoDateApi';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
+  videoSessionHasPostDateSurveyTruth,
 } from '@clientShared/matching/activeSession';
 import { clearDateEntryTransition, markVideoDateEntryPipelineStarted } from '@/lib/dateEntryTransitionLatch';
 import {
@@ -111,23 +112,46 @@ async function reconcileHrefWithRegistration(href: string, userId: string): Prom
 
   const { data: vs } = await supabase
     .from('video_sessions')
-    .select('event_id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url, participant_1_id, participant_2_id')
+    .select('event_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, participant_1_joined_at, participant_2_joined_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url, participant_1_id, participant_2_id')
     .eq('id', sid)
     .maybeSingle();
 
   if (!vs) return tabsRootHref();
 
+  const p1 = vs.participant_1_id as string | null | undefined;
+  const p2 = vs.participant_2_id as string | null | undefined;
+  const isParticipant = userId === p1 || userId === p2;
+  if (!isParticipant) return tabsRootHref();
+
   if (vs.ended_at != null) {
+    if (videoSessionHasPostDateSurveyTruth(vs)) {
+      const { data: verdict } = await supabase
+        .from('date_feedback')
+        .select('id')
+        .eq('session_id', sid)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!verdict) {
+        rcBreadcrumb(RC_CATEGORY.notifDeepLink, 'date_route_decision', {
+          session_id: sid,
+          event_id: vs.event_id == null ? null : String(vs.event_id),
+          decision: 'ended',
+          reason: 'pending_survey_terminal_encounter',
+          routed_to: 'date',
+          survey_required: true,
+          ended_at: String(vs.ended_at),
+          ended_reason: vs.ended_reason == null ? null : String(vs.ended_reason),
+        });
+        return videoDateHref(sid);
+      }
+    }
+
     if (vs.event_id) return eventLobbyHref(vs.event_id as string);
     return tabsRootHref();
   }
 
   if (!vs.event_id) return tabsRootHref();
-
-  const p1 = vs.participant_1_id as string | null | undefined;
-  const p2 = vs.participant_2_id as string | null | undefined;
-  const isParticipant = userId === p1 || userId === p2;
-  if (!isParticipant) return tabsRootHref();
 
   const fetchReg = async () => {
     const { data: reg } = await supabase

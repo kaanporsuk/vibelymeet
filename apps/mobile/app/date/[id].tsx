@@ -1228,6 +1228,11 @@ export default function VideoDateScreen() {
           videoSessionHasEncounterExposureTruth(vs) &&
           !verdict;
         if (pendingPostDateSurveyDue) {
+          const recoveredPartnerId =
+            user.id === vs.participant_1_id ? vs.participant_2_id : vs.participant_1_id;
+          if (recoveredPartnerId) setPartnerId(recoveredPartnerId);
+          if (vs.event_id) setEventId(vs.event_id as string);
+          setIsParticipant1(user.id === vs.participant_1_id);
           dateEstablishedRef.current = true;
           logJourney('date_route_recovered', { source: 'ended_route_guard' }, 'date_route_recovered');
           logJourney(
@@ -4838,6 +4843,11 @@ export default function VideoDateScreen() {
         videoSessionHasEncounterExposureTruth(session) &&
         !verdict;
       if (pendingPostDateSurveyDue) {
+        const recoveredPartnerId =
+          user.id === session?.participant_1_id ? session?.participant_2_id : session?.participant_1_id;
+        if (recoveredPartnerId) setPartnerId(recoveredPartnerId);
+        if (session?.event_id) setEventId(session.event_id);
+        setIsParticipant1(user.id === session?.participant_1_id);
         dateEstablishedRef.current = true;
         logJourney('date_route_recovered', { source: 'terminal_session_recovery' }, 'date_route_recovered');
         logJourney(
@@ -5438,6 +5448,33 @@ export default function VideoDateScreen() {
     router.replace(target);
   }, [eventId, sessionId]);
 
+  const surveyPartnerId =
+    partnerId ||
+    (session && user?.id
+      ? user.id === session.participant_1_id
+        ? session.participant_2_id
+        : session.participant_1_id
+      : '');
+  const surveyEventId = eventId || session?.event_id || undefined;
+
+  if (showFeedback && sessionId && user?.id) {
+    return (
+      <PostDateSurvey
+        sessionId={sessionId}
+        userId={user.id}
+        partnerId={surveyPartnerId}
+        partnerName={fullPartner?.name ?? basicPartner?.name ?? 'Your date'}
+        partnerImage={fullPartner?.avatarUrl ?? fullPartner?.photos?.[0] ?? null}
+        eventId={surveyEventId}
+        onSubmitVerdict={handleSurveySubmit}
+        onMutualMatch={handleSurveyMutualMatch}
+        onStartChatting={handleSurveyStartChatting}
+        onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
+        onDone={handleSurveyDone}
+      />
+    );
+  }
+
   if (sessionLoading || !sessionId) {
     return (
       <View style={[styles.center, { backgroundColor: theme.background }]}>
@@ -5461,24 +5498,6 @@ export default function VideoDateScreen() {
           <Text style={styles.buttonText}>Go back</Text>
         </Pressable>
       </View>
-    );
-  }
-
-  if (phase === 'ended' && showFeedback) {
-    return (
-      <PostDateSurvey
-        sessionId={sessionId}
-        userId={user!.id}
-        partnerId={partnerId}
-        partnerName={fullPartner?.name ?? basicPartner?.name ?? 'Your date'}
-        partnerImage={fullPartner?.avatarUrl ?? fullPartner?.photos?.[0] ?? null}
-        eventId={eventId || undefined}
-        onSubmitVerdict={handleSurveySubmit}
-        onMutualMatch={handleSurveyMutualMatch}
-        onStartChatting={handleSurveyStartChatting}
-        onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
-        onDone={handleSurveyDone}
-      />
     );
   }
 
