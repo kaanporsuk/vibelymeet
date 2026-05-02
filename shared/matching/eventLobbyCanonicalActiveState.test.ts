@@ -4,8 +4,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const root = process.cwd();
-const migrationPath = "supabase/migrations/20260502083000_event_lobby_scheduled_activation.sql";
+const migrationPath = "supabase/migrations/20260502130000_event_lifecycle_consistency.sql";
 const migration = readFileSync(join(root, migrationPath), "utf8");
+const scheduledActivationMigration = readFileSync(
+  join(root, "supabase/migrations/20260502083000_event_lobby_scheduled_activation.sql"),
+  "utf8",
+);
 const deckPayloadMigration = readFileSync(
   join(root, "supabase/migrations/20260501230000_event_lobby_deck_payload_media.sql"),
   "utf8",
@@ -28,10 +32,12 @@ function activeStateForFixture(event: EventFixture, nowMs: number) {
   if (status === "draft") return { is_active: false, reason: "event_draft" };
   if (status === "cancelled") return { is_active: false, reason: "event_cancelled" };
   if (event.archived_at != null || status === "archived") return { is_active: false, reason: "event_archived" };
-  if (event.ended_at != null || ["ended", "completed"].includes(status)) {
+  if (event.ended_at != null) {
     return { is_active: false, reason: "event_ended" };
   }
-  if (!["upcoming", "live"].includes(status)) return { is_active: false, reason: "event_not_live" };
+  if (!["upcoming", "scheduled", "live", "ended", "completed"].includes(status)) {
+    return { is_active: false, reason: "event_not_live" };
+  }
   if (event.event_date == null) return { is_active: false, reason: "event_outside_live_window" };
 
   const startMs = Date.parse(event.event_date);
@@ -70,10 +76,11 @@ test("canonical active-state migration sorts after the latest applied local migr
     .filter((version) => /^\d{14}$/.test(version))
     .sort();
 
-  assert.ok(versions.includes("20260501230000"), "test assumes Event Lobby deck payload tail is present");
-  assert.ok(versions.includes("20260502083000"), "scheduled activation migration must exist");
+  assert.ok(versions.includes("20260502083000"), "test assumes scheduled activation migration is present");
+  assert.ok(versions.includes("20260502120000"), "test assumes founder-grade pricing tail is present");
+  assert.ok(versions.includes("20260502130000"), "lifecycle consistency migration must exist");
   assert.ok(
-    versions.indexOf("20260502083000") > versions.indexOf("20260501230000"),
+    versions.indexOf("20260502130000") > versions.indexOf("20260502120000"),
     "new migration must sort strictly after the current local/remote tail",
   );
 });
@@ -87,8 +94,9 @@ test("canonical helper exposes active boolean, reason, and event status with saf
   assert.match(helper, /RETURNS TABLE\(\s*is_active boolean,\s*reason text,\s*event_status text\s*\)/);
   assert.match(helper, /p_now timestamptz DEFAULT now\(\)/);
   assert.match(helper, /SECURITY DEFINER[\s\S]*SET search_path TO 'public'/);
-  assert.match(helper, /v_status NOT IN \('upcoming', 'live'\)/);
+  assert.match(helper, /v_status NOT IN \('upcoming', 'scheduled', 'live', 'ended', 'completed'\)/);
   assert.doesNotMatch(helper, /v_status <> 'live'/);
+  assert.doesNotMatch(helper, /v_status IN \('ended', 'completed'\)[\s\S]*event_ended/);
   for (const reason of [
     "event_not_found",
     "event_draft",
@@ -121,6 +129,18 @@ test("active-state taxonomy covers required live, missing, scheduled, terminal, 
   });
   assert.deepEqual(activeStateForFixture({ ...live }, nowMs), { is_active: true, reason: null });
   assert.deepEqual(activeStateForFixture({ ...live, status: "upcoming" }, nowMs), {
+    is_active: true,
+    reason: null,
+  });
+  assert.deepEqual(activeStateForFixture({ ...live, status: "scheduled" }, nowMs), {
+    is_active: true,
+    reason: null,
+  });
+  assert.deepEqual(activeStateForFixture({ ...live, status: "ended", ended_at: null }, nowMs), {
+    is_active: true,
+    reason: null,
+  });
+  assert.deepEqual(activeStateForFixture({ ...live, status: "completed", ended_at: null }, nowMs), {
     is_active: true,
     reason: null,
   });
@@ -158,6 +178,21 @@ test("active-state taxonomy covers required live, missing, scheduled, terminal, 
   });
 });
 
+test("visible events computed status derives live before trusting stale raw ended", () => {
+  const visible = section(
+    "CREATE OR REPLACE FUNCTION public.get_visible_events",
+    "COMMENT ON FUNCTION public.get_visible_events",
+  );
+  const endedAtIndex = visible.indexOf("WHEN e.ended_at IS NOT NULL THEN 'ended'");
+  const liveWindowIndex = visible.indexOf("WHEN now() >= e.event_date");
+  const computedEndIndex = visible.indexOf("WHEN now() >= (e.event_date");
+
+  assert.ok(endedAtIndex > 0, "ended_at must remain terminal");
+  assert.ok(liveWindowIndex > endedAtIndex, "scheduled live window should be checked after ended_at");
+  assert.ok(computedEndIndex > liveWindowIndex, "computed end should be checked after live window");
+  assert.doesNotMatch(visible, /e\.status = 'ended' OR e\.ended_at IS NOT NULL/);
+});
+
 test("compatibility helpers delegate to canonical active state", () => {
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.get_event_lobby_inactive_reason/);
   assert.match(migration, /SELECT state\.reason[\s\S]*public\.get_event_lobby_active_state\(p_event_id, now\(\)\)/);
@@ -183,11 +218,13 @@ test("get_event_deck authenticates first and rejects inactive events explicitly"
 });
 
 test("handle_swipe rejects inactive events before every mutation or notification-triggering branch", () => {
-  const swipe = section(
+  const swipe = sectionFrom(
+    scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.handle_swipe",
     "COMMENT ON FUNCTION public.handle_swipe",
   );
-  const idempotencyBase = section(
+  const idempotencyBase = sectionFrom(
+    scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.handle_swipe_20260501210000_idempotency_base",
     "REVOKE ALL ON FUNCTION public.handle_swipe_20260501210000_idempotency_base",
   );
@@ -209,7 +246,8 @@ test("handle_swipe rejects inactive events before every mutation or notification
 });
 
 test("find_mystery_match rejects inactive events before session creation", () => {
-  const mystery = section(
+  const mystery = sectionFrom(
+    scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.find_mystery_match",
     "COMMENT ON FUNCTION public.find_mystery_match",
   );
@@ -223,11 +261,13 @@ test("find_mystery_match rejects inactive events before session creation", () =>
 });
 
 test("queue promotion and drain block inactive events before promotion delegation", () => {
-  const promote = section(
+  const promote = sectionFrom(
+    scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible",
     "COMMENT ON FUNCTION public.promote_ready_gate_if_eligible",
   );
-  const drain = section(
+  const drain = sectionFrom(
+    scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.drain_match_queue",
     "COMMENT ON FUNCTION public.drain_match_queue",
   );
@@ -235,7 +275,8 @@ test("queue promotion and drain block inactive events before promotion delegatio
   const promoteRegistrationIndex = promote.indexOf("actor_registration_guard");
   const promoteActiveIndex = promote.indexOf("public.lock_event_lobby_scheduled_active_state(p_event_id, now())");
   const promoteDelegateIndex = promote.indexOf("public.promote_ready_gate_if_eligible_20260502083000_ready_queue_base");
-  const promoteBase = section(
+  const promoteBase = sectionFrom(
+    scheduledActivationMigration,
     "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible_20260501180000_active_base",
     "REVOKE ALL ON FUNCTION public.promote_ready_gate_if_eligible_20260501180000_active_base",
   );
@@ -284,8 +325,14 @@ test("swipe-actions suppresses inactive-event notification side effects", () => 
 test("production validation is read-only and checks canonical active-state markers", () => {
   assert.match(validation, /pg_get_functiondef/);
   assert.match(validation, /get_event_lobby_active_state/);
-  assert.match(validation, /v_status NOT IN \(''upcoming'', ''live''\)/);
+  assert.match(validation, /v_status NOT IN \(''upcoming'', ''scheduled'', ''live'', ''ended'', ''completed''\)/);
   assert.match(validation, /lock_event_lobby_scheduled_active_state/);
+  assert.match(validation, /get_visible_events/);
+  assert.match(validation, /e\.ended_at IS NOT NULL/);
+  assert.doesNotMatch(
+    sqlWithoutCommentsOrStringLiterals(validation),
+    /e\.status = ''ended'' OR e\.ended_at IS NOT NULL/,
+  );
   assert.match(validation, /handle_swipe_20260502083000_ready_queue_base/);
   assert.match(validation, /find_mystery_match_20260502083000_active_base/);
   assert.match(validation, /RAISE EXCEPTION ''event_not_active''/);

@@ -65,7 +65,7 @@ test("registration gates block deck fetch for absent and non-confirmed seats", (
   assert.equal(gate({ registration: { isConfirmed: false, isWaitlisted: true } }).canFetchDeck, false);
 });
 
-test("scheduled/not-started, ended, cancelled, archived, and draft events block deck fetch", () => {
+test("scheduled/not-started, manually ended, cancelled, archived, and draft events block deck fetch", () => {
   assert.equal(
     gate({ event: event({ eventDate: new Date("2026-05-01T13:00:00.000Z") }) }).kind,
     "not_started",
@@ -101,6 +101,12 @@ test("scheduled-active confirmed unpaused events enable deck fetch and actions",
   assert.equal(scheduledUpcoming.canUseLobbyActions, true);
   assert.equal(scheduledUpcoming.canUseLobbySideEffects, true);
 
+  const staleRawEnded = gate({ event: event({ status: "ended", endedAt: null }) });
+  assert.equal(staleRawEnded.kind, "live");
+  assert.equal(staleRawEnded.canFetchDeck, true);
+  assert.equal(staleRawEnded.canUseLobbyActions, true);
+  assert.equal(staleRawEnded.canUseLobbySideEffects, true);
+
   const paused = gate({ userPaused: true });
   assert.equal(paused.kind, "paused");
   assert.equal(paused.canFetchDeck, false);
@@ -109,8 +115,9 @@ test("scheduled-active confirmed unpaused events enable deck fetch and actions",
 test("Enter Lobby CTA scheduled-live signals match the lobby route gate", () => {
   const ctaGate = gate({ event: event({ status: "upcoming" }) });
   assert.equal(ctaGate.kind, "live");
-  assert.match(useEvents, /isLive = now >= eventDate && now < eventEnd/);
+  assert.match(useEvents, /resolveEventLifecycle/);
   assert.match(dashboard, /isLiveEvent && isConfirmedForNextEvent[\s\S]*label: "Enter Lobby"/);
+  assert.match(venueCard, /resolveEventLifecycle/);
   assert.match(venueCard, /eventStatus === "live" && isRegistered[\s\S]*Enter Lobby/);
 });
 
@@ -146,8 +153,10 @@ test("native EventLobby blocks stale deck, status, foreground, and queue side ef
   assert.match(nativeLobby, /const deckQueryEnabled = lobbySideEffectsEnabled/);
   assert.match(nativeLobby, /useEventStatus\(id, user\?\.id \?\? undefined, lobbySideEffectsEnabled\)/);
   assert.match(nativeLobby, /if \(!id \|\| !user\?\.id \|\| !lobbySideEffectsEnabled\) return/);
-  assert.match(nativeLobby, /status === 'ended' \|\| status === 'completed' \|\| row\.ended_at/);
+  assert.match(nativeLobby, /resolveEventLifecycle/);
+  assert.match(nativeLobby, /if \(row\.ended_at\) setShowEventEndedModal\(true\)/);
   assert.match(nativeLobby, /status === 'cancelled' \|\| status === 'archived' \|\| status === 'draft' \|\| row\.archived_at/);
+  assert.match(nativeEventsApi, /resolveEventLifecycle/);
   assert.match(nativeEventStatus, /enabledRef/);
   assert.match(nativeEventStatus, /if \(!enabledRef\.current\) return/);
 });
