@@ -156,7 +156,7 @@
 | State | Renders |
 |-------|---------|
 | Loading | Skeletons for event card, match avatars, event rail |
-| Active video session | `ActiveCallBanner`: Rejoin → `/date/:sessionId`, End → ends session + clears registration queue |
+| Active session recovery | `ActiveCallBanner`: live video shows Rejoin + End, Ready Gate shows Continue + leave, pending post-date survey within 24h shows `Finish your date feedback` and no End button |
 | Pending deletion | `DeletionRecoveryBanner` + cancel |
 | Phone not verified | `PhoneVerificationNudge` wizard variant (dismiss → localStorage) |
 | Imminent date reminders | `DateReminderCard` rows; Join prefers **`/date/:id`** when an active `in_handshake`/`in_date` session is known, otherwise falls back to **`/schedule`**; enable notifications opens flow |

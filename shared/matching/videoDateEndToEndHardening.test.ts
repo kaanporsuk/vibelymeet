@@ -1190,7 +1190,11 @@ test("date route truth requires provider metadata before navigating to video", (
 
 test("web and native active-session recovery share pending survey contract", () => {
   assert.match(sharedActiveSession, /POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS/);
+  assert.match(sharedActiveSession, /POST_DATE_SURVEY_RECOVERY_WINDOW_MS = 24 \* 60 \* 60 \* 1000/);
+  assert.match(sharedActiveSession, /function videoSessionHasPostDateSurveyTruth/);
   assert.match(sharedActiveSession, /function videoSessionHasRecoverablePostDateSurveyTruth/);
+  assert.match(sharedActiveSession, /function isActiveSessionDirectFallbackFresh/);
+  assert.match(sharedActiveSession, /function activeSessionDirectFallbackStaleReason/);
   assert.match(sharedActiveSession, /function getVideoSessionPartnerIdForUser/);
   assert.match(sharedActiveSession, /function pickRecoverablePendingPostDateSurveySession/);
   assert.match(sharedActiveSession, /feedbackSessionIdsForUser\.has\(row\.id\)/);
@@ -1199,7 +1203,11 @@ test("web and native active-session recovery share pending survey contract", () 
     assert.match(source, /findPendingPostDateSurveySession/);
     assert.match(source, /\.not\(["']ended_at["'], ["']is["'], null\)/);
     assert.match(source, /\.not\(["']date_started_at["'], ["']is["'], null\)/);
+    assert.match(source, /videoSessionHasPostDateSurveyTruth/);
     assert.match(source, /videoSessionHasRecoverablePostDateSurveyTruth/);
+    assert.match(source, /pending_survey_recovery_stale/);
+    assert.match(source, /direct_video_session_fallback_stale/);
+    assert.match(source, /isActiveSessionDirectFallbackFresh/);
     assert.match(source, /pickRecoverablePendingPostDateSurveySession/);
     assert.match(source, /\.from\(["']date_feedback["']\)[\s\S]*\.select\(["']session_id["']\)[\s\S]*\.eq\(["']user_id["'], userId\)[\s\S]*\.in\(["']session_id["'], candidateSessionIds\)/);
     assert.match(source, /queueStatus: ["']in_survey["']/);
@@ -1209,8 +1217,8 @@ test("web and native active-session recovery share pending survey contract", () 
 test("home active-session banners distinguish pending survey from active calls", () => {
   for (const source of [webActiveCallBanner, nativeActiveCallBanner]) {
     assert.match(source, /mode\?: ['"]video['"] \| ['"]ready_gate['"] \| ['"]survey['"]/);
-    assert.match(source, /Date feedback pending/);
-    assert.match(source, /Finish your post-date feedback/);
+    assert.match(source, /Finish your date feedback/);
+    assert.match(source, /Tell us how it went/);
     assert.match(source, /mode === ['"]survey['"] \? ['"]Finish['"]/);
   }
 
@@ -1226,11 +1234,18 @@ test("home active-session banners distinguish pending survey from active calls",
 test("native date route opens recovered pending surveys after current_room_id is cleared", () => {
   assert.match(nativeVideoDateRoute, /function shouldRecoverPendingPostDateSurvey/);
   assert.match(nativeVideoDateRoute, /getVideoSessionPartnerIdForUser/);
-  assert.match(nativeVideoDateRoute, /videoSessionHasRecoverablePostDateSurveyTruth/);
+  assert.match(nativeVideoDateRoute, /videoSessionHasPostDateSurveyTruth/);
   assert.match(nativeVideoDateRoute, /\.eq\('event_id', vs\.event_id as string\)/);
   assert.match(nativeVideoDateRoute, /\.eq\('event_id', regEventId\)/);
   assert.match(nativeVideoDateRoute, /pendingPostDateSurveyDue/);
   assert.match(nativeVideoDateRoute, /if \(pendingPostDateSurveyDue\) \{/);
+});
+
+test("web date route opens ended-session survey only when feedback is missing", () => {
+  assert.match(webVideoDatePage, /function shouldOpenPostDateSurveyForTerminalSession/);
+  assert.match(webVideoDatePage, /return Boolean\(row\?\.date_started_at\) && !verdict/);
+  assert.match(webVideoDatePage, /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", id\)[\s\S]*\.eq\("user_id", user\.id\)/);
+  assert.match(webVideoDatePage, /if \(videoSessionIndicatesTerminalEnd\(sessionRow\)\)[\s\S]*shouldOpenPostDateSurveyForTerminalSession\(sessionRow, verdict\)/);
 });
 
 test("native ready and date routes validate before requesting camera and microphone", () => {
@@ -1408,6 +1423,8 @@ test("active-session resolvers emit canonical stale-session analytics for stale 
     assert.match(source, /registration_points_to_missing_session|registration_session_query_failed/);
     assert.match(source, /registration_points_to_ended_session/);
     assert.match(source, /different_event_registration_room/);
+    assert.match(source, /pending_survey_recovery_stale/);
+    assert.match(source, /direct_video_session_fallback_stale/);
   }
 });
 

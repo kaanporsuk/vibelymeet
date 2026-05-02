@@ -66,7 +66,7 @@ import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   getVideoSessionPartnerIdForUser,
-  videoSessionHasRecoverablePostDateSurveyTruth,
+  videoSessionHasPostDateSurveyTruth,
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
 import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
@@ -360,7 +360,7 @@ function shouldRecoverPendingPostDateSurvey(
 ): boolean {
   if (verdict) return false;
   if (!getVideoSessionPartnerIdForUser(session, userId)) return false;
-  return videoSessionHasRecoverablePostDateSurveyTruth(session);
+  return videoSessionHasPostDateSurveyTruth(session);
 }
 
 export default function VideoDateScreen() {

@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  activeSessionDirectFallbackStaleReason,
   canAttemptDailyRoomFromVideoSessionTruth,
   canPrepareDailyRoomFromReadyGateTruth,
   decideVideoSessionRouteFromTruth,
+  isActiveSessionDirectFallbackFresh,
   pickRecoverablePendingPostDateSurveySession,
+  videoSessionHasPostDateSurveyTruth,
   videoSessionHasRecoverablePostDateSurveyTruth,
 } from "./activeSession";
 
@@ -352,15 +355,34 @@ test("pending survey recovery returns ended date session when current user has n
     event_id: "event-1",
     participant_1_id: "user-1",
     participant_2_id: "user-2",
-    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "completed",
-    date_started_at: "2026-04-24T00:35:00.000Z",
+    date_started_at: "2026-04-24T00:27:00.000Z",
   };
 
-  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), true);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
   assert.equal(
-    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1"),
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
     row,
+  );
+});
+
+test("pending survey recovery hides ended date sessions after 24 hours", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-22T23:32:59.000Z",
+    ended_reason: "completed",
+    date_started_at: "2026-04-22T23:27:00.000Z",
+  };
+
+  assert.equal(videoSessionHasPostDateSurveyTruth(row), true);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
+    null,
   );
 });
 
@@ -370,13 +392,13 @@ test("pending survey recovery skips ended date session once current user has fee
     event_id: "event-1",
     participant_1_id: "user-1",
     participant_2_id: "user-2",
-    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "completed",
-    date_started_at: "2026-04-24T00:35:00.000Z",
+    date_started_at: "2026-04-24T00:27:00.000Z",
   };
 
   assert.equal(
-    pickRecoverablePendingPostDateSurveySession([row], new Set(["session-1"]), "user-1"),
+    pickRecoverablePendingPostDateSurveySession([row], new Set(["session-1"]), "user-1", NOW_MS),
     null,
   );
 });
@@ -387,13 +409,13 @@ test("pending survey recovery does not expose sessions to nonparticipants", () =
     event_id: "event-1",
     participant_1_id: "user-1",
     participant_2_id: "user-2",
-    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "completed",
-    date_started_at: "2026-04-24T00:35:00.000Z",
+    date_started_at: "2026-04-24T00:27:00.000Z",
   };
 
   assert.equal(
-    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-3"),
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-3", NOW_MS),
     null,
   );
 });
@@ -404,14 +426,14 @@ test("pending survey recovery preserves reconnect-grace survey behavior", () => 
     event_id: "event-1",
     participant_1_id: "user-1",
     participant_2_id: "user-2",
-    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "reconnect_grace_expired",
-    date_started_at: "2026-04-24T00:35:00.000Z",
+    date_started_at: "2026-04-24T00:27:00.000Z",
   };
 
-  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), true);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
   assert.equal(
-    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-2"),
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-2", NOW_MS),
     row,
   );
 });
@@ -422,14 +444,14 @@ test("pending survey recovery ignores pre-date terminal sessions", () => {
     event_id: "event-1",
     participant_1_id: "user-1",
     participant_2_id: "user-2",
-    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "handshake_not_mutual",
-    date_started_at: "2026-04-24T00:35:00.000Z",
+    date_started_at: "2026-04-24T00:27:00.000Z",
   };
 
-  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), false);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);
   assert.equal(
-    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1"),
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
     null,
   );
 });
@@ -440,14 +462,75 @@ test("pending survey recovery ignores partial Daily join peer timeout", () => {
     event_id: "event-1",
     participant_1_id: "user-1",
     participant_2_id: "user-2",
-    ended_at: "2026-04-24T00:40:00.000Z",
+    ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "partial_join_peer_timeout",
     date_started_at: null,
   };
 
-  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row), false);
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);
   assert.equal(
-    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1"),
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
     null,
   );
+});
+
+test("active-session direct fallback keeps fresh live date rows visible", () => {
+  const row = {
+    ended_at: null,
+    state: "date",
+    phase: "date",
+    handshake_started_at: "2026-04-24T00:29:00.000Z",
+    date_started_at: "2026-04-24T00:30:00.000Z",
+    date_extra_seconds: 0,
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(canAttemptDailyRoomFromVideoSessionTruth(row, NOW_MS), true);
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), true);
+  assert.equal(activeSessionDirectFallbackStaleReason(row, NOW_MS), null);
+});
+
+test("active-session direct fallback suppresses stale non-ended date rows", () => {
+  const row = {
+    ended_at: null,
+    state: "date",
+    phase: "date",
+    handshake_started_at: "2026-04-24T00:10:00.000Z",
+    date_started_at: "2026-04-24T00:20:00.000Z",
+    date_extra_seconds: 0,
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(canAttemptDailyRoomFromVideoSessionTruth(row, NOW_MS), true);
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), false);
+  assert.equal(activeSessionDirectFallbackStaleReason(row, NOW_MS), "direct_video_session_fallback_stale");
+});
+
+test("active-session direct fallback allows active reconnect grace", () => {
+  const row = {
+    ended_at: null,
+    state: "date",
+    phase: "date",
+    handshake_started_at: "2026-04-24T00:10:00.000Z",
+    date_started_at: "2026-04-24T00:20:00.000Z",
+    reconnect_grace_ends_at: "2026-04-24T00:33:30.000Z",
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), true);
+  assert.equal(activeSessionDirectFallbackStaleReason(row, NOW_MS), null);
+});
+
+test("active-session direct fallback suppresses stale handshake rows", () => {
+  const row = {
+    ended_at: null,
+    state: "handshake",
+    phase: "handshake",
+    handshake_started_at: "2026-04-24T00:30:30.000Z",
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(canAttemptDailyRoomFromVideoSessionTruth(row, NOW_MS), true);
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), false);
+  assert.equal(activeSessionDirectFallbackStaleReason(row, NOW_MS), "direct_video_session_fallback_stale");
 });

@@ -3,12 +3,15 @@ import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
+  activeSessionDirectFallbackStaleReason,
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
   getVideoSessionPartnerIdForUser,
   inferVideoQueueStatusFromSessionTruth,
+  isActiveSessionDirectFallbackFresh,
   pickRecoverablePendingPostDateSurveySession,
   pickRegistrationForActiveSession,
+  videoSessionHasPostDateSurveyTruth,
   videoSessionHasRecoverablePostDateSurveyTruth,
   type ActiveSessionBase,
 } from "@clientShared/matching/activeSession";
@@ -19,6 +22,16 @@ type UseActiveSessionOptions = {
   /** When set, only return a session for this event (lobby-scoped hydration). */
   eventId?: string | null;
 };
+
+type StaleActiveSessionPayload = {
+  reason: string;
+  eventId?: string | null;
+  sessionId?: string | null;
+  queueStatus?: string | null;
+  currentPartnerPresent?: boolean | null;
+};
+
+type EmitStaleActiveSessionDetected = (payload: StaleActiveSessionPayload) => void;
 
 async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
   const { data: profile, error } = await supabase.rpc("get_profile_for_viewer", {
@@ -35,8 +48,10 @@ async function fetchPartnerNameForViewer(partnerId: string): Promise<string | nu
 
 async function findPendingPostDateSurveySession(
   userId: string,
-  eventFilter: string | null
+  eventFilter: string | null,
+  emitStaleActiveSessionDetected?: EmitStaleActiveSessionDetected,
 ): Promise<{ sessionId: string; eventId: string; partnerName: string | null; endedReason: string | null } | null> {
+  const nowMs = Date.now();
   const endedQuery = supabase
     .from("video_sessions")
     .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at")
@@ -49,7 +64,7 @@ async function findPendingPostDateSurveySession(
   const { data: endedRows, error: endedError } = await endedQuery;
   if (endedError || !endedRows?.length) return null;
 
-  const candidateRows = endedRows.filter((row) => videoSessionHasRecoverablePostDateSurveyTruth(row));
+  const candidateRows = endedRows.filter((row) => videoSessionHasPostDateSurveyTruth(row));
   const candidateSessionIds = candidateRows
     .map((row) => row.id)
     .filter((sessionId): sessionId is string => Boolean(sessionId));
@@ -67,10 +82,28 @@ async function findPendingPostDateSurveySession(
       .map((row) => row.session_id)
       .filter((sessionId): sessionId is string => Boolean(sessionId)),
   );
+  const staleSurvey = candidateRows.find(
+    (row) =>
+      row.id &&
+      getVideoSessionPartnerIdForUser(row, userId) &&
+      !feedbackSessionIdsForUser.has(row.id) &&
+      !videoSessionHasRecoverablePostDateSurveyTruth(row, nowMs),
+  );
+  if (staleSurvey) {
+    emitStaleActiveSessionDetected?.({
+      reason: "pending_survey_recovery_stale",
+      eventId: staleSurvey.event_id ?? null,
+      sessionId: staleSurvey.id ?? null,
+      queueStatus: "in_survey",
+      currentPartnerPresent: Boolean(getVideoSessionPartnerIdForUser(staleSurvey, userId)),
+    });
+  }
+
   const pendingSurvey = pickRecoverablePendingPostDateSurveySession(
     candidateRows,
     feedbackSessionIdsForUser,
     userId,
+    nowMs,
   );
   if (!pendingSurvey?.id || !pendingSurvey.event_id) return null;
 
@@ -110,12 +143,14 @@ function pendingSurveyHydrationReason(
 
 async function findDirectVideoSessionFallback(
   userId: string,
-  eventFilter: string | null
+  eventFilter: string | null,
+  emitStaleActiveSessionDetected?: EmitStaleActiveSessionDetected,
 ): Promise<ActiveSession | null> {
+  const nowMs = Date.now();
   const query = supabase
     .from("video_sessions")
     .select(
-      "id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url"
+      "id, event_id, participant_1_id, participant_2_id, ended_at, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url"
     )
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .is("ended_at", null)
@@ -130,16 +165,33 @@ async function findDirectVideoSessionFallback(
   const candidate =
     rows.find(
       (row) =>
-        canAttemptDailyRoomFromVideoSessionTruth(row) ||
-        decideVideoSessionRouteFromTruth(row) === "navigate_date"
+        (canAttemptDailyRoomFromVideoSessionTruth(row, nowMs) ||
+          decideVideoSessionRouteFromTruth(row, nowMs) === "navigate_date") &&
+        isActiveSessionDirectFallbackFresh(row, nowMs)
     ) ??
-    rows.find((row) => decideVideoSessionRouteFromTruth(row) === "navigate_ready") ??
+    rows.find(
+      (row) =>
+        decideVideoSessionRouteFromTruth(row, nowMs) === "navigate_ready" &&
+        isActiveSessionDirectFallbackFresh(row, nowMs)
+    ) ??
     null;
 
-  if (!candidate?.id || !candidate.event_id) return null;
+  if (!candidate?.id || !candidate.event_id) {
+    const staleCandidate = rows.find((row) => activeSessionDirectFallbackStaleReason(row, nowMs));
+    if (staleCandidate) {
+      emitStaleActiveSessionDetected?.({
+        reason: "direct_video_session_fallback_stale",
+        eventId: staleCandidate.event_id ?? null,
+        sessionId: staleCandidate.id ?? null,
+        queueStatus: null,
+        currentPartnerPresent: Boolean(getVideoSessionPartnerIdForUser(staleCandidate, userId)),
+      });
+    }
+    return null;
+  }
 
-  const decision = decideVideoSessionRouteFromTruth(candidate);
-  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(candidate);
+  const decision = decideVideoSessionRouteFromTruth(candidate, nowMs);
+  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(candidate, nowMs);
   if (!canAttemptDaily && decision !== "navigate_date" && decision !== "navigate_ready") return null;
 
   const partnerId =
@@ -263,12 +315,12 @@ export function useActiveSession(
     const reg = pickRegistrationForActiveSession(regs ?? []);
 
     if (!reg?.current_room_id) {
-      const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback");
         return;
       }
-      const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+      const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
       if (pendingSurvey) {
         commitActiveSession(
           activeSessionFromPendingSurvey(pendingSurvey),
@@ -294,17 +346,17 @@ export function useActiveSession(
 
     const { data: session, error: sessionError } = await supabase
       .from("video_sessions")
-      .select("id, ended_at, state, phase, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, daily_room_name, daily_room_url")
+      .select("id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, state, phase, handshake_started_at, date_started_at, date_extra_seconds, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url")
       .eq("id", reg.current_room_id)
       .maybeSingle();
 
     if (sessionError) {
       if (import.meta.env.DEV) console.warn("[useActiveSession] session query failed:", sessionError.message);
-      const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_session_query_failed");
       } else {
-        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
         if (pendingSurvey) {
           commitActiveSession(
             activeSessionFromPendingSurvey(pendingSurvey),
@@ -318,11 +370,11 @@ export function useActiveSession(
     }
 
     if (!session) {
-      const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_session_missing");
       } else {
-        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
         if (pendingSurvey) {
           commitActiveSession(
             activeSessionFromPendingSurvey(pendingSurvey),
@@ -353,15 +405,20 @@ export function useActiveSession(
       eventId: reg.event_id as string,
       partnerName,
     };
-    const truthDecision = decideVideoSessionRouteFromTruth(session);
-    const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session);
+    const nowMs = Date.now();
+    const truthDecision = decideVideoSessionRouteFromTruth(session, nowMs);
+    const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session, nowMs);
+    const freshDateRoute =
+      (canAttemptDaily || truthDecision === "navigate_date") &&
+      isActiveSessionDirectFallbackFresh(session, nowMs);
+    const staleFallbackReason = activeSessionDirectFallbackStaleReason(session, nowMs);
 
     if (truthDecision === "ended") {
-      const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
       if (directSession) {
         commitActiveSession(directSession, "direct_video_session_fallback_after_registration_ended");
       } else {
-        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter);
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
         if (pendingSurvey) {
           commitActiveSession(
             activeSessionFromPendingSurvey(pendingSurvey),
@@ -382,7 +439,7 @@ export function useActiveSession(
     }
 
     if (qs === "in_ready_gate") {
-      if (canAttemptDaily || truthDecision === "navigate_date") {
+      if (freshDateRoute) {
         const inferredQs = inferVideoQueueStatusFromSessionTruth(session);
         commitActiveSession(
           { kind: "video", ...base, queueStatus: inferredQs },
@@ -391,7 +448,7 @@ export function useActiveSession(
       } else if (truthDecision === "navigate_ready") {
         commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
       } else {
-        const directSession = await findDirectVideoSessionFallback(userId, eventFilter);
+        const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
         if (directSession) {
           commitActiveSession(directSession, "direct_video_session_fallback_after_registration_not_startable");
         } else {
@@ -406,16 +463,83 @@ export function useActiveSession(
         }
       }
     } else if (qs === "in_handshake" || qs === "in_date") {
-      if (!canAttemptDaily && truthDecision === "navigate_ready") {
+      if (!freshDateRoute && truthDecision === "navigate_ready") {
         commitActiveSession(
           { kind: "ready_gate", ...base, queueStatus: "in_ready_gate" },
           "video_registration_truth_ready_gate"
         );
-      } else {
+      } else if (freshDateRoute) {
         commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
+      } else {
+        if (staleFallbackReason) {
+          emitStaleActiveSessionDetected({
+            reason: staleFallbackReason,
+            eventId: reg.event_id as string | null,
+            sessionId: session.id as string | null,
+            queueStatus: qs as string | null,
+            currentPartnerPresent: Boolean(reg.current_partner_id),
+          });
+        }
+        const directSession = await findDirectVideoSessionFallback(
+          userId,
+          eventFilter,
+          emitStaleActiveSessionDetected,
+        );
+        if (directSession) {
+          commitActiveSession(directSession, "direct_video_session_fallback_after_registration_stale");
+        } else {
+          const pendingSurvey = await findPendingPostDateSurveySession(
+            userId,
+            eventFilter,
+            emitStaleActiveSessionDetected,
+          );
+          if (pendingSurvey) {
+            commitActiveSession(
+              activeSessionFromPendingSurvey(pendingSurvey),
+              pendingSurveyHydrationReason(pendingSurvey)
+            );
+          } else {
+            commitActiveSession(null, staleFallbackReason ?? "video_registration_not_routeable");
+          }
+        }
       }
     } else if (qs === "in_survey") {
-      commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
+      const surveyBaseEligible =
+        videoSessionHasPostDateSurveyTruth(session) &&
+        Boolean(getVideoSessionPartnerIdForUser(session, userId));
+      const hasRecoverableSurvey =
+        surveyBaseEligible && videoSessionHasRecoverablePostDateSurveyTruth(session, nowMs);
+      const { data: feedback, error: feedbackError } = surveyBaseEligible
+        ? await supabase
+            .from("date_feedback")
+            .select("id")
+            .eq("session_id", session.id)
+            .eq("user_id", userId)
+            .maybeSingle()
+        : { data: null, error: null };
+
+      if (feedbackError) {
+        if (import.meta.env.DEV) {
+          console.warn("[useActiveSession] survey feedback query failed:", feedbackError.message);
+        }
+        commitActiveSession(null, "pending_survey_feedback_query_failed");
+        return;
+      }
+
+      if (hasRecoverableSurvey && !feedback) {
+        commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration_survey");
+      } else {
+        emitStaleActiveSessionDetected({
+          reason: surveyBaseEligible && !hasRecoverableSurvey
+            ? "pending_survey_recovery_stale"
+            : "registration_survey_not_recoverable",
+          eventId: reg.event_id as string | null,
+          sessionId: session.id as string | null,
+          queueStatus: qs as string | null,
+          currentPartnerPresent: Boolean(reg.current_partner_id),
+        });
+        commitActiveSession(null, feedback ? "pending_survey_feedback_exists" : "registration_survey_not_recoverable");
+      }
     } else {
       emitStaleActiveSessionDetected({
         reason: "unsupported_registration_status",

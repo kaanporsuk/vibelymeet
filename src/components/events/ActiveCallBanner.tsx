@@ -22,7 +22,7 @@ export const ActiveCallBanner = ({
     mode === "ready_gate"
       ? "Ready Gate in progress"
       : mode === "survey"
-        ? "Date feedback pending"
+        ? "Finish your date feedback"
         : "You have an active date!";
   const subtitle =
     mode === "ready_gate"
@@ -30,9 +30,7 @@ export const ActiveCallBanner = ({
         ? `${partnerName} — open the event lobby to finish Ready Gate`
         : "Open the event lobby to finish Ready Gate"
       : mode === "survey"
-        ? partnerName
-          ? `With ${partnerName} — finish your feedback`
-          : "Finish your post-date feedback"
+        ? "Tell us how it went"
         : partnerName
           ? `With ${partnerName} — tap Rejoin`
           : "Tap Rejoin to return 💚";

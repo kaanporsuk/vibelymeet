@@ -177,6 +177,13 @@ function videoSessionHasDatePhaseEvidence(
   return Boolean(row.date_started_at || row.state === "date" || row.phase === "date");
 }
 
+function shouldOpenPostDateSurveyForTerminalSession(
+  row: { date_started_at?: string | null } | null,
+  verdict: unknown,
+): boolean {
+  return Boolean(row?.date_started_at) && !verdict;
+}
+
 const VideoDate = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -405,35 +412,14 @@ const VideoDate = () => {
         return;
       }
 
-      const [{ data: reg }, { data: verdict }] = await Promise.all([
-        sessionRow.event_id
-          ? supabase
-              .from("event_registrations")
-              .select("queue_status")
-              .eq("profile_id", user.id)
-              .eq("event_id", sessionRow.event_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null as { queue_status?: string | null } | null }),
-        supabase
-          .from("date_feedback")
-          .select("id")
-          .eq("session_id", id)
-          .eq("user_id", user.id)
-          .maybeSingle(),
-      ]);
+      const { data: verdict } = await supabase
+        .from("date_feedback")
+        .select("id")
+        .eq("session_id", id)
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      const hasDatePhaseEvidence = videoSessionHasDatePhaseEvidence(sessionRow);
-      const shouldOpenSurvey =
-        hasDatePhaseEvidence &&
-        (
-          hasEnteredDateFlowRef.current ||
-          reg?.queue_status === "in_survey" ||
-          (
-            (sessionRow as { ended_reason?: string | null }).ended_reason === "reconnect_grace_expired" &&
-            !verdict
-          ) ||
-          videoSessionIndicatesTerminalEnd(sessionRow)
-        );
+      const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
 
       if (shouldOpenSurvey) {
         openPostDateSurvey(source);
@@ -974,18 +960,7 @@ const VideoDate = () => {
             .eq("user_id", user.id)
             .maybeSingle();
           if (cancelled) return;
-          const hasDatePhaseEvidence = videoSessionHasDatePhaseEvidence(sessionRow);
-          const shouldOpenSurvey =
-            hasDatePhaseEvidence &&
-            (
-              hasEnteredDateFlowRef.current ||
-              reg?.queue_status === "in_survey" ||
-              (
-                (sessionRow as { ended_reason?: string | null }).ended_reason === "reconnect_grace_expired" &&
-                !verdict
-              ) ||
-              videoSessionIndicatesTerminalEnd(sessionRow)
-            );
+          const shouldOpenSurvey = shouldOpenPostDateSurveyForTerminalSession(sessionRow, verdict);
           if (shouldOpenSurvey) {
             openPostDateSurvey("session_load_terminal");
           } else {
