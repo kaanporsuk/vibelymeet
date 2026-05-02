@@ -5,7 +5,6 @@ import {
   handshakeDecisionFailureIndicatesSessionEnded,
   handshakeRpcIndicatesTerminalDecisionRejection,
   handshakeTruthIndicatesEndedSession,
-  HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
   persistHandshakeDecisionWithVerification,
   type VideoDateHandshakeTruth,
 } from "./videoDateHandshakePersistence";
@@ -103,7 +102,7 @@ test("transient RPC failure is retried before acknowledging Vibe", async () => {
   assert.equal(result.attempts, 2);
 });
 
-test("one vibe and partner undecided → Last Chance grace (10s), not date", () => {
+test("one vibe and partner undecided ends at the hard deadline", () => {
   assert.deepEqual(
     completeHandshakeExpectation({
       ...baseTruth,
@@ -112,8 +111,7 @@ test("one vibe and partner undecided → Last Chance grace (10s), not date", () 
       participant_2_liked: null,
     }),
     {
-      kind: "waiting_for_decision",
-      graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
+      kind: "ended_timeout",
       waitingForParticipant1: false,
       waitingForParticipant2: true,
     },
@@ -146,7 +144,7 @@ test("one explicit pass ends as non-mutual", () => {
   );
 });
 
-test("boolean false without decided_at is still undecided → 10s grace window", () => {
+test("boolean false without decided_at is still undecided → hard-deadline timeout", () => {
   assert.deepEqual(
     completeHandshakeExpectation({
       ...baseTruth,
@@ -154,18 +152,16 @@ test("boolean false without decided_at is still undecided → 10s grace window",
       participant_2_liked: false,
     }),
     {
-      kind: "waiting_for_decision",
-      graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
+      kind: "ended_timeout",
       waitingForParticipant1: true,
       waitingForParticipant2: true,
     },
   );
 });
 
-test("both undecided → 10s Last Chance grace", () => {
+test("both undecided ends at the hard deadline", () => {
   assert.deepEqual(completeHandshakeExpectation({ ...baseTruth }), {
-    kind: "waiting_for_decision",
-    graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
+    kind: "ended_timeout",
     waitingForParticipant1: true,
     waitingForParticipant2: true,
   });

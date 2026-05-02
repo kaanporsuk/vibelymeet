@@ -79,7 +79,7 @@ where vs.ended_at is not null
 order by vs.ended_at desc
 limit 100;
 
--- 6) Long-running handshakes beyond the visible 60s + 10s grace window.
+-- 6) Long-running handshakes beyond the visible 60s hard deadline.
 select
   id,
   event_id,
@@ -93,7 +93,7 @@ select
 from public.video_sessions
 where ended_at is null
   and state = 'handshake'
-  and handshake_started_at < now() - interval '75 seconds'
+  and handshake_started_at < now() - interval '65 seconds'
 order by handshake_started_at asc
 limit 100;
 

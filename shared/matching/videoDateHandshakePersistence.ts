@@ -134,19 +134,11 @@ export type PersistHandshakeDecisionResult =
       userMessage: string;
     };
 
-/** Server `complete_handshake` Last Chance grace when outcome is unresolved and no explicit Pass. */
-export const HANDSHAKE_LAST_CHANCE_GRACE_SECONDS = 10 as const;
-
 export type CompleteHandshakeTruthExpectation =
   | { kind: "already_ended"; reason: string | null }
   | { kind: "date" }
   | { kind: "ended_non_mutual" }
-  | {
-      kind: "waiting_for_decision";
-      graceSecondsIfStartedNow: typeof HANDSHAKE_LAST_CHANCE_GRACE_SECONDS;
-      waitingForParticipant1: boolean;
-      waitingForParticipant2: boolean;
-    };
+  | { kind: "ended_timeout"; waitingForParticipant1: boolean; waitingForParticipant2: boolean };
 
 function asPayload(data: unknown): VideoDateTransitionPayload | null {
   if (!data || typeof data !== "object") return null;
@@ -229,8 +221,7 @@ export function completeHandshakeExpectation(
     return { kind: "ended_non_mutual" };
   }
   return {
-    kind: "waiting_for_decision",
-    graceSecondsIfStartedNow: HANDSHAKE_LAST_CHANCE_GRACE_SECONDS,
+    kind: "ended_timeout",
     waitingForParticipant1: !participant1Decided,
     waitingForParticipant2: !participant2Decided,
   };
@@ -267,7 +258,7 @@ function userMessageForFailure(reason: PersistHandshakeDecisionFailureReason): s
 
 function userMessageForRpcRejectedPayload(payload: VideoDateTransitionPayload | null): string {
   const code = payload?.code ?? null;
-  if (code === "GRACE_EXPIRED") return "That Last Chance window just closed — the date ended.";
+  if (code === "GRACE_EXPIRED") return "The warm-up already ended.";
   if (code === "SESSION_ENDED") return "This date has already ended.";
   return userMessageForFailure("rpc_rejected");
 }
