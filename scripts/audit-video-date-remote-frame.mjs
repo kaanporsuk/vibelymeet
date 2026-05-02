@@ -40,6 +40,12 @@ function assertNoCropTokens(label, value) {
 
 const webDatePath = "src/pages/VideoDate.tsx";
 const webDate = read(webDatePath);
+const webVideoCallPath = "src/hooks/useVideoCall.ts";
+const webVideoCall = read(webVideoCallPath);
+const webDailyConfigPath = "src/lib/dailyCallObjectConfig.ts";
+const webDailyConfig = read(webDailyConfigPath);
+const mediaContractPath = "shared/matching/videoDateMediaContract.ts";
+const mediaContract = read(mediaContractPath);
 const webRemoteContainerClass = extractStringConst(webDate, "REMOTE_DATE_VIDEO_CONTAINER_CLASS", webDatePath);
 const webRemoteVideoClass = extractStringConst(webDate, "REMOTE_DATE_VIDEO_CLASS", webDatePath);
 const webRemoteRender = sliceBetween(
@@ -67,11 +73,63 @@ assert(
   webRemoteRender.includes("className={REMOTE_DATE_VIDEO_CLASS}"),
   `${webDatePath}: remote date render must use REMOTE_DATE_VIDEO_CLASS`
 );
+assert(
+  webRemoteRender.includes("objectFit: VIDEO_DATE_REMOTE_OBJECT_FIT"),
+  `${webDatePath}: remote date video must keep inline objectFit from the shared contract`
+);
+assert(
+  webRemoteRender.includes("objectPosition: VIDEO_DATE_REMOTE_OBJECT_POSITION"),
+  `${webDatePath}: remote date video must keep inline objectPosition from the shared contract`
+);
+assert(
+  webRemoteRender.includes('backgroundColor: "#000"'),
+  `${webDatePath}: remote date video must keep an inline black letterbox background`
+);
 assert(!/style=\{\{[^}]*\btransform\s*:/.test(webRemoteRender), `${webDatePath}: remote date video style must not set transform`);
 assert(!/style=\{\{[^}]*\bscale\s*:/.test(webRemoteRender), `${webDatePath}: remote date video style must not set scale`);
+assert(
+  mediaContract.includes('VIDEO_DATE_REMOTE_OBJECT_FIT = "contain"'),
+  `${mediaContractPath}: remote Video Date fit must remain contain`
+);
+assert(
+  mediaContract.includes('VIDEO_DATE_SELF_VIEW_OBJECT_FIT = "cover"'),
+  `${mediaContractPath}: self-view Video Date fit must remain explicitly cover`
+);
+assert(
+  mediaContract.includes("VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS") &&
+    mediaContract.includes("VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS") &&
+    mediaContract.includes("VIDEO_DATE_CAPTURE_ASPECT_RATIO = 9 / 16"),
+  `${mediaContractPath}: shared web/native capture contract must remain explicit`
+);
+assert(
+  webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
+    webDailyConfig.includes("videoDateWebMediaStreamConstraints") &&
+    webDailyConfig.includes("userMediaVideoConstraints: videoConstraints") &&
+    webDailyConfig.includes("avoidEval: true"),
+  `${webDailyConfigPath}: web Video Date Daily options must use the shared CSP-safe media helper`
+);
+assert(
+  webVideoCall.includes("dailyVideoDateCallObjectOptions(captureProfileForCall)"),
+  `${webVideoCallPath}: Video Date must create its Daily call object through the Video Date media helper`
+);
+assert(
+  !/createCallObject\(\s*\{[\s\S]*?videoSource:\s*true[\s\S]*?\}\s*\)/.test(webVideoCall),
+  `${webVideoCallPath}: Video Date must not use raw Daily call-object media options`
+);
+assert(
+  webVideoCall.includes('getUserMedia(videoDateWebMediaStreamConstraints("ideal"))') &&
+    webVideoCall.includes('getUserMedia(videoDateWebMediaStreamConstraints("fallback"))'),
+  `${webVideoCallPath}: permission preflight must use ideal/fallback Video Date constraints`
+);
+assert(
+  !/getUserMedia\(\{\s*audio:\s*true,\s*video:\s*true\s*\}\)/.test(webVideoCall),
+  `${webVideoCallPath}: permission preflight must not fall back to unconstrained { video: true }`
+);
 
 const nativeDatePath = "apps/mobile/app/date/[id].tsx";
 const nativeDate = read(nativeDatePath);
+const nativeVideoDateDailyConfigPath = "apps/mobile/lib/videoDateDailyMediaConfig.ts";
+const nativeVideoDateDailyConfig = read(nativeVideoDateDailyConfigPath);
 const nativeRemoteBlock = sliceBetween(
   nativeDate,
   "<View style={styles.remoteContainer}>",
@@ -94,6 +152,21 @@ assert(
 assert(
   nativeRemoteBlock.includes("DailyMediaView defaults to cover"),
   `${nativeDatePath}: remote DailyMediaView must keep the invariant comment explaining contain`
+);
+assert(
+  nativeVideoDateDailyConfig.includes("createVideoDateDailyCallObject") &&
+    nativeVideoDateDailyConfig.includes("videoDateNativeVideoConstraintsForProfile") &&
+    nativeVideoDateDailyConfig.includes("userMediaVideoConstraints: videoConstraints"),
+  `${nativeVideoDateDailyConfigPath}: native Video Date Daily options must use the shared media contract`
+);
+assert(
+  nativeDate.includes("createVideoDateDailyCallObject(profile)") &&
+    nativeDate.includes("daily_call_join_constraint_fallback"),
+  `${nativeDatePath}: native Video Date must create Daily through the helper and retry with fallback constraints`
+);
+assert(
+  !/Daily\.createCallObject\(/.test(nativeDate),
+  `${nativeDatePath}: native Video Date route must not use raw Daily.createCallObject`
 );
 
 const selfViewPath = "src/components/video-date/SelfViewPIP.tsx";

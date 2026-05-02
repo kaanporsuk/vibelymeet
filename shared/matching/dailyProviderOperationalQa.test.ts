@@ -65,8 +65,10 @@ const webVideoCall = read("src/hooks/useVideoCall.ts");
 const webMatchCall = read("src/hooks/useMatchCall.tsx");
 const webDailyCallObjectConfig = read("src/lib/dailyCallObjectConfig.ts");
 const webVideoDatePage = read("src/pages/VideoDate.tsx");
+const videoDateMediaContract = read("shared/matching/videoDateMediaContract.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
 const nativeDateRoute = read("apps/mobile/app/date/[id].tsx");
+const nativeVideoDateDailyMediaConfig = read("apps/mobile/lib/videoDateDailyMediaConfig.ts");
 const nativeVideoDateApi = read("apps/mobile/lib/videoDateApi.ts");
 const nativePrepareEntry = read("apps/mobile/lib/videoDatePrepareEntry.ts");
 const nativeEntryStartable = read("apps/mobile/lib/videoDateEntryStartable.ts");
@@ -186,15 +188,39 @@ test("web and native Daily runtime paths preserve join, reconnect, leave, and te
 
 test("web Daily call objects use the CSP-friendly avoidEval path", () => {
   assert.match(webDailyCallObjectConfig, /dailyConfig:\s*\{\s*avoidEval:\s*true/s);
-  assert.match(webVideoCall, /dailyCallObjectOptions/);
+  assert.match(webVideoCall, /dailyVideoDateCallObjectOptions/);
   assert.match(webMatchCall, /dailyCallObjectOptions/);
   for (const [label, source] of [
     ["web video date", webVideoCall],
     ["web match call", webMatchCall],
   ] as const) {
     const rawCreateCallObjectCalls = source.match(/createCallObject\(\s*\{/g) ?? [];
-    assert.deepEqual(rawCreateCallObjectCalls, [], `${label} must use dailyCallObjectOptions for createCallObject`);
+    assert.deepEqual(rawCreateCallObjectCalls, [], `${label} must use a shared Daily helper for createCallObject`);
   }
+});
+
+test("Video Date media contract preserves full remote frame on web and native", () => {
+  assert.match(videoDateMediaContract, /VIDEO_DATE_REMOTE_OBJECT_FIT = "contain"/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_SELF_VIEW_OBJECT_FIT = "cover"/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_CAPTURE_ASPECT_RATIO = 9 \/ 16/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS/);
+  assert.match(webDailyCallObjectConfig, /dailyVideoDateCallObjectOptions/);
+  assert.match(webDailyCallObjectConfig, /inputSettings:[\s\S]*video:[\s\S]*settings:\s*videoConstraints/);
+  assert.match(webDailyCallObjectConfig, /userMediaVideoConstraints:\s*videoConstraints/);
+  assert.match(webVideoCall, /dailyVideoDateCallObjectOptions\(captureProfileForCall\)/);
+  assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("ideal"\)\)/);
+  assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("fallback"\)\)/);
+  assert.doesNotMatch(webVideoCall, /getUserMedia\(\{\s*audio:\s*true,\s*video:\s*true\s*\}\)/);
+  assert.match(webVideoDatePage, /objectFit:\s*VIDEO_DATE_REMOTE_OBJECT_FIT/);
+  assert.match(webVideoDatePage, /objectPosition:\s*VIDEO_DATE_REMOTE_OBJECT_POSITION/);
+  assert.match(nativeVideoDateDailyMediaConfig, /createVideoDateDailyCallObject/);
+  assert.match(nativeVideoDateDailyMediaConfig, /videoDateNativeVideoConstraintsForProfile/);
+  assert.match(nativeVideoDateDailyMediaConfig, /userMediaVideoConstraints:\s*videoConstraints/);
+  assert.match(nativeDateRoute, /createVideoDateDailyCallObject\(profile\)/);
+  assert.match(nativeDateRoute, /daily_call_join_constraint_fallback/);
+  assert.doesNotMatch(nativeDateRoute, /Daily\.createCallObject\(/);
+  assert.match(nativeDateRoute, /objectFit="contain"/);
 });
 
 test("web Daily CSP supports CSP-safe script loading and websocket signaling", () => {

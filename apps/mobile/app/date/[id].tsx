@@ -27,7 +27,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { Camera } from 'expo-camera';
-import Daily, { DailyMediaView } from '@daily-co/react-native-daily-js';
+import { DailyMediaView } from '@daily-co/react-native-daily-js';
 import type { DailyParticipant } from '@daily-co/react-native-daily-js';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -133,6 +133,13 @@ import {
   type PrejoinAttemptStep,
 } from '@clientShared/matching/videoDatePrejoinAttempt';
 import { markDailyJoinedWithBackoff } from '@clientShared/matching/dailyJoinedConfirmation';
+import {
+  createVideoDateDailyCallObject,
+  isVideoDateCameraConstraintError as isNativeVideoDateCameraConstraintError,
+  type NativeVideoDateCaptureProfile,
+  type VideoDateDailyCallObject,
+} from '@/lib/videoDateDailyMediaConfig';
+import { videoDateAspectRatio } from '@clientShared/matching/videoDateMediaContract';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -144,9 +151,15 @@ const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
 const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
-type DailyCallObject = ReturnType<typeof Daily.createCallObject>;
-type SharedDailyCallEntry = { sessionId: string; call: DailyCallObject; roomName: string | null };
+type DailyCallObject = VideoDateDailyCallObject;
+type SharedDailyCallEntry = {
+  sessionId: string;
+  call: DailyCallObject;
+  roomName: string | null;
+  captureProfile: NativeVideoDateCaptureProfile;
+};
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
+type NativeMediaStreamTrack = import('@daily-co/react-native-webrtc').MediaStreamTrack;
 
 function makeExtensionIdempotencyKey(sessionId: string, type: 'extra_time' | 'extended_vibe'): string {
   const random =
@@ -266,7 +279,7 @@ async function refetchTruthAndCheckStartable(
 function getTrack(
   participant: DailyParticipant | undefined,
   kind: 'video' | 'audio'
-): import('@daily-co/react-native-webrtc').MediaStreamTrack | null {
+): NativeMediaStreamTrack | null {
   if (!participant) return null;
   const trackInfo = participant.tracks?.[kind];
   // Do not feed DailyMediaView a "video off" track — persistentTrack can still show a stale last frame.
@@ -283,10 +296,22 @@ function getTrack(
   };
   if (p.tracks) {
     const t = kind === 'video' ? p.tracks.video?.persistentTrack : p.tracks.audio?.persistentTrack;
-    if (t) return t as import('@daily-co/react-native-webrtc').MediaStreamTrack;
+    if (t) return t as NativeMediaStreamTrack;
   }
   const dep = kind === 'video' ? p.videoTrack : p.audioTrack;
-  return dep === false || dep === undefined ? null : (dep as import('@daily-co/react-native-webrtc').MediaStreamTrack);
+  return dep === false || dep === undefined ? null : (dep as NativeMediaStreamTrack);
+}
+
+function summarizeVideoTrackSettings(track: NativeMediaStreamTrack | null | undefined) {
+  if (!track || typeof track.getSettings !== 'function') return null;
+  const settings = track.getSettings();
+  return {
+    width: typeof settings.width === 'number' ? settings.width : null,
+    height: typeof settings.height === 'number' ? settings.height : null,
+    aspectRatio: videoDateAspectRatio(settings.width, settings.height),
+    frameRate: typeof settings.frameRate === 'number' ? settings.frameRate : null,
+    facingMode: typeof settings.facingMode === 'string' ? settings.facingMode : null,
+  };
 }
 
 /** Sync UI toggles from Daily participant track state (source of truth after join / reconnect). */
@@ -407,8 +432,10 @@ export default function VideoDateScreen() {
   const [showInCallSafety, setShowInCallSafety] = useState(false);
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
+  const [captureProfile, setCaptureProfile] = useState<NativeVideoDateCaptureProfile>('ideal');
 
-  const callRef = useRef<ReturnType<typeof Daily.createCallObject> | null>(null);
+  const callRef = useRef<DailyCallObject | null>(null);
+  const captureProfileRef = useRef<NativeVideoDateCaptureProfile>('ideal');
   const roomNameRef = useRef<string | null>(null);
   const hasStartedJoinRef = useRef(false);
   const prejoinAttemptSeqRef = useRef(0);
@@ -1679,7 +1706,8 @@ export default function VideoDateScreen() {
   }, [remoteParticipant, sessionId]);
 
   useEffect(() => {
-    const trackId = getTrack(localParticipant ?? undefined, 'video')?.id ?? null;
+    const videoTrack = getTrack(localParticipant ?? undefined, 'video');
+    const trackId = videoTrack?.id ?? null;
     if (!trackId) {
       lastLocalMountedTrackIdRef.current = null;
       return;
@@ -1689,12 +1717,15 @@ export default function VideoDateScreen() {
     videoDateDailyDiagnostic('local_track_mounted', {
       session_id: sessionId ?? '',
       room_name: roomNameRef.current ?? null,
+      capture_profile: captureProfile,
       track_id: trackId,
+      track_settings: summarizeVideoTrackSettings(videoTrack),
     });
-  }, [localParticipant, sessionId]);
+  }, [captureProfile, localParticipant, sessionId]);
 
   useEffect(() => {
-    const trackId = getTrack(remoteParticipant ?? undefined, 'video')?.id ?? null;
+    const videoTrack = getTrack(remoteParticipant ?? undefined, 'video');
+    const trackId = videoTrack?.id ?? null;
     if (!trackId) {
       lastRemoteMountedTrackIdRef.current = null;
       return;
@@ -1748,9 +1779,11 @@ export default function VideoDateScreen() {
       session_id: sessionId ?? '',
       room_name: roomNameRef.current ?? null,
       participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
+      capture_profile: captureProfile,
       track_id: trackId,
+      track_settings: summarizeVideoTrackSettings(videoTrack),
     });
-  }, [remoteParticipant, sessionId, eventId, endBootstrapTiming]);
+  }, [captureProfile, remoteParticipant, sessionId, eventId, endBootstrapTiming]);
 
   useEffect(() => {
     if (!hasRemotePartner || phase !== 'handshake') return;
@@ -1882,6 +1915,8 @@ export default function VideoDateScreen() {
     });
     setPreJoinFailed(false);
     setNetQualityTier('good');
+    captureProfileRef.current = 'ideal';
+    setCaptureProfile('ideal');
   }, [
     sessionId,
     eventId,
@@ -2975,12 +3010,15 @@ export default function VideoDateScreen() {
         } else {
           callRef.current = reusedCall;
           roomNameRef.current = sharedCall.roomName;
+          captureProfileRef.current = sharedCall.captureProfile;
+          setCaptureProfile(sharedCall.captureProfile);
           bindCallListeners(reusedCall, sharedCall.roomName);
           const remotes = Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local);
           vdbg('daily_call_singleton_reuse_same_session', {
             sessionId,
             userId: user.id,
             roomName: sharedCall.roomName,
+            captureProfile: sharedCall.captureProfile,
             remoteCount: remotes.length,
             hasLocalParticipant: true,
           });
@@ -3866,29 +3904,43 @@ export default function VideoDateScreen() {
         sharedDailyCallEntry = null;
       }
 
-      const call = Daily.createCallObject();
-      sharedDailyCallEntry = {
-        sessionId,
-        call,
-        roomName: tokenResult.room_name,
+      let callCaptureProfile: NativeVideoDateCaptureProfile = 'ideal';
+      const installDailyCall = (profile: NativeVideoDateCaptureProfile) => {
+        const nextCall = createVideoDateDailyCallObject(profile);
+        sharedDailyCallEntry = {
+          sessionId,
+          call: nextCall,
+          roomName: tokenResult.room_name,
+          captureProfile: profile,
+        };
+        captureProfileRef.current = profile;
+        setCaptureProfile(profile);
+        vdbg('daily_call_singleton_create', {
+          sessionId,
+          userId: user.id,
+          roomName: tokenResult.room_name,
+          captureProfile: profile,
+        });
+        videoDateDailyDiagnostic('daily_call_object_created', {
+          session_id: sessionId,
+          room_name: tokenResult.room_name,
+          capture_profile: profile,
+        });
+        callRef.current = nextCall;
+        roomNameRef.current = tokenResult.room_name;
+        bindCallListeners(nextCall, tokenResult.room_name);
+        return nextCall;
       };
-      vdbg('daily_call_singleton_create', {
-        sessionId,
-        userId: user.id,
-        roomName: tokenResult.room_name,
-      });
-      callRef.current = call;
-      roomNameRef.current = tokenResult.room_name;
+      let call = installDailyCall(callCaptureProfile);
       vdbg('prejoin_state_isConnecting', {
         value: true,
         sessionId,
         userId: user.id,
         step: 'daily_call_object_created',
         roomName: tokenResult.room_name,
+        captureProfile: callCaptureProfile,
       });
       setIsConnecting(true);
-
-      bindCallListeners(call, tokenResult.room_name);
 
       try {
         currentStep = setPrejoinStep('daily_join');
@@ -3921,6 +3973,7 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
+          capture_profile: callCaptureProfile,
           prepare_to_join_start_ms: prepareToJoinStartMs,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
@@ -3931,6 +3984,7 @@ export default function VideoDateScreen() {
           event_id: eventId || null,
           source_surface: 'video_date_daily',
           source_action: preparedJoinRetryUsedRef.current ? 'daily_join_retry_started' : 'daily_join_started',
+          capture_profile: callCaptureProfile,
           prepareToJoinStartMs,
           duration_ms: prepareToJoinStartMs,
           latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
@@ -3942,6 +3996,7 @@ export default function VideoDateScreen() {
         videoDateDailyDiagnostic('daily_call_join_start', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
+          capture_profile: callCaptureProfile,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
         });
@@ -3954,12 +4009,59 @@ export default function VideoDateScreen() {
           sessionId,
           userId: user.id,
           roomName: tokenResult.room_name,
+          captureProfile: callCaptureProfile,
           hasRoomUrl: Boolean(tokenResult.room_url),
           hasToken: Boolean(tokenResult.token),
           entryAttemptId,
           videoDateTraceId,
         });
-        await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+        const joinDailyCall = async () => {
+          try {
+            await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+            return;
+          } catch (joinError) {
+            if (
+              callCaptureProfile !== 'ideal' ||
+              !isNativeVideoDateCameraConstraintError(joinError)
+            ) {
+              throw joinError;
+            }
+            vdbg('daily_call_join_constraint_fallback', {
+              sessionId,
+              userId: user.id,
+              roomName: tokenResult.room_name,
+              fromCaptureProfile: callCaptureProfile,
+              toCaptureProfile: 'fallback',
+              error:
+                joinError instanceof Error
+                  ? { name: joinError.name, message: joinError.message }
+                  : String(joinError),
+            });
+            videoDateDailyDiagnostic('daily_call_join_constraint_fallback', {
+              session_id: sessionId,
+              room_name: tokenResult.room_name,
+              from_capture_profile: callCaptureProfile,
+              to_capture_profile: 'fallback',
+            });
+            try {
+              await call.leave();
+            } catch {
+              /* best effort */
+            }
+            try {
+              call.destroy();
+            } catch {
+              /* best effort */
+            }
+            detachCallListeners('daily_join_constraint_fallback');
+            releaseSharedCallIfOwned(call, 'daily_join_constraint_fallback');
+            callRef.current = null;
+            callCaptureProfile = 'fallback';
+            call = installDailyCall(callCaptureProfile);
+            await call.join({ url: tokenResult.room_url, token: tokenResult.token });
+          }
+        };
+        await joinDailyCall();
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         endBootstrapTiming('daily_join', { ok: true, room_name: tokenResult.room_name });
         prejoinMark('daily_join_completed');
@@ -3974,6 +4076,7 @@ export default function VideoDateScreen() {
           ok: true,
           cancelled,
           roomName: tokenResult.room_name,
+          captureProfile: callCaptureProfile,
           entryAttemptId,
           videoDateTraceId,
         });
@@ -3989,6 +4092,7 @@ export default function VideoDateScreen() {
           session_id: sessionId,
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
+          capture_profile: callCaptureProfile,
           join_duration_ms: joinDurationMs,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
@@ -4017,6 +4121,7 @@ export default function VideoDateScreen() {
           event_id: eventId || null,
           source_surface: 'video_date_daily',
           source_action: 'daily_join_success',
+          capture_profile: callCaptureProfile,
           joinDurationMs,
           duration_ms: joinDurationMs,
           latency_bucket: bucketVideoDateLatencyMs(joinDurationMs),
@@ -4037,6 +4142,7 @@ export default function VideoDateScreen() {
         videoDateDailyDiagnostic('daily_call_join_success', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
+          capture_profile: callCaptureProfile,
           participant_keys_count: allIds,
           remote_count: remotes.length,
         });
@@ -4215,6 +4321,7 @@ export default function VideoDateScreen() {
           userId: user.id,
           ok: false,
           roomName: tokenResult.room_name,
+          captureProfile: callCaptureProfile,
           error: err instanceof Error ? err.message : String(err),
           entryAttemptId: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
           videoDateTraceId: preparedEntryAtFailure?.value.video_date_trace_id ?? videoDateTraceId,
@@ -4228,11 +4335,13 @@ export default function VideoDateScreen() {
         videoDateDailyDiagnostic('daily_call_join_failure', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
+          capture_profile: callCaptureProfile,
         });
         rcBreadcrumb(RC_CATEGORY.videoDateEntry, 'daily_join_fail', {
           session_id: sessionId,
           user_id: user?.id ?? null,
           room_name: tokenResult.room_name,
+          capture_profile: callCaptureProfile,
         });
         const failureContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -4259,6 +4368,7 @@ export default function VideoDateScreen() {
           event_id: eventId || null,
           source_surface: 'video_date_daily',
           source_action: 'daily_join_failure',
+          capture_profile: callCaptureProfile,
           reason: 'daily_join_failed',
           reason_code: 'daily_join_failed',
           entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
@@ -4270,6 +4380,7 @@ export default function VideoDateScreen() {
           event_id: eventId || null,
           source_surface: 'video_date_daily',
           source_action: 'daily_join_failure',
+          capture_profile: callCaptureProfile,
           reason: 'daily_join_failed',
           reason_code: 'daily_join_failed',
           entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
