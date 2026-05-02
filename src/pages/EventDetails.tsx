@@ -130,12 +130,15 @@ const EventDetails = () => {
     check();
   }, [user?.id]);
 
+  const trackedEventId = event?.id ?? null;
+  const trackedEventTitle = event?.title ?? null;
+
   // Track event view
   useEffect(() => {
-    if (event && id) {
-      trackEvent('event_viewed', { event_id: id, event_title: event.title });
+    if (trackedEventId && id) {
+      trackEvent('event_viewed', { event_id: id, event_title: trackedEventTitle ?? '' });
     }
-  }, [event?.id]);
+  }, [trackedEventId, trackedEventTitle, id]);
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -31,26 +31,26 @@ const AdminPhotoLightbox = ({
     setRefreshedUrl(fullScreenUrl(photos[currentIndex]));
   }, [isOpen, photos, currentIndex]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     setCurrentIndex((prev) => (prev > 0 ? prev - 1 : photos.length - 1));
-  };
+  }, [photos.length]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     setCurrentIndex((prev) => (prev < photos.length - 1 ? prev + 1 : 0));
-  };
+  }, [photos.length]);
 
-  const handleKeyDown = (e: KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") onClose();
     if (e.key === "ArrowLeft") handlePrev();
     if (e.key === "ArrowRight") handleNext();
-  };
+  }, [handleNext, handlePrev, onClose]);
 
   useEffect(() => {
     if (isOpen) {
       window.addEventListener("keydown", handleKeyDown);
       return () => window.removeEventListener("keydown", handleKeyDown);
     }
-  }, [isOpen]);
+  }, [isOpen, handleKeyDown]);
 
   if (!isOpen) return null;
 

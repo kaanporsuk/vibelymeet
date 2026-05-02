@@ -62,6 +62,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
 export function RouletteBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
+  const hasRouletteSnap = snap.game_type === 'roulette';
   const rouletteSnap = snap.game_type === 'roulette' ? snap : null;
 
   const { mutateAsync, isPending } = useSendRouletteChoice();
@@ -70,10 +71,11 @@ export function RouletteBubble({ view, matchId, currentUserId, partnerName, time
   const tapGuard = useRef(false);
 
   useEffect(() => {
-    if (!rouletteSnap) return;
+    if (!hasRouletteSnap) return;
     setSubmitError(null);
     setDraftAnswer('');
   }, [
+    hasRouletteSnap,
     view.gameSessionId,
     view.latestMessageId,
     view.updatedAt,

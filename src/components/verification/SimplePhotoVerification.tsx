@@ -47,19 +47,6 @@ export function SimplePhotoVerification({
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) {
-      stopCamera();
-      setScreen("intro");
-      setCapturedImage(null);
-      setCameraError(null);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    return () => stopCamera();
-  }, []);
-
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
@@ -69,6 +56,19 @@ export function SimplePhotoVerification({
       videoRef.current.srcObject = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      stopCamera();
+      setScreen("intro");
+      setCapturedImage(null);
+      setCameraError(null);
+    }
+  }, [open, stopCamera]);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
 
   const startCamera = async () => {
     // Check if getUserMedia is available

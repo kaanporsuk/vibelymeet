@@ -85,7 +85,6 @@ export default function TicketThreadScreen() {
   });
 
   const ticket = data?.ticket;
-  const replies = data?.replies ?? [];
   const status = ticket?.status as SupportStatus | undefined;
   const stCfg = status ? STATUS_CONFIG[status] ?? STATUS_CONFIG.submitted : STATUS_CONFIG.submitted;
   const resolved = ticket?.status === 'resolved';
@@ -148,6 +147,7 @@ export default function TicketThreadScreen() {
 
   const listData = useMemo(() => {
     if (!ticket) return [];
+    const replies = data?.replies ?? [];
     const summary = {
       id: 'summary',
       kind: 'summary' as const,
@@ -155,7 +155,7 @@ export default function TicketThreadScreen() {
     };
     const msgs = replies.map((r) => ({ ...r, kind: 'msg' as const }));
     return [summary, ...msgs];
-  }, [ticket, replies]);
+  }, [ticket, data?.replies]);
 
   const pt = ticket?.primary_type as PrimaryType | undefined;
   const cat = pt ? SUPPORT_CATEGORIES[pt] : null;

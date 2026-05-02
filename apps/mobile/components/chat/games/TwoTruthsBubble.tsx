@@ -76,6 +76,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
 export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
+  const hasTwoTruthsSnap = snap.game_type === '2truths';
   const twoTruthsSnap = snap.game_type === '2truths' ? snap : null;
 
   const { mutateAsync, isPending } = useSendTwoTruthsChoice();
@@ -83,9 +84,9 @@ export function TwoTruthsBubble({ view, matchId, currentUserId, partnerName, tim
   const tapGuard = useRef(false);
 
   useEffect(() => {
-    if (!twoTruthsSnap) return;
+    if (!hasTwoTruthsSnap) return;
     setSubmitError(null);
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, twoTruthsSnap?.guessed_index, twoTruthsSnap?.status]);
+  }, [hasTwoTruthsSnap, view.gameSessionId, view.latestMessageId, view.updatedAt, twoTruthsSnap?.guessed_index, twoTruthsSnap?.status]);
 
   if (!twoTruthsSnap) return null;
 

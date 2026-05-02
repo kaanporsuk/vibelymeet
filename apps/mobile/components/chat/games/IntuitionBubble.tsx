@@ -68,6 +68,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
 export function IntuitionBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
+  const hasIntuitionSnap = snap.game_type === 'intuition';
   const intuitionSnap = snap.game_type === 'intuition' ? snap : null;
 
   const { mutateAsync, isPending } = useSendIntuitionChoice();
@@ -75,9 +76,9 @@ export function IntuitionBubble({ view, matchId, currentUserId, partnerName, tim
   const tapGuard = useRef(false);
 
   useEffect(() => {
-    if (!intuitionSnap) return;
+    if (!hasIntuitionSnap) return;
     setSubmitError(null);
-  }, [view.gameSessionId, view.latestMessageId, view.updatedAt, intuitionSnap?.receiver_result, intuitionSnap?.status]);
+  }, [hasIntuitionSnap, view.gameSessionId, view.latestMessageId, view.updatedAt, intuitionSnap?.receiver_result, intuitionSnap?.status]);
 
   if (!intuitionSnap) return null;
 

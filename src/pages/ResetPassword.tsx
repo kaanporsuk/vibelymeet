@@ -48,7 +48,11 @@ const ResetPassword = () => {
 
   const currentUrlShowsRecoveryReturn = useMemo(() => {
     if (typeof window === "undefined") return false;
-    return isBrowserRecoveryReturnUrl(window.location.href);
+    const href = new URL(
+      `${location.pathname}${location.search}${location.hash}`,
+      window.location.origin,
+    ).href;
+    return isBrowserRecoveryReturnUrl(href);
   }, [location.pathname, location.search, location.hash]);
 
   const syncRecoveryState = useCallback(async () => {

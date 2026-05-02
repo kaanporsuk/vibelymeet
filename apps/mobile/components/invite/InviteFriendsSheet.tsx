@@ -133,6 +133,11 @@ export function InviteFriendsSheet({
     : modeTab === 'event'
       ? selectedEvent
       : null;
+  const hasEventProp = eventProp != null;
+  const eventPropId = eventProp?.id ?? null;
+  const eventPropTitle = eventProp?.title ?? null;
+  const selectedEventId = selectedEvent?.id ?? null;
+  const selectedEventTitle = selectedEvent?.title ?? null;
 
   const showFeedbackToast = useCallback((message: string) => {
     setFeedbackToast(message);
@@ -142,26 +147,26 @@ export function InviteFriendsSheet({
   // Reset when sheet opens (avoid clobbering message while typing mid-session)
   useEffect(() => {
     if (!visible) return;
-    if (eventProp) {
-      setCustomMessage(defaultEventInviteMessage(eventProp.title));
+    if (hasEventProp) {
+      setCustomMessage(defaultEventInviteMessage(eventPropTitle ?? ''));
       return;
     }
     setModeTab('vibely');
     setSelectedEvent(null);
     setCustomMessage(GENERAL_INVITE_DEFAULT_MSG);
-  }, [visible, eventProp?.id, eventProp?.title]);
+  }, [visible, hasEventProp, eventPropId, eventPropTitle]);
 
   useEffect(() => {
-    if (!visible || eventProp) return;
+    if (!visible || hasEventProp) return;
     if (modeTab === 'vibely') setCustomMessage(GENERAL_INVITE_DEFAULT_MSG);
-  }, [modeTab, visible, eventProp]);
+  }, [modeTab, visible, hasEventProp]);
 
   useEffect(() => {
-    if (!visible || eventProp) return;
-    if (modeTab === 'event' && selectedEvent) {
-      setCustomMessage(defaultEventInviteMessage(selectedEvent.title));
+    if (!visible || hasEventProp) return;
+    if (modeTab === 'event' && selectedEventTitle !== null) {
+      setCustomMessage(defaultEventInviteMessage(selectedEventTitle));
     }
-  }, [selectedEvent?.id, selectedEvent?.title, modeTab, visible, eventProp]);
+  }, [selectedEventId, selectedEventTitle, modeTab, visible, hasEventProp]);
 
   const shareSheetTitle = useMemo(() => {
     if (activeEvent) {

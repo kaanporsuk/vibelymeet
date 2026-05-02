@@ -151,7 +151,7 @@ export const VibeClipBubble = ({
       video.pause();
       setIsPlaying(false);
     }
-  }, []);
+  }, [isMine, meta.durationSec, meta.thumbnailUrl, threadMessageCount]);
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

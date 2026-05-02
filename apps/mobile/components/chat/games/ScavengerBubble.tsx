@@ -68,13 +68,15 @@ export function ScavengerBubble({ view, matchId, currentUserId, partnerName, tim
   const tapGuard = useRef(false);
 
   const snap = view.foldedSnapshot;
+  const hasScavengerSnap = snap.game_type === 'scavenger';
   const scavengerSnap = snap.game_type === 'scavenger' ? snap : null;
 
   useEffect(() => {
-    if (!scavengerSnap) return;
+    if (!hasScavengerSnap) return;
     setSubmitError(null);
     setSelectedPhotoUrl(null);
   }, [
+    hasScavengerSnap,
     view.gameSessionId,
     view.latestMessageId,
     view.updatedAt,

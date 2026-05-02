@@ -90,11 +90,13 @@ export default function EventDetailScreen() {
   const { data: attendeePreview, isLoading: attendeePreviewLoading } = useEventAttendeePreview(id ?? undefined);
   const { data: sentVibeIds = [], refetch: refetchSentVibes } = useEventVibesSent(id ?? undefined, user?.id);
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
+  const trackedEventId = event?.id ?? null;
+  const trackedEventTitle = event?.title ?? '';
 
   useEffect(() => {
-    if (!id || !event) return;
-    trackEvent('event_viewed', { event_id: id, event_title: event.title ?? '' });
-  }, [id, event?.id]);
+    if (!id || !trackedEventId) return;
+    trackEvent('event_viewed', { event_id: id, event_title: trackedEventTitle });
+  }, [id, trackedEventId, trackedEventTitle]);
 
   const mutualVibes: EventVibeMutual[] = receivedVibes
     .filter((r) => sentVibeIds.includes(r.sender_id))
@@ -105,13 +107,11 @@ export default function EventDetailScreen() {
       age: r.sender?.age ?? 0,
     }));
 
-  const hasSentVibe = (profileId: string) => sentVibeIds.includes(profileId);
-
   const handleAttendeePress = useCallback(
     (attendee: AttendeeDisplay) => {
       if (!user?.id || !id) return;
       const viewProfile = () => router.push(`/user/${attendee.id}` as const);
-      if (hasSentVibe(attendee.id)) {
+      if (sentVibeIds.includes(attendee.id)) {
         showDialog({
           title: 'Already vibed',
           message: `You already sent ${attendee.name} a vibe.`,
@@ -153,7 +153,7 @@ export default function EventDetailScreen() {
         secondaryAction: { label: 'View profile', onPress: viewProfile },
       });
     },
-    [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes, showDialog, router]
+    [user?.id, id, sentVibeIds, refetchSentVibes, refetchReceivedVibes, showDialog]
   );
 
   const refreshEventPhoneNudgeStatus = useCallback(async () => {
@@ -307,13 +307,11 @@ export default function EventDetailScreen() {
     }
   }, [
     event,
-    ev?.is_free,
     registerForEvent,
     refetchRegistration,
     canAccessPremiumEvents,
     canAccessVipEvents,
     showDialog,
-    router,
   ]);
 
   const handleRegister = useCallback(async () => {

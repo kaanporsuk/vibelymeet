@@ -63,6 +63,7 @@ function formatCountdown(t: DateReminder['timeUntil']): string {
 
 export function useDateReminders(upcomingDates: DateReminderSource[]) {
   const [now, setNow] = useState(() => new Date());
+  const nowMs = now.getTime();
   useEffect(() => {
     const hasRelevant = upcomingDates.some(
       (p) => p.status === 'accepted' && p.date.getTime() > Date.now() - 2 * 60 * 1000,
@@ -74,7 +75,7 @@ export function useDateReminders(upcomingDates: DateReminderSource[]) {
 
   const reminders = useMemo(() => {
     const list = upcomingDates
-      .filter((p) => p.status === 'accepted' && p.date.getTime() > now.getTime() - 2 * 60 * 1000)
+      .filter((p) => p.status === 'accepted' && p.date.getTime() > nowMs - 2 * 60 * 1000)
       .map((p) => {
         const timeUntil = calculateTimeUntil(p.date);
         return {
@@ -93,7 +94,7 @@ export function useDateReminders(upcomingDates: DateReminderSource[]) {
       })
       .sort((a, b) => a.timeUntil.totalSeconds - b.timeUntil.totalSeconds);
     return list;
-  }, [upcomingDates, now.getTime()]);
+  }, [upcomingDates, nowMs]);
 
   const nextReminder = reminders[0] ?? null;
   const imminentReminders = reminders.filter((r) => r.urgency === 'imminent' || r.urgency === 'now');

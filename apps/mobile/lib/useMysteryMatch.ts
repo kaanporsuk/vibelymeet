@@ -141,7 +141,7 @@ export function useMysteryMatch({ eventId, onMatchFound, enabled = true }: UseMy
       });
       setIsSearching(false);
     }
-  }, [eventId, onMatchFound, isWaiting, enabled]);
+  }, [eventId, onMatchFound, isWaiting, enabled, startWaitingLoop]);
 
   const cancelSearch = useCallback(() => {
     if (eventId) {

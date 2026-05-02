@@ -9,7 +9,12 @@ import { spacing, radius } from '@/constants/theme';
 
 export function TypingIndicator() {
   const theme = Colors[useColorScheme()];
-  const anims = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
+  const animsRef = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]);
+  const anims = animsRef.current;
 
   useEffect(() => {
     const loops = anims.map((a, i) =>
@@ -22,7 +27,7 @@ export function TypingIndicator() {
     );
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
-  }, []);
+  }, [anims]);
 
   return (
     <View style={styles.wrap}>

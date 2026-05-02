@@ -93,6 +93,7 @@ export const VibeStudioModal = ({
   // Request camera/mic permissions when modal opens
   useEffect(() => {
     if (!open) return;
+    let activeVideoEl: HTMLVideoElement | null = null;
 
     const initCamera = async () => {
       try {
@@ -139,8 +140,10 @@ export const VibeStudioModal = ({
           // Not all browsers support zoom constraint — that's fine
         }
 
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+        const videoEl = videoRef.current;
+        if (videoEl) {
+          activeVideoEl = videoEl;
+          videoEl.srcObject = stream;
         }
 
         // Setup audio analyzer
@@ -174,11 +177,11 @@ export const VibeStudioModal = ({
         streamRef.current = null;
       }
       // 3. Clear video element src and revoke any blob URLs
-      if (videoRef.current) {
-        if (videoRef.current.src?.startsWith('blob:')) {
-          URL.revokeObjectURL(videoRef.current.src);
+      if (activeVideoEl) {
+        if (activeVideoEl.src?.startsWith('blob:')) {
+          URL.revokeObjectURL(activeVideoEl.src);
         }
-        videoRef.current.srcObject = null;
+        activeVideoEl.srcObject = null;
       }
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -236,7 +239,7 @@ export const VibeStudioModal = ({
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [stage]);
+  }, [stage, stopRecording]);
 
   const startRecording = useCallback(() => {
     if (!streamRef.current) {

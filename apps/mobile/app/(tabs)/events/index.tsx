@@ -155,10 +155,13 @@ function useFeaturedCountdown(event: EventListItem | null) {
   const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(false);
   const [expired, setExpired] = useState(false);
+  const eventId = event?.id ?? null;
+  const eventStartMs = event?.eventDate.getTime() ?? null;
+  const eventDurationMinutes = event?.duration_minutes ?? 60;
   useEffect(() => {
-    if (!event) return;
-    const start = event.eventDate.getTime();
-    const end = start + (event.duration_minutes ?? 60) * 60 * 1000;
+    if (eventStartMs === null) return;
+    const start = eventStartMs;
+    const end = start + eventDurationMinutes * 60 * 1000;
     const tick = () => {
       const now = Date.now();
       if (now >= end) {
@@ -182,7 +185,7 @@ function useFeaturedCountdown(event: EventListItem | null) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [event?.id, event?.eventDate?.getTime(), event?.duration_minutes]);
+  }, [eventId, eventStartMs, eventDurationMinutes]);
   return { timeLeft, isLive, expired };
 }
 

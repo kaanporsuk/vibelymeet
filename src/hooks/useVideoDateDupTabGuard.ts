@@ -30,6 +30,7 @@ export function useVideoDateDupTabGuard(sessionId: string | undefined, leaseActi
       setDupBlocked(false);
       return;
     }
+    const owner = ownerRef.current;
 
     const readLease = (): LeasePayload | null => {
       try {
@@ -44,12 +45,12 @@ export function useVideoDateDupTabGuard(sessionId: string | undefined, leaseActi
     const tick = () => {
       const now = Date.now();
       const cur = readLease();
-      if (cur && cur.owner !== ownerRef.current && cur.exp > now) {
+      if (cur && cur.owner !== owner && cur.exp > now) {
         setDupBlocked(true);
         return;
       }
       setDupBlocked(false);
-      const payload: LeasePayload = { owner: ownerRef.current, exp: now + LEASE_MS };
+      const payload: LeasePayload = { owner, exp: now + LEASE_MS };
       localStorage.setItem(key, JSON.stringify(payload));
     };
 
@@ -60,7 +61,7 @@ export function useVideoDateDupTabGuard(sessionId: string | undefined, leaseActi
       if (e.key !== key || !e.newValue) return;
       try {
         const cur = JSON.parse(e.newValue) as LeasePayload;
-        if (cur.owner !== ownerRef.current && cur.exp > Date.now()) {
+        if (cur.owner !== owner && cur.exp > Date.now()) {
           setDupBlocked(true);
         }
       } catch {
@@ -73,7 +74,7 @@ export function useVideoDateDupTabGuard(sessionId: string | undefined, leaseActi
       clearInterval(iv);
       window.removeEventListener("storage", onStorage);
       const cur = readLease();
-      if (cur?.owner === ownerRef.current) {
+      if (cur?.owner === owner) {
         localStorage.removeItem(key);
       }
     };

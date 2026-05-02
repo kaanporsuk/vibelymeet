@@ -62,6 +62,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
 export function CharadesBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
+  const hasCharadesSnap = snap.game_type === 'charades';
   const charadesSnap = snap.game_type === 'charades' ? snap : null;
 
   const { mutateAsync, isPending } = useSendCharadesChoice();
@@ -70,10 +71,11 @@ export function CharadesBubble({ view, matchId, currentUserId, partnerName, time
   const tapGuard = useRef(false);
 
   useEffect(() => {
-    if (!charadesSnap) return;
+    if (!hasCharadesSnap) return;
     setSubmitError(null);
     setGuessText('');
   }, [
+    hasCharadesSnap,
     view.gameSessionId,
     view.latestMessageId,
     view.updatedAt,
