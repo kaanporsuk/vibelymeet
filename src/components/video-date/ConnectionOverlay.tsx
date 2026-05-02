@@ -11,6 +11,7 @@ interface ConnectionOverlayProps {
   onRetryPeerMissing?: () => void;
   onKeepWaitingPeerMissing?: () => void;
   onLeave: () => void;
+  isLeaving?: boolean;
 }
 
 export const ConnectionOverlay = ({
@@ -21,6 +22,7 @@ export const ConnectionOverlay = ({
   onRetryPeerMissing,
   onKeepWaitingPeerMissing,
   onLeave,
+  isLeaving = false,
 }: ConnectionOverlayProps) => {
   const playbackRejected = Boolean(remotePlayback?.playRejected);
   const peerMissingTerminal = Boolean(peerMissing?.terminal);
@@ -88,6 +90,7 @@ export const ConnectionOverlay = ({
           <Button
             type="button"
             onClick={onRetryRemotePlayback}
+            disabled={isLeaving}
             className="rounded-full px-6"
           >
             <Play className="w-4 h-4 mr-2" />
@@ -101,6 +104,7 @@ export const ConnectionOverlay = ({
               <Button
                 type="button"
                 onClick={onRetryPeerMissing}
+                disabled={isLeaving}
                 className="rounded-full px-6"
               >
                 Try reconnecting
@@ -111,6 +115,7 @@ export const ConnectionOverlay = ({
                 type="button"
                 variant="secondary"
                 onClick={onKeepWaitingPeerMissing}
+                disabled={isLeaving}
                 className="rounded-full px-6"
               >
                 Keep waiting
@@ -120,12 +125,14 @@ export const ConnectionOverlay = ({
         )}
 
         <Button
+          type="button"
           variant="outline"
           onClick={onLeave}
+          disabled={isLeaving}
           className="rounded-full px-6"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
-          Leave
+          {isLeaving ? "Leaving..." : "Leave"}
         </Button>
       </div>
     </motion.div>

@@ -17,6 +17,7 @@ type Props = {
   isConnecting?: boolean;
   mode?: ConnectionOverlayMode;
   onLeave: () => void;
+  isLeaving?: boolean;
   /** When `waiting_peer`, optional title if server shows the peer has not joined Daily yet (vs generic wait). */
   waitingPeerTitle?: string;
   /** When `waiting_peer`, optional subtitle (e.g. reconnect vs not-in-app — caller decides). */
@@ -27,6 +28,7 @@ export function ConnectionOverlay({
   isConnecting,
   mode,
   onLeave,
+  isLeaving = false,
   waitingPeerTitle,
   waitingPeerSubtitle,
 }: Props) {
@@ -93,9 +95,17 @@ export function ConnectionOverlay({
         </Text>
         <Pressable
           onPress={onLeave}
-          style={({ pressed }) => [styles.leaveBtn, { borderColor: theme.border }, pressed && styles.pressed]}
+          disabled={isLeaving}
+          style={({ pressed }) => [
+            styles.leaveBtn,
+            { borderColor: theme.border },
+            pressed && styles.pressed,
+            isLeaving && styles.disabled,
+          ]}
         >
-          <Text style={[styles.leaveBtnText, { color: theme.text }]}>Leave</Text>
+          <Text style={[styles.leaveBtnText, { color: theme.text }]}>
+            {isLeaving ? 'Leaving...' : 'Leave'}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -162,5 +172,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.8,
+  },
+  disabled: {
+    opacity: 0.6,
   },
 });

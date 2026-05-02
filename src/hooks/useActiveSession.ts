@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
+import { isDateNavigationSuppressedAfterManualExit } from "@/lib/dateNavigationGuard";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   activeSessionDirectFallbackStaleReason,
@@ -244,22 +245,27 @@ export function useActiveSession(
 
   const commitActiveSession = useCallback((next: ActiveSession | null, reason: string) => {
     if (!mounted.current) return;
-    setActiveSession(next);
+    const visibleNext =
+      next?.kind === "video" && isDateNavigationSuppressedAfterManualExit(next.sessionId)
+        ? null
+        : next;
+    setActiveSession(visibleNext);
     setHydrated(true);
 
     if (import.meta.env.DEV) {
-      const key = next
-        ? `${next.kind}:${next.sessionId}:${next.eventId}:${next.queueStatus}:${reason}`
+      const key = visibleNext
+        ? `${visibleNext.kind}:${visibleNext.sessionId}:${visibleNext.eventId}:${visibleNext.queueStatus}:${reason}`
         : `null:${reason}`;
       if (lastHydrationDebugKey.current !== key) {
         lastHydrationDebugKey.current = key;
         console.log("[useActiveSession] hydration result", {
           reason,
-          kind: next?.kind ?? null,
-          sessionId: next?.sessionId ?? null,
-          eventId: next?.eventId ?? null,
-          queueStatus: next?.queueStatus ?? null,
+          kind: visibleNext?.kind ?? null,
+          sessionId: visibleNext?.sessionId ?? null,
+          eventId: visibleNext?.eventId ?? null,
+          queueStatus: visibleNext?.queueStatus ?? null,
           scopedEventId: eventFilter,
+          suppressedManualExitSessionId: next !== visibleNext ? next?.sessionId ?? null : null,
         });
       }
     }

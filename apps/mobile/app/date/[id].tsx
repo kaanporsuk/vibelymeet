@@ -433,6 +433,7 @@ export default function VideoDateScreen() {
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
   const [captureProfile, setCaptureProfile] = useState<NativeVideoDateCaptureProfile>('ideal');
+  const [isAbortingConnection, setIsAbortingConnection] = useState(false);
 
   const callRef = useRef<DailyCallObject | null>(null);
   const captureProfileRef = useRef<NativeVideoDateCaptureProfile>('ideal');
@@ -504,6 +505,7 @@ export default function VideoDateScreen() {
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
+  const abortConnectionInFlightRef = useRef(false);
   /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
   const firstPlayableRemoteAtMsRef = useRef(0);
 
@@ -2454,23 +2456,33 @@ export default function VideoDateScreen() {
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
   const handleAbortConnection = useCallback(
     async (opts?: { source?: 'peer_missing' }) => {
-      if (opts?.source === 'peer_missing' && sessionId) {
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
-          platform: 'native',
-          session_id: sessionId,
-          event_id: eventId,
-        });
-        await endVideoDate(sessionId, 'partial_join_peer_timeout');
-      }
-      await cleanupForAbortWithoutServerEnd();
-      if (eventId) {
-        const target = eventLobbyHref(eventId);
-        vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null, eventId });
-        router.replace(target);
-      } else {
-        const target = '/(tabs)/events';
-        vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
-        router.replace(target);
+      if (abortConnectionInFlightRef.current) return;
+      abortConnectionInFlightRef.current = true;
+      setIsAbortingConnection(true);
+      try {
+        if (opts?.source === 'peer_missing' && sessionId) {
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_BACK_TO_LOBBY_TAP, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId,
+          });
+          await endVideoDate(sessionId, 'partial_join_peer_timeout');
+        } else if (sessionId) {
+          await endVideoDate(sessionId, 'ended_from_client');
+        }
+        await cleanupForAbortWithoutServerEnd();
+        if (eventId) {
+          const target = eventLobbyHref(eventId);
+          vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null, eventId });
+          router.replace(target);
+        } else {
+          const target = '/(tabs)/events';
+          vdbgRedirect(target, 'abort_connection', { sessionId: sessionId ?? null });
+          router.replace(target);
+        }
+      } finally {
+        setIsAbortingConnection(false);
+        abortConnectionInFlightRef.current = false;
       }
     },
     [cleanupForAbortWithoutServerEnd, eventId, sessionId]
@@ -5317,12 +5329,13 @@ export default function VideoDateScreen() {
       </View>
 
         {showJoiningOverlay && (
-          <ConnectionOverlay mode="joining" onLeave={handleAbortConnection} />
+          <ConnectionOverlay mode="joining" onLeave={handleAbortConnection} isLeaving={isAbortingConnection} />
         )}
         {showPeerWaitOverlay && (
           <ConnectionOverlay
             mode="waiting_peer"
             onLeave={handleAbortConnection}
+            isLeaving={isAbortingConnection}
             waitingPeerTitle={peerNotOpenedVideoDateYet ? "They haven't opened the date yet" : undefined}
             waitingPeerSubtitle={
               peerNotOpenedVideoDateYet
@@ -5348,9 +5361,12 @@ export default function VideoDateScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => void handleAbortConnection()}
+                  disabled={isAbortingConnection}
                   style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
                 >
-                  <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
+                  <Text style={[styles.initialBackText, { color: theme.text }]}>
+                    {isAbortingConnection ? 'Leaving...' : 'Back to lobby'}
+                  </Text>
                 </Pressable>
               </View>
             </View>
@@ -5381,9 +5397,12 @@ export default function VideoDateScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => void handleAbortConnection({ source: 'peer_missing' })}
+                  disabled={isAbortingConnection}
                   style={({ pressed }) => [styles.initialBackBtn, { borderColor: theme.border }, pressed && styles.initialBtnPressed]}
                 >
-                  <Text style={[styles.initialBackText, { color: theme.text }]}>Back to lobby</Text>
+                  <Text style={[styles.initialBackText, { color: theme.text }]}>
+                    {isAbortingConnection ? 'Leaving...' : 'Back to lobby'}
+                  </Text>
                 </Pressable>
               </View>
             </View>

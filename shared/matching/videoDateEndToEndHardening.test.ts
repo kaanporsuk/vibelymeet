@@ -182,6 +182,10 @@ const webActiveSessionHook = readFileSync(
   join(process.cwd(), "src/hooks/useActiveSession.ts"),
   "utf8",
 );
+const webDateNavigationGuard = readFileSync(
+  join(process.cwd(), "src/lib/dateNavigationGuard.ts"),
+  "utf8",
+);
 const webEventStatusHook = readFileSync(
   join(process.cwd(), "src/hooks/useEventStatus.ts"),
   "utf8",
@@ -1344,6 +1348,35 @@ test("web and native use server-owned leave, reconnect, and permission recovery 
   assert.doesNotMatch(nativeVideoDateRoute, /markVideoDateDailyJoined\(sessionId\)\.then\(\(retryOk\)/);
 });
 
+test("video date button escape contracts keep web and native users routable", () => {
+  assert.match(webVideoDatePage, /const handlePreDateExit = useCallback/);
+  assert.match(webVideoDatePage, /runVideoDateManualExitStep\("daily_cleanup"[\s\S]*endCall\(source\)/);
+  assert.match(webVideoDatePage, /runVideoDateManualExitStep\("server_end"[\s\S]*signalPreDateManualEnd\(reason\)/);
+  assert.match(webVideoDatePage, /suppressDateNavigationAfterManualExit\(id\)/);
+  assert.match(webVideoDatePage, /clearDateEntryTransition\(id\)/);
+  assert.match(webVideoDatePage, /navigate\(target, \{ replace: true \}\)/);
+  assert.match(
+    webVideoDatePage,
+    /onLeave=\{peerMissing\.terminal \? handlePeerMissingLeave : handlePreDateExit\}/,
+  );
+  assert.match(webVideoDatePage, /const hasDateEntryTruth = hasEnteredDateFlowRef\.current \|\| phaseRef\.current === "date" \|\| Boolean\(dateStartedAt\)/);
+  assert.match(webVideoDatePage, /openPostDateSurvey\("local_end"\)/);
+  assert.match(webDateNavigationGuard, /recent_manual_exit/);
+  assert.match(webDateNavigationGuard, /sessionStorage/);
+  assert.match(webActiveSessionHook, /isDateNavigationSuppressedAfterManualExit\(next\.sessionId\)/);
+  assert.match(webConnectionOverlay, /disabled=\{isLeaving\}/);
+  assert.match(webConnectionOverlay, /onClick=\{onLeave\}/);
+  assert.match(webVideoDatePage, /isLeaving=\{isLeavingVideoDate\}/);
+
+  assert.match(nativeVideoDateRoute, /const handleAbortConnection = useCallback/);
+  assert.match(nativeVideoDateRoute, /abortConnectionInFlightRef/);
+  assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'ended_from_client'\)/);
+  assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'partial_join_peer_timeout'\)/);
+  assert.match(nativeVideoDateRoute, /router\.replace\(target\)/);
+  assert.match(nativeVideoDateRoute, /isLeaving=\{isAbortingConnection\}/);
+  assert.match(nativeVideoDateRoute, /disabled=\{isAbortingConnection\}/);
+});
+
 test("native local date end waits for server terminal truth before survey", () => {
   assert.match(
     nativeVideoDateRoute,
@@ -1608,7 +1641,10 @@ test("peer-missing user exit preserves the canonical partial-join terminal reaso
   assert.match(partialJoinManualEndMigration, /'watchdog_source', 'client_peer_missing_exit'/);
   assert.match(partialJoinManualEndMigration, /'survey_eligible', false/);
   assert.match(partialJoinManualEndMigration, /'joined_evidence'/);
-  assert.match(webVideoDatePage, /handleLeave\(\{ reason: "partial_join_peer_timeout" \}\)/);
+  assert.match(
+    webVideoDatePage,
+    /handlePreDateExit\(\{ reason: "partial_join_peer_timeout", source: "peer_missing_back_to_lobby" \}\)/,
+  );
   assert.match(nativeVideoDateRoute, /endVideoDate\(sessionId, 'partial_join_peer_timeout'\)/);
 });
 

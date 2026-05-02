@@ -19,6 +19,7 @@ interface VideoDateControlsProps {
   onViewProfile: () => void;
   /** In-call safety report (canonical `submit_user_report`); omit when not in active call. */
   onSafety?: () => void;
+  isLeaving?: boolean;
 }
 
 export const VideoDateControls = ({
@@ -29,6 +30,7 @@ export const VideoDateControls = ({
   onLeave,
   onViewProfile,
   onSafety,
+  isLeaving = false,
 }: VideoDateControlsProps) => {
   const controlBtn =
     "h-14 w-14 rounded-full transition-all duration-200";
@@ -79,12 +81,13 @@ export const VideoDateControls = ({
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             size="icon"
-            aria-label="End date"
+            aria-label={isLeaving ? "Ending date" : "End date"}
             className={`${controlBtn} bg-destructive hover:bg-destructive/90 text-destructive-foreground shadow-lg`}
             style={{
               boxShadow: "0 0 20px hsl(var(--destructive) / 0.4)",
             }}
             onClick={onLeave}
+            disabled={isLeaving}
           >
             <PhoneOff className="w-5 h-5" />
           </Button>

@@ -38,6 +38,7 @@ import {
   isDateEntryTransitionActive,
   markVideoDateEntryPipelineStarted,
 } from "@/lib/dateEntryTransitionLatch";
+import { suppressDateNavigationAfterManualExit } from "@/lib/dateNavigationGuard";
 import {
   getVideoDateJourneyEventName,
   type VideoDateJourneyEvent,
@@ -77,12 +78,14 @@ const HANDSHAKE_TIME = 60;
 const DATE_TIME = 300;
 const WEB_LIFECYCLE_AWAY_GRACE_MS = 12_000;
 const VIDEO_DATE_ACCESS_LOADING_WATCHDOG_MS = 8_000;
+const VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS = 2_500;
 const REMOTE_DATE_VIDEO_CONTAINER_CLASS = "flex-1 relative bg-black";
 // Product invariant: remote date video preserves the full encoded camera frame.
 // Do not switch this to cover/scale/transform; use a separate decorative layer for cinematic crops.
 const REMOTE_DATE_VIDEO_CLASS = "w-full h-full object-contain object-center";
 
 type VideoDateEndReason = "ended_from_client" | "partial_join_peer_timeout";
+type VideoDateManualExitStepStatus = "completed" | "failed" | "timed_out";
 
 type WebLifecycleLeaveSource = "beforeunload" | "pagehide" | "visibilitychange" | "freeze";
 
@@ -96,6 +99,52 @@ function makeExtensionIdempotencyKey(sessionId: string, type: "extra_time" | "ex
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `${sessionId}:${type}:${random}`;
+}
+
+function serializeManualExitError(error: unknown): Record<string, unknown> | string {
+  return error instanceof Error ? { name: error.name, message: error.message } : String(error);
+}
+
+function runVideoDateManualExitStep(
+  step: string,
+  operation: () => Promise<unknown>,
+  timeoutMs = VIDEO_DATE_MANUAL_EXIT_CLEANUP_TIMEOUT_MS,
+): Promise<{ status: VideoDateManualExitStepStatus; error?: unknown }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      vdbg("video_date_manual_exit_step", {
+        step,
+        status: "timed_out",
+        timeoutMs,
+      });
+      resolve({ status: "timed_out" });
+    }, timeoutMs);
+
+    void operation().then(
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        vdbg("video_date_manual_exit_step", { step, status: "completed", timeoutMs });
+        resolve({ status: "completed" });
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        vdbg("video_date_manual_exit_step", {
+          step,
+          status: "failed",
+          timeoutMs,
+          error: serializeManualExitError(error),
+        });
+        resolve({ status: "failed", error });
+      },
+    );
+  });
 }
 
 type VideoDateAccess = "loading" | "allowed" | "denied" | "not_found";
@@ -212,6 +261,7 @@ const VideoDate = () => {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
+  const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
   const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
   const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
   const [timingRefreshNonce, setTimingRefreshNonce] = useState(0);
@@ -256,6 +306,7 @@ const VideoDate = () => {
   const videoJoinCycleRef = useRef(0);
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
+  const manualExitInFlightRef = useRef(false);
   /** Set after `handleCallEnd` is defined — avoids TDZ when `handleHandshakeDecision` closes over end UX. */
   const handleCallEndRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -2512,7 +2563,144 @@ const VideoDate = () => {
     handleCallEndRef.current = handleCallEnd;
   }, [handleCallEnd]);
 
+  const resolveVideoDateExitTarget = useCallback(
+    (overrideEventId?: string | null) => {
+      const destinationEventId = overrideEventId ?? eventId;
+      return destinationEventId ? `/event/${encodeURIComponent(destinationEventId)}/lobby` : "/events";
+    },
+    [eventId],
+  );
+
+  const signalPreDateManualEnd = useCallback(
+    async (reason: VideoDateEndReason) => {
+      if (!id) return false;
+      const args = {
+        p_session_id: id,
+        p_action: "end",
+        p_reason: reason,
+      };
+      vdbg("video_date_transition_before", {
+        action: "end",
+        source: "manual_pre_date_exit",
+        args,
+      });
+      const transitionResult = await sendVideoDateSignalWithRetry({
+        sessionId: id,
+        action: "end",
+        operation: async (attempt, idempotencyKey) => {
+          const { data, error } = await supabase.rpc("video_date_transition", args);
+          vdbg("video_date_transition_after", {
+            action: "end",
+            source: "manual_pre_date_exit",
+            ok: !error,
+            payload: data ?? null,
+            error: error ? { code: error.code, message: error.message } : null,
+            attempt,
+            idempotencyKey,
+          });
+          if (error) throw error;
+          return data;
+        },
+        isSuccess: (data) => (data as { success?: boolean } | null)?.success !== false,
+      });
+
+      recordUserAction(
+        transitionResult.ok
+          ? "video_date_pre_date_exit_end_signal_succeeded"
+          : "video_date_pre_date_exit_end_signal_failed",
+        {
+          surface: "video_date",
+          session_id: id,
+          phase: phaseRef.current,
+          reason,
+          attempts: transitionResult.attempts,
+        },
+      );
+      return transitionResult.ok;
+    },
+    [id],
+  );
+
+  const handlePreDateExit = useCallback(
+    async (opts?: { reason?: VideoDateEndReason; source?: string }) => {
+      const reason = opts?.reason ?? "ended_from_client";
+      const source = opts?.source ?? "connection_overlay_leave";
+      if (manualExitInFlightRef.current) return;
+      manualExitInFlightRef.current = true;
+      setIsLeavingVideoDate(true);
+      recordUserAction("video_date_pre_date_leave_clicked", {
+        surface: "video_date",
+        session_id: id,
+        phase: phaseRef.current,
+        reason,
+        source,
+      });
+      clearHandshakeGraceState();
+      if (id) {
+        clearDateEntryTransition(id);
+        suppressDateNavigationAfterManualExit(id);
+      }
+      setPhase("ended");
+      setTimeLeft(0);
+      setShowFeedback(false);
+      void setStatus("browsing");
+
+      const [dailyCleanup, serverEnd] = await Promise.all([
+        runVideoDateManualExitStep("daily_cleanup", () => endCall(source)),
+        runVideoDateManualExitStep("server_end", () => signalPreDateManualEnd(reason)),
+      ]);
+
+      const target = resolveVideoDateExitTarget();
+      recordUserAction("video_date_pre_date_leave_navigating", {
+        surface: "video_date",
+        session_id: id,
+        phase: phaseRef.current,
+        reason,
+        source,
+        daily_cleanup_status: dailyCleanup.status,
+        server_end_status: serverEnd.status,
+        target,
+      });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_NO_REMOTE_USER_EXIT, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+        source,
+        daily_cleanup_status: dailyCleanup.status,
+        server_end_status: serverEnd.status,
+      });
+      vdbgRedirect(target, "manual_pre_date_exit", {
+        sessionId: id ?? null,
+        eventId: eventId ?? null,
+        reason,
+        source,
+        dailyCleanupStatus: dailyCleanup.status,
+        serverEndStatus: serverEnd.status,
+      });
+      navigate(target, { replace: true });
+    },
+    [
+      clearHandshakeGraceState,
+      endCall,
+      eventId,
+      id,
+      navigate,
+      resolveVideoDateExitTarget,
+      setStatus,
+      signalPreDateManualEnd,
+    ],
+  );
+
   const handleLeave = useCallback(async (opts?: { reason?: VideoDateEndReason }) => {
+    const hasDateEntryTruth = hasEnteredDateFlowRef.current || phaseRef.current === "date" || Boolean(dateStartedAt);
+    if (!hasDateEntryTruth) {
+      await handlePreDateExit({
+        reason: opts?.reason ?? "ended_from_client",
+        source: "pre_date_leave_button",
+      });
+      return;
+    }
+
     recordUserAction("video_date_leave_clicked", {
       surface: "video_date",
       session_id: id,
@@ -2523,7 +2711,7 @@ const VideoDate = () => {
     await endCall("user_leave_button");
     toast("You left the date — stay safe! 💚", { duration: 2000 });
     await handleCallEnd(opts?.reason);
-  }, [endCall, handleCallEnd, clearHandshakeGraceState, id, phase]);
+  }, [dateStartedAt, endCall, handleCallEnd, handlePreDateExit, clearHandshakeGraceState, id, phase]);
 
   useEffect(() => {
     if (!peerMissing.terminal || !id) return;
@@ -2583,8 +2771,8 @@ const VideoDate = () => {
         source: "peer_missing_back_to_lobby",
       });
     }
-    void handleLeave({ reason: "partial_join_peer_timeout" });
-  }, [eventId, handleLeave, id]);
+    void handlePreDateExit({ reason: "partial_join_peer_timeout", source: "peer_missing_back_to_lobby" });
+  }, [eventId, handlePreDateExit, id]);
 
   useEffect(() => {
     if (phase === "date" || phase === "ended") {
@@ -2996,7 +3184,8 @@ const VideoDate = () => {
                 onRetryRemotePlayback={retryRemotePlayback}
                 onRetryPeerMissing={handlePeerMissingRetry}
                 onKeepWaitingPeerMissing={handlePeerMissingKeepWaiting}
-                onLeave={peerMissing.terminal ? handlePeerMissingLeave : handleLeave}
+                onLeave={peerMissing.terminal ? handlePeerMissingLeave : handlePreDateExit}
+                isLeaving={isLeavingVideoDate}
               />
             )}
         </AnimatePresence>
@@ -3093,6 +3282,7 @@ const VideoDate = () => {
             toggleVideo();
           }}
           onLeave={handleLeave}
+          isLeaving={isLeavingVideoDate}
           onViewProfile={() => {
             recordUserAction("video_date_control_clicked", {
               surface: "video_date",
