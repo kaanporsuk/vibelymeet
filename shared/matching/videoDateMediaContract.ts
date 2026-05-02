@@ -52,8 +52,6 @@ export const VIDEO_DATE_WEB_FALLBACK_VIDEO_CONSTRAINTS: VideoDateWebVideoConstra
 };
 
 export const VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS: VideoDateNativeVideoConstraints = {
-  width: VIDEO_DATE_CAPTURE_WIDTH,
-  height: VIDEO_DATE_CAPTURE_HEIGHT,
   frameRate: VIDEO_DATE_CAPTURE_FRAME_RATE,
   facingMode: "user",
 };

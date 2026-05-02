@@ -212,11 +212,24 @@ test("Video Date media contract preserves full remote frame on web and native", 
   assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("ideal"\)\)/);
   assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("fallback"\)\)/);
   assert.doesNotMatch(webVideoCall, /getUserMedia\(\{\s*audio:\s*true,\s*video:\s*true\s*\}\)/);
+  const nativeIdealConstraints =
+    videoDateMediaContract.match(/VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS[\s\S]*?\};/)?.[0] ?? "";
+  const nativeFallbackConstraints =
+    videoDateMediaContract.match(/VIDEO_DATE_NATIVE_FALLBACK_VIDEO_CONSTRAINTS[\s\S]*?\};/)?.[0] ?? "";
+  assert.doesNotMatch(nativeIdealConstraints, /\bwidth\s*:/);
+  assert.doesNotMatch(nativeIdealConstraints, /\bheight\s*:/);
+  assert.doesNotMatch(nativeFallbackConstraints, /\bwidth\s*:/);
+  assert.doesNotMatch(nativeFallbackConstraints, /\bheight\s*:/);
   assert.match(webVideoDatePage, /objectFit:\s*VIDEO_DATE_REMOTE_OBJECT_FIT/);
   assert.match(webVideoDatePage, /objectPosition:\s*VIDEO_DATE_REMOTE_OBJECT_POSITION/);
   assert.match(nativeVideoDateDailyMediaConfig, /createVideoDateDailyCallObject/);
-  assert.match(nativeVideoDateDailyMediaConfig, /videoDateNativeVideoConstraintsForProfile/);
-  assert.match(nativeVideoDateDailyMediaConfig, /userMediaVideoConstraints:\s*videoConstraints/);
+  assert.match(nativeVideoDateDailyMediaConfig, /videoDateNativeDailyCallOptions/);
+  assert.match(nativeVideoDateDailyMediaConfig, /videoSource:\s*true/);
+  assert.match(nativeVideoDateDailyMediaConfig, /audioSource:\s*true/);
+  assert.match(nativeVideoDateDailyMediaConfig, /sendSettings:[\s\S]*video:\s*'quality-optimized'/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /videoDateNativeVideoConstraintsForProfile/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /userMediaVideoConstraints/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /dailyConfig/);
   assert.match(nativeDateRoute, /createVideoDateDailyCallObject\(profile\)/);
   assert.match(nativeDateRoute, /daily_call_join_constraint_fallback/);
   assert.doesNotMatch(nativeDateRoute, /Daily\.createCallObject\(/);

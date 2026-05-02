@@ -139,7 +139,11 @@ import {
   type NativeVideoDateCaptureProfile,
   type VideoDateDailyCallObject,
 } from '@/lib/videoDateDailyMediaConfig';
-import { videoDateAspectRatio } from '@clientShared/matching/videoDateMediaContract';
+import {
+  VIDEO_DATE_REMOTE_OBJECT_FIT,
+  VIDEO_DATE_REMOTE_OBJECT_POSITION,
+  videoDateAspectRatio,
+} from '@clientShared/matching/videoDateMediaContract';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -152,14 +156,30 @@ const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
 const MIN_DECISION_WINDOW_AFTER_MEDIA_MS = 15_000;
 type DailyCallObject = VideoDateDailyCallObject;
+type SharedDailyCallEntryState = 'creating' | 'joining' | 'joined' | 'failed' | 'leaving';
 type SharedDailyCallEntry = {
   sessionId: string;
   call: DailyCallObject;
   roomName: string | null;
   captureProfile: NativeVideoDateCaptureProfile;
+  state: SharedDailyCallEntryState;
+  joinPromise: Promise<void> | null;
+  createdAtMs: number;
+  joinStartedAtMs: number | null;
+  lastError: string | null;
 };
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
 type NativeMediaStreamTrack = import('@daily-co/react-native-webrtc').MediaStreamTrack;
+type NativeDailyCameraFacingMode = 'user' | 'environment';
+type NativeDailyCameraControls = {
+  getCameraFacingMode?: () => Promise<NativeDailyCameraFacingMode | null>;
+  cycleCamera?: () => Promise<{ device: { facingMode: NativeDailyCameraFacingMode } | null }>;
+};
+
+function summarizeSharedDailyError(error: unknown): string {
+  if (error instanceof Error) return `${error.name || 'Error'}: ${error.message}`;
+  return String(error ?? 'unknown');
+}
 
 function makeExtensionIdempotencyKey(sessionId: string, type: 'extra_time' | 'extended_vibe'): string {
   const random =
@@ -342,6 +362,61 @@ function videoDateDailyDiagnostic(
     level: 'info',
     data: safeData as Record<string, unknown> | undefined,
   });
+}
+
+async function ensureNativeFrontCameraIntent(
+  call: DailyCallObject,
+  context: { sessionId: string; roomName: string | null; captureProfile: NativeVideoDateCaptureProfile }
+) {
+  const cameraControls = call as unknown as NativeDailyCameraControls;
+  if (typeof cameraControls.getCameraFacingMode !== 'function') {
+    videoDateDailyDiagnostic('front_camera_intent_unavailable', {
+      session_id: context.sessionId,
+      room_name: context.roomName,
+      capture_profile: context.captureProfile,
+      reason: 'unsupported_api',
+    });
+    return;
+  }
+  try {
+    const facingMode = await cameraControls.getCameraFacingMode();
+    if (facingMode !== 'environment') {
+      videoDateDailyDiagnostic('front_camera_intent_checked', {
+        session_id: context.sessionId,
+        room_name: context.roomName,
+        capture_profile: context.captureProfile,
+        facing_mode: facingMode,
+        action: 'none',
+      });
+      return;
+    }
+    if (typeof cameraControls.cycleCamera !== 'function') {
+      videoDateDailyDiagnostic('front_camera_intent_unavailable', {
+        session_id: context.sessionId,
+        room_name: context.roomName,
+        capture_profile: context.captureProfile,
+        reason: 'cycle_camera_unsupported',
+        facing_mode: facingMode,
+      });
+      return;
+    }
+    const result = await cameraControls.cycleCamera();
+    videoDateDailyDiagnostic('front_camera_intent_checked', {
+      session_id: context.sessionId,
+      room_name: context.roomName,
+      capture_profile: context.captureProfile,
+      facing_mode: facingMode,
+      action: 'cycle_camera',
+      next_facing_mode: result?.device?.facingMode ?? null,
+    });
+  } catch (error) {
+    videoDateDailyDiagnostic('front_camera_intent_failed', {
+      session_id: context.sessionId,
+      room_name: context.roomName,
+      capture_profile: context.captureProfile,
+      error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+    });
+  }
 }
 
 /** Same keys as {@link videoDateDailyDiagnostic}; use where room name is only on refs (e.g. AppState). */
@@ -585,6 +660,8 @@ export default function VideoDateScreen() {
         reason,
         sessionId: sharedDailyCallEntry.sessionId,
         roomName: sharedDailyCallEntry.roomName,
+        state: sharedDailyCallEntry.state,
+        joinInFlight: Boolean(sharedDailyCallEntry.joinPromise),
       });
       sharedDailyCallEntry = null;
     },
@@ -1720,8 +1797,10 @@ export default function VideoDateScreen() {
       session_id: sessionId ?? '',
       room_name: roomNameRef.current ?? null,
       capture_profile: captureProfile,
+      diagnostic_scope: 'sender_capture',
       track_id: trackId,
       track_settings: summarizeVideoTrackSettings(videoTrack),
+      frame_issue_hint: 'compare_native_local_track_settings_with_remote_receiver_layout',
     });
   }, [captureProfile, localParticipant, sessionId]);
 
@@ -1782,8 +1861,12 @@ export default function VideoDateScreen() {
       room_name: roomNameRef.current ?? null,
       participant_id: dailyParticipantId(remoteParticipant ?? undefined) ?? 'unknown',
       capture_profile: captureProfile,
+      diagnostic_scope: 'receiver_layout',
       track_id: trackId,
       track_settings: summarizeVideoTrackSettings(videoTrack),
+      receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT,
+      receiver_object_position: VIDEO_DATE_REMOTE_OBJECT_POSITION,
+      frame_issue_hint: 'remote_layout_contains_sender_frame_without_receiver_crop',
     });
   }, [captureProfile, remoteParticipant, sessionId, eventId, endBootstrapTiming]);
 
@@ -3006,55 +3089,159 @@ export default function VideoDateScreen() {
       vdbg('prejoin_state_awaitingFirstConnect', { value: false, sessionId, userId: user.id, step: currentStep });
       setAwaitingFirstConnect(false);
       clearFirstConnectWatchdog();
+      const destroySharedCallForRetry = async (entry: SharedDailyCallEntry, reason: string) => {
+        entry.state = 'leaving';
+        entry.joinPromise = null;
+        vdbg('daily_call_singleton_destroy_for_retry', {
+          reason,
+          sessionId,
+          userId: user.id,
+          roomName: entry.roomName,
+          captureProfile: entry.captureProfile,
+          lastError: entry.lastError,
+        });
+        try {
+          await entry.call.leave();
+        } catch {
+          /* best effort */
+        }
+        try {
+          entry.call.destroy();
+        } catch {
+          /* best effort */
+        }
+        if (callRef.current === entry.call) callRef.current = null;
+        detachCallListeners(reason);
+        releaseSharedCallIfOwned(entry.call, reason);
+      };
+      const hydrateJoinedSharedCall = (
+        entry: SharedDailyCallEntry,
+        participants: ReturnType<DailyCallObject['participants']>,
+        source: string
+      ): boolean => {
+        const local = participants?.local ?? null;
+        if (!local) return false;
+        entry.state = 'joined';
+        entry.joinPromise = null;
+        entry.lastError = null;
+        callRef.current = entry.call;
+        roomNameRef.current = entry.roomName;
+        captureProfileRef.current = entry.captureProfile;
+        setCaptureProfile(entry.captureProfile);
+        bindCallListeners(entry.call, entry.roomName);
+        const remotes = Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local);
+        vdbg('daily_call_singleton_reuse_same_session', {
+          sessionId,
+          userId: user.id,
+          roomName: entry.roomName,
+          captureProfile: entry.captureProfile,
+          remoteCount: remotes.length,
+          hasLocalParticipant: true,
+          source,
+          state: entry.state,
+        });
+        setLocalInDailyRoom(true);
+        setLocalParticipant(local as DailyParticipant | null);
+        applyLocalMediaUiFromParticipant(local as DailyParticipant, { setIsVideoOff, setIsMuted });
+        if (remotes.length > 0) {
+          setRemoteParticipant(remotes[0] as DailyParticipant);
+          setPartnerEverJoined(true);
+          setAwaitingFirstConnect(false);
+        } else {
+          setRemoteParticipant(null);
+          setAwaitingFirstConnect(true);
+        }
+        setIsConnecting(false);
+        setJoining(false);
+        prejoinCompleted = true;
+        prejoinMark(source === 'join_promise_resolved' ? 'singleton_join_promise_resolved' : 'singleton_reuse_short_circuit');
+        videoDateLaunchBreadcrumb('prejoin_pipeline_total', {
+          session_id: sessionId,
+          user_id: user.id,
+          duration_ms: Date.now() - prejoinPipelineStart,
+        });
+        return true;
+      };
       const sharedCall = sharedDailyCallEntry;
       if (sharedCall && sharedCall.sessionId === sessionId) {
         const reusedCall = sharedCall.call;
         let participants: ReturnType<DailyCallObject['participants']> | null = null;
         try {
           participants = reusedCall.participants();
-        } catch {
-          releaseSharedCallIfOwned(reusedCall, 'reuse_probe_failed');
+        } catch (error) {
+          sharedCall.state = 'failed';
+          sharedCall.lastError = summarizeSharedDailyError(error);
           participants = null;
         }
-        const local = participants?.local ?? null;
-        if (!participants || !local) {
-          releaseSharedCallIfOwned(reusedCall, 'reuse_probe_not_joined');
-        } else {
+
+        if (participants && hydrateJoinedSharedCall(sharedCall, participants, 'already_joined_snapshot')) {
+          return;
+        }
+
+        const canAwaitSharedJoin =
+          Boolean(sharedCall.joinPromise) &&
+          (sharedCall.state === 'creating' || sharedCall.state === 'joining');
+        if (canAwaitSharedJoin && sharedCall.joinPromise) {
           callRef.current = reusedCall;
           roomNameRef.current = sharedCall.roomName;
           captureProfileRef.current = sharedCall.captureProfile;
           setCaptureProfile(sharedCall.captureProfile);
           bindCallListeners(reusedCall, sharedCall.roomName);
-          const remotes = Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local);
-          vdbg('daily_call_singleton_reuse_same_session', {
+          setIsConnecting(true);
+          setJoining(true);
+          vdbg('daily_call_singleton_reuse_join_in_flight', {
             sessionId,
             userId: user.id,
             roomName: sharedCall.roomName,
             captureProfile: sharedCall.captureProfile,
-            remoteCount: remotes.length,
-            hasLocalParticipant: true,
+            state: sharedCall.state,
+            joinStartedAtMs: sharedCall.joinStartedAtMs,
+            ageMs: Date.now() - sharedCall.createdAtMs,
           });
-          setLocalInDailyRoom(true);
-          setLocalParticipant(local as DailyParticipant | null);
-          applyLocalMediaUiFromParticipant(local as DailyParticipant, { setIsVideoOff, setIsMuted });
-          if (remotes.length > 0) {
-            setRemoteParticipant(remotes[0] as DailyParticipant);
-            setPartnerEverJoined(true);
-            setAwaitingFirstConnect(false);
-          } else {
-            setRemoteParticipant(null);
-            setAwaitingFirstConnect(true);
+          try {
+            await sharedCall.joinPromise;
+            let joinedParticipants: ReturnType<DailyCallObject['participants']> | null = null;
+            try {
+              joinedParticipants = reusedCall.participants();
+            } catch (error) {
+              sharedCall.state = 'failed';
+              sharedCall.lastError = summarizeSharedDailyError(error);
+              releaseSharedCallIfOwned(reusedCall, 'reuse_join_promise_participants_failed');
+            }
+            if (joinedParticipants && hydrateJoinedSharedCall(sharedCall, joinedParticipants, 'join_promise_resolved')) {
+              return;
+            }
+            await destroySharedCallForRetry(sharedCall, 'reuse_join_promise_resolved_without_local');
+          } catch (error) {
+            sharedCall.state = 'failed';
+            sharedCall.joinPromise = null;
+            sharedCall.lastError = summarizeSharedDailyError(error);
+            vdbg('daily_call_singleton_reuse_join_in_flight_failed', {
+              sessionId,
+              userId: user.id,
+              roomName: sharedCall.roomName,
+              error: sharedCall.lastError,
+            });
+            await destroySharedCallForRetry(sharedCall, 'reuse_join_in_flight_failed');
           }
-          setIsConnecting(false);
-          setJoining(false);
-          prejoinCompleted = true;
-          prejoinMark('singleton_reuse_short_circuit');
-          videoDateLaunchBreadcrumb('prejoin_pipeline_total', {
-            session_id: sessionId,
-            user_id: user.id,
-            duration_ms: Date.now() - prejoinPipelineStart,
+        } else if (sharedCall.state === 'joining' || sharedCall.state === 'creating') {
+          callRef.current = reusedCall;
+          roomNameRef.current = sharedCall.roomName;
+          captureProfileRef.current = sharedCall.captureProfile;
+          setCaptureProfile(sharedCall.captureProfile);
+          bindCallListeners(reusedCall, sharedCall.roomName);
+          setIsConnecting(true);
+          setJoining(true);
+          vdbg('daily_call_singleton_reuse_in_flight_without_promise', {
+            sessionId,
+            userId: user.id,
+            roomName: sharedCall.roomName,
+            state: sharedCall.state,
+            ageMs: Date.now() - sharedCall.createdAtMs,
           });
           return;
+        } else {
+          await destroySharedCallForRetry(sharedCall, 'reuse_probe_terminal_state_without_local');
         }
       }
 
@@ -3902,7 +4089,9 @@ export default function VideoDateScreen() {
           previousSessionId: sharedDailyCallEntry.sessionId,
           nextSessionId: sessionId,
           roomName: sharedDailyCallEntry.roomName,
+          state: sharedDailyCallEntry.state,
         });
+        sharedDailyCallEntry.state = 'leaving';
         try {
           await sharedDailyCallEntry.call.leave();
         } catch {
@@ -3924,6 +4113,11 @@ export default function VideoDateScreen() {
           call: nextCall,
           roomName: tokenResult.room_name,
           captureProfile: profile,
+          state: 'creating',
+          joinPromise: null,
+          createdAtMs: Date.now(),
+          joinStartedAtMs: null,
+          lastError: null,
         };
         captureProfileRef.current = profile;
         setCaptureProfile(profile);
@@ -3944,6 +4138,15 @@ export default function VideoDateScreen() {
         return nextCall;
       };
       let call = installDailyCall(callCaptureProfile);
+      let joinPromise: Promise<void> | null = null;
+      const markSharedJoinInFlight = () => {
+        if (!joinPromise) return;
+        if (sharedDailyCallEntry?.sessionId !== sessionId || sharedDailyCallEntry.call !== call) return;
+        sharedDailyCallEntry.state = 'joining';
+        sharedDailyCallEntry.joinPromise = joinPromise;
+        sharedDailyCallEntry.joinStartedAtMs = dailyJoinStartedAtMsRef.current ?? Date.now();
+        sharedDailyCallEntry.lastError = null;
+      };
       vdbg('prejoin_state_isConnecting', {
         value: true,
         sessionId,
@@ -4070,10 +4273,23 @@ export default function VideoDateScreen() {
             callRef.current = null;
             callCaptureProfile = 'fallback';
             call = installDailyCall(callCaptureProfile);
+            markSharedJoinInFlight();
             await call.join({ url: tokenResult.room_url, token: tokenResult.token });
           }
         };
-        await joinDailyCall();
+        joinPromise = joinDailyCall();
+        markSharedJoinInFlight();
+        await joinPromise;
+        await ensureNativeFrontCameraIntent(call, {
+          sessionId,
+          roomName: tokenResult.room_name,
+          captureProfile: callCaptureProfile,
+        });
+        if (sharedDailyCallEntry?.sessionId === sessionId && sharedDailyCallEntry.call === call) {
+          sharedDailyCallEntry.state = 'joined';
+          sharedDailyCallEntry.joinPromise = null;
+          sharedDailyCallEntry.lastError = null;
+        }
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         endBootstrapTiming('daily_join', { ok: true, room_name: tokenResult.room_name });
         prejoinMark('daily_join_completed');
@@ -4322,6 +4538,11 @@ export default function VideoDateScreen() {
           setAwaitingFirstConnect(true);
         }
       } catch (err) {
+        if (sharedDailyCallEntry?.sessionId === sessionId && sharedDailyCallEntry.call === call) {
+          sharedDailyCallEntry.state = 'failed';
+          sharedDailyCallEntry.joinPromise = null;
+          sharedDailyCallEntry.lastError = summarizeSharedDailyError(err);
+        }
         const preparedEntryAtFailure = activePreparedEntryCacheRef.current;
         endBootstrapTiming('daily_join', {
           ok: false,
@@ -4980,7 +5201,6 @@ export default function VideoDateScreen() {
     if (phase === 'ended') return 'ended';
     if (peerMissingTerminal) return 'peer_missing_timeout';
     if (preJoinFailed && !localInDailyRoom) return 'fatal_join_error';
-    if (joining || isConnecting) return 'joining_daily';
     if (localInDailyRoom && partnerEverJoined && isPartnerDisconnected && !hasRemotePartner) return 'reconnecting';
     if (localInDailyRoom && hasRemotePartner) return 'active_call';
     if (
@@ -4991,6 +5211,7 @@ export default function VideoDateScreen() {
       !isPartnerDisconnected
     )
       return 'waiting_for_peer';
+    if (joining || isConnecting) return 'joining_daily';
     return 'joining_daily';
   }, [
     sessionLoading,
@@ -5029,23 +5250,21 @@ export default function VideoDateScreen() {
     lastLoggedPostJoinStageRef.current = postJoinStage;
   }, [postJoinStage, sessionId]);
 
+  const showOpeningRoomTopPill = (joining || isConnecting) && !localInDailyRoom;
   const showTopBarWaitingPill =
-    joining ||
-    isConnecting ||
+    showOpeningRoomTopPill ||
     (localInDailyRoom &&
       !hasRemotePartner &&
       !partnerEverJoined &&
       !peerMissingTerminal &&
       !isPartnerDisconnected);
-  const showJoiningOverlay = (joining || isConnecting) && !preJoinFailed && !peerMissingTerminal;
+  const showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom && !preJoinFailed && !peerMissingTerminal;
   const showPeerWaitOverlay =
     localInDailyRoom &&
     !hasRemotePartner &&
     !partnerEverJoined &&
     !peerMissingTerminal &&
-    !isPartnerDisconnected &&
-    !joining &&
-    !isConnecting;
+    !isPartnerDisconnected;
 
   // Show the Vibe/Pass CTA during the hard-deadline handshake.
   const showHandshakeChrome =
@@ -5451,7 +5670,7 @@ export default function VideoDateScreen() {
           <View style={styles.topBarFullWidth}>
             <View style={styles.waitingTimerPill}>
               <Text style={[styles.waitingTimerText, { color: theme.text }]}>
-                {joining || isConnecting
+                {showOpeningRoomTopPill
                   ? 'Opening the room...'
                   : peerNotOpenedVideoDateYet
                     ? "They're stepping into the room"

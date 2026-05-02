@@ -186,6 +186,10 @@ const webDateNavigationGuard = readFileSync(
   join(process.cwd(), "src/lib/dateNavigationGuard.ts"),
   "utf8",
 );
+const nativeDateNavigationGuard = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/dateNavigationGuard.ts"),
+  "utf8",
+);
 const webEventStatusHook = readFileSync(
   join(process.cwd(), "src/hooks/useEventStatus.ts"),
   "utf8",
@@ -230,6 +234,14 @@ const webHandshakeTimer = readFileSync(
 );
 const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
+  "utf8",
+);
+const nativeVideoDateDailyMediaConfig = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/videoDateDailyMediaConfig.ts"),
+  "utf8",
+);
+const videoDateMediaContract = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateMediaContract.ts"),
   "utf8",
 );
 const nativeVibeCheckButton = readFileSync(
@@ -1117,6 +1129,54 @@ test("web lobby dedupes same-runtime prepare handoffs before date navigation", (
     eventLobby,
     /\.finally\(\(\) => \{\s*prepareNavigationInFlightRef\.current\.delete\(sessionId\);\s*\}\)/s,
   );
+});
+
+test("native date entry reuses same-session Daily joins across remounts and rescue timers", () => {
+  assert.match(
+    nativeVideoDateRoute,
+    /type SharedDailyCallEntryState = 'creating' \| 'joining' \| 'joined' \| 'failed' \| 'leaving'/,
+  );
+  assert.match(nativeVideoDateRoute, /joinPromise: Promise<void> \| null/);
+  assert.match(nativeVideoDateRoute, /daily_call_singleton_reuse_join_in_flight/);
+  assert.match(nativeVideoDateRoute, /await sharedCall\.joinPromise/);
+  assert.match(nativeVideoDateRoute, /hydrateJoinedSharedCall/);
+  assert.match(nativeVideoDateRoute, /showJoiningOverlay = \(joining \|\| isConnecting\) && !localInDailyRoom/);
+  assert.match(nativeVideoDateRoute, /showPeerWaitOverlay =\s*localInDailyRoom/s);
+  assert.doesNotMatch(nativeVideoDateRoute, /reuse_probe_not_joined/);
+  assert.doesNotMatch(nativeVideoDateRoute, /allowMultipleCallInstances/);
+  assert.match(nativeEventLobby, /dateLaunchIntentSessionRef/);
+  assert.match(nativeEventLobby, /isDateEntryTransitionActive\(rescueSid\)/);
+  assert.match(nativeEventLobby, /launch_already_in_progress/);
+  assert.doesNotMatch(nativeEventLobby, /bypassDuplicateBurstForRescue/);
+  assert.doesNotMatch(nativeDateNavigationGuard, /bypassDuplicateBurstForRescue/);
+});
+
+test("native video date capture uses supported Daily defaults while web keeps explicit portrait constraints", () => {
+  assert.match(
+    videoDateMediaContract,
+    /VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS[\s\S]*width:[\s\S]*height:[\s\S]*aspectRatio/s,
+  );
+  const nativeIdealConstraints =
+    videoDateMediaContract.match(/VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS[\s\S]*?\};/)?.[0] ?? "";
+  const nativeFallbackConstraints =
+    videoDateMediaContract.match(/VIDEO_DATE_NATIVE_FALLBACK_VIDEO_CONSTRAINTS[\s\S]*?\};/)?.[0] ?? "";
+  assert.doesNotMatch(nativeIdealConstraints, /\bwidth\s*:/);
+  assert.doesNotMatch(nativeIdealConstraints, /\bheight\s*:/);
+  assert.doesNotMatch(nativeFallbackConstraints, /\bwidth\s*:/);
+  assert.doesNotMatch(nativeFallbackConstraints, /\bheight\s*:/);
+  assert.match(nativeVideoDateDailyMediaConfig, /audioSource:\s*true/);
+  assert.match(nativeVideoDateDailyMediaConfig, /videoSource:\s*true/);
+  assert.match(nativeVideoDateDailyMediaConfig, /sendSettings:[\s\S]*video:\s*'quality-optimized'/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /userMediaVideoConstraints/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /dailyConfig/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /videoDateNativeVideoConstraintsForProfile/);
+  assert.match(nativeVideoDateRoute, /diagnostic_scope: 'sender_capture'/);
+  assert.match(nativeVideoDateRoute, /diagnostic_scope: 'receiver_layout'/);
+  assert.match(nativeVideoDateRoute, /receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT/);
+  assert.match(nativeVideoDateRoute, /frame_issue_hint: 'remote_layout_contains_sender_frame_without_receiver_crop'/);
+  assert.match(nativeVideoDateRoute, /ensureNativeFrontCameraIntent/);
+  assert.match(nativeVideoDateRoute, /getCameraFacingMode/);
+  assert.match(nativeVideoDateRoute, /cycleCamera/);
 });
 
 test("queue_status reaches in_handshake only after provider confirm succeeds", () => {
