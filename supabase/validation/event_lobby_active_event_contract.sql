@@ -26,12 +26,28 @@ select
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
     like '%COALESCE(v_event.duration_minutes, 60)%'
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
-    like '%v_status NOT IN (''upcoming'', ''live'')%'
+    like '%v_status NOT IN (''upcoming'', ''scheduled'', ''live'', ''ended'', ''completed'')%'
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
     not like '%v_status <> ''live''%'
+  and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
+    not like '%v_status IN (''ended'', ''completed'')%event_ended%'
   as ok;
 
--- 2) Compatibility helpers delegate to the canonical helper.
+-- 2) Discovery computed_status treats ended_at as terminal, then scheduled live window, then computed end.
+select
+  'get_visible_events_lifecycle_order' as check_name,
+  to_regprocedure('public.get_visible_events(uuid,double precision,double precision,boolean,double precision,double precision,double precision)') is not null
+  and pg_get_functiondef('public.get_visible_events(uuid,double precision,double precision,boolean,double precision,double precision,double precision)'::regprocedure)
+    like '%WHEN e.ended_at IS NOT NULL THEN ''ended''%'
+  and pg_get_functiondef('public.get_visible_events(uuid,double precision,double precision,boolean,double precision,double precision,double precision)'::regprocedure)
+    like '%WHEN now() >= e.event_date%THEN ''live''%'
+  and pg_get_functiondef('public.get_visible_events(uuid,double precision,double precision,boolean,double precision,double precision,double precision)'::regprocedure)
+    like '%WHEN now() >= (e.event_date%THEN ''ended''%'
+  and pg_get_functiondef('public.get_visible_events(uuid,double precision,double precision,boolean,double precision,double precision,double precision)'::regprocedure)
+    not like '%e.status = ''ended'' OR e.ended_at IS NOT NULL%'
+  as ok;
+
+-- 3) Compatibility helpers delegate to the canonical helper.
 select
   'event_lobby_compat_helpers_delegate' as check_name,
   pg_get_functiondef('public.get_event_lobby_inactive_reason(uuid)'::regprocedure)
@@ -40,7 +56,7 @@ select
     like '%public.get_event_lobby_active_state(p_event_id, now())%'
   as ok;
 
--- 3) Internal helpers are not client-executable.
+-- 4) Internal helpers are not client-executable.
 select
   'event_lobby_helpers_not_client_executable' as check_name,
   not has_function_privilege(
@@ -105,7 +121,7 @@ select
   )
   as ok;
 
--- 4) Public deck RPC rejects inactive events instead of silently returning an empty deck.
+-- 5) Public deck RPC rejects inactive events instead of silently returning an empty deck.
 select
   'get_event_deck_active_rejection_present' as check_name,
   pg_get_functiondef('public.get_event_deck(uuid,uuid,integer)'::regprocedure)
@@ -121,7 +137,7 @@ select
   )
   as ok;
 
--- 5) Public swipe RPC rejects inactive events before direct swipe/session mutation.
+-- 6) Public swipe RPC rejects inactive events before direct swipe/session mutation.
 select
   'handle_swipe_active_guard_present' as check_name,
   pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
@@ -143,7 +159,7 @@ select
   )
   as ok;
 
--- 6) Mystery Match cannot create Ready Gate sessions for inactive events.
+-- 7) Mystery Match cannot create Ready Gate sessions for inactive events.
 select
   'find_mystery_match_active_guard_present' as check_name,
   pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)

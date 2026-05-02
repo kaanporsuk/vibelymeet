@@ -131,6 +131,7 @@ ERROR
 echo "=== Event Lobby regression harness ==="
 
 require_file "docs/golden-path-event-lobby-regression-runbook.md"
+require_file "shared/eventLifecycle.test.ts"
 require_file "shared/matching/eventLobbyRegressionHarness.test.ts"
 require_file "shared/matching/eventLobbyActiveEventContract.test.ts"
 require_file "shared/matching/eventLobbyCanonicalActiveState.test.ts"
@@ -146,6 +147,7 @@ if [[ "$RUN_STAGING_SMOKE_CHECK" == "1" ]]; then
   validate_staging_smoke_metadata
 fi
 
+run_step npx tsx shared/eventLifecycle.test.ts
 run_step npx tsx shared/matching/eventLobbyRegressionHarness.test.ts
 run_step npx tsx shared/matching/eventLobbyActiveEventContract.test.ts
 run_step npx tsx shared/matching/eventLobbyCanonicalActiveState.test.ts
