@@ -33,11 +33,15 @@ test.describe("service-worker hardening", () => {
     const oneSignalSwText = await oneSignalSw.text();
     expect(oneSignalSwText).toContain("cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
     expect(oneSignalSwText).toContain("importScripts");
+    expect(oneSignalSwText).toContain("importOneSignalWorkerWithInitialSetup");
+    expect(oneSignalSwText).toContain("delay === 0");
 
     const oneSignalWorker = await request.get("/OneSignalSDKWorker.js");
     expect(oneSignalWorker.ok()).toBeTruthy();
     const oneSignalWorkerText = await oneSignalWorker.text();
     expect(oneSignalWorkerText).toContain("cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
+    expect(oneSignalWorkerText).toContain("importOneSignalWorkerWithInitialSetup");
+    expect(oneSignalWorkerText).toContain("delay === 0");
 
     const legacySw = await request.get("/sw.js");
     expect(legacySw.ok()).toBeTruthy();
