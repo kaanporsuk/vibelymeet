@@ -60,7 +60,7 @@ import { RC_CATEGORY, rcBreadcrumb } from '@/lib/nativeRcDiagnostics';
 import { endAccountBreakForUser } from '@/lib/endAccountBreak';
 import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
-import { clearDateEntryTransition } from '@/lib/dateEntryTransitionLatch';
+import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
@@ -169,6 +169,8 @@ export default function EventLobbyScreen() {
   pathnameRef.current = pathname;
   /** Supersedes stale `ready_gate_overlay` date-navigation rescue timers when a new attempt starts. */
   const dateNavRescueSeqRef = useRef(0);
+  /** Same-session launch intent observed before `pathname` catches up to `/date/:id`. */
+  const dateLaunchIntentSessionRef = useRef<string | null>(null);
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const { user } = useAuth();
@@ -478,6 +480,13 @@ export default function EventLobbyScreen() {
           source_action: trigger,
         });
 
+        if (trigger === 'ready_gate_overlay') {
+          dateLaunchIntentSessionRef.current = sessionIdToOpen;
+          setActiveSessionId((current) => (current === sessionIdToOpen ? null : current));
+          setActiveSessionPartnerName(null);
+          setActiveSessionPartnerImage(null);
+        }
+
         const navigated = navigateToDateSessionGuarded({
           sessionId: sessionIdToOpen,
           pathname,
@@ -524,6 +533,19 @@ export default function EventLobbyScreen() {
                 });
                 return;
               }
+              if (
+                dateLaunchIntentSessionRef.current === rescueSid ||
+                isDateEntryTransitionActive(rescueSid)
+              ) {
+                rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_skipped', {
+                  session_id: rescueSid,
+                  event_id: id,
+                  reason: 'launch_already_in_progress',
+                  pathname: p,
+                  entry_transition_active: isDateEntryTransitionActive(rescueSid),
+                });
+                return;
+              }
               rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_rescue_attempt', {
                 session_id: rescueSid,
                 event_id: id,
@@ -551,7 +573,6 @@ export default function EventLobbyScreen() {
                 sessionId: rescueSid,
                 pathname: pathnameRef.current,
                 mode: 'replace',
-                bypassDuplicateBurstForRescue: true,
                 onSuppressed: ({ reason: suppressReason, target: t }) => {
                   vdbg('lobby_navigate_to_date_suppressed', {
                     trigger: 'ready_gate_overlay_rescue',

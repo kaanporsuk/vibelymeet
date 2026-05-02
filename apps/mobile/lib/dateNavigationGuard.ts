@@ -20,12 +20,10 @@ export function navigateToDateSessionGuarded(params: {
   sessionId: string;
   pathname: string | null | undefined;
   mode?: DateNavMode;
-  /** When pathname is still not `/date/:id` after a prior replace (e.g. rescue timer), allow retry despite burst dedupe. */
-  bypassDuplicateBurstForRescue?: boolean;
   onSuppressed?: (payload: { reason: DateNavReason; target: Href }) => void;
   onNavigate?: (payload: { target: Href; mode: DateNavMode }) => void;
 }): boolean {
-  const { sessionId, pathname, mode = 'replace', bypassDuplicateBurstForRescue, onSuppressed, onNavigate } = params;
+  const { sessionId, pathname, mode = 'replace', onSuppressed, onNavigate } = params;
   const target = videoDateHref(sessionId);
   const onDateRouteForSession = activeDateSessionIdFromPath(pathname) === sessionId;
 
@@ -54,7 +52,6 @@ export function navigateToDateSessionGuarded(params: {
   // Deduplicate burst navigations (multiple realtime events firing within DUPLICATE_BURST_MS).
   const now = Date.now();
   if (
-    !bypassDuplicateBurstForRescue &&
     lastDateNav?.sessionId === sessionId &&
     now - lastDateNav.ts < DUPLICATE_BURST_MS
   ) {

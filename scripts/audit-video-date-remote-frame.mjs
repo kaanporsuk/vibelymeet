@@ -135,11 +135,27 @@ const nativeDatePath = "apps/mobile/app/date/[id].tsx";
 const nativeDate = read(nativeDatePath);
 const nativeVideoDateDailyConfigPath = "apps/mobile/lib/videoDateDailyMediaConfig.ts";
 const nativeVideoDateDailyConfig = read(nativeVideoDateDailyConfigPath);
+const nativeEventLobbyPath = "apps/mobile/app/event/[eventId]/lobby.tsx";
+const nativeEventLobby = read(nativeEventLobbyPath);
+const nativeDateNavigationGuardPath = "apps/mobile/lib/dateNavigationGuard.ts";
+const nativeDateNavigationGuard = read(nativeDateNavigationGuardPath);
 const nativeRemoteBlock = sliceBetween(
   nativeDate,
   "<View style={styles.remoteContainer}>",
   "<View style={[styles.localPip",
   nativeDatePath
+);
+const nativeIdealConstraints = sliceBetween(
+  mediaContract,
+  "export const VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS",
+  "};",
+  mediaContractPath
+);
+const nativeFallbackConstraints = sliceBetween(
+  mediaContract,
+  "export const VIDEO_DATE_NATIVE_FALLBACK_VIDEO_CONSTRAINTS",
+  "};",
+  mediaContractPath
 );
 
 assert(
@@ -159,10 +175,26 @@ assert(
   `${nativeDatePath}: remote DailyMediaView must keep the invariant comment explaining contain`
 );
 assert(
+  !/\bwidth\s*:/.test(nativeIdealConstraints) &&
+    !/\bheight\s*:/.test(nativeIdealConstraints) &&
+    !/\bwidth\s*:/.test(nativeFallbackConstraints) &&
+    !/\bheight\s*:/.test(nativeFallbackConstraints),
+  `${mediaContractPath}: native capture constraints must not pin strict portrait width/height`
+);
+assert(
   nativeVideoDateDailyConfig.includes("createVideoDateDailyCallObject") &&
-    nativeVideoDateDailyConfig.includes("videoDateNativeVideoConstraintsForProfile") &&
-    nativeVideoDateDailyConfig.includes("userMediaVideoConstraints: videoConstraints"),
-  `${nativeVideoDateDailyConfigPath}: native Video Date Daily options must use the shared media contract`
+    nativeVideoDateDailyConfig.includes("videoDateNativeDailyCallOptions") &&
+    nativeVideoDateDailyConfig.includes("videoSource: true") &&
+    nativeVideoDateDailyConfig.includes("audioSource: true") &&
+    nativeVideoDateDailyConfig.includes("sendSettings") &&
+    nativeVideoDateDailyConfig.includes("quality-optimized"),
+  `${nativeVideoDateDailyConfigPath}: native Video Date Daily options must use safe native defaults`
+);
+assert(
+  !nativeVideoDateDailyConfig.includes("userMediaVideoConstraints") &&
+    !nativeVideoDateDailyConfig.includes("dailyConfig") &&
+    !nativeVideoDateDailyConfig.includes("videoDateNativeVideoConstraintsForProfile"),
+  `${nativeVideoDateDailyConfigPath}: native Video Date Daily options must not use deprecated/strict capture constraints`
 );
 assert(
   nativeDate.includes("createVideoDateDailyCallObject(profile)") &&
@@ -172,6 +204,37 @@ assert(
 assert(
   !/Daily\.createCallObject\(/.test(nativeDate),
   `${nativeDatePath}: native Video Date route must not use raw Daily.createCallObject`
+);
+assert(
+  nativeDate.includes("type SharedDailyCallEntryState") &&
+    nativeDate.includes("joinPromise: Promise<void> | null") &&
+    nativeDate.includes("daily_call_singleton_reuse_join_in_flight") &&
+    nativeDate.includes("await sharedCall.joinPromise") &&
+    nativeDate.includes("hydrateJoinedSharedCall"),
+  `${nativeDatePath}: native Video Date must reuse/await same-session Daily join entries`
+);
+assert(
+  !nativeDate.includes("reuse_probe_not_joined") && !nativeDate.includes("allowMultipleCallInstances"),
+  `${nativeDatePath}: native Video Date must not release joining calls or allow multiple Daily instances`
+);
+assert(
+  nativeDate.includes("showJoiningOverlay = (joining || isConnecting) && !localInDailyRoom") &&
+    nativeDate.includes("showPeerWaitOverlay =") &&
+    nativeDate.includes("diagnostic_scope: 'sender_capture'") &&
+    nativeDate.includes("diagnostic_scope: 'receiver_layout'") &&
+    nativeDate.includes("receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT") &&
+    nativeDate.includes("ensureNativeFrontCameraIntent") &&
+    nativeDate.includes("getCameraFacingMode") &&
+    nativeDate.includes("cycleCamera"),
+  `${nativeDatePath}: native Video Date must hydrate active call UI and emit capture/layout diagnostics`
+);
+assert(
+  nativeEventLobby.includes("dateLaunchIntentSessionRef") &&
+    nativeEventLobby.includes("isDateEntryTransitionActive(rescueSid)") &&
+    nativeEventLobby.includes("launch_already_in_progress") &&
+    !nativeEventLobby.includes("bypassDuplicateBurstForRescue") &&
+    !nativeDateNavigationGuard.includes("bypassDuplicateBurstForRescue"),
+  `${nativeEventLobbyPath}: ready-gate rescue must be idempotent and must not bypass date navigation dedupe`
 );
 
 const selfViewPath = "src/components/video-date/SelfViewPIP.tsx";
