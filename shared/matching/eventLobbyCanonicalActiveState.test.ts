@@ -284,6 +284,10 @@ test("swipe-actions suppresses inactive-event notification side effects", () => 
 test("production validation is read-only and checks canonical active-state markers", () => {
   assert.match(validation, /pg_get_functiondef/);
   assert.match(validation, /get_event_lobby_active_state/);
+  assert.match(validation, /v_status NOT IN \(''upcoming'', ''live''\)/);
+  assert.match(validation, /lock_event_lobby_scheduled_active_state/);
+  assert.match(validation, /handle_swipe_20260502083000_ready_queue_base/);
+  assert.match(validation, /find_mystery_match_20260502083000_active_base/);
   assert.match(validation, /RAISE EXCEPTION ''event_not_active''/);
   assert.match(validation, /legacy_direct_session_paths_deprecated/);
   assert.doesNotMatch(sqlWithoutCommentsOrStringLiterals(validation), /\b(insert|update|delete|truncate|alter|drop|create|grant|revoke)\b/i);

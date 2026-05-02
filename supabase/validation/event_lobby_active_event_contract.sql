@@ -25,6 +25,10 @@ select
     like '%event_outside_live_window%'
   and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
     like '%COALESCE(v_event.duration_minutes, 60)%'
+  and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
+    like '%v_status NOT IN (''upcoming'', ''live'')%'
+  and pg_get_functiondef('public.get_event_lobby_active_state(uuid,timestamp with time zone)'::regprocedure)
+    not like '%v_status <> ''live''%'
   as ok;
 
 -- 2) Compatibility helpers delegate to the canonical helper.
@@ -69,6 +73,16 @@ select
     'public.is_event_lobby_active(uuid)',
     'EXECUTE'
   )
+  and not has_function_privilege(
+    'anon',
+    'public.lock_event_lobby_scheduled_active_state(uuid,timestamp with time zone)',
+    'EXECUTE'
+  )
+  and not has_function_privilege(
+    'authenticated',
+    'public.lock_event_lobby_scheduled_active_state(uuid,timestamp with time zone)',
+    'EXECUTE'
+  )
   and has_function_privilege(
     'service_role',
     'public.get_event_lobby_active_state(uuid,timestamp with time zone)',
@@ -82,6 +96,11 @@ select
   and has_function_privilege(
     'service_role',
     'public.is_event_lobby_active(uuid)',
+    'EXECUTE'
+  )
+  and has_function_privilege(
+    'service_role',
+    'public.lock_event_lobby_scheduled_active_state(uuid,timestamp with time zone)',
     'EXECUTE'
   )
   as ok;
@@ -106,53 +125,67 @@ select
 select
   'handle_swipe_active_guard_present' as check_name,
   pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
-    like '%public.get_event_lobby_active_state(p_event_id, now())%'
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
     like '%''outcome'', ''event_not_active''%'
   and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
-    like '%FOR SHARE OF ev%'
-  and pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure)
-    like '%public.handle_swipe_20260501210000_idempotency_base%'
-  and position('public.get_event_lobby_active_state(p_event_id, now())' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
-    < position('FROM public.event_swipes es' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
-  and position('public.get_event_lobby_active_state(p_event_id, now())' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
-    < position('public.handle_swipe_20260501210000_idempotency_base' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
+    like '%public.handle_swipe_20260502083000_ready_queue_base%'
+  and position('public.lock_event_lobby_scheduled_active_state(p_event_id, now())' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
+    < position('public.handle_swipe_20260502083000_ready_queue_base' in pg_get_functiondef('public.handle_swipe(uuid,uuid,uuid,text)'::regprocedure))
+  and pg_get_functiondef('public.handle_swipe_20260501210000_idempotency_base(uuid,uuid,uuid,text)'::regprocedure)
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
+  and pg_get_functiondef('public.handle_swipe_20260501210000_idempotency_base(uuid,uuid,uuid,text)'::regprocedure)
+    not like '%ev.status = ''live''%'
+  and not has_function_privilege(
+    'authenticated',
+    'public.handle_swipe_20260502083000_ready_queue_base(uuid,uuid,uuid,text)',
+    'EXECUTE'
+  )
   as ok;
 
 -- 6) Mystery Match cannot create Ready Gate sessions for inactive events.
 select
   'find_mystery_match_active_guard_present' as check_name,
   pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
-    like '%public.get_event_lobby_active_state(p_event_id, now())%'
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
     like '%''error'', ''event_not_active''%'
   and pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
     like '%''terminal'', true%'
   and pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure)
-    like '%public.find_mystery_match_20260501180000_active_base%'
-  and position('public.get_event_lobby_active_state(p_event_id, now())' in pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure))
-    < position('public.find_mystery_match_20260501180000_active_base' in pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure))
+    like '%public.find_mystery_match_20260502083000_active_base%'
+  and position('public.lock_event_lobby_scheduled_active_state(p_event_id, now())' in pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure))
+    < position('public.find_mystery_match_20260502083000_active_base' in pg_get_functiondef('public.find_mystery_match(uuid,uuid)'::regprocedure))
+  and not has_function_privilege(
+    'authenticated',
+    'public.find_mystery_match_20260502083000_active_base(uuid,uuid)',
+    'EXECUTE'
+  )
   as ok;
 
 -- 7) Queue promotion paths return event_not_valid before promoting Ready Gate.
 select
   'queue_promotion_active_guard_present' as check_name,
   pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
-    like '%public.get_event_lobby_active_state(p_event_id, now())%'
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
     like '%''reason'', ''event_not_valid''%'
   and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
     like '%''inactive_reason'', v_inactive_reason%'
   and pg_get_functiondef('public.promote_ready_gate_if_eligible(uuid,uuid)'::regprocedure)
-    like '%public.promote_ready_gate_if_eligible_20260501180000_active_base%'
+    like '%public.promote_ready_gate_if_eligible_20260502083000_ready_queue_base%'
   and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%public.get_event_lobby_active_state(p_event_id, now())%'
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
   and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
     like '%''reason'', ''event_not_valid''%'
   and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
     like '%''inactive_reason'', v_inactive_reason%'
   and pg_get_functiondef('public.drain_match_queue(uuid)'::regprocedure)
-    like '%public.drain_match_queue_20260501180000_active_base%'
+    like '%public.drain_match_queue_20260502083000_active_base%'
+  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260501180000_active_base(uuid,uuid)'::regprocedure)
+    like '%public.lock_event_lobby_scheduled_active_state(p_event_id, now())%'
+  and pg_get_functiondef('public.promote_ready_gate_if_eligible_20260501180000_active_base(uuid,uuid)'::regprocedure)
+    not like '%e.status = ''live''%'
   as ok;
 
 -- 8) Deprecated direct legacy session paths still cannot create sessions.
