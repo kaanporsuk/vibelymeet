@@ -27,6 +27,7 @@ function directive(name: string): string[] {
 
 test("production CSP allows first-party fonts, analytics assets, and CDN media", () => {
   assert.ok(directive("style-src").includes("https://fonts.googleapis.com"));
+  assert.ok(directive("style-src").includes("https://onesignal.com"));
   assert.ok(directive("font-src").includes("https://fonts.gstatic.com"));
   assert.ok(directive("script-src").includes("https://eu-assets.i.posthog.com"));
   assert.ok(directive("script-src").includes("https://api.onesignal.com"));
