@@ -438,7 +438,29 @@ test("pending survey recovery preserves reconnect-grace survey behavior", () => 
   );
 });
 
-test("pending survey recovery ignores pre-date terminal sessions", () => {
+test("pending survey recovery returns both-joined handshake timeout as established encounter", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:32:00.000Z",
+    ended_reason: "handshake_timeout",
+    date_started_at: null,
+    participant_1_joined_at: "2026-04-24T00:30:01.000Z",
+    participant_2_joined_at: "2026-04-24T00:30:02.000Z",
+    state: "ended",
+    phase: "ended",
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-1", NOW_MS),
+    row,
+  );
+});
+
+test("pending survey recovery returns both-joined non-mutual warm-up as established encounter", () => {
   const row = {
     id: "session-1",
     event_id: "event-1",
@@ -446,7 +468,31 @@ test("pending survey recovery ignores pre-date terminal sessions", () => {
     participant_2_id: "user-2",
     ended_at: "2026-04-24T00:32:00.000Z",
     ended_reason: "handshake_not_mutual",
-    date_started_at: "2026-04-24T00:27:00.000Z",
+    date_started_at: null,
+    participant_1_joined_at: "2026-04-24T00:30:01.000Z",
+    participant_2_joined_at: "2026-04-24T00:30:02.000Z",
+    state: "ended",
+    phase: "ended",
+  };
+
+  assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), true);
+  assert.equal(
+    pickRecoverablePendingPostDateSurveySession([row], new Set<string>(), "user-2", NOW_MS),
+    row,
+  );
+});
+
+test("pending survey recovery ignores ready-gate terminal sessions", () => {
+  const row = {
+    id: "session-1",
+    event_id: "event-1",
+    participant_1_id: "user-1",
+    participant_2_id: "user-2",
+    ended_at: "2026-04-24T00:32:00.000Z",
+    ended_reason: "ready_gate_expired",
+    date_started_at: null,
+    participant_1_joined_at: null,
+    participant_2_joined_at: null,
   };
 
   assert.equal(videoSessionHasRecoverablePostDateSurveyTruth(row, NOW_MS), false);

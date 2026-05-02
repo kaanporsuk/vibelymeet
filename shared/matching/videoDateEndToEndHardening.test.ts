@@ -130,6 +130,14 @@ const handshakeDeadlinePolishMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260502150000_video_date_handshake_deadline_polish.sql"),
   "utf8",
 );
+const encounterSurveyMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260503090000_video_date_encounter_survey_and_pair_guard.sql"),
+  "utf8",
+);
+const encounterPairGuardAclPolishMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260503100000_video_date_pair_guard_function_acl_polish.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -1298,7 +1306,8 @@ test("web and native active-session recovery share pending survey contract", () 
   for (const source of [webActiveSessionHook, nativeActiveSessionHook]) {
     assert.match(source, /findPendingPostDateSurveySession/);
     assert.match(source, /\.not\(["']ended_at["'], ["']is["'], null\)/);
-    assert.match(source, /\.not\(["']date_started_at["'], ["']is["'], null\)/);
+    assert.doesNotMatch(source, /\.not\(["']date_started_at["'], ["']is["'], null\)/);
+    assert.match(source, /participant_1_joined_at, participant_2_joined_at, state, phase/);
     assert.match(source, /videoSessionHasPostDateSurveyTruth/);
     assert.match(source, /videoSessionHasRecoverablePostDateSurveyTruth/);
     assert.match(source, /pending_survey_recovery_stale/);
@@ -1339,9 +1348,58 @@ test("native date route opens recovered pending surveys after current_room_id is
 
 test("web date route opens ended-session survey only when feedback is missing", () => {
   assert.match(webVideoDatePage, /function shouldOpenPostDateSurveyForTerminalSession/);
-  assert.match(webVideoDatePage, /return Boolean\(row\?\.date_started_at\) && !verdict/);
+  assert.match(webVideoDatePage, /videoSessionHasPostDateSurveyTruth\(row\) && !verdict/);
+  assert.match(webVideoDatePage, /handshake_started_at, handshake_grace_expires_at, date_started_at, date_extra_seconds, phase, state, ended_at, ended_reason, participant_1_id, participant_2_id, participant_1_joined_at, participant_2_joined_at/);
   assert.match(webVideoDatePage, /\.from\("date_feedback"\)[\s\S]*\.eq\("session_id", id\)[\s\S]*\.eq\("user_id", user\.id\)/);
   assert.match(webVideoDatePage, /if \(videoSessionIndicatesTerminalEnd\(sessionRow\)\)[\s\S]*shouldOpenPostDateSurveyForTerminalSession\(sessionRow, verdict\)/);
+});
+
+test("terminal both-joined encounters are survey eligible and non-encounters stay excluded", () => {
+  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.video_date_session_has_encounter_exposure/);
+  assert.match(encounterSurveyMigration, /participant_1_joined_at IS NOT NULL AND p_participant_2_joined_at IS NOT NULL/);
+  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.video_date_session_is_post_date_survey_eligible/);
+  assert.match(encounterSurveyMigration, /COALESCE\(p_ended_reason, ''\) NOT IN \([\s\S]*'ready_gate_expired'[\s\S]*'partial_join_peer_timeout'[\s\S]*'blocked_pair'/);
+  assert.doesNotMatch(encounterSurveyMigration, /'handshake_timeout'[\s\S]*'partial_join_peer_timeout'/);
+  assert.match(sharedActiveSession, /function videoSessionHasEncounterExposureTruth/);
+  assert.match(sharedActiveSession, /participant_1_joined_at && row\.participant_2_joined_at/);
+  assert.match(sharedActiveSession, /function videoSessionHasTerminalEncounterExposureTruth/);
+});
+
+test("handshake deadline terminal encounters route both users to survey", () => {
+  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.finalize_video_date_handshake_deadline/);
+  assert.match(encounterSurveyMigration, /v_should_open_survey := public\.video_date_session_is_post_date_survey_eligible/);
+  assert.match(encounterSurveyMigration, /queue_status = CASE WHEN v_should_open_survey THEN 'in_survey' ELSE 'idle' END/);
+  assert.match(encounterSurveyMigration, /current_room_id = CASE WHEN v_should_open_survey THEN p_session_id ELSE NULL END/);
+  assert.match(encounterSurveyMigration, /current_partner_id = CASE[\s\S]*WHEN v_should_open_survey THEN CASE WHEN profile_id = v_p1 THEN v_p2 ELSE v_p1 END/s);
+  assert.match(encounterSurveyMigration, /'survey_required', v_should_open_survey/);
+});
+
+test("same-event terminal encounter pairs are blocked from deck swipe and ready-gate promotion", () => {
+  assert.match(encounterSurveyMigration, /CREATE OR REPLACE FUNCTION public\.video_date_pair_has_terminal_encounter/);
+  assert.match(encounterSurveyMigration, /AND NOT public\.video_date_pair_has_terminal_encounter\(p_event_id, p_user_id, base\.profile_id\)/);
+  assert.match(encounterSurveyMigration, /ALTER FUNCTION public\.handle_swipe\(uuid, uuid, uuid, text\)[\s\S]*RENAME TO handle_swipe_20260503090000_encounter_guard_base/);
+  assert.match(encounterSurveyMigration, /public\.video_date_pair_has_terminal_encounter\(p_event_id, p_actor_id, p_target_id\)/);
+  assert.match(encounterSurveyMigration, /'pair_already_met_this_event'/);
+  assert.match(encounterSurveyMigration, /ALTER FUNCTION public\.promote_ready_gate_if_eligible\(uuid, uuid\)[\s\S]*RENAME TO promote_ready_gate_202605030900_base/);
+  assert.match(encounterSurveyMigration, /public\.video_date_pair_has_terminal_encounter\(p_event_id, p_uid, v_partner, v_queued\.id\)/);
+  assert.match(encounterSurveyMigration, /REVOKE ALL ON FUNCTION public\.handle_swipe_20260503090000_encounter_guard_base/);
+  assert.match(encounterSurveyMigration, /REVOKE ALL ON FUNCTION public\.promote_ready_gate_202605030900_base/);
+  assert.doesNotMatch(encounterSurveyMigration, /promote_ready_gate_if_eligible_20260503090000_encounter_guard_base/);
+  assert.match(encounterPairGuardAclPolishMigration, /to_regprocedure\('public\.promote_ready_gate_if_eligible_20260503090000_encounter_guard_b\(uuid,uuid\)'\)/);
+  assert.match(encounterPairGuardAclPolishMigration, /RENAME TO promote_ready_gate_202605030900_base/);
+  assert.match(encounterPairGuardAclPolishMigration, /REVOKE ALL ON FUNCTION public\.handle_swipe_20260503090000_encounter_guard_base/);
+  assert.match(encounterPairGuardAclPolishMigration, /REVOKE ALL ON FUNCTION public\.promote_ready_gate_202605030900_base/);
+});
+
+test("web and native ice breakers render as floating session chrome", () => {
+  assert.match(webVideoDatePage, /dismissIceBreakerTemporarily/);
+  assert.match(webVideoDatePage, /phase === "handshake" \|\| phase === "date"/);
+  assert.match(webVideoDatePage, /top-24[\s\S]*IceBreakerCard/);
+  assert.doesNotMatch(webVideoDatePage, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
+  assert.match(nativeVideoDateRoute, /showFloatingIceBreaker/);
+  assert.match(nativeVideoDateRoute, /iceBreakerBottomOffset/);
+  assert.match(nativeVideoDateRoute, /styles\.iceBreakerFloat/);
+  assert.doesNotMatch(nativeVideoDateRoute, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
 });
 
 test("native ready and date routes validate before requesting camera and microphone", () => {
@@ -1431,7 +1489,7 @@ test("video date button escape contracts keep web and native users routable", ()
     webVideoDatePage,
     /onLeave=\{peerMissing\.terminal \? handlePeerMissingLeave : handlePreDateExit\}/,
   );
-  assert.match(webVideoDatePage, /const hasDateEntryTruth = hasEnteredDateFlowRef\.current \|\| phaseRef\.current === "date" \|\| Boolean\(dateStartedAt\)/);
+  assert.match(webVideoDatePage, /const hasDateEntryTruth =[\s\S]*hasEnteredDateFlowRef\.current[\s\S]*phaseRef\.current === "date"[\s\S]*Boolean\(dateStartedAt\)[\s\S]*videoSessionHasEncounterExposureTruth\(handshakeTruth\)/);
   assert.match(webVideoDatePage, /openPostDateSurvey\("local_end"\)/);
   assert.match(webDateNavigationGuard, /recent_manual_exit/);
   assert.match(webDateNavigationGuard, /sessionStorage/);

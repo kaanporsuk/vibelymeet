@@ -61,9 +61,8 @@ async function findPendingPostDateSurveySession(
   const nowMs = Date.now();
   const endedQuery = supabase
     .from('video_sessions')
-    .select('id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at')
+    .select('id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, date_started_at, participant_1_joined_at, participant_2_joined_at, state, phase')
     .not('ended_at', 'is', null)
-    .not('date_started_at', 'is', null)
     .or(`participant_1_id.eq.${userId},participant_2_id.eq.${userId}`)
     .order('ended_at', { ascending: false, nullsFirst: false })
     .limit(10);
@@ -299,6 +298,23 @@ export function useActiveSession(
         return;
       }
 
+      if (reg.queue_status === 'in_ready_gate') {
+        const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
+        if (pendingSurvey) {
+          if (mounted.current) {
+            setActiveSession({
+              kind: 'video',
+              sessionId: pendingSurvey.sessionId,
+              eventId: pendingSurvey.eventId,
+              partnerName: pendingSurvey.partnerName,
+              queueStatus: 'in_survey',
+            });
+            setHydrated(true);
+          }
+          return;
+        }
+      }
+
       const { data: session, error: sessionError } = await supabase
         .from('video_sessions')
         .select('id, event_id, participant_1_id, participant_2_id, ended_at, ended_reason, handshake_started_at, date_started_at, date_extra_seconds, state, phase, ready_gate_status, ready_gate_expires_at, reconnect_grace_ends_at, started_at, state_updated_at, participant_1_joined_at, participant_2_joined_at, daily_room_name, daily_room_url')
@@ -465,24 +481,21 @@ export function useActiveSession(
           currentPartnerPresent: Boolean(reg.current_partner_id),
         });
       }
-      // Stale current_room_id or registration not in an active gate/date phase: try queued `syncing` below.
-      const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
-      if (directSession) {
+      // Stale current_room_id or registration not in an active gate/date phase: recover survey before new gates.
+      const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
+      if (pendingSurvey) {
         if (mounted.current) {
-          setActiveSession(directSession);
+          setActiveSession({
+            kind: 'video',
+            sessionId: pendingSurvey.sessionId,
+            eventId: pendingSurvey.eventId,
+            partnerName: pendingSurvey.partnerName,
+            queueStatus: 'in_survey',
+          });
           setHydrated(true);
         }
         return;
       }
-    }
-
-    const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
-    if (directSession) {
-      if (mounted.current) {
-        setActiveSession(directSession);
-        setHydrated(true);
-      }
-      return;
     }
 
     const pendingSurvey = await findPendingPostDateSurveySession(userId, eventFilter, emitStaleActiveSessionDetected);
@@ -495,6 +508,15 @@ export function useActiveSession(
           partnerName: pendingSurvey.partnerName,
           queueStatus: 'in_survey',
         });
+        setHydrated(true);
+      }
+      return;
+    }
+
+    const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
+    if (directSession) {
+      if (mounted.current) {
+        setActiveSession(directSession);
         setHydrated(true);
       }
       return;
@@ -528,6 +550,7 @@ export function useActiveSession(
         }
         return;
       }
+
     }
 
     if (mounted.current) {
