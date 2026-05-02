@@ -94,3 +94,18 @@ test("native profile labels non-empty Vibe Video states as manageable", () => {
   assert.match(nativeStudio, /bunny_video_uid:\s*null/);
   assert.match(nativeStudio, /bunny_video_status:\s*'none'/);
 });
+
+test("web Vibe Studio refresh repairs playable Bunny uploads stuck in uploading", () => {
+  const sync = read("src/lib/vibeVideo/syncVibeVideoStatus.ts");
+  const studio = read("src/pages/VibeStudio.tsx");
+  const heroController = read("src/lib/heroVideo/heroVideoUploadController.ts");
+  const syncFunction = read("supabase/functions/sync-vibe-video-status/index.ts");
+
+  assert.match(sync, /sync-vibe-video-status/);
+  assert.match(sync, /body: \{ videoId: uid \}/);
+  assert.match(studio, /await syncCurrentVibeVideoStatus\(effectiveVibeVideo\.bunnyVideoUid, "manual_refresh"\)/);
+  assert.match(heroController, /await syncCurrentVibeVideoStatus\(expectedVideoId, "processing_poll"\)/);
+  assert.match(syncFunction, /status === 3 \|\| status === 4/);
+  assert.match(syncFunction, /mappedStatus/);
+  assert.match(syncFunction, /update_media_session_status/);
+});

@@ -27,6 +27,7 @@ import {
   trackVibeVideoEvent,
   VIBE_VIDEO_EVENTS,
 } from "@/lib/vibeVideo/vibeVideoTelemetry";
+import { syncCurrentVibeVideoStatus } from "@/lib/vibeVideo/syncVibeVideoStatus";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -99,6 +100,8 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
+
+    await syncCurrentVibeVideoStatus(expectedVideoId, "processing_poll");
 
     const { data, error } = await supabase
       .from("profiles")
@@ -223,6 +226,7 @@ function _startPoll(videoId: string): void {
   _pollTimerId = setInterval(() => {
     void _pollTick(videoId);
   }, POLL_INTERVAL_MS);
+  void _pollTick(videoId);
 }
 
 export function heroVideoResumePollingForProfile(
