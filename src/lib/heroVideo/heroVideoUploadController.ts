@@ -111,6 +111,16 @@ async function _pollTick(expectedVideoId: string): Promise<void> {
     const rowUid =
       typeof data?.bunny_video_uid === "string" ? data.bunny_video_uid.trim() : "";
 
+    // If the profile reference was cleared, the user cancelled/deleted this
+    // in-progress video elsewhere. Treat that as terminal so stale controller
+    // state cannot resurrect a processing card on the profile page.
+    if (!rowUid) {
+      _stopPoll();
+      _setState({ phase: "idle", uploadProgress: 0, videoId: null, errorMessage: null });
+      void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
+      return;
+    }
+
     // If the profile now points to a different video, the user replaced it elsewhere
     if (rowUid && rowUid !== expectedVideoId) {
       _stopPoll();

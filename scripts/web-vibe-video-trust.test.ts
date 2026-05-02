@@ -61,3 +61,36 @@ test("web Vibe Video duration and caption constants are canonical and wired into
   assert.match(vibeStudio, /MAX_VIBE_CAPTION_LEN/);
   assert.doesNotMatch(vibeStudio, /const CAPTION_MAX\s*=\s*50/);
 });
+
+test("web profile and studio keep Vibe Video management available through delete/recovery states", () => {
+  const profileStudio = read("src/pages/ProfileStudio.tsx");
+  const vibeStudio = read("src/pages/VibeStudio.tsx");
+  const heroController = read("src/lib/heroVideo/heroVideoUploadController.ts");
+
+  assert.match(profileStudio, /resolveWebVibeVideoState/);
+  assert.match(profileStudio, /const canManageVibeVideo\s*=/);
+  assert.match(profileStudio, /resolvedVibeVideo\.canManage/);
+  assert.doesNotMatch(profileStudio, /\{profile\.bunnyVideoUid \? \(/);
+
+  assert.match(vibeStudio, /heroVideoReset/);
+  assert.match(vibeStudio, /heroVideoReset\(\);/);
+  assert.match(vibeStudio, /bunnyVideoUid:\s*null/);
+  assert.match(vibeStudio, /bunnyVideoStatus:\s*"none"/);
+  assert.match(vibeStudio, /setCaptionDraft\(""\)/);
+
+  assert.match(heroController, /if \(!rowUid\) \{/);
+  assert.match(heroController, /phase:\s*"idle", uploadProgress:\s*0, videoId:\s*null/);
+});
+
+test("native profile labels non-empty Vibe Video states as manageable", () => {
+  const nativeProfileStudio = read("apps/mobile/app/(tabs)/profile/ProfileStudio.tsx");
+  const nativeState = read("apps/mobile/lib/vibeVideoState.ts");
+  const nativeStudio = read("apps/mobile/app/vibe-studio.tsx");
+
+  assert.match(nativeProfileStudio, /showVibeVideoManageLabel/);
+  assert.match(nativeProfileStudio, /\? 'Manage' : 'Open Studio'/);
+  assert.match(nativeState, /canPlay: false, canManage: true, canDelete: true/);
+  assert.match(nativeStudio, /nativeHeroVideoReset\(\);/);
+  assert.match(nativeStudio, /bunny_video_uid:\s*null/);
+  assert.match(nativeStudio, /bunny_video_status:\s*'none'/);
+});

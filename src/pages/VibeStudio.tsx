@@ -26,7 +26,8 @@ import { recordUserAction } from "@/lib/browserDiagnostics";
 import { MAX_VIBE_CAPTION_LEN } from "@/lib/vibeVideo/constants";
 import { fetchMyProfile, updateMyProfile, type ProfileData } from "@/services/profileService";
 import { useHeroVideoUpload } from "@/hooks/useHeroVideoUpload";
-import { heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
+import { heroVideoReset, heroVideoResumePollingForProfile } from "@/lib/heroVideo/heroVideoUploadController";
+import { queryClient } from "@/lib/queryClient";
 
 type StatusTone = {
   pillClassName: string;
@@ -305,7 +306,6 @@ const VibeStudio = () => {
         throw new Error(String(result.error ?? "Failed to delete video."));
       }
 
-      setShowPlayer(false);
       recordUserAction("vibe_studio_delete_succeeded", {
         surface: "vibe_studio",
         video_state: videoInfo.state,
@@ -316,6 +316,30 @@ const VibeStudio = () => {
         state: videoInfo.state,
         possible_bunny_orphan: result.possibleBunnyOrphan === true,
       });
+      heroVideoReset();
+      setProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              bunnyVideoUid: null,
+              bunnyVideoStatus: "none",
+              vibeCaption: "",
+            }
+          : prev,
+      );
+      queryClient.setQueryData<ProfileData | null>(["my-profile"], (prev) =>
+        prev
+          ? {
+              ...prev,
+              bunnyVideoUid: null,
+              bunnyVideoStatus: "none",
+              vibeCaption: "",
+            }
+          : prev,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["my-profile"] });
+      setShowPlayer(false);
+      setCaptionDraft("");
       toast.success(deletingPipelineVideo ? "In-progress Vibe Video removed." : "Vibe Video deleted.");
       refreshProfile();
     } catch (error) {

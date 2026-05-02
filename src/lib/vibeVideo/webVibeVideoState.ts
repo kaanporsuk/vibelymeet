@@ -169,7 +169,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
       caption,
       isScoreEligible: true,
       canPlay: false,
-      canManage: false,
+      canManage: true,
       canDelete: true,
       canRecord: canonical.state === "stale_processing",
     };
@@ -207,7 +207,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
       caption,
       isScoreEligible: true,
       canPlay: false,
-      canManage: false,
+      canManage: true,
       canDelete: true,
       canRecord: true,
     };
@@ -224,7 +224,7 @@ export function resolveWebVibeVideoState(profile: ProfileVibeInput): WebVibeVide
     caption,
     isScoreEligible: true,
     canPlay: false,
-    canManage: false,
+    canManage: true,
     canDelete: true,
     canRecord: false,
   };

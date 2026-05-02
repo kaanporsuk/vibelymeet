@@ -79,7 +79,7 @@ export function resolveVibeVideoState(profile: {
       statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
       playbackUrl: null, thumbnailUrl: null, caption,
       isScoreEligible: true,
-      canPlay: false, canManage: false, canDelete: true, canRecord: canonical.state === 'stale_processing',
+      canPlay: false, canManage: true, canDelete: true, canRecord: canonical.state === 'stale_processing',
     };
   }
 
@@ -106,7 +106,7 @@ export function resolveVibeVideoState(profile: {
       statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
       playbackUrl: null, thumbnailUrl: null, caption,
       isScoreEligible: true,
-      canPlay: false, canManage: false, canDelete: true, canRecord: true,
+      canPlay: false, canManage: true, canDelete: true, canRecord: true,
     };
   }
 
@@ -117,6 +117,6 @@ export function resolveVibeVideoState(profile: {
     statusUpdatedAt: canonical.statusUpdatedAt, statusAgeMs: canonical.statusAgeMs,
     playbackUrl: null, thumbnailUrl: null, caption,
     isScoreEligible: true,
-    canPlay: false, canManage: false, canDelete: true, canRecord: false,
+    canPlay: false, canManage: true, canDelete: true, canRecord: false,
   };
 }

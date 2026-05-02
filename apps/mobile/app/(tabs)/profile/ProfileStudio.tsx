@@ -262,6 +262,7 @@ export default function ProfileStudio() {
 
   /** Vibe video UI state — must not use hooks; same call order every render (incl. loading/error paths). */
   const videoInfo = resolveVibeVideoState(profile ?? null);
+  const showVibeVideoManageLabel = videoInfo.canManage || videoInfo.state === 'error';
 
   useEffect(() => {
     if (!profile) return;
@@ -1082,7 +1083,9 @@ export default function ProfileStudio() {
               onPress={openVibeStudio}
               style={({ pressed }) => [s.sectionLink, pressed && { opacity: 0.8 }]}
             >
-              <Text style={[s.sectionLinkText, { color: theme.tint }]}>Open Studio</Text>
+              <Text style={[s.sectionLinkText, { color: theme.tint }]}>
+                {showVibeVideoManageLabel ? 'Manage' : 'Open Studio'}
+              </Text>
               <Ionicons name="chevron-forward" size={16} color={theme.tint} />
             </Pressable>
           </RNView>
