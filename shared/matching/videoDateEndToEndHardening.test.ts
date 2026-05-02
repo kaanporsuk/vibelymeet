@@ -126,6 +126,10 @@ const handshakeDeadlineFinalizerMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260502143000_video_date_handshake_deadline_finalizer.sql"),
   "utf8",
 );
+const handshakeDeadlinePolishMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260502150000_video_date_handshake_deadline_polish.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -1550,6 +1554,20 @@ test("both-joined handshakes past the 60s deadline are no longer preserved forev
     /'handshake_deadline_timeout', COALESCE\(\(v_due->>'handshake_deadline_timeout'\)::int, 0\)/,
   );
   assert.match(handshakeDeadlineFinalizerMigration, /server_cleanup_due_joined_handshake/);
+});
+
+test("handshake deadline cleanup polish removes accidental identifier truncation", () => {
+  assert.match(
+    handshakeDeadlinePolishMigration,
+    /ALTER FUNCTION public\.expire_stale_video_date_phases_bounded_20260502143000_handshake\(integer\)\s+RENAME TO expire_vd_phases_base_20260502143000/s,
+  );
+  assert.match(handshakeDeadlinePolishMigration, /v_base := public\.expire_vd_phases_base_20260502143000\(v_limit\)/);
+  assert.match(handshakeDeadlinePolishMigration, /expire_due_joined_video_date_handshakes_bounded\(v_limit\)/);
+  assert.doesNotMatch(
+    handshakeDeadlinePolishMigration,
+    /expire_stale_video_date_phases_bounded_20260502143000_handshake_deadline_base/,
+  );
+  assert.match(videoDateValidationSql, /handshake_deadline_cleanup_helper_has_intentional_name/);
 });
 
 test("web and native countdown-zero paths complete handshake and last-10s urgency is bounded to handshake", () => {

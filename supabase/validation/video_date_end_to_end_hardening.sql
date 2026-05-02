@@ -178,7 +178,15 @@ select
     like '%client_peer_missing_exit%'
   as ok;
 
--- 13) Client-perceived stuck-state observability is participant-authenticated
+-- 13) Confirm hard-handshake-deadline cleanup helper has a deliberate short
+-- name, not the Postgres-truncated migration identifier.
+select
+  'handshake_deadline_cleanup_helper_has_intentional_name' as check_name,
+  to_regprocedure('public.expire_vd_phases_base_20260502143000(integer)') is not null
+  and to_regprocedure('public.expire_stale_video_date_phases_bounded_20260502143000_handshake(integer)') is null
+  as ok;
+
+-- 14) Client-perceived stuck-state observability is participant-authenticated
 -- only; service role reads it through the existing timeline rather than this
 -- client ingestion RPC.
 select
@@ -200,7 +208,7 @@ select
   )
   as ok;
 
--- 14) The client stuck-state RPC is sparse and rejects unknown event names.
+-- 15) The client stuck-state RPC is sparse and rejects unknown event names.
 select
   'client_stuck_observability_allowlist_and_unknown_reject' as check_name,
   pg_get_functiondef('public.record_video_date_client_stuck_observability(uuid,text,jsonb,integer)'::regprocedure)
@@ -221,7 +229,7 @@ select
     like '%unknown_event_name%'
   as ok;
 
--- 15) Client stuck-state rows dedupe once per session/user/event.
+-- 16) Client stuck-state rows dedupe once per session/user/event.
 select
   'client_stuck_observability_dedupe_index_exists' as check_name,
   exists (
@@ -237,7 +245,7 @@ select
       and indexdef like '%video_date_client_stuck_state%'
   ) as ok;
 
--- 16) Client stuck-state rows are visible in the existing admin timeline.
+-- 17) Client stuck-state rows are visible in the existing admin timeline.
 select
   'timeline_includes_client_stuck_events' as check_name,
   pg_get_functiondef('public.get_video_date_session_timeline(uuid)'::regprocedure)
