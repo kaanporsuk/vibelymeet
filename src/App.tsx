@@ -9,45 +9,14 @@ import { AlertTriangle, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OfflineBanner } from "@/components/connectivity/OfflineBanner";
 import { lazy, Suspense, useEffect, useState } from "react";
-import Index from "./pages/Index";
-import Onboarding from "./pages/onboarding";
-import Auth from "./pages/Auth";
-import EntryRecovery from "./pages/EntryRecovery";
-import Dashboard from "./pages/Dashboard";
-import Events from "./pages/Events";
-import EventDetails from "./pages/EventDetails";
-import Matches from "./pages/Matches";
-import Profile from "./pages/Profile";
-import ProfilePreview from "./pages/ProfilePreview";
-import Settings from "./pages/Settings";
-import ReadyRedirect from "./pages/ReadyRedirect";
-import Schedule from "./pages/Schedule";
-import HowItWorks from "./pages/HowItWorks";
-import UserProfile from "./pages/UserProfile";
-import ResetPassword from "./pages/ResetPassword";
-import InviteRedirect from "./pages/InviteRedirect";
-import EventShortRedirect from "./pages/EventShortRedirect";
-import NotFound from "./pages/NotFound";
-import PrivacyPolicy from "./pages/legal/PrivacyPolicy";
-import TermsOfService from "./pages/legal/TermsOfService";
-import DeleteAccountWeb from "./pages/legal/DeleteAccountWeb";
-import CommunityGuidelines from "./pages/legal/CommunityGuidelines";
-import Premium from "./pages/Premium";
-import SubscriptionSuccess from "./pages/SubscriptionSuccess";
-import SubscriptionCancel from "./pages/SubscriptionCancel";
-import EventPaymentSuccess from "./pages/EventPaymentSuccess";
-import Credits from "./pages/Credits";
-import CreditsSuccess from "./pages/CreditsSuccess";
-import Referrals from "./pages/Referrals";
-import AdminLogin from "./pages/admin/AdminLogin";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { SessionHydrationProvider } from "./contexts/SessionHydrationContext";
+import { EntitlementsProvider } from "./contexts/EntitlementsContext";
 import { SessionRouteHydration } from "./components/session/SessionRouteHydration";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import NotificationContainer from "./components/notifications/NotificationContainer";
 import { NotificationManager } from "./components/notifications/NotificationManager";
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import { PushPermissionPrompt } from "./components/PushPermissionPrompt";
 import { WebPasswordRecoveryHandler } from "./components/WebPasswordRecoveryHandler";
 import { useActivityHeartbeat } from "./hooks/useActivityHeartbeat";
 import { useAppBootstrap } from "./hooks/useAppBootstrap";
@@ -56,10 +25,10 @@ import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletion
 import { MatchCallProvider } from "@/hooks/useMatchCall";
 import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
 import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
-import { SpeedInsights } from "@vercel/speed-insights/react";
-import { Analytics } from "@vercel/analytics/react";
 import { recordBrowserError, recordBrowserEvent } from "@/lib/browserDiagnostics";
 import { initAnalytics, disableAnalytics, trackEvent } from "@/lib/analytics";
+import { lazyWithPreload } from "@/lib/lazyWithPreload";
+import { preloadRouteOnIdle, routeLoaders } from "@/lib/routePreload";
 import {
   readAnalyticsConsent,
   setAnalyticsConsent,
@@ -67,12 +36,63 @@ import {
   type AnalyticsConsentState,
 } from "@/lib/consent";
 
-const Chat = lazy(() => import("./pages/Chat"));
-const VideoDate = lazy(() => import("./pages/VideoDate"));
-const EventLobby = lazy(() => import("./pages/EventLobby"));
-const AdminCreateEvent = lazy(() => import("./pages/AdminCreateEvent"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const VibeStudio = lazy(() => import("./pages/VibeStudio"));
+const Index = lazyWithPreload(routeLoaders.index);
+const Auth = lazyWithPreload(routeLoaders.auth);
+const EntryRecovery = lazyWithPreload(routeLoaders.entryRecovery);
+const InviteRedirect = lazyWithPreload(routeLoaders.inviteRedirect);
+const EventShortRedirect = lazyWithPreload(routeLoaders.eventShortRedirect);
+const ResetPassword = lazyWithPreload(routeLoaders.resetPassword);
+const Onboarding = lazyWithPreload(routeLoaders.onboarding);
+const Dashboard = lazyWithPreload(routeLoaders.dashboard);
+const Events = lazyWithPreload(routeLoaders.events);
+const EventDetails = lazyWithPreload(routeLoaders.eventDetails);
+const EventLobby = lazyWithPreload(routeLoaders.eventLobby);
+const Matches = lazyWithPreload(routeLoaders.matches);
+const Chat = lazyWithPreload(routeLoaders.chat);
+const Profile = lazyWithPreload(routeLoaders.profile);
+const ProfilePreview = lazyWithPreload(routeLoaders.profilePreview);
+const Settings = lazyWithPreload(routeLoaders.settings);
+const Referrals = lazyWithPreload(routeLoaders.referrals);
+const VideoDate = lazyWithPreload(routeLoaders.videoDate);
+const ReadyRedirect = lazyWithPreload(routeLoaders.readyRedirect);
+const AdminCreateEvent = lazyWithPreload(routeLoaders.adminCreateEvent);
+const AdminDashboard = lazyWithPreload(routeLoaders.adminDashboard);
+const VibeStudio = lazyWithPreload(routeLoaders.vibeStudio);
+const Schedule = lazyWithPreload(routeLoaders.schedule);
+const HowItWorks = lazyWithPreload(routeLoaders.howItWorks);
+const PrivacyPolicy = lazyWithPreload(routeLoaders.privacy);
+const TermsOfService = lazyWithPreload(routeLoaders.terms);
+const DeleteAccountWeb = lazyWithPreload(routeLoaders.deleteAccount);
+const CommunityGuidelines = lazyWithPreload(routeLoaders.communityGuidelines);
+const Premium = lazyWithPreload(routeLoaders.premium);
+const SubscriptionSuccess = lazyWithPreload(routeLoaders.subscriptionSuccess);
+const SubscriptionCancel = lazyWithPreload(routeLoaders.subscriptionCancel);
+const EventPaymentSuccess = lazyWithPreload(routeLoaders.eventPaymentSuccess);
+const Credits = lazyWithPreload(routeLoaders.credits);
+const CreditsSuccess = lazyWithPreload(routeLoaders.creditsSuccess);
+const UserProfile = lazyWithPreload(routeLoaders.userProfile);
+const AdminLogin = lazyWithPreload(routeLoaders.adminLogin);
+const NotFound = lazyWithPreload(routeLoaders.notFound);
+const PushPermissionPrompt = lazy(() =>
+  import("./components/PushPermissionPrompt").then((mod) => ({ default: mod.PushPermissionPrompt }))
+);
+const VercelAnalyticsBundle = lazy(() =>
+  Promise.all([
+    import("@vercel/speed-insights/react"),
+    import("@vercel/analytics/react"),
+  ]).then(([speedInsights, analytics]) => ({
+    default: function VercelAnalyticsBundleInner() {
+      const SpeedInsights = speedInsights.SpeedInsights;
+      const Analytics = analytics.Analytics;
+      return (
+        <>
+          <SpeedInsights />
+          <Analytics />
+        </>
+      );
+    },
+  }))
+);
 
 const PostHogPageTracker = () => {
   const location = useLocation();
@@ -94,6 +114,46 @@ const AppContent = () => {
   useActivityHeartbeat();
   useAppBootstrap();
   return null;
+};
+
+const RoutePrefetcher = () => {
+  const location = useLocation();
+  const { isAuthenticated, entryState, entryStateLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isAuthenticated && location.pathname === "/") {
+      preloadRouteOnIdle("auth");
+      return;
+    }
+
+    if (isAuthenticated && !entryStateLoading && entryState) {
+      if (entryState.route_hint === "app") {
+        preloadRouteOnIdle("dashboard");
+        preloadRouteOnIdle("events");
+        preloadRouteOnIdle("matches");
+        return;
+      }
+      if (entryState.route_hint === "onboarding") {
+        preloadRouteOnIdle("onboarding");
+        return;
+      }
+      preloadRouteOnIdle("entryRecovery");
+    }
+  }, [entryState, entryStateLoading, isAuthenticated, location.pathname]);
+
+  return null;
+};
+
+const AuthenticatedPushPermissionPrompt = () => {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading || !isAuthenticated) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <PushPermissionPrompt />
+    </Suspense>
+  );
 };
 
 const RouteFallback = () => (
@@ -157,6 +217,7 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <EntitlementsProvider>
         <WebChatOutboxProvider>
         <SessionHydrationProvider>
         <NotificationProvider>
@@ -192,13 +253,14 @@ const App = () => {
                   <WebPostDateOutboxRunner />
                   <WebPasswordRecoveryHandler />
                   <PostHogPageTracker />
+                  <RoutePrefetcher />
                   <SessionRouteHydration />
                   <WebOnBreakBanner />
                   <WebPendingDeletionBanner />
                   <AppContent />
                   <NotificationContainer />
                   <NotificationManager />
-                  <PushPermissionPrompt />
+                  <AuthenticatedPushPermissionPrompt />
                   <Suspense fallback={<RouteFallback />}>
                     <Routes>
                       <Route path="/" element={<Index />} />
@@ -251,12 +313,12 @@ const App = () => {
         </NotificationProvider>
         </SessionHydrationProvider>
         </WebChatOutboxProvider>
+        </EntitlementsProvider>
       </AuthProvider>
       {analyticsAllowed ? (
-        <>
-          <SpeedInsights />
-          <Analytics />
-        </>
+        <Suspense fallback={null}>
+          <VercelAnalyticsBundle />
+        </Suspense>
       ) : null}
     </QueryClientProvider>
   );

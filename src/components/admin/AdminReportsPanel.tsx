@@ -436,7 +436,7 @@ const AdminReportsPanel = () => {
             <DialogTitle>Review Report</DialogTitle>
             <DialogDescription>
               Take action on this report against{" "}
-              {profiles?.[selectedReport?.reported_id]?.name || "the reported user"}
+              {selectedReport ? profiles?.[selectedReport.reported_id]?.name || "the reported user" : "the reported user"}
             </DialogDescription>
           </DialogHeader>
 

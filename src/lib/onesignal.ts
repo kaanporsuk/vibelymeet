@@ -13,6 +13,8 @@ import type { PushSdkHealth } from "@clientShared/pushDeliveryHealth";
 const PLAYER_ID_POLL_ATTEMPTS = 10;
 const PLAYER_ID_INITIAL_POLL_MS = 500;
 const PLAYER_ID_MAX_POLL_MS = 4000;
+const ONESIGNAL_SDK_SRC = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
+const ONESIGNAL_SCRIPT_ID = "onesignal-sdk-page";
 
 type OneSignalClickEvent = {
   notification?: {
@@ -65,6 +67,24 @@ let identityGeneration = 0;
 
 function ensureDeferredArray() {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
+}
+
+function ensureOneSignalSdkScript() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(ONESIGNAL_SCRIPT_ID)) return;
+  const script = document.createElement("script");
+  script.id = ONESIGNAL_SCRIPT_ID;
+  script.src = ONESIGNAL_SDK_SRC;
+  script.defer = true;
+  script.async = true;
+  script.onerror = () => {
+    sdkUsable = false;
+    initResolvedFlag = true;
+    resolveInit?.();
+    vibelyOsLog("onesignal:sdk script failed", {});
+    dispatchInitSettled();
+  };
+  document.head.appendChild(script);
 }
 
 function serviceWorkerScriptPaths(registration: ServiceWorkerRegistration): string[] {
@@ -273,6 +293,7 @@ export const initOneSignal = () => {
       dispatchInitSettled();
     }
   });
+  ensureOneSignalSdkScript();
 };
 
 async function afterInit(): Promise<boolean> {

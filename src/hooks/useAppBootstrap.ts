@@ -1,8 +1,6 @@
 import { useEffect } from "react";
 import * as Sentry from "@sentry/react";
 import { useAuth, useUserProfile } from "@/contexts/AuthContext";
-import { setExternalUserId, removeExternalUserId } from "@/lib/onesignal";
-import { syncWebPushRegistrationToBackend } from "@/lib/requestWebPushPermission";
 import { identifyUser, resetAnalytics, setUserProperties } from "@/lib/analytics";
 
 export const useAppBootstrap = () => {
@@ -20,7 +18,9 @@ export const useAppBootstrap = () => {
     if (!userId) {
       Sentry.setUser(null);
       resetAnalytics();
-      removeExternalUserId();
+      void import("@/lib/onesignal").then(({ removeExternalUserId }) => {
+        removeExternalUserId();
+      });
       return;
     }
 
@@ -32,6 +32,12 @@ export const useAppBootstrap = () => {
 
     const syncOneSignal = async () => {
       try {
+        const [{ initOneSignal, setExternalUserId }, { syncWebPushRegistrationToBackend }] =
+          await Promise.all([
+            import("@/lib/onesignal"),
+            import("@/lib/requestWebPushPermission"),
+          ]);
+        initOneSignal();
         setExternalUserId(userId);
         await syncWebPushRegistrationToBackend(userId);
       } catch (e) {

@@ -36,6 +36,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
 import { recordUserAction } from "@/lib/browserDiagnostics";
+import { preloadRoute } from "@/lib/routePreload";
 import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
 import { getDashboardEventRailHeading } from "@clientShared/eventTimingBuckets";
@@ -95,6 +96,7 @@ type HomeProfile = {
   about_me: string | null;
   avatar_url: string | null;
   vibeCount: number;
+  phoneVerified: boolean | null;
 };
 
 const Dashboard = () => {
@@ -104,20 +106,6 @@ const Dashboard = () => {
 
   const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useSessionHydration();
   const [showDashboardPhoneNudge, setShowDashboardPhoneNudge] = useState(false);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    const dismissed = localStorage.getItem("vibely_phone_nudge_dashboard_dismissed");
-    if (dismissed) return;
-
-    const check = async () => {
-      const { data } = await supabase.from("profiles").select("phone_verified").eq("id", user.id).maybeSingle();
-      if (data && !data.phone_verified) {
-        setShowDashboardPhoneNudge(true);
-      }
-    };
-    void check();
-  }, [user?.id]);
 
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
   const { data: visibleEventsRaw = [], isLoading: eventsLoading, refetch: refetchEvents } = useVisibleEvents();
@@ -220,22 +208,27 @@ const Dashboard = () => {
     enabled: !!user?.id,
     queryFn: async (): Promise<HomeProfile | null> => {
       if (!user?.id) return null;
-      const { data: row, error } = await supabase
-        .from("profiles")
-        .select("name, photos, about_me, avatar_url")
-        .eq("id", user.id)
-        .maybeSingle();
+      const [profileResult, vibesResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("name, photos, about_me, avatar_url, phone_verified")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("profile_vibes")
+          .select("id", { count: "exact", head: true })
+          .eq("profile_id", user.id),
+      ]);
+      const { data: row, error } = profileResult;
       if (error) throw error;
-      const { count, error: vErr } = await supabase
-        .from("profile_vibes")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", user.id);
+      const { count, error: vErr } = vibesResult;
       if (vErr && import.meta.env.DEV) console.warn("[home] profile_vibes count:", vErr.message);
       const r = row as {
         name?: string | null;
         photos?: string[] | null;
         about_me?: string | null;
         avatar_url?: string | null;
+        phone_verified?: boolean | null;
       } | null;
       return {
         name: r?.name ?? null,
@@ -243,9 +236,19 @@ const Dashboard = () => {
         about_me: r?.about_me ?? null,
         avatar_url: r?.avatar_url ?? null,
         vibeCount: count ?? 0,
+        phoneVerified: r?.phone_verified ?? null,
       };
     },
   });
+
+  useEffect(() => {
+    if (!user?.id || homeProfile?.phoneVerified !== false) {
+      setShowDashboardPhoneNudge(false);
+      return;
+    }
+    const dismissed = localStorage.getItem("vibely_phone_nudge_dashboard_dismissed");
+    setShowDashboardPhoneNudge(!dismissed);
+  }, [homeProfile?.phoneVerified, user?.id]);
 
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
@@ -373,7 +376,8 @@ const Dashboard = () => {
     return () => clearInterval(interval);
   }, [nextEvent?.eventDate, isLiveEvent]);
 
-  const loading = eventLoading || eventsLoading || matchesLoading;
+  const matchesRailLoading = matchesLoading;
+  const eventsRailLoading = eventsLoading;
   const newMatchCount = matches.filter((m) => m.isNew).length;
   const firstName =
     homeProfile?.name?.trim().split(/\s+/)[0] ||
@@ -578,7 +582,7 @@ const Dashboard = () => {
             >
               <ActiveCallBanner
                 sessionId={activeSession.sessionId}
-                partnerName={activeSession.partnerName}
+                partnerName={activeSession.partnerName ?? undefined}
                 mode={
                   activeSession.kind === "ready_gate"
                     ? "ready_gate"
@@ -857,7 +861,7 @@ const Dashboard = () => {
           </div>
 
           <div className="flex gap-4 overflow-x-auto scrollbar-hide py-2 -mx-4 px-4">
-            {loading ? (
+            {matchesRailLoading ? (
               Array(5)
                 .fill(0)
                 .map((_, i) => <MatchAvatarSkeleton key={i} />)
@@ -866,6 +870,8 @@ const Dashboard = () => {
                 <button
                   key={match.id}
                   type="button"
+                  onMouseEnter={() => preloadRoute("chat")}
+                  onFocus={() => preloadRoute("chat")}
                   onClick={() => navigate(`/chat/${match.id}`)}
                   className="flex flex-col items-center gap-2 min-w-fit"
                 >
@@ -913,7 +919,7 @@ const Dashboard = () => {
           </div>
 
           <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-2">
-            {loading ? (
+            {eventsRailLoading ? (
               Array(2)
                 .fill(0)
                 .map((_, i) => (
@@ -926,6 +932,8 @@ const Dashboard = () => {
                 <div
                   key={event.id}
                   className="min-w-[260px] glass-card overflow-hidden cursor-pointer shrink-0 border border-white/10 rounded-2xl"
+                  onMouseEnter={() => preloadRoute("eventDetails")}
+                  onFocus={() => preloadRoute("eventDetails")}
                   onClick={() => navigate(`/events/${event.id}`)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {

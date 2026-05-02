@@ -89,7 +89,7 @@ const DeleteAccountWeb = () => {
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border/40 px-6 py-5">
         <Link to="/" className="flex items-center gap-2">
-          <img src="/vibely-logomark.png" alt="Vibely" className="h-8 w-8" />
+          <img src="/favicon-32x32.png" alt="Vibely" className="h-8 w-8" />
           <span className="text-xl font-bold bg-gradient-to-r from-neon-violet to-neon-pink bg-clip-text text-transparent">
             Vibely
           </span>

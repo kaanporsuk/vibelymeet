@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/navigation/BottomNav";
-import { NotificationsDrawer } from "@/components/settings/NotificationsDrawer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,10 +29,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { DeleteAccountModal } from "@/components/settings/DeleteAccountModal";
-import { AccountSettingsDrawer } from "@/components/settings/AccountSettingsDrawer";
-import { PrivacyDrawer } from "@/components/settings/PrivacyDrawer";
-import { DiscoveryDrawer } from "@/components/settings/DiscoveryDrawer";
-import { FeedbackDrawer } from "@/components/settings/FeedbackDrawer";
 import { useLogout } from "@/hooks/useLogout";
 import { useDeleteAccount } from "@/hooks/useDeleteAccount";
 import { PremiumSettingsCard } from "@/components/premium/PremiumSettingsCard";
@@ -51,6 +46,22 @@ import {
 } from "@shared/settingsMembershipDisplay";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { trackEvent } from "@/lib/analytics";
+
+const NotificationsDrawer = lazy(() =>
+  import("@/components/settings/NotificationsDrawer").then((mod) => ({ default: mod.NotificationsDrawer }))
+);
+const AccountSettingsDrawer = lazy(() =>
+  import("@/components/settings/AccountSettingsDrawer").then((mod) => ({ default: mod.AccountSettingsDrawer }))
+);
+const PrivacyDrawer = lazy(() =>
+  import("@/components/settings/PrivacyDrawer").then((mod) => ({ default: mod.PrivacyDrawer }))
+);
+const DiscoveryDrawer = lazy(() =>
+  import("@/components/settings/DiscoveryDrawer").then((mod) => ({ default: mod.DiscoveryDrawer }))
+);
+const FeedbackDrawer = lazy(() =>
+  import("@/components/settings/FeedbackDrawer").then((mod) => ({ default: mod.FeedbackDrawer }))
+);
 
 const Settings = () => {
   const navigate = useNavigate();
@@ -350,44 +361,54 @@ const Settings = () => {
         </motion.div>
       </main>
 
-      {/* Notifications Drawer */}
-      <NotificationsDrawer
-        open={activeDrawer === "notifications"}
-        onOpenChange={(open) => !open && setActiveDrawer(null)}
-      />
+      <Suspense fallback={null}>
+        {activeDrawer === "notifications" ? (
+          <NotificationsDrawer
+            open={activeDrawer === "notifications"}
+            onOpenChange={(open) => !open && setActiveDrawer(null)}
+          />
+        ) : null}
 
-      <PrivacyDrawer
-        open={activeDrawer === "privacy"}
-        onOpenChange={(open) => !open && setActiveDrawer(null)}
-      />
+        {activeDrawer === "privacy" ? (
+          <PrivacyDrawer
+            open={activeDrawer === "privacy"}
+            onOpenChange={(open) => !open && setActiveDrawer(null)}
+          />
+        ) : null}
 
-      <DiscoveryDrawer
-        open={activeDrawer === "discovery"}
-        onOpenChange={(open) => !open && setActiveDrawer(null)}
-        onPremiumNavigate={() => {
-          setActiveDrawer(null);
-          openPremium(navigate, {
-            entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_DISCOVERY,
-            feature: "canCityBrowse",
-          });
-        }}
-      />
+        {activeDrawer === "discovery" ? (
+          <DiscoveryDrawer
+            open={activeDrawer === "discovery"}
+            onOpenChange={(open) => !open && setActiveDrawer(null)}
+            onPremiumNavigate={() => {
+              setActiveDrawer(null);
+              openPremium(navigate, {
+                entry_surface: PREMIUM_ENTRY_SURFACE.CITY_BROWSE_DISCOVERY,
+                feature: "canCityBrowse",
+              });
+            }}
+          />
+        ) : null}
 
-      <AccountSettingsDrawer
-        open={activeDrawer === "account"}
-        onOpenChange={(open) => !open && setActiveDrawer(null)}
-        onDeleteAccount={() => {
-          setActiveDrawer(null);
-          setShowDeleteDialog(true);
-        }}
-        onRequestSignOut={() => {
-          setActiveDrawer(null);
-          setShowLogoutDialog(true);
-        }}
-      />
+        {activeDrawer === "account" ? (
+          <AccountSettingsDrawer
+            open={activeDrawer === "account"}
+            onOpenChange={(open) => !open && setActiveDrawer(null)}
+            onDeleteAccount={() => {
+              setActiveDrawer(null);
+              setShowDeleteDialog(true);
+            }}
+            onRequestSignOut={() => {
+              setActiveDrawer(null);
+              setShowLogoutDialog(true);
+            }}
+          />
+        ) : null}
 
-      {/* Support & Feedback Drawer */}
-      <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} initialTicketId={deepLinkTicketId} />
+        {showFeedback ? (
+          <FeedbackDrawer open={showFeedback} onOpenChange={setShowFeedback} initialTicketId={deepLinkTicketId} />
+        ) : null}
+      </Suspense>
 
       {/* Logout Confirmation */}
       <AlertDialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>

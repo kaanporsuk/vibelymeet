@@ -37,6 +37,8 @@ import { NotificationDeepLinkHandler, NotificationRouteTracker } from '@/compone
 import { NativeSessionRouteHydration } from '@/components/NativeSessionRouteHydration';
 import { NotificationPauseForeground } from '@/components/NotificationPauseForeground';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { EntitlementsProvider } from '@/context/EntitlementsContext';
+import { SessionHydrationProvider } from '@/context/SessionHydrationContext';
 import { OfflineBanner } from '@/components/connectivity/OfflineBanner';
 import { connectivityService } from '@/lib/connectivityService';
 import { identifyUser, resetAnalytics, screen, setPostHogClient, setUserProperties } from '@/lib/analytics';
@@ -90,7 +92,14 @@ if (__DEV__) {
   ]);
 }
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+    },
+  },
+});
 
 // Wire the module-level native hero upload controller to the query client so it
 // can invalidate ['my-profile'] after upload/processing completes — even when no
@@ -510,6 +519,8 @@ function RootLayoutNav() {
   const navContent = (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <EntitlementsProvider>
+        <SessionHydrationProvider>
         <MatchCallProvider>
           <ChatOutboxProvider>
           <SupabaseAutoRefreshAppStateBridge />
@@ -542,6 +553,8 @@ function RootLayoutNav() {
           </View>
           </ChatOutboxProvider>
         </MatchCallProvider>
+        </SessionHydrationProvider>
+        </EntitlementsProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

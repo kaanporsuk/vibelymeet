@@ -1,7 +1,7 @@
-import posthog from 'posthog-js';
 import { hasAnalyticsConsent } from "@/lib/consent";
 
 type AnalyticsProperties = Record<string, unknown>;
+type PostHogClient = typeof import("posthog-js").default;
 
 const POSTHOG_HOST_FALLBACK = "https://eu.i.posthog.com";
 const viteEnv = (
@@ -11,76 +11,110 @@ const POSTHOG_HOST =
   viteEnv.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
 
 let initialized = false;
+let loadPromise: Promise<PostHogClient> | null = null;
+let posthogClient: PostHogClient | null = null;
+
+function loadPostHog(): Promise<PostHogClient> {
+  loadPromise ??= import("posthog-js").then((mod) => {
+    posthogClient = mod.default;
+    return mod.default;
+  });
+  return loadPromise;
+}
 
 function isLocalBrowserOrigin(): boolean {
   return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 }
 
-export const initAnalytics = (): boolean => {
-  if (initialized) return true;
-  if (typeof window === "undefined") return false;
-  if (!hasAnalyticsConsent()) return false;
+async function ensureAnalytics(): Promise<PostHogClient | null> {
+  if (typeof window === "undefined") return null;
+  if (!hasAnalyticsConsent()) return null;
 
   const apiKey = viteEnv.VITE_POSTHOG_API_KEY;
-  if (!apiKey) return false;
+  if (!apiKey) return null;
 
-  posthog.init(apiKey, {
-    api_host: POSTHOG_HOST,
-    person_profiles: 'identified_only',
-    capture_pageview: false,
-    capture_pageleave: false,
-    autocapture: false,
-    persistence: 'localStorage+cookie',
-    disable_session_recording: true,
-    session_recording: {
-      maskAllInputs: true,
-      blockClass: 'ph-no-capture',
-    },
-    loaded: (posthogInstance) => {
-      if (isLocalBrowserOrigin()) {
-        posthogInstance.opt_out_capturing();
-      }
-    },
-  });
+  const posthog = await loadPostHog();
 
-  initialized = true;
+  if (!initialized) {
+    posthog.init(apiKey, {
+      api_host: POSTHOG_HOST,
+      person_profiles: 'identified_only',
+      capture_pageview: false,
+      capture_pageleave: false,
+      autocapture: false,
+      persistence: 'localStorage+cookie',
+      disable_session_recording: true,
+      session_recording: {
+        maskAllInputs: true,
+        blockClass: 'ph-no-capture',
+      },
+      loaded: (posthogInstance) => {
+        if (isLocalBrowserOrigin()) {
+          posthogInstance.opt_out_capturing();
+        } else {
+          posthogInstance.opt_in_capturing();
+        }
+      },
+    });
+
+    initialized = true;
+    return posthog;
+  }
+
+  if (!isLocalBrowserOrigin()) {
+    posthog.opt_in_capturing();
+  }
+
+  return posthog;
+}
+
+export const initAnalytics = (): boolean => {
+  if (typeof window === "undefined") return false;
+  if (!hasAnalyticsConsent()) return false;
+  void ensureAnalytics();
   return true;
 };
 
 export const disableAnalytics = () => {
+  if (!posthogClient) return;
   try {
-    posthog.opt_out_capturing();
-    posthog.reset();
+    posthogClient.opt_out_capturing();
+    posthogClient.reset();
   } catch {
     /* analytics shutdown must never affect app behavior */
   }
 };
 
-function canCaptureAnalytics(): boolean {
-  if (!hasAnalyticsConsent()) return false;
-  return initAnalytics();
+async function getAnalyticsForCapture(): Promise<PostHogClient | null> {
+  if (!hasAnalyticsConsent()) return null;
+  return ensureAnalytics();
 }
 
 // Identify user (call on login)
 export const identifyUser = (userId: string, properties?: AnalyticsProperties) => {
-  if (!canCaptureAnalytics()) return;
-  posthog.identify(userId, properties);
+  void getAnalyticsForCapture().then((posthog) => {
+    posthog?.identify(userId, properties);
+  });
 };
 
 // Reset identity (call on logout)
 export const resetAnalytics = () => {
-  if (!canCaptureAnalytics()) return;
-  posthog.reset();
+  if (!hasAnalyticsConsent()) return;
+  void getAnalyticsForCapture().then((posthog) => {
+    posthog?.reset();
+  });
 };
 
 // Track a custom event
 export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
-  if (!canCaptureAnalytics()) return;
-  posthog.capture(eventName, properties);
+  void getAnalyticsForCapture().then((posthog) => {
+    posthog?.capture(eventName, properties);
+  });
 };
 
 // Set user properties (non-event, just profile updates)
 export const setUserProperties = (properties: AnalyticsProperties) => {
-  if (!canCaptureAnalytics()) return;
-  posthog.people.set(properties);
+  void getAnalyticsForCapture().then((posthog) => {
+    posthog?.people.set(properties);
+  });
 };

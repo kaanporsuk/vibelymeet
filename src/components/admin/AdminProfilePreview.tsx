@@ -138,7 +138,11 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
 
   if (!isOpen) return null;
 
-  const photos = refreshedPhotos.length > 0 ? refreshedPhotos : profile?.photos || [];
+  const photos: string[] = refreshedPhotos.length > 0
+    ? refreshedPhotos
+    : Array.isArray(profile?.photos)
+      ? profile.photos
+      : [];
   const lifestyle = profile?.lifestyle as Record<string, string> | null;
   const prompts = profile?.prompts as Array<{ prompt: string; answer: string }> | null;
 
@@ -299,7 +303,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
               {/* Additional Photos */}
               {photos.length > 1 && (
                 <div className="grid grid-cols-2 gap-2">
-                  {photos.slice(1).map((photo, i) => (
+                  {photos.slice(1).map((photo: string, i: number) => (
                     <div key={i} className="aspect-square rounded-xl overflow-hidden bg-secondary/50">
                       <img src={photo} alt={`Photo ${i + 2}`} className="w-full h-full object-cover" />
                     </div>

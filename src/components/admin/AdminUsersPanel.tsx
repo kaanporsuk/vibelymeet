@@ -395,9 +395,16 @@ const AdminUsersPanel = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                users?.map((user) => (
-                  <TableRow 
-                    key={user.id} 
+                users?.map((user) => {
+                  const relationshipIntent = user.relationship_intent || user.looking_for;
+                  const relationshipDisplay = relationshipIntent
+                    ? getRelationshipIntentDisplaySafe(relationshipIntent)
+                    : null;
+                  const vibesForUser = userVibes?.[user.id] ?? [];
+
+                  return (
+                  <TableRow
+                    key={user.id}
                     className="border-border/50 hover:bg-secondary/30 cursor-pointer"
                     onClick={() => setSelectedUserId(user.id)}
                   >
@@ -464,21 +471,21 @@ const AdminUsersPanel = () => {
                     </TableCell>
                     <TableCell>
                       <span className="truncate max-w-[80px] text-sm">
-                        {user.relationship_intent || user.looking_for
-                          ? `${getRelationshipIntentDisplaySafe(user.relationship_intent || user.looking_for).emoji} ${getRelationshipIntentDisplaySafe(user.relationship_intent || user.looking_for).label}`
+                        {relationshipDisplay
+                          ? `${relationshipDisplay.emoji} ${relationshipDisplay.label}`
                           : 'N/A'}
                       </span>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[120px]">
-                        {userVibes?.[user.id]?.slice(0, 2).map((vibe, i) => (
+                        {vibesForUser.slice(0, 2).map((vibe, i) => (
                           <span key={i} className="text-xs">
                             {vibe.emoji}
                           </span>
                         ))}
-                        {userVibes?.[user.id]?.length > 2 && (
+                        {vibesForUser.length > 2 && (
                           <span className="text-xs text-muted-foreground">
-                            +{userVibes[user.id].length - 2}
+                            +{vibesForUser.length - 2}
                           </span>
                         )}
                       </div>
@@ -515,7 +522,8 @@ const AdminUsersPanel = () => {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>

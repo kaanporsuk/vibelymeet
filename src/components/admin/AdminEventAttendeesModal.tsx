@@ -596,6 +596,10 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => {
+                              if (!reg.profile_id) {
+                                toast.error("Missing attendee profile");
+                                return;
+                              }
                               if (
                                 !window.confirm(
                                   `Remove ${profile?.name ?? "this user"} from this event? This frees a confirmed seat and may promote the waitlist.`

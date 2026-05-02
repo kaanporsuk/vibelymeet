@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback, useId } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import {
@@ -32,7 +32,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { persistPhotos } from "@/services/storageService";
 import { BottomNav } from "@/components/BottomNav";
 import { PhotoPreviewModal } from "@/components/PhotoPreviewModal";
-import PhotoManageDrawer from "@/components/photos/PhotoManageDrawer";
 import { PhotoManager } from "@/components/PhotoManager";
 import { VibeTagSelector } from "@/components/VibeTagSelector";
 import { ProfilePrompt, PromptSelector } from "@/components/ProfilePrompt";
@@ -40,14 +39,10 @@ import { RelationshipIntent } from "@/components/RelationshipIntent";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VerificationSteps } from "@/components/VerificationBadge";
 import { HeightSelector } from "@/components/HeightSelector";
-import { VibeVideoFullscreenPlayer } from "@/components/vibe-video/VibeVideoFullscreenPlayer";
 
 import { HeroVideoStatusCard } from "@/components/hero-video/HeroVideoStatusCard";
 import { VibeScoreDrawer } from "@/components/profile/VibeScoreDrawer";
 import type { VibeScoreActionId, VibeScoreProfileSnapshot } from "@/lib/vibeScoreIncompleteActions";
-import { SimplePhotoVerification } from "@/components/verification/SimplePhotoVerification";
-import { PhoneVerification } from "@/components/PhoneVerification";
-import { EmailVerificationFlow } from "@/components/verification/EmailVerificationFlow";
 import { useLogout } from "@/hooks/useLogout";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { useSchedule, type TimeBlock } from "@/hooks/useSchedule";
@@ -83,6 +78,26 @@ import {
 import { Crown, Star } from "lucide-react";
 import { format, startOfDay, addDays } from "date-fns";
 import { trackEvent } from "@/lib/analytics";
+
+const PhotoManageDrawer = lazy(() => import("@/components/photos/PhotoManageDrawer"));
+const VibeVideoFullscreenPlayer = lazy(() =>
+  import("@/components/vibe-video/VibeVideoFullscreenPlayer").then((mod) => ({
+    default: mod.VibeVideoFullscreenPlayer,
+  }))
+);
+const SimplePhotoVerification = lazy(() =>
+  import("@/components/verification/SimplePhotoVerification").then((mod) => ({
+    default: mod.SimplePhotoVerification,
+  }))
+);
+const PhoneVerification = lazy(() =>
+  import("@/components/PhoneVerification").then((mod) => ({ default: mod.PhoneVerification }))
+);
+const EmailVerificationFlow = lazy(() =>
+  import("@/components/verification/EmailVerificationFlow").then((mod) => ({
+    default: mod.EmailVerificationFlow,
+  }))
+);
 
 // ────────────────────────────────────────────────────────────────────
 // Types
@@ -1760,69 +1775,82 @@ const ProfileStudio = () => {
         onAction={handleVibeScoreAction}
       />
 
-      <PhoneVerification
-        open={showPhoneVerification}
-        onOpenChange={setShowPhoneVerification}
-        initialPhoneE164={phoneNumber}
-        onVerified={() => {
-          setShowPhoneVerification(false);
-          void (async () => {
-            try {
-              const { data: { user } } = await supabase.auth.getUser();
-              if (!user?.id) {
-                setPhoneVerified(true);
-                return;
-              }
-              const next = await fetchMyPhoneVerificationProfile(user.id);
-              setPhoneVerified(next.phoneVerified);
-              setPhoneNumber(next.phoneNumber);
-            } catch (e) {
-              console.error(e);
-              setPhoneVerified(true);
-            } finally {
+      <Suspense fallback={null}>
+        {showPhoneVerification ? (
+          <PhoneVerification
+            open={showPhoneVerification}
+            onOpenChange={setShowPhoneVerification}
+            initialPhoneE164={phoneNumber}
+            onVerified={() => {
+              setShowPhoneVerification(false);
+              void (async () => {
+                try {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (!user?.id) {
+                    setPhoneVerified(true);
+                    return;
+                  }
+                  const next = await fetchMyPhoneVerificationProfile(user.id);
+                  setPhoneVerified(next.phoneVerified);
+                  setPhoneNumber(next.phoneNumber);
+                } catch (e) {
+                  console.error(e);
+                  setPhoneVerified(true);
+                } finally {
+                  setProfileRefreshKey((k) => k + 1);
+                }
+              })();
+            }}
+          />
+        ) : null}
+        {showEmailVerification ? (
+          <EmailVerificationFlow
+            open={showEmailVerification}
+            onOpenChange={setShowEmailVerification}
+            userEmail={emailForVerification}
+            onVerified={() => {
+              setEmailVerified(true);
               setProfileRefreshKey((k) => k + 1);
-            }
-          })();
-        }}
-      />
-      <EmailVerificationFlow
-        open={showEmailVerification}
-        onOpenChange={setShowEmailVerification}
-        userEmail={emailForVerification}
-        onVerified={() => {
-          setEmailVerified(true);
-          setProfileRefreshKey((k) => k + 1);
-        }}
-      />
-
-      <SimplePhotoVerification
-        open={showPhotoVerification}
-        onOpenChange={setShowPhotoVerification}
-        userId={profile.id}
-        profilePhotoUrl={profile.photos[0]}
-        onSubmissionComplete={() => {
-          // Persisted backend state after submission is "pending" (admin approval is server-side).
-          setPhotoVerificationStatus("pending");
-          setProfileRefreshKey((k) => k + 1);
-        }}
-      />
+            }}
+          />
+        ) : null}
+        {showPhotoVerification ? (
+          <SimplePhotoVerification
+            open={showPhotoVerification}
+            onOpenChange={setShowPhotoVerification}
+            userId={profile.id}
+            profilePhotoUrl={profile.photos[0]}
+            onSubmissionComplete={() => {
+              // Persisted backend state after submission is "pending" (admin approval is server-side).
+              setPhotoVerificationStatus("pending");
+              setProfileRefreshKey((k) => k + 1);
+            }}
+          />
+        ) : null}
+      </Suspense>
 
       <PhotoPreviewModal photos={profile.photos} initialIndex={selectedPhotoIndex} isOpen={showPhotoViewer} onClose={() => setShowPhotoViewer(false)} />
 
-      <PhotoManageDrawer
-        isOpen={showPhotoDrawer}
-        onClose={() => setShowPhotoDrawer(false)}
-        photos={profile.photos}
-        onPhotosChanged={() => setProfileRefreshKey((k) => k + 1)}
-      />
+      <Suspense fallback={null}>
+        {showPhotoDrawer ? (
+          <PhotoManageDrawer
+            isOpen={showPhotoDrawer}
+            onClose={() => setShowPhotoDrawer(false)}
+            photos={profile.photos}
+            onPhotosChanged={() => setProfileRefreshKey((k) => k + 1)}
+          />
+        ) : null}
 
-      <VibeVideoFullscreenPlayer
-        show={showVibePlayer}
-        bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
-        bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
-        vibeCaption={effectiveVibeVideo.vibeCaption}
-        onClose={() => setShowVibePlayer(false)}
-      />
+        {showVibePlayer ? (
+          <VibeVideoFullscreenPlayer
+            show={showVibePlayer}
+            bunnyVideoUid={effectiveVibeVideo.bunnyVideoUid}
+            bunnyVideoStatus={effectiveVibeVideo.bunnyVideoStatus}
+            vibeCaption={effectiveVibeVideo.vibeCaption}
+            onClose={() => setShowVibePlayer(false)}
+          />
+        ) : null}
+      </Suspense>
 
       <BottomNav />
     </div>
