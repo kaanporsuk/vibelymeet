@@ -1206,7 +1206,7 @@ const VideoDate = () => {
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, navigate, openPostDateSurvey]);
+  }, [id, user?.id, navigate, openPostDateSurvey, logJourney]);
 
   // Server-side phase timing + enter_handshake (only after participant guard passes).
   useEffect(() => {
@@ -1672,12 +1672,13 @@ const VideoDate = () => {
         });
       });
     }
-  }, [isConnected]);
+  }, [isConnected, id]);
 
   // Countdown timer
+  const hasCountdownTimeLeft = timeLeft !== null;
   useEffect(() => {
     if (
-      timeLeft === null ||
+      !hasCountdownTimeLeft ||
       timeLeft <= 0 ||
       showFeedback ||
       !isConnected ||
@@ -1704,7 +1705,7 @@ const VideoDate = () => {
 
           if (next <= 0) {
             toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-            void handleCallEnd();
+            void handleCallEndRef.current?.();
           }
           return next;
         }
@@ -1717,7 +1718,7 @@ const VideoDate = () => {
             });
           } else {
             toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-            handleCallEnd();
+            void handleCallEndRef.current?.();
           }
           return 0;
         }
@@ -1727,7 +1728,7 @@ const VideoDate = () => {
 
     return () => clearInterval(interval);
   }, [
-    timeLeft !== null,
+    hasCountdownTimeLeft,
     timeLeft,
     showFeedback,
     id,
@@ -1960,7 +1961,7 @@ const VideoDate = () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("freeze", handleFreeze);
     };
-  }, [id, user?.id, eventId, isConnected, showFeedback, videoDateAccess]);
+  }, [id, user?.id, eventId, isConnected, showFeedback, videoDateAccess, localVideoRef]);
 
   // Record user's explicit handshake decision.
   const handleHandshakeDecision = useCallback(async (action: "vibe" | "pass"): Promise<boolean> => {
@@ -2105,15 +2106,7 @@ const VideoDate = () => {
       return handshakeTruth.participant_2_decided_at ? handshakeTruth.participant_2_liked ?? null : null;
     }
     return null;
-  }, [
-    handshakeTruth?.participant_1_decided_at,
-    handshakeTruth?.participant_1_id,
-    handshakeTruth?.participant_1_liked,
-    handshakeTruth?.participant_2_decided_at,
-    handshakeTruth?.participant_2_id,
-    handshakeTruth?.participant_2_liked,
-    user?.id,
-  ]);
+  }, [handshakeTruth, user?.id]);
 
   // Check mutual vibe at the backend-owned handshake deadline.
   const checkMutualVibe = useCallback(async (source = "handshake_server_deadline", allowRetry = true) => {
@@ -2272,7 +2265,7 @@ const VideoDate = () => {
           toast("Great meeting you! 👋", { duration: 2500 });
         }
         await endCall("complete_handshake_not_mutual");
-        handleCallEnd();
+        void handleCallEndRef.current?.();
       }
     } catch (err) {
       console.error("Error checking mutual vibe:", err);
@@ -2717,7 +2710,7 @@ const VideoDate = () => {
       vdbgRedirect(target, "duplicate_tab_lease_blocked", { sessionId: id ?? null, eventId: eventId ?? null });
       navigate(target);
     })();
-  }, [dupBlocked, callStarted, endCall, navigate, eventId]);
+  }, [dupBlocked, callStarted, endCall, navigate, eventId, id]);
 
   const totalTime =
     phase === "handshake" ? HANDSHAKE_TIME : effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds);

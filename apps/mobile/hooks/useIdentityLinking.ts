@@ -167,7 +167,7 @@ export function useIdentityLinking() {
         error: err instanceof Error ? err.message : 'Failed to fetch identities',
       }));
     }
-  }, [session?.user?.id, session?.user?.identities, session?.user?.email, session?.user?.phone]);
+  }, [session?.user?.id, session?.user?.email, session?.user?.phone]);
 
   useEffect(() => { fetchIdentities(); }, [fetchIdentities]);
 

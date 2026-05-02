@@ -864,7 +864,7 @@ export default function VideoDateScreen() {
         roomName,
       });
     },
-    [clearFirstConnectWatchdog, detachCallListeners, releaseSharedCallIfOwned, endBootstrapTiming, sessionId, user?.id]
+    [clearFirstConnectWatchdog, detachCallListeners, releaseSharedCallIfOwned, endBootstrapTiming, eventId, sessionId, user?.id]
   );
 
   phaseRef.current = phase;
@@ -973,7 +973,7 @@ export default function VideoDateScreen() {
     }
     noRemoteAutoRecoveryUsedRef.current = false;
     lastLoggedPostJoinStageRef.current = null;
-  }, [sessionId, clearHandshakeGraceState]);
+  }, [sessionId, user?.id, clearHandshakeGraceState]);
 
   /** Latch + RC before paint so hydration cannot bounce `/date` → `/ready` during stale `in_ready_gate`. */
   useLayoutEffect(() => {
@@ -1051,7 +1051,7 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id, beginBootstrapTiming, endBootstrapTiming, logJourney]);
+  }, [sessionId, user?.id, eventId, beginBootstrapTiming, endBootstrapTiming, logJourney]);
 
   // Ended + in_ready_gate: defense-in-depth vs `NativeSessionRouteHydration` (backend truth first).
   useEffect(() => {
@@ -1277,7 +1277,7 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, user?.id, beginBootstrapTiming, endBootstrapTiming]);
+  }, [sessionId, user?.id, eventId, logJourney, beginBootstrapTiming, endBootstrapTiming]);
 
   const recoverFromNotStartableDateTruth = useCallback(
     async (source: 'enter_handshake' | 'create_date_room') => {
@@ -1699,6 +1699,7 @@ export default function VideoDateScreen() {
     sessionId,
     peerMissingTerminal,
     isPartnerDisconnected,
+    user?.id,
     clearFirstConnectWatchdog,
     releaseSharedCallIfOwned,
     detachCallListeners,
@@ -2455,7 +2456,9 @@ export default function VideoDateScreen() {
       clearReconnectSyncTimer();
       requestReconnectSyncRef.current = () => {};
     };
-  }, [sessionId, phase, session?.state, session?.handshake_started_at, clearReconnectSyncTimer]);
+    // Reconnect polling is intentionally keyed to phase scalars; the full session object would restart active recovery loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, phase, session?.state, session?.handshake_started_at, eventId, clearReconnectSyncTimer]);
 
   useEffect(() => {
     reconnectSyncCountRef.current = 0;
@@ -2867,6 +2870,7 @@ export default function VideoDateScreen() {
     peerMissingTerminal,
     releaseSharedCallIfOwned,
     sessionId,
+    user?.id,
   ]);
 
   useEffect(() => {
@@ -4470,6 +4474,8 @@ export default function VideoDateScreen() {
         }
       }
     };
+    // Prejoin owns a live Daily call pipeline; avoid restarting it for broad session/joining object identity churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     joinAttemptNonce,
     sessionId,
@@ -4567,6 +4573,8 @@ export default function VideoDateScreen() {
     return () => {
       cancelled = true;
     };
+    // Terminal recovery intentionally follows selected session fields so survey recovery is not re-run for every session object refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     sessionId,
     user?.id,
@@ -4783,9 +4791,10 @@ export default function VideoDateScreen() {
     }
   }, [phase, clearHandshakeGraceState]);
 
+  const hasLocalCountdownTimeLeft = localTimeLeft !== null;
   useEffect(() => {
     if (
-      localTimeLeft === null ||
+      !hasLocalCountdownTimeLeft ||
       localTimeLeft <= 0 ||
       showFeedback ||
       !hasRemotePartner ||
@@ -4831,7 +4840,7 @@ export default function VideoDateScreen() {
     }, 1000);
     return () => clearInterval(interval);
   }, [
-    localTimeLeft !== null,
+    hasLocalCountdownTimeLeft,
     localTimeLeft,
     showFeedback,
     hasRemotePartner,
@@ -5034,15 +5043,7 @@ export default function VideoDateScreen() {
       return session.participant_2_decided_at ? session.participant_2_liked ?? null : null;
     }
     return null;
-  }, [
-    session?.participant_1_decided_at,
-    session?.participant_1_id,
-    session?.participant_1_liked,
-    session?.participant_2_decided_at,
-    session?.participant_2_id,
-    session?.participant_2_liked,
-    user?.id,
-  ]);
+  }, [session, user?.id]);
 
   const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
   const handshakeBottomOffset = insets.bottom + 104;
@@ -5090,7 +5091,7 @@ export default function VideoDateScreen() {
     });
     setAwaitingFirstConnect(true);
     videoDateDailyDiagnostic('peer_missing_keep_waiting', { session_id: sessionId ?? '' });
-  }, [eventId, sessionId]);
+  }, [eventId, sessionId, user?.id]);
 
   useEffect(() => {
     peerMissingTerminalImpressionRef.current = false;
@@ -5110,7 +5111,7 @@ export default function VideoDateScreen() {
   const handleSurveySubmit = useCallback(
     (liked: boolean) =>
       submitVerdictAndCheckMutual(sessionId!, user!.id, partnerId, liked),
-    [sessionId, user?.id, partnerId]
+    [sessionId, user, partnerId]
   );
 
   const handleSurveyMutualMatch = useCallback(() => {

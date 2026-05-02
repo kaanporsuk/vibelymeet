@@ -234,7 +234,7 @@ const ProfileWizard = ({ isOpen, onClose, onComplete, onOpenVibeStudio }: Profil
         }, 500);
       }
     }
-  }, [progress, isComplete, photos, prompts, vibes, incompleteSteps]);
+  }, [progress, isComplete, photos, prompts, vibes, hasVideo, incompleteSteps]);
 
   const getCoachText = () => {
     if (incompleteSteps.length === 0) {

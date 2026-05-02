@@ -79,6 +79,7 @@ function isNonCompleteNonSubmittingPhase(phase: BubblePhase): phase is NonComple
 export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, timeLabel, invalidateScope }: Props) {
   const theme = Colors[useColorScheme()];
   const snap = view.foldedSnapshot;
+  const hasWouldRatherSnap = snap.game_type === 'would_rather';
   const wouldRatherSnap = snap.game_type === 'would_rather' ? snap : null;
 
   const { mutateAsync, isPending } = useSendWouldRatherChoice();
@@ -86,9 +87,10 @@ export function WouldRatherBubble({ view, matchId, currentUserId, partnerName, t
   const tapGuard = useRef(false);
 
   useEffect(() => {
-    if (!wouldRatherSnap) return;
+    if (!hasWouldRatherSnap) return;
     setSubmitError(null);
   }, [
+    hasWouldRatherSnap,
     view.gameSessionId,
     view.latestMessageId,
     view.updatedAt,

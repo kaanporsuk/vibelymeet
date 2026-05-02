@@ -582,7 +582,7 @@ const Dashboard = () => {
             >
               <ActiveCallBanner
                 sessionId={activeSession.sessionId}
-                partnerName={activeSession.partnerName ?? undefined}
+                partnerName={activeSession.partnerName}
                 mode={
                   activeSession.kind === "ready_gate"
                     ? "ready_gate"

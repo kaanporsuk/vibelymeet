@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 interface ActiveCallBannerProps {
   sessionId: string;
-  partnerName?: string;
+  partnerName?: string | null;
   /** ready_gate = lobby overlay destination; survey/video = /date */
   mode?: "video" | "ready_gate" | "survey";
   onRejoin: () => void;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MessageSquareText, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,7 +61,7 @@ export const FeedbackDrawer = ({ open, onOpenChange, initialTicketId }: Feedback
   const cfg = SUPPORT_CATEGORIES[primaryType];
   const smartFields = cfg.smartFields ?? [];
 
-  const loadTickets = async () => {
+  const loadTickets = useCallback(async () => {
     if (!user?.id) return;
     const { data, error } = await supabase
       .from("support_tickets")
@@ -74,13 +74,13 @@ export const FeedbackDrawer = ({ open, onOpenChange, initialTicketId }: Feedback
       return;
     }
     setTicketRows((data ?? []) as TicketListRow[]);
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     if (open && user?.id) {
       void loadTickets();
     }
-  }, [open, user?.id]);
+  }, [open, user?.id, loadTickets]);
 
   useEffect(() => {
     if (!open || !initialTicketId || ticketRows.length === 0) return;

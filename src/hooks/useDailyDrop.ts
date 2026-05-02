@@ -72,6 +72,9 @@ export function useDailyDrop() {
   const openerSentByMe = drop?.opener_sender_id === user?.id;
   const chatUnlocked = drop?.chat_unlocked ?? false;
   const matchId = drop?.match_id ?? null;
+  const dropId = drop?.id ?? null;
+  const dropExpiresAt = drop?.expires_at ?? null;
+  const userId = user?.id ?? null;
   const isExpired = drop ? new Date(drop.expires_at) <= new Date() : false;
   const hasDrop = !!drop;
   const pickReasons = (drop?.pick_reasons ?? []) as string[];
@@ -215,29 +218,29 @@ export function useDailyDrop() {
 
   // Realtime subscription
   useEffect(() => {
-    if (!user || !drop) return;
+    if (!userId || !dropId) return;
 
     const channel = supabase
-      .channel(`daily-drop-${drop.id}`)
+      .channel(`daily-drop-${dropId}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'daily_drops',
-        filter: `id=eq.${drop.id}`,
+        filter: `id=eq.${dropId}`,
       }, (payload) => {
         setDrop(toDailyDropData(payload.new as DailyDropRow));
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user, drop?.id]);
+  }, [userId, dropId]);
 
   // Countdown timer
   useEffect(() => {
-    if (!drop) { setTimeRemaining(0); return; }
+    if (!dropExpiresAt) { setTimeRemaining(0); return; }
 
     const calc = () => {
-      const diff = Math.max(0, Math.floor((new Date(drop.expires_at).getTime() - Date.now()) / 1000));
+      const diff = Math.max(0, Math.floor((new Date(dropExpiresAt).getTime() - Date.now()) / 1000));
       setTimeRemaining(diff);
       if (diff === 0) fetchDrop();
     };
@@ -245,7 +248,7 @@ export function useDailyDrop() {
     calc();
     timerRef.current = setInterval(calc, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [drop?.expires_at, fetchDrop]);
+  }, [dropExpiresAt, fetchDrop]);
 
   // Actions
   const markViewed = useCallback(async () => {
@@ -312,7 +315,7 @@ export function useDailyDrop() {
     if (payload?.drop) {
       setDrop(toDailyDropData(payload.drop));
     }
-  }, [drop, user, partnerId, partner?.name]);
+  }, [drop, user, partnerId]);
 
   const passDrop = useCallback(async () => {
     if (!drop || !user) return;

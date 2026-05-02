@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, SectionList, StyleSheet, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -186,14 +186,14 @@ export default function SignInScreen() {
   const [profileBootstrapMessage, setProfileBootstrapMessage] = useState<string | null>(null);
   const handledAuthLinkErrorRef = useRef<string | null>(null);
 
-  const showProfileRecovery = (message?: string) => {
+  const showProfileRecovery = useCallback((message?: string) => {
     setProfileBootstrapState('failed');
     setProfileBootstrapMessage(
       message || 'We could not verify your account setup right now. Retry setup check or sign out and sign in again.',
     );
-  };
+  }, []);
 
-  const settleProfileBootstrap = async () => {
+  const settleProfileBootstrap = useCallback(async () => {
     if (!session?.user) {
       return {
         status: 'failed',
@@ -204,7 +204,7 @@ export default function SignInScreen() {
     }
 
     return ensureProfileReady(session.user, 'sign_in_screen_effect');
-  };
+  }, [session?.user]);
 
   const phoneForSignIn = useMemo(() => isValidSignInPhone(countryCode, phoneInput), [countryCode, phoneInput]);
   const phoneValid = phoneForSignIn.valid;
@@ -307,7 +307,7 @@ export default function SignInScreen() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, settleProfileBootstrap, showProfileRecovery]);
 
   useEffect(() => {
     if (!session?.user?.id || profileBootstrapState !== 'ready') return;

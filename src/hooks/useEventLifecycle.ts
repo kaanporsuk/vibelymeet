@@ -44,7 +44,7 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
     };
 
     fetchEvent();
-  }, [eventId]);
+  }, [eventId, onEventEnded]);
 
   // Poll for event end every 30s
   useEffect(() => {

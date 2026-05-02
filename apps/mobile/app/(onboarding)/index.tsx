@@ -386,13 +386,14 @@ export default function OnboardingV2Screen() {
   }, [currentStep, completeOnboarding, totalSteps]);
 
   useEffect(() => {
+    const startedAt = startedAtRef.current;
     return () => {
       if (!completedRef.current) {
         trackEvent('onboarding_abandoned', {
           platform: 'native',
           last_step: currentStepRef.current,
           last_step_name: stepNames[currentStepRef.current] ?? stepNames[0],
-          total_time_seconds: Math.round((Date.now() - startedAtRef.current) / 1000),
+          total_time_seconds: Math.round((Date.now() - startedAt) / 1000),
         });
       }
     };
@@ -478,10 +479,8 @@ export default function OnboardingV2Screen() {
     data,
     goNext,
     handleAgeBlocked,
-    completeOnboarding,
     needsEmailCollection,
     completionError,
-    totalSteps,
     session?.user?.id,
     submitting,
     completed,

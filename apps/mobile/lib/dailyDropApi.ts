@@ -91,6 +91,8 @@ export function useDailyDrop(userId: string | null | undefined) {
   const [generationRanToday, setGenerationRanToday] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [timeRemaining, setTimeRemaining] = useState(0);
+  const dropId = drop?.id ?? null;
+  const dropExpiresAt = drop?.expires_at ?? null;
 
   const myRole = drop ? (drop.user_a_id === userId ? 'a' : 'b') : null;
   const partnerId = drop ? (myRole === 'a' ? drop.user_b_id : drop.user_a_id) : null;
@@ -230,30 +232,30 @@ export function useDailyDrop(userId: string | null | undefined) {
   }, [fetchDrop, fetchPastDrops]);
 
   useEffect(() => {
-    if (!userId || !drop) return;
+    if (!userId || !dropId) return;
     const channel = supabase
-      .channel(`daily-drop-${drop.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'daily_drops', filter: `id=eq.${drop.id}` }, (payload) => {
+      .channel(`daily-drop-${dropId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'daily_drops', filter: `id=eq.${dropId}` }, (payload) => {
         setDrop(mapDrop((payload.new as Record<string, unknown>) ?? {}));
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [userId, drop?.id]);
+  }, [userId, dropId]);
 
   useEffect(() => {
-    if (!drop) {
+    if (!dropExpiresAt) {
       setTimeRemaining(0);
       return;
     }
     const calc = () => {
-      const diff = Math.max(0, Math.floor((new Date(drop.expires_at).getTime() - Date.now()) / 1000));
+      const diff = Math.max(0, Math.floor((new Date(dropExpiresAt).getTime() - Date.now()) / 1000));
       setTimeRemaining(diff);
       if (diff === 0) fetchDrop();
     };
     calc();
     const t = setInterval(calc, 1000);
     return () => clearInterval(t);
-  }, [drop?.expires_at, fetchDrop]);
+  }, [dropExpiresAt, fetchDrop]);
 
   const markViewed = useCallback(async () => {
     if (!drop || !userId) return;

@@ -780,6 +780,7 @@ export default function ChatThreadScreen() {
       launched_from: 'chat',
     });
     // Intentionally omit displayMessages.length: avoid duplicate events if thread updates while sheet stays open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showVibeClipSendSheet]);
 
   useEffect(() => {
@@ -788,6 +789,8 @@ export default function ChatThreadScreen() {
       launched_from: 'clip_context',
       thread_bucket: threadBucketFromCount(displayMessages.length),
     });
+    // Intentionally omit displayMessages.length: this event is keyed to opening the date flow, not live thread updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDateSheet, dateComposerLaunchSource]);
 
   const reactionByMessageId = useMemo(() => {
@@ -922,7 +925,7 @@ export default function ChatThreadScreen() {
         })
         .catch(() => {});
     }, 400);
-  }, [data?.matchId, data?.messages?.length, otherUserId, user?.id, queryClient]);
+  }, [data?.matchId, otherUserId, user?.id, queryClient]);
 
   useFocusEffect(
     useCallback(() => {

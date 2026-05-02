@@ -322,10 +322,7 @@ export default function NotificationsSettingsScreen() {
     return inferPauseKindFromUntil(prefs.paused_until);
   }, [isPaused, pauseKind, prefs.paused_until]);
 
-  const remainingShort = useMemo(
-    () => formatRemainingShort(prefs.paused_until),
-    [prefs.paused_until, remainingTick, isPaused]
-  );
+  const remainingShort = isPaused ? formatRemainingShort(prefs.paused_until) : '';
 
   const pauseChipLabel = useMemo(() => {
     if (!isPaused) {
