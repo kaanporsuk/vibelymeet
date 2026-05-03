@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 
 export type DeletionRequest = {
   id: string;
@@ -58,15 +59,14 @@ export function useDeletionRecovery(userId: string | null | undefined) {
     if (!userId) return false;
     setIsCancelling(true);
     try {
-      const authRes = await supabase.auth.getSession();
-      const session = authRes.data?.session ?? null;
-      if (!session) {
+      const accessToken = await getCachedAccessToken();
+      if (!accessToken) {
         setCancelDeletionError('Sign in again to cancel deletion.');
         setIsCancelling(false);
         return false;
       }
       const { data: invokeData, error } = await supabase.functions.invoke('cancel-deletion', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       const result = invokeData as { success?: boolean; error?: string } | null;
       if (error) {

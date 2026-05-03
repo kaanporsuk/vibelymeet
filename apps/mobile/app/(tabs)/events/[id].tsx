@@ -55,6 +55,7 @@ import { deriveEventPhase } from '@/lib/eventPhase';
 import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import { openPremium } from '@/lib/premiumNavigation';
+import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
 
 /** Same key as web `EventDetails` (`vibely_phone_nudge_event_dismissed`) for product-consistent dismiss semantics. */
@@ -372,8 +373,8 @@ export default function EventDetailScreen() {
     }
     setIsPurchasing(true);
     try {
-      const { data: authData } = await supabase.auth.getSession();
-      if (!authData?.session) {
+      const accessToken = await getCachedAccessToken();
+      if (!accessToken) {
         showDialog({
           title: 'Sign in required',
           message: 'Please sign in to continue to checkout.',
@@ -384,6 +385,7 @@ export default function EventDetailScreen() {
       }
       const { data: checkout, error: checkoutError } = await supabase.functions.invoke('create-event-checkout', {
         body: { eventId: event.id },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       const result = checkout as { success?: boolean; url?: string; error?: string } | null;
       if (checkoutError || !result?.success) {

@@ -10,8 +10,8 @@
  * This module:
  *   1. Coalesces concurrent calls into one in-flight promise (dedup).
  *   2. Caches the resolved session for TTL_MS so the next burst read is synchronous.
- *   3. Invalidates on every auth state-change event so stale tokens are never returned
- *      across sign-in / sign-out boundaries.
+ *   3. Lets AuthContext invalidate on auth state changes after bootstrap has cleaned
+ *      stale refresh tokens, avoiding an early INITIAL_SESSION LogBox.
  *
  * Usage: replace bare `supabase.auth.getSession()` calls that only need the access_token
  * or user.id — e.g. in Edge Function fetch wrappers, push sync helpers, and video date
@@ -19,6 +19,10 @@
  * refresh, MFA) should continue to call supabase.auth directly.
  */
 import { supabase } from '@/lib/supabase';
+import {
+  isRecoverableNativeAuthError,
+  recoverNativeAuthSession,
+} from '@/lib/nativeAuthRecovery';
 import type { Session } from '@supabase/supabase-js';
 
 const TTL_MS = 30_000; // 30 s — short enough that a refresh will have landed
@@ -34,11 +38,6 @@ function invalidate(): void {
   cached = null;
   inFlight = null;
 }
-
-// Keep the cache coherent across sign-in / sign-out / token refresh events.
-supabase.auth.onAuthStateChange(() => {
-  invalidate();
-});
 
 /**
  * Returns the current Supabase session, coalescing concurrent callers into one
@@ -61,14 +60,22 @@ export async function getCachedSession(): Promise<Session | null> {
     try {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        if (__DEV__) console.warn('[nativeAuthSession] getSession error:', error.message);
+        if (isRecoverableNativeAuthError(error)) {
+          await recoverNativeAuthSession('cached-session', error);
+        } else if (__DEV__) {
+          console.warn('[nativeAuthSession] getSession error:', error.message);
+        }
         invalidate();
         return null;
       }
       cached = { session: data.session, expiresAt: nowMs() + TTL_MS };
       return data.session;
     } catch (e) {
-      if (__DEV__) console.warn('[nativeAuthSession] getSession threw:', e);
+      if (isRecoverableNativeAuthError(e)) {
+        await recoverNativeAuthSession('cached-session', e);
+      } else if (__DEV__) {
+        console.warn('[nativeAuthSession] getSession threw:', e);
+      }
       invalidate();
       return null;
     } finally {

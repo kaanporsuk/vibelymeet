@@ -2,7 +2,7 @@
  * Create Stripe checkout session for credit packs (create-credits-checkout EF).
  * Returns checkout URL; open in browser. Same contract as web.
  */
-import { supabase } from '@/lib/supabase';
+import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 import type { CreditPackId } from '@shared/creditPacks';
 
 export type { CreditPackId };
@@ -12,8 +12,8 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const APP_ORIGIN = process.env.EXPO_PUBLIC_APP_ORIGIN ?? 'https://www.vibelymeet.com';
 
 export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<string> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new Error('Not authenticated');
 
   if (!SUPABASE_URL) {
     throw new Error('[creditsCheckout] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
@@ -22,7 +22,7 @@ export async function getCreditsCheckoutUrl(packId: CreditPackId): Promise<strin
   const res = await fetch(`${SUPABASE_URL}/functions/v1/create-credits-checkout`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
       Origin: APP_ORIGIN,
     },
