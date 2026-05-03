@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,10 @@ const RE_PROMPT_DAYS = 7;
 export function PushPermissionPrompt() {
   const { user } = useUserProfile();
   const [open, setOpen] = useState(false);
+  const lastEligibilityCountsRef = useRef<{ matchCount: number | null; regCount: number | null }>({
+    matchCount: null,
+    regCount: null,
+  });
 
   useEffect(() => {
     if (!user?.id) return;
@@ -61,18 +65,41 @@ export function PushPermissionPrompt() {
         if (Date.now() - ts < RE_PROMPT_DAYS * 86400000) return;
       }
 
-      const [{ count: matchCount }, { count: regCount }] = await Promise.all([
+      const [
+        { count: matchCount, error: matchCountError },
+        { count: regCount, error: regCountError },
+      ] = await Promise.all([
         supabase
           .from("matches")
-          .select("id", { count: "exact", head: true })
-          .or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`),
+          .select("id", { count: "exact" })
+          .or(`profile_id_1.eq.${user.id},profile_id_2.eq.${user.id}`)
+          .limit(1),
         supabase
           .from("event_registrations")
-          .select("id", { count: "exact", head: true })
-          .eq("profile_id", user.id),
+          .select("id", { count: "exact" })
+          .eq("profile_id", user.id)
+          .limit(1),
       ]);
 
-      if ((matchCount || 0) === 0 && (regCount || 0) === 0) return;
+      if ((matchCountError || regCountError) && (import.meta.env.DEV || vibelyOneSignalDebugEnabled())) {
+        console.warn("[PushPermissionPrompt] eligibility count query failed:", {
+          matchCountError: matchCountError?.message,
+          regCountError: regCountError?.message,
+        });
+      }
+
+      if (!matchCountError) {
+        lastEligibilityCountsRef.current.matchCount = matchCount ?? 0;
+      }
+      if (!regCountError) {
+        lastEligibilityCountsRef.current.regCount = regCount ?? 0;
+      }
+
+      const effectiveMatchCount =
+        matchCountError ? lastEligibilityCountsRef.current.matchCount : matchCount ?? 0;
+      const effectiveRegCount =
+        regCountError ? lastEligibilityCountsRef.current.regCount : regCount ?? 0;
+      if ((effectiveMatchCount ?? 0) === 0 && (effectiveRegCount ?? 0) === 0) return;
 
       setTimeout(() => setOpen(true), 5000);
     };

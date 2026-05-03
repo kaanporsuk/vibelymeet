@@ -114,11 +114,7 @@ export function usePushDeliveryHealth() {
       void sync();
     };
     const onFocus = () => {
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        void sync();
-      } else {
-        void refresh();
-      }
+      void refresh();
     };
     window.addEventListener("vibely-onesignal-subscription-changed", onChanged);
     window.addEventListener("focus", onFocus);
