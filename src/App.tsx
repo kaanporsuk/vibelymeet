@@ -29,6 +29,7 @@ import { recordBrowserError, recordBrowserEvent } from "@/lib/browserDiagnostics
 import { initAnalytics, disableAnalytics, trackEvent } from "@/lib/analytics";
 import { lazyWithPreload } from "@/lib/lazyWithPreload";
 import { preloadRouteOnIdle, routeLoaders } from "@/lib/routePreload";
+import { isSpeedInsightsDateRouteSuppressed } from "@/lib/runtimeFlags";
 import {
   readAnalyticsConsent,
   setAnalyticsConsent,
@@ -84,9 +85,21 @@ const VercelAnalyticsBundle = lazy(() =>
     default: function VercelAnalyticsBundleInner() {
       const SpeedInsights = speedInsights.SpeedInsights;
       const Analytics = analytics.Analytics;
+      const suppressDateRouteSpeedInsights = isSpeedInsightsDateRouteSuppressed();
       return (
         <>
-          <SpeedInsights />
+          <SpeedInsights
+            beforeSend={(event) => {
+              if (!suppressDateRouteSpeedInsights) return event;
+              try {
+                const pathname = new URL(event.url, window.location.origin).pathname;
+                if (/^\/date\/[^/]+\/?$/.test(pathname)) return null;
+              } catch {
+                return event;
+              }
+              return event;
+            }}
+          />
           <Analytics />
         </>
       );

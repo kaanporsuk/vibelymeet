@@ -13,6 +13,7 @@ import { useSwipeAction } from "@/hooks/useSwipeAction";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useMatchQueue } from "@/hooks/useMatchQueue";
 import { useActiveSession } from "@/hooks/useActiveSession";
+import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { toast } from "sonner";
@@ -52,6 +53,7 @@ import {
   EventLobbyObservabilityEvents,
   resolveDeckEmptyReason,
 } from "@clientShared/observability/eventLobbyObservability";
+import { isActiveSessionSingleOwnerEnabled } from "@/lib/runtimeFlags";
 
 const READY_GATE_ACTIVE_STATUSES = new Set(["ready", "ready_a", "ready_b", "both_ready", "snoozed"]);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
@@ -181,11 +183,17 @@ const EventLobby = () => {
   const [dateNavigationSessionId, setDateNavigationSessionId] = useState<string | null>(null);
   const [checkingNextDateAfterSurvey, setCheckingNextDateAfterSurvey] = useState(false);
   const [postSurveyReturnContext, setPostSurveyReturnContext] = useState(false);
+  const singleOwnerActiveSessionEnabled = isActiveSessionSingleOwnerEnabled();
+  const providerScopedHydration = useEventActiveSession(eventId);
+  const legacyScopedHydration = useActiveSession(user?.id, {
+    eventId,
+    enabled: !singleOwnerActiveSessionEnabled,
+  });
   const {
     activeSession: scopedSession,
     hydrated: sessionHydrated,
     refetch: refetchScopedSession,
-  } = useActiveSession(user?.id, { eventId });
+  } = singleOwnerActiveSessionEnabled ? providerScopedHydration : legacyScopedHydration;
   const sameEventScopedSession = useMemo(() => {
     if (!sessionHydrated || !eventId || !scopedSession || scopedSession.eventId !== eventId) {
       return null;
@@ -639,10 +647,11 @@ const EventLobby = () => {
       try {
         const { count, error } = await supabase
           .from("event_swipes")
-          .select("*", { count: "exact", head: true })
+          .select("id", { count: "exact" })
           .eq("event_id", eventId)
           .eq("actor_id", user.id)
-          .eq("swipe_type", "super_vibe");
+          .eq("swipe_type", "super_vibe")
+          .limit(1);
         if (cancelled) return;
         if (import.meta.env.DEV && superVibeCountDiagLoggedRef.current !== diagKey) {
           superVibeCountDiagLoggedRef.current = diagKey;
@@ -882,17 +891,20 @@ const EventLobby = () => {
               sessionId: currentRoomId,
               queueStatus,
             });
+            void refetchScopedSession();
             prepareAndNavigateToDateSession(currentRoomId, "registration_realtime");
             return;
           }
 
           if (queueStatus === "in_ready_gate" && currentRoomId) {
             lobbyDebug("ready gate detected from registration realtime", { sessionId: currentRoomId });
+            void refetchScopedSession();
             openReadyGateSession(currentRoomId, "registration_realtime");
             return;
           }
 
           if (queueStatus === "in_ready_gate" || isActiveDateQueueStatus(queueStatus) || currentRoomId) {
+            void refetchScopedSession();
             lobbyDebug("ambiguous active registration realtime (useActiveSession reconciles)", {
               queueStatus,
               currentRoomId,
@@ -904,7 +916,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession]);
+  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, refetchScopedSession]);
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
@@ -928,12 +940,14 @@ const EventLobby = () => {
           readyGateStatus: session.ready_gate_status,
           readyGateExpiresAt: session.ready_gate_expires_at,
         });
+        void refetchScopedSession();
         prepareAndNavigateToDateSession(sessionId, source);
         return;
       }
 
       const status = session.ready_gate_status;
       if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
+        void refetchScopedSession();
         openReadyGateSession(sessionId, source);
       }
     };
@@ -969,7 +983,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession]);
+  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, refetchScopedSession]);
 
   // Event countdown timer
   useEffect(() => {

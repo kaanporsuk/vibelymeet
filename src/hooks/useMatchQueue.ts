@@ -50,6 +50,7 @@ export const useMatchQueue = ({
   const queuedExpiryNotifiedIdsRef = useRef(new Set<string>());
   /** Dedupe informational drain-reason toasts per user/event/reason for this hook instance. */
   const drainReasonNotifiedKeysRef = useRef(new Set<string>());
+  const lastQueuedCountRef = useRef(0);
 
   useEffect(() => {
     onReadyRef.current = onVideoSessionReady;
@@ -73,23 +74,36 @@ export const useMatchQueue = ({
 
   const refreshQueueCount = useCallback(async () => {
     if (!enabled || !eventId || !user?.id) {
+      lastQueuedCountRef.current = 0;
       setQueuedCount(0);
       return;
     }
 
-    const { count } = await supabase
+    const { count, error } = await supabase
       .from("video_sessions")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact" })
       .eq("event_id", eventId)
       .eq("ready_gate_status", "queued")
       .is("ended_at", null)
-      .or(`participant_1_id.eq.${user.id},participant_2_id.eq.${user.id}`);
+      .or(`participant_1_id.eq.${user.id},participant_2_id.eq.${user.id}`)
+      .limit(1);
 
-    setQueuedCount(count || 0);
+    if (error) {
+      if (import.meta.env.DEV) {
+        console.warn("[useMatchQueue] queued count query failed:", error.message);
+      }
+      setQueuedCount(lastQueuedCountRef.current);
+      return;
+    }
+
+    const nextCount = count ?? 0;
+    lastQueuedCountRef.current = nextCount;
+    setQueuedCount(nextCount);
   }, [enabled, eventId, user?.id]);
 
   useEffect(() => {
     if (enabled) return;
+    lastQueuedCountRef.current = 0;
     setQueuedCount(0);
     setIsDraining(false);
   }, [enabled]);

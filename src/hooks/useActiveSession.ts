@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { trackEvent } from "@/lib/analytics";
 import { isDateNavigationSuppressedAfterManualExit } from "@/lib/dateNavigationGuard";
+import { isActiveSessionContextShadowEnabled } from "@/lib/runtimeFlags";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import {
   activeSessionDirectFallbackStaleReason,
@@ -22,6 +23,8 @@ export type ActiveSession = ActiveSessionBase;
 type UseActiveSessionOptions = {
   /** When set, only return a session for this event (lobby-scoped hydration). */
   eventId?: string | null;
+  /** Disable network hydration while keeping hook call order stable for flagged consumers. */
+  enabled?: boolean;
 };
 
 type StaleActiveSessionPayload = {
@@ -33,6 +36,82 @@ type StaleActiveSessionPayload = {
 };
 
 type EmitStaleActiveSessionDetected = (payload: StaleActiveSessionPayload) => void;
+
+type ShadowRpcError = {
+  message?: string;
+};
+
+type ShadowRpcResult = {
+  data: unknown;
+  error: ShadowRpcError | null;
+};
+
+type ShadowActiveSessionSnapshot = {
+  kind: string | null;
+  sessionId: string | null;
+  eventId: string | null;
+  queueStatus: string | null;
+};
+
+function normalizeUnknownActiveSession(value: unknown): ShadowActiveSessionSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const kind = typeof row.kind === "string" ? row.kind : null;
+  const sessionId =
+    typeof row.sessionId === "string"
+      ? row.sessionId
+      : typeof row.session_id === "string"
+        ? row.session_id
+        : null;
+  const eventId =
+    typeof row.eventId === "string"
+      ? row.eventId
+      : typeof row.event_id === "string"
+        ? row.event_id
+        : null;
+  const queueStatus =
+    typeof row.queueStatus === "string"
+      ? row.queueStatus
+      : typeof row.queue_status === "string"
+        ? row.queue_status
+        : null;
+
+  if (!kind && !sessionId && !eventId && !queueStatus) return null;
+  return { kind, sessionId, eventId, queueStatus };
+}
+
+function normalizeShadowRpcActiveSession(data: unknown): ShadowActiveSessionSnapshot | null {
+  if (!data || typeof data !== "object") return null;
+  const row = data as Record<string, unknown>;
+  return normalizeUnknownActiveSession(row.active_session ?? row.activeSession ?? null);
+}
+
+function activeSessionSnapshot(activeSession: ActiveSession | null): ShadowActiveSessionSnapshot | null {
+  if (!activeSession) return null;
+  return {
+    kind: activeSession.kind,
+    sessionId: activeSession.sessionId,
+    eventId: activeSession.eventId,
+    queueStatus: activeSession.queueStatus ?? null,
+  };
+}
+
+function activeSessionShadowKey(activeSession: ShadowActiveSessionSnapshot | null): string {
+  if (!activeSession) return "null";
+  return [
+    activeSession.kind ?? "none",
+    activeSession.sessionId ?? "none",
+    activeSession.eventId ?? "none",
+    activeSession.queueStatus ?? "none",
+  ].join(":");
+}
+
+function shadowSnapshotsMatch(
+  legacy: ShadowActiveSessionSnapshot | null,
+  shadow: ShadowActiveSessionSnapshot | null,
+): boolean {
+  return activeSessionShadowKey(legacy) === activeSessionShadowKey(shadow);
+}
 
 async function fetchPartnerNameForViewer(partnerId: string): Promise<string | null> {
   const { data: profile, error } = await supabase.rpc("get_profile_for_viewer", {
@@ -229,11 +308,17 @@ export function useActiveSession(
   refetch: () => Promise<void>;
 } {
   const eventFilter = options?.eventId ?? null;
+  const enabled = options?.enabled ?? true;
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const mounted = useRef(true);
   const lastHydrationDebugKey = useRef<string | null>(null);
   const staleActiveSessionEventKeyRef = useRef<string | null>(null);
+  const checkInFlightRef = useRef<Promise<void> | null>(null);
+  const checkQueuedRef = useRef(false);
+  const shadowCompareKeyRef = useRef<string | null>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   useEffect(() => {
     mounted.current = true;
@@ -243,7 +328,7 @@ export function useActiveSession(
   }, []);
 
   const commitActiveSession = useCallback((next: ActiveSession | null, reason: string) => {
-    if (!mounted.current) return;
+    if (!mounted.current || !enabledRef.current) return;
     const visibleNext =
       next?.kind === "video" && isDateNavigationSuppressedAfterManualExit(next.sessionId)
         ? null
@@ -296,7 +381,7 @@ export function useActiveSession(
     [eventFilter]
   );
 
-  const check = useCallback(async () => {
+  const runCheck = useCallback(async () => {
     if (!userId) {
       commitActiveSession(null, "missing_user");
       return;
@@ -568,20 +653,47 @@ export function useActiveSession(
     }
   }, [userId, eventFilter, commitActiveSession, emitStaleActiveSessionDetected]);
 
-  useEffect(() => {
-    void check();
-  }, [check]);
+  const check = useCallback(async () => {
+    if (!enabled) return;
+
+    if (checkInFlightRef.current) {
+      checkQueuedRef.current = true;
+      return checkInFlightRef.current;
+    }
+
+    const task = (async () => {
+      do {
+        checkQueuedRef.current = false;
+        await runCheck();
+      } while (mounted.current && enabled && checkQueuedRef.current);
+    })().finally(() => {
+      checkInFlightRef.current = null;
+    });
+
+    checkInFlightRef.current = task;
+    return task;
+  }, [enabled, runCheck]);
 
   useEffect(() => {
+    if (!enabled) {
+      setActiveSession(null);
+      setHydrated(false);
+      return;
+    }
+    void check();
+  }, [enabled, check]);
+
+  useEffect(() => {
+    if (!enabled) return;
     const onVis = () => {
       if (document.visibilityState === "visible") void check();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [check]);
+  }, [enabled, check]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!enabled || !userId) return;
 
     const channel = supabase
       .channel(`active-session-reg-${userId}`)
@@ -602,10 +714,10 @@ export function useActiveSession(
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId, check]);
+  }, [enabled, userId, check]);
 
   useEffect(() => {
-    if (!userId || !eventFilter) return;
+    if (!enabled || !userId || !eventFilter) return;
 
     const maybeCheckForScopedEvent = (payload: {
       new?: Record<string, unknown> | null;
@@ -636,15 +748,63 @@ export function useActiveSession(
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId, eventFilter, check]);
+  }, [enabled, userId, eventFilter, check]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!enabled || !userId) return;
     const intervalId = setInterval(() => {
       void check();
     }, 8000);
     return () => clearInterval(intervalId);
-  }, [userId, check]);
+  }, [enabled, userId, check]);
+
+  useEffect(() => {
+    if (!enabled || !hydrated || !userId || !isActiveSessionContextShadowEnabled()) return;
+    const legacySnapshot = activeSessionSnapshot(activeSession);
+    const compareKey = `${userId}:${eventFilter ?? "*"}:${activeSessionShadowKey(legacySnapshot)}`;
+    if (shadowCompareKeyRef.current === compareKey) return;
+    shadowCompareKeyRef.current = compareKey;
+
+    let cancelled = false;
+    void (async () => {
+      const rpc = supabase.rpc as unknown as (
+        fn: "get_active_session_context",
+        args: { p_event_id: string | null },
+      ) => Promise<ShadowRpcResult>;
+      const { data, error } = await rpc("get_active_session_context", { p_event_id: eventFilter });
+      if (cancelled) return;
+
+      if (error) {
+        trackEvent("active_session_context_shadow_error", {
+          platform: "web",
+          scoped_event_id: eventFilter,
+          legacy_session_present: Boolean(legacySnapshot),
+          message: error.message ?? "unknown",
+        });
+        return;
+      }
+
+      const shadowSnapshot = normalizeShadowRpcActiveSession(data);
+      if (!shadowSnapshotsMatch(legacySnapshot, shadowSnapshot)) {
+        trackEvent("active_session_context_shadow_mismatch", {
+          platform: "web",
+          scoped_event_id: eventFilter,
+          legacy_kind: legacySnapshot?.kind ?? null,
+          legacy_session_present: Boolean(legacySnapshot?.sessionId),
+          legacy_event_id: legacySnapshot?.eventId ?? null,
+          legacy_queue_status: legacySnapshot?.queueStatus ?? null,
+          shadow_kind: shadowSnapshot?.kind ?? null,
+          shadow_session_present: Boolean(shadowSnapshot?.sessionId),
+          shadow_event_id: shadowSnapshot?.eventId ?? null,
+          shadow_queue_status: shadowSnapshot?.queueStatus ?? null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession, enabled, eventFilter, hydrated, userId]);
 
   const stable = useMemo(
     () => ({ activeSession, hydrated, refetch: check }),

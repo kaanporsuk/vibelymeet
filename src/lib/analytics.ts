@@ -13,6 +13,72 @@ const POSTHOG_HOST =
 let initialized = false;
 let loadPromise: Promise<PostHogClient> | null = null;
 let posthogClient: PostHogClient | null = null;
+const recentEventKeys = new Map<string, number>();
+
+function primitiveProperty(properties: AnalyticsProperties | undefined, key: string): string {
+  const value = properties?.[key];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "none";
+}
+
+function dedupeConfigForEvent(
+  eventName: string,
+  properties: AnalyticsProperties | undefined,
+): { key: string; ttlMs: number } | null {
+  if (eventName === "$pageview") {
+    return { key: `${eventName}:${primitiveProperty(properties, "$current_url")}`, ttlMs: 1000 };
+  }
+
+  if (eventName === "push_delivery_health_observed") {
+    return {
+      key: [
+        eventName,
+        primitiveProperty(properties, "permission_state"),
+        primitiveProperty(properties, "sdk_status"),
+        primitiveProperty(properties, "client_health_status"),
+        primitiveProperty(properties, "sync_result_code"),
+        primitiveProperty(properties, "local_player_present"),
+        primitiveProperty(properties, "backend_player_present"),
+        primitiveProperty(properties, "backend_subscribed"),
+      ].join(":"),
+      ttlMs: 60_000,
+    };
+  }
+
+  if (eventName === "ready_gate_to_date_latency_checkpoint") {
+    return {
+      key: [
+        eventName,
+        primitiveProperty(properties, "session_id"),
+        primitiveProperty(properties, "checkpoint"),
+        primitiveProperty(properties, "source_action"),
+        primitiveProperty(properties, "outcome"),
+      ].join(":"),
+      ttlMs: 2000,
+    };
+  }
+
+  return null;
+}
+
+function shouldSkipDuplicateEvent(eventName: string, properties: AnalyticsProperties | undefined): boolean {
+  const config = dedupeConfigForEvent(eventName, properties);
+  if (!config) return false;
+
+  const now = Date.now();
+  const lastSeenAt = recentEventKeys.get(config.key);
+  if (lastSeenAt && now - lastSeenAt < config.ttlMs) return true;
+
+  recentEventKeys.set(config.key, now);
+  if (recentEventKeys.size > 256) {
+    for (const [key, seenAt] of recentEventKeys) {
+      if (now - seenAt > 60_000) recentEventKeys.delete(key);
+    }
+  }
+  return false;
+}
 
 function loadPostHog(): Promise<PostHogClient> {
   loadPromise ??= import("posthog-js").then((mod) => {
@@ -107,6 +173,7 @@ export const resetAnalytics = () => {
 
 // Track a custom event
 export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
+  if (shouldSkipDuplicateEvent(eventName, properties)) return;
   void getAnalyticsForCapture().then((posthog) => {
     posthog?.capture(eventName, properties);
   });

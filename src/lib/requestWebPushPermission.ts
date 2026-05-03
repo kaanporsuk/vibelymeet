@@ -22,6 +22,13 @@ const WEB_PLAYER_ID_SYNC_RETRY = {
   initialDelayMs: 500,
   maxDelayMs: 5000,
 };
+const WEB_PUSH_BACKEND_SYNC_TTL_MS = 10 * 60_000;
+
+const syncInFlightByUser = new Map<string, Promise<PushSyncResult>>();
+const lastBackendSyncBySignature = new Map<
+  string,
+  { syncedAtMs: number; result: PushSyncResult }
+>();
 
 function syncResult(
   code: PushSyncResult["code"],
@@ -31,7 +38,21 @@ function syncResult(
   return { code, synced: code === "synced", playerId, message };
 }
 
-export async function syncWebPushRegistrationToBackend(userId: string): Promise<PushSyncResult> {
+function backendSyncSignature(userId: string, playerId: string, subscribed: boolean): string {
+  return `${userId}:${playerId}:${subscribed ? "subscribed" : "unsubscribed"}`;
+}
+
+function getFreshCachedBackendSync(signature: string): PushSyncResult | null {
+  const cached = lastBackendSyncBySignature.get(signature);
+  if (!cached) return null;
+  if (Date.now() - cached.syncedAtMs > WEB_PUSH_BACKEND_SYNC_TTL_MS) {
+    lastBackendSyncBySignature.delete(signature);
+    return null;
+  }
+  return cached.result;
+}
+
+async function syncWebPushRegistrationToBackendInternal(userId: string): Promise<PushSyncResult> {
   if (typeof Notification === "undefined" || Notification.permission !== "granted") {
     return syncResult("permission_denied");
   }
@@ -56,6 +77,16 @@ export async function syncWebPushRegistrationToBackend(userId: string): Promise<
   const subscribed = await isSubscribed();
   if (!isCurrentOneSignalIdentity(userId, generation)) return syncResult("stale_identity", playerId);
 
+  const signature = backendSyncSignature(userId, playerId, subscribed);
+  const cachedResult = getFreshCachedBackendSync(signature);
+  if (cachedResult) {
+    vibelyOsLog("syncWebPushRegistrationToBackend:skip duplicate backend sync", {
+      subscribed,
+      code: cachedResult.code,
+    });
+    return cachedResult;
+  }
+
   const { error } = await supabase.from("notification_preferences").upsert(
     {
       user_id: userId,
@@ -73,11 +104,26 @@ export async function syncWebPushRegistrationToBackend(userId: string): Promise<
   }
 
   if (!subscribed) {
-    return syncResult("sdk_not_ready", playerId, "OneSignal subscription is not opted in yet.");
+    const result = syncResult("sdk_not_ready", playerId, "OneSignal subscription is not opted in yet.");
+    lastBackendSyncBySignature.set(signature, { syncedAtMs: Date.now(), result });
+    return result;
   }
 
   vibelyOsLog("syncWebPushRegistrationToBackend:success", {});
-  return syncResult("synced", playerId);
+  const result = syncResult("synced", playerId);
+  lastBackendSyncBySignature.set(signature, { syncedAtMs: Date.now(), result });
+  return result;
+}
+
+export async function syncWebPushRegistrationToBackend(userId: string): Promise<PushSyncResult> {
+  const inFlight = syncInFlightByUser.get(userId);
+  if (inFlight) return inFlight;
+
+  const task = syncWebPushRegistrationToBackendInternal(userId).finally(() => {
+    syncInFlightByUser.delete(userId);
+  });
+  syncInFlightByUser.set(userId, task);
+  return task;
 }
 
 export async function requestWebPushPermissionAndSync(userId: string): Promise<PushSyncResult> {
