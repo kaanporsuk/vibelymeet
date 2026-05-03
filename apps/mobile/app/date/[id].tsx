@@ -642,6 +642,7 @@ export default function VideoDateScreen() {
   const lastLocalMountedTrackIdRef = useRef<string | null>(null);
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
+  const surveyOpenedRef = useRef(false);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
   /** Opacity heartbeat for the final 10 seconds of handshake. */
   const lastChanceBlinkOpacity = useRef(new Animated.Value(1)).current;
@@ -723,6 +724,7 @@ export default function VideoDateScreen() {
   }, []);
 
   useEffect(() => {
+    surveyOpenedRef.current = false;
     if (warmupChoiceNoticeTimerRef.current) {
       clearTimeout(warmupChoiceNoticeTimerRef.current);
       warmupChoiceNoticeTimerRef.current = null;
@@ -748,7 +750,15 @@ export default function VideoDateScreen() {
 
   const openNativePostDateSurveyFromTerminalTruth = useCallback(
     async (source: string, sessionOverride?: NativeTerminalSurveySessionRow | null) => {
-      if (!sessionId || !user?.id || showFeedback) return false;
+      if (!sessionId || !user?.id) return false;
+      if (surveyOpenedRef.current) {
+        vdbg('post_date_survey_open_already_active', {
+          sessionId,
+          userId: user.id,
+          source,
+        });
+        return true;
+      }
       const sessionRow =
         sessionOverride ??
         (
@@ -825,10 +835,11 @@ export default function VideoDateScreen() {
         reconnectExpiredSurveyDue,
         pendingPostDateSurveyDue,
       });
+      surveyOpenedRef.current = true;
       setShowFeedback(true);
       return true;
     },
-    [eventId, logJourney, sessionId, showFeedback, user?.id]
+    [eventId, logJourney, sessionId, user?.id]
   );
 
   const beginBootstrapTiming = useCallback((step: string, data?: Record<string, unknown>) => {

@@ -1366,14 +1366,47 @@ test("native date route opens recovered pending surveys after current_room_id is
   assert.match(nativeVideoDateRoute, /getVideoSessionPartnerIdForUser/);
   assert.match(nativeVideoDateRoute, /videoSessionHasPostDateSurveyTruth/);
   assert.match(nativeVideoDateRoute, /const openNativePostDateSurveyFromTerminalTruth = useCallback/);
+  assert.match(nativeVideoDateRoute, /const surveyOpenedRef = useRef\(false\)/);
+  assert.ok(
+    nativeVideoDateRoute.indexOf("surveyOpenedRef.current = false;") <
+      nativeVideoDateRoute.indexOf("}, [sessionId]);"),
+  );
+  const surveyOpenHelperIndex = nativeVideoDateRoute.indexOf("const openNativePostDateSurveyFromTerminalTruth = useCallback");
+  const helperAuthGuardIndex = nativeVideoDateRoute.indexOf("if (!sessionId || !user?.id) return false;", surveyOpenHelperIndex);
+  const helperLatchIndex = nativeVideoDateRoute.indexOf("if (surveyOpenedRef.current) {", surveyOpenHelperIndex);
+  const helperLatchReturnIndex = nativeVideoDateRoute.indexOf("return true;", helperLatchIndex);
+  const helperDueIndex = nativeVideoDateRoute.indexOf("if (!pendingPostDateSurveyDue) return false", surveyOpenHelperIndex);
+  assert.ok(helperAuthGuardIndex > surveyOpenHelperIndex);
+  assert.ok(helperLatchIndex > helperAuthGuardIndex);
+  assert.ok(nativeVideoDateRoute.indexOf("post_date_survey_open_already_active", helperLatchIndex) > helperLatchIndex);
+  assert.ok(helperLatchReturnIndex > helperLatchIndex);
+  assert.ok(helperDueIndex > helperLatchReturnIndex);
   assert.match(nativeVideoDateRoute, /NATIVE_TERMINAL_SURVEY_SESSION_SELECT/);
   assert.match(nativeVideoDateRoute, /pendingPostDateSurveyDue/);
   assert.match(nativeVideoDateRoute, /if \(!pendingPostDateSurveyDue\) return false/);
   assert.match(nativeVideoDateRoute, /if \(recoveredPartnerId\) setPartnerId\(recoveredPartnerId\)/);
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('ended_route_guard', vs\)/);
   assert.match(nativeVideoDateRoute, /openNativePostDateSurveyFromTerminalTruth\('terminal_session_recovery', session\)/);
+  assert.match(nativeVideoDateRoute, /surveyOpenedRef\.current = true;\s*setShowFeedback\(true\);/);
+  assert.doesNotMatch(nativeVideoDateRoute, /if \(!sessionId \|\| !user\?\.id \|\| showFeedback\) return false/);
   assert.match(nativeVideoDateRoute, /if \(showFeedback && sessionId && user\?\.id\) \{/);
   assert.doesNotMatch(nativeVideoDateRoute, /if \(phase === 'ended' && showFeedback\) \{/);
+});
+
+test("native terminal route guard keeps an already-open post-date survey mounted", () => {
+  const endedGuardIndex = nativeVideoDateRoute.indexOf("if (truthDecision === 'ended') {");
+  const openSurveyIndex = nativeVideoDateRoute.indexOf(
+    "const openedSurvey = await openNativePostDateSurveyFromTerminalTruth('ended_route_guard', vs);",
+    endedGuardIndex,
+  );
+  const openedSurveyBranchIndex = nativeVideoDateRoute.indexOf("if (openedSurvey) {", openSurveyIndex);
+  const openedSurveyReturnIndex = nativeVideoDateRoute.indexOf("return;", openedSurveyBranchIndex);
+  const bounceIndex = nativeVideoDateRoute.indexOf("route_bounced_to_lobby", openedSurveyReturnIndex);
+  assert.ok(endedGuardIndex >= 0);
+  assert.ok(openSurveyIndex > endedGuardIndex);
+  assert.ok(openedSurveyBranchIndex > openSurveyIndex);
+  assert.ok(openedSurveyReturnIndex > openedSurveyBranchIndex);
+  assert.ok(bounceIndex > openedSurveyReturnIndex);
 });
 
 test("web date route opens ended-session survey only when feedback is missing", () => {
