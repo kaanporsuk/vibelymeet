@@ -91,7 +91,7 @@ import { PostDateSurvey } from '@/components/video-date/PostDateSurvey';
 import { InCallSafetySheet } from '@/components/video-date/InCallSafetySheet';
 import { supabase } from '@/lib/supabase';
 import { isVdbgEnabled, vdbg, vdbgRedirect } from '@/lib/vdbg';
-import { spacing } from '@/constants/theme';
+import { fonts, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
@@ -154,6 +154,7 @@ import {
   videoDateAspectRatio,
 } from '@clientShared/matching/videoDateMediaContract';
 import {
+  VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
   normalizeVideoDateIceBreakerIndex,
   normalizeVideoDateIceBreakerQuestions,
   resolveVideoDateIceBreakerIndex,
@@ -169,7 +170,6 @@ const PREJOIN_STEP_TIMEOUT_MS = 12000;
 const NATIVE_BACKGROUND_GRACE_MS = 12_000;
 const NATIVE_BACKGROUND_GRACE_SECONDS = Math.ceil(NATIVE_BACKGROUND_GRACE_MS / 1000);
 const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
-const ICE_BREAKER_REAPPEAR_MS = 30_000;
 const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
 const DATE_CONTROLS_STACK_HEIGHT = 104;
 const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
@@ -571,6 +571,10 @@ export default function VideoDateScreen() {
     questionAnchorAt: null,
   });
   const [iceBreakerClockMs, setIceBreakerClockMs] = useState(() => Date.now());
+  const [iceBreakerManualPause, setIceBreakerManualPause] = useState<{
+    startedAtMs: number;
+    untilMs: number;
+  } | null>(null);
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -588,6 +592,7 @@ export default function VideoDateScreen() {
   const [nativeBackgroundStatus, setNativeBackgroundStatus] = useState<'none' | 'grace' | 'recovered'>('none');
   const [nativeBackgroundGraceSeconds, setNativeBackgroundGraceSeconds] = useState(0);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
+  const [isEndDateConfirming, setIsEndDateConfirming] = useState(false);
   const [netQualityTier, setNetQualityTier] = useState<'good' | 'fair' | 'poor'>('good');
   const [dateEntryPermissionEligible, setDateEntryPermissionEligible] = useState(false);
   const [captureProfile, setCaptureProfile] = useState<NativeVideoDateCaptureProfile>('ideal');
@@ -665,7 +670,6 @@ export default function VideoDateScreen() {
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
   const abortConnectionInFlightRef = useRef(false);
-  const iceBreakerReappearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warmupChoiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
   const firstPlayableRemoteAtMsRef = useRef(0);
@@ -1996,15 +2000,6 @@ export default function VideoDateScreen() {
   }, [hasRemotePartner, phase, sessionId]);
 
   useEffect(() => {
-    return () => {
-      if (iceBreakerReappearTimerRef.current) {
-        clearTimeout(iceBreakerReappearTimerRef.current);
-        iceBreakerReappearTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     if (remoteParticipant && !remotePromotionLoggedRef.current) {
       remotePromotionLoggedRef.current = true;
       videoDateDailyDiagnostic('remote_participant_promoted_into_ui', {
@@ -2789,8 +2784,20 @@ export default function VideoDateScreen() {
 
   /** In-call / post-connect: end date, cleanup Daily, show PostDateSurvey (navigation from survey only). */
   const handleEndDateFromControls = useCallback(async () => {
-    await handleCallEnd('local_end');
-  }, [handleCallEnd]);
+    if (isEndDateConfirming) return;
+    Alert.alert('End this date?', 'Stay if you tapped by accident. Ending will close the call for you.', [
+      { text: 'Stay', style: 'cancel' },
+      {
+        text: 'End date',
+        style: 'destructive',
+        onPress: () => {
+          if (isEndDateConfirming) return;
+          setIsEndDateConfirming(true);
+          void handleCallEnd('local_end').finally(() => setIsEndDateConfirming(false));
+        },
+      },
+    ]);
+  }, [handleCallEnd, isEndDateConfirming]);
 
   /** Connecting or waiting for partner: exit without post-date survey (nothing to rate yet). */
   const handleAbortConnection = useCallback(
@@ -5556,17 +5563,29 @@ export default function VideoDateScreen() {
     return null;
   }, [session, user?.id]);
 
+  const effectiveIceBreakerClockMs = useMemo(() => {
+    if (!iceBreakerManualPause) return iceBreakerClockMs;
+    const pauseMs = Math.max(0, iceBreakerManualPause.untilMs - iceBreakerManualPause.startedAtMs);
+    if (iceBreakerClockMs < iceBreakerManualPause.untilMs) return iceBreakerManualPause.startedAtMs;
+    return iceBreakerClockMs - pauseMs;
+  }, [iceBreakerClockMs, iceBreakerManualPause]);
+
   const currentQuestionIndex = resolveVideoDateIceBreakerIndex(
     vibeQuestionState.questions.length,
     vibeQuestionState.questionIndex,
     vibeQuestionState.questionAnchorAt,
-    iceBreakerClockMs
+    effectiveIceBreakerClockMs
   );
   const currentQuestion =
     vibeQuestionState.questions[currentQuestionIndex] ?? vibeQuestionState.questions[0] ?? '';
   const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT;
   const advanceIceBreaker = useCallback(() => {
     if (!sessionId || !vibeQuestionState.questions.length) return;
+    const pauseStartedAtMs = Date.now();
+    setIceBreakerManualPause({
+      startedAtMs: pauseStartedAtMs,
+      untilMs: pauseStartedAtMs + VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
+    });
     const optimisticIndex = normalizeVideoDateIceBreakerIndex(
       currentQuestionIndex + 1,
       vibeQuestionState.questions.length
@@ -5581,17 +5600,22 @@ export default function VideoDateScreen() {
     });
   }, [currentQuestionIndex, sessionId, vibeQuestionState.questions.length]);
   const dismissIceBreakerTemporarily = useCallback(() => {
-    if (iceBreakerReappearTimerRef.current) {
-      clearTimeout(iceBreakerReappearTimerRef.current);
-    }
     setShowIceBreaker(false);
-    iceBreakerReappearTimerRef.current = setTimeout(() => {
-      iceBreakerReappearTimerRef.current = null;
-      setShowIceBreaker(true);
-    }, ICE_BREAKER_REAPPEAR_MS);
   }, []);
   const showFloatingIceBreaker =
     showIceBreaker &&
+    Boolean(currentQuestion) &&
+    !showFeedback &&
+    !showMutualToast &&
+    hasRemotePartner &&
+    !isPartnerDisconnected &&
+    !peerMissingTerminal &&
+    nativeBackgroundStatus === 'none' &&
+    !showJoiningOverlay &&
+    !showPeerWaitOverlay &&
+    (phase === 'handshake' || phase === 'date');
+  const showCollapsedIceBreaker =
+    !showIceBreaker &&
     Boolean(currentQuestion) &&
     !showFeedback &&
     !showMutualToast &&
@@ -6134,6 +6158,27 @@ export default function VideoDateScreen() {
         </View>
       ) : null}
 
+      {showCollapsedIceBreaker ? (
+        <View pointerEvents="box-none" style={[styles.iceBreakerFloat, { bottom: iceBreakerBottomOffset }]}>
+          <Pressable
+            onPress={() => setShowIceBreaker(true)}
+            style={({ pressed }) => [
+              styles.iceBreakerCollapsed,
+              {
+                backgroundColor: theme.glassSurface,
+                borderColor: theme.glassBorder,
+                opacity: pressed ? 0.84 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Show ice-breaker question"
+          >
+            <Ionicons name="sparkles" size={15} color={theme.tint} />
+            <Text style={[styles.iceBreakerCollapsedText, { color: theme.tint }]}>Icebreaker</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {showHandshakeChrome && (
         <View style={[styles.handshakeBottomStack, { bottom: handshakeBottomOffset }]}> 
           <VibeCheckButton
@@ -6580,6 +6625,26 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 26,
     alignItems: 'center',
+  },
+  iceBreakerCollapsed: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.28,
+    shadowRadius: 22,
+    elevation: 6,
+  },
+  iceBreakerCollapsedText: {
+    fontSize: 12,
+    fontFamily: fonts.display,
   },
   keepTheVibeWrap: { position: 'absolute', top: 110, left: 16 },
   controlsBar: { position: 'absolute', bottom: 0, left: 0, right: 0 },

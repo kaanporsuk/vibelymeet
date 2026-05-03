@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } fr
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { Clock, User } from "lucide-react";
+import { Clock, Sparkles, User } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 import { captureSupabaseError } from "@/lib/errorTracking";
@@ -33,6 +33,16 @@ import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   clearDateEntryTransition,
   isDateEntryTransitionActive,
@@ -325,6 +335,8 @@ const VideoDate = () => {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
+  const [showEndDateConfirm, setShowEndDateConfirm] = useState(false);
+  const [isEndDateConfirming, setIsEndDateConfirming] = useState(false);
   const [isLeavingVideoDate, setIsLeavingVideoDate] = useState(false);
   const [handshakeStartedAt, setHandshakeStartedAt] = useState<string | null>(null);
   const [handshakeTruth, setHandshakeTruth] = useState<VideoDateHandshakeTruth | null>(null);
@@ -367,7 +379,6 @@ const VideoDate = () => {
   const foregroundReconcileInFlightRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const accessLoadingWatchdogKeyRef = useRef<string | null>(null);
-  const iceBreakerReappearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoJoinCycleRef = useRef(0);
   const videoJoinOutcomeByCycleRef = useRef(new Set<number>());
   const lastRemoteLayoutDiagnosticKeyRef = useRef<string | null>(null);
@@ -1838,14 +1849,7 @@ const VideoDate = () => {
   ]);
 
   const dismissIceBreakerTemporarily = useCallback(() => {
-    if (iceBreakerReappearTimerRef.current) {
-      clearTimeout(iceBreakerReappearTimerRef.current);
-    }
     setShowIceBreaker(false);
-    iceBreakerReappearTimerRef.current = setTimeout(() => {
-      iceBreakerReappearTimerRef.current = null;
-      setShowIceBreaker(true);
-    }, 30_000);
   }, []);
 
   useEffect(() => {
@@ -1853,15 +1857,6 @@ const VideoDate = () => {
       setShowIceBreaker(true);
     }
   }, [id, isConnected, phase]);
-
-  useEffect(() => {
-    return () => {
-      if (iceBreakerReappearTimerRef.current) {
-        clearTimeout(iceBreakerReappearTimerRef.current);
-        iceBreakerReappearTimerRef.current = null;
-      }
-    };
-  }, []);
 
   // Wake lock
   useEffect(() => {
@@ -2825,6 +2820,22 @@ const VideoDate = () => {
     await handleCallEnd(opts?.reason);
   }, [dateStartedAt, endCall, handleCallEnd, handlePreDateExit, clearHandshakeGraceState, handshakeTruth, id, phase]);
 
+  const requestEndDateConfirmation = useCallback(() => {
+    if (isLeavingVideoDate || isEndDateConfirming) return;
+    setShowEndDateConfirm(true);
+  }, [isEndDateConfirming, isLeavingVideoDate]);
+
+  const confirmEndDate = useCallback(async () => {
+    if (isLeavingVideoDate || isEndDateConfirming) return;
+    setIsEndDateConfirming(true);
+    try {
+      await handleLeave();
+      setShowEndDateConfirm(false);
+    } finally {
+      setIsEndDateConfirming(false);
+    }
+  }, [handleLeave, isEndDateConfirming, isLeavingVideoDate]);
+
   useEffect(() => {
     if (!peerMissing.terminal || !id) return;
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_PEER_MISSING_TERMINAL_IMPRESSION, {
@@ -2981,6 +2992,16 @@ const VideoDate = () => {
     isConnected &&
     remotePlayback.participantPresent &&
     showIceBreaker &&
+    !showFeedback &&
+    !showMutualToast &&
+    !remotePlayback.playRejected &&
+    !peerMissing.terminal &&
+    !anyReconnectVisible &&
+    (phase === "handshake" || phase === "date");
+  const showCollapsedIceBreaker =
+    isConnected &&
+    remotePlayback.participantPresent &&
+    !showIceBreaker &&
     !showFeedback &&
     !showMutualToast &&
     !remotePlayback.playRejected &&
@@ -3409,6 +3430,24 @@ const VideoDate = () => {
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {showCollapsedIceBreaker && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => setShowIceBreaker(true)}
+            className={`absolute left-4 z-20 flex items-center gap-2 rounded-full border border-primary/25 bg-black/[0.48] px-3.5 py-2 text-xs font-display font-semibold text-primary shadow-[0_14px_36px_rgba(0,0,0,0.34)] backdrop-blur-2xl ${iceBreakerPositionClass}`}
+            aria-label="Show ice-breaker question"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            Icebreaker
+          </motion.button>
+        )}
+      </AnimatePresence>
+
       {/* ─── Vibed ✓ Button (handshake only) ─── */}
       <AnimatePresence>
         {isConnected && phase === "handshake" && handshakeTimerStarted && !showFeedback && (
@@ -3458,7 +3497,7 @@ const VideoDate = () => {
             });
             toggleVideo();
           }}
-          onLeave={handleLeave}
+          onLeave={requestEndDateConfirmation}
           isLeaving={isLeavingVideoDate}
           onViewProfile={() => {
             recordUserAction("video_date_control_clicked", {
@@ -3482,6 +3521,35 @@ const VideoDate = () => {
           }
         />
       </div>
+
+      <AlertDialog open={showEndDateConfirm} onOpenChange={setShowEndDateConfirm}>
+        <AlertDialogContent className="w-[min(calc(100vw-2rem),24rem)] rounded-[1.75rem] border border-white/10 bg-[rgba(12,12,16,0.94)] text-foreground shadow-[0_26px_90px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
+          <AlertDialogHeader className="text-center">
+            <AlertDialogTitle className="font-display text-xl">End this date?</AlertDialogTitle>
+            <AlertDialogDescription className="text-center text-sm leading-relaxed text-muted-foreground">
+              Stay if you tapped by accident. Ending will close the call for you.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
+            <AlertDialogAction
+              className="w-full rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isLeavingVideoDate || isEndDateConfirming}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmEndDate();
+              }}
+            >
+              {isLeavingVideoDate || isEndDateConfirming ? "Ending..." : "End date"}
+            </AlertDialogAction>
+            <AlertDialogCancel
+              className="mt-0 w-full rounded-full border-white/10 bg-white/[0.06] text-foreground hover:bg-white/[0.1]"
+              disabled={isLeavingVideoDate || isEndDateConfirming}
+            >
+              Stay
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ─── Partner Profile Sheet ─── */}
       <PartnerProfileSheet

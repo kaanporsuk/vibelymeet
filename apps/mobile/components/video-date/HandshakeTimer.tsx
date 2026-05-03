@@ -1,6 +1,6 @@
 /**
  * Circular countdown timer for handshake/date phase.
- * Colors: cyan → violet → pink → red (handshake); green/violet → red (date).
+ * Colors: cyan → violet → pink (handshake); green/violet → red (date).
  * Pulses in the final 10 seconds of warm-up only.
  */
 
@@ -27,7 +27,7 @@ type Props = {
 function getTimerColor(phase: Phase, progress: number, isUrgent: boolean): string {
   if (phase === 'ended') return Colors.dark.mutedForeground;
   if (phase === 'handshake') {
-    if (isUrgent) return 'hsl(0, 84%, 60%)';
+    if (isUrgent) return 'hsl(330, 81%, 60%)';
     if (progress > 2 / 3) return 'hsl(187, 94%, 43%)';
     if (progress > 1 / 3) return 'hsl(263, 70%, 66%)';
     return 'hsl(330, 81%, 60%)';

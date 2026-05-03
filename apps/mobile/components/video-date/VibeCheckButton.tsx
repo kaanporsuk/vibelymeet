@@ -24,7 +24,7 @@ function formatWarmHint(
   hasDecided: boolean
 ): string | null {
   if (hasDecided) return null;
-  if (isFinalTenSeconds) return 'A quiet nudge before warm-up ends';
+  if (isFinalTenSeconds) return 'Choose from the feeling, not the clock';
   return null;
 }
 
@@ -108,7 +108,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         <Animated.Text
           style={[styles.lastChanceTag, { color: theme.neonPink, opacity: lastChanceLabelOpacity }]}
         >
-          Warm-up ending
+          Soft nudge
         </Animated.Text>
       ) : null}
 

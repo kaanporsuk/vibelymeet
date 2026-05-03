@@ -69,7 +69,7 @@ export function IceBreakerCard({
             ]}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="Hide ice-breaker question for 30 seconds"
+            accessibilityLabel="Hide ice-breaker question"
           >
             <Ionicons name="close" size={18} color={theme.mutedForeground} />
           </Pressable>
