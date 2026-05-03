@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } fr
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { User } from "lucide-react";
+import { Clock, User } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { vdbg, vdbgRedirect } from "@/lib/vdbg";
 import { captureSupabaseError } from "@/lib/errorTracking";
@@ -66,6 +66,10 @@ import {
   type VideoDateHandshakeTruth,
 } from "@clientShared/matching/videoDateHandshakePersistence";
 import {
+  getVideoDateWarmupChoiceNotice,
+  type VideoDateWarmupChoiceNotice,
+} from "@clientShared/matching/videoDateWarmupChoiceNotice";
+import {
   buildReadyGateToDateLatencyPayload,
   buildVideoDateTimerDriftRecoveredPayload,
   recordReadyGateToDateLatencyCheckpoint,
@@ -106,6 +110,39 @@ function makeExtensionIdempotencyKey(sessionId: string, type: "extra_time" | "ex
 
 function serializeManualExitError(error: unknown): Record<string, unknown> | string {
   return error instanceof Error ? { name: error.name, message: error.message } : String(error);
+}
+
+function showWarmupChoiceNoticeToast(notice: VideoDateWarmupChoiceNotice) {
+  toast.custom(
+    () => (
+      <div
+        role="status"
+        aria-live="polite"
+        className="pointer-events-auto w-[min(calc(100vw-2rem),28rem)] overflow-hidden rounded-2xl border border-white/10 bg-[linear-gradient(180deg,hsl(var(--card)/0.94),hsl(var(--background)/0.9))] text-foreground shadow-[0_20px_65px_-36px_rgba(0,0,0,0.95),0_0_34px_-24px_hsl(var(--primary)/0.9)] backdrop-blur-2xl"
+      >
+        <div className="flex items-start gap-3 px-4 py-3.5">
+          <span className="mt-0.5 h-10 w-1 shrink-0 rounded-full bg-gradient-to-b from-primary via-accent to-neon-cyan" />
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-primary/15 text-neon-cyan shadow-[0_0_20px_-8px_hsl(var(--primary)/0.9)]">
+            <Clock className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-display font-semibold leading-snug text-foreground">
+              {notice.title}
+            </span>
+            <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+              {notice.message}
+            </span>
+          </span>
+        </div>
+        <div className="h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+      </div>
+    ),
+    {
+      duration: 5200,
+      position: "top-center",
+      unstyled: true,
+    },
+  );
 }
 
 function runVideoDateManualExitStep(
@@ -2287,14 +2324,13 @@ const VideoDate = () => {
           reason: payload?.reason ?? null,
         });
         if (payload?.reason === "handshake_timeout") {
-          const message = payload.waiting_for_self
-            ? "Your warm-up choice wasn't saved in time."
-            : payload.waiting_for_partner
-              ? "Their warm-up choice wasn't saved in time."
-              : "The warm-up ended before both choices were saved.";
-          toast.error(message, { duration: 3000 });
+          const notice = getVideoDateWarmupChoiceNotice({
+            waitingForSelf: payload.waiting_for_self,
+            waitingForPartner: payload.waiting_for_partner,
+          });
+          showWarmupChoiceNoticeToast(notice);
         } else if (payload?.reason === "handshake_grace_expired") {
-          toast.error("The warm-up ended before both choices were saved.", { duration: 3000 });
+          showWarmupChoiceNoticeToast(getVideoDateWarmupChoiceNotice());
         } else {
           toast("Great meeting you! 👋", { duration: 2500 });
         }
