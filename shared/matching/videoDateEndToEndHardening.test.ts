@@ -6,6 +6,10 @@ import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
 } from "./videoDateExtensionSpend";
+import {
+  remainingStartedAtCountdownSeconds,
+  startedAtCountdownDeadlineMs,
+} from "./videoDateCountdown";
 import { VIDEO_DATE_HANDSHAKE_TRUTH_SELECT } from "./videoDateHandshakePersistence";
 import {
   getPostDateLobbyContinuityDecision,
@@ -427,6 +431,30 @@ test("date remaining time is recomputed from server date_extra_seconds", () => {
       nowMs: Date.parse("2026-04-24T10:02:00.000Z"),
     }),
     300,
+  );
+});
+
+test("started-at countdown recomputes handshake time from server timestamp", () => {
+  const startedAtIso = "2026-04-24T10:00:00.000Z";
+  assert.equal(
+    remainingStartedAtCountdownSeconds({
+      startedAtIso,
+      durationSeconds: 60,
+      nowMs: Date.parse("2026-04-24T10:00:35.250Z"),
+    }),
+    25,
+  );
+  assert.equal(
+    remainingStartedAtCountdownSeconds({
+      startedAtIso,
+      durationSeconds: 60,
+      nowMs: Date.parse("2026-04-24T10:01:00.001Z"),
+    }),
+    0,
+  );
+  assert.equal(
+    startedAtCountdownDeadlineMs({ startedAtIso, durationSeconds: 60 }),
+    Date.parse("2026-04-24T10:01:00.000Z"),
   );
 });
 

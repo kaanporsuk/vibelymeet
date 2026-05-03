@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { VideoOff, MicOff } from "lucide-react";
+import { MicOff, SwitchCamera, VideoOff } from "lucide-react";
 import { RefObject, useRef, useEffect, useState } from "react";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
@@ -12,6 +12,9 @@ interface SelfViewPIPProps {
   blurAmount?: number;
   sessionId?: string | null;
   eventId?: string | null;
+  canFlipCamera?: boolean;
+  isFlippingCamera?: boolean;
+  onFlipCamera?: () => void | Promise<void>;
 }
 
 export const SelfViewPIP = ({
@@ -22,6 +25,9 @@ export const SelfViewPIP = ({
   blurAmount = 0,
   sessionId,
   eventId,
+  canFlipCamera = false,
+  isFlippingCamera = false,
+  onFlipCamera,
 }: SelfViewPIPProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
@@ -126,6 +132,24 @@ export const SelfViewPIP = ({
           Tap to resume video
         </button>
       )}
+
+      {canFlipCamera && !isVideoOff && onFlipCamera ? (
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            void onFlipCamera();
+          }}
+          disabled={isFlippingCamera}
+          className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full border border-white/[0.12] bg-black/[0.45] text-white shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-xl transition-colors hover:bg-black/60 disabled:opacity-60"
+          aria-label="Switch camera"
+          title="Switch camera"
+        >
+          <SwitchCamera className={`h-4 w-4 ${isFlippingCamera ? "animate-pulse" : ""}`} aria-hidden />
+        </motion.button>
+      ) : null}
 
       {/* Muted indicator */}
       {isMuted && (

@@ -1,10 +1,10 @@
 /**
- * Bottom dock: Profile (+ partner name), Mic, Leave (center), Camera, Safety.
+ * Bottom dock: Profile, Mic, Leave (center), Camera, Safety.
  * Icon-only; Leave uses destructive styling. Optional +Time is surfaced by the screen (not in this row).
  */
 
 import React from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
@@ -20,8 +20,6 @@ type Props = {
   onToggleVideo: () => void;
   onLeave: () => void;
   onViewProfile: () => void;
-  /** Partner display name — shown beside the profile control only (not a separate floating chip). */
-  partnerName?: string | null;
   /** In-call safety report (`submit_user_report`). Omit when not in active call. */
   onSafety?: () => void;
 };
@@ -33,7 +31,6 @@ export function VideoDateControls({
   onToggleVideo,
   onLeave,
   onViewProfile,
-  partnerName,
   onSafety,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -46,7 +43,7 @@ export function VideoDateControls({
       onPress={onViewProfile}
       style={({ pressed }) => [styles.profileCluster, pressed && styles.pressed]}
       accessibilityRole="button"
-      accessibilityLabel={partnerName ? `View ${partnerName}'s profile` : 'View profile'}
+      accessibilityLabel="View profile"
     >
       <View
         style={[
@@ -57,11 +54,6 @@ export function VideoDateControls({
       >
         <Ionicons name="person" size={22} color={iconOn} />
       </View>
-      {partnerName ? (
-        <Text style={[styles.partnerName, { color: theme.text }]} numberOfLines={1}>
-          {partnerName}
-        </Text>
-      ) : null}
     </Pressable>
   );
 
@@ -181,12 +173,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     maxWidth: '100%',
     flexShrink: 1,
-  },
-  partnerName: {
-    flexShrink: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
   },
   iconBtn: {
     borderRadius: 999,

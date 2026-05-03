@@ -18,6 +18,7 @@ import {
   parseSpendVideoDateCreditExtensionPayload,
   remainingDatePhaseSeconds,
 } from '@clientShared/matching/videoDateExtensionSpend';
+import { remainingStartedAtCountdownSeconds } from '@clientShared/matching/videoDateCountdown';
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
   handshakeTruthLogPayload,
@@ -213,8 +214,14 @@ export function useVideoDateSession(
         })
       ) {
         if (row.handshake_started_at) {
-          const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
-          return { phase: 'handshake', timeLeft: Math.max(0, Math.ceil(HANDSHAKE_SECONDS - elapsed)) };
+          return {
+            phase: 'handshake',
+            timeLeft:
+              remainingStartedAtCountdownSeconds({
+                startedAtIso: row.handshake_started_at,
+                durationSeconds: HANDSHAKE_SECONDS,
+              }) ?? 0,
+          };
         }
         return { phase: 'handshake', timeLeft: null };
       }

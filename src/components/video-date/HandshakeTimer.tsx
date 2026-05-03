@@ -9,6 +9,7 @@ interface HandshakeTimerProps {
 export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerProps) => {
   const progress = Math.max(0, Math.min(1, timeLeft / totalTime));
   const isUrgent = timeLeft <= 10;
+  const shouldHeartbeat = phase === "handshake" && isUrgent;
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -49,7 +50,7 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
       }}
     >
       {/* Glow behind when urgent */}
-      {isUrgent && (
+      {shouldHeartbeat && (
         <motion.div
           className="absolute inset-0 rounded-full"
           animate={{ opacity: [0.3, 0.7, 0.3] }}
@@ -87,7 +88,7 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
           animate={{ strokeDashoffset: offset }}
           transition={{ duration: 0.5, ease: "easeOut" }}
           style={{
-            filter: isUrgent
+            filter: shouldHeartbeat
               ? "drop-shadow(0 0 6px hsl(330 81% 60% / 0.6))"
               : "none",
           }}
@@ -98,11 +99,11 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
         <motion.span
           className="text-[15px] font-display font-bold tabular-nums"
           animate={
-            isUrgent
+            shouldHeartbeat
               ? { color: ["hsl(330,81%,60%)", "hsl(0,84%,60%)", "hsl(330,81%,60%)"] }
               : {}
           }
-          transition={isUrgent ? { duration: 0.5, repeat: Infinity } : {}}
+          transition={shouldHeartbeat ? { duration: 0.5, repeat: Infinity } : {}}
           style={{ color: isUrgent ? undefined : "hsl(var(--foreground))" }}
         >
           {formatTime(timeLeft)}

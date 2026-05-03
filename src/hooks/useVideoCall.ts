@@ -205,6 +205,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [canFlipCamera, setCanFlipCamera] = useState(false);
+  const [isFlippingCamera, setIsFlippingCamera] = useState(false);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [networkTier, setNetworkTier] = useState<VideoCallNetworkTier>("good");
@@ -2103,6 +2105,54 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, [isVideoOff]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const refresh = async () => {
+      const co = callObjectRef.current;
+      if (!co || typeof co.cycleCamera !== "function") {
+        if (!cancelled) setCanFlipCamera(false);
+        return;
+      }
+
+      try {
+        const devices = await navigator.mediaDevices?.enumerateDevices?.();
+        const videoInputCount = devices?.filter((device) => device.kind === "videoinput").length ?? 0;
+        if (!cancelled) setCanFlipCamera(videoInputCount > 1);
+      } catch {
+        if (!cancelled) setCanFlipCamera(true);
+      }
+    };
+
+    void refresh();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isConnected, localStream]);
+
+  const flipCamera = useCallback(async () => {
+    const co = callObjectRef.current;
+    if (!co || typeof co.cycleCamera !== "function" || isFlippingCamera) return;
+
+    setIsFlippingCamera(true);
+    try {
+      await co.cycleCamera({ preferDifferentFacingMode: true });
+    } catch (error) {
+      setCanFlipCamera(false);
+      trackEvent("video_date_flip_camera_failed", {
+        platform: "web",
+        session_id: activeCallSessionIdRef.current,
+        event_id: optionsRef.current?.eventId ?? null,
+        source_surface: "video_date_call",
+        source_action: "flip_camera_failed",
+        reason_code: error instanceof Error ? error.name : "unknown",
+      });
+    } finally {
+      setIsFlippingCamera(false);
+    }
+  }, [isFlippingCamera]);
+
+  useEffect(() => {
     return () => {
       void cleanupCallObject("useVideoCall.unmount", "component_unmount");
     };
@@ -2127,6 +2177,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     localVideoRef,
     remoteVideoRef,
     localStream,
+    canFlipCamera,
+    isFlippingCamera,
     startCall,
     endCall,
     retryRemotePlayback,
@@ -2134,6 +2186,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     clearMediaPermissionError,
     toggleMute,
     toggleVideo,
+    flipCamera,
     getRoomName,
   };
 };

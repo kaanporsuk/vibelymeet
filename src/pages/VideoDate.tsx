@@ -50,6 +50,7 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
+import { remainingStartedAtCountdownSeconds } from "@clientShared/matching/videoDateCountdown";
 import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -636,10 +637,13 @@ const VideoDate = () => {
     localVideoRef,
     remoteVideoRef,
     localStream,
+    canFlipCamera,
+    isFlippingCamera,
     startCall,
     endCall,
     toggleMute,
     toggleVideo,
+    flipCamera,
     getRoomName,
     networkTier,
     remotePlayback,
@@ -1394,8 +1398,12 @@ const VideoDate = () => {
         vdbg("date_timing_existing_handshake", { sessionId: id, row: data });
         setHandshakeStartedAt(data.handshake_started_at);
         setDateStartedAt(null);
-        const elapsed = (now - new Date(data.handshake_started_at).getTime()) / 1000;
-        const handshakeRemaining = Math.max(0, Math.ceil(HANDSHAKE_TIME - elapsed));
+        const handshakeRemaining =
+          remainingStartedAtCountdownSeconds({
+            startedAtIso: data.handshake_started_at,
+            durationSeconds: HANDSHAKE_TIME,
+            nowMs: now,
+          }) ?? 0;
         setTimeLeft(handshakeRemaining);
         clearHandshakeGraceState();
         if (handshakeRemaining <= 0) {
@@ -1708,8 +1716,11 @@ const VideoDate = () => {
           if (row.handshake_started_at) {
             setHandshakeStartedAt(row.handshake_started_at);
             setDateStartedAt(null);
-            const elapsed = (Date.now() - new Date(row.handshake_started_at).getTime()) / 1000;
-            const handshakeRemaining = Math.ceil(Math.max(0, HANDSHAKE_TIME - elapsed));
+            const handshakeRemaining =
+              remainingStartedAtCountdownSeconds({
+                startedAtIso: row.handshake_started_at,
+                durationSeconds: HANDSHAKE_TIME,
+              }) ?? 0;
             setTimeLeft(handshakeRemaining);
             clearHandshakeGraceState();
             if (handshakeRemaining <= 0) {
@@ -1780,17 +1791,32 @@ const VideoDate = () => {
           return next;
         }
 
-        if (prev === null || prev <= 1) {
-          if (phaseRef.current === "handshake") {
+        if (phaseRef.current === "handshake") {
+          const next =
+            handshakeStartedAt != null
+              ? (remainingStartedAtCountdownSeconds({
+                  startedAtIso: handshakeStartedAt,
+                  durationSeconds: HANDSHAKE_TIME,
+                }) ?? 0)
+              : prev === null
+                ? 0
+                : Math.max(0, prev - 1);
+
+          if (next <= 0) {
             vdbg("handshake_visible_countdown_elapsed", {
               sessionId: id ?? null,
               trigger: "complete_handshake",
             });
             void checkMutualVibeRef.current?.("handshake_visible_countdown_elapsed");
-          } else {
-            toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-            void handleCallEndRef.current?.();
+            return 0;
           }
+
+          return next;
+        }
+
+        if (prev === null || prev <= 1) {
+          toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+          void handleCallEndRef.current?.();
           return 0;
         }
         return prev - 1;
@@ -1808,6 +1834,7 @@ const VideoDate = () => {
     reconnection.isTimerPaused,
     dateStartedAt,
     dateExtraSeconds,
+    handshakeStartedAt,
   ]);
 
   const dismissIceBreakerTemporarily = useCallback(() => {
@@ -2940,6 +2967,7 @@ const VideoDate = () => {
   const handshakeTimerTotal = totalTime;
   const handshakeTimerStarted =
     phase !== "handshake" || Boolean(handshakeStartedAt);
+  const partnerFirstName = partner.name.trim().split(/\s+/)[0] || partner.name;
   const isUrgent = phase === "date" && (timeLeft ?? 999) <= 10;
   const transportReconnectVisible =
     dailyReconnectState === "interrupted" ||
@@ -3187,7 +3215,8 @@ const VideoDate = () => {
         <motion.button
           whileTap={{ scale: 0.95 }}
           onClick={() => isConnected && setShowProfileSheet(true)}
-          className="flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/40 px-2.5 py-2 text-left shadow-[0_14px_42px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-colors hover:bg-black/50"
+          aria-label={`View ${partner.name}'s profile`}
+          className="flex min-w-0 max-w-[9.75rem] items-center gap-2 rounded-full border border-white/[0.12] bg-black/[0.45] px-2.5 py-2 text-left shadow-[0_16px_46px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl transition-colors hover:bg-black/[0.55] sm:max-w-[15rem]"
         >
           {partnerPhotoUrl ? (
             <img
@@ -3208,7 +3237,7 @@ const VideoDate = () => {
           )}
           <div className="min-w-0 text-left">
             <p className="truncate text-[15px] font-display font-semibold text-foreground leading-tight">
-              {partner.name}
+              {partnerFirstName}
               {partner.age > 0 && (
                 <span className="font-normal text-foreground/60 ml-1">
                   {partner.age}
@@ -3245,7 +3274,7 @@ const VideoDate = () => {
             <motion.div
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="hidden px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl sm:block"
+              className="px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
             >
               <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
                 {handshakeTimerStarted ? "Warm up" : "Settling in"}
@@ -3357,6 +3386,9 @@ const VideoDate = () => {
           blurAmount={blurAmount}
           sessionId={id}
           eventId={eventId ?? null}
+          canFlipCamera={canFlipCamera}
+          isFlippingCamera={isFlippingCamera}
+          onFlipCamera={flipCamera}
         />
       )}
 
