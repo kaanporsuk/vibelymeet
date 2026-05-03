@@ -19,24 +19,15 @@ type Props = {
   disabled?: boolean;
 };
 
-function formatWarmHint(
-  isFinalTenSeconds: boolean,
-  hasDecided: boolean
-): string | null {
-  if (hasDecided) return null;
-  if (isFinalTenSeconds) return 'Choose from the feeling, not the clock';
-  return null;
-}
-
 export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
   const [submitting, setSubmitting] = React.useState<'vibe' | 'pass' | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const submittingRef = useRef(false);
   const isFinalTenSeconds = timeLeft <= 10;
   const hasDecided = decision === true || decision === false;
   const pulseAnim = useRef(new Animated.Value(0)).current;
-  const lastChanceFlash = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!isFinalTenSeconds || hasDecided) return;
@@ -50,28 +41,11 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
     return () => loop.stop();
   }, [isFinalTenSeconds, hasDecided, pulseAnim]);
 
-  useEffect(() => {
-    if (!isFinalTenSeconds || hasDecided) {
-      lastChanceFlash.setValue(1);
-      return;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(lastChanceFlash, { toValue: 0.35, duration: 320, useNativeDriver: true }),
-        Animated.timing(lastChanceFlash, { toValue: 1, duration: 320, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      lastChanceFlash.setValue(1);
-    };
-  }, [isFinalTenSeconds, hasDecided, lastChanceFlash]);
-
   const handlePress = async (action: 'vibe' | 'pass') => {
     if (hasDecided || disabled || submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(action);
+    setError(null);
     try {
       try {
         Vibration.vibrate(30);
@@ -79,40 +53,33 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         /* ignore */
       }
       const result = await Promise.resolve(action === 'vibe' ? onVibe() : onPass());
-      if (result === false) return;
+      if (result === false) setError('Couldn’t save. Try again.');
+    } catch {
+      setError('Couldn’t save. Try again.');
     } finally {
       submittingRef.current = false;
       setSubmitting(null);
     }
   };
 
-  const hint = formatWarmHint(isFinalTenSeconds, hasDecided);
   const vibeScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
-  const lastChanceLabelOpacity = isFinalTenSeconds && !hasDecided ? lastChanceFlash : 1;
 
   if (hasDecided) {
     return (
       <View style={styles.stripWrap}>
         <View style={[styles.lockedRow, { borderColor: theme.tint, backgroundColor: 'rgba(8,8,12,0.72)' }]}>
           <Ionicons name={decision ? 'heart' : 'close-circle'} size={18} color={theme.tint} />
-          <Text style={[styles.lockedLabel, { color: theme.tint }]}>{decision ? 'Vibed' : 'Passed'}</Text>
+          <Text style={[styles.lockedLabel, { color: theme.tint }]}>{decision ? 'Vibe saved' : 'Pass saved'}</Text>
         </View>
-        <Text style={[styles.waitingLine, { color: theme.mutedForeground }]}>Waiting softly for your match…</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.stripWrap}>
-      {isFinalTenSeconds && !hasDecided ? (
-        <Animated.Text
-          style={[styles.lastChanceTag, { color: theme.neonPink, opacity: lastChanceLabelOpacity }]}
-        >
-          Soft nudge
-        </Animated.Text>
-      ) : null}
+      <Text style={[styles.helper, { color: 'rgba(255,255,255,0.74)' }]}>Choose when it feels right</Text>
 
-      <View style={[styles.row, { backgroundColor: 'rgba(0,0,0,0.34)', borderColor: theme.glassBorder }]}>
+      <View style={[styles.row, { backgroundColor: 'rgba(10,10,16,0.62)', borderColor: theme.glassBorder }]}>
         <Pressable
           onPress={() => void handlePress('pass')}
           disabled={disabled || submitting !== null}
@@ -137,7 +104,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
           )}
         </Pressable>
 
-        <Animated.View style={isFinalTenSeconds ? { transform: [{ scale: vibeScale }] } : undefined}>
+        <Animated.View style={[styles.vibeScaleWrap, isFinalTenSeconds ? { transform: [{ scale: vibeScale }] } : null]}>
           <Pressable
             onPress={() => void handlePress('vibe')}
             disabled={disabled || submitting !== null}
@@ -164,8 +131,8 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         </Animated.View>
       </View>
 
-      {hint ? (
-        <Text style={[styles.hint, { color: isFinalTenSeconds ? theme.neonPink : theme.mutedForeground }]}>{hint}</Text>
+      {error ? (
+        <Text style={[styles.errorText, { color: theme.neonPink }]}>{error}</Text>
       ) : null}
     </View>
   );
@@ -174,21 +141,10 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
 const styles = StyleSheet.create({
   stripWrap: {
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: 8,
     width: '100%',
-    maxWidth: 370,
+    maxWidth: 340,
     alignSelf: 'center',
-  },
-  lastChanceTag: {
-    fontSize: 11,
-    letterSpacing: 2,
-    fontFamily: fonts.bodyBold,
-    textTransform: 'uppercase',
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(236,72,153,0.12)',
-    overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',
@@ -198,21 +154,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderRadius: radius.pill,
-    padding: 6,
+    padding: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.34,
-    shadowRadius: 28,
+    shadowOpacity: 0.38,
+    shadowRadius: 30,
     elevation: 7,
   },
   passShell: {
     flex: 1,
-    maxWidth: 148,
+    maxWidth: 145,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minHeight: 50,
+    minHeight: 52,
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
@@ -220,14 +176,17 @@ const styles = StyleSheet.create({
   },
   vibeShell: {
     flex: 1,
-    maxWidth: 168,
     borderRadius: radius.pill,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
+  vibeScaleWrap: {
+    flex: 1.12,
+    maxWidth: 155,
+  },
   vibeGradient: {
-    minHeight: 50,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -261,17 +220,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: fonts.bodySemiBold,
   },
-  waitingLine: {
-    fontSize: 11,
-    fontFamily: fonts.body,
+  helper: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontFamily: fonts.bodySemiBold,
     textAlign: 'center',
   },
-  hint: {
+  errorText: {
     fontSize: 11,
     lineHeight: 14,
-    fontFamily: fonts.body,
+    fontFamily: fonts.bodySemiBold,
     textAlign: 'center',
-    marginTop: 2,
   },
   pressed: {
     opacity: 0.72,

@@ -1548,10 +1548,11 @@ test("web and native ice breakers render as floating session chrome", () => {
   assert.match(webVideoDatePage, /dismissIceBreakerTemporarily/);
   assert.match(webVideoDatePage, /phase === "handshake" \|\| phase === "date"/);
   assert.match(webVideoDatePage, /remotePlayback\.participantPresent/);
-  assert.match(webVideoDatePage, /bottom-\[14\.75rem\][\s\S]*sm:top-32[\s\S]*IceBreakerCard/);
+  assert.match(webVideoDatePage, /data-video-date-stage/);
+  assert.match(webVideoDatePage, /bottom-\[14rem\][\s\S]*IceBreakerCard/);
   assert.match(webVideoDatePage, /showCollapsedIceBreaker/);
   assert.match(webVideoDatePage, /Show ice-breaker question/);
-  assert.match(webVideoDatePage, /bottom-\[6\.75rem\][\s\S]*sm:top-32/);
+  assert.match(webVideoDatePage, /bottom-\[6\.75rem\]/);
   assert.doesNotMatch(webVideoDatePage, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
   assert.match(nativeVideoDateRoute, /showFloatingIceBreaker/);
   assert.match(nativeVideoDateRoute, /showCollapsedIceBreaker/);
@@ -1956,16 +1957,23 @@ test("handshake deadline cleanup polish removes accidental identifier truncation
 test("web and native countdown-zero paths complete handshake and last-10s urgency is bounded to handshake", () => {
   assert.match(webVideoDatePage, /handshake_visible_countdown_elapsed[\s\S]{0,220}trigger: "complete_handshake"/);
   assert.match(webVideoDatePage, /checkMutualVibeRef\.current\?\.\("handshake_visible_countdown_elapsed"\)/);
+  assert.match(webVideoDatePage, /countdownCompletionKeyRef/);
   assert.doesNotMatch(webVideoDatePage, /handshake_grace_expiry/);
   assert.match(nativeVideoDateRoute, /handshake_visible_countdown_elapsed[\s\S]{0,220}trigger: 'complete_handshake'/);
   assert.match(nativeVideoDateRoute, /completeHandshakeFromServerDeadline\('handshake_visible_countdown_elapsed'\)/);
+  assert.match(nativeVideoDateRoute, /countdownCompletionKeyRef/);
   assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
   assert.match(webVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
-  assert.match(webVibeCheckButton, /Soft nudge/);
+  assert.match(webVibeCheckButton, /Choose when it feels right/);
+  assert.doesNotMatch(webVibeCheckButton, /Soft nudge/);
+  assert.doesNotMatch(webVibeCheckButton, /Choose from the feeling/);
   assert.match(webHandshakeTimer, /const isUrgent = timeLeft <= 10/);
   assert.match(nativeVideoDateRoute, /phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
-  assert.match(nativeVibeCheckButton, /Soft nudge/);
+  assert.match(nativeVibeCheckButton, /Choose when it feels right/);
+  assert.doesNotMatch(nativeVibeCheckButton, /Soft nudge/);
+  assert.doesNotMatch(nativeVibeCheckButton, /Choose from the feeling/);
+  assert.doesNotMatch(nativeVideoDateRoute, /addTimeFab/);
 });
 
 test("partial join terminal reason is excluded from post-date survey contracts", () => {

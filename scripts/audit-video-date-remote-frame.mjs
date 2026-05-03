@@ -60,6 +60,12 @@ assert(
   `${webDatePath}: remote date container must stay exactly "flex-1 relative bg-black"`
 );
 assert(
+  webDate.includes("data-video-date-stage") &&
+    webDate.includes("md:w-[min(calc(100vw_-_2rem),500px)]") &&
+    webDate.includes("md:h-[min(calc(100dvh_-_2rem),920px)]"),
+  `${webDatePath}: desktop Video Date must render inside the centered date stage contract`
+);
+assert(
   webRemoteVideoClass === "w-full h-full object-contain object-center",
   `${webDatePath}: remote date video must stay exactly "w-full h-full object-contain object-center"`
 );
