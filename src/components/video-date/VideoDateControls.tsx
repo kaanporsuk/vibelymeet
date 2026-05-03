@@ -34,13 +34,15 @@ export const VideoDateControls = ({
 }: VideoDateControlsProps) => {
   const controlBtn =
     "h-14 w-14 rounded-full transition-all duration-200";
+  const quietBtn =
+    "bg-white/[0.07] border border-white/10 hover:bg-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]";
 
   return (
     <motion.div
       initial={{ y: 60, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.4, type: "spring", stiffness: 220, damping: 22 }}
-      className="glass-card px-5 py-3.5 flex items-center justify-between gap-2"
+      className="mx-auto flex w-full max-w-[560px] items-center justify-between gap-2 rounded-[2rem] border border-white/10 bg-black/40 px-4 py-3.5 shadow-[0_22px_70px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl"
     >
       {/* Left: Profile */}
       <motion.div whileTap={{ scale: 0.9 }}>
@@ -48,7 +50,7 @@ export const VideoDateControls = ({
           variant="secondary"
           size="icon"
           aria-label="View profile"
-          className={`${controlBtn} bg-secondary/60 border border-border/50 hover:bg-secondary`}
+          className={`${controlBtn} ${quietBtn}`}
           onClick={onViewProfile}
         >
           <User className="w-5 h-5 text-foreground" />
@@ -64,7 +66,7 @@ export const VideoDateControls = ({
             aria-label={isMuted ? "Unmute microphone" : "Mute microphone"}
             className={`${controlBtn} ${
               !isMuted
-                ? "bg-secondary/60 border border-border/50 hover:bg-secondary"
+                ? quietBtn
                 : ""
             }`}
             onClick={onToggleMute}
@@ -99,9 +101,7 @@ export const VideoDateControls = ({
             size="icon"
             aria-label={isVideoOff ? "Turn camera on" : "Turn camera off"}
             className={`${controlBtn} ${
-              !isVideoOff
-                ? "bg-secondary/60 border border-border/50 hover:bg-secondary"
-                : ""
+              !isVideoOff ? quietBtn : ""
             }`}
             onClick={onToggleVideo}
           >
@@ -121,7 +121,7 @@ export const VideoDateControls = ({
             type="button"
             variant="secondary"
             size="icon"
-            className={`${controlBtn} bg-secondary/60 border border-border/50 hover:bg-secondary`}
+            className={`${controlBtn} ${quietBtn}`}
             onClick={onSafety}
             aria-label="Safety and report"
           >

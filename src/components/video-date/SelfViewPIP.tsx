@@ -89,10 +89,10 @@ export const SelfViewPIP = ({
       dragElastic={0.05}
       dragMomentum={false}
       whileDrag={{ scale: 1.05 }}
-      className="absolute top-16 right-3 w-[100px] h-[140px] rounded-2xl overflow-hidden z-40 cursor-grab active:cursor-grabbing"
+      className="absolute right-4 top-[6.75rem] w-[112px] h-[154px] sm:w-[124px] sm:h-[170px] rounded-[1.35rem] overflow-hidden z-40 cursor-grab active:cursor-grabbing bg-black"
       style={{
         boxShadow:
-          "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1.5px hsl(var(--primary) / 0.4)",
+          "0 20px 54px rgba(0,0,0,0.5), 0 0 0 1.5px hsl(var(--primary) / 0.48), inset 0 1px 0 rgba(255,255,255,0.12)",
       }}
     >
       {isVideoOff ? (
@@ -132,16 +132,16 @@ export const SelfViewPIP = ({
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          className="absolute top-1.5 left-1.5 w-6 h-6 rounded-full bg-destructive/90 flex items-center justify-center"
+          className="absolute top-2 left-2 w-8 h-8 rounded-full bg-destructive/95 flex items-center justify-center shadow-[0_8px_20px_hsl(var(--destructive)/0.32)]"
         >
-          <MicOff className="w-3 h-3 text-destructive-foreground" />
+          <MicOff className="w-4 h-4 text-destructive-foreground" />
         </motion.div>
       )}
 
       {/* Speaking indicator ring */}
       {!isMuted && (
         <motion.div
-          className="absolute inset-0 rounded-2xl pointer-events-none"
+          className="absolute inset-0 rounded-[1.35rem] pointer-events-none"
           animate={{
             boxShadow: [
               "inset 0 0 0px hsl(var(--neon-cyan) / 0)",
@@ -154,8 +154,8 @@ export const SelfViewPIP = ({
       )}
 
       {/* Drag handle */}
-      <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2">
-        <div className="w-6 h-0.5 bg-foreground/30 rounded-full" />
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2">
+        <div className="w-8 h-1 bg-white/30 rounded-full shadow-[0_1px_4px_rgba(0,0,0,0.45)]" />
       </div>
     </motion.div>
   );

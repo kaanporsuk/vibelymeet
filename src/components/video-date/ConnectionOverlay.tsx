@@ -32,9 +32,9 @@ export const ConnectionOverlay = ({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-md z-50"
+      className="absolute inset-0 flex items-center justify-center bg-background/90 backdrop-blur-2xl z-50"
     >
-      <div className="text-center space-y-6 px-8 max-w-xs">
+      <div className="max-w-sm space-y-6 rounded-[2rem] border border-white/10 bg-black/40 px-7 py-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.08)]">
         {/* Animated rings */}
         <div className="relative w-24 h-24 mx-auto">
           <motion.div
@@ -53,7 +53,7 @@ export const ConnectionOverlay = ({
             }}
           />
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full bg-primary/20 border border-primary/25 flex items-center justify-center shadow-[0_0_32px_hsl(var(--primary)/0.24)]">
               {isConnecting ? (
                 <Loader2 className="w-7 h-7 animate-spin text-primary" />
               ) : playbackRejected ? (
@@ -75,7 +75,7 @@ export const ConnectionOverlay = ({
                   ? "Opening the room..."
                   : "Holding the room for them..."}
           </h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm leading-6 text-muted-foreground">
             {peerMissingTerminal
               ? "You can try reconnecting, keep waiting a little longer, or return to the lobby."
               : playbackRejected

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { RefreshCw, X } from "lucide-react";
+import { RefreshCw, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -160,11 +160,15 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
 
   return (
     <div
-      className="w-full min-h-[60px] flex items-center gap-2.5 rounded-2xl bg-background/70 px-3 py-2.5 backdrop-blur-md border border-border/40 overflow-hidden"
-      style={{ boxShadow: "0 4px 20px hsl(var(--background) / 0.4)" }}
+      className="relative w-full min-h-[68px] flex items-center gap-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/40 px-3.5 py-3 backdrop-blur-2xl"
+      style={{ boxShadow: "0 20px 60px rgb(0 0 0 / 0.34), inset 0 1px 0 rgb(255 255 255 / 0.08)" }}
       role="group"
       aria-label="Ice-breaker question"
     >
+      <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-gradient-to-b from-primary via-accent to-neon-cyan" aria-hidden />
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-primary/20 bg-primary/10">
+        <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+      </div>
       <AnimatePresence mode="wait">
         <motion.p
           key={currentPrompt}
@@ -172,7 +176,7 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.15 }}
-          className="min-w-0 flex-1 text-[14px] sm:text-[15px] font-semibold text-foreground leading-5 text-left line-clamp-2"
+          className="min-w-0 flex-1 text-[15px] sm:text-[16px] font-semibold text-white leading-5 text-left line-clamp-2"
         >
           {currentPrompt}
         </motion.p>
@@ -182,7 +186,7 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
         type="button"
         onClick={advancePrompt}
         whileTap={{ scale: 0.9 }}
-        className="shrink-0 h-10 w-10 rounded-full bg-secondary/70 flex items-center justify-center transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="shrink-0 h-11 w-11 rounded-full bg-white/[0.08] flex items-center justify-center transition-colors hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-label="Show another ice-breaker question"
         title="Another question"
       >
@@ -191,7 +195,7 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
           transition={{ duration: 0.25 }}
           className="flex items-center justify-center"
         >
-          <RefreshCw className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <RefreshCw className="h-4 w-4 text-white/60" aria-hidden />
         </motion.span>
       </motion.button>
 
@@ -199,11 +203,11 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 h-10 w-10 rounded-full bg-secondary/40 flex items-center justify-center transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="shrink-0 h-11 w-11 rounded-full bg-white/[0.06] flex items-center justify-center transition-colors hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           aria-label="Hide ice-breaker question for 30 seconds"
           title="Hide"
         >
-          <X className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <X className="h-4 w-4 text-white/60" aria-hidden />
         </button>
       ) : null}
     </div>

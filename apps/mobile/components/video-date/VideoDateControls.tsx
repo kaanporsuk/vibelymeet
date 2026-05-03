@@ -48,7 +48,13 @@ export function VideoDateControls({
       accessibilityRole="button"
       accessibilityLabel={partnerName ? `View ${partnerName}'s profile` : 'View profile'}
     >
-      <View style={[styles.iconBtn, { width: BTN, height: BTN, backgroundColor: theme.muted }]}>
+      <View
+        style={[
+          styles.iconBtn,
+          styles.quietBtn,
+          { width: BTN, height: BTN, backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
+        ]}
+      >
         <Ionicons name="person" size={22} color={iconOn} />
       </View>
       {partnerName ? (
@@ -60,7 +66,7 @@ export function VideoDateControls({
   );
 
   return (
-    <View style={[styles.bar, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+    <View style={[styles.bar, { backgroundColor: 'rgba(0,0,0,0.46)', borderColor: theme.glassBorder }]}>
       <View style={[styles.sideSlot, styles.sideLeft]}>{profileBlock}</View>
 
       <View style={styles.centerRail}>
@@ -68,7 +74,13 @@ export function VideoDateControls({
           onPress={onToggleMute}
           style={({ pressed }) => [
             styles.iconBtn,
-            { width: BTN, height: BTN, backgroundColor: isMuted ? theme.dangerSoft : theme.muted },
+            styles.quietBtn,
+            {
+              width: BTN,
+              height: BTN,
+              backgroundColor: isMuted ? theme.dangerSoft : 'rgba(255,255,255,0.07)',
+              borderColor: theme.glassBorder,
+            },
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
@@ -92,7 +104,13 @@ export function VideoDateControls({
           onPress={onToggleVideo}
           style={({ pressed }) => [
             styles.iconBtn,
-            { width: BTN, height: BTN, backgroundColor: isVideoOff ? theme.dangerSoft : theme.muted },
+            styles.quietBtn,
+            {
+              width: BTN,
+              height: BTN,
+              backgroundColor: isVideoOff ? theme.dangerSoft : 'rgba(255,255,255,0.07)',
+              borderColor: theme.glassBorder,
+            },
             pressed && styles.pressed,
           ]}
           accessibilityRole="button"
@@ -108,7 +126,8 @@ export function VideoDateControls({
             onPress={onSafety}
             style={({ pressed }) => [
               styles.iconBtn,
-              { width: BTN, height: BTN, backgroundColor: theme.muted },
+              styles.quietBtn,
+              { width: BTN, height: BTN, backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
               pressed && styles.pressed,
             ]}
             accessibilityRole="button"
@@ -129,10 +148,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
-    borderTopWidth: 1,
+    borderWidth: 1,
+    borderRadius: 32,
     minHeight: BTN + spacing.md * 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.38,
+    shadowRadius: 30,
+    elevation: 9,
   },
   sideSlot: {
     flex: 1,
@@ -165,6 +192,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  quietBtn: {
+    borderWidth: 1,
   },
   leaveBtn: {
     width: LEAVE,
