@@ -152,6 +152,10 @@ import {
   normalizeVideoDateIceBreakerQuestions,
   resolveVideoDateIceBreakerIndex,
 } from '@clientShared/matching/videoDateIceBreakers';
+import {
+  getVideoDateWarmupChoiceNotice,
+  type VideoDateWarmupChoiceNotice,
+} from '@clientShared/matching/videoDateWarmupChoiceNotice';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -213,6 +217,46 @@ type PrejoinAttemptState = {
   enterHandshakeCompletedAfterCancellation: boolean;
   completed: boolean;
 };
+
+type DateTheme = (typeof Colors)[keyof typeof Colors];
+
+function WarmupChoiceNoticeBanner({
+  notice,
+  theme,
+  top,
+}: {
+  notice: VideoDateWarmupChoiceNotice;
+  theme: DateTheme;
+  top: number;
+}) {
+  return (
+    <View
+      pointerEvents="none"
+      accessibilityLiveRegion="polite"
+      style={[
+        styles.warmupChoiceNotice,
+        {
+          top,
+          borderColor: 'rgba(139,92,246,0.32)',
+          backgroundColor: 'rgba(20,20,24,0.93)',
+        },
+      ]}
+    >
+      <View style={[styles.warmupChoiceNoticeRail, { backgroundColor: theme.tint }]} />
+      <View style={styles.warmupChoiceNoticeIcon}>
+        <Ionicons name="time-outline" size={18} color={theme.neonCyan} />
+      </View>
+      <View style={styles.warmupChoiceNoticeCopy}>
+        <Text style={[styles.warmupChoiceNoticeTitle, { color: theme.text }]} numberOfLines={2}>
+          {notice.title}
+        </Text>
+        <Text style={[styles.warmupChoiceNoticeMessage, { color: theme.mutedForeground }]}>
+          {notice.message}
+        </Text>
+      </View>
+    </View>
+  );
+}
 
 /** Post-join UX / instrumentation — single stage truth for Daily + peer presence (not server phase). */
 export type VideoDatePostJoinStage =
@@ -623,11 +667,13 @@ export default function VideoDateScreen() {
   const firstPlayableRemoteTimedRef = useRef(false);
   const abortConnectionInFlightRef = useRef(false);
   const iceBreakerReappearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warmupChoiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
   const firstPlayableRemoteAtMsRef = useRef(0);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
+  const [warmupChoiceNotice, setWarmupChoiceNotice] = useState<VideoDateWarmupChoiceNotice | null>(null);
   const [localParticipant, setLocalParticipant] = useState<DailyParticipant | null>(null);
   const [remoteParticipant, setRemoteParticipant] = useState<DailyParticipant | null>(null);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -654,6 +700,35 @@ export default function VideoDateScreen() {
       });
     };
   }, []);
+
+  const showWarmupChoiceNotice = useCallback((notice: VideoDateWarmupChoiceNotice) => {
+    if (warmupChoiceNoticeTimerRef.current) {
+      clearTimeout(warmupChoiceNoticeTimerRef.current);
+      warmupChoiceNoticeTimerRef.current = null;
+    }
+    setWarmupChoiceNotice(notice);
+    warmupChoiceNoticeTimerRef.current = setTimeout(() => {
+      warmupChoiceNoticeTimerRef.current = null;
+      setWarmupChoiceNotice(null);
+    }, 5200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (warmupChoiceNoticeTimerRef.current) {
+        clearTimeout(warmupChoiceNoticeTimerRef.current);
+        warmupChoiceNoticeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (warmupChoiceNoticeTimerRef.current) {
+      clearTimeout(warmupChoiceNoticeTimerRef.current);
+      warmupChoiceNoticeTimerRef.current = null;
+    }
+    setWarmupChoiceNotice(null);
+  }, [sessionId]);
 
   const logJourney = useCallback(
     (event: VideoDateJourneyEvent, payload?: Record<string, unknown>, dedupeKey?: string) => {
@@ -5106,23 +5181,22 @@ export default function VideoDateScreen() {
         if (result.state === 'ended' || result.already_ended) {
           clearHandshakeGraceState();
           if (result.reason === 'handshake_timeout') {
-            const message = result.waiting_for_self
-              ? "Your warm-up choice wasn't saved in time."
-              : result.waiting_for_partner
-                ? "Their warm-up choice wasn't saved in time."
-                : 'The warm-up ended before both choices were saved.';
-            setCallError(message);
+            const notice = getVideoDateWarmupChoiceNotice({
+              waitingForSelf: result.waiting_for_self,
+              waitingForPartner: result.waiting_for_partner,
+            });
+            showWarmupChoiceNotice(notice);
             vdbg('complete_handshake_timeout_copy', {
               sessionId,
               source,
-              message,
+              notice,
               waiting_for_self: result.waiting_for_self ?? null,
               waiting_for_partner: result.waiting_for_partner ?? null,
               local_decision_persisted: result.local_decision_persisted ?? null,
               partner_decision_persisted: result.partner_decision_persisted ?? null,
             });
           } else if (result.reason === 'handshake_grace_expired') {
-            setCallError('The warm-up ended before both choices were saved.');
+            showWarmupChoiceNotice(getVideoDateWarmupChoiceNotice());
           }
           const recoveredSurvey = await openNativePostDateSurveyFromTerminalTruth(
             result.survey_required === true
@@ -5155,6 +5229,7 @@ export default function VideoDateScreen() {
       openNativePostDateSurveyFromTerminalTruth,
       refetchVideoSession,
       sessionId,
+      showWarmupChoiceNotice,
     ]
   );
 
@@ -5595,19 +5670,28 @@ export default function VideoDateScreen() {
 
   if (showFeedback && sessionId && user?.id) {
     return (
-      <PostDateSurvey
-        sessionId={sessionId}
-        userId={user.id}
-        partnerId={surveyPartnerId}
-        partnerName={fullPartner?.name ?? basicPartner?.name ?? 'Your date'}
-        partnerImage={fullPartner?.avatarUrl ?? fullPartner?.photos?.[0] ?? null}
-        eventId={surveyEventId}
-        onSubmitVerdict={handleSurveySubmit}
-        onMutualMatch={handleSurveyMutualMatch}
-        onStartChatting={handleSurveyStartChatting}
-        onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
-        onDone={handleSurveyDone}
-      />
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <PostDateSurvey
+          sessionId={sessionId}
+          userId={user.id}
+          partnerId={surveyPartnerId}
+          partnerName={fullPartner?.name ?? basicPartner?.name ?? 'Your date'}
+          partnerImage={fullPartner?.avatarUrl ?? fullPartner?.photos?.[0] ?? null}
+          eventId={surveyEventId}
+          onSubmitVerdict={handleSurveySubmit}
+          onMutualMatch={handleSurveyMutualMatch}
+          onStartChatting={handleSurveyStartChatting}
+          onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
+          onDone={handleSurveyDone}
+        />
+        {warmupChoiceNotice ? (
+          <WarmupChoiceNoticeBanner
+            notice={warmupChoiceNotice}
+            theme={theme}
+            top={insets.top + 12}
+          />
+        ) : null}
+      </View>
     );
   }
 
@@ -5942,6 +6026,14 @@ export default function VideoDateScreen() {
         </Animated.View>
       )}
 
+      {warmupChoiceNotice ? (
+        <WarmupChoiceNoticeBanner
+          notice={warmupChoiceNotice}
+          theme={theme}
+          top={insets.top + 64}
+        />
+      ) : null}
+
       {callError ? (
         <View style={[styles.errorBar, { backgroundColor: theme.danger }]}>
           <Text style={styles.errorBarText}>{callError}</Text>
@@ -6048,6 +6140,46 @@ const styles = StyleSheet.create({
   error: { fontSize: 16, textAlign: 'center', marginBottom: 16 },
   errorBar: { position: 'absolute', top: 100, left: 16, right: 16, padding: 12, borderRadius: 8 },
   errorBarText: { color: '#fff', textAlign: 'center' },
+  warmupChoiceNotice: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    zIndex: 90,
+    elevation: 20,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingLeft: 17,
+    paddingRight: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    overflow: 'hidden',
+    shadowColor: 'hsl(263, 70%, 66%)',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+  },
+  warmupChoiceNoticeRail: {
+    position: 'absolute',
+    left: 0,
+    top: 12,
+    bottom: 12,
+    width: 4,
+    borderRadius: 999,
+  },
+  warmupChoiceNoticeIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.24)',
+    backgroundColor: 'rgba(139,92,246,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  warmupChoiceNoticeCopy: { flex: 1, marginLeft: 12 },
+  warmupChoiceNoticeTitle: { fontSize: 14, lineHeight: 18, fontWeight: '700' },
+  warmupChoiceNoticeMessage: { marginTop: 3, fontSize: 12, lineHeight: 17 },
   extendBanner: {
     position: 'absolute',
     top: 156,
