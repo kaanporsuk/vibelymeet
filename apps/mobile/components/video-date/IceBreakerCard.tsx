@@ -13,14 +13,12 @@ type Props = {
   question: string;
   onDismiss?: () => void;
   onShuffle?: () => void;
-  helperText?: string;
 };
 
 export function IceBreakerCard({
   question,
   onDismiss,
   onShuffle,
-  helperText = 'Choose when it feels right',
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
@@ -39,11 +37,6 @@ export function IceBreakerCard({
         <Text style={[styles.question, { color: theme.text }]} numberOfLines={2}>
           {question}
         </Text>
-        {helperText ? (
-          <Text style={[styles.helper, { color: theme.mutedForeground }]} numberOfLines={1}>
-            {helperText}
-          </Text>
-        ) : null}
       </View>
       <View style={styles.actions}>
         {onShuffle ? (
@@ -125,12 +118,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 3,
-  },
-  helper: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '500',
-    opacity: 0.82,
   },
   actions: {
     flexDirection: 'row',

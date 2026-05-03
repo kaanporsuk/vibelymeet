@@ -1,6 +1,6 @@
 /**
  * Circular countdown timer for handshake/date phase.
- * Colors: cyan → violet → pink (handshake); green/violet → red (date).
+ * Colors: violet → soft pink urgency.
  * Pulses in the final 10 seconds of warm-up only.
  */
 
@@ -27,14 +27,9 @@ type Props = {
 function getTimerColor(phase: Phase, progress: number, isUrgent: boolean): string {
   if (phase === 'ended') return Colors.dark.mutedForeground;
   if (phase === 'handshake') {
-    if (isUrgent) return 'hsl(330, 81%, 60%)';
-    if (progress > 2 / 3) return 'hsl(187, 94%, 43%)';
-    if (progress > 1 / 3) return 'hsl(263, 70%, 66%)';
-    return 'hsl(330, 81%, 60%)';
+    return isUrgent ? 'hsl(330, 81%, 60%)' : 'hsl(263, 70%, 66%)';
   }
-  if (isUrgent) return 'hsl(0, 84%, 60%)';
-  if (progress > 0.5) return '#22c55e';
-  return 'hsl(263, 70%, 66%)';
+  return isUrgent ? 'hsl(330, 81%, 60%)' : 'hsl(263, 70%, 66%)';
 }
 
 function formatTime(seconds: number): string {
@@ -46,7 +41,7 @@ function formatTime(seconds: number): string {
 export function HandshakeTimer({ timeLeft, totalTime, phase }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const progress = totalTime > 0 ? timeLeft / totalTime : 0;
+  const progress = totalTime > 0 ? Math.max(0, Math.min(1, timeLeft / totalTime)) : 0;
   const isUrgent = timeLeft <= 10;
   const shouldHeartbeat = phase === 'handshake' && isUrgent;
   const color = getTimerColor(phase, progress, isUrgent);

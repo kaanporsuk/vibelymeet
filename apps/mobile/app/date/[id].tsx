@@ -17,7 +17,6 @@ import {
   Platform,
   Animated,
   Dimensions,
-  AccessibilityInfo,
   AppState,
   Alert,
   Easing,
@@ -65,7 +64,7 @@ import {
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
 import {
-  remainingStartedAtCountdownSeconds,
+  resolveVideoDatePhaseCountdown,
   startedAtCountdownDeadlineMs,
 } from '@clientShared/matching/videoDateCountdown';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
@@ -173,8 +172,8 @@ const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
 const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
 const DATE_CONTROLS_STACK_HEIGHT = 104;
 const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
-const HANDSHAKE_CTA_STACK_HEIGHT = 96;
-const FLOATING_CHROME_GAP = 12;
+const HANDSHAKE_CTA_STACK_HEIGHT = 92;
+const FLOATING_CHROME_GAP = 14;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -619,6 +618,7 @@ export default function VideoDateScreen() {
   const observedNativePrejoinPipelineKeyRef = useRef<string | null>(null);
   const phaseRef = useRef(phase);
   const localTimeLeftRef = useRef<number | null>(null);
+  const countdownCompletionKeyRef = useRef<string | null>(null);
   const timerDriftTrackingReadyRef = useRef(false);
   const lastTimerDriftRecoveryKeyRef = useRef<string | null>(null);
   const latestDateRouteSessionIdRef = useRef<string | null>(null);
@@ -650,7 +650,6 @@ export default function VideoDateScreen() {
   const videoDateEndedRef = useRef(false);
   const dateEstablishedRef = useRef(false);
   const firstConnectWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const keepVibePulse = useRef(new Animated.Value(1)).current;
   const topChromeAnim = useRef(new Animated.Value(1)).current;
   const controlsAnim = useRef(new Animated.Value(1)).current;
   /** Dedupe first-time remote presence in React state (covers participant-joined / participant-updated paths). */
@@ -2924,23 +2923,6 @@ export default function VideoDateScreen() {
       }),
     );
   }, [clearHandshakeGraceState, session?.date_extra_seconds, session?.date_started_at]);
-
-  const focusKeepTheVibeAddTime = useCallback(() => {
-    void AccessibilityInfo.announceForAccessibility(
-      'Add time using the plus two minute or plus five minute buttons at the top of the screen.'
-    );
-    keepVibePulse.setValue(1);
-    Animated.sequence([
-      Animated.timing(keepVibePulse, { toValue: 1.06, duration: 140, useNativeDriver: true }),
-      Animated.timing(keepVibePulse, { toValue: 1, duration: 180, useNativeDriver: true }),
-    ]).start();
-  }, [keepVibePulse]);
-
-  const handleAddTimeShortcut = useCallback(() => {
-    const has = credits.extraTime > 0 || credits.extendedVibe > 0;
-    if (has) focusKeepTheVibeAddTime();
-    else router.push('/settings/credits');
-  }, [credits.extraTime, credits.extendedVibe, focusKeepTheVibeAddTime]);
 
   const handleExtend = useCallback(
     async (minutes: number, type: 'extra_time' | 'extended_vibe'): Promise<VideoDateExtendOutcome> => {
@@ -5375,75 +5357,53 @@ export default function VideoDateScreen() {
     }
   }, [phase, clearHandshakeGraceState]);
 
-  const hasLocalCountdownTimeLeft = localTimeLeft !== null;
+  // Authoritative visible countdown: recompute from server-owned phase timestamps every tick.
   useEffect(() => {
-    if (
-      !hasLocalCountdownTimeLeft ||
-      localTimeLeft <= 0 ||
-      showFeedback ||
-      !hasRemotePartner ||
-      phase === 'ended' ||
-      isTimerPaused
-    )
-      return;
-    const interval = setInterval(() => {
-      setLocalTimeLeft((prev) => {
-        if (phaseRef.current === 'date') {
-          const next =
-            session?.date_started_at != null
-              ? remainingDatePhaseSeconds({
-                  dateStartedAtIso: session.date_started_at,
-                  baseDateSeconds: DATE_SECONDS,
-                  dateExtraSeconds: session?.date_extra_seconds,
-                })
-              : prev === null
-                ? effectiveDateDurationSeconds(DATE_SECONDS, session?.date_extra_seconds)
-                : Math.max(0, prev - 1);
+    if (showFeedback || phase === 'ended') return;
+    const hasAuthoritativeStart =
+      phase === 'handshake'
+        ? Boolean(session?.handshake_started_at)
+        : phase === 'date'
+          ? Boolean(session?.date_started_at)
+          : false;
+    if (!hasAuthoritativeStart) return;
 
-          if (next <= 0) {
-            void handleCallEnd('local_end');
-          }
-          return next;
-        }
-
-        if (phaseRef.current === 'handshake') {
-          const next =
-            session?.handshake_started_at != null
-              ? (remainingStartedAtCountdownSeconds({
-                  startedAtIso: session.handshake_started_at,
-                  durationSeconds: HANDSHAKE_SECONDS,
-                }) ?? 0)
-              : prev === null
-                ? 0
-                : Math.max(0, prev - 1);
-
-          if (next <= 0) {
-            vdbg('handshake_visible_countdown_elapsed', {
-              sessionId: sessionId ?? null,
-              trigger: 'complete_handshake',
-            });
-            void completeHandshakeFromServerDeadline('handshake_visible_countdown_elapsed');
-            return 0;
-          }
-
-          return next;
-        }
-
-        if (prev === null || prev <= 1) {
-          handleCallEnd('local_end');
-          return 0;
-        }
-        return prev - 1;
+    let completionFired = false;
+    const tick = () => {
+      const countdown = resolveVideoDatePhaseCountdown({
+        phase,
+        handshakeStartedAtIso: session?.handshake_started_at,
+        dateStartedAtIso: session?.date_started_at,
+        handshakeDurationSeconds: HANDSHAKE_SECONDS,
+        dateDurationSeconds: DATE_SECONDS,
+        dateExtraSeconds: session?.date_extra_seconds,
       });
-    }, 1000);
+      const next = countdown.remainingSeconds ?? 0;
+      setLocalTimeLeft(next);
+
+      if (next > 0 || completionFired) return;
+      const completionKey = `${sessionId ?? 'unknown-session'}:${phase}:${countdown.deadlineMs ?? 'no-deadline'}`;
+      if (countdownCompletionKeyRef.current === completionKey) return;
+      completionFired = true;
+      countdownCompletionKeyRef.current = completionKey;
+
+      if (phaseRef.current === 'date') {
+        void handleCallEnd('local_end');
+      } else if (phaseRef.current === 'handshake') {
+        vdbg('handshake_visible_countdown_elapsed', {
+          sessionId: sessionId ?? null,
+          trigger: 'complete_handshake',
+        });
+        void completeHandshakeFromServerDeadline('handshake_visible_countdown_elapsed');
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [
-    hasLocalCountdownTimeLeft,
-    localTimeLeft,
     showFeedback,
-    hasRemotePartner,
     phase,
-    isTimerPaused,
     sessionId,
     handleCallEnd,
     completeHandshakeFromServerDeadline,
@@ -5658,7 +5618,7 @@ export default function VideoDateScreen() {
   );
   const currentQuestion =
     vibeQuestionState.questions[currentQuestionIndex] ?? vibeQuestionState.questions[0] ?? '';
-  const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT;
+  const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT + 18;
   const advanceIceBreaker = useCallback(() => {
     if (!sessionId || !vibeQuestionState.questions.length) return;
     const pauseStartedAtMs = Date.now();
@@ -6272,7 +6232,7 @@ export default function VideoDateScreen() {
 
       {showDatePhaseChrome && (
         <Animated.View
-          style={[styles.keepTheVibeWrap, { transform: [{ scale: keepVibePulse }] }]}
+          style={styles.keepTheVibeWrap}
           accessibilityLiveRegion="polite"
         >
           <KeepTheVibe
@@ -6351,26 +6311,6 @@ export default function VideoDateScreen() {
           }
         />
       </Animated.View>
-
-      {phase === 'date' && hasRemotePartner && !peerMissingTerminal && !showFeedback ? (
-        <Pressable
-          onPress={handleAddTimeShortcut}
-          style={({ pressed }) => [
-            styles.addTimeFab,
-            { bottom: insets.bottom + 86, opacity: pressed ? 0.85 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={
-            credits.extraTime > 0 || credits.extendedVibe > 0
-              ? 'Add time: use credits from Keep the Vibe'
-              : 'Get video date credits to add time'
-          }
-        >
-          <View style={[styles.addTimeFabInner, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
-            <Ionicons name="add-circle" size={36} color={theme.tint} />
-          </View>
-        </Pressable>
-      ) : null}
 
       <InCallSafetySheet
         visible={showInCallSafety}
@@ -6674,24 +6614,6 @@ const styles = StyleSheet.create({
   initialBackText: { fontSize: 15, fontWeight: '600' },
   initialBtnPressed: { opacity: 0.85 },
   netHint: { fontSize: 11, fontWeight: '600' },
-  addTimeFab: {
-    position: 'absolute',
-    right: 14,
-    zIndex: 24,
-  },
-  addTimeFabInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: 'hsl(263, 70%, 66%)',
-    shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.24,
-    shadowRadius: 22,
-    elevation: 6,
-  },
   handshakeBottomStack: {
     position: 'absolute',
     left: 16,
@@ -6726,6 +6648,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.display,
   },
-  keepTheVibeWrap: { position: 'absolute', top: 110, left: 16 },
+  keepTheVibeWrap: { position: 'absolute', top: 116, right: 16, alignItems: 'flex-end' },
   controlsBar: { position: 'absolute', bottom: 0, left: 0, right: 0 },
 });

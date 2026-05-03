@@ -60,7 +60,10 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from "@clientShared/matching/videoDateExtensionSpend";
-import { remainingStartedAtCountdownSeconds } from "@clientShared/matching/videoDateCountdown";
+import {
+  remainingStartedAtCountdownSeconds,
+  resolveVideoDatePhaseCountdown,
+} from "@clientShared/matching/videoDateCountdown";
 import { sendVideoDateSignalWithRetry } from "@clientShared/matching/videoDateSignalRetry";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -354,6 +357,7 @@ const VideoDate = () => {
   const remoteContainerRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef<CallPhase>("handshake");
   const timeLeftRef = useRef<number | null>(null);
+  const countdownCompletionKeyRef = useRef<string | null>(null);
   const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
   const eventIdRef = useRef<string | undefined>(undefined);
@@ -1768,81 +1772,51 @@ const VideoDate = () => {
     }
   }, [isConnected, id]);
 
-  // Countdown timer
-  const hasCountdownTimeLeft = timeLeft !== null;
+  // Countdown timer: display derives from server-owned phase timestamps, never from route mount time.
   useEffect(() => {
-    if (
-      !hasCountdownTimeLeft ||
-      timeLeft <= 0 ||
-      showFeedback ||
-      !isConnected ||
-      phase === "ended" ||
-      reconnection.isTimerPaused
-    )
-      return;
+    if (showFeedback || phase === "ended") return;
+    const hasAuthoritativeStart =
+      phase === "handshake" ? Boolean(handshakeStartedAt) : phase === "date" ? Boolean(dateStartedAt) : false;
+    if (!hasAuthoritativeStart) return;
 
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (phaseRef.current === "date") {
-          const next =
-            dateStartedAt != null
-              ? remainingDatePhaseSeconds({
-                  dateStartedAtIso: dateStartedAt,
-                  baseDateSeconds: DATE_TIME,
-                  dateExtraSeconds,
-                })
-              : prev === null
-                ? effectiveDateDurationSeconds(DATE_TIME, dateExtraSeconds)
-                : Math.max(0, prev - 1);
-
-          if (next <= 0) {
-            toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-            void handleCallEndRef.current?.();
-          }
-          return next;
-        }
-
-        if (phaseRef.current === "handshake") {
-          const next =
-            handshakeStartedAt != null
-              ? (remainingStartedAtCountdownSeconds({
-                  startedAtIso: handshakeStartedAt,
-                  durationSeconds: HANDSHAKE_TIME,
-                }) ?? 0)
-              : prev === null
-                ? 0
-                : Math.max(0, prev - 1);
-
-          if (next <= 0) {
-            vdbg("handshake_visible_countdown_elapsed", {
-              sessionId: id ?? null,
-              trigger: "complete_handshake",
-            });
-            void checkMutualVibeRef.current?.("handshake_visible_countdown_elapsed");
-            return 0;
-          }
-
-          return next;
-        }
-
-        if (prev === null || prev <= 1) {
-          toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
-          void handleCallEndRef.current?.();
-          return 0;
-        }
-        return prev - 1;
+    let completionFired = false;
+    const tick = () => {
+      const countdown = resolveVideoDatePhaseCountdown({
+        phase,
+        handshakeStartedAtIso: handshakeStartedAt,
+        dateStartedAtIso: dateStartedAt,
+        handshakeDurationSeconds: HANDSHAKE_TIME,
+        dateDurationSeconds: DATE_TIME,
+        dateExtraSeconds,
       });
-    }, 1000);
+      const next = countdown.remainingSeconds ?? 0;
+      setTimeLeft(next);
 
+      if (next > 0 || completionFired) return;
+      const completionKey = `${id ?? "unknown-session"}:${phase}:${countdown.deadlineMs ?? "no-deadline"}`;
+      if (countdownCompletionKeyRef.current === completionKey) return;
+      completionFired = true;
+      countdownCompletionKeyRef.current = completionKey;
+
+      if (phaseRef.current === "date") {
+        toast("Time flies! Thanks for a great date 💚", { duration: 2500 });
+        void handleCallEndRef.current?.();
+      } else if (phaseRef.current === "handshake") {
+        vdbg("handshake_visible_countdown_elapsed", {
+          sessionId: id ?? null,
+          trigger: "complete_handshake",
+        });
+        void checkMutualVibeRef.current?.("handshake_visible_countdown_elapsed");
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
   }, [
-    hasCountdownTimeLeft,
-    timeLeft,
     showFeedback,
     id,
-    isConnected,
     phase,
-    reconnection.isTimerPaused,
     dateStartedAt,
     dateExtraSeconds,
     handshakeStartedAt,
@@ -3010,8 +2984,8 @@ const VideoDate = () => {
     (phase === "handshake" || phase === "date");
   const iceBreakerPositionClass =
     phase === "handshake" && handshakeTimerStarted
-      ? "bottom-[14.75rem] sm:top-32 sm:bottom-auto"
-      : "bottom-[6.75rem] sm:top-32 sm:bottom-auto";
+      ? "bottom-[14rem]"
+      : "bottom-[6.75rem]";
 
   if (!id || videoDateAccess === "not_found") {
     return (
@@ -3190,7 +3164,8 @@ const VideoDate = () => {
   }
 
   return (
-    <div className="fixed inset-0 bg-background flex flex-col overflow-hidden">
+    <div className="fixed inset-0 overflow-hidden bg-[radial-gradient(circle_at_50%_10%,hsl(var(--primary)/0.18),transparent_32%),radial-gradient(circle_at_50%_95%,hsl(var(--accent)/0.14),transparent_30%),hsl(var(--background))] md:flex md:items-center md:justify-center md:p-4">
+      <div className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(135deg,rgba(10,10,16,0.92),rgba(5,5,9,0.98))] md:block" aria-hidden />
       {dupBlocked && !callStarted && videoDateAccess === "allowed" && !showFeedback && (
         <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-background/95 p-6 text-center">
           <p className="text-lg font-display font-semibold text-foreground max-w-sm">
@@ -3219,6 +3194,10 @@ const VideoDate = () => {
         </div>
       )}
 
+      <div
+        data-video-date-stage
+        className="relative z-10 flex h-[100dvh] w-screen flex-col overflow-hidden bg-background md:h-[min(calc(100dvh_-_2rem),920px)] md:max-h-[920px] md:w-[min(calc(100vw_-_2rem),500px)] md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_34px_110px_rgba(0,0,0,0.56),0_0_60px_rgba(139,92,246,0.12)]"
+      >
       <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
 
       {/* ─── Top HUD ─── */}
@@ -3290,56 +3269,58 @@ const VideoDate = () => {
         </motion.button>
 
         {/* Phase indicator + Timer */}
-        <div className="flex shrink-0 items-center gap-2">
-          {isConnected && phase === "handshake" && (
-            <motion.div
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-            >
-              <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
-                {handshakeTimerStarted ? "Warm up" : "Settling in"}
-              </span>
-            </motion.div>
-          )}
-          {isConnected && phase === "date" && (
-            <motion.div
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="px-3 py-2 rounded-full bg-accent/15 border border-accent/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
-            >
-              <span className="text-[11px] font-display font-semibold text-accent uppercase tracking-[0.18em]">
-                Date
-              </span>
-            </motion.div>
-          )}
-          {handshakeTimerStarted ? (
-            <HandshakeTimer
-              timeLeft={handshakeTimerDisplayLeft}
-              totalTime={handshakeTimerTotal}
-              phase={phase}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            {isConnected && phase === "handshake" && (
+              <motion.div
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+              >
+                <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
+                  {handshakeTimerStarted ? "Warm up" : "Settling in"}
+                </span>
+              </motion.div>
+            )}
+            {isConnected && phase === "date" && (
+              <motion.div
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="px-3 py-2 rounded-full bg-accent/15 border border-accent/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
+              >
+                <span className="text-[11px] font-display font-semibold text-accent uppercase tracking-[0.18em]">
+                  Date
+                </span>
+              </motion.div>
+            )}
+            {handshakeTimerStarted ? (
+              <HandshakeTimer
+                timeLeft={handshakeTimerDisplayLeft}
+                totalTime={handshakeTimerTotal}
+                phase={phase}
+              />
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="px-3 py-2 rounded-full bg-black/40 border border-white/10 backdrop-blur-xl"
+              >
+                <span className="text-[11px] text-white/60">Waiting together</span>
+              </motion.div>
+            )}
+          </div>
+
+          {/* Keep the Vibe — credits extension (date phase only) */}
+          {isConnected && phase === "date" && !showFeedback && (
+            <KeepTheVibe
+              extraTimeCredits={credits.extraTime}
+              extendedVibeCredits={credits.extendedVibe}
+              onExtend={handleExtend}
+              analyticsSessionId={id}
+              analyticsEventId={eventId}
             />
-          ) : (
-            <motion.div
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="px-3 py-2 rounded-full bg-black/40 border border-white/10 backdrop-blur-xl"
-            >
-              <span className="text-[11px] text-white/60">Waiting together</span>
-            </motion.div>
           )}
         </div>
-
-        {/* Keep the Vibe — credits extension (date phase only) */}
-        {isConnected && phase === "date" && !showFeedback && (
-          <KeepTheVibe
-            extraTimeCredits={credits.extraTime}
-            extendedVibeCredits={credits.extendedVibe}
-            onExtend={handleExtend}
-            analyticsSessionId={id}
-            analyticsEventId={eventId}
-          />
-        )}
       </motion.div>
 
       {/* ─── Remote Video with Progressive Blur ─── */}
@@ -3448,14 +3429,14 @@ const VideoDate = () => {
         )}
       </AnimatePresence>
 
-      {/* ─── Vibed ✓ Button (handshake only) ─── */}
+      {/* ─── Pass/Vibe decision rail (handshake only) ─── */}
       <AnimatePresence>
         {isConnected && phase === "handshake" && handshakeTimerStarted && !showFeedback && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="absolute bottom-[7.5rem] left-0 right-0 z-25 flex justify-center sm:bottom-28"
+            className="absolute bottom-[7.5rem] left-0 right-0 z-[25] flex justify-center"
           >
             <VibeCheckButton
               timeLeft={timeLeft ?? 0}
@@ -3520,6 +3501,7 @@ const VideoDate = () => {
               : undefined
           }
         />
+      </div>
       </div>
 
       <AlertDialog open={showEndDateConfirm} onOpenChange={setShowEndDateConfirm}>

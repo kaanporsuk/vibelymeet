@@ -26,15 +26,12 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
 
   const getColor = () => {
     if (phase === "handshake") {
-      if (isUrgent) return "hsl(330, 81%, 60%)";
-      if (progress > 0.66) return "hsl(187, 94%, 43%)";
-      if (progress > 0.33) return "hsl(263, 70%, 66%)";
-      return "hsl(330, 81%, 60%)";
+      return isUrgent ? "hsl(330, 81%, 60%)" : "hsl(263, 70%, 66%)";
     }
-    // Date phase
-    if (isUrgent) return "hsl(0, 84%, 60%)";
-    if (progress > 0.5) return "hsl(142, 71%, 45%)";
-    return "hsl(263, 70%, 66%)";
+    if (phase === "date") {
+      return isUrgent ? "hsl(330, 81%, 60%)" : "hsl(263, 70%, 66%)";
+    }
+    return "hsl(var(--muted-foreground))";
   };
 
   return (
@@ -44,7 +41,7 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
       transition={{ delay: 0.2 }}
       className="relative flex items-center justify-center rounded-full bg-black/40 p-1 backdrop-blur-xl ring-1 ring-white/10"
       style={{
-        boxShadow: isUrgent
+        boxShadow: shouldHeartbeat
           ? "0 0 28px hsl(330 81% 60% / 0.32), inset 0 0 18px hsl(0 0% 100% / 0.04)"
           : "0 12px 34px rgb(0 0 0 / 0.36), inset 0 0 18px hsl(0 0% 100% / 0.04)",
       }}
@@ -104,7 +101,7 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
               : {}
           }
           transition={shouldHeartbeat ? { duration: 0.5, repeat: Infinity } : {}}
-          style={{ color: isUrgent ? undefined : "hsl(var(--foreground))" }}
+          style={{ color: shouldHeartbeat ? undefined : "hsl(var(--foreground))" }}
         >
           {formatTime(timeLeft)}
         </motion.span>

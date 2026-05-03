@@ -16,7 +16,6 @@ interface IceBreakerCardProps {
   sessionId?: string;
   onPromptChange?: (prompt: string) => void;
   onDismiss?: () => void;
-  helperText?: string;
 }
 
 function parseVibeQuestionState(raw: unknown): VideoDateIceBreakerState | null {
@@ -45,7 +44,6 @@ export const IceBreakerCard = ({
   sessionId,
   onPromptChange,
   onDismiss,
-  helperText = "Choose when it feels right",
 }: IceBreakerCardProps) => {
   const [questionState, setQuestionState] = useState<VideoDateIceBreakerState>(() => fallbackVideoDateIceBreakerState());
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -206,11 +204,6 @@ export const IceBreakerCard = ({
               {currentPrompt}
             </motion.p>
           </AnimatePresence>
-          {helperText ? (
-            <p className="mt-1 text-left text-[11px] font-medium leading-tight text-white/[0.55]">
-              {helperText}
-            </p>
-          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">

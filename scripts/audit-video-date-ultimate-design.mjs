@@ -112,15 +112,35 @@ check(
 );
 
 check(
+  includes("webDate", "data-video-date-stage") &&
+    includes("webDate", "md:w-[min(calc(100vw_-_2rem),500px)]") &&
+    includes("webDate", "md:h-[min(calc(100dvh_-_2rem),920px)]"),
+  "Remote Video",
+  "Desktop web uses an intentional centered date stage.",
+  evidence("webDate", "data-video-date-stage"),
+  files.webDate,
+);
+
+check(
   includes("sharedCountdown", "remainingStartedAtCountdownSeconds") &&
-    includes("webDate", "remainingStartedAtCountdownSeconds") &&
-    includes("nativeDate", "remainingStartedAtCountdownSeconds") &&
+    includes("sharedCountdown", "resolveVideoDatePhaseCountdown") &&
+    includes("webDate", "resolveVideoDatePhaseCountdown") &&
+    includes("nativeDate", "resolveVideoDatePhaseCountdown") &&
     includes("webDate", "handshakeStartedAt") &&
     includes("nativeDate", "handshakeStartedAt"),
   "Timer Sync",
   "Handshake countdown derives from shared started-at session time on web and native.",
-  `${files.sharedCountdown}, ${evidence("webDate", "remainingStartedAtCountdownSeconds")}, ${evidence("nativeDate", "remainingStartedAtCountdownSeconds")}`,
+  `${files.sharedCountdown}, ${evidence("webDate", "resolveVideoDatePhaseCountdown")}, ${evidence("nativeDate", "resolveVideoDatePhaseCountdown")}`,
   `${files.sharedCountdown}, ${files.webDate}, ${files.nativeDate}`,
+);
+
+check(
+  !sliceBetween("nativeDate", "Authoritative visible countdown", "const toggleMute").includes("hasRemotePartner") &&
+    !sliceBetween("nativeDate", "Authoritative visible countdown", "const toggleMute").includes("isTimerPaused"),
+  "Timer Sync",
+  "Native visible timer is not gated by remote participant or reconnect UI state.",
+  evidence("nativeDate", "Authoritative visible countdown"),
+  files.nativeDate,
 );
 
 check(
@@ -134,6 +154,7 @@ check(
 
 check(
   !includes("webTimer", '"hsl(0,84%,60%)"') &&
+    !includes("webTimer", "hsl(0, 84%, 60%)") &&
     !matches("nativeTimer", /if \(phase === 'handshake'\) \{\s*if \(isUrgent\) return 'hsl\(0, 84%, 60%\)'/),
   "Timer Tone",
   "Handshake urgency avoids aggressive red warning colors.",
@@ -165,14 +186,14 @@ check(
 );
 
 check(
-  includes("webIceBreaker", 'helperText = "Choose when it feels right"') &&
-    includes("nativeIceBreaker", "helperText = 'Choose when it feels right'") &&
-    !includes("webDate", "Choose only when it feels right") &&
-    !includes("nativeDate", "Choose only when it feels right"),
+  !includes("webIceBreaker", "Choose when it feels right") &&
+    !includes("nativeIceBreaker", "Choose when it feels right") &&
+    includes("webVibeCheck", "Choose when it feels right") &&
+    includes("nativeVibeCheck", "Choose when it feels right"),
   "Icebreaker",
-  "Icebreaker helper copy matches the ultimate text.",
-  `${evidence("webIceBreaker", 'helperText = "Choose when it feels right"')} and ${evidence("nativeIceBreaker", "helperText = 'Choose when it feels right'")}`,
-  `${files.webIceBreaker}, ${files.nativeIceBreaker}`,
+  "Decision guidance is removed from icebreaker and owned by Pass/Vibe.",
+  `${evidence("webVibeCheck", "Choose when it feels right")} and ${evidence("nativeVibeCheck", "Choose when it feels right")}`,
+  `${files.webIceBreaker}, ${files.nativeIceBreaker}, ${files.webVibeCheck}, ${files.nativeVibeCheck}`,
 );
 
 check(
@@ -219,9 +240,13 @@ check(
 check(
   includes("webVibeCheck", "bg-gradient-to-r from-primary to-accent") &&
     includes("nativeVibeCheck", "LinearGradient") &&
-    !includes("webVibeCheck", "Your choice only continues after it saves"),
+    includes("webVibeCheck", "Vibe saved") &&
+    includes("nativeVibeCheck", "Vibe saved") &&
+    !includes("webVibeCheck", "Your choice only continues after it saves") &&
+    !includes("webVibeCheck", "Soft nudge") &&
+    !includes("nativeVibeCheck", "Soft nudge"),
   "Pass/Vibe",
-  "Decision rail uses quiet Pass, gradient Vibe, and avoids the old anxious save copy.",
+  "Decision rail uses quiet Pass, gradient Vibe, saved states, and avoids old anxious copy.",
   `${evidence("webVibeCheck", "bg-gradient-to-r from-primary to-accent")} and ${evidence("nativeVibeCheck", "LinearGradient")}`,
   `${files.webVibeCheck}, ${files.nativeVibeCheck}`,
 );
@@ -270,16 +295,17 @@ check(
 check(
   matches("webDate", /phase === "date"[\s\S]*<KeepTheVibe/) &&
     matches("nativeDate", /showDatePhaseChrome[\s\S]*<KeepTheVibe/) &&
-    includes("sharedExtension", "not_in_date_phase"),
+    includes("sharedExtension", "not_in_date_phase") &&
+    !includes("nativeDate", "addTimeFab"),
   "Extension",
-  "Extension remains backend-safe and date-phase only unless RPC support changes.",
+  "Extension remains backend-safe, date-phase only, and near the timer without a duplicate native FAB.",
   `${evidence("webDate", '<KeepTheVibe')} and ${evidence("sharedExtension", "not_in_date_phase")}`,
   `${files.webDate}, ${files.nativeDate}, ${files.sharedExtension}`,
   "This intentionally differs from a warm-up Extend CTA because current backend rejects non-date usage.",
 );
 
 check(
-  !sliceBetween("webDate", "{/* ─── Vibed", "{/* ─── Mutual Vibe").includes("<KeepTheVibe") &&
+  !sliceBetween("webDate", "{/* ─── Pass/Vibe", "{/* ─── Mutual Vibe").includes("<KeepTheVibe") &&
     !sliceBetween("nativeDate", "{showHandshakeChrome", "{showDatePhaseChrome").includes("<KeepTheVibe"),
   "Extension",
   "No broken warm-up spend-credit CTA is visible.",

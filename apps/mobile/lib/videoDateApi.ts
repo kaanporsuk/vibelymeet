@@ -16,9 +16,8 @@ import type { DailyRoomFailureKind } from '@clientShared/matching/dailyRoomFailu
 import { sendVideoDateSignalWithRetry } from '@clientShared/matching/videoDateSignalRetry';
 import {
   parseSpendVideoDateCreditExtensionPayload,
-  remainingDatePhaseSeconds,
 } from '@clientShared/matching/videoDateExtensionSpend';
-import { remainingStartedAtCountdownSeconds } from '@clientShared/matching/videoDateCountdown';
+import { resolveVideoDatePhaseCountdown } from '@clientShared/matching/videoDateCountdown';
 import {
   VIDEO_DATE_HANDSHAKE_TRUTH_SELECT,
   handshakeTruthLogPayload,
@@ -197,13 +196,17 @@ export function useVideoDateSession(
       if (state === 'date' || !!row.date_started_at) {
         const dateStarted =
           typeof row.date_started_at === 'string' ? row.date_started_at : null;
+        const countdown = resolveVideoDatePhaseCountdown({
+          phase: 'date',
+          handshakeStartedAtIso: row.handshake_started_at,
+          dateStartedAtIso: dateStarted,
+          handshakeDurationSeconds: HANDSHAKE_SECONDS,
+          dateDurationSeconds: DATE_SECONDS,
+          dateExtraSeconds: row.date_extra_seconds,
+        });
         return {
           phase: 'date',
-          timeLeft: remainingDatePhaseSeconds({
-            dateStartedAtIso: dateStarted,
-            baseDateSeconds: DATE_SECONDS,
-            dateExtraSeconds: row.date_extra_seconds,
-          }),
+          timeLeft: countdown.remainingSeconds,
         };
       }
 
@@ -214,13 +217,17 @@ export function useVideoDateSession(
         })
       ) {
         if (row.handshake_started_at) {
+          const countdown = resolveVideoDatePhaseCountdown({
+            phase: 'handshake',
+            handshakeStartedAtIso: row.handshake_started_at,
+            dateStartedAtIso: row.date_started_at,
+            handshakeDurationSeconds: HANDSHAKE_SECONDS,
+            dateDurationSeconds: DATE_SECONDS,
+            dateExtraSeconds: row.date_extra_seconds,
+          });
           return {
             phase: 'handshake',
-            timeLeft:
-              remainingStartedAtCountdownSeconds({
-                startedAtIso: row.handshake_started_at,
-                durationSeconds: HANDSHAKE_SECONDS,
-              }) ?? 0,
+            timeLeft: countdown.remainingSeconds ?? 0,
           };
         }
         return { phase: 'handshake', timeLeft: null };

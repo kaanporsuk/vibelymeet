@@ -12,13 +12,13 @@ export const UrgentBorderEffect = ({ isActive }: UrgentBorderEffectProps) => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 pointer-events-none z-40"
+          className="absolute inset-0 pointer-events-none z-40"
         >
           {/* Top border */}
           <motion.div
             className="absolute top-0 left-0 right-0 h-1"
             style={{
-              background: "linear-gradient(90deg, transparent, hsl(var(--accent)), hsl(var(--destructive)), hsl(var(--accent)), transparent)",
+              background: "linear-gradient(90deg, transparent, hsl(var(--primary)), hsl(var(--accent)), hsl(var(--primary)), transparent)",
             }}
             animate={{
               opacity: [0.5, 1, 0.5],
@@ -30,7 +30,7 @@ export const UrgentBorderEffect = ({ isActive }: UrgentBorderEffectProps) => {
           <motion.div
             className="absolute bottom-0 left-0 right-0 h-1"
             style={{
-              background: "linear-gradient(90deg, transparent, hsl(var(--accent)), hsl(var(--destructive)), hsl(var(--accent)), transparent)",
+              background: "linear-gradient(90deg, transparent, hsl(var(--primary)), hsl(var(--accent)), hsl(var(--primary)), transparent)",
             }}
             animate={{
               opacity: [0.5, 1, 0.5],
@@ -42,7 +42,7 @@ export const UrgentBorderEffect = ({ isActive }: UrgentBorderEffectProps) => {
           <motion.div
             className="absolute top-0 bottom-0 left-0 w-1"
             style={{
-              background: "linear-gradient(180deg, transparent, hsl(var(--accent)), hsl(var(--destructive)), hsl(var(--accent)), transparent)",
+              background: "linear-gradient(180deg, transparent, hsl(var(--primary)), hsl(var(--accent)), hsl(var(--primary)), transparent)",
             }}
             animate={{
               opacity: [0.5, 1, 0.5],
@@ -54,7 +54,7 @@ export const UrgentBorderEffect = ({ isActive }: UrgentBorderEffectProps) => {
           <motion.div
             className="absolute top-0 bottom-0 right-0 w-1"
             style={{
-              background: "linear-gradient(180deg, transparent, hsl(var(--accent)), hsl(var(--destructive)), hsl(var(--accent)), transparent)",
+              background: "linear-gradient(180deg, transparent, hsl(var(--primary)), hsl(var(--accent)), hsl(var(--primary)), transparent)",
             }}
             animate={{
               opacity: [0.5, 1, 0.5],
@@ -74,7 +74,7 @@ export const UrgentBorderEffect = ({ isActive }: UrgentBorderEffectProps) => {
           <motion.div
             className="absolute top-0 right-0 w-32 h-32"
             style={{
-              background: "radial-gradient(circle at top right, hsl(var(--destructive) / 0.3), transparent 70%)",
+              background: "radial-gradient(circle at top right, hsl(var(--accent) / 0.22), transparent 70%)",
             }}
             animate={{ opacity: [0.3, 0.6, 0.3] }}
             transition={{ duration: 0.5, repeat: Infinity, delay: 0.25 }}
@@ -82,7 +82,7 @@ export const UrgentBorderEffect = ({ isActive }: UrgentBorderEffectProps) => {
           <motion.div
             className="absolute bottom-0 left-0 w-32 h-32"
             style={{
-              background: "radial-gradient(circle at bottom left, hsl(var(--destructive) / 0.3), transparent 70%)",
+              background: "radial-gradient(circle at bottom left, hsl(var(--primary) / 0.22), transparent 70%)",
             }}
             animate={{ opacity: [0.3, 0.6, 0.3] }}
             transition={{ duration: 0.5, repeat: Infinity, delay: 0.5 }}
