@@ -10,7 +10,6 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { withAlpha } from '@/lib/colorUtils';
 import { spacing, radius } from '@/constants/theme';
-import { VibelyButton } from '@/components/ui';
 
 type ActiveCallBannerProps = {
   sessionId: string;
@@ -60,14 +59,35 @@ export function ActiveCallBanner({
           ? `With ${partnerName} — tap Rejoin`
           : 'Tap Rejoin to return 💚';
   const ctaLabel = mode === 'ready_gate' ? 'Continue' : mode === 'survey' ? 'Finish' : 'Rejoin';
+  const iconName =
+    mode === 'ready_gate'
+      ? 'timer-outline'
+      : mode === 'survey'
+        ? 'clipboard-outline'
+        : 'videocam-outline';
+  const actionLabel =
+    mode === 'ready_gate'
+      ? 'Open Ready Gate'
+      : mode === 'survey'
+        ? 'Finish date feedback'
+        : 'Rejoin active date';
 
   return (
-    <View style={[styles.wrapper, { paddingTop: 8 }]}>
+    <View style={styles.wrapper}>
       <View style={[styles.gradientBorder, { backgroundColor: theme.tint }]}>
-        <View style={[styles.inner, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
+        <Pressable
+          onPress={onRejoin}
+          accessibilityRole="button"
+          accessibilityLabel={actionLabel}
+          style={({ pressed }) => [
+            styles.inner,
+            { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder },
+            pressed && { opacity: 0.86 },
+          ]}
+        >
           <View style={styles.left}>
             <Animated.View style={[styles.iconWrap, { backgroundColor: theme.tintSoft }, { transform: [{ scale: pulse }] }]}>
-              <Ionicons name="videocam" size={20} color={theme.tint} />
+              <Ionicons name={iconName} size={20} color={theme.tint} />
             </Animated.View>
             <View style={styles.textWrap}>
               <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
@@ -81,25 +101,30 @@ export function ActiveCallBanner({
           <View style={styles.actions}>
             {onEnd ? (
               <Pressable
-                onPress={onEnd}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onEnd();
+                }}
                 style={({ pressed }) => [
                   styles.endBtn,
                   { backgroundColor: withAlpha(theme.danger, 0.125) },
                   pressed && { opacity: 0.8 },
                 ]}
-                accessibilityLabel="End date"
+                accessibilityRole="button"
+                accessibilityLabel={mode === 'ready_gate' ? 'Leave Ready Gate' : 'End date'}
+                hitSlop={8}
               >
                 <Ionicons name="close" size={18} color={theme.danger} />
               </Pressable>
             ) : null}
-            <VibelyButton
-              label={ctaLabel}
-              onPress={onRejoin}
-              variant="primary"
-              size="sm"
-            />
+            <View style={[styles.ctaPill, { backgroundColor: theme.tint }]}>
+              <Text style={[styles.ctaText, { color: theme.primaryForeground }]} numberOfLines={1}>
+                {ctaLabel}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.primaryForeground} />
+            </View>
           </View>
-        </View>
+        </Pressable>
       </View>
     </View>
   );
@@ -107,12 +132,7 @@ export function ActiveCallBanner({
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 60,
-    paddingHorizontal: spacing.lg,
+    width: '100%',
   },
   gradientBorder: {
     borderRadius: radius['2xl'],
@@ -140,6 +160,17 @@ const styles = StyleSheet.create({
   title: { fontSize: 14, fontWeight: '600' },
   sub: { fontSize: 12, marginTop: 2 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  ctaPill: {
+    minHeight: 36,
+    minWidth: 86,
+    borderRadius: 18,
+    paddingHorizontal: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  ctaText: { fontSize: 14, fontWeight: '700' },
   endBtn: {
     width: 36,
     height: 36,

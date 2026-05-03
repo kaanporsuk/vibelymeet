@@ -1350,15 +1350,31 @@ test("home active-session banners distinguish pending survey from active calls",
     assert.match(source, /Finish your date feedback/);
     assert.match(source, /Tell us how it went/);
     assert.match(source, /mode === ['"]survey['"] \? ['"]Finish['"]/);
+    assert.match(source, /Open Ready Gate/);
+    assert.match(source, /Finish date feedback/);
+    assert.match(source, /Rejoin active date/);
   }
 
   assert.match(webActiveCallBanner, /\{onEnd \? \(/);
+  assert.match(webActiveCallBanner, /role="button"/);
+  assert.match(webActiveCallBanner, /onClick=\{onRejoin\}/);
+  assert.match(webActiveCallBanner, /event\.stopPropagation\(\)/);
+  assert.match(webActiveCallBanner, /mode === "ready_gate" \? Timer : mode === "survey" \? ClipboardCheck : Video/);
+  assert.doesNotMatch(webActiveCallBanner, /fixed top-0/);
   assert.match(webDashboardPage, /activeSession\.queueStatus === "in_survey"\s*\?\s*"survey"/);
   assert.match(webDashboardPage, /partnerName=\{activeSession\.partnerName\}/);
   assert.match(webDashboardPage, /transitionFailureMessage\(data\)/);
+  assert.ok(webDashboardPage.indexOf("</header>") < webDashboardPage.indexOf("<ActiveCallBanner"));
 
   assert.match(nativeActiveCallBanner, /\{onEnd \? \(/);
+  assert.match(nativeActiveCallBanner, /onPress=\{onRejoin\}/);
+  assert.match(nativeActiveCallBanner, /accessibilityRole="button"/);
+  assert.match(nativeActiveCallBanner, /event\.stopPropagation\(\)/);
+  assert.match(nativeActiveCallBanner, /mode === 'ready_gate'\s+\? 'timer-outline'[\s\S]*mode === 'survey'\s+\? 'clipboard-outline'[\s\S]*'videocam-outline'/);
+  assert.doesNotMatch(nativeActiveCallBanner, /position:\s*'absolute'/);
   assert.match(nativeTabsHome, /activeSession\.queueStatus === 'in_survey'\s*\?\s*'survey'/);
+  assert.ok(nativeTabsHome.indexOf("</GlassHeaderBar>") < nativeTabsHome.indexOf("<ActiveCallBanner"));
+  assert.doesNotMatch(nativeTabsHome, /paddingTop:\s*insets\.top \+ 4/);
 });
 
 test("native date route opens recovered pending surveys after current_room_id is cleared", () => {
