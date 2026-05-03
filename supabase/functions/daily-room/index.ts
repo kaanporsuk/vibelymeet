@@ -47,6 +47,7 @@ type VideoDateRoomGateSession = {
   daily_room_name?: string | null;
   daily_room_url?: string | null;
   ended_at: string | null;
+  ended_reason?: string | null;
   handshake_started_at: string | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | null;
@@ -435,6 +436,7 @@ function createDateRoomRejectResponse(params: {
       error: params.error,
       code: params.code,
       ...(params.message ? { message: params.message } : {}),
+      ...(params.extra ? { details: params.extra } : {}),
     }),
     {
       status: params.status,
@@ -596,7 +598,16 @@ async function persistVideoDateRoomMetadata(
     entryAttemptId?: string | null;
     videoDateTraceId?: string | null;
   },
-): Promise<{ ok: true } | { ok: false; code: "DB_ROOM_PERSIST_FAILED"; detail: string | null }> {
+): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      code: "DB_ROOM_PERSIST_FAILED" | "SESSION_ENDED" | "EVENT_NOT_ACTIVE" | "SESSION_NOT_FOUND";
+      detail: string | null;
+      session?: VideoDateRoomGateSession | null;
+      extra?: Record<string, unknown>;
+    }
+> {
   const { data, error } = await serviceClient
     .from("video_sessions")
     .update({ daily_room_name: params.roomName, daily_room_url: params.roomUrl })
@@ -617,10 +628,79 @@ async function persistVideoDateRoomMetadata(
       code: error?.code ?? null,
       message: error?.message ?? (!data ? "no_session_row_updated" : null),
     }));
+
+    const { data: latest, error: readError } = await serviceClient
+      .from("video_sessions")
+      .select(
+        "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+      )
+      .eq("id", params.sessionId)
+      .maybeSingle();
+    const session = (latest as VideoDateRoomGateSession | null) ?? null;
+    const baseExtra: Record<string, unknown> = {
+      operation: "persist_room_metadata",
+      room_name: params.roomName,
+      db_error_code: error?.code ?? null,
+      db_error_message: error?.message ?? null,
+      db_error_details: error?.details ?? null,
+      db_error_hint: error?.hint ?? null,
+      db_read_error_code: readError?.code ?? null,
+      db_read_error_message: readError?.message ?? null,
+      session_state: session?.state ?? null,
+      session_phase: session?.phase ?? null,
+      ready_gate_status: session?.ready_gate_status ?? null,
+      ready_gate_expires_at: session?.ready_gate_expires_at ?? null,
+      ended_at: session?.ended_at ?? null,
+      ended_reason: session?.ended_reason ?? null,
+    };
+
+    if (!session) {
+      return {
+        ok: false,
+        code: "SESSION_NOT_FOUND",
+        detail: readError?.message ?? error?.message ?? "session_not_found_after_metadata_update",
+        session: null,
+        extra: baseExtra,
+      };
+    }
+
+    if (session.ended_at || session.state === "ended" || session.phase === "ended" || session.ready_gate_status === "expired") {
+      return {
+        ok: false,
+        code: "SESSION_ENDED",
+        detail: error?.message ?? "session_ended_before_room_metadata_persisted",
+        session,
+        extra: baseExtra,
+      };
+    }
+
+    let inactiveReason: string | null = null;
+    if (session.event_id) {
+      const { data: inactiveData, error: inactiveError } = await serviceClient.rpc("get_event_lobby_inactive_reason", {
+        p_event_id: session.event_id,
+      });
+      inactiveReason = typeof inactiveData === "string" && inactiveData ? inactiveData : null;
+      baseExtra.event_inactive_reason = inactiveReason;
+      baseExtra.event_inactive_error_code = inactiveError?.code ?? null;
+      baseExtra.event_inactive_error_message = inactiveError?.message ?? null;
+    }
+
+    if (inactiveReason) {
+      return {
+        ok: false,
+        code: "EVENT_NOT_ACTIVE",
+        detail: inactiveReason,
+        session,
+        extra: baseExtra,
+      };
+    }
+
     return {
       ok: false,
       code: "DB_ROOM_PERSIST_FAILED",
       detail: error?.message ?? "no_session_row_updated",
+      session,
+      extra: baseExtra,
     };
   }
 
@@ -1222,14 +1302,21 @@ async function ensureVideoDateProviderRoomForToken(params: {
           userId: params.userId,
           status: statusForPrepareEntryCode(persisted.code),
           code: persisted.code,
-          error: "Could not persist video room metadata",
+          error:
+            persisted.code === "SESSION_ENDED"
+              ? "Session has ended"
+              : persisted.code === "EVENT_NOT_ACTIVE"
+                ? "Event is no longer active"
+                : persisted.code === "SESSION_NOT_FOUND"
+                  ? "Session not found"
+                  : "Could not persist video room metadata",
           requestContext: params.requestContext,
-          session: params.session,
+          session: persisted.session ?? params.session,
           detail: persisted.detail,
           extra: {
             entry_attempt_id: params.entryAttemptId ?? null,
             video_date_trace_id: params.videoDateTraceId ?? params.entryAttemptId ?? null,
-            operation: "persist_room_metadata",
+            ...(persisted.extra ?? { operation: "persist_room_metadata" }),
           },
         }),
       };
@@ -1269,6 +1356,7 @@ function statusForPrepareEntryCode(code?: string): number {
   if (code === "UNAUTHORIZED") return 401;
   if (code === "SESSION_NOT_FOUND") return 404;
   if (code === "SESSION_ENDED") return 410;
+  if (code === "EVENT_NOT_ACTIVE") return 409;
   if (code === "BLOCKED_PAIR" || code === "ACCESS_DENIED" || code === "READY_GATE_NOT_READY") return 403;
   if (code === "DB_ROOM_PERSIST_FAILED" || code === "REGISTRATION_PERSIST_FAILED") return 503;
   return 500;

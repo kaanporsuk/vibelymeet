@@ -76,6 +76,7 @@ type PrepareEntryFailure = {
   retryable: boolean;
   httpStatus?: number;
 };
+type VideoSessionDateEntryTruth = Awaited<ReturnType<typeof fetchVideoSessionDateEntryTruthCoalesced>>;
 
 const NativeReadyGateEvents = {
   TRANSITION_FAILURE: 'native_ready_gate_transition_failure',
@@ -104,6 +105,19 @@ function prepareEntryFailureMessage(code: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTerminalReadyGateTruth(vs: VideoSessionDateEntryTruth): boolean {
+  const status = vs?.ready_gate_status ?? null;
+  return Boolean(
+    vs?.ended_at ||
+      vs?.state === 'ended' ||
+      vs?.phase === 'ended' ||
+      status === 'expired' ||
+      status === 'forfeited' ||
+      status === 'cancelled' ||
+      status === 'skipped'
+  );
 }
 
 export type ReadyGateOverlayProps = {
@@ -474,6 +488,41 @@ export function ReadyGateOverlay({
               return;
             }
 
+            const latestTruth = await fetchVideoSessionDateEntryTruthCoalesced(sessionId);
+            if (isTerminalReadyGateTruth(latestTruth)) {
+              clearTimeout(slowWaitTimer);
+              trackNativeReadyGateEvent(NativeReadyGateEvents.PREPARE_ENTRY_FAILURE, {
+                source,
+                source_action: 'prepare_entry_retry_cancelled_terminal',
+                code: 'SESSION_ENDED',
+                error_code: 'SESSION_ENDED',
+                reason: 'canonical_truth_terminal',
+                httpStatus: null,
+                retryable: false,
+                terminal: true,
+                attempt: attempt + 1,
+                attempt_count: attempt + 1,
+                latency_ms: Math.max(0, Date.now() - observedAtMs),
+              });
+              rcBreadcrumb(RC_CATEGORY.readyGate, 'prepare_date_entry_retry_cancelled_terminal', {
+                event_id: eventId,
+                session_id: sessionId,
+                source,
+                ready_gate_status: latestTruth?.ready_gate_status ?? null,
+                vs_state: latestTruth?.state ?? null,
+                vs_phase: latestTruth?.phase ?? null,
+              });
+              setIsTransitioning(false);
+              setPrepareEntryStatus('failed');
+              setPrepareEntryFailure({
+                code: 'SESSION_ENDED',
+                retryable: false,
+              });
+              prepareEntryHandoffStartedRef.current = true;
+              onLobbyUserMessage?.(READY_GATE_STALE_OR_ENDED_USER_MESSAGE, 'info');
+              return;
+            }
+
             await sleep(VIDEO_DATE_ENTRY_HANDOFF_RETRY_DELAYS_MS[attempt]);
           }
         } finally {
@@ -481,7 +530,7 @@ export function ReadyGateOverlay({
         }
       })();
     },
-    [eventId, onNavigateToDate, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent],
+    [eventId, onLobbyUserMessage, onNavigateToDate, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent],
   );
 
   const reconcileFromCanonicalTruth = useCallback(
