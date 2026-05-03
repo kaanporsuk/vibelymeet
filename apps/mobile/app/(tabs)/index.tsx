@@ -891,24 +891,6 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {sessionHydrated && activeSession && activeSession.kind !== 'syncing' && (
-        <View style={[styles.rejoinBannerWrap, { paddingTop: insets.top + 4 }]}>
-          <ActiveCallBanner
-            sessionId={activeSession.sessionId}
-            partnerName={activeSession.partnerName}
-            mode={
-              activeSession.kind === 'ready_gate'
-                ? 'ready_gate'
-                : activeSession.queueStatus === 'in_survey'
-                  ? 'survey'
-                  : 'video'
-            }
-            onRejoin={() => router.push(hrefForActiveSession(activeSession))}
-            onEnd={activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey' ? undefined : handleEndActiveSession}
-          />
-        </View>
-      )}
-
       <GlassHeaderBar insets={insets}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -949,6 +931,26 @@ export default function DashboardScreen() {
           </View>
         </View>
       </GlassHeaderBar>
+
+      {sessionHydrated && activeSession && activeSession.kind !== 'syncing' && (
+        <View style={[styles.rejoinBannerWrap, { backgroundColor: theme.background }]}>
+          <View style={styles.rejoinBannerInner}>
+            <ActiveCallBanner
+              sessionId={activeSession.sessionId}
+              partnerName={activeSession.partnerName}
+              mode={
+                activeSession.kind === 'ready_gate'
+                  ? 'ready_gate'
+                  : activeSession.queueStatus === 'in_survey'
+                    ? 'survey'
+                    : 'video'
+              }
+              onRejoin={() => router.push(hrefForActiveSession(activeSession))}
+              onEnd={activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey' ? undefined : handleEndActiveSession}
+            />
+          </View>
+        </View>
+      )}
 
       <ScrollView
         style={styles.scroll}
@@ -1198,7 +1200,17 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  rejoinBannerWrap: { zIndex: 60 },
+  rejoinBannerWrap: {
+    zIndex: 2,
+    paddingHorizontal: layout.containerPadding,
+    paddingTop: 10,
+    paddingBottom: 2,
+  },
+  rejoinBannerInner: {
+    maxWidth: layout.contentWidth,
+    width: '100%',
+    alignSelf: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
