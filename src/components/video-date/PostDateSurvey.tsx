@@ -10,6 +10,7 @@ import { HighlightsScreen } from "./survey/HighlightsScreen";
 import { SafetyScreen } from "./survey/SafetyScreen";
 import { EventEndedModal } from "@/components/events/EventEndedModal";
 import MatchSuccessModal from "@/components/match/MatchSuccessModal";
+import { cn } from "@/lib/utils";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { useEventStatus } from "@/hooks/useEventStatus";
 import { useEventLifecycle } from "@/hooks/useEventLifecycle";
@@ -51,25 +52,43 @@ function sleep(ms: number): Promise<void> {
 }
 
 const PostDateContinuityStrip = ({ decision }: { decision: PostDateContinuityDecision }) => {
-  const toneClass =
-    decision.tone === "ready"
-      ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-      : decision.tone === "last_chance"
-        ? "border-amber-400/30 bg-amber-500/10 text-amber-100"
-        : decision.tone === "ended"
-          ? "border-white/15 bg-white/[0.06] text-white/70"
-          : "border-white/12 bg-white/[0.05] text-white/75";
+  const toneClass = {
+    ready: "border-emerald-400/25 bg-emerald-500/[0.08] text-emerald-100",
+    last_chance: "border-amber-400/25 bg-amber-500/[0.08] text-amber-100",
+    ended: "border-white/[0.12] bg-white/[0.045] text-white/70",
+    checking: "border-primary/25 bg-primary/[0.07] text-violet-100",
+    empty: "border-white/10 bg-white/[0.045] text-white/[0.72]",
+  }[decision.tone];
+
+  const railClass = {
+    ready: "from-emerald-300 via-emerald-400 to-neon-cyan",
+    last_chance: "from-amber-300 via-amber-400 to-neon-yellow",
+    ended: "from-white/35 via-white/25 to-white/10",
+    checking: "from-primary via-accent to-neon-cyan",
+    empty: "from-white/35 via-primary/50 to-white/15",
+  }[decision.tone];
 
   return (
-    <div className={`mb-3 rounded-2xl border px-3.5 py-3 ${toneClass}`} aria-live="polite">
-      <div className="flex items-center gap-2">
-        <span className="relative flex h-2 w-2 shrink-0">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-35" />
-          <span className="relative inline-flex h-2 w-2 rounded-full bg-current opacity-80" />
-        </span>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">{decision.title}</p>
+    <div
+      className={cn(
+        "mb-3 overflow-hidden rounded-[1.35rem] border px-3.5 py-3 shadow-[0_18px_48px_-34px_rgba(0,0,0,0.9)] backdrop-blur-xl",
+        toneClass,
+      )}
+      aria-live="polite"
+    >
+      <div className="flex items-start gap-3">
+        <span className={cn("mt-0.5 h-9 w-1 shrink-0 rounded-full bg-gradient-to-b", railClass)} />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-30" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-current opacity-85" />
+            </span>
+            <p className="truncate text-[10px] font-bold uppercase tracking-[0.18em]">{decision.title}</p>
+          </div>
+          <p className="mt-1.5 text-xs leading-relaxed text-white/[0.56]">{decision.message}</p>
+        </div>
       </div>
-      <p className="mt-1.5 text-xs leading-relaxed text-white/55">{decision.message}</p>
     </div>
   );
 };
@@ -730,45 +749,58 @@ export const PostDateSurvey = ({
     );
   }
 
+  const surveyProgressSteps = ["verdict", "highlights", "safety"] as const;
+  const currentProgressIndex =
+    step === "awaiting_partner"
+      ? 0
+      : Math.max(0, surveyProgressSteps.indexOf(step as (typeof surveyProgressSteps)[number]));
+
   return (
     <AnimatePresence>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto py-6"
+        className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto px-4 py-4 sm:py-6"
+        style={{
+          minHeight: "100dvh",
+          paddingTop: "max(1rem, env(safe-area-inset-top))",
+          paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+        }}
       >
         <motion.div
           initial={{ backdropFilter: "blur(0px)" }}
           animate={{ backdropFilter: "blur(24px)" }}
-          className="absolute inset-0 bg-background/90"
+          className="absolute inset-0 bg-[linear-gradient(180deg,hsl(var(--background)/0.96),hsl(var(--background)/0.9)_48%,hsl(var(--background)/0.98))]"
         />
 
         <motion.div
           initial={{ scale: 0.9, opacity: 0, y: 30 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className="relative z-10 w-full max-w-md mx-4"
+          className="relative z-10 w-full max-w-[26.5rem]"
         >
-          <div className="flex justify-center gap-2 mb-4">
-            {["verdict", "highlights", "safety"].map((s, i) => (
+          <div className="mb-3 flex justify-center gap-2" aria-label="Post-date check-in progress">
+            {surveyProgressSteps.map((s, i) => (
               <div
                 key={s}
-                className={`h-1.5 rounded-full transition-all ${
-                  step === s
-                    ? "w-8 bg-primary"
-                    : i <
-                      ["verdict", "highlights", "safety"].indexOf(step)
-                    ? "w-4 bg-primary/40"
-                    : "w-4 bg-secondary/50"
-                }`}
+                className={cn(
+                  "h-1.5 rounded-full transition-all duration-300",
+                  i === currentProgressIndex
+                    ? "w-10 bg-gradient-to-r from-primary to-accent shadow-[0_0_18px_hsl(var(--primary)/0.45)]"
+                    : i < currentProgressIndex
+                      ? "w-5 bg-primary/45"
+                      : "w-5 bg-white/[0.08]",
+                )}
               />
             ))}
           </div>
 
           <PostDateContinuityStrip decision={continuityDecision} />
 
-          <div className="glass-card p-6 overflow-hidden">
+          <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.12] bg-[linear-gradient(180deg,hsl(var(--card)/0.9),hsl(var(--background)/0.96))] p-5 shadow-[0_28px_90px_-38px_rgba(0,0,0,0.95),0_0_48px_-30px_hsl(var(--primary)/0.7)] backdrop-blur-2xl sm:p-6">
+            <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-primary/35 to-transparent" />
             <AnimatePresence mode="wait">
               {step === "verdict" && (
                 <motion.div key="verdict" className="space-y-3">
@@ -777,6 +809,7 @@ export const PostDateSurvey = ({
                     partnerImage={partnerImage}
                     onVerdict={handleVerdict}
                     onReport={handleReportFromVerdict}
+                    isSubmitting={isSubmitting}
                   />
                   {verdictError && (
                     <div

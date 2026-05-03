@@ -44,8 +44,8 @@ export function getPostDateSurveyContinuityDecision(input: {
   if (!input.hasEventId) {
     return {
       action: "home",
-      title: "Saving your feedback",
-      message: "Your date feedback is being saved before you leave the room.",
+      title: "Saving your check-in",
+      message: "We will route you as soon as your answer is secure.",
       tone: "checking",
     };
   }
@@ -53,8 +53,8 @@ export function getPostDateSurveyContinuityDecision(input: {
   if (!input.eventActive || (input.secondsUntilEventEnd != null && input.secondsUntilEventEnd <= 0)) {
     return {
       action: "event_ended",
-      title: "Event nearly finished",
-      message: "We are saving your feedback and checking whether the lobby is still open.",
+      title: "Event wrap-up",
+      message: "We are saving this answer and checking whether the room is still open.",
       tone: "ended",
     };
   }
@@ -62,8 +62,8 @@ export function getPostDateSurveyContinuityDecision(input: {
   if (input.isDrainingQueue || (input.queuedCount ?? 0) > 0) {
     return {
       action: "ready_gate",
-      title: "Checking next eligible match",
-      message: "If your queued match is eligible, Ready Gate will open automatically.",
+      title: "Next date syncing",
+      message: "If your queued match is still eligible, Ready Gate opens from the lobby.",
       tone: "checking",
     };
   }
@@ -71,8 +71,8 @@ export function getPostDateSurveyContinuityDecision(input: {
   if (input.isSubmittingSurvey) {
     return {
       action: "refreshing_deck",
-      title: "Refreshing event deck",
-      message: "We are looking for a fresh card before returning you to the lobby.",
+      title: "Live deck refresh",
+      message: "We are lining up the freshest eligible card for your return.",
       tone: "checking",
     };
   }
@@ -80,16 +80,16 @@ export function getPostDateSurveyContinuityDecision(input: {
   if (isPostDateEventNearlyOver(input.secondsUntilEventEnd)) {
     return {
       action: "last_chance",
-      title: "Event nearly over",
-      message: "Finish the check-in and we will show any last eligible people still available.",
+      title: "Final live cards",
+      message: "Finish this check-in to see anyone still available before the room closes.",
       tone: "last_chance",
     };
   }
 
   return {
     action: "empty_deck",
-    title: "No eligible match yet",
-    message: "The lobby will refresh from the live event deck when you finish.",
+    title: "Live deck standing by",
+    message: "Finish this check-in and the lobby will keep scanning for eligible people.",
     tone: "empty",
   };
 }
@@ -116,8 +116,8 @@ export function getPostDateLobbyContinuityDecision(input: {
   if (input.yieldingToReadyGate || input.hasQueuedSession) {
     return {
       action: "ready_gate",
-      title: "Preparing Ready Gate",
-      message: "We are syncing the eligible match from the event queue.",
+      title: "Ready Gate warming up",
+      message: "We are syncing the eligible match from the live queue.",
       tone: "checking",
     };
   }
@@ -134,8 +134,8 @@ export function getPostDateLobbyContinuityDecision(input: {
   if (input.deckLoading) {
     return {
       action: "refreshing_deck",
-      title: "Refreshing event deck",
-      message: "Checking the latest eligible cards in this live room.",
+      title: "Live deck refreshing",
+      message: "Checking the newest eligible cards in this room.",
       tone: "checking",
     };
   }
@@ -145,8 +145,8 @@ export function getPostDateLobbyContinuityDecision(input: {
       action: isPostDateEventNearlyOver(input.secondsUntilEventEnd) ? "last_chance" : "fresh_deck",
       title: isPostDateEventNearlyOver(input.secondsUntilEventEnd) ? "Last chance card ready" : "Fresh card ready",
       message: isPostDateEventNearlyOver(input.secondsUntilEventEnd)
-        ? "The event is almost over. This is one of the last eligible cards available."
-        : "Your live deck has a fresh eligible person ready.",
+        ? "The event is almost over. This is one of the final eligible cards."
+        : "Your live deck has someone new ready.",
       tone: isPostDateEventNearlyOver(input.secondsUntilEventEnd) ? "last_chance" : "ready",
     };
   }
@@ -154,8 +154,8 @@ export function getPostDateLobbyContinuityDecision(input: {
   if (isPostDateEventNearlyOver(input.secondsUntilEventEnd)) {
     return {
       action: "last_chance",
-      title: "Event nearly over",
-      message: "No eligible card is available right now. We will keep checking while the lobby is open.",
+      title: "Final room check",
+      message: "No card is ready right now. We will keep checking while the lobby is open.",
       tone: "last_chance",
     };
   }
@@ -163,7 +163,7 @@ export function getPostDateLobbyContinuityDecision(input: {
   if (input.deckError) {
     return {
       action: "refreshing_deck",
-      title: "Refreshing event deck",
+      title: "Deck retrying",
       message: "We could not confirm a fresh card yet. Retry keeps you in the live lobby.",
       tone: "checking",
     };
@@ -171,7 +171,7 @@ export function getPostDateLobbyContinuityDecision(input: {
 
   return {
     action: "empty_deck",
-    title: "No eligible match yet",
+    title: "Deck is calm",
     message: "No fresh card is available right now. The lobby will keep refreshing calmly.",
     tone: "empty",
   };
