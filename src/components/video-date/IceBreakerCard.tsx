@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   fallbackVideoDateIceBreakerState,
+  VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
   normalizeVideoDateIceBreakerIndex,
   normalizeVideoDateIceBreakerQuestions,
   resolveVideoDateIceBreakerIndex,
@@ -48,6 +49,7 @@ export const IceBreakerCard = ({
 }: IceBreakerCardProps) => {
   const [questionState, setQuestionState] = useState<VideoDateIceBreakerState>(() => fallbackVideoDateIceBreakerState());
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [manualPause, setManualPause] = useState<{ startedAtMs: number; untilMs: number } | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
 
   const seedQuestionState = useCallback(async () => {
@@ -115,15 +117,22 @@ export const IceBreakerCard = ({
     return () => window.clearInterval(interval);
   }, []);
 
+  const effectiveNowMs = useMemo(() => {
+    if (!manualPause) return nowMs;
+    const pauseMs = Math.max(0, manualPause.untilMs - manualPause.startedAtMs);
+    if (nowMs < manualPause.untilMs) return manualPause.startedAtMs;
+    return nowMs - pauseMs;
+  }, [manualPause, nowMs]);
+
   const currentIndex = useMemo(
     () =>
       resolveVideoDateIceBreakerIndex(
         questionState.questions.length,
         questionState.questionIndex,
         questionState.questionAnchorAt,
-        nowMs,
+        effectiveNowMs,
       ),
-    [nowMs, questionState.questionAnchorAt, questionState.questionIndex, questionState.questions.length],
+    [effectiveNowMs, questionState.questionAnchorAt, questionState.questionIndex, questionState.questions.length],
   );
   const currentPrompt = questionState.questions[currentIndex] ?? questionState.questions[0] ?? "";
 
@@ -135,6 +144,11 @@ export const IceBreakerCard = ({
     if (!questionState.questions.length) return;
 
     setIsAdvancing(true);
+    const pauseStartedAtMs = Date.now();
+    setManualPause({
+      startedAtMs: pauseStartedAtMs,
+      untilMs: pauseStartedAtMs + VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS,
+    });
     const optimisticIndex = normalizeVideoDateIceBreakerIndex(currentIndex + 1, questionState.questions.length);
     setQuestionState((prev) => ({
       ...prev,
@@ -222,7 +236,7 @@ export const IceBreakerCard = ({
               type="button"
               onClick={onDismiss}
               className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.055] transition-colors hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label="Hide ice-breaker question for 30 seconds"
+              aria-label="Hide ice-breaker question"
               title="Hide"
             >
               <X className="h-4 w-4 text-white/60" aria-hidden />

@@ -1527,9 +1527,13 @@ test("web and native ice breakers render as floating session chrome", () => {
   assert.match(webVideoDatePage, /phase === "handshake" \|\| phase === "date"/);
   assert.match(webVideoDatePage, /remotePlayback\.participantPresent/);
   assert.match(webVideoDatePage, /bottom-\[14\.75rem\][\s\S]*sm:top-32[\s\S]*IceBreakerCard/);
+  assert.match(webVideoDatePage, /showCollapsedIceBreaker/);
+  assert.match(webVideoDatePage, /Show ice-breaker question/);
   assert.match(webVideoDatePage, /bottom-\[6\.75rem\][\s\S]*sm:top-32/);
   assert.doesNotMatch(webVideoDatePage, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
   assert.match(nativeVideoDateRoute, /showFloatingIceBreaker/);
+  assert.match(nativeVideoDateRoute, /showCollapsedIceBreaker/);
+  assert.match(nativeVideoDateRoute, /Show ice-breaker question/);
   assert.match(nativeVideoDateRoute, /iceBreakerBottomOffset/);
   assert.match(nativeVideoDateRoute, /styles\.iceBreakerFloat/);
   assert.match(nativeVideoDateRoute, /DATE_CONTROLS_STACK_HEIGHT/);
@@ -1538,7 +1542,8 @@ test("web and native ice breakers render as floating session chrome", () => {
 
 test("video date ice breakers are synchronized and not local-only", () => {
   assert.match(sharedIceBreakers, /VIDEO_DATE_ICE_BREAKER_PROMPTS/);
-  assert.match(sharedIceBreakers, /VIDEO_DATE_ICE_BREAKER_ROTATION_MS = 30_000/);
+  assert.match(sharedIceBreakers, /VIDEO_DATE_ICE_BREAKER_ROTATION_MS = 8_000/);
+  assert.match(sharedIceBreakers, /VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS = 10_000/);
   assert.match(sharedIceBreakers, /resolveVideoDateIceBreakerIndex/);
   assert.match(iceBreakerSyncMigration, /ADD COLUMN IF NOT EXISTS vibe_question_index/);
   assert.match(iceBreakerSyncMigration, /ADD COLUMN IF NOT EXISTS vibe_question_anchor_at/);
@@ -1548,9 +1553,11 @@ test("video date ice breakers are synchronized and not local-only", () => {
   assert.match(iceBreakerSyncMigration, /GRANT EXECUTE ON FUNCTION public\.advance_video_session_vibe_question\(uuid\) TO authenticated/);
   assert.match(webIceBreakerCard, /@clientShared\/matching\/videoDateIceBreakers/);
   assert.match(webIceBreakerCard, /advance_video_session_vibe_question/);
+  assert.match(webIceBreakerCard, /VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS/);
   assert.match(webIceBreakerCard, /vibe_question_index/);
   assert.match(nativeVideoDateRoute, /getOrSeedVibeQuestionState/);
   assert.match(nativeVideoDateRoute, /advanceVibeQuestion/);
+  assert.match(nativeVideoDateRoute, /VIDEO_DATE_ICE_BREAKER_MANUAL_PAUSE_MS/);
   assert.match(nativeVideoDateRoute, /vibe-questions-\$\{sessionId\}/);
   assert.match(nativeIceBreakerCard, /layout\.minTouchTargetSize/);
   assert.match(nativeIceBreakerCard, /accessibilityLabel="Show another ice-breaker question"/);
@@ -1564,9 +1571,9 @@ test("shared ice breaker state normalizes and rotates from the server anchor", (
   const shuffled = shuffleVideoDateIceBreakerQuestions(["A", "B", "C"], () => 0);
   assert.deepEqual(shuffled, ["B", "C", "A"]);
   const anchor = "2026-05-03T12:00:00.000Z";
-  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 29_999), 1);
-  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 30_000), 2);
-  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 60_000), 0);
+  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 7_999), 1);
+  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 8_000), 2);
+  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 16_000), 0);
 });
 
 test("native ready and date routes validate before requesting camera and microphone", () => {
@@ -1932,11 +1939,11 @@ test("web and native countdown-zero paths complete handshake and last-10s urgenc
   assert.match(nativeVideoDateRoute, /completeHandshakeFromServerDeadline\('handshake_visible_countdown_elapsed'\)/);
   assert.doesNotMatch(nativeVideoDateRoute, /handshake_grace_expiry/);
   assert.match(webVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
-  assert.match(webVibeCheckButton, /Warm-up ending/);
+  assert.match(webVibeCheckButton, /Soft nudge/);
   assert.match(webHandshakeTimer, /const isUrgent = timeLeft <= 10/);
   assert.match(nativeVideoDateRoute, /phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10/);
   assert.match(nativeVibeCheckButton, /const isFinalTenSeconds = timeLeft <= 10/);
-  assert.match(nativeVibeCheckButton, /Warm-up ending/);
+  assert.match(nativeVibeCheckButton, /Soft nudge/);
 });
 
 test("partial join terminal reason is excluded from post-date survey contracts", () => {

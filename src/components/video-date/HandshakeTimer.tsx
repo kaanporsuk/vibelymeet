@@ -100,7 +100,7 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
           className="text-[15px] font-display font-bold tabular-nums"
           animate={
             shouldHeartbeat
-              ? { color: ["hsl(330,81%,60%)", "hsl(0,84%,60%)", "hsl(330,81%,60%)"] }
+              ? { color: ["hsl(263,70%,66%)", "hsl(330,81%,60%)", "hsl(263,70%,66%)"] }
               : {}
           }
           transition={shouldHeartbeat ? { duration: 0.5, repeat: Infinity } : {}}

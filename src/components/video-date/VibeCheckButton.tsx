@@ -60,7 +60,7 @@ export const VibeCheckButton = ({
           animate={{ opacity: [1, 0.4, 1] }}
           transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
         >
-          Warm-up ending
+          Soft nudge
         </motion.p>
       ) : null}
       <div className="flex w-full max-w-[360px] items-center justify-center gap-2.5 rounded-full border border-white/[0.12] bg-black/[0.35] p-1.5 shadow-[0_20px_64px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl">
@@ -107,8 +107,8 @@ export const VibeCheckButton = ({
         className={`max-w-[280px] text-center text-[10.5px] leading-snug ${isFinalTenSeconds ? "text-accent font-medium" : "text-white/[0.45]"}`}
       >
         {isFinalTenSeconds
-          ? "A quiet nudge before the warm-up ends."
-          : "Your choice is saved before the date continues."}
+          ? "Choose from the feeling, not the clock."
+          : "Choose when it feels right."}
       </p>
     </div>
   );

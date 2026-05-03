@@ -68,7 +68,16 @@ mustInclude(
   "onLeave={peerMissing.terminal ? handlePeerMissingLeave : handlePreDateExit}",
   "non-terminal connection overlay Leave must use pre-date escape, not the survey end path",
 );
-mustInclude("webDate", "onLeave={handleLeave}", "active controls must keep their end-date handler");
+mustInclude(
+  "webDate",
+  "onLeave={requestEndDateConfirmation}",
+  "active controls must open the end-date confirmation before leaving",
+);
+mustInclude("webDate", "const confirmEndDate = useCallback", "web end-date confirmation must keep a real confirm handler");
+mustInclude("webDate", "await handleLeave()", "web end-date confirmation must call the canonical leave handler");
+mustInclude("webDate", "End this date?", "web end-date confirmation must keep the safety copy");
+mustInclude("webDate", "Stay", "web end-date confirmation must keep the cancel action");
+mustInclude("webDate", "End date", "web end-date confirmation must keep the destructive action");
 mustInclude("webDate", "isLeaving={isLeavingVideoDate}", "web escape controls must expose in-flight disabled state");
 mustMatch(
   "webDate",
