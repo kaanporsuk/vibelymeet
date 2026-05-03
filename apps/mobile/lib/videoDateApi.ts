@@ -24,6 +24,13 @@ import {
   persistHandshakeDecisionWithVerification,
   type PersistHandshakeDecisionResult,
 } from '@clientShared/matching/videoDateHandshakePersistence';
+import {
+  fallbackVideoDateIceBreakerState,
+  normalizeVideoDateIceBreakerIndex,
+  normalizeVideoDateIceBreakerQuestions,
+  shuffleVideoDateIceBreakerQuestions,
+  type VideoDateIceBreakerState,
+} from '@clientShared/matching/videoDateIceBreakers';
 import type { PostDateSafetyReportPayload } from '@clientShared/postDateOutbox/types';
 
 export type VideoDateSession = {
@@ -1003,59 +1010,71 @@ export async function fetchPartnerProfile(
   };
 }
 
-const VIBE_PROMPTS = [
-  "What's a weird talent you have? 🎭",
-  "Dream travel destination? ✈️",
-  "What's your go-to karaoke song? 🎤",
-  "Best date you've ever been on? 💫",
-  "What's something that instantly makes you smile? 😊",
-  "If you could have dinner with anyone, who? 🍽️",
-  "What's your love language? 💕",
-  "Describe your perfect lazy Sunday ☀️",
-  "What's on your bucket list? ✨",
-  "What makes you feel most alive? 🔥",
-  "Early bird or night owl? 🦉",
-  "What's your comfort movie? 🎬",
-  "Beach vacation or mountain adventure? 🏔️",
-  "What are you passionate about? 💜",
-  "What's your hidden gem restaurant? 🍜",
-];
+export type VibeQuestionState = VideoDateIceBreakerState;
 
-function fisherYatesShuffle<T>(arr: T[]): T[] {
-  const result = [...arr];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
+function parseVibeQuestionState(raw: unknown): VibeQuestionState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as {
+    questions?: unknown;
+    question_index?: unknown;
+    question_anchor_at?: unknown;
+    vibe_questions?: unknown;
+    vibe_question_index?: unknown;
+    vibe_question_anchor_at?: unknown;
+  };
+  const questions = normalizeVideoDateIceBreakerQuestions(row.questions ?? row.vibe_questions);
+  if (!questions.length) return null;
+  const questionIndex = normalizeVideoDateIceBreakerIndex(row.question_index ?? row.vibe_question_index, questions.length);
+  const anchor = row.question_anchor_at ?? row.vibe_question_anchor_at;
+  return {
+    questions,
+    questionIndex,
+    questionAnchorAt: typeof anchor === 'string' && anchor.trim() ? anchor : null,
+  };
 }
 
-/** Get or seed vibe_questions for session; returns array of question strings. */
-export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[]> {
+/** Get or seed synchronized vibe question state for a Video Date session. */
+export async function getOrSeedVibeQuestionState(sessionId: string): Promise<VibeQuestionState> {
   const { data, error: fetchError } = await supabase
     .from('video_sessions')
-    .select('vibe_questions')
+    .select('vibe_questions, vibe_question_index, vibe_question_anchor_at')
     .eq('id', sessionId)
     .maybeSingle();
   if (fetchError) {
     if (__DEV__) console.warn('[videoDateApi] failed to fetch vibe_questions:', fetchError.message);
-    return fisherYatesShuffle(VIBE_PROMPTS);
+    return fallbackVideoDateIceBreakerState();
   }
-  const stored = data?.vibe_questions as string[] | null;
-  if (stored && Array.isArray(stored) && stored.length > 0) return stored;
+  const stored = parseVibeQuestionState(data);
+  if (stored) return stored;
 
-  const shuffled = fisherYatesShuffle(VIBE_PROMPTS);
+  const shuffled = shuffleVideoDateIceBreakerQuestions();
   const { data: seeded, error: seedError } = await supabase.rpc('get_or_seed_video_session_vibe_questions', {
     p_session_id: sessionId,
     p_questions: shuffled,
   });
   if (seedError) {
     if (__DEV__) console.warn('[videoDateApi] failed to seed vibe_questions:', seedError.message);
-    return shuffled;
+    return { questions: shuffled, questionIndex: 0, questionAnchorAt: new Date().toISOString() };
   }
 
-  const seededQuestions = (seeded as { questions?: unknown } | null)?.questions;
-  return Array.isArray(seededQuestions) && seededQuestions.length > 0 ? (seededQuestions as string[]) : shuffled;
+  return parseVibeQuestionState(seeded) ?? { questions: shuffled, questionIndex: 0, questionAnchorAt: new Date().toISOString() };
+}
+
+/** Backwards-compatible helper for callers that only need the seeded question list. */
+export async function getOrSeedVibeQuestions(sessionId: string): Promise<string[]> {
+  return (await getOrSeedVibeQuestionState(sessionId)).questions;
+}
+
+/** Advance the synchronized session question for both participants. */
+export async function advanceVibeQuestion(sessionId: string): Promise<VibeQuestionState | null> {
+  const { data, error } = await supabase.rpc('advance_video_session_vibe_question', {
+    p_session_id: sessionId,
+  });
+  if (error) {
+    if (__DEV__) console.warn('[videoDateApi] failed to advance vibe question:', error.message);
+    return null;
+  }
+  return parseVibeQuestionState(data);
 }
 
 /** Discriminated outcome for `post-date-verdict` (explicit backend failure vs network vs success paths). */

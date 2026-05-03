@@ -3731,6 +3731,8 @@ export type Database = {
           started_at: string
           state: Database["public"]["Enums"]["video_date_state"]
           state_updated_at: string
+          vibe_question_anchor_at: string | null
+          vibe_question_index: number
           vibe_questions: Json | null
         }
         Insert: {
@@ -3767,6 +3769,8 @@ export type Database = {
           started_at?: string
           state?: Database["public"]["Enums"]["video_date_state"]
           state_updated_at?: string
+          vibe_question_anchor_at?: string | null
+          vibe_question_index?: number
           vibe_questions?: Json | null
         }
         Update: {
@@ -3803,6 +3807,8 @@ export type Database = {
           started_at?: string
           state?: Database["public"]["Enums"]["video_date_state"]
           state_updated_at?: string
+          vibe_question_anchor_at?: string | null
+          vibe_question_index?: number
           vibe_questions?: Json | null
         }
         Relationships: [
@@ -4887,6 +4893,10 @@ export type Database = {
         }[]
       }
       get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
+      advance_video_session_vibe_question: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       get_or_seed_video_session_vibe_questions: {
         Args: { p_questions: Json; p_session_id: string }
         Returns: Json

@@ -2920,6 +2920,20 @@ const VideoDate = () => {
   const reconnectOverlayMode =
     dailyReconnectState === "partner_left_grace" ? "partner_away" : "network_interrupted";
   const anyReconnectVisible = transportReconnectVisible || reconnection.isPartnerDisconnected;
+  const showFloatingIceBreaker =
+    isConnected &&
+    remotePlayback.participantPresent &&
+    showIceBreaker &&
+    !showFeedback &&
+    !showMutualToast &&
+    !remotePlayback.playRejected &&
+    !peerMissing.terminal &&
+    !anyReconnectVisible &&
+    (phase === "handshake" || phase === "date");
+  const iceBreakerPositionClass =
+    phase === "handshake" && handshakeTimerStarted
+      ? "bottom-[13.75rem] sm:top-28 sm:bottom-auto"
+      : "bottom-[6.25rem] sm:top-28 sm:bottom-auto";
 
   if (!id || videoDateAccess === "not_found") {
     return (
@@ -3315,12 +3329,12 @@ const VideoDate = () => {
 
       {/* ─── Ice Breaker (floating prompt) ─── */}
       <AnimatePresence>
-        {isConnected && showIceBreaker && !showFeedback && (phase === "handshake" || phase === "date") && (
+        {showFloatingIceBreaker && (
           <motion.div
             initial={{ y: -10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -8, opacity: 0 }}
-            className="pointer-events-auto absolute left-3 right-3 top-24 z-20 mx-auto max-w-[480px] sm:top-28"
+            className={`pointer-events-auto absolute left-3 right-3 z-20 mx-auto max-w-[480px] ${iceBreakerPositionClass}`}
           >
             <IceBreakerCard
               sessionId={id}
