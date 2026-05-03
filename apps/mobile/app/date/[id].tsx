@@ -193,6 +193,18 @@ type SharedDailyCallEntry = {
   lastError: string | null;
 };
 let sharedDailyCallEntry: SharedDailyCallEntry | null = null;
+type NativePrejoinPipelineEntry = {
+  key: string;
+  sessionId: string;
+  userId: string;
+  attemptId: number;
+  startedAtMs: number;
+  promise: Promise<void> | null;
+};
+let sharedNativePrejoinPipelineEntry: NativePrejoinPipelineEntry | null = null;
+function nativePrejoinPipelineKey(sessionId: string, userId: string): string {
+  return `${sessionId}:${userId}`;
+}
 type NativeMediaStreamTrack = import('@daily-co/react-native-webrtc').MediaStreamTrack;
 type NativeDailyCameraFacingMode = 'user' | 'environment';
 type NativeDailyCameraControls = {
@@ -604,6 +616,7 @@ export default function VideoDateScreen() {
   const hasStartedJoinRef = useRef(false);
   const prejoinAttemptSeqRef = useRef(0);
   const prejoinAttemptRef = useRef<PrejoinAttemptState | null>(null);
+  const observedNativePrejoinPipelineKeyRef = useRef<string | null>(null);
   const phaseRef = useRef(phase);
   const localTimeLeftRef = useRef<number | null>(null);
   const timerDriftTrackingReadyRef = useRef(false);
@@ -1240,6 +1253,7 @@ export default function VideoDateScreen() {
     setPartnerEverJoined(false);
     hasStartedJoinRef.current = false;
     prejoinAttemptRef.current = null;
+    observedNativePrejoinPipelineKeyRef.current = null;
     dateEstablishedRef.current = false;
     bootstrapTimingsRef.current = {};
     activePreparedEntryCacheRef.current = null;
@@ -3272,6 +3286,42 @@ export default function VideoDateScreen() {
       return;
     }
 
+    const prejoinPipelineKey = nativePrejoinPipelineKey(sessionId, user.id);
+    const activePrejoinPipeline =
+      sharedNativePrejoinPipelineEntry?.key === prejoinPipelineKey
+        ? sharedNativePrejoinPipelineEntry
+        : null;
+    if (activePrejoinPipeline) {
+      const observerKey = `${activePrejoinPipeline.key}:${activePrejoinPipeline.attemptId}:${activePrejoinPipeline.startedAtMs}`;
+      vdbg('native_prejoin_pipeline_reuse_in_flight', {
+        sessionId,
+        userId: user.id,
+        ownerAttemptId: activePrejoinPipeline.attemptId,
+        ageMs: Date.now() - activePrejoinPipeline.startedAtMs,
+        hasCall: Boolean(callRef.current),
+        hasSharedCall: Boolean(sharedDailyCallEntry?.sessionId === sessionId),
+      });
+      setJoining(true);
+      setIsConnecting(true);
+      if (observedNativePrejoinPipelineKeyRef.current !== observerKey) {
+        observedNativePrejoinPipelineKeyRef.current = observerKey;
+        void activePrejoinPipeline.promise?.finally(() => {
+          const sameSessionAndUser =
+            latestDateRouteSessionIdRef.current === sessionId &&
+            latestDateRouteUserIdRef.current === user.id &&
+            !latestDateRouteEndedRef.current;
+          if (!sameSessionAndUser) return;
+          vdbg('native_prejoin_pipeline_reuse_retry_after_release', {
+            sessionId,
+            userId: user.id,
+            ownerAttemptId: activePrejoinPipeline.attemptId,
+          });
+          setJoinAttemptNonce((n) => n + 1);
+        });
+      }
+      return;
+    }
+
     const attemptId = prejoinAttemptSeqRef.current + 1;
     prejoinAttemptSeqRef.current = attemptId;
     const attemptState: PrejoinAttemptState = {
@@ -3319,6 +3369,22 @@ export default function VideoDateScreen() {
       });
       setJoinAttemptNonce((n) => n + 1);
     };
+
+    const prejoinPipelineEntry: NativePrejoinPipelineEntry = {
+      key: prejoinPipelineKey,
+      sessionId,
+      userId: user.id,
+      attemptId,
+      startedAtMs: Date.now(),
+      promise: null,
+    };
+    sharedNativePrejoinPipelineEntry = prejoinPipelineEntry;
+    observedNativePrejoinPipelineKeyRef.current = `${prejoinPipelineEntry.key}:${attemptId}:${prejoinPipelineEntry.startedAtMs}`;
+    vdbg('native_prejoin_pipeline_started', {
+      sessionId,
+      userId: user.id,
+      attemptId,
+    });
 
     hasStartedJoinRef.current = true;
     vdbg('prejoin_state_hasStartedJoinRef', {
@@ -4938,7 +5004,21 @@ export default function VideoDateScreen() {
       attemptState.completed = true;
     };
 
-    run();
+    const runPromise = run();
+    prejoinPipelineEntry.promise = runPromise;
+    void runPromise.finally(() => {
+      if (sharedNativePrejoinPipelineEntry !== prejoinPipelineEntry) return;
+      vdbg('native_prejoin_pipeline_release', {
+        sessionId,
+        userId: user.id,
+        attemptId,
+        completed: attemptState.completed,
+        currentStep: attemptState.currentStep,
+        cancellationReason: attemptState.cancellationReason,
+        hasSharedCall: Boolean(sharedDailyCallEntry?.sessionId === sessionId),
+      });
+      sharedNativePrejoinPipelineEntry = null;
+    });
     return () => {
       if (callRef.current) {
         vdbg('daily_call_listeners_preserved', {

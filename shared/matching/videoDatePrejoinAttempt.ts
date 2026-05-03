@@ -13,6 +13,7 @@ export type PrejoinAttemptStep =
 
 export function shouldPreservePrejoinAttemptOnCleanup(step: PrejoinAttemptStep): boolean {
   return (
+    step === "truth_fetch" ||
     step === "enter_handshake" ||
     step === "refetch_video_session" ||
     step === "daily_room_truth_guard" ||

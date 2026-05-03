@@ -16,6 +16,9 @@ import Purchases, {
 } from 'react-native-purchases';
 
 let configured = false;
+let currentRevenueCatUserId: string | null = null;
+let revenueCatLoginInFlightUserId: string | null = null;
+let revenueCatLoginInFlight: Promise<void> | null = null;
 
 /**
  * Resolves the RevenueCat API key for the current platform.
@@ -54,6 +57,7 @@ export async function clearRevenueCatUser(): Promise<void> {
   if (!configured) return;
   try {
     await Purchases.logOut();
+    currentRevenueCatUserId = null;
   } catch {
     // best-effort
   }
@@ -61,8 +65,28 @@ export async function clearRevenueCatUser(): Promise<void> {
 
 export async function setRevenueCatUserId(userId: string): Promise<void> {
   if (!configured) return;
+  const nextUserId = userId.trim();
+  if (!nextUserId) return;
+  if (currentRevenueCatUserId === nextUserId) return;
+  if (revenueCatLoginInFlight && revenueCatLoginInFlightUserId === nextUserId) {
+    return revenueCatLoginInFlight;
+  }
+  revenueCatLoginInFlightUserId = nextUserId;
+  revenueCatLoginInFlight = Purchases.logIn(nextUserId)
+    .then(() => {
+      currentRevenueCatUserId = nextUserId;
+    })
+    .catch(() => {
+      // best-effort
+    })
+    .finally(() => {
+      if (revenueCatLoginInFlightUserId === nextUserId) {
+        revenueCatLoginInFlightUserId = null;
+        revenueCatLoginInFlight = null;
+      }
+    });
   try {
-    await Purchases.logIn(userId);
+    await revenueCatLoginInFlight;
   } catch {
     // best-effort
   }
