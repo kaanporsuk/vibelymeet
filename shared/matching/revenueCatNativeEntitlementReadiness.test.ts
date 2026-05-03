@@ -85,7 +85,9 @@ test("RevenueCat dependency and native SDK contract remain present", () => {
   assert.match(nativePackageJson, /"react-native-purchases"\s*:/);
   assert.match(revenueCat, /import Purchases/);
   assert.match(revenueCat, /Purchases\.configure\(\{ apiKey: key \}\)/);
-  assert.match(revenueCat, /Purchases\.logIn\(userId\)/);
+  assert.match(revenueCat, /currentRevenueCatUserId === nextUserId/);
+  assert.match(revenueCat, /revenueCatLoginInFlightUserId === nextUserId/);
+  assert.match(revenueCat, /Purchases\.logIn\(nextUserId\)/);
   assert.match(revenueCat, /Purchases\.getOfferings\(\)/);
   assert.match(revenueCat, /Purchases\.purchasePackage\(pkg\)/);
   assert.match(revenueCat, /Purchases\.restorePurchases\(\)/);
@@ -134,7 +136,8 @@ test("RevenueCat webhook and server sync reconcile into backend entitlements", (
   assert.match(syncRevenueCatSubscriber, /REVENUECAT_SECRET_API_KEY/);
   assert.match(syncRevenueCatSubscriber, /https:\/\/api\.revenuecat\.com\/v1\/subscribers/);
   assert.match(revenueCatShared, /provider: 'revenuecat'/);
-  assert.match(revenueCatShared, /subscription_tier: tier/);
+  assert.match(revenueCatShared, /recompute_profile_subscription_entitlement/);
+  assert.match(revenueCatShared, /supabase\.rpc\('recompute_profile_subscription_entitlement'/);
 });
 
 test("web Stripe subscription and credit semantics remain present", () => {

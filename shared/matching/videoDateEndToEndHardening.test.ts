@@ -277,6 +277,14 @@ const nativeVideoDateDailyMediaConfig = readFileSync(
   join(process.cwd(), "apps/mobile/lib/videoDateDailyMediaConfig.ts"),
   "utf8",
 );
+const nativeOneSignal = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/onesignal.ts"),
+  "utf8",
+);
+const nativeRevenueCat = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/revenuecat.ts"),
+  "utf8",
+);
 const videoDateMediaContract = readFileSync(
   join(process.cwd(), "shared/matching/videoDateMediaContract.ts"),
   "utf8",
@@ -1197,6 +1205,11 @@ test("native date entry reuses same-session Daily joins across remounts and resc
     nativeVideoDateRoute,
     /type SharedDailyCallEntryState = 'creating' \| 'joining' \| 'joined' \| 'failed' \| 'leaving'/,
   );
+  assert.match(nativeVideoDateRoute, /type NativePrejoinPipelineEntry = \{/);
+  assert.match(nativeVideoDateRoute, /sharedNativePrejoinPipelineEntry/);
+  assert.match(nativeVideoDateRoute, /nativePrejoinPipelineKey\(sessionId, user\.id\)/);
+  assert.match(nativeVideoDateRoute, /native_prejoin_pipeline_reuse_in_flight/);
+  assert.match(nativeVideoDateRoute, /native_prejoin_pipeline_release/);
   assert.match(nativeVideoDateRoute, /joinPromise: Promise<void> \| null/);
   assert.match(nativeVideoDateRoute, /daily_call_singleton_reuse_join_in_flight/);
   assert.match(nativeVideoDateRoute, /await sharedCall\.joinPromise/);
@@ -1210,6 +1223,15 @@ test("native date entry reuses same-session Daily joins across remounts and resc
   assert.match(nativeEventLobby, /launch_already_in_progress/);
   assert.doesNotMatch(nativeEventLobby, /bypassDuplicateBurstForRescue/);
   assert.doesNotMatch(nativeDateNavigationGuard, /bypassDuplicateBurstForRescue/);
+});
+
+test("native provider wrappers coalesce duplicate foreground/user sync noise", () => {
+  assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser = new Map<string, Promise<PushSyncResult>>/);
+  assert.match(nativeOneSignal, /syncPushWithBackendIfPermissionGranted:coalesced/);
+  assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser\.set\(userId, run\)/);
+  assert.match(nativeOneSignal, /permissionGrantedSyncInFlightByUser\.delete\(userId\)/);
+  assert.match(nativeRevenueCat, /currentRevenueCatUserId === nextUserId/);
+  assert.match(nativeRevenueCat, /revenueCatLoginInFlightUserId === nextUserId/);
 });
 
 test("native video date capture uses supported Daily defaults while web keeps explicit portrait constraints", () => {

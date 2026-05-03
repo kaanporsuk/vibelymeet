@@ -24,6 +24,7 @@ let lastAppliedTagDigest: string | null = null;
 let activeIdentityUserId: string | null = null;
 let lastLoggedInUserId: string | null = null;
 let identityGeneration = 0;
+const permissionGrantedSyncInFlightByUser = new Map<string, Promise<PushSyncResult>>();
 
 function syncResult(
   code: PushSyncResult['code'],
@@ -218,14 +219,25 @@ export async function registerPushWithBackend(userId: string): Promise<PushSyncR
  */
 export async function syncPushWithBackendIfPermissionGranted(userId: string): Promise<PushSyncResult> {
   if (!APP_ID) return syncResult('app_id_missing');
-  pushSyncDevLog('syncPushWithBackendIfPermissionGranted', { userId });
-  try {
-    if ((await getOsPushPermissionState()) !== 'granted') return syncResult('permission_denied');
-    return await pushSubscriptionToBackend(userId);
-  } catch (e) {
-    console.warn('[Vibely] syncPushWithBackendIfPermissionGranted error:', e);
-    return syncResult('upsert_failed', null, e instanceof Error ? e.message : String(e));
+  const existing = permissionGrantedSyncInFlightByUser.get(userId);
+  if (existing) {
+    pushSyncDevLog('syncPushWithBackendIfPermissionGranted:coalesced', { userId });
+    return existing;
   }
+  pushSyncDevLog('syncPushWithBackendIfPermissionGranted', { userId });
+  const run = (async () => {
+    try {
+      if ((await getOsPushPermissionState()) !== 'granted') return syncResult('permission_denied');
+      return await pushSubscriptionToBackend(userId);
+    } catch (e) {
+      console.warn('[Vibely] syncPushWithBackendIfPermissionGranted error:', e);
+      return syncResult('upsert_failed', null, e instanceof Error ? e.message : String(e));
+    }
+  })().finally(() => {
+    permissionGrantedSyncInFlightByUser.delete(userId);
+  });
+  permissionGrantedSyncInFlightByUser.set(userId, run);
+  return run;
 }
 
 export function logoutOneSignal(): void {

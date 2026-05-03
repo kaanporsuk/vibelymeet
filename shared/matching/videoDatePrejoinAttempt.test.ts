@@ -4,6 +4,7 @@ import { shouldPreservePrejoinAttemptOnCleanup, type PrejoinAttemptStep } from "
 
 test("prejoin cleanup preserves server-mutating and Daily acquisition steps", () => {
   const preservingSteps: PrejoinAttemptStep[] = [
+    "truth_fetch",
     "enter_handshake",
     "refetch_video_session",
     "daily_room_truth_guard",
@@ -22,7 +23,6 @@ test("prejoin cleanup can release the latch before server mutation starts", () =
     "effect_started",
     "initial_state",
     "permissions",
-    "truth_fetch",
     "handshake_guard",
   ];
 
