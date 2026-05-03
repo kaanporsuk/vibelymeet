@@ -93,7 +93,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
   if (hasDecided) {
     return (
       <View style={styles.stripWrap}>
-        <View style={[styles.lockedRow, { borderColor: theme.tint, backgroundColor: theme.tintSoft }]}>
+        <View style={[styles.lockedRow, { borderColor: theme.tint, backgroundColor: 'rgba(8,8,12,0.72)' }]}>
           <Ionicons name={decision ? 'heart' : 'close-circle'} size={18} color={theme.tint} />
           <Text style={[styles.lockedLabel, { color: theme.tint }]}>{decision ? 'Vibed' : 'Passed'}</Text>
         </View>
@@ -112,15 +112,19 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         </Animated.Text>
       ) : null}
 
-      <View style={styles.row}>
+      <Text style={[styles.guidance, { color: theme.text }]}>Choose only when it feels right</Text>
+
+      <View style={[styles.row, { backgroundColor: 'rgba(0,0,0,0.34)', borderColor: theme.glassBorder }]}>
         <Pressable
           onPress={() => void handlePress('pass')}
           disabled={disabled || submitting !== null}
+          accessibilityRole="button"
+          accessibilityLabel="Pass"
           style={({ pressed }) => [
             styles.passShell,
             {
-              borderColor: 'rgba(255,255,255,0.22)',
-              backgroundColor: 'rgba(12,12,16,0.72)',
+              borderColor: 'rgba(255,255,255,0.12)',
+              backgroundColor: 'rgba(255,255,255,0.06)',
             },
             (pressed || disabled || submitting !== null) && styles.pressed,
           ]}
@@ -139,6 +143,8 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
           <Pressable
             onPress={() => void handlePress('vibe')}
             disabled={disabled || submitting !== null}
+            accessibilityRole="button"
+            accessibilityLabel="Vibe"
             style={({ pressed }) => [styles.vibeShell, (pressed || disabled || submitting !== null) && styles.pressed]}
           >
             <LinearGradient
@@ -172,14 +178,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 370,
     alignSelf: 'center',
   },
   lastChanceTag: {
     fontSize: 11,
-    letterSpacing: 1.4,
+    letterSpacing: 2,
     fontFamily: fonts.bodyBold,
     textTransform: 'uppercase',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(236,72,153,0.12)',
+    overflow: 'hidden',
+  },
+  guidance: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fonts.bodyMedium,
+    opacity: 0.82,
   },
   row: {
     flexDirection: 'row',
@@ -187,6 +204,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     width: '100%',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    padding: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.34,
+    shadowRadius: 28,
+    elevation: 7,
   },
   passShell: {
     flex: 1,
@@ -195,6 +220,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    minHeight: 50,
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
@@ -209,6 +235,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
   vibeGradient: {
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -232,6 +259,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     borderRadius: radius.pill,
     borderWidth: 1,
+    shadowColor: 'hsl(263, 70%, 66%)',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 22,
+    elevation: 5,
   },
   lockedLabel: {
     fontSize: 14,

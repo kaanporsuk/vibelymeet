@@ -1197,6 +1197,7 @@ export default function VideoDateScreen() {
   }, [
     sessionId,
     phase,
+    session,
     session?.state,
     session?.phase,
     session?.date_started_at,
@@ -5794,6 +5795,7 @@ export default function VideoDateScreen() {
           </View>
         )}
       </View>
+      <View pointerEvents="none" style={styles.remoteGlassWash} />
 
       <View style={[styles.localPip, { borderColor: theme.tint }]}>
         {localParticipant && localVideoTrack ? (
@@ -5822,6 +5824,7 @@ export default function VideoDateScreen() {
             <Ionicons name="mic-off" size={12} color="#fff" />
           </View>
         )}
+        <View pointerEvents="none" style={styles.localPipHandle} />
       </View>
 
         {showJoiningOverlay && (
@@ -6205,17 +6208,27 @@ const styles = StyleSheet.create({
   button: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16 },
   remoteContainer: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000' },
+  remoteGlassWash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+  },
   placeholderRemote: { justifyContent: 'center', alignItems: 'center' },
   placeholderText: { color: '#888', fontSize: 16 },
   localPip: {
     position: 'absolute',
-    top: 100,
+    top: 108,
     right: 16,
-    width: 100,
-    height: 140,
-    borderRadius: 12,
+    width: 112,
+    height: 154,
+    borderRadius: 22,
     overflow: 'hidden',
-    borderWidth: 2,
+    borderWidth: 1.5,
+    backgroundColor: '#000',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.48,
+    shadowRadius: 28,
+    elevation: 10,
   },
   localVideo: { width: '100%', height: '100%' },
   placeholderLocal: { justifyContent: 'center', alignItems: 'center' },
@@ -6223,15 +6236,30 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 6,
     left: 6,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: 'hsl(0, 84%, 60%)',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+  localPipHandle: {
+    position: 'absolute',
+    bottom: 8,
+    left: '50%',
+    width: 32,
+    height: 4,
+    marginLeft: -16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.32)',
   },
   topBar: {
     position: 'absolute',
-    top: 48,
+    top: 50,
     left: 16,
     right: 16,
     flexDirection: 'row',
@@ -6248,14 +6276,26 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   phaseTimePill: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 22,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.28,
+    shadowRadius: 22,
+    elevation: 5,
   },
-  phaseTimeText: { fontSize: 13, fontWeight: '700', letterSpacing: 0.2 },
-  waitingTimerPill: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.4)' },
-  waitingTimerText: { fontSize: 12, fontWeight: '600' },
+  phaseTimeText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
+  waitingTimerPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  waitingTimerText: { fontSize: 12, fontWeight: '700' },
   initialTimeoutWrap: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -6293,12 +6333,17 @@ const styles = StyleSheet.create({
     zIndex: 24,
   },
   addTimeFabInner: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: 'hsl(263, 70%, 66%)',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.24,
+    shadowRadius: 22,
+    elevation: 6,
   },
   handshakeBottomStack: {
     position: 'absolute',

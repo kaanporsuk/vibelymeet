@@ -38,8 +38,8 @@ export const VibeCheckButton = ({
 
   if (hasDecided) {
     return (
-      <div className="flex flex-col items-center gap-1.5">
-        <div className="relative flex items-center gap-2 px-6 py-3 rounded-full border border-primary/50 bg-primary/20 cursor-default">
+      <div className="flex flex-col items-center gap-2">
+        <div className="relative flex min-h-12 items-center gap-2 rounded-full border border-primary/50 bg-black/50 px-6 py-3 shadow-[0_18px_45px_rgba(0,0,0,0.34)] backdrop-blur-2xl cursor-default">
           <Check className="w-5 h-5 text-primary" />
           <span className="text-sm font-display font-semibold text-primary">
             {decision ? "Vibed" : "Passed"}
@@ -53,10 +53,10 @@ export const VibeCheckButton = ({
   }
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex w-full flex-col items-center gap-2 px-4">
       {isFinalTenSeconds && !hasDecided ? (
         <motion.p
-          className="text-[11px] font-display font-bold tracking-widest text-primary uppercase"
+          className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-display font-bold tracking-[0.22em] text-accent uppercase"
           animate={{ opacity: [1, 0.4, 1] }}
           transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
         >
@@ -64,19 +64,20 @@ export const VibeCheckButton = ({
         </motion.p>
       ) : null}
       <p
-        className="max-w-[240px] text-center text-[11px] font-medium leading-snug text-foreground"
+        className="max-w-[280px] text-center text-[12px] font-medium leading-snug text-white/80"
       >
         Choose only when it feels right
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex w-full max-w-[360px] items-center justify-center gap-3 rounded-full border border-white/10 bg-black/30 p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
         <motion.button
           onClick={() => void handleTap("pass")}
           disabled={disabled || submitting !== null}
           whileTap={{ scale: 0.94 }}
-          className="relative flex items-center gap-2 px-4 py-3 rounded-full border border-border/70 bg-secondary/50 text-muted-foreground transition-colors disabled:opacity-60"
+          aria-label="Pass"
+          className="relative flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 text-white/60 transition-colors hover:bg-white/[0.09] hover:text-white/80 disabled:opacity-60"
         >
           <X className="w-4 h-4" />
-          <span className="text-sm font-display font-semibold">
+          <span className="text-[15px] font-display font-semibold">
             {submitting === "pass" ? "Saving..." : "Pass"}
           </span>
         </motion.button>
@@ -97,16 +98,18 @@ export const VibeCheckButton = ({
               : {}
           }
           transition={isFinalTenSeconds ? { duration: 0.82, repeat: Infinity, ease: "easeInOut" } : {}}
-          className="relative flex items-center gap-2 px-5 py-3 rounded-full border-2 border-primary/80 bg-primary text-primary-foreground shadow-lg transition-colors disabled:opacity-60"
+          aria-label="Vibe"
+          className="relative flex min-h-12 flex-[1.12] items-center justify-center gap-2 overflow-hidden rounded-full border border-white/20 bg-gradient-to-r from-primary to-accent px-5 py-3 text-primary-foreground shadow-[0_18px_44px_hsl(var(--primary)/0.34)] transition-colors disabled:opacity-60"
         >
-          <Heart className="w-5 h-5 fill-primary-foreground/30" />
-          <span className="text-sm font-display font-semibold">
+          <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.34),transparent_34%)]" aria-hidden />
+          <Heart className="relative w-5 h-5 fill-primary-foreground/25" />
+          <span className="relative text-[15px] font-display font-semibold">
             {submitting === "vibe" ? "Saving..." : "Vibe"}
           </span>
         </motion.button>
       </div>
       <p
-        className={`max-w-[240px] text-center text-[10px] leading-snug ${isFinalTenSeconds ? "text-primary font-medium" : "text-muted-foreground/70"}`}
+        className={`max-w-[280px] text-center text-[10.5px] leading-snug ${isFinalTenSeconds ? "text-accent font-medium" : "text-white/40"}`}
       >
         {isFinalTenSeconds
           ? "A quiet nudge before the warm-up ends."

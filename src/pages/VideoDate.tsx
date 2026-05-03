@@ -2624,10 +2624,7 @@ const VideoDate = () => {
       {
         markDateFlowEntered();
         clearHandshakeGraceState();
-        setPhase("ended");
-        setTimeLeft(0);
-        setShowFeedback(false);
-        setStatus("offline");
+        openPostDateSurvey("local_end");
       }
     } catch (error) {
       recordUserAction("video_date_end_failed", {
@@ -2645,7 +2642,7 @@ const VideoDate = () => {
       toast.error("Couldn't finish ending the date. Please try again.");
       explicitEndRequestedRef.current = "idle";
     }
-  }, [id, phase, timeLeft, dateExtraSeconds, dateStartedAt, recoverTerminalPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, setStatus]);
+  }, [id, phase, timeLeft, dateExtraSeconds, recoverTerminalPostDateSurvey, markDateFlowEntered, clearHandshakeGraceState, openPostDateSurvey]);
 
   useEffect(() => {
     handleCallEndRef.current = handleCallEnd;
@@ -2780,11 +2777,7 @@ const VideoDate = () => {
   );
 
   const handleLeave = useCallback(async (opts?: { reason?: VideoDateEndReason }) => {
-    const hasDateEntryTruth =
-      hasEnteredDateFlowRef.current ||
-      phaseRef.current === "date" ||
-      Boolean(dateStartedAt) ||
-      videoSessionHasEncounterExposureTruth(handshakeTruth);
+    const hasDateEntryTruth = hasEnteredDateFlowRef.current || phaseRef.current === "date" || Boolean(dateStartedAt) || videoSessionHasEncounterExposureTruth(handshakeTruth);
     if (!hasDateEntryTruth) {
       await handlePreDateExit({
         reason: opts?.reason ?? "ended_from_client",
@@ -2803,7 +2796,7 @@ const VideoDate = () => {
     await endCall("user_leave_button");
     toast("You left the date — stay safe! 💚", { duration: 2000 });
     await handleCallEnd(opts?.reason);
-  }, [dateStartedAt, endCall, handleCallEnd, handlePreDateExit, clearHandshakeGraceState, id, phase]);
+  }, [dateStartedAt, endCall, handleCallEnd, handlePreDateExit, clearHandshakeGraceState, handshakeTruth, id, phase]);
 
   useEffect(() => {
     if (!peerMissing.terminal || !id) return;
@@ -2968,8 +2961,8 @@ const VideoDate = () => {
     (phase === "handshake" || phase === "date");
   const iceBreakerPositionClass =
     phase === "handshake" && handshakeTimerStarted
-      ? "bottom-[13.75rem] sm:top-28 sm:bottom-auto"
-      : "bottom-[6.25rem] sm:top-28 sm:bottom-auto";
+      ? "bottom-[14.75rem] sm:top-32 sm:bottom-auto"
+      : "bottom-[6.75rem] sm:top-32 sm:bottom-auto";
 
   if (!id || videoDateAccess === "not_found") {
     return (
@@ -3183,23 +3176,24 @@ const VideoDate = () => {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-3 pb-2"
+        className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 px-4 pb-3"
         style={{
+          paddingTop: "max(0.875rem, env(safe-area-inset-top))",
           background:
-            "linear-gradient(to bottom, hsl(var(--background) / 0.8), transparent)",
+            "linear-gradient(to bottom, hsl(var(--background) / 0.92), hsl(var(--background) / 0.42) 62%, transparent)",
         }}
       >
         {/* Partner info pill */}
         <motion.button
           whileTap={{ scale: 0.95 }}
           onClick={() => isConnected && setShowProfileSheet(true)}
-          className="flex items-center gap-2 glass-card px-3 py-2"
+          className="flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/40 px-2.5 py-2 text-left shadow-[0_14px_42px_rgba(0,0,0,0.35)] backdrop-blur-2xl transition-colors hover:bg-black/50"
         >
           {partnerPhotoUrl ? (
             <img
               src={partnerPhotoUrl}
               alt={partner.name}
-              className="w-8 h-8 rounded-full object-cover border border-primary/30"
+              className="w-10 h-10 rounded-full object-cover border border-primary/35 shadow-[0_0_18px_hsl(var(--primary)/0.2)]"
               loading="eager"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
@@ -3209,11 +3203,11 @@ const VideoDate = () => {
               size="sm"
               rounded="full"
               loading="eager"
-              className="w-8 h-8"
+              className="w-10 h-10"
             />
           )}
-          <div className="text-left">
-            <p className="text-sm font-display font-semibold text-foreground leading-tight">
+          <div className="min-w-0 text-left">
+            <p className="truncate text-[15px] font-display font-semibold text-foreground leading-tight">
               {partner.name}
               {partner.age > 0 && (
                 <span className="font-normal text-foreground/60 ml-1">
@@ -3222,20 +3216,20 @@ const VideoDate = () => {
               )}
             </p>
             {isConnected && (
-              <div className="flex flex-col items-start gap-0.5">
-                <div className="flex items-center gap-1">
+              <div className="flex min-w-0 flex-col items-start gap-0.5">
+                <div className="flex items-center gap-1.5">
                   <motion.div
-                    className="w-1.5 h-1.5 rounded-full bg-green-500"
+                    className="w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.75)]"
                     animate={{ opacity: [1, 0.5, 1] }}
                     transition={{ duration: 2, repeat: Infinity }}
                   />
-                  <span className="text-[10px] text-green-500">
+                  <span className="text-[11px] font-medium text-green-400">
                     {phase === "handshake" ? (handshakeTimerStarted ? "Warm up" : "Settling in") : "Live"}
                   </span>
                 </div>
                 {networkTier !== "good" && (
                   <span
-                    className={`text-[10px] ${networkTier === "poor" ? "text-destructive" : "text-amber-500"}`}
+                    className={`max-w-[118px] truncate text-[10px] ${networkTier === "poor" ? "text-destructive" : "text-amber-400"}`}
                   >
                     {networkTier === "poor" ? "Connection is fragile" : "Connection is settling"}
                   </span>
@@ -3246,14 +3240,14 @@ const VideoDate = () => {
         </motion.button>
 
         {/* Phase indicator + Timer */}
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {isConnected && phase === "handshake" && (
             <motion.div
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="px-2.5 py-1 rounded-full bg-primary/15 border border-primary/30"
+              className="hidden px-3 py-2 rounded-full bg-primary/15 border border-primary/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl sm:block"
             >
-              <span className="text-[10px] font-medium text-primary uppercase tracking-wider">
+              <span className="text-[11px] font-display font-semibold text-primary uppercase tracking-[0.18em]">
                 {handshakeTimerStarted ? "Warm up" : "Settling in"}
               </span>
             </motion.div>
@@ -3262,9 +3256,9 @@ const VideoDate = () => {
             <motion.div
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="px-2.5 py-1 rounded-full bg-accent/15 border border-accent/30"
+              className="px-3 py-2 rounded-full bg-accent/15 border border-accent/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl"
             >
-              <span className="text-[10px] font-medium text-accent uppercase tracking-wider">
+              <span className="text-[11px] font-display font-semibold text-accent uppercase tracking-[0.18em]">
                 Date
               </span>
             </motion.div>
@@ -3279,9 +3273,9 @@ const VideoDate = () => {
             <motion.div
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className="px-3 py-2 rounded-full bg-background/50 border border-border/50"
+              className="px-3 py-2 rounded-full bg-black/40 border border-white/10 backdrop-blur-xl"
             >
-              <span className="text-[10px] text-muted-foreground">Waiting together</span>
+              <span className="text-[11px] text-white/60">Waiting together</span>
             </motion.div>
           )}
         </div>
@@ -3346,8 +3340,11 @@ const VideoDate = () => {
           mode={transportReconnectVisible ? reconnectOverlayMode : "partner_away"}
         />
 
+        {/* Cinematic glass wash */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_15%,rgba(168,85,247,0.10),transparent_48%),linear-gradient(to_bottom,rgba(0,0,0,0.16),transparent_32%,rgba(0,0,0,0.16))] pointer-events-none" />
+
         {/* Bottom gradient */}
-        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-background via-background/50 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-background via-background/70 to-transparent pointer-events-none" />
       </div>
 
       {/* ─── Self-View PIP ─── */}
@@ -3370,7 +3367,7 @@ const VideoDate = () => {
             initial={{ y: -10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -8, opacity: 0 }}
-            className={`pointer-events-auto absolute left-3 right-3 z-20 mx-auto max-w-[480px] ${iceBreakerPositionClass}`}
+            className={`pointer-events-auto absolute left-4 right-4 z-20 mx-auto max-w-[520px] ${iceBreakerPositionClass}`}
           >
             <IceBreakerCard
               sessionId={id}
@@ -3387,7 +3384,7 @@ const VideoDate = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
-            className="absolute bottom-28 left-0 right-0 z-25 flex justify-center"
+            className="absolute bottom-[7.5rem] left-0 right-0 z-25 flex justify-center sm:bottom-28"
           >
             <VibeCheckButton
               timeLeft={timeLeft ?? 0}
@@ -3407,7 +3404,7 @@ const VideoDate = () => {
       </AnimatePresence>
 
       {/* ─── Controls Dock ─── */}
-      <div className="absolute bottom-0 left-0 right-0 px-3 pb-safe z-30">
+      <div className="absolute bottom-0 left-0 right-0 z-30 px-3 pb-safe">
         <VideoDateControls
           isMuted={isMuted}
           isVideoOff={isVideoOff}

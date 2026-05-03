@@ -25,6 +25,10 @@ export function IceBreakerCard({ question, onDismiss, onShuffle }: Props) {
       accessibilityRole="text"
       accessibilityLabel={`Ice-breaker question: ${question}`}
     >
+      <View style={[styles.accentRail, { backgroundColor: theme.tint }]} />
+      <View style={[styles.promptIcon, { backgroundColor: theme.tintSoft, borderColor: 'rgba(139,92,246,0.24)' }]}>
+        <Ionicons name="sparkles" size={16} color={theme.tint} />
+      </View>
       <Text style={[styles.question, { color: theme.text }]} numberOfLines={2}>
         {question}
       </Text>
@@ -66,20 +70,43 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: layout.contentWidth,
-    minHeight: 60,
+    minHeight: 70,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: radius['2xl'],
+    borderRadius: 22,
     borderWidth: 1,
     gap: spacing.sm,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.3,
+    shadowRadius: 28,
+    elevation: 7,
+  },
+  accentRail: {
+    position: 'absolute',
+    left: 0,
+    top: 12,
+    bottom: 12,
+    width: 4,
+    borderTopRightRadius: 999,
+    borderBottomRightRadius: 999,
+  },
+  promptIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   question: {
     flex: 1,
     ...typography.body,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: '600',
   },
   actions: {

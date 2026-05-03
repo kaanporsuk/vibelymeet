@@ -34,7 +34,7 @@ export const MutualVibeToast = ({ onComplete }: MutualVibeToastProps) => {
 
         {/* Card */}
         <motion.div
-          className="glass-card px-8 py-6 text-center neon-glow-violet"
+          className="rounded-[2rem] border border-white/10 bg-black/50 px-8 py-7 text-center shadow-[0_28px_90px_rgba(0,0,0,0.46),0_0_60px_hsl(var(--primary)/0.28),inset_0_1px_0_rgba(255,255,255,0.1)] backdrop-blur-2xl"
           animate={{
             boxShadow: [
               "0 0 20px hsl(var(--primary) / 0.4), inset 0 0 20px hsl(var(--primary) / 0.1)",

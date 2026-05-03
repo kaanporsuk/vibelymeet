@@ -7,7 +7,7 @@ interface HandshakeTimerProps {
 }
 
 export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerProps) => {
-  const progress = timeLeft / totalTime;
+  const progress = Math.max(0, Math.min(1, timeLeft / totalTime));
   const isUrgent = timeLeft <= 10;
 
   const formatTime = (seconds: number) => {
@@ -17,8 +17,8 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
   };
 
   // Ring SVG parameters
-  const size = 56;
-  const strokeWidth = 3.5;
+  const size = 64;
+  const strokeWidth = 4;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - progress);
@@ -41,7 +41,12 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ delay: 0.2 }}
-      className="relative flex items-center justify-center"
+      className="relative flex items-center justify-center rounded-full bg-black/40 p-1 backdrop-blur-xl ring-1 ring-white/10"
+      style={{
+        boxShadow: isUrgent
+          ? "0 0 28px hsl(330 81% 60% / 0.32), inset 0 0 18px hsl(0 0% 100% / 0.04)"
+          : "0 12px 34px rgb(0 0 0 / 0.36), inset 0 0 18px hsl(0 0% 100% / 0.04)",
+      }}
     >
       {/* Glow behind when urgent */}
       {isUrgent && (
@@ -66,9 +71,9 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="hsl(var(--muted))"
+          stroke="hsl(var(--foreground))"
           strokeWidth={strokeWidth}
-          opacity={0.3}
+          opacity={0.14}
         />
         <motion.circle
           cx={size / 2}
@@ -91,7 +96,7 @@ export const HandshakeTimer = ({ timeLeft, totalTime, phase }: HandshakeTimerPro
 
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <motion.span
-          className="text-sm font-display font-bold tabular-nums"
+          className="text-[15px] font-display font-bold tabular-nums"
           animate={
             isUrgent
               ? { color: ["hsl(330,81%,60%)", "hsl(0,84%,60%)", "hsl(330,81%,60%)"] }

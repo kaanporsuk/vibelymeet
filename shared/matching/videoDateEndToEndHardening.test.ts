@@ -1449,8 +1449,8 @@ test("web and native ice breakers render as floating session chrome", () => {
   assert.match(webVideoDatePage, /dismissIceBreakerTemporarily/);
   assert.match(webVideoDatePage, /phase === "handshake" \|\| phase === "date"/);
   assert.match(webVideoDatePage, /remotePlayback\.participantPresent/);
-  assert.match(webVideoDatePage, /bottom-\[13\.75rem\][\s\S]*sm:top-28[\s\S]*IceBreakerCard/);
-  assert.match(webVideoDatePage, /bottom-\[6\.25rem\][\s\S]*sm:top-28/);
+  assert.match(webVideoDatePage, /bottom-\[14\.75rem\][\s\S]*sm:top-32[\s\S]*IceBreakerCard/);
+  assert.match(webVideoDatePage, /bottom-\[6\.75rem\][\s\S]*sm:top-32/);
   assert.doesNotMatch(webVideoDatePage, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
   assert.match(nativeVideoDateRoute, /showFloatingIceBreaker/);
   assert.match(nativeVideoDateRoute, /iceBreakerBottomOffset/);
