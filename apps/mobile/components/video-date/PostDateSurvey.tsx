@@ -15,7 +15,8 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { typography, spacing, radius } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { typography, spacing, radius, shadows } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { trackEvent } from '@/lib/analytics';
@@ -137,47 +138,52 @@ const ContinuityStrip = ({
 }: {
   decision: PostDateContinuityDecision;
   theme: (typeof Colors)[keyof typeof Colors];
-}) => (
-  <View
-    style={[
-      styles.continuityStrip,
-      {
-        borderColor:
-          decision.tone === 'last_chance'
-            ? withNativeAlpha('#f59e0b', 0.38)
-            : decision.tone === 'ready'
-              ? withNativeAlpha(theme.success, 0.36)
-              : theme.border,
-        backgroundColor:
-          decision.tone === 'last_chance'
-            ? withNativeAlpha('#f59e0b', 0.12)
-            : decision.tone === 'ready'
-              ? withNativeAlpha(theme.success, 0.12)
-              : theme.surfaceSubtle,
-      },
-    ]}
-  >
-    <View style={styles.continuityTitleRow}>
-      <View
-        style={[
-          styles.continuityDot,
-          {
-            backgroundColor:
-              decision.tone === 'last_chance'
-                ? '#f59e0b'
-                : decision.tone === 'ready'
-                  ? theme.success
-                  : theme.tint,
-          },
-        ]}
-      />
-      <Text style={[styles.continuityTitle, { color: theme.text }]}>{decision.title}</Text>
+}) => {
+  const accent =
+    decision.tone === 'last_chance'
+      ? '#f59e0b'
+      : decision.tone === 'ready'
+        ? theme.success
+        : decision.tone === 'ended'
+          ? theme.mutedForeground
+          : theme.tint;
+
+  return (
+    <View
+      style={[
+        styles.continuityStrip,
+        {
+          borderColor: withNativeAlpha(accent, 0.28),
+          backgroundColor:
+            decision.tone === 'last_chance'
+              ? withNativeAlpha('#f59e0b', 0.1)
+              : decision.tone === 'ready'
+                ? withNativeAlpha(theme.success, 0.1)
+                : withNativeAlpha(theme.surfaceSubtle, 0.92),
+        },
+      ]}
+    >
+      <View style={[styles.continuityRail, { backgroundColor: accent }]} />
+      <View style={styles.continuityCopy}>
+        <View style={styles.continuityTitleRow}>
+          <View style={[styles.continuityDot, { backgroundColor: accent }]} />
+          <Text style={[styles.continuityTitle, { color: theme.text }]} numberOfLines={1}>
+            {decision.title}
+          </Text>
+        </View>
+        <Text style={[styles.continuityMessage, { color: theme.mutedForeground }]}>{decision.message}</Text>
+      </View>
     </View>
-    <Text style={[styles.continuityMessage, { color: theme.mutedForeground }]}>{decision.message}</Text>
-  </View>
-);
+  );
+};
 
 function withNativeAlpha(hex: string, alpha: number): string {
+  if (hex.startsWith('hsl(')) {
+    return hex.replace(/^hsl\(/, 'hsla(').replace(/\)$/, `, ${alpha})`);
+  }
+  if (hex.startsWith('rgb(')) {
+    return hex.replace(/^rgb\(/, 'rgba(').replace(/\)$/, `, ${alpha})`);
+  }
   const normalized = hex.replace('#', '');
   if (normalized.length !== 6) return hex;
   const r = parseInt(normalized.slice(0, 2), 16);
@@ -1085,72 +1091,129 @@ export function PostDateSurvey({
     );
   }
 
+  const partnerInitial = (partnerName.trim()[0] ?? '?').toUpperCase();
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <Text style={[styles.title, { color: theme.text }]}>How was your date with {partnerName}?</Text>
-      <ContinuityStrip decision={continuityDecision} theme={theme} />
-      {verdictError ? (
-        <View style={styles.errorWrap}>
-          <Text style={[styles.errorBanner, { color: theme.danger }]} accessibilityLiveRegion="polite">
-            {verdictError}
-          </Text>
-          {verdictRetryable && lastVerdictAttempt !== null ? (
-            <Pressable
-              disabled={submitting}
-              onPress={() => void handleVerdict(lastVerdictAttempt)}
-              style={[
-                styles.retryBtn,
-                { borderColor: theme.danger, backgroundColor: theme.surface },
-                submitting && { opacity: 0.7 },
-              ]}
-            >
-              <Text style={[styles.retryBtnText, { color: theme.text }]}>Try again</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
-      {partnerImage ? (
-        <Image source={{ uri: partnerImage }} style={styles.avatar} />
-      ) : (
-        <View style={[styles.avatarPlaceholder, { backgroundColor: theme.muted }]}>
-          <Text style={[styles.avatarPlaceholderText, { color: theme.mutedForeground }]}>Photo</Text>
-        </View>
-      )}
-      <View style={styles.buttons}>
-        <Pressable
-          disabled={submitting}
-          onPress={() => void handleVerdict(true)}
-          style={({ pressed }) => [styles.vibeBtn, { backgroundColor: theme.tint }, pressed && styles.pressed]}
-        >
-          {submitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.vibeBtnText}>💜 Vibe</Text>
-          )}
-        </Pressable>
-        <Pressable
-          disabled={submitting}
-          onPress={() => void handleVerdict(false)}
-          style={({ pressed }) => [
-            styles.passBtn,
-            { borderColor: theme.border, backgroundColor: theme.muted },
-            pressed && styles.pressed,
+    <LinearGradient
+      colors={[withNativeAlpha(theme.tint, 0.16), theme.background, theme.background] as const}
+      locations={[0, 0.44, 1]}
+      style={styles.verdictBackdrop}
+    >
+      <View style={styles.verdictShell}>
+        <ContinuityStrip decision={continuityDecision} theme={theme} />
+        <View
+          style={[
+            styles.verdictPanel,
+            {
+              borderColor: theme.glassBorder,
+              backgroundColor: withNativeAlpha(theme.surface, 0.9),
+            },
           ]}
         >
-          <Text style={[styles.passBtnText, { color: theme.mutedForeground }]}>✕ Pass</Text>
-        </Pressable>
+          <View style={styles.avatarStage}>
+            <View style={[styles.avatarHalo, { backgroundColor: withNativeAlpha(theme.tint, 0.18) }]} />
+            <LinearGradient
+              colors={[theme.tint, theme.neonPink, theme.neonCyan] as const}
+              style={styles.avatarRing}
+            >
+              {partnerImage ? (
+                <Image source={{ uri: partnerImage }} style={styles.verdictAvatar} />
+              ) : (
+                <View style={[styles.verdictAvatarFallback, { backgroundColor: theme.muted }]}>
+                  <Text style={[styles.verdictAvatarInitial, { color: theme.text }]}>{partnerInitial}</Text>
+                </View>
+              )}
+            </LinearGradient>
+          </View>
+
+          <Text style={[styles.verdictEyebrow, { color: theme.mutedForeground }]}>Private check-in</Text>
+          <Text style={[styles.verdictTitle, { color: theme.text }]}>Keep the vibe with {partnerName}?</Text>
+          <Text style={[styles.verdictSub, { color: theme.mutedForeground }]}>
+            If you both choose Vibe, the match opens. Otherwise, this stays quiet.
+          </Text>
+
+          {verdictError ? (
+            <View style={[styles.errorWrap, styles.verdictErrorWrap]}>
+              <Text style={[styles.errorBanner, { color: theme.danger }]} accessibilityLiveRegion="polite">
+                {verdictError}
+              </Text>
+              {verdictRetryable && lastVerdictAttempt !== null ? (
+                <Pressable
+                  disabled={submitting}
+                  onPress={() => void handleVerdict(lastVerdictAttempt)}
+                  style={[
+                    styles.retryBtn,
+                    { borderColor: theme.danger, backgroundColor: theme.surface },
+                    submitting && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={[styles.retryBtnText, { color: theme.text }]}>Try again</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
+          <View style={styles.buttons}>
+            <Pressable
+              disabled={submitting}
+              onPress={() => void handleVerdict(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Vibe with ${partnerName}`}
+              style={({ pressed }) => [
+                styles.vibeBtn,
+                submitting && styles.disabledAction,
+                pressed && !submitting && styles.pressed,
+              ]}
+            >
+              <LinearGradient
+                colors={[theme.tint, theme.neonPink] as const}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.vibeBtnGradient}
+              />
+              {submitting ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <View style={styles.actionLabelRow}>
+                  <Text style={styles.vibeBtnIcon}>♥</Text>
+                  <Text style={styles.vibeBtnText}>Vibe</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable
+              disabled={submitting}
+              onPress={() => void handleVerdict(false)}
+              accessibilityRole="button"
+              accessibilityLabel={`Pass on ${partnerName}`}
+              style={({ pressed }) => [
+                styles.passBtn,
+                {
+                  borderColor: withNativeAlpha('#ffffff', 0.08),
+                  backgroundColor: withNativeAlpha('#ffffff', 0.055),
+                },
+                submitting && styles.disabledAction,
+                pressed && !submitting && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.passBtnIcon, { color: theme.mutedForeground }]}>×</Text>
+              <Text style={[styles.passBtnText, { color: theme.text }]}>Pass</Text>
+            </Pressable>
+          </View>
+
+          <Pressable
+            disabled={submitting}
+            onPress={() => {
+              reportBeforeVerdictRef.current = true;
+              setShowReportFlow(true);
+              setStep('safety');
+            }}
+            style={[styles.reportLink, submitting && styles.disabledAction]}
+          >
+            <Text style={{ color: theme.mutedForeground, fontSize: 12 }}>Report an issue</Text>
+          </Pressable>
+        </View>
       </View>
-      <Pressable
-        onPress={() => {
-          reportBeforeVerdictRef.current = true;
-          setShowReportFlow(true);
-          setStep('safety');
-        }}
-        style={styles.reportLink}
-      >
-        <Text style={{ color: theme.mutedForeground, fontSize: 12 }}>⚠ Report an issue</Text>
-      </Pressable>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -1175,12 +1238,109 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: spacing.lg,
   },
+  verdictBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+  },
+  verdictShell: {
+    width: '100%',
+    maxWidth: 430,
+    alignSelf: 'center',
+  },
+  verdictPanel: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: radius['3xl'],
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing['2xl'],
+    paddingBottom: spacing.xl,
+    alignItems: 'center',
+    overflow: 'hidden',
+    ...shadows.card,
+  },
+  avatarStage: {
+    width: 124,
+    height: 124,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  avatarHalo: {
+    position: 'absolute',
+    width: 124,
+    height: 124,
+    borderRadius: 62,
+    opacity: 0.9,
+    transform: [{ scale: 1.05 }],
+    ...shadows.glowPink,
+  },
+  avatarRing: {
+    width: 106,
+    height: 106,
+    borderRadius: 53,
+    padding: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verdictAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  verdictAvatarFallback: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verdictAvatarInitial: {
+    ...typography.titleXL,
+  },
+  verdictEyebrow: {
+    ...typography.overline,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    marginBottom: spacing.sm,
+  },
+  verdictTitle: {
+    ...typography.titleXL,
+    textAlign: 'center',
+    lineHeight: 28,
+    marginBottom: spacing.sm,
+  },
+  verdictSub: {
+    ...typography.bodySecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 286,
+    marginBottom: spacing.xl,
+  },
+  verdictErrorWrap: {
+    marginTop: -spacing.sm,
+    marginBottom: spacing.lg,
+  },
   continuityStrip: {
     width: '100%',
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderRadius: radius['2xl'],
     padding: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  continuityRail: {
+    width: 4,
+    height: 38,
+    borderRadius: radius.pill,
+    marginTop: 1,
+  },
+  continuityCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   continuityTitleRow: {
     flexDirection: 'row',
@@ -1245,11 +1405,30 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 320,
     gap: spacing.md,
+    alignSelf: 'center',
   },
   vibeBtn: {
-    paddingVertical: spacing.lg,
-    borderRadius: radius.xl,
+    height: 64,
+    borderRadius: radius['2xl'],
     alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    ...shadows.glowPink,
+  },
+  vibeBtnGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: radius['2xl'],
+  },
+  actionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+  },
+  vibeBtnIcon: {
+    color: '#fff',
+    fontSize: 25,
+    lineHeight: 28,
   },
   vibeBtnText: {
     color: '#fff',
@@ -1257,20 +1436,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   passBtn: {
-    paddingVertical: spacing.md,
-    borderRadius: radius.xl,
+    height: 56,
+    borderRadius: radius['2xl'],
     borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  passBtnIcon: {
+    fontSize: 24,
+    lineHeight: 26,
+    fontWeight: '300',
   },
   passBtnText: {
     fontSize: 16,
+    fontWeight: '600',
   },
   pressed: {
     opacity: 0.9,
   },
+  disabledAction: {
+    opacity: 0.58,
+  },
   reportLink: {
     marginTop: spacing.lg,
     padding: spacing.sm,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tagGrid: {
     flexDirection: 'row',
