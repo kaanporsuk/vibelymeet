@@ -45,7 +45,8 @@ import {
   markReconnectReturn,
   updateParticipantStatus,
   fetchPartnerProfile,
-  getOrSeedVibeQuestions,
+  advanceVibeQuestion,
+  getOrSeedVibeQuestionState,
   submitVerdictAndCheckMutual,
   fetchUserCredits,
   spendVideoDateCreditExtension,
@@ -54,6 +55,7 @@ import {
   fetchVideoSessionDateEntryTruth,
   fetchVideoSessionDateEntryTruthCoalesced,
   type PartnerProfileData,
+  type VibeQuestionState,
 } from '@/lib/videoDateApi';
 import {
   effectiveDateDurationSeconds,
@@ -145,6 +147,11 @@ import {
   VIDEO_DATE_REMOTE_OBJECT_POSITION,
   videoDateAspectRatio,
 } from '@clientShared/matching/videoDateMediaContract';
+import {
+  normalizeVideoDateIceBreakerIndex,
+  normalizeVideoDateIceBreakerQuestions,
+  resolveVideoDateIceBreakerIndex,
+} from '@clientShared/matching/videoDateIceBreakers';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const FIRST_CONNECT_TIMEOUT_MS = 25000;
@@ -152,6 +159,12 @@ const PREJOIN_STEP_TIMEOUT_MS = 12000;
 const NATIVE_BACKGROUND_GRACE_MS = 12_000;
 const NATIVE_BACKGROUND_GRACE_SECONDS = Math.ceil(NATIVE_BACKGROUND_GRACE_MS / 1000);
 const NATIVE_BACKGROUND_RECOVERED_BANNER_MS = 2_500;
+const ICE_BREAKER_REAPPEAR_MS = 30_000;
+const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
+const DATE_CONTROLS_STACK_HEIGHT = 104;
+const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
+const HANDSHAKE_CTA_STACK_HEIGHT = 96;
+const FLOATING_CHROME_GAP = 12;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -510,8 +523,12 @@ export default function VideoDateScreen() {
   const [partnerId, setPartnerId] = useState<string>('');
   const [eventId, setEventId] = useState<string>('');
   const [isParticipant1, setIsParticipant1] = useState(false);
-  const [vibeQuestions, setVibeQuestions] = useState<string[]>([]);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [vibeQuestionState, setVibeQuestionState] = useState<VibeQuestionState>({
+    questions: [],
+    questionIndex: 0,
+    questionAnchorAt: null,
+  });
+  const [iceBreakerClockMs, setIceBreakerClockMs] = useState(() => Date.now());
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -1830,16 +1847,53 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (!sessionId || !localInDailyRoom) return;
-    getOrSeedVibeQuestions(sessionId).then(setVibeQuestions);
+    getOrSeedVibeQuestionState(sessionId).then(setVibeQuestionState);
   }, [sessionId, localInDailyRoom]);
 
   useEffect(() => {
-    if (!vibeQuestions.length) return;
+    if (!sessionId || !localInDailyRoom) return;
+    const channel = supabase
+      .channel(`vibe-questions-${sessionId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'video_sessions',
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            vibe_questions?: unknown;
+            vibe_question_index?: unknown;
+            vibe_question_anchor_at?: unknown;
+          };
+          const questions = normalizeVideoDateIceBreakerQuestions(row.vibe_questions);
+          if (!questions.length) return;
+          setVibeQuestionState({
+            questions,
+            questionIndex: normalizeVideoDateIceBreakerIndex(row.vibe_question_index, questions.length),
+            questionAnchorAt:
+              typeof row.vibe_question_anchor_at === 'string' && row.vibe_question_anchor_at.trim()
+                ? row.vibe_question_anchor_at
+                : null,
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [localInDailyRoom, sessionId]);
+
+  useEffect(() => {
+    if (!vibeQuestionState.questions.length) return;
     const interval = setInterval(() => {
-      setCurrentQuestionIndex((prev) => (prev + 1) % vibeQuestions.length);
-    }, 30000);
+      setIceBreakerClockMs(Date.now());
+    }, ICE_BREAKER_CLOCK_TICK_MS);
     return () => clearInterval(interval);
-  }, [vibeQuestions.length]);
+  }, [vibeQuestionState.questions.length]);
 
   useEffect(() => {
     return () => {
@@ -5364,8 +5418,30 @@ export default function VideoDateScreen() {
     return null;
   }, [session, user?.id]);
 
-  const currentQuestion = vibeQuestions[currentQuestionIndex] ?? vibeQuestions[0] ?? '';
-  const handshakeBottomOffset = insets.bottom + 104;
+  const currentQuestionIndex = resolveVideoDateIceBreakerIndex(
+    vibeQuestionState.questions.length,
+    vibeQuestionState.questionIndex,
+    vibeQuestionState.questionAnchorAt,
+    iceBreakerClockMs
+  );
+  const currentQuestion =
+    vibeQuestionState.questions[currentQuestionIndex] ?? vibeQuestionState.questions[0] ?? '';
+  const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT;
+  const advanceIceBreaker = useCallback(() => {
+    if (!sessionId || !vibeQuestionState.questions.length) return;
+    const optimisticIndex = normalizeVideoDateIceBreakerIndex(
+      currentQuestionIndex + 1,
+      vibeQuestionState.questions.length
+    );
+    setVibeQuestionState((prev) => ({
+      ...prev,
+      questionIndex: optimisticIndex,
+      questionAnchorAt: new Date().toISOString(),
+    }));
+    void advanceVibeQuestion(sessionId).then((next) => {
+      if (next) setVibeQuestionState(next);
+    });
+  }, [currentQuestionIndex, sessionId, vibeQuestionState.questions.length]);
   const dismissIceBreakerTemporarily = useCallback(() => {
     if (iceBreakerReappearTimerRef.current) {
       clearTimeout(iceBreakerReappearTimerRef.current);
@@ -5374,18 +5450,26 @@ export default function VideoDateScreen() {
     iceBreakerReappearTimerRef.current = setTimeout(() => {
       iceBreakerReappearTimerRef.current = null;
       setShowIceBreaker(true);
-    }, 30_000);
+    }, ICE_BREAKER_REAPPEAR_MS);
   }, []);
   const showFloatingIceBreaker =
     showIceBreaker &&
     Boolean(currentQuestion) &&
     !showFeedback &&
+    !showMutualToast &&
     hasRemotePartner &&
+    !isPartnerDisconnected &&
     !peerMissingTerminal &&
+    nativeBackgroundStatus === 'none' &&
+    !showJoiningOverlay &&
+    !showPeerWaitOverlay &&
     (phase === 'handshake' || phase === 'date');
   const iceBreakerBottomOffset = showHandshakeChrome
-    ? handshakeBottomOffset + 96
-    : Math.max(insets.bottom + 132, 148);
+    ? handshakeBottomOffset + HANDSHAKE_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
+    : Math.max(
+        insets.bottom + DATE_CONTROLS_STACK_HEIGHT + FLOATING_CHROME_GAP,
+        DATE_PHASE_ICE_BREAKER_MIN_BOTTOM
+      );
 
   useEffect(() => {
     topChromeAnim.setValue(0.92);
@@ -5825,7 +5909,7 @@ export default function VideoDateScreen() {
           <IceBreakerCard
             question={currentQuestion}
             onDismiss={dismissIceBreakerTemporarily}
-            onShuffle={() => setCurrentQuestionIndex((prev) => (prev + 1) % Math.max(1, vibeQuestions.length))}
+            onShuffle={advanceIceBreaker}
           />
         </View>
       ) : null}

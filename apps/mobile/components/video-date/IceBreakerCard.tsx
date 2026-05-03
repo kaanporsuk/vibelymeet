@@ -1,11 +1,11 @@
 /**
- * Ice breaker card: shows one conversation-starter question.
- * Parent controls questions array and rotation every 30s; auto-hide after 30s of handshake.
+ * Ice breaker card: shows one synchronized conversation-starter question.
  */
 
 import React from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
-import { typography, radius, spacing } from '@/constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import { typography, radius, spacing, layout } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 
@@ -20,52 +20,78 @@ export function IceBreakerCard({ question, onDismiss, onShuffle }: Props) {
   const theme = Colors[colorScheme];
 
   return (
-    <Pressable
-      onPress={onDismiss}
+    <View
       style={[styles.card, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}
+      accessibilityRole="text"
+      accessibilityLabel={`Ice-breaker question: ${question}`}
     >
       <Text style={[styles.question, { color: theme.text }]} numberOfLines={2}>
         {question}
       </Text>
-      {onShuffle ? (
-        <Pressable
-          onPress={(e) => {
-            e.stopPropagation();
-            onShuffle();
-          }}
-          style={[styles.shuffleBtn, { backgroundColor: theme.muted }]}
-        >
-          <Text style={[styles.shuffleLabel, { color: theme.mutedForeground }]}>↻</Text>
-        </Pressable>
-      ) : null}
-    </Pressable>
+      <View style={styles.actions}>
+        {onShuffle ? (
+          <Pressable
+            onPress={onShuffle}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { backgroundColor: theme.muted, opacity: pressed ? 0.82 : 1 },
+            ]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Show another ice-breaker question"
+          >
+            <Ionicons name="refresh" size={18} color={theme.mutedForeground} />
+          </Pressable>
+        ) : null}
+        {onDismiss ? (
+          <Pressable
+            onPress={onDismiss}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { backgroundColor: theme.muted, opacity: pressed ? 0.82 : 1 },
+            ]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Hide ice-breaker question for 30 seconds"
+          >
+            <Ionicons name="close" size={18} color={theme.mutedForeground} />
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
+    width: '100%',
+    maxWidth: layout.contentWidth,
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
     borderRadius: radius['2xl'],
     borderWidth: 1,
-    maxHeight: 60,
     gap: spacing.sm,
   },
   question: {
     flex: 1,
     ...typography.body,
     fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
-  shuffleBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  iconBtn: {
+    width: layout.minTouchTargetSize,
+    height: layout.minTouchTargetSize,
+    borderRadius: layout.minTouchTargetSize / 2,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  shuffleLabel: {
-    fontSize: 14,
   },
 });

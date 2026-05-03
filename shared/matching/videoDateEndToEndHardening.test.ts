@@ -13,6 +13,11 @@ import {
   isPostDateEventNearlyOver,
   secondsUntilPostDateEventEnd,
 } from "./postDateContinuity";
+import {
+  normalizeVideoDateIceBreakerQuestions,
+  resolveVideoDateIceBreakerIndex,
+  shuffleVideoDateIceBreakerQuestions,
+} from "./videoDateIceBreakers";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -142,6 +147,10 @@ const surveyContinuityCleanupMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260503110000_video_date_survey_continuity_cleanup.sql"),
   "utf8",
 );
+const iceBreakerSyncMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260503123000_video_date_ice_breaker_sync.sql"),
+  "utf8",
+);
 const postDateVerdictRemindersFunction = readFileSync(
   join(process.cwd(), "supabase/functions/post-date-verdict-reminders/index.ts"),
   "utf8",
@@ -236,6 +245,14 @@ const webVideoDatePage = readFileSync(
   join(process.cwd(), "src/pages/VideoDate.tsx"),
   "utf8",
 );
+const webIceBreakerCard = readFileSync(
+  join(process.cwd(), "src/components/video-date/IceBreakerCard.tsx"),
+  "utf8",
+);
+const sharedIceBreakers = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateIceBreakers.ts"),
+  "utf8",
+);
 const webVibeCheckButton = readFileSync(
   join(process.cwd(), "src/components/video-date/VibeCheckButton.tsx"),
   "utf8",
@@ -246,6 +263,10 @@ const webHandshakeTimer = readFileSync(
 );
 const nativeVideoDateRoute = readFileSync(
   join(process.cwd(), "apps/mobile/app/date/[id].tsx"),
+  "utf8",
+);
+const nativeIceBreakerCard = readFileSync(
+  join(process.cwd(), "apps/mobile/components/video-date/IceBreakerCard.tsx"),
   "utf8",
 );
 const nativeVideoDateDailyMediaConfig = readFileSync(
@@ -1427,12 +1448,48 @@ test("same-event terminal encounter pairs are blocked from deck swipe and ready-
 test("web and native ice breakers render as floating session chrome", () => {
   assert.match(webVideoDatePage, /dismissIceBreakerTemporarily/);
   assert.match(webVideoDatePage, /phase === "handshake" \|\| phase === "date"/);
-  assert.match(webVideoDatePage, /top-24[\s\S]*IceBreakerCard/);
+  assert.match(webVideoDatePage, /remotePlayback\.participantPresent/);
+  assert.match(webVideoDatePage, /bottom-\[13\.75rem\][\s\S]*sm:top-28[\s\S]*IceBreakerCard/);
+  assert.match(webVideoDatePage, /bottom-\[6\.25rem\][\s\S]*sm:top-28/);
   assert.doesNotMatch(webVideoDatePage, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
   assert.match(nativeVideoDateRoute, /showFloatingIceBreaker/);
   assert.match(nativeVideoDateRoute, /iceBreakerBottomOffset/);
   assert.match(nativeVideoDateRoute, /styles\.iceBreakerFloat/);
+  assert.match(nativeVideoDateRoute, /DATE_CONTROLS_STACK_HEIGHT/);
   assert.doesNotMatch(nativeVideoDateRoute, /setTimeout\(\(\) => setShowIceBreaker\(false\), 30000\)/);
+});
+
+test("video date ice breakers are synchronized and not local-only", () => {
+  assert.match(sharedIceBreakers, /VIDEO_DATE_ICE_BREAKER_PROMPTS/);
+  assert.match(sharedIceBreakers, /VIDEO_DATE_ICE_BREAKER_ROTATION_MS = 30_000/);
+  assert.match(sharedIceBreakers, /resolveVideoDateIceBreakerIndex/);
+  assert.match(iceBreakerSyncMigration, /ADD COLUMN IF NOT EXISTS vibe_question_index/);
+  assert.match(iceBreakerSyncMigration, /ADD COLUMN IF NOT EXISTS vibe_question_anchor_at/);
+  assert.match(iceBreakerSyncMigration, /jsonb_array_length\(v_row\.vibe_questions\) > 0/);
+  assert.match(iceBreakerSyncMigration, /SET vibe_questions = v_questions,[\s\S]*vibe_question_index = 0,[\s\S]*vibe_question_anchor_at = v_now/);
+  assert.match(iceBreakerSyncMigration, /CREATE OR REPLACE FUNCTION public\.advance_video_session_vibe_question/);
+  assert.match(iceBreakerSyncMigration, /GRANT EXECUTE ON FUNCTION public\.advance_video_session_vibe_question\(uuid\) TO authenticated/);
+  assert.match(webIceBreakerCard, /@clientShared\/matching\/videoDateIceBreakers/);
+  assert.match(webIceBreakerCard, /advance_video_session_vibe_question/);
+  assert.match(webIceBreakerCard, /vibe_question_index/);
+  assert.match(nativeVideoDateRoute, /getOrSeedVibeQuestionState/);
+  assert.match(nativeVideoDateRoute, /advanceVibeQuestion/);
+  assert.match(nativeVideoDateRoute, /vibe-questions-\$\{sessionId\}/);
+  assert.match(nativeIceBreakerCard, /layout\.minTouchTargetSize/);
+  assert.match(nativeIceBreakerCard, /accessibilityLabel="Show another ice-breaker question"/);
+});
+
+test("shared ice breaker state normalizes and rotates from the server anchor", () => {
+  assert.deepEqual(
+    normalizeVideoDateIceBreakerQuestions([" First? ", "first?", "", 123, "Second?"]),
+    ["First?", "Second?"],
+  );
+  const shuffled = shuffleVideoDateIceBreakerQuestions(["A", "B", "C"], () => 0);
+  assert.deepEqual(shuffled, ["B", "C", "A"]);
+  const anchor = "2026-05-03T12:00:00.000Z";
+  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 29_999), 1);
+  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 30_000), 2);
+  assert.equal(resolveVideoDateIceBreakerIndex(3, 1, anchor, Date.parse(anchor) + 60_000), 0);
 });
 
 test("native ready and date routes validate before requesting camera and microphone", () => {
