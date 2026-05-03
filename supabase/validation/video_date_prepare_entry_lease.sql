@@ -1,0 +1,90 @@
+-- Read-only validation pack for Video Date prepare-entry lease.
+-- Safe for production catalog verification after 20260503130000 is applied.
+
+select
+  'video_sessions_prepare_entry_lease_columns_exist' as check_name,
+  count(*) filter (where column_name = 'prepare_entry_started_at' and is_nullable = 'YES') = 1
+  and count(*) filter (where column_name = 'prepare_entry_expires_at' and is_nullable = 'YES') = 1
+  and count(*) filter (where column_name = 'prepare_entry_attempt_id' and is_nullable = 'YES') = 1
+  and count(*) filter (where column_name = 'prepare_entry_actor_id' and is_nullable = 'YES') = 1 as ok
+from information_schema.columns
+where table_schema = 'public'
+  and table_name = 'video_sessions'
+  and column_name in (
+    'prepare_entry_started_at',
+    'prepare_entry_expires_at',
+    'prepare_entry_attempt_id',
+    'prepare_entry_actor_id'
+  );
+
+select
+  'prepare_entry_lease_index_exists' as check_name,
+  exists (
+    select 1
+    from pg_indexes
+    where schemaname = 'public'
+      and tablename = 'video_sessions'
+      and indexname = 'idx_video_sessions_prepare_entry_lease'
+      and indexdef like '%prepare_entry_expires_at%'
+      and indexdef like '%daily_room_name IS NULL%'
+  ) as ok;
+
+with fn as (
+  select
+    pg_get_functiondef('public.video_date_transition(uuid,text,text)'::regprocedure) as def,
+    has_function_privilege('authenticated', 'public.video_date_transition(uuid,text,text)', 'EXECUTE') as auth_exec
+)
+select
+  'video_date_transition_sets_non_routeable_prepare_lease' as check_name,
+  def like '%p_action IS DISTINCT FROM ''prepare_entry''%'
+  and def like '%prepare_entry_started_at = COALESCE(prepare_entry_started_at, v_now)%'
+  and def like '%prepare_entry_expires_at = v_lease_expires_at%'
+  and def like '%v_now + interval ''90 seconds''%'
+  and def like '%ready_gate_expires_at = GREATEST(%'
+  and def like '%prepare_entry_lease_started%'
+  and def like '%prepare_entry_lease_refreshed%'
+  and def like '%''routeable'', false%'
+  and def like '%video_date_transition_20260503130000_prepare_lease_base%'
+  and auth_exec as ok
+from fn;
+
+with fn as (
+  select pg_get_functiondef('public.confirm_video_date_entry_prepared(uuid,text,text,text)'::regprocedure) as def
+)
+select
+  'confirm_prepare_entry_clears_lease_after_success' as check_name,
+  def like '%confirm_vde_prepared_202605031300_base%'
+  and def like '%IF v_success THEN%'
+  and def like '%prepare_entry_started_at = NULL%'
+  and def like '%prepare_entry_expires_at = NULL%'
+  and def like '%prepare_entry_attempt_id = NULL%'
+  and def like '%prepare_entry_actor_id = NULL%' as ok
+from fn;
+
+with fn as (
+  select pg_get_functiondef('public.expire_stale_video_sessions_bounded(integer)'::regprocedure) as def
+)
+select
+  'expire_cleanup_preserves_active_lease_and_terminalizes_expired_lease' as check_name,
+  def like '%prepare_entry_expires_at > v_now%'
+  and def like '%ready_gate_expires_at = prepare_entry_expires_at%'
+  and def like '%prepare_entry_expires_at <= v_now%'
+  and def like '%ended_reason = ''prepare_entry_timeout''%'
+  and def like '%active_prepare_entry_lease_preserved%'
+  and def like '%expire_stale_video_sessions_bounded_202605031300_base%' as ok
+from fn;
+
+with bases as (
+  select unnest(array[
+    to_regprocedure('public.video_date_transition_20260503130000_prepare_lease_base(uuid,text,text)'),
+    to_regprocedure('public.confirm_vde_prepared_202605031300_base(uuid,text,text,text)'),
+    to_regprocedure('public.expire_stale_video_sessions_bounded_202605031300_base(integer)')
+  ]) as oid
+)
+select
+  'renamed_prepare_lease_bases_are_not_client_executable' as check_name,
+  count(*) = 3
+  and bool_and(oid is not null)
+  and bool_and(not has_function_privilege('anon', oid, 'EXECUTE'))
+  and bool_and(not has_function_privilege('authenticated', oid, 'EXECUTE')) as ok
+from bases;

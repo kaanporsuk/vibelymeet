@@ -191,10 +191,10 @@ export async function prepareVideoDateEntryWithClient(
         cacheEntry: cached,
       };
     }
-
-    const existing = prepareEntryInflight.get(key);
-    if (existing) return existing;
   }
+
+  const existing = prepareEntryInflight.get(key);
+  if (existing) return existing;
 
   const prepareStartedAtMs = nowMs;
   const entryAttemptId = options.entryAttemptId ?? createVideoDateEntryAttemptId(prepareStartedAtMs);

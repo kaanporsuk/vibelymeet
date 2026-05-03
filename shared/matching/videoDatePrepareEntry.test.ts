@@ -188,6 +188,65 @@ test("prepareVideoDateEntryWithClient dedupes concurrent double prepare for one 
   assert.equal(calls, 1);
 });
 
+test("prepareVideoDateEntryWithClient force bypasses cache but not an active inflight prepare", async () => {
+  clearPreparedVideoDateEntryCache();
+  let calls = 0;
+  let releaseInvoke: (() => void) | null = null;
+  const gate = new Promise<void>((resolve) => {
+    releaseInvoke = resolve;
+  });
+
+  const first = prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    invoke: async () => {
+      calls += 1;
+      await gate;
+      return { data: { ...successPayload(), token: "force-deduped-token" } };
+    },
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  const forced = prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1001,
+    force: true,
+    invoke: async () => {
+      calls += 1;
+      return { data: { ...successPayload(), token: "unexpected-forced-token" } };
+    },
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  assert.equal(calls, 1);
+  releaseInvoke?.();
+
+  const [firstResult, forcedResult] = await Promise.all([first, forced]);
+  assert.equal(firstResult.ok, true);
+  assert.equal(forcedResult.ok, true);
+  assert.equal(firstResult.ok && firstResult.data.token, "force-deduped-token");
+  assert.equal(forcedResult.ok && forcedResult.data.token, "force-deduped-token");
+  assert.equal(calls, 1);
+
+  const afterInflight = await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 2000,
+    force: true,
+    invoke: async () => {
+      calls += 1;
+      return { data: { ...successPayload(), token: "forced-after-inflight" } };
+    },
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  assert.equal(afterInflight.ok, true);
+  assert.equal(afterInflight.ok && afterInflight.data.token, "forced-after-inflight");
+  assert.equal(calls, 2);
+});
+
 test("prepareVideoDateEntryWithClient uses short TTL and refreshes after join-failure rejection", async () => {
   clearPreparedVideoDateEntryCache();
   let calls = 0;
