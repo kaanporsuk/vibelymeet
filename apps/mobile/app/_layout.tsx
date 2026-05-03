@@ -315,16 +315,17 @@ function AuthRedirectHandler({ onReferralCaptured }: { onReferralCaptured: () =>
 }
 
 function SupabaseAutoRefreshAppStateBridge() {
-  const { loading } = useAuth();
+  const { loading, session } = useAuth();
+  const hasRefreshableSession = Boolean(session?.refresh_token);
 
   useEffect(() => {
-    if (loading) {
+    if (loading || !hasRefreshableSession) {
       void supabase.auth.stopAutoRefresh();
       return;
     }
 
     const handleAppStateChange = (nextState: AppStateStatus) => {
-      if (nextState === 'active') {
+      if (nextState === 'active' && hasRefreshableSession) {
         void supabase.auth.startAutoRefresh();
         return;
       }
@@ -338,7 +339,7 @@ function SupabaseAutoRefreshAppStateBridge() {
       subscription.remove();
       void supabase.auth.stopAutoRefresh();
     };
-  }, [loading]);
+  }, [hasRefreshableSession, loading]);
 
   return null;
 }

@@ -4,7 +4,7 @@
  */
 
 import { prepareProfilePhotoAssetForUpload, type NormalizedImageAsset } from '@/lib/imageAssetNormalize';
-import { supabase } from '@/lib/supabase';
+import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
@@ -25,8 +25,8 @@ export async function uploadProfilePhoto(
   context?: 'onboarding' | 'profile_studio',
   options?: { signal?: AbortSignal },
 ): Promise<UploadImageResult> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new Error('Not authenticated');
 
   if (!SUPABASE_URL) {
     throw new Error('[uploadImage] EXPO_PUBLIC_SUPABASE_URL is not set. Check your .env file.');
@@ -50,7 +50,7 @@ export async function uploadProfilePhoto(
     const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: formData,
       signal: options?.signal,

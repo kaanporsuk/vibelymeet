@@ -14,7 +14,7 @@
 
 import * as tus from 'tus-js-client';
 import * as FileSystem from 'expo-file-system/legacy';
-import { supabase } from '@/lib/supabase';
+import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 import { getVibeVideoPlaybackUrl, persistStreamCdnHostnameFromEdge } from '@/lib/vibeVideoPlaybackUrl';
 import { vibeVideoDiagVerbose, vibeVideoDiagProdHint } from '@/lib/vibeVideoDiagnostics';
 
@@ -138,8 +138,8 @@ async function deleteLocalFileQuiet(uri: string): Promise<void> {
 export async function getCreateVideoUploadCredentials(
   options?: { context?: 'onboarding' | 'profile_studio' },
 ): Promise<CreateVideoUploadCredentials> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new Error('Not authenticated');
 
   const url = `${SUPABASE_URL}/functions/v1/create-video-upload`;
   const projectRef = getProjectRefFromSupabaseUrl(SUPABASE_URL);
@@ -148,7 +148,7 @@ export async function getCreateVideoUploadCredentials(
     res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ context: options?.context ?? 'profile_studio' }),
@@ -397,8 +397,8 @@ export class DeleteVibeVideoError extends Error {
  * Empty-profile delete responses are treated as success (idempotent delete).
  */
 export async function deleteVibeVideo(): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new DeleteVibeVideoError('Not authenticated', 'rejected');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new DeleteVibeVideoError('Not authenticated', 'rejected');
 
   const url = `${SUPABASE_URL}/functions/v1/delete-vibe-video`;
   let res: Response;
@@ -406,7 +406,7 @@ export async function deleteVibeVideo(): Promise<void> {
     res = await fetch(url, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
     });
   } catch (e) {

@@ -7,13 +7,13 @@
 
 import * as FileSystem from 'expo-file-system/legacy';
 import { generateChatVibeClipThumbnailFile } from '@/lib/chatVibeClipThumbnail';
-import { supabase } from '@/lib/supabase';
+import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
 export async function uploadVoiceMessage(audioUri: string, matchId: string): Promise<string> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new Error('Not authenticated');
 
   if (!SUPABASE_URL) {
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
@@ -32,7 +32,7 @@ export async function uploadVoiceMessage(audioUri: string, matchId: string): Pro
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-voice`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     body: formData,
   });
 
@@ -58,8 +58,8 @@ export async function uploadChatVideoMessage(
   posterSource: 'uploaded_thumbnail' | 'first_frame';
   aspectRatio: number | null;
 }> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new Error('Not authenticated');
 
   if (!SUPABASE_URL) {
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
@@ -101,7 +101,7 @@ export async function uploadChatVideoMessage(
   try {
     res = await fetch(`${SUPABASE_URL}/functions/v1/upload-chat-video`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
       body: formData,
     });
   } finally {
@@ -148,8 +148,8 @@ export async function uploadChatImageMessage(
   mimeType: string = 'image/jpeg',
   matchId: string,
 ): Promise<string> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Not authenticated');
+  const accessToken = await getCachedAccessToken();
+  if (!accessToken) throw new Error('Not authenticated');
 
   if (!SUPABASE_URL) {
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
@@ -174,7 +174,7 @@ export async function uploadChatImageMessage(
 
   const res = await fetch(`${SUPABASE_URL}/functions/v1/upload-image`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${session.access_token}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     body: formData,
   });
 
