@@ -15,6 +15,7 @@ interface IceBreakerCardProps {
   sessionId?: string;
   onPromptChange?: (prompt: string) => void;
   onDismiss?: () => void;
+  helperText?: string;
 }
 
 function parseVibeQuestionState(raw: unknown): VideoDateIceBreakerState | null {
@@ -39,7 +40,12 @@ function parseVibeQuestionState(raw: unknown): VideoDateIceBreakerState | null {
   };
 }
 
-export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBreakerCardProps) => {
+export const IceBreakerCard = ({
+  sessionId,
+  onPromptChange,
+  onDismiss,
+  helperText = "Choose when it feels right",
+}: IceBreakerCardProps) => {
   const [questionState, setQuestionState] = useState<VideoDateIceBreakerState>(() => fallbackVideoDateIceBreakerState());
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isAdvancing, setIsAdvancing] = useState(false);
@@ -160,56 +166,70 @@ export const IceBreakerCard = ({ sessionId, onPromptChange, onDismiss }: IceBrea
 
   return (
     <div
-      className="relative w-full min-h-[68px] flex items-center gap-3 overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/40 px-3.5 py-3 backdrop-blur-2xl"
-      style={{ boxShadow: "0 20px 60px rgb(0 0 0 / 0.34), inset 0 1px 0 rgb(255 255 255 / 0.08)" }}
+      className="relative w-full overflow-hidden rounded-[1.45rem] border border-white/[0.12] bg-[rgba(14,14,18,0.58)] px-3.5 py-3 backdrop-blur-2xl"
+      style={{
+        boxShadow:
+          "0 22px 64px rgb(0 0 0 / 0.36), 0 0 0 1px hsl(var(--primary) / 0.08), inset 0 1px 0 rgb(255 255 255 / 0.1)",
+      }}
       role="group"
       aria-label="Ice-breaker question"
     >
       <div className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-gradient-to-b from-primary via-accent to-neon-cyan" aria-hidden />
-      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-primary/20 bg-primary/10">
-        <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-primary/25 bg-primary/[0.12] shadow-[0_0_22px_hsl(var(--primary)/0.16)]">
+          <Sparkles className="h-4 w-4 text-primary" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={currentPrompt}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.15 }}
+              className="min-w-0 text-left text-[15px] font-display font-semibold leading-5 text-white sm:text-[16px] line-clamp-2"
+            >
+              {currentPrompt}
+            </motion.p>
+          </AnimatePresence>
+          {helperText ? (
+            <p className="mt-1 text-left text-[11px] font-medium leading-tight text-white/[0.55]">
+              {helperText}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <motion.button
+            type="button"
+            onClick={advancePrompt}
+            whileTap={{ scale: 0.9 }}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.075] transition-colors hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label="Show another ice-breaker question"
+            title="Another question"
+          >
+            <motion.span
+              animate={isAdvancing ? { rotate: 360 } : { rotate: 0 }}
+              transition={{ duration: 0.25 }}
+              className="flex items-center justify-center"
+            >
+              <RefreshCw className="h-4 w-4 text-white/60" aria-hidden />
+            </motion.span>
+          </motion.button>
+
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.055] transition-colors hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              aria-label="Hide ice-breaker question for 30 seconds"
+              title="Hide"
+            >
+              <X className="h-4 w-4 text-white/60" aria-hidden />
+            </button>
+          ) : null}
+        </div>
       </div>
-      <AnimatePresence mode="wait">
-        <motion.p
-          key={currentPrompt}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.15 }}
-          className="min-w-0 flex-1 text-[15px] sm:text-[16px] font-semibold text-white leading-5 text-left line-clamp-2"
-        >
-          {currentPrompt}
-        </motion.p>
-      </AnimatePresence>
-
-      <motion.button
-        type="button"
-        onClick={advancePrompt}
-        whileTap={{ scale: 0.9 }}
-        className="shrink-0 h-11 w-11 rounded-full bg-white/[0.08] flex items-center justify-center transition-colors hover:bg-white/[0.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label="Show another ice-breaker question"
-        title="Another question"
-      >
-        <motion.span
-          animate={isAdvancing ? { rotate: 360 } : { rotate: 0 }}
-          transition={{ duration: 0.25 }}
-          className="flex items-center justify-center"
-        >
-          <RefreshCw className="h-4 w-4 text-white/60" aria-hidden />
-        </motion.span>
-      </motion.button>
-
-      {onDismiss ? (
-        <button
-          type="button"
-          onClick={onDismiss}
-          className="shrink-0 h-11 w-11 rounded-full bg-white/[0.06] flex items-center justify-center transition-colors hover:bg-white/[0.1] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          aria-label="Hide ice-breaker question for 30 seconds"
-          title="Hide"
-        >
-          <X className="h-4 w-4 text-white/60" aria-hidden />
-        </button>
-      ) : null}
     </div>
   );
 };

@@ -10,6 +10,7 @@ import {
   StyleSheet,
   View,
   Text,
+  Image,
   Pressable,
   ActivityIndicator,
   PermissionsAndroid,
@@ -63,6 +64,10 @@ import {
   userMessageForExtensionSpendFailure,
   type VideoDateExtendOutcome,
 } from '@clientShared/matching/videoDateExtensionSpend';
+import {
+  remainingStartedAtCountdownSeconds,
+  startedAtCountdownDeadlineMs,
+} from '@clientShared/matching/videoDateCountdown';
 import { nextConvergenceDelayMs } from '@clientShared/matching/convergenceScheduling';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -75,6 +80,7 @@ import {
 import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
+import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
 import { ConnectionOverlay } from '@/components/video-date/ConnectionOverlay';
 import { VideoDateControls } from '@/components/video-date/VideoDateControls';
 import { PartnerProfileSheet } from '@/components/video-date/PartnerProfileSheet';
@@ -319,14 +325,6 @@ function userMessageForHandshakeFailure(code?: string): string {
     return 'This date link is no longer available.';
   }
   return 'Could not start video. Please try again.';
-}
-
-/** Compact M:SS / 0:SS for in-call phase HUD (Warm up / Live). */
-function formatVideoDateCountdown(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return m > 0 ? `${m}:${String(r).padStart(2, '0')}` : `0:${String(r).padStart(2, '0')}`;
 }
 
 function isReadyGateRace(code?: string): boolean {
@@ -680,6 +678,8 @@ export default function VideoDateScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [canFlipCamera, setCanFlipCamera] = useState(false);
+  const [isFlippingCamera, setIsFlippingCamera] = useState(false);
   const [joining, setJoining] = useState(false);
   const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
   const [preJoinFailed, setPreJoinFailed] = useState(false);
@@ -5257,11 +5257,14 @@ export default function VideoDateScreen() {
 
     const handshakeStartedAt = session?.handshake_started_at ?? null;
     if (!handshakeStartedAt) return;
-    const startedMs = new Date(handshakeStartedAt).getTime();
-    if (!Number.isFinite(startedMs)) return;
 
     const deadlineKey = `${sessionId}:${handshakeStartedAt}`;
-    const delayMs = Math.max(0, startedMs + HANDSHAKE_SECONDS * 1000 - Date.now());
+    const deadlineMs = startedAtCountdownDeadlineMs({
+      startedAtIso: handshakeStartedAt,
+      durationSeconds: HANDSHAKE_SECONDS,
+    });
+    if (!deadlineMs) return;
+    const delayMs = Math.max(0, deadlineMs - Date.now());
     const fire = () => {
       if (handshakeCompletionDeadlineKeyRef.current === deadlineKey) return;
       handshakeCompletionDeadlineKeyRef.current = deadlineKey;
@@ -5316,16 +5319,31 @@ export default function VideoDateScreen() {
           return next;
         }
 
-        if (prev === null || prev <= 1) {
-          if (phaseRef.current === 'handshake') {
+        if (phaseRef.current === 'handshake') {
+          const next =
+            session?.handshake_started_at != null
+              ? (remainingStartedAtCountdownSeconds({
+                  startedAtIso: session.handshake_started_at,
+                  durationSeconds: HANDSHAKE_SECONDS,
+                }) ?? 0)
+              : prev === null
+                ? 0
+                : Math.max(0, prev - 1);
+
+          if (next <= 0) {
             vdbg('handshake_visible_countdown_elapsed', {
               sessionId: sessionId ?? null,
               trigger: 'complete_handshake',
             });
             void completeHandshakeFromServerDeadline('handshake_visible_countdown_elapsed');
-          } else {
-            handleCallEnd('local_end');
+            return 0;
           }
+
+          return next;
+        }
+
+        if (prev === null || prev <= 1) {
+          handleCallEnd('local_end');
           return 0;
         }
         return prev - 1;
@@ -5344,6 +5362,7 @@ export default function VideoDateScreen() {
     completeHandshakeFromServerDeadline,
     session?.date_extra_seconds,
     session?.date_started_at,
+    session?.handshake_started_at,
   ]);
 
   const toggleMute = useCallback(() => {
@@ -5362,6 +5381,38 @@ export default function VideoDateScreen() {
     call.setLocalVideo(!nextVideoOff);
     setIsVideoOff(nextVideoOff);
   }, [isVideoOff]);
+
+  useEffect(() => {
+    const controls = callRef.current as unknown as NativeDailyCameraControls | null;
+    setCanFlipCamera(Platform.OS !== 'web' && typeof controls?.cycleCamera === 'function');
+  }, [localParticipant, joinAttemptNonce]);
+
+  const handleFlipCamera = useCallback(async () => {
+    const controls = callRef.current as unknown as NativeDailyCameraControls | null;
+    if (!controls || typeof controls.cycleCamera !== 'function' || isFlippingCamera || isVideoOff) {
+      if (!controls || typeof controls?.cycleCamera !== 'function') setCanFlipCamera(false);
+      return;
+    }
+
+    setIsFlippingCamera(true);
+    try {
+      const result = await controls.cycleCamera();
+      videoDateDailyDiagnostic('native_camera_flipped', {
+        sessionId: sessionId ?? null,
+        eventId: eventId || null,
+        next_facing_mode: result?.device?.facingMode ?? null,
+      });
+    } catch (error) {
+      setCanFlipCamera(false);
+      videoDateDailyDiagnostic('native_camera_flip_failed', {
+        sessionId: sessionId ?? null,
+        eventId: eventId || null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setIsFlippingCamera(false);
+    }
+  }, [eventId, isFlippingCamera, isVideoOff, sessionId]);
 
   const totalTime =
     phase === 'handshake'
@@ -5758,6 +5809,10 @@ export default function VideoDateScreen() {
   }
 
   const partnerName = fullPartner?.name ?? basicPartner?.name ?? 'Your date';
+  const partnerFirstName = partnerName.trim().split(/\s+/)[0] || partnerName;
+  const partnerAge = fullPartner?.age ?? basicPartner?.age ?? 0;
+  const partnerAvatarUri = fullPartner?.avatarUrl ?? fullPartner?.photos?.[0] ?? basicPartner?.avatar_url ?? null;
+  const partnerInitial = partnerFirstName.slice(0, 1).toUpperCase() || 'V';
 
   const remoteVideoTrack = remoteParticipant ? getTrack(remoteParticipant, 'video') : null;
   const remoteAudioTrack = remoteParticipant ? getTrack(remoteParticipant, 'audio') : null;
@@ -5808,7 +5863,7 @@ export default function VideoDateScreen() {
       </View>
       <View pointerEvents="none" style={styles.remoteGlassWash} />
 
-      <View style={[styles.localPip, { borderColor: theme.tint }]}>
+      <View style={[styles.localPip, { borderColor: theme.tint, top: insets.top + 86 }]}>
         {localParticipant && localVideoTrack ? (
           <>
             {/* Self-view PIP intentionally crops to a stable portrait tile; remote date video must contain. */}
@@ -5835,6 +5890,25 @@ export default function VideoDateScreen() {
             <Ionicons name="mic-off" size={12} color="#fff" />
           </View>
         )}
+        {canFlipCamera && !isVideoOff && localVideoTrack ? (
+          <Pressable
+            onPress={() => void handleFlipCamera()}
+            disabled={isFlippingCamera}
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.flipCameraBadge,
+              {
+                backgroundColor: 'rgba(0,0,0,0.48)',
+                borderColor: theme.glassBorder,
+                opacity: pressed || isFlippingCamera ? 0.72 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Switch camera"
+          >
+            <Ionicons name="camera-reverse" size={16} color="#fff" />
+          </Pressable>
+        ) : null}
         <View pointerEvents="none" style={styles.localPipHandle} />
       </View>
 
@@ -5952,6 +6026,7 @@ export default function VideoDateScreen() {
         style={[
           styles.topBar,
           {
+            top: insets.top + 12,
             opacity: topChromeAnim,
             transform: [{ translateY: topChromeAnim.interpolate({ inputRange: [0.92, 1], outputRange: [-8, 0] }) }],
           },
@@ -5970,33 +6045,80 @@ export default function VideoDateScreen() {
             </View>
           </View>
         ) : hasRemotePartner ? (
-          <View style={styles.phaseHudRow}>
-            {netQualityTier !== 'good' ? (
-              <Text
-                style={[
-                  styles.netHint,
-                  { color: netQualityTier === 'poor' ? theme.danger : '#f59e0b' },
-                ]}
-              >
-                {netQualityTier === 'poor' ? 'Connection is fragile' : 'Connection is settling'}
-              </Text>
-            ) : null}
-            <View style={[styles.phaseTimePill, { borderColor: theme.glassBorder, backgroundColor: theme.glassSurface }]}>
-              <Animated.Text
-                style={[
-                  styles.phaseTimeText,
-                  {
-                    color: handshakeDeadlineUrgent ? theme.neonPink : theme.text,
-                    opacity: handshakeDeadlineUrgent ? lastChanceBlinkOpacity : 1,
-                  },
-                ]}
-              >
-                {phase === 'handshake'
-                  ? handshakeTimerStarted
-                    ? `Warm up · ${formatVideoDateCountdown(Math.max(0, displayTimeLeft))}`
-                    : 'Settling in softly'
-                  : `Live · ${formatVideoDateCountdown(Math.max(0, displayTimeLeft))}`}
-              </Animated.Text>
+          <View style={styles.topChromeRow}>
+            <Pressable
+              onPress={() => setShowProfileSheet(true)}
+              disabled={!partnerId}
+              style={({ pressed }) => [
+                styles.partnerChip,
+                {
+                  backgroundColor: theme.glassSurface,
+                  borderColor: theme.glassBorder,
+                  opacity: pressed ? 0.88 : 1,
+                },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${partnerName}'s profile`}
+            >
+              <View style={[styles.partnerAvatar, { borderColor: theme.tint }]}>
+                {partnerAvatarUri ? (
+                  <Image source={{ uri: partnerAvatarUri }} style={styles.partnerAvatarImage} resizeMode="cover" />
+                ) : (
+                  <Text style={[styles.partnerAvatarInitial, { color: theme.text }]}>
+                    {partnerInitial}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.partnerChipCopy}>
+                <Text style={[styles.partnerChipName, { color: theme.text }]} numberOfLines={1}>
+                  {partnerFirstName}
+                  {partnerAge > 0 ? (
+                    <Text style={[styles.partnerChipAge, { color: theme.mutedForeground }]}> {partnerAge}</Text>
+                  ) : null}
+                </Text>
+                <View style={styles.partnerStatusRow}>
+                  <View style={[styles.liveDot, { backgroundColor: theme.success }]} />
+                  <Text style={[styles.partnerStatusText, { color: theme.success }]}>
+                    {phase === 'handshake' ? (handshakeTimerStarted ? 'Warm up' : 'Settling in') : 'Live'}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+
+            <View style={styles.timerCluster}>
+              {netQualityTier !== 'good' ? (
+                <Text
+                  style={[
+                    styles.netHint,
+                    { color: netQualityTier === 'poor' ? theme.danger : '#f59e0b' },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {netQualityTier === 'poor' ? 'Connection is fragile' : 'Connection is settling'}
+                </Text>
+              ) : null}
+              <View style={styles.stageTimerRow}>
+                <View style={[styles.stagePill, { borderColor: theme.glassBorder, backgroundColor: theme.tintSoft }]}>
+                  <Animated.Text
+                    style={[
+                      styles.stagePillText,
+                      {
+                        color: handshakeDeadlineUrgent ? theme.neonPink : theme.tint,
+                        opacity: handshakeDeadlineUrgent ? lastChanceBlinkOpacity : 1,
+                      },
+                    ]}
+                  >
+                    {phase === 'handshake'
+                      ? handshakeTimerStarted
+                        ? 'Warm up'
+                        : 'Settling in'
+                      : 'Live'}
+                  </Animated.Text>
+                </View>
+                {handshakeTimerStarted ? (
+                  <HandshakeTimer timeLeft={Math.max(0, displayTimeLeft)} totalTime={totalTime} phase={phase} />
+                ) : null}
+              </View>
             </View>
           </View>
         ) : null}
@@ -6097,7 +6219,6 @@ export default function VideoDateScreen() {
           onToggleVideo={toggleVideo}
           onLeave={handleEndDateFromControls}
           onViewProfile={() => setShowProfileSheet(true)}
-          partnerName={partnerName}
           onSafety={
             hasRemotePartner && partnerId && !showFeedback
               ? () => setShowInCallSafety(true)
@@ -6258,6 +6379,22 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 4,
   },
+  flipCameraBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    elevation: 4,
+  },
   localPipHandle: {
     position: 'absolute',
     bottom: 8,
@@ -6274,30 +6411,104 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
   topBarFullWidth: { width: '100%', alignItems: 'center' },
-  phaseHudRow: {
+  topChromeRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 10,
-    marginLeft: 'auto',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-end',
   },
-  phaseTimePill: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 22,
+  partnerChip: {
+    minHeight: 56,
+    maxWidth: 172,
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    borderRadius: 999,
     borderWidth: 1,
+    paddingVertical: 7,
+    paddingLeft: 8,
+    paddingRight: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 14 },
-    shadowOpacity: 0.28,
-    shadowRadius: 22,
-    elevation: 5,
+    shadowOpacity: 0.36,
+    shadowRadius: 24,
+    elevation: 6,
   },
-  phaseTimeText: { fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
+  partnerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  partnerAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  partnerAvatarInitial: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  partnerChipCopy: {
+    minWidth: 0,
+    flexShrink: 1,
+    gap: 3,
+  },
+  partnerChipName: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  partnerChipAge: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  partnerStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  partnerStatusText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  timerCluster: {
+    alignItems: 'flex-end',
+    flexShrink: 0,
+    gap: 5,
+  },
+  stageTimerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stagePill: {
+    minHeight: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  stagePillText: {
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+  },
   waitingTimerPill: {
     paddingVertical: 8,
     paddingHorizontal: 14,

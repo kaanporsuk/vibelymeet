@@ -5,7 +5,7 @@
 import React from 'react';
 import { Pressable, Text, View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { typography, radius, spacing, layout } from '@/constants/theme';
+import { typography, spacing, layout } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 
@@ -13,9 +13,15 @@ type Props = {
   question: string;
   onDismiss?: () => void;
   onShuffle?: () => void;
+  helperText?: string;
 };
 
-export function IceBreakerCard({ question, onDismiss, onShuffle }: Props) {
+export function IceBreakerCard({
+  question,
+  onDismiss,
+  onShuffle,
+  helperText = 'Choose when it feels right',
+}: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
 
@@ -29,9 +35,16 @@ export function IceBreakerCard({ question, onDismiss, onShuffle }: Props) {
       <View style={[styles.promptIcon, { backgroundColor: theme.tintSoft, borderColor: 'rgba(139,92,246,0.24)' }]}>
         <Ionicons name="sparkles" size={16} color={theme.tint} />
       </View>
-      <Text style={[styles.question, { color: theme.text }]} numberOfLines={2}>
-        {question}
-      </Text>
+      <View style={styles.copy}>
+        <Text style={[styles.question, { color: theme.text }]} numberOfLines={2}>
+          {question}
+        </Text>
+        {helperText ? (
+          <Text style={[styles.helper, { color: theme.mutedForeground }]} numberOfLines={1}>
+            {helperText}
+          </Text>
+        ) : null}
+      </View>
       <View style={styles.actions}>
         {onShuffle ? (
           <Pressable
@@ -70,7 +83,7 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: layout.contentWidth,
-    minHeight: 70,
+    minHeight: 76,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.md,
@@ -103,11 +116,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   question: {
-    flex: 1,
     ...typography.body,
     fontSize: 15,
     lineHeight: 21,
     fontWeight: '600',
+  },
+  copy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  helper: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '500',
+    opacity: 0.82,
   },
   actions: {
     flexDirection: 'row',

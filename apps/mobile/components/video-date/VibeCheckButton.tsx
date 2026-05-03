@@ -112,8 +112,6 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         </Animated.Text>
       ) : null}
 
-      <Text style={[styles.guidance, { color: theme.text }]}>Choose only when it feels right</Text>
-
       <View style={[styles.row, { backgroundColor: 'rgba(0,0,0,0.34)', borderColor: theme.glassBorder }]}>
         <Pressable
           onPress={() => void handlePress('pass')}
@@ -191,12 +189,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: 'rgba(236,72,153,0.12)',
     overflow: 'hidden',
-  },
-  guidance: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontFamily: fonts.bodyMedium,
-    opacity: 0.82,
   },
   row: {
     flexDirection: 'row',

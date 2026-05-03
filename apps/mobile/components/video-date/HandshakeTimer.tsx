@@ -1,7 +1,7 @@
 /**
  * Circular countdown timer for handshake/date phase.
  * Colors: cyan → violet → pink → red (handshake); green/violet → red (date).
- * Pulses in final 10 seconds.
+ * Pulses in the final 10 seconds of warm-up only.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -48,12 +48,13 @@ export function HandshakeTimer({ timeLeft, totalTime, phase }: Props) {
   const theme = Colors[colorScheme];
   const progress = totalTime > 0 ? timeLeft / totalTime : 0;
   const isUrgent = timeLeft <= 10;
+  const shouldHeartbeat = phase === 'handshake' && isUrgent;
   const color = getTimerColor(phase, progress, isUrgent);
   const offset = CIRCUMFERENCE * (1 - progress);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!isUrgent || phase === 'ended') return;
+    if (!shouldHeartbeat) return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.08, duration: 300, useNativeDriver: true }),
@@ -62,10 +63,10 @@ export function HandshakeTimer({ timeLeft, totalTime, phase }: Props) {
     );
     loop.start();
     return () => loop.stop();
-  }, [isUrgent, phase, pulseAnim]);
+  }, [pulseAnim, shouldHeartbeat]);
 
   return (
-    <Animated.View style={[styles.wrap, isUrgent && { transform: [{ scale: pulseAnim }] }]}>
+    <Animated.View style={[styles.wrap, shouldHeartbeat && { transform: [{ scale: pulseAnim }] }]}>
       <Svg width={SIZE} height={SIZE} style={styles.svg}>
         <Circle
           cx={SIZE / 2}

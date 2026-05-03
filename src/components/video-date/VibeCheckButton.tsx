@@ -56,25 +56,20 @@ export const VibeCheckButton = ({
     <div className="flex w-full flex-col items-center gap-2 px-4">
       {isFinalTenSeconds && !hasDecided ? (
         <motion.p
-          className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-display font-bold tracking-[0.22em] text-accent uppercase"
+          className="rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-[11px] font-display font-bold uppercase tracking-[0.22em] text-accent"
           animate={{ opacity: [1, 0.4, 1] }}
           transition={{ duration: 0.72, repeat: Infinity, ease: "easeInOut" }}
         >
           Warm-up ending
         </motion.p>
       ) : null}
-      <p
-        className="max-w-[280px] text-center text-[12px] font-medium leading-snug text-white/80"
-      >
-        Choose only when it feels right
-      </p>
-      <div className="flex w-full max-w-[360px] items-center justify-center gap-3 rounded-full border border-white/10 bg-black/30 p-1.5 shadow-[0_18px_60px_rgba(0,0,0,0.38)] backdrop-blur-2xl">
+      <div className="flex w-full max-w-[360px] items-center justify-center gap-2.5 rounded-full border border-white/[0.12] bg-black/[0.35] p-1.5 shadow-[0_20px_64px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl">
         <motion.button
           onClick={() => void handleTap("pass")}
           disabled={disabled || submitting !== null}
           whileTap={{ scale: 0.94 }}
           aria-label="Pass"
-          className="relative flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-4 py-3 text-white/60 transition-colors hover:bg-white/[0.09] hover:text-white/80 disabled:opacity-60"
+          className="relative flex min-h-12 flex-1 items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.055] px-4 py-3 text-white/60 transition-colors hover:bg-white/[0.09] hover:text-white/80 disabled:opacity-60"
         >
           <X className="w-4 h-4" />
           <span className="text-[15px] font-display font-semibold">
@@ -99,7 +94,7 @@ export const VibeCheckButton = ({
           }
           transition={isFinalTenSeconds ? { duration: 0.82, repeat: Infinity, ease: "easeInOut" } : {}}
           aria-label="Vibe"
-          className="relative flex min-h-12 flex-[1.12] items-center justify-center gap-2 overflow-hidden rounded-full border border-white/20 bg-gradient-to-r from-primary to-accent px-5 py-3 text-primary-foreground shadow-[0_18px_44px_hsl(var(--primary)/0.34)] transition-colors disabled:opacity-60"
+          className="relative flex min-h-12 flex-[1.12] items-center justify-center gap-2 overflow-hidden rounded-full border border-white/20 bg-gradient-to-r from-primary to-accent px-5 py-3 text-primary-foreground shadow-[0_18px_44px_hsl(var(--primary)/0.36)] transition-colors disabled:opacity-60"
         >
           <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.34),transparent_34%)]" aria-hidden />
           <Heart className="relative w-5 h-5 fill-primary-foreground/25" />
@@ -109,11 +104,11 @@ export const VibeCheckButton = ({
         </motion.button>
       </div>
       <p
-        className={`max-w-[280px] text-center text-[10.5px] leading-snug ${isFinalTenSeconds ? "text-accent font-medium" : "text-white/40"}`}
+        className={`max-w-[280px] text-center text-[10.5px] leading-snug ${isFinalTenSeconds ? "text-accent font-medium" : "text-white/[0.45]"}`}
       >
         {isFinalTenSeconds
           ? "A quiet nudge before the warm-up ends."
-          : "Your choice only continues after it saves."}
+          : "Your choice is saved before the date continues."}
       </p>
     </div>
   );
