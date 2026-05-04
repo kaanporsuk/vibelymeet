@@ -1210,7 +1210,14 @@ const ReadyGateOverlay = ({
       aria-modal="true"
       aria-labelledby="ready-gate-title"
       aria-describedby="ready-gate-description"
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto px-4 py-4"
+      style={{
+        boxSizing: "border-box",
+        minHeight: "100vh",
+        height: "100dvh",
+        paddingTop: "max(1rem, env(safe-area-inset-top))",
+        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+      }}
     >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => {}} />
@@ -1282,7 +1289,7 @@ const ReadyGateOverlay = ({
         animate={prefersReducedMotion ? { opacity: 1 } : { y: 0, scale: 1, opacity: 1 }}
         exit={prefersReducedMotion ? { opacity: 0 } : { y: 100, scale: 0.95, opacity: 0 }}
         transition={prefersReducedMotion ? { duration: 0.12 } : { type: "spring", stiffness: 300, damping: 28 }}
-        className="relative z-10 w-full max-w-sm rounded-3xl border border-white/10 overflow-hidden mb-4 sm:mb-0"
+        className="relative z-10 max-h-full w-full max-w-sm overflow-y-auto rounded-3xl border border-white/10 overscroll-contain"
         style={{
           background:
             "linear-gradient(145deg, hsl(var(--card)), hsl(var(--card) / 0.95))",

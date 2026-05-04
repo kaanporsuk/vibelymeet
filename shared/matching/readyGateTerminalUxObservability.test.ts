@@ -145,6 +145,19 @@ test("ReadyGateOverlay exposes basic dialog accessibility and reduced-motion hoo
   }
 });
 
+test("web ReadyGateOverlay stays centered on mobile instead of becoming a bottom sheet", () => {
+  assert.match(
+    webReadyGate,
+    /className="fixed inset-0 z-\[60\] flex items-center justify-center overflow-y-auto px-4 py-4"/,
+  );
+  assert.match(webReadyGate, /height:\s*"100dvh"/);
+  assert.match(webReadyGate, /paddingTop:\s*"max\(1rem, env\(safe-area-inset-top\)\)"/);
+  assert.match(webReadyGate, /paddingBottom:\s*"max\(1rem, env\(safe-area-inset-bottom\)\)"/);
+  assert.match(webReadyGate, /className="relative z-10 max-h-full w-full max-w-sm overflow-y-auto/);
+  assert.doesNotMatch(webReadyGate, /items-end sm:items-center/);
+  assert.doesNotMatch(webReadyGate, /mb-4 sm:mb-0/);
+});
+
 test("native Ready Gate preserves backend terminal distinction without full parity rewrite", () => {
   assert.match(nativeReadyGateApi, /status === EXPIRED \? 'timeout' : 'skip'/);
   assert.match(nativeReadyGateApi, /ready_gate_transition/);
