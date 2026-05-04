@@ -72,7 +72,10 @@ const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
 const DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
 const REMOTE_RENDER_VALIDATION_DELAY_MS = 650;
 const REMOTE_RENDER_FRAME_TIMEOUT_MS = 1_400;
-const REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK = 2;
+const REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK = 4;
+const REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE = 2;
+const REMOTE_RENDER_RECOVERY_ATTEMPT_TTL_MS = 30_000;
+const REMOTE_RENDER_RECOVERY_MAX_ATTEMPT_KEYS = 24;
 
 type RemoteVideoFrameCallbackMetadata = {
   presentedFrames?: number;
@@ -86,6 +89,16 @@ type RemoteVideoElementWithFrameCallback = HTMLVideoElement & {
     callback: (now: DOMHighResTimeStamp, metadata: RemoteVideoFrameCallbackMetadata) => void
   ) => number;
   cancelVideoFrameCallback?: (handle: number) => void;
+};
+
+type RemoteRenderRecoveryAttemptEntry = {
+  attempts: number;
+  updatedAtMs: number;
+};
+
+type RemoteRenderValidationOptions = {
+  allowRecovery?: boolean;
+  recoveryFollowUp?: boolean;
 };
 
 function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined) {
@@ -206,6 +219,35 @@ function getParticipantIdentity(p: DailyParticipant | undefined): string | null 
   return participant.session_id ?? participant.user_id ?? participant.userId ?? null;
 }
 
+function normalizeRemoteRenderRecoveryScope(scope: string): string {
+  if (scope.startsWith("camera_switch_hint:")) return "camera_switch_hint";
+  if (scope.includes("camera_switch_hint")) return "camera_switch_hint";
+  if (scope.includes("participant_updated_same_track")) return "participant_updated_same_track";
+  if (scope.includes("remote_render_recovery_followup")) return "remote_render_recovery_followup";
+  return scope;
+}
+
+function pruneRemoteRenderRecoveryAttempts(
+  attempts: Map<string, RemoteRenderRecoveryAttemptEntry>,
+  nowMs: number
+) {
+  for (const [key, entry] of attempts) {
+    if (nowMs - entry.updatedAtMs > REMOTE_RENDER_RECOVERY_ATTEMPT_TTL_MS) attempts.delete(key);
+  }
+  while (attempts.size > REMOTE_RENDER_RECOVERY_MAX_ATTEMPT_KEYS) {
+    let oldestKey: string | null = null;
+    let oldestUpdatedAtMs = Number.POSITIVE_INFINITY;
+    for (const [key, entry] of attempts) {
+      if (entry.updatedAtMs < oldestUpdatedAtMs) {
+        oldestKey = key;
+        oldestUpdatedAtMs = entry.updatedAtMs;
+      }
+    }
+    if (!oldestKey) break;
+    attempts.delete(oldestKey);
+  }
+}
+
 function streamHasTrackId(stream: MediaStream | null, trackId: string): boolean {
   if (!stream || !trackId) return false;
   return stream.getTracks().some((t) => t.id === trackId);
@@ -263,13 +305,24 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const remoteRenderValidationFrameCallbackRef = useRef<number | null>(null);
   const remoteRenderValidationSeqRef = useRef(0);
   const remoteRenderRecoveryReattachTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const remoteRenderRecoveryAttemptsRef = useRef<Map<string, number>>(new Map());
+  const remoteRenderRecoveryTrackAttemptsRef = useRef<Map<string, RemoteRenderRecoveryAttemptEntry>>(new Map());
+  const remoteRenderRecoveryScopedAttemptsRef = useRef<Map<string, RemoteRenderRecoveryAttemptEntry>>(new Map());
   const remoteRenderRecoveryInFlightRef = useRef<{
     trackKey: string;
-    attemptKey: string;
-    attempt: number;
+    scopeKey: string;
+    trackAttempt: number;
+    scopeAttempt: number;
     source: string;
   } | null>(null);
+  const scheduleRemoteRenderValidationRef = useRef<
+    ((
+      participant: DailyParticipant | undefined,
+      source: string,
+      roomName: string | null,
+      recoveryScope?: string,
+      options?: RemoteRenderValidationOptions
+    ) => void) | null
+  >(null);
   const lastRemoteRenderParticipantIdRef = useRef<string | null>(null);
   const startAttemptNonceRef = useRef(0);
   const startCallInFlightSessionRef = useRef<string | null>(null);
@@ -436,8 +489,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 if (!isLocal && remoteTrackKey) {
                   const recovery = remoteRenderRecoveryInFlightRef.current;
                   if (recovery?.trackKey === remoteTrackKey) {
-                    remoteRenderRecoveryAttemptsRef.current.delete(recovery.attemptKey);
-                    vdbg("daily_remote_render_recovery_succeeded", {
+                    vdbg("daily_remote_render_recovery_play_resolved", {
                       sessionId: optionsRef.current?.roomId ?? null,
                       eventId: optionsRef.current?.eventId ?? null,
                       userId: optionsRef.current?.userId ?? null,
@@ -445,12 +497,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                       videoTrackId: videoTrack?.id ?? null,
                       audioTrackId: audioTrack?.id ?? null,
                       source: recovery.source,
-                      attempt: recovery.attempt,
+                      scopeKey: recovery.scopeKey,
+                      trackAttempt: recovery.trackAttempt,
+                      scopeAttempt: recovery.scopeAttempt,
                       videoElementReadyState: videoEl.readyState,
                       videoElementWidth: videoEl.videoWidth,
                       videoElementHeight: videoEl.videoHeight,
                     });
-                    remoteRenderRecoveryInFlightRef.current = null;
                   }
                 }
                 setRemotePlayback((prev) => ({
@@ -480,7 +533,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                       videoTrackId: videoTrack?.id ?? null,
                       audioTrackId: audioTrack?.id ?? null,
                       source: recovery.source,
-                      attempt: recovery.attempt,
+                      scopeKey: recovery.scopeKey,
+                      trackAttempt: recovery.trackAttempt,
+                      scopeAttempt: recovery.scopeAttempt,
                       error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
                     });
                     remoteRenderRecoveryInFlightRef.current = null;
@@ -620,6 +675,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     []
   );
 
+  const resetRemoteRenderRecoveryAttempts = useCallback(() => {
+    remoteRenderRecoveryTrackAttemptsRef.current.clear();
+    remoteRenderRecoveryScopedAttemptsRef.current.clear();
+    remoteRenderRecoveryInFlightRef.current = null;
+  }, []);
+
   const clearRemoteRenderValidation = useCallback((options?: { cancelReattach?: boolean }) => {
     remoteRenderValidationSeqRef.current += 1;
     if (remoteRenderValidationDelayRef.current) {
@@ -649,9 +710,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     const participantId = getParticipantIdentity(participant);
     if (!participantId || participantId === lastRemoteRenderParticipantIdRef.current) return;
     lastRemoteRenderParticipantIdRef.current = participantId;
-    remoteRenderRecoveryAttemptsRef.current.clear();
-    remoteRenderRecoveryInFlightRef.current = null;
-  }, []);
+    resetRemoteRenderRecoveryAttempts();
+  }, [resetRemoteRenderRecoveryAttempts]);
 
   const forceRemoteMediaReattach = useCallback(
     (
@@ -662,36 +722,73 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     ) => {
       const videoEl = remoteVideoRef.current;
       const remoteKey = getTrackIdsKey(participant, true);
-      const attemptKey = `${remoteKey}:${recoveryScope}`;
+      const scopeKey = normalizeRemoteRenderRecoveryScope(recoveryScope);
+      const scopedAttemptKey = `${remoteKey}:${scopeKey}`;
       const videoTrack = participant?.tracks?.video?.persistentTrack;
       if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack) {
         vdbg("daily_remote_render_recovery_skipped", {
           ...remoteRenderDiagnostics(participant, videoEl),
           source,
+          recoveryScope,
+          scopeKey,
           reason: !videoEl ? "missing_video_element" : !remoteKey || !videoTrack ? "missing_video_track" : "missing_tracks",
         });
         return;
       }
 
-      const attempts = remoteRenderRecoveryAttemptsRef.current.get(attemptKey) ?? 0;
-      if (attempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK) {
+      const nowMs = Date.now();
+      pruneRemoteRenderRecoveryAttempts(remoteRenderRecoveryTrackAttemptsRef.current, nowMs);
+      pruneRemoteRenderRecoveryAttempts(remoteRenderRecoveryScopedAttemptsRef.current, nowMs);
+      const trackAttempts = remoteRenderRecoveryTrackAttemptsRef.current.get(remoteKey)?.attempts ?? 0;
+      const scopeAttempts = remoteRenderRecoveryScopedAttemptsRef.current.get(scopedAttemptKey)?.attempts ?? 0;
+      if (
+        trackAttempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK ||
+        scopeAttempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE
+      ) {
         vdbg("daily_remote_render_recovery_skipped", {
           ...remoteRenderDiagnostics(participant, videoEl),
           source,
           recoveryScope,
+          scopeKey,
           reason: "max_attempts_exhausted",
-          attempts,
-          maxAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
+          trackAttempts,
+          scopeAttempts,
+          maxTrackAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
+          maxScopeAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE,
+        });
+        setRemotePlayback((prev) => ({
+          ...prev,
+          mediaAttached: true,
+          playSucceeded: false,
+          playRejected: true,
+          error: "Remote video paused. Tap to resume.",
+        }));
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PLAYBACK_BLOCKED, {
+          platform: "web",
+          session_id: optionsRef.current?.roomId ?? null,
+          event_id: optionsRef.current?.eventId ?? null,
+          reason: "remote_render_recovery_exhausted",
         });
         return;
       }
 
-      const nextAttempt = attempts + 1;
-      remoteRenderRecoveryAttemptsRef.current.set(attemptKey, nextAttempt);
+      const nextTrackAttempt = trackAttempts + 1;
+      const nextScopeAttempt = scopeAttempts + 1;
+      remoteRenderRecoveryTrackAttemptsRef.current.set(remoteKey, {
+        attempts: nextTrackAttempt,
+        updatedAtMs: nowMs,
+      });
+      remoteRenderRecoveryScopedAttemptsRef.current.set(scopedAttemptKey, {
+        attempts: nextScopeAttempt,
+        updatedAtMs: nowMs,
+      });
+      pruneRemoteRenderRecoveryAttempts(remoteRenderRecoveryTrackAttemptsRef.current, nowMs);
+      pruneRemoteRenderRecoveryAttempts(remoteRenderRecoveryScopedAttemptsRef.current, nowMs);
       remoteRenderRecoveryInFlightRef.current = {
         trackKey: remoteKey,
-        attemptKey,
-        attempt: nextAttempt,
+        scopeKey,
+        trackAttempt: nextTrackAttempt,
+        scopeAttempt: nextScopeAttempt,
         source,
       };
       clearRemoteRenderValidation({ cancelReattach: true });
@@ -700,8 +797,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         ...remoteRenderDiagnostics(participant, videoEl),
         source,
         recoveryScope,
-        attempt: nextAttempt,
-        maxAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
+        scopeKey,
+        trackAttempt: nextTrackAttempt,
+        scopeAttempt: nextScopeAttempt,
+        maxTrackAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
+        maxScopeAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE,
       });
 
       try {
@@ -722,7 +822,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             reason: "stale_track_key",
             expectedTrackKey: remoteKey,
             latestTrackKey: latestKey || null,
-            attempt: nextAttempt,
+            trackAttempt: nextTrackAttempt,
+            scopeAttempt: nextScopeAttempt,
           });
           if (remoteRenderRecoveryInFlightRef.current?.trackKey === remoteKey) {
             remoteRenderRecoveryInFlightRef.current = null;
@@ -735,6 +836,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           participant: latestParticipant,
           roomName,
         });
+        scheduleRemoteRenderValidationRef.current?.(
+          latestParticipant,
+          "remote_render_recovery_followup",
+          roomName,
+          scopeKey,
+          { allowRecovery: true, recoveryFollowUp: true }
+        );
       }, 0);
     },
     [attachTracks, clearRemoteRenderValidation, logTrackMounted, remoteRenderDiagnostics]
@@ -745,15 +853,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       participant: DailyParticipant | undefined,
       source: string,
       roomName: string | null,
-      recoveryScope = source
+      recoveryScope = source,
+      validationOptions: RemoteRenderValidationOptions = {}
     ) => {
       const videoEl = remoteVideoRef.current;
       const remoteKey = getTrackIdsKey(participant, true);
       const videoTrack = participant?.tracks?.video?.persistentTrack;
       if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack || videoTrack.readyState === "ended") {
+        clearRemoteRenderValidation({ cancelReattach: true });
         vdbg("daily_remote_render_validation_skipped", {
           ...remoteRenderDiagnostics(participant, videoEl),
           source,
+          recoveryScope,
           reason: !videoEl
             ? "missing_video_element"
             : !remoteKey || !videoTrack
@@ -800,9 +911,36 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             remoteRenderValidationTimeoutRef.current = null;
           }
           remoteRenderValidationFrameCallbackRef.current = null;
+          const recovery = remoteRenderRecoveryInFlightRef.current;
+          if (recovery?.trackKey === remoteKey) {
+            remoteRenderRecoveryTrackAttemptsRef.current.delete(remoteKey);
+            remoteRenderRecoveryScopedAttemptsRef.current.delete(`${remoteKey}:${recovery.scopeKey}`);
+            remoteRenderRecoveryInFlightRef.current = null;
+            vdbg("daily_remote_render_recovery_succeeded", {
+              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+              source: recovery.source,
+              validationSource: source,
+              scopeKey: recovery.scopeKey,
+              trackAttempt: recovery.trackAttempt,
+              scopeAttempt: recovery.scopeAttempt,
+              method,
+              presentedFrames: metadata?.presentedFrames ?? null,
+              mediaTime: metadata?.mediaTime ?? null,
+              frameWidth: metadata?.width ?? null,
+              frameHeight: metadata?.height ?? null,
+            });
+          }
+          setRemotePlayback((prev) => ({
+            ...prev,
+            mediaAttached: true,
+            playRejected: false,
+            error: undefined,
+          }));
           vdbg("daily_remote_same_track_render_validated", {
             ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
             source,
+            recoveryScope,
+            recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
             method,
             presentedFrames: metadata?.presentedFrames ?? null,
             mediaTime: metadata?.mediaTime ?? null,
@@ -815,13 +953,34 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           if (remoteRenderValidationSeqRef.current !== validationSeq) return;
           remoteRenderValidationTimeoutRef.current = null;
           remoteRenderValidationFrameCallbackRef.current = null;
+          if (reconnectGraceActiveRef.current) {
+            vdbg("daily_remote_render_validation_deferred", {
+              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+              source,
+              recoveryScope,
+              reason: "reconnect_grace_active",
+              timeoutReason: reason,
+            });
+            return;
+          }
           vdbg("daily_remote_render_validation_timed_out", {
             ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
             source,
             recoveryScope,
+            recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
             reason,
             timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
           });
+          if (validationOptions.allowRecovery === false) {
+            setRemotePlayback((prev) => ({
+              ...prev,
+              mediaAttached: true,
+              playSucceeded: false,
+              playRejected: true,
+              error: "Remote video paused. Tap to resume.",
+            }));
+            return;
+          }
           forceRemoteMediaReattach(latestParticipant, `${source}:${reason}`, roomName, recoveryScope);
         };
 
@@ -850,6 +1009,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     },
     [clearRemoteRenderValidation, forceRemoteMediaReattach, remoteRenderDiagnostics]
   );
+
+  useEffect(() => {
+    scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;
+  }, [scheduleRemoteRenderValidation]);
 
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
@@ -1032,8 +1195,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       reconnectGraceActiveRef.current = false;
       reconnectPartnerAwayTriggeredRef.current = false;
       reconnectSyncRequestedRef.current = false;
-      remoteRenderRecoveryAttemptsRef.current.clear();
-      remoteRenderRecoveryInFlightRef.current = null;
+      resetRemoteRenderRecoveryAttempts();
       lastRemoteRenderParticipantIdRef.current = null;
       activePreparedEntryCacheRef.current = null;
       dailyJoinStartedAtMsRef.current = null;
@@ -1050,7 +1212,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       latestLocalParticipantRef.current = undefined;
       latestRemoteParticipantRef.current = undefined;
     },
-    [clearFirstRemoteWatchdog, clearReconnectGraceTimers, clearRemoteRenderValidation]
+    [clearFirstRemoteWatchdog, clearReconnectGraceTimers, clearRemoteRenderValidation, resetRemoteRenderRecoveryAttempts]
   );
 
   const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
@@ -1728,8 +1890,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               : "participant_updated_same_track";
             if (remoteKeyChanged) {
               lastRemoteTrackIdsRef.current = remoteKey;
-              remoteRenderRecoveryAttemptsRef.current.clear();
-              remoteRenderRecoveryInFlightRef.current = null;
+              resetRemoteRenderRecoveryAttempts();
               if (remoteVideoRef.current) {
                 attachTracks(event.participant, remoteVideoRef.current, false);
                 logTrackMounted("participant_updated", {
@@ -1768,8 +1929,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callObject.on("participant-left", (event) => {
           if (event && !event.participant?.local) {
             clearRemoteRenderValidation({ cancelReattach: true });
-            remoteRenderRecoveryAttemptsRef.current.clear();
-            remoteRenderRecoveryInFlightRef.current = null;
+            resetRemoteRenderRecoveryAttempts();
             lastRemoteRenderParticipantIdRef.current = null;
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
@@ -1821,8 +1981,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         callObject.on("left-meeting", () => {
           clearReconnectGrace("left_meeting", false);
           clearRemoteRenderValidation({ cancelReattach: true });
-          remoteRenderRecoveryAttemptsRef.current.clear();
-          remoteRenderRecoveryInFlightRef.current = null;
+          resetRemoteRenderRecoveryAttempts();
           lastRemoteRenderParticipantIdRef.current = null;
           vdbg("daily_call_left_meeting", {
             sessionId,
@@ -1910,7 +2069,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             participant,
             "app_message_camera_switch_hint",
             roomData.room_name ?? null,
-            `camera_switch_hint:${hint.switchId}`
+            "camera_switch_hint"
           );
         });
 
@@ -2388,6 +2547,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       logTrackMounted,
       needsTrackReattach,
       preflightMediaPermission,
+      resetRemoteRenderRecoveryAttempts,
       resetRemoteRenderRecoveryForParticipant,
       scheduleRemoteRenderValidation,
       clearRemoteRenderValidation,

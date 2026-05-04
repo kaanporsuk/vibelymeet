@@ -149,13 +149,43 @@ assert(
     webVideoCall.includes("sendAppMessage") &&
     webVideoCall.includes("daily_camera_switch_render_hint_received") &&
     webVideoCall.includes("app_message_camera_switch_hint") &&
-    webVideoCall.includes("camera_switch_hint:${hint.switchId}"),
+    webVideoCall.includes('"camera_switch_hint"') &&
+    !webVideoCall.includes("camera_switch_hint:${hint.switchId}"),
   `${webVideoCallPath}: web Video Date must send and receive shared camera-switch render hints`
 );
 assert(
-  /attempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK/.test(webVideoCall) &&
+  webVideoCall.includes("remoteRenderRecoveryTrackAttemptsRef") &&
+    webVideoCall.includes("remoteRenderRecoveryScopedAttemptsRef") &&
+    webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK") &&
+    webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE") &&
+    webVideoCall.includes("REMOTE_RENDER_RECOVERY_ATTEMPT_TTL_MS") &&
+    webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPT_KEYS") &&
+    webVideoCall.includes("normalizeRemoteRenderRecoveryScope") &&
+    webVideoCall.includes("pruneRemoteRenderRecoveryAttempts") &&
+    /trackAttempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK/.test(webVideoCall) &&
+    /scopeAttempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE/.test(webVideoCall) &&
     webVideoCall.includes("daily_remote_render_recovery_skipped"),
-  `${webVideoCallPath}: web receiver remote render recovery must be bounded by a max-attempt guard`
+  `${webVideoCallPath}: web receiver remote render recovery must be bounded by per-track and stable-scope guards`
+);
+assert(
+  webVideoCall.includes("daily_remote_render_recovery_play_resolved") &&
+    webVideoCall.includes("remote_render_recovery_followup") &&
+    webVideoCall.includes("daily_remote_render_recovery_succeeded") &&
+    webVideoCall.indexOf("daily_remote_render_recovery_play_resolved") <
+      webVideoCall.indexOf("daily_remote_render_recovery_succeeded"),
+  `${webVideoCallPath}: web forced reattach must validate a fresh frame before recording render recovery success`
+);
+assert(
+  webVideoCall.includes("clearRemoteRenderValidation({ cancelReattach: true });") &&
+    webVideoCall.includes('reason: "reconnect_grace_active"') &&
+    webVideoCall.includes("daily_remote_render_validation_deferred"),
+  `${webVideoCallPath}: web render validation must clear stale validators and defer forced reattach during reconnect grace`
+);
+assert(
+  webVideoCall.includes("remote_render_recovery_exhausted") &&
+    webVideoCall.includes("playRejected: true") &&
+    webVideoCall.includes("Remote video paused. Tap to resume."),
+  `${webVideoCallPath}: exhausted web render recovery must surface the existing user-visible retry path`
 );
 assert(
   !/createCallObject\(\s*\{[\s\S]*?videoSource:\s*true[\s\S]*?\}\s*\)/.test(webVideoCall),
@@ -221,7 +251,8 @@ assert(
     nativeDate.includes("native_camera_switch_render_hint_received") &&
     nativeDate.includes("native_camera_switch_render_hint_sent") &&
     nativeDate.includes("app_message_camera_switch_hint") &&
-    nativeDate.includes("camera_switch_hint:${hint.switchId}"),
+    nativeDate.includes("'camera_switch_hint'") &&
+    !nativeDate.includes("camera_switch_hint:${hint.switchId}"),
   `${nativeDatePath}: native Video Date must send and receive shared camera-switch render hints`
 );
 assert(
@@ -234,9 +265,24 @@ assert(
   `${nativeDatePath}: native receiver must use bounded keyed DailyMediaView remount recovery`
 );
 assert(
-  /attempts\s*>=\s*NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE/.test(nativeDate) &&
+  nativeDate.includes("dailyParticipantSessionId(call.participants()?.local") &&
+    nativeDate.includes("localParticipantSessionId") &&
+    !nativeDate.includes("localParticipantId = dailyParticipantId(call.participants()?.local"),
+  `${nativeDatePath}: native camera-switch self-origin guard must compare Daily app-message fromId to local session_id`
+);
+assert(
+  nativeDate.includes("nativeRemoteRenderTrackAttemptsRef") &&
+    nativeDate.includes("nativeRemoteRenderScopedAttemptsRef") &&
+    nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK") &&
+    nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE") &&
+    nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS") &&
+    nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS") &&
+    nativeDate.includes("normalizeNativeRemoteRenderRecoveryScope") &&
+    nativeDate.includes("pruneNativeRemoteRenderAttemptMap") &&
+    /trackAttempts\s*>=\s*NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK/.test(nativeDate) &&
+    /scopeAttempts\s*>=\s*NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE/.test(nativeDate) &&
     nativeDate.includes("max_attempts_reached"),
-  `${nativeDatePath}: native receiver remount recovery must be bounded by a max-attempt guard`
+  `${nativeDatePath}: native receiver remount recovery must be bounded by per-track and stable-scope guards`
 );
 assert(
   !/\bwidth\s*:/.test(nativeIdealConstraints) &&

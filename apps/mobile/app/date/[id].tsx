@@ -183,7 +183,10 @@ const HANDSHAKE_CTA_STACK_HEIGHT = 92;
 const HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET = 24;
 const FLOATING_CHROME_GAP = 10;
 const NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS = 650;
+const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK = 4;
 const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE = 2;
+const NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS = 30_000;
+const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS = 24;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -447,12 +450,50 @@ function dailyParticipantId(p: DailyParticipant | undefined): string | undefined
   return u.user_id ?? u.userId ?? u.session_id;
 }
 
+function dailyParticipantSessionId(p: DailyParticipant | undefined): string | undefined {
+  if (!p) return undefined;
+  return (p as unknown as { session_id?: string }).session_id;
+}
+
 function nativeRemoteRenderTrackKey(p: DailyParticipant | undefined): string | null {
   if (!p) return null;
   const participantId = dailyParticipantId(p) ?? 'remote';
   const videoTrackId = getTrack(p, 'video')?.id ?? 'no-video';
   const audioTrackId = getTrack(p, 'audio')?.id ?? 'no-audio';
   return `${participantId}:${videoTrackId}:${audioTrackId}`;
+}
+
+function normalizeNativeRemoteRenderRecoveryScope(scope: string): string {
+  if (scope.startsWith('camera_switch_hint:')) return 'camera_switch_hint';
+  if (scope.includes('camera_switch_hint')) return 'camera_switch_hint';
+  if (scope.includes('participant_updated_same_track')) return 'participant_updated_same_track';
+  return scope;
+}
+
+type NativeRemoteRenderAttemptEntry = {
+  attempts: number;
+  updatedAtMs: number;
+};
+
+function pruneNativeRemoteRenderAttemptMap(
+  attempts: Map<string, NativeRemoteRenderAttemptEntry>,
+  nowMs: number
+) {
+  for (const [key, entry] of attempts) {
+    if (nowMs - entry.updatedAtMs > NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS) attempts.delete(key);
+  }
+  while (attempts.size > NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS) {
+    let oldestKey: string | null = null;
+    let oldestUpdatedAtMs = Number.POSITIVE_INFINITY;
+    for (const [key, entry] of attempts) {
+      if (entry.updatedAtMs < oldestUpdatedAtMs) {
+        oldestKey = key;
+        oldestUpdatedAtMs = entry.updatedAtMs;
+      }
+    }
+    if (!oldestKey) break;
+    attempts.delete(oldestKey);
+  }
 }
 
 function videoDateDailyDiagnostic(
@@ -696,7 +737,8 @@ export default function VideoDateScreen() {
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
   const remoteParticipantRef = useRef<DailyParticipant | null>(null);
   const nativeRemoteRenderRemountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const nativeRemoteRenderAttemptsRef = useRef<Map<string, number>>(new Map());
+  const nativeRemoteRenderTrackAttemptsRef = useRef<Map<string, NativeRemoteRenderAttemptEntry>>(new Map());
+  const nativeRemoteRenderScopedAttemptsRef = useRef<Map<string, NativeRemoteRenderAttemptEntry>>(new Map());
   const lastNativeRemoteRenderTrackKeyRef = useRef<string | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const surveyOpenedRef = useRef(false);
@@ -1062,7 +1104,8 @@ export default function VideoDateScreen() {
   const resetNativeRemoteRenderRecovery = useCallback(
     (participant: DailyParticipant | null | undefined, reason: string) => {
       clearNativeRemoteRenderRemount(reason);
-      nativeRemoteRenderAttemptsRef.current.clear();
+      nativeRemoteRenderTrackAttemptsRef.current.clear();
+      nativeRemoteRenderScopedAttemptsRef.current.clear();
       lastNativeRemoteRenderTrackKeyRef.current = nativeRemoteRenderTrackKey(participant ?? undefined);
       videoDateDailyDiagnostic('native_remote_render_recovery_reset', {
         ...nativeRemoteRenderDiagnostics(participant),
@@ -1089,7 +1132,8 @@ export default function VideoDateScreen() {
       const previousTrackKey = lastNativeRemoteRenderTrackKeyRef.current;
       if (previousTrackKey !== trackKey) {
         lastNativeRemoteRenderTrackKeyRef.current = trackKey;
-        nativeRemoteRenderAttemptsRef.current.clear();
+        nativeRemoteRenderTrackAttemptsRef.current.clear();
+        nativeRemoteRenderScopedAttemptsRef.current.clear();
         videoDateDailyDiagnostic('native_remote_render_track_key_changed', {
           ...nativeRemoteRenderDiagnostics(participant),
           source,
@@ -1097,27 +1141,51 @@ export default function VideoDateScreen() {
         });
       }
 
-      const attemptKey = `${trackKey}:${recoveryScope}`;
-      const attempts = nativeRemoteRenderAttemptsRef.current.get(attemptKey) ?? 0;
-      if (attempts >= NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE) {
+      const scopeKey = normalizeNativeRemoteRenderRecoveryScope(recoveryScope);
+      const scopedAttemptKey = `${trackKey}:${scopeKey}`;
+      const nowMs = Date.now();
+      pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderTrackAttemptsRef.current, nowMs);
+      pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderScopedAttemptsRef.current, nowMs);
+      const trackAttempts = nativeRemoteRenderTrackAttemptsRef.current.get(trackKey)?.attempts ?? 0;
+      const scopeAttempts = nativeRemoteRenderScopedAttemptsRef.current.get(scopedAttemptKey)?.attempts ?? 0;
+      if (
+        trackAttempts >= NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK ||
+        scopeAttempts >= NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE
+      ) {
         videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
           ...nativeRemoteRenderDiagnostics(participant),
           source,
           recovery_scope: recoveryScope,
+          scope_key: scopeKey,
           reason: 'max_attempts_reached',
-          attempts,
-          max_attempts: NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE,
+          track_attempts: trackAttempts,
+          scope_attempts: scopeAttempts,
+          max_track_attempts: NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK,
+          max_scope_attempts: NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE,
         });
         return;
       }
 
-      nativeRemoteRenderAttemptsRef.current.set(attemptKey, attempts + 1);
+      const nextTrackAttempt = trackAttempts + 1;
+      const nextScopeAttempt = scopeAttempts + 1;
+      nativeRemoteRenderTrackAttemptsRef.current.set(trackKey, {
+        attempts: nextTrackAttempt,
+        updatedAtMs: nowMs,
+      });
+      nativeRemoteRenderScopedAttemptsRef.current.set(scopedAttemptKey, {
+        attempts: nextScopeAttempt,
+        updatedAtMs: nowMs,
+      });
+      pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderTrackAttemptsRef.current, nowMs);
+      pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderScopedAttemptsRef.current, nowMs);
       clearNativeRemoteRenderRemount('reschedule_remote_render_remount');
       videoDateDailyDiagnostic('native_remote_render_remount_scheduled', {
         ...nativeRemoteRenderDiagnostics(participant),
         source,
         recovery_scope: recoveryScope,
-        attempt: attempts + 1,
+        scope_key: scopeKey,
+        track_attempt: nextTrackAttempt,
+        scope_attempt: nextScopeAttempt,
         delay_ms: NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS,
       });
 
@@ -1141,7 +1209,9 @@ export default function VideoDateScreen() {
           ...nativeRemoteRenderDiagnostics(latestParticipant),
           source,
           recovery_scope: recoveryScope,
-          attempt: attempts + 1,
+          scope_key: scopeKey,
+          track_attempt: nextTrackAttempt,
+          scope_attempt: nextScopeAttempt,
         });
       }, NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS);
     },
@@ -1149,10 +1219,12 @@ export default function VideoDateScreen() {
   );
 
   useEffect(() => {
-    const remountAttempts = nativeRemoteRenderAttemptsRef.current;
+    const remountTrackAttempts = nativeRemoteRenderTrackAttemptsRef.current;
+    const remountScopedAttempts = nativeRemoteRenderScopedAttemptsRef.current;
     return () => {
       clearNativeRemoteRenderRemount('screen_unmount');
-      remountAttempts.clear();
+      remountTrackAttempts.clear();
+      remountScopedAttempts.clear();
       lastNativeRemoteRenderTrackKeyRef.current = null;
       remoteParticipantRef.current = null;
     };
@@ -1361,14 +1433,14 @@ export default function VideoDateScreen() {
         const hint = parseVideoDateCameraSwitchRenderHint(event?.data);
         if (!hint) return;
 
-        let localParticipantId: string | null = null;
+        let localParticipantSessionId: string | null = null;
         try {
-          localParticipantId = dailyParticipantId(call.participants()?.local as DailyParticipant | undefined) ?? null;
+          localParticipantSessionId = dailyParticipantSessionId(call.participants()?.local as DailyParticipant | undefined) ?? null;
         } catch {
-          localParticipantId = null;
+          localParticipantSessionId = null;
         }
         const fromId = typeof event?.fromId === 'string' ? event.fromId : null;
-        if (fromId && localParticipantId && fromId === localParticipantId) {
+        if (fromId && localParticipantSessionId && fromId === localParticipantSessionId) {
           videoDateDailyDiagnostic('native_camera_switch_render_hint_ignored', {
             session_id: sessionId ?? '',
             event_id: eventId || null,
@@ -1393,7 +1465,7 @@ export default function VideoDateScreen() {
         scheduleNativeRemoteRenderRemount(
           remote,
           'app_message_camera_switch_hint',
-          `camera_switch_hint:${hint.switchId}`
+          'camera_switch_hint'
         );
       };
       const onError = (event: unknown) => {
