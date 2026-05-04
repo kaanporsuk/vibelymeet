@@ -745,6 +745,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         trackAttempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK ||
         scopeAttempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE
       ) {
+        if (remoteRenderRecoveryInFlightRef.current?.trackKey === remoteKey) {
+          remoteRenderRecoveryInFlightRef.current = null;
+        }
+        if (remoteRenderRecoveryReattachTimeoutRef.current) {
+          clearTimeout(remoteRenderRecoveryReattachTimeoutRef.current);
+          remoteRenderRecoveryReattachTimeoutRef.current = null;
+        }
         vdbg("daily_remote_render_recovery_skipped", {
           ...remoteRenderDiagnostics(participant, videoEl),
           source,
@@ -1010,9 +1017,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [clearRemoteRenderValidation, forceRemoteMediaReattach, remoteRenderDiagnostics]
   );
 
-  useEffect(() => {
-    scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;
-  }, [scheduleRemoteRenderValidation]);
+  scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;
 
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
