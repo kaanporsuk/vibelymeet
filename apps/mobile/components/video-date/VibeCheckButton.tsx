@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { Pressable, Text, View, StyleSheet, Animated, ActivityIndicator, Vibration } from 'react-native';
+import { Pressable, Text, View, StyleSheet, Animated, ActivityIndicator, Vibration, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { radius, spacing, fonts } from '@/constants/theme';
@@ -19,9 +19,18 @@ type Props = {
   disabled?: boolean;
 };
 
+const RAIL_MAX_WIDTH = 340;
+const RAIL_MIN_WIDTH = 272;
+const RAIL_SCREEN_GUTTER = 48;
+const RAIL_HORIZONTAL_PADDING = 6;
+const RAIL_BUTTON_GAP = 8;
+const PASS_BUTTON_RATIO = 0.47;
+const BUTTON_HEIGHT = 56;
+
 export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { width: viewportWidth } = useWindowDimensions();
   const [submitting, setSubmitting] = React.useState<'vibe' | 'pass' | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const submittingRef = useRef(false);
@@ -40,6 +49,11 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
     loop.start();
     return () => loop.stop();
   }, [isFinalTenSeconds, hasDecided, pulseAnim]);
+
+  const railWidth = Math.min(RAIL_MAX_WIDTH, Math.max(RAIL_MIN_WIDTH, Math.floor(viewportWidth - RAIL_SCREEN_GUTTER)));
+  const buttonContentWidth = railWidth - RAIL_HORIZONTAL_PADDING * 2 - RAIL_BUTTON_GAP;
+  const passButtonWidth = Math.floor(buttonContentWidth * PASS_BUTTON_RATIO);
+  const vibeButtonWidth = buttonContentWidth - passButtonWidth;
 
   const handlePress = async (action: 'vibe' | 'pass') => {
     if (hasDecided || disabled || submittingRef.current) return;
@@ -77,9 +91,16 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
 
   return (
     <View style={styles.stripWrap}>
-      <Text style={[styles.helper, { color: 'rgba(255,255,255,0.74)' }]}>Choose when it feels right</Text>
-
-      <View style={[styles.row, { backgroundColor: 'rgba(10,10,16,0.62)', borderColor: theme.glassBorder }]}>
+      <View
+        style={[
+          styles.row,
+          {
+            width: railWidth,
+            backgroundColor: 'rgba(10,10,16,0.62)',
+            borderColor: theme.glassBorder,
+          },
+        ]}
+      >
         <Pressable
           onPress={() => void handlePress('pass')}
           disabled={disabled || submitting !== null}
@@ -87,6 +108,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
           accessibilityLabel="Pass"
           style={({ pressed }) => [
             styles.passShell,
+            { width: passButtonWidth },
             {
               borderColor: 'rgba(255,255,255,0.12)',
               backgroundColor: 'rgba(255,255,255,0.06)',
@@ -104,7 +126,13 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
           )}
         </Pressable>
 
-        <Animated.View style={[styles.vibeScaleWrap, isFinalTenSeconds ? { transform: [{ scale: vibeScale }] } : null]}>
+        <Animated.View
+          style={[
+            styles.vibeScaleWrap,
+            { width: vibeButtonWidth },
+            isFinalTenSeconds ? { transform: [{ scale: vibeScale }] } : null,
+          ]}
+        >
           <Pressable
             onPress={() => void handlePress('vibe')}
             disabled={disabled || submitting !== null}
@@ -131,6 +159,8 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         </Animated.View>
       </View>
 
+      <Text style={[styles.helper, { color: 'rgba(255,255,255,0.58)' }]}>Choose only when it feels right</Text>
+
       {error ? (
         <Text style={[styles.errorText, { color: theme.neonPink }]}>{error}</Text>
       ) : null}
@@ -141,20 +171,19 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
 const styles = StyleSheet.create({
   stripWrap: {
     alignItems: 'center',
-    gap: 8,
     width: '100%',
     maxWidth: 340,
     alignSelf: 'center',
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: spacing.sm,
-    width: '100%',
+    alignItems: 'center',
+    gap: RAIL_BUTTON_GAP,
     justifyContent: 'center',
     borderWidth: 1,
     borderRadius: radius.pill,
-    padding: 8,
+    paddingVertical: 6,
+    paddingHorizontal: RAIL_HORIZONTAL_PADDING,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 18 },
     shadowOpacity: 0.38,
@@ -162,36 +191,32 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   passShell: {
-    flex: 1,
-    maxWidth: 145,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    minHeight: 52,
-    paddingVertical: 12,
-    paddingHorizontal: spacing.md,
+    height: BUTTON_HEIGHT,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.pill,
     borderWidth: 1,
   },
   vibeShell: {
-    flex: 1,
+    width: '100%',
+    height: BUTTON_HEIGHT,
     borderRadius: radius.pill,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.2)',
   },
   vibeScaleWrap: {
-    flex: 1.12,
-    maxWidth: 155,
+    height: BUTTON_HEIGHT,
   },
   vibeGradient: {
-    minHeight: 52,
+    height: BUTTON_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     gap: 2,
   },
   passWord: {
@@ -222,15 +247,17 @@ const styles = StyleSheet.create({
   },
   helper: {
     fontSize: 12,
-    lineHeight: 15,
+    lineHeight: 16,
     fontFamily: fonts.bodySemiBold,
     textAlign: 'center',
+    marginTop: 6,
   },
   errorText: {
     fontSize: 11,
     lineHeight: 14,
     fontFamily: fonts.bodySemiBold,
     textAlign: 'center',
+    marginTop: 4,
   },
   pressed: {
     opacity: 0.72,

@@ -3,11 +3,15 @@
  */
 
 import React from 'react';
-import { Pressable, Text, View, StyleSheet } from 'react-native';
+import { Pressable, Text, View, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { typography, spacing, layout } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
+
+const CARD_MAX_WIDTH = 356;
+const CARD_MIN_WIDTH = 268;
+const CARD_SCREEN_GUTTER = 52;
 
 type Props = {
   question: string;
@@ -22,10 +26,12 @@ export function IceBreakerCard({
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { width: viewportWidth } = useWindowDimensions();
+  const cardWidth = Math.min(CARD_MAX_WIDTH, Math.max(CARD_MIN_WIDTH, Math.floor(viewportWidth - CARD_SCREEN_GUTTER)));
 
   return (
     <View
-      style={[styles.card, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}
+      style={[styles.card, { width: cardWidth, backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}
       accessibilityRole="text"
       accessibilityLabel={`Ice-breaker question: ${question}`}
     >
@@ -74,8 +80,6 @@ export function IceBreakerCard({
 
 const styles = StyleSheet.create({
   card: {
-    width: '100%',
-    maxWidth: layout.contentWidth,
     minHeight: 76,
     flexDirection: 'row',
     alignItems: 'center',
