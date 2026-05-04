@@ -1,4 +1,6 @@
 import { hasAnalyticsConsent } from "@/lib/consent";
+import { supabase } from "@/integrations/supabase/client";
+import { emitVideoDateLaunchLatencyCheckpointObservability } from "@clientShared/observability/videoDateLaunchLatencyCheckpointObservability";
 
 type AnalyticsProperties = Record<string, unknown>;
 type PostHogClient = typeof import("posthog-js").default;
@@ -174,6 +176,11 @@ export const resetAnalytics = () => {
 // Track a custom event
 export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
   if (shouldSkipDuplicateEvent(eventName, properties)) return;
+  void emitVideoDateLaunchLatencyCheckpointObservability({
+    client: supabase,
+    eventName,
+    properties,
+  });
   void getAnalyticsForCapture().then((posthog) => {
     posthog?.capture(eventName, properties);
   });

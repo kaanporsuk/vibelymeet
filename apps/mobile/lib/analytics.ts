@@ -4,6 +4,8 @@
  */
 
 import PostHog from 'posthog-react-native';
+import { emitVideoDateLaunchLatencyCheckpointObservability } from '@clientShared/observability/videoDateLaunchLatencyCheckpointObservability';
+import { supabase } from '@/lib/supabase';
 
 let client: PostHog | null = null;
 let analyticsConsentGranted = false;
@@ -57,6 +59,11 @@ export function trackEvent(
   eventName: string,
   properties?: Record<string, string | number | boolean | null | undefined>
 ) {
+  void emitVideoDateLaunchLatencyCheckpointObservability({
+    client: supabase,
+    eventName,
+    properties,
+  });
   if (!analyticsConsentGranted) return;
   client?.capture(eventName, sanitize(properties));
 }

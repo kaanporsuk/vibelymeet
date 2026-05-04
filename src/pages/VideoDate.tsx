@@ -1585,10 +1585,10 @@ const VideoDate = () => {
     };
   }, [eventId, id, recoverTerminalPostDateSurvey, showFeedback, videoDateAccess]);
 
-  // Start Daily only when timing/handshake bootstrap succeeded (or session already in progress).
+  // Start Daily as soon as the participant guard passes; timing hydration can finish in parallel.
   useEffect(() => {
     if (!id) return;
-    if (videoDateAccess !== "allowed" || !timingReady || handshakeStartFailed) return;
+    if (videoDateAccess !== "allowed" || handshakeStartFailed) return;
     if (phase === "ended") return;
     if (dupBlocked) return;
     if (callStarted) return;
@@ -1694,7 +1694,6 @@ const VideoDate = () => {
     callStartFailure,
     id,
     videoDateAccess,
-    timingReady,
     handshakeStartFailed,
     phase,
     callStarted,

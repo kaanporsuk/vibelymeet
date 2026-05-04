@@ -14,9 +14,14 @@ import {
   shouldTrackVideoDateTimerDriftRecovery,
   startReadyGateToDateLatencyContext,
 } from "./videoDateOperatorMetrics";
+import {
+  emitVideoDateLaunchLatencyCheckpointObservability,
+  sanitizeVideoDateLaunchLatencyPayload,
+} from "./videoDateLaunchLatencyCheckpointObservability";
 
 test("video date operator metric ids stay stable", () => {
   assert.deepEqual(VIDEO_DATE_OPERATOR_METRIC_IDS, [
+    "ready_tap_to_first_remote_frame_latency",
     "ready_gate_open_to_date_join_latency",
     "simultaneous_swipe_collision_rate",
     "survey_to_next_ready_gate_conversion",
@@ -157,6 +162,12 @@ test("latency buckets and context durations are stable", () => {
 
   assert.deepEqual(getReadyGateToDateLatencyDurations(ctx), {
     readyGateOpenToReadyTapMs: 800,
+    readyTapToBothReadyMs: 200,
+    readyTapToPrepareEntryMs: null,
+    readyTapToDateRouteMs: null,
+    readyTapToDailyJoinMs: 1_650,
+    readyTapToRemoteSeenMs: null,
+    readyTapToFirstRemoteFrameMs: null,
     bothReadyToDateRouteMs: null,
     bothReadyToDailyTokenMs: null,
     bothReadyToDailyJoinMs: 1_450,
@@ -164,6 +175,11 @@ test("latency buckets and context durations are stable", () => {
     bothReadyToFirstRemoteFrameMs: null,
     bothReadyToVideoStageShellMs: null,
     bothReadyToLocalVideoReadyMs: null,
+    dateRouteBootstrapMs: null,
+    dateRouteToDailyJoinMs: null,
+    dailyJoinToRemoteSeenMs: null,
+    dailyJoinToFirstRemoteFrameMs: null,
+    remoteSeenToFirstRemoteFrameMs: null,
     firstRemoteFrameToReadableMs: null,
     dailyTokenDurationMs: null,
     dailyJoinDurationMs: null,
@@ -182,4 +198,51 @@ test("latency buckets and context durations are stable", () => {
     }).latency_bucket,
     "1_2s",
   );
+});
+
+test("launch latency checkpoint observability preserves safe first-frame dimensions", async () => {
+  const rawProperties = {
+    session_id: "8b1e4e8c-2141-4c33-b978-a751d37e4c9b",
+    checkpoint: "first_remote_frame",
+    platform: "web",
+    source_surface: "video_date_daily",
+    source_action: "remote_video_frame_callback",
+    outcome: "success",
+    entry_attempt_id: "vde_mabc123_z9y8x7",
+    video_date_trace_id: "vde_mabc123_z9y8x7",
+    ready_tap_to_first_remote_frame_ms: 1900,
+    both_ready_to_first_remote_frame_ms: 700,
+    cached_prepare_entry: true,
+    provider_verify_skipped: true,
+    token: "must_not_survive",
+  };
+
+  assert.deepEqual(sanitizeVideoDateLaunchLatencyPayload(rawProperties), {
+    platform: "web",
+    source_surface: "video_date_daily",
+    source_action: "remote_video_frame_callback",
+    outcome: "success",
+    entry_attempt_id: "vde_mabc123_z9y8x7",
+    video_date_trace_id: "vde_mabc123_z9y8x7",
+    ready_tap_to_first_remote_frame_ms: 1900,
+    both_ready_to_first_remote_frame_ms: 700,
+    cached_prepare_entry: true,
+    provider_verify_skipped: true,
+  });
+
+  let capturedArgs: Record<string, unknown> | null = null;
+  const result = await emitVideoDateLaunchLatencyCheckpointObservability({
+    client: {
+      rpc: async (_fn, args) => {
+        capturedArgs = args;
+        return { data: { inserted: true }, error: null };
+      },
+    },
+    eventName: LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+    properties: rawProperties,
+  });
+
+  assert.deepEqual(result, { ok: true, inserted: true });
+  assert.equal(capturedArgs?.p_checkpoint, "first_remote_frame");
+  assert.equal(capturedArgs?.p_latency_ms, 1900);
 });
