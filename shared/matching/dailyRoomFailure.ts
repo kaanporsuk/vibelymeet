@@ -1,6 +1,7 @@
 import { isNetworkInvokeError, type FunctionInvokeErrorShape } from "../supabaseFunctionInvokeErrors";
 
 export const DAILY_ROOM_ACTIONS = {
+  ENSURE_ROOM: "ensure_date_room",
   CREATE: "create_date_room",
   JOIN: "join_date_room",
   PREPARE_ENTRY: "prepare_date_entry",

@@ -1,6 +1,8 @@
-# Video date native launch latency audit (2026-04-24)
+# Video date native launch latency audit (2026-04-24, refreshed 2026-05-05)
 
 Branch: `perf/video-date-launch-latency`
+
+Status: historical audit, refreshed to match the current phased acceleration contract. The current provider-skip rule is freshness-proof based, not `handshake_started_at` based.
 
 ## Launch sequence (Ready Gate both-ready → playable handshake)
 
@@ -32,10 +34,11 @@ Instrumentation: Sentry breadcrumbs `video-date-launch` (`prejoin_*` segment del
 | `apps/mobile/app/ready/[id].tsx` both-ready → reconcile | 1500 ms `setTimeout` | Immediate `reconcileFromCanonicalTruth` |
 | `apps/mobile/components/lobby/ReadyGateOverlay.tsx` | 1200 ms before `onNavigateToDate` | Immediate navigation |
 
-## `daily-room` `create_date_room` provider verification
+## `daily-room` provider verification
 
-- **Before:** If `daily_room_name` existed, **every** token request did `GET /rooms/:name` before minting token.
-- **After:** If `handshake_started_at` is present and **&lt; 120s** old, skip provider GET (log `date_room_provider_verify_skipped`). Older sessions, missing handshake timestamp, or failed joins still use full verify/recreate path. **Deploy:** redeploy Edge Function `daily-room`.
+- **Old audit finding:** A previous speed pass considered skipping `GET /rooms/:name` when `handshake_started_at` was very recent.
+- **Current contract:** Daily provider verification can be skipped only when room freshness is proven by a trusted, recent `daily_room_verified_at` plus non-expired `daily_room_expires_at` for the canonical room metadata. Old DB metadata alone is not sufficient.
+- **Warmup:** `ensure_date_room` may create or verify the deterministic room during Ready Gate, but it does not issue a user token, transition date entry, or join media. `prepare_date_entry` remains authoritative at both-ready.
 
 ## `handshake_started_at` vs UI
 
@@ -47,7 +50,7 @@ Set by server in `video_date_transition` / `enter_handshake` before RPC returns.
 |---------|-------------------|----------|
 | Removed ready delays | **−1.2 to −1.5 s** | — |
 | Dropped blocking refetch before Daily | **−0.2 to −0.8 s** | Large partner rows |
-| Skip Daily provider GET (warm handshake) | **−0.15 to −0.4 s** | Geo / Daily API variance |
+| Skip redundant Daily provider GET after fresh proof | **−0.15 to −0.4 s** | Only when `daily_room_verified_at` / `daily_room_expires_at` prove freshness |
 | Deferred profile / vibes / credits | **−0.1 to −0.5 s** | Parallel with join |
 | Coalesced truth | Saves duplicate RTT when guard + prejoin overlap | Small |
 
@@ -66,11 +69,12 @@ Captured in **two-device native smoke** with VDBG + Sentry breadcrumbs (`video-d
 
 ## Prewarm Daily at Ready Gate (design only)
 
-Creating a Daily room before `enter_handshake` would advance provider state without starting the server handshake timer in a safe way only if the product defined a **server** state for “room reserved, timer not started”—today `create_date_room` gates on `both_ready` / handshake / date. **Not implemented**; would need RPC + `daily-room` contract changes and web parity.
+Creating a Daily room before user-scoped entry is now handled by `ensure_date_room`: room-only, participant-gated, fail-soft, no token, no route-to-date, and no media join before both-ready.
 
 ## Rebuild / deploy checklist
 
-- **Supabase Edge Function:** redeploy `daily-room` after merge (no migration).
+- **Supabase Edge Function:** redeploy `daily-room` after merge.
+- **Supabase DB:** run the room freshness migration adding `daily_room_verified_at`, `daily_room_expires_at`, and `daily_room_provider_verify_reason`.
 - **Mobile app:** normal OTA / store build; no new env vars.
 - **Web:** unchanged; shared `activeSession` / prejoin types unchanged except mobile-only coalescing in `videoDateApi.ts`.
 
@@ -80,11 +84,11 @@ Creating a Daily room before `enter_handshake` would advance provider state with
 - Stale ready gate: latch + truth still prevent `/date` → `/ready` bounce mid-pipeline.
 - Ended sessions: truth + Edge gates unchanged.
 - Non-participants: RLS + Edge participant checks unchanged.
-- Daily cleanup: skip-verify is time-bounded; stale/expired path still recreates.
+- Daily cleanup: provider verification is skipped only with recent freshness proof; stale/expired metadata still verifies or recreates.
 - Post-date survey / reconnect: untouched logic paths.
 
 ## Remaining risks
 
 1. **Non-blocking `refetchVideoSession`:** UI may rely on full row for a few hundred ms; realtime should follow `enter_handshake`.
-2. **Provider verify skip:** Rare mismatch if Daily deleted room but DB still has name within 120s of handshake—join or token path should fail; user retry hits full verify.
+2. **Provider verify skip:** Only applies with trusted recent proof; if proof is missing or stale, Daily is verified or recreated before token issuance.
 3. **Deferred partner sheet:** Full profile loads after local join; sheet empty briefly if opened instantly (edge).

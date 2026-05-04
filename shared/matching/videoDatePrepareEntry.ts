@@ -1,5 +1,7 @@
 export const PREPARE_VIDEO_DATE_ENTRY_ACTION = "prepare_date_entry" as const;
+export const ENSURE_VIDEO_DATE_ROOM_ACTION = "ensure_date_room" as const;
 export const PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS = 3 * 60 * 1000;
+export const PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION = 1 as const;
 
 export type PrepareVideoDateEntryTimings = {
   bothReadyToPrepareStartMs?: number | null;
@@ -21,9 +23,17 @@ export type PreparedVideoDateEntry = {
   session_state?: string | null;
   session_phase?: string | null;
   handshake_started_at?: string | null;
+  ready_gate_status?: string | null;
+  ready_gate_expires_at?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
   reused_room?: boolean;
   provider_room_recreated?: boolean;
+  provider_room_recovered?: boolean;
   provider_verify_skipped?: boolean;
+  provider_verify_reason?: string | null;
+  daily_room_verified_at?: string | null;
+  daily_room_expires_at?: string | null;
   timings?: PrepareVideoDateEntryTimings;
 };
 
@@ -36,6 +46,33 @@ export type PrepareVideoDateEntryFailure = {
   retryable?: boolean;
 };
 
+export type EnsureVideoDateRoomSuccess = {
+  success: true;
+  room_name: string;
+  room_url: string;
+  reused_room?: boolean;
+  provider_room_recreated?: boolean;
+  provider_room_recovered?: boolean;
+  provider_verify_skipped?: boolean;
+  provider_verify_reason?: string | null;
+  daily_room_verified_at?: string | null;
+  daily_room_expires_at?: string | null;
+  entry_attempt_id?: string | null;
+  video_date_trace_id?: string | null;
+  timings?: Record<string, number | null | undefined>;
+};
+
+export type EnsureVideoDateRoomResult =
+  | { ok: true; data: EnsureVideoDateRoomSuccess }
+  | {
+      ok: false;
+      code: string;
+      message?: string;
+      httpStatus?: number;
+      retryable: boolean;
+      entryAttemptId?: string | null;
+    };
+
 export type PreparedVideoDateEntryCacheEntry = {
   sessionId: string;
   userId: string;
@@ -47,6 +84,44 @@ export type PreparedVideoDateEntryCacheEntry = {
   prepareStartedAtMs: number;
   prepareFinishedAtMs: number;
 };
+
+export type PreparedVideoDateEntryHandoffEnvelope = {
+  handoffVersion: typeof PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION;
+  sessionId: string;
+  userId: string;
+  roomName: string;
+  roomUrl: string;
+  token: string;
+  tokenExpiresAt: string | null;
+  preparedAt: string;
+  expiresAt: string;
+  readyGateStatus: string | null;
+  readyGateExpiresAt: string | null;
+  phase: string | null;
+  state: string | null;
+  participants: [string | null, string | null];
+  entryAttemptId: string | null;
+  videoDateTraceId: string | null;
+  cachedAtMs: number;
+  expiresAtMs: number;
+};
+
+export type PreparedVideoDateEntryHandoffValidation =
+  | { ok: true; envelope: PreparedVideoDateEntryHandoffEnvelope; cacheEntry: PreparedVideoDateEntryCacheEntry }
+  | {
+      ok: false;
+      reason:
+        | "missing"
+        | "session_mismatch"
+        | "user_mismatch"
+        | "expired"
+        | "token_expired"
+        | "missing_room"
+        | "missing_token"
+        | "invalid_state"
+        | "invalid_phase"
+        | "invalid_ready_gate";
+    };
 
 export type PrepareVideoDateEntryResult =
   | {
@@ -88,6 +163,7 @@ type PrepareWithClientOptions = {
 };
 
 const preparedEntryCache = new Map<string, PreparedVideoDateEntryCacheEntry>();
+const preparedEntryHandoffs = new Map<string, PreparedVideoDateEntryHandoffEnvelope>();
 const prepareEntryInflight = new Map<string, Promise<PrepareVideoDateEntryResult>>();
 
 export function createVideoDateEntryAttemptId(nowMs: number = Date.now()): string {
@@ -101,6 +177,38 @@ export function preparedVideoDateEntryCacheKey(sessionId: string, userId: string
   return `${sessionId}:${userId}`;
 }
 
+function isoFromMs(value: number): string {
+  return new Date(value).toISOString();
+}
+
+function readTokenExpiresAtMs(value: PreparedVideoDateEntry): number {
+  return value.token_expires_at ? new Date(value.token_expires_at).getTime() : NaN;
+}
+
+function buildPreparedVideoDateEntryHandoffEnvelope(entry: PreparedVideoDateEntryCacheEntry): PreparedVideoDateEntryHandoffEnvelope {
+  const value = entry.value;
+  return {
+    handoffVersion: PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION,
+    sessionId: entry.sessionId,
+    userId: entry.userId,
+    roomName: value.room_name,
+    roomUrl: value.room_url,
+    token: value.token,
+    tokenExpiresAt: value.token_expires_at ?? null,
+    preparedAt: isoFromMs(entry.prepareFinishedAtMs),
+    expiresAt: isoFromMs(entry.expiresAtMs),
+    readyGateStatus: value.ready_gate_status ?? null,
+    readyGateExpiresAt: value.ready_gate_expires_at ?? null,
+    phase: value.session_phase ?? null,
+    state: value.session_state ?? null,
+    participants: [value.participant_1_id ?? null, value.participant_2_id ?? null],
+    entryAttemptId: entry.entryAttemptId ?? value.entry_attempt_id ?? null,
+    videoDateTraceId: value.video_date_trace_id ?? entry.entryAttemptId ?? null,
+    cachedAtMs: entry.cachedAtMs,
+    expiresAtMs: entry.expiresAtMs,
+  };
+}
+
 export function getCachedPreparedVideoDateEntry(
   sessionId: string,
   userId: string,
@@ -111,6 +219,7 @@ export function getCachedPreparedVideoDateEntry(
   if (!entry) return null;
   if (entry.expiresAtMs <= nowMs) {
     preparedEntryCache.delete(key);
+    preparedEntryHandoffs.delete(key);
     return null;
   }
   return entry;
@@ -146,16 +255,69 @@ export function setCachedPreparedVideoDateEntry(params: {
     prepareFinishedAtMs: params.prepareFinishedAtMs,
   };
   preparedEntryCache.set(key, entry);
+  preparedEntryHandoffs.set(key, buildPreparedVideoDateEntryHandoffEnvelope(entry));
   return entry;
 }
 
 export function rejectCachedPreparedVideoDateEntry(sessionId: string, userId: string): boolean {
-  return preparedEntryCache.delete(preparedVideoDateEntryCacheKey(sessionId, userId));
+  const key = preparedVideoDateEntryCacheKey(sessionId, userId);
+  preparedEntryHandoffs.delete(key);
+  return preparedEntryCache.delete(key);
 }
 
 export function clearPreparedVideoDateEntryCache(): void {
   preparedEntryCache.clear();
+  preparedEntryHandoffs.clear();
   prepareEntryInflight.clear();
+}
+
+export function peekPreparedVideoDateEntryHandoff(
+  sessionId: string,
+  userId: string,
+  nowMs: number = Date.now(),
+): PreparedVideoDateEntryHandoffValidation {
+  const key = preparedVideoDateEntryCacheKey(sessionId, userId);
+  const envelope = preparedEntryHandoffs.get(key);
+  const cacheEntry = getCachedPreparedVideoDateEntry(sessionId, userId, nowMs);
+  if (!envelope || !cacheEntry) return { ok: false, reason: "missing" };
+  if (envelope.sessionId !== sessionId) return { ok: false, reason: "session_mismatch" };
+  if (envelope.userId !== userId) return { ok: false, reason: "user_mismatch" };
+  if (envelope.expiresAtMs <= nowMs) {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "expired" };
+  }
+  if (!envelope.roomName || !envelope.roomUrl) return { ok: false, reason: "missing_room" };
+  if (!envelope.token) return { ok: false, reason: "missing_token" };
+  const tokenExpiresAtMs = readTokenExpiresAtMs(cacheEntry.value);
+  if (!Number.isFinite(tokenExpiresAtMs) || tokenExpiresAtMs <= nowMs + 5_000) {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "token_expired" };
+  }
+  if (envelope.state !== "handshake" && envelope.state !== "date") {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "invalid_state" };
+  }
+  if (envelope.phase !== "handshake" && envelope.phase !== "date") {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "invalid_phase" };
+  }
+  if (envelope.readyGateStatus && envelope.readyGateStatus !== "both_ready") {
+    rejectCachedPreparedVideoDateEntry(sessionId, userId);
+    return { ok: false, reason: "invalid_ready_gate" };
+  }
+  return { ok: true, envelope, cacheEntry };
+}
+
+export function consumePreparedVideoDateEntryHandoff(
+  sessionId: string,
+  userId: string,
+  nowMs: number = Date.now(),
+): PreparedVideoDateEntryHandoffValidation {
+  const result = peekPreparedVideoDateEntryHandoff(sessionId, userId, nowMs);
+  if (result.ok === true) {
+    preparedEntryHandoffs.delete(preparedVideoDateEntryCacheKey(sessionId, userId));
+  }
+  return result;
 }
 
 function hasPreparedEntryPayload(data: unknown): data is PreparedVideoDateEntry {

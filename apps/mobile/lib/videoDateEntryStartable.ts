@@ -28,6 +28,7 @@ import {
   type VideoSessionDateEntryTruth,
 } from '@/lib/videoDateApi';
 import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { peekPreparedVideoDateEntryHandoff } from '@clientShared/matching/videoDatePrepareEntry';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -49,6 +50,7 @@ export type EnsureStartableOk = {
   ok: true;
   reason:
     | 'already_startable'
+    | 'fresh_prepared_handoff'
     | 'startable_after_handshake'
     | 'startable_after_retry';
   truth: VideoSessionDateEntryTruth | null;
@@ -205,6 +207,23 @@ export async function ensureVideoDateStartableBeforeNavigation(
 
   // decision === 'navigate_ready' here.
   if (videoSessionRowReadyGateEligible(truth)) {
+    if (userId) {
+      const handoff = peekPreparedVideoDateEntryHandoff(sessionId, userId);
+      if (handoff.ok === true) {
+        emit('ensure_video_date_startable_after', {
+          session_id: sessionId,
+          user_id: userId,
+          source,
+          ok: true,
+          reason: 'fresh_prepared_handoff',
+          entry_attempt_id: handoff.envelope.entryAttemptId,
+          video_date_trace_id: handoff.envelope.videoDateTraceId,
+          ...snapshotTruth(truth),
+        });
+        return { ok: true, reason: 'fresh_prepared_handoff', truth };
+      }
+    }
+
     emit('enter_handshake_pre_nav_attempt', {
       session_id: sessionId,
       user_id: userId,

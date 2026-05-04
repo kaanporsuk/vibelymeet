@@ -133,9 +133,24 @@ export function bucketVideoDateLatencyMs(durationMs: number | null | undefined):
 export type ReadyGateToDateLatencyCheckpoint =
   | "ready_gate_impression"
   | "ready_tap"
+  | "ready_gate_transition_started"
+  | "ready_gate_transition_success"
   | "both_ready_observed"
+  | "room_warmup_started"
+  | "room_warmup_success"
+  | "room_warmup_failure"
+  | "prepare_entry_started"
+  | "prepare_entry_success"
+  | "prepare_entry_failure"
+  | "provider_verify_started"
+  | "provider_verify_success"
+  | "provider_verify_skipped"
+  | "token_created"
   | "navigation_started"
   | "date_route_entered"
+  | "video_stage_shell_visible"
+  | "permission_check_started"
+  | "permission_check_success"
   | "enter_handshake_started"
   | "enter_handshake_success"
   | "enter_handshake_failure"
@@ -145,8 +160,11 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "daily_join_started"
   | "daily_join_success"
   | "daily_join_failure"
+  | "local_video_ready"
   | "remote_seen"
-  | "first_remote_frame";
+  | "first_remote_frame"
+  | "remote_readable"
+  | "warmup_timer_started";
 
 export type ReadyGateToDateLatencyContext = {
   platform: LobbyPostDatePlatform;
@@ -155,17 +173,32 @@ export type ReadyGateToDateLatencyContext = {
   sourceSurface: string;
   readyGateOpenedAtMs?: number;
   readyTapAtMs?: number;
+  readyGateTransitionStartedAtMs?: number;
+  readyGateTransitionCompletedAtMs?: number;
   bothReadyObservedAtMs?: number;
+  roomWarmupStartedAtMs?: number;
+  roomWarmupCompletedAtMs?: number;
+  prepareEntryStartedAtMs?: number;
+  prepareEntryCompletedAtMs?: number;
+  providerVerifyStartedAtMs?: number;
+  providerVerifyCompletedAtMs?: number;
+  tokenCreatedAtMs?: number;
   navigationStartedAtMs?: number;
   dateRouteEnteredAtMs?: number;
+  videoStageShellVisibleAtMs?: number;
+  permissionCheckStartedAtMs?: number;
+  permissionCheckCompletedAtMs?: number;
   enterHandshakeStartedAtMs?: number;
   enterHandshakeCompletedAtMs?: number;
   dailyTokenStartedAtMs?: number;
   dailyTokenCompletedAtMs?: number;
   dailyJoinStartedAtMs?: number;
   dailyJoinCompletedAtMs?: number;
+  localVideoReadyAtMs?: number;
   remoteSeenAtMs?: number;
   firstRemoteFrameAtMs?: number;
+  remoteReadableAtMs?: number;
+  warmupTimerStartedAtMs?: number;
   attemptCount?: number;
 };
 
@@ -176,8 +209,15 @@ export type ReadyGateToDateLatencyDurations = {
   bothReadyToDailyJoinMs: number | null;
   bothReadyToRemoteSeenMs: number | null;
   bothReadyToFirstRemoteFrameMs: number | null;
+  bothReadyToVideoStageShellMs: number | null;
+  bothReadyToLocalVideoReadyMs: number | null;
+  firstRemoteFrameToReadableMs: number | null;
   dailyTokenDurationMs: number | null;
   dailyJoinDurationMs: number | null;
+  roomWarmupDurationMs: number | null;
+  prepareEntryDurationMs: number | null;
+  providerVerifyDurationMs: number | null;
+  permissionCheckDurationMs: number | null;
 };
 
 const readyGateToDateLatencyContexts = new Map<string, ReadyGateToDateLatencyContext>();
@@ -194,12 +234,39 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
       return "readyGateOpenedAtMs";
     case "ready_tap":
       return "readyTapAtMs";
+    case "ready_gate_transition_started":
+      return "readyGateTransitionStartedAtMs";
+    case "ready_gate_transition_success":
+      return "readyGateTransitionCompletedAtMs";
     case "both_ready_observed":
       return "bothReadyObservedAtMs";
+    case "room_warmup_started":
+      return "roomWarmupStartedAtMs";
+    case "room_warmup_success":
+    case "room_warmup_failure":
+      return "roomWarmupCompletedAtMs";
+    case "prepare_entry_started":
+      return "prepareEntryStartedAtMs";
+    case "prepare_entry_success":
+    case "prepare_entry_failure":
+      return "prepareEntryCompletedAtMs";
+    case "provider_verify_started":
+      return "providerVerifyStartedAtMs";
+    case "provider_verify_success":
+    case "provider_verify_skipped":
+      return "providerVerifyCompletedAtMs";
+    case "token_created":
+      return "tokenCreatedAtMs";
     case "navigation_started":
       return "navigationStartedAtMs";
     case "date_route_entered":
       return "dateRouteEnteredAtMs";
+    case "video_stage_shell_visible":
+      return "videoStageShellVisibleAtMs";
+    case "permission_check_started":
+      return "permissionCheckStartedAtMs";
+    case "permission_check_success":
+      return "permissionCheckCompletedAtMs";
     case "enter_handshake_started":
       return "enterHandshakeStartedAtMs";
     case "enter_handshake_success":
@@ -215,10 +282,16 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "daily_join_success":
     case "daily_join_failure":
       return "dailyJoinCompletedAtMs";
+    case "local_video_ready":
+      return "localVideoReadyAtMs";
     case "remote_seen":
       return "remoteSeenAtMs";
     case "first_remote_frame":
       return "firstRemoteFrameAtMs";
+    case "remote_readable":
+      return "remoteReadableAtMs";
+    case "warmup_timer_started":
+      return "warmupTimerStartedAtMs";
   }
 }
 
@@ -299,8 +372,15 @@ export function getReadyGateToDateLatencyDurations(
     bothReadyToDailyJoinMs: diffMs(context?.bothReadyObservedAtMs, context?.dailyJoinCompletedAtMs),
     bothReadyToRemoteSeenMs: diffMs(context?.bothReadyObservedAtMs, context?.remoteSeenAtMs),
     bothReadyToFirstRemoteFrameMs: diffMs(context?.bothReadyObservedAtMs, context?.firstRemoteFrameAtMs),
+    bothReadyToVideoStageShellMs: diffMs(context?.bothReadyObservedAtMs, context?.videoStageShellVisibleAtMs),
+    bothReadyToLocalVideoReadyMs: diffMs(context?.bothReadyObservedAtMs, context?.localVideoReadyAtMs),
+    firstRemoteFrameToReadableMs: diffMs(context?.firstRemoteFrameAtMs, context?.remoteReadableAtMs),
     dailyTokenDurationMs: diffMs(context?.dailyTokenStartedAtMs, context?.dailyTokenCompletedAtMs),
     dailyJoinDurationMs: diffMs(context?.dailyJoinStartedAtMs, context?.dailyJoinCompletedAtMs),
+    roomWarmupDurationMs: diffMs(context?.roomWarmupStartedAtMs, context?.roomWarmupCompletedAtMs),
+    prepareEntryDurationMs: diffMs(context?.prepareEntryStartedAtMs, context?.prepareEntryCompletedAtMs),
+    providerVerifyDurationMs: diffMs(context?.providerVerifyStartedAtMs, context?.providerVerifyCompletedAtMs),
+    permissionCheckDurationMs: diffMs(context?.permissionCheckStartedAtMs, context?.permissionCheckCompletedAtMs),
   };
 }
 

@@ -163,6 +163,38 @@ test("ended_at blocks Daily room attempts", () => {
   );
 });
 
+test("terminal state or phase blocks Daily room attempts even if ended_at is missing", () => {
+  assert.equal(
+    canAttemptDailyRoomFromVideoSessionTruth(
+      {
+        ended_at: null,
+        ...PROVIDER_ROOM,
+        state: "date",
+        phase: "ended",
+        handshake_started_at: "2026-04-24T00:32:50.000Z",
+        ready_gate_status: "both_ready",
+        ready_gate_expires_at: "2026-04-24T00:33:10.000Z",
+      },
+      NOW_MS,
+    ),
+    false,
+  );
+  assert.equal(
+    canPrepareDailyRoomFromReadyGateTruth(
+      {
+        ended_at: null,
+        state: "ended",
+        phase: "ended",
+        handshake_started_at: null,
+        ready_gate_status: "both_ready",
+        ready_gate_expires_at: "2026-04-24T00:33:10.000Z",
+      },
+      NOW_MS,
+    ),
+    false,
+  );
+});
+
 test("expired both_ready gate does not allow Daily room attempts", () => {
   assert.equal(
     canAttemptDailyRoomFromVideoSessionTruth(

@@ -8,6 +8,10 @@ import {
   EventLobbyObservabilityEvents,
   sanitizeReasonCode,
 } from "@clientShared/observability/eventLobbyObservability";
+import {
+  buildReadyGateToDateLatencyPayload,
+  recordReadyGateToDateLatencyCheckpoint,
+} from "@clientShared/observability/videoDateOperatorMetrics";
 
 interface ReadyGateState {
   status: ReadyGateStatus;
@@ -302,6 +306,23 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     }
 
     const startedAt = Date.now();
+    const startedContext = recordReadyGateToDateLatencyCheckpoint({
+      sessionId,
+      platform: "web",
+      eventId: eventId ?? null,
+      sourceSurface: "use_ready_gate",
+      checkpoint: "ready_gate_transition_started",
+      nowMs: startedAt,
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context: startedContext,
+        checkpoint: "ready_gate_transition_started",
+        sourceAction: action,
+        outcome: "success",
+      }),
+    );
     // Static smoke contract: terminal actions still await
     // const { error } = await supabase.rpc("ready_gate_transition" before closing.
     const transitionResult = await supabase.rpc("ready_gate_transition", {
@@ -432,6 +453,22 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         latency_ms: Date.now() - startedAt,
         source_surface: "use_ready_gate",
       });
+      const successContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId: eventId ?? null,
+        sourceSurface: "use_ready_gate",
+        checkpoint: "ready_gate_transition_success",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: successContext,
+          checkpoint: "ready_gate_transition_success",
+          sourceAction: action,
+          outcome: "success",
+        }),
+      );
       return result;
     }
 
@@ -448,6 +485,22 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       source_surface: "use_ready_gate",
     });
 
+    const successContext = recordReadyGateToDateLatencyCheckpoint({
+      sessionId,
+      platform: "web",
+      eventId: eventId ?? null,
+      sourceSurface: "use_ready_gate",
+      checkpoint: "ready_gate_transition_success",
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context: successContext,
+        checkpoint: "ready_gate_transition_success",
+        sourceAction: action,
+        outcome: "success",
+      }),
+    );
     return {
       ok: true,
       status: state.status,

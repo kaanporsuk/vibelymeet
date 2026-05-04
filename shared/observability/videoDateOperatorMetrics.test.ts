@@ -162,8 +162,15 @@ test("latency buckets and context durations are stable", () => {
     bothReadyToDailyJoinMs: 1_450,
     bothReadyToRemoteSeenMs: null,
     bothReadyToFirstRemoteFrameMs: null,
+    bothReadyToVideoStageShellMs: null,
+    bothReadyToLocalVideoReadyMs: null,
+    firstRemoteFrameToReadableMs: null,
     dailyTokenDurationMs: null,
     dailyJoinDurationMs: null,
+    roomWarmupDurationMs: null,
+    prepareEntryDurationMs: null,
+    providerVerifyDurationMs: null,
+    permissionCheckDurationMs: null,
   });
 
   assert.equal(
