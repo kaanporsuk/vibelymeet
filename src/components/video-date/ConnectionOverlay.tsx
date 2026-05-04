@@ -59,7 +59,7 @@ export const ConnectionOverlay = ({
             }}
           />
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-16 h-16 rounded-full bg-primary/20 border border-primary/25 flex items-center justify-center shadow-[0_0_32px_hsl(var(--primary)/0.24)]">
+            <div className="relative w-16 h-16 rounded-full bg-primary/20 border border-primary/25 flex items-center justify-center shadow-[0_0_32px_hsl(var(--primary)/0.24)]">
               {isConnecting && openingPartnerName ? (
                 <>
                   <ProfilePhoto
