@@ -21,30 +21,30 @@ export function getVideoDateWarmupChoiceNotice({
   if (self && !partner) {
     return {
       actor: "self",
-      title: "Warm-up wrapped before you chose",
-      message: "No Vibe or Pass was selected, so this one won't move forward.",
+      title: "Warm-up ended",
+      message: "Make your private choice when it feels right.",
     };
   }
 
   if (!self && partner) {
     return {
       actor: "partner",
-      title: "Warm-up wrapped before they chose",
-      message: "They didn't choose Vibe or Pass, so this one won't move forward.",
+      title: "Choice saved",
+      message: "You'll only match if you both choose Vibe.",
     };
   }
 
   if (self && partner) {
     return {
       actor: "both",
-      title: "Warm-up wrapped without both choices",
-      message: "No Vibe or Pass choices were selected, so this one won't move forward.",
+      title: "Warm-up ended",
+      message: "Make your private choice when it feels right.",
     };
   }
 
   return {
     actor: "fallback",
-    title: "Warm-up wrapped",
-    message: "The warm-up ended before both choices were in, so this one won't move forward.",
+    title: "Warm-up ended",
+    message: "Make your private choice when it feels right.",
   };
 }

@@ -86,6 +86,16 @@ test("decision guidance belongs to Pass/Vibe, not icebreaker", () => {
   assert.equal(nativeDecision.includes("Choose from the feeling"), false);
 });
 
+test("warm-up timeout notice copy leads into private check-in instead of terminal outcome", () => {
+  const noticeCopy = read("shared/matching/videoDateWarmupChoiceNotice.ts");
+
+  assert.equal(noticeCopy.includes("Make your private choice when it feels right."), true);
+  assert.equal(noticeCopy.includes("You'll only match if you both choose Vibe."), true);
+  assert.equal(noticeCopy.includes("won't move forward"), false);
+  assert.equal(noticeCopy.includes("Warm-up wrapped without both choices"), false);
+  assert.equal(noticeCopy.includes("No Vibe or Pass choices were selected"), false);
+});
+
 test("web desktop stage and native timer hardening contracts remain in place", () => {
   const webDate = read("src/pages/VideoDate.tsx");
   const nativeDate = read("apps/mobile/app/date/[id].tsx");
