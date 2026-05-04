@@ -420,7 +420,7 @@ export function useReadyGate(
           context: successContext,
           checkpoint: 'ready_gate_transition_success',
           sourceAction: action,
-          outcome: result.isTerminal ? 'success' : 'success',
+          outcome: 'success',
         }),
       );
       return result;

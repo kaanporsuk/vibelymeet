@@ -5,6 +5,7 @@ import {
   clearAllVideoDatePermissionHandoffs,
   clearVideoDatePermissionHandoff,
   getVideoDatePermissionHandoff,
+  pruneExpiredVideoDatePermissionHandoffs,
   setVideoDatePermissionHandoff,
 } from "./videoDatePermissionHandoff";
 
@@ -44,4 +45,30 @@ test("video date permission handoff can be explicitly invalidated", () => {
 
   assert.equal(clearVideoDatePermissionHandoff(SESSION_ID, USER_ID), true);
   assert.equal(getVideoDatePermissionHandoff(SESSION_ID, USER_ID, 1001), null);
+});
+
+test("setting a permission handoff opportunistically prunes expired entries", () => {
+  clearAllVideoDatePermissionHandoffs();
+  setVideoDatePermissionHandoff({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    platform: "native",
+    source: "ready_gate_existing_grants",
+    nowMs: 1000,
+    ttlMs: 10,
+  });
+
+  setVideoDatePermissionHandoff({
+    sessionId: "33333333-3333-4333-8333-333333333333",
+    userId: USER_ID,
+    platform: "web",
+    source: "preflight",
+    nowMs: 1011,
+  });
+
+  assert.equal(pruneExpiredVideoDatePermissionHandoffs(1011), 0);
+  assert.equal(
+    getVideoDatePermissionHandoff("33333333-3333-4333-8333-333333333333", USER_ID, 1011)?.source,
+    "preflight",
+  );
 });
