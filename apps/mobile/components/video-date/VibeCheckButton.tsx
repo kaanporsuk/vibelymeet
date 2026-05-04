@@ -19,13 +19,13 @@ type Props = {
   disabled?: boolean;
 };
 
-const RAIL_MAX_WIDTH = 340;
-const RAIL_MIN_WIDTH = 272;
-const RAIL_SCREEN_GUTTER = 48;
+const RAIL_MAX_WIDTH = 320;
+const RAIL_MIN_WIDTH = 264;
+const RAIL_SCREEN_GUTTER = 64;
 const RAIL_HORIZONTAL_PADDING = 6;
 const RAIL_BUTTON_GAP = 8;
 const PASS_BUTTON_RATIO = 0.47;
-const BUTTON_HEIGHT = 56;
+const BUTTON_HEIGHT = 52;
 
 export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }: Props) {
   const colorScheme = useColorScheme();
@@ -159,7 +159,7 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         </Animated.View>
       </View>
 
-      <Text style={[styles.helper, { color: 'rgba(255,255,255,0.58)' }]}>Choose only when it feels right</Text>
+      <Text style={[styles.helper, { color: 'rgba(255,255,255,0.54)' }]}>Choose only when it feels right</Text>
 
       {error ? (
         <Text style={[styles.errorText, { color: theme.neonPink }]}>{error}</Text>
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   stripWrap: {
     alignItems: 'center',
     width: '100%',
-    maxWidth: 340,
+    maxWidth: RAIL_MAX_WIDTH,
     alignSelf: 'center',
   },
   row: {
@@ -182,13 +182,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderRadius: radius.pill,
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: RAIL_HORIZONTAL_PADDING,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.38,
-    shadowRadius: 30,
-    elevation: 7,
+    shadowOffset: { width: 0, height: 15 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 5,
   },
   passShell: {
     flexDirection: 'row',
@@ -246,9 +246,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
   },
   helper: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontFamily: fonts.bodySemiBold,
+    fontSize: 11,
+    lineHeight: 14,
+    fontFamily: fonts.bodyMedium,
     textAlign: 'center',
     marginTop: 6,
   },
