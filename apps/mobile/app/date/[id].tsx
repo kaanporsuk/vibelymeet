@@ -175,7 +175,7 @@ const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
 const DATE_CONTROLS_STACK_HEIGHT = 104;
 const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
 const HANDSHAKE_CTA_STACK_HEIGHT = 92;
-const FLOATING_CHROME_GAP = 14;
+const FLOATING_CHROME_GAP = 10;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -5812,7 +5812,7 @@ export default function VideoDateScreen() {
   );
   const currentQuestion =
     vibeQuestionState.questions[currentQuestionIndex] ?? vibeQuestionState.questions[0] ?? '';
-  const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT + 18;
+  const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT + 10;
   const advanceIceBreaker = useCallback(() => {
     if (!sessionId || !vibeQuestionState.questions.length) return;
     const pauseStartedAtMs = Date.now();
@@ -6806,17 +6806,18 @@ const styles = StyleSheet.create({
   netHint: { fontSize: 11, fontWeight: '600' },
   handshakeBottomStack: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    gap: spacing.sm,
+    paddingHorizontal: 24,
   },
   iceBreakerFloat: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 0,
+    right: 0,
     zIndex: 26,
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
   iceBreakerCollapsed: {
     alignSelf: 'flex-start',

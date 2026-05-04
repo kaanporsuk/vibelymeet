@@ -188,11 +188,12 @@ check(
 check(
   !includes("webIceBreaker", "Choose when it feels right") &&
     !includes("nativeIceBreaker", "Choose when it feels right") &&
+    !includes("nativeIceBreaker", "Choose only when it feels right") &&
     includes("webVibeCheck", "Choose when it feels right") &&
-    includes("nativeVibeCheck", "Choose when it feels right"),
+    includes("nativeVibeCheck", "Choose only when it feels right"),
   "Icebreaker",
   "Decision guidance is removed from icebreaker and owned by Pass/Vibe.",
-  `${evidence("webVibeCheck", "Choose when it feels right")} and ${evidence("nativeVibeCheck", "Choose when it feels right")}`,
+  `${evidence("webVibeCheck", "Choose when it feels right")} and ${evidence("nativeVibeCheck", "Choose only when it feels right")}`,
   `${files.webIceBreaker}, ${files.nativeIceBreaker}, ${files.webVibeCheck}, ${files.nativeVibeCheck}`,
 );
 
@@ -243,6 +244,7 @@ check(
     includes("webVibeCheck", "Vibe saved") &&
     includes("nativeVibeCheck", "Vibe saved") &&
     !includes("webVibeCheck", "Your choice only continues after it saves") &&
+    !includes("nativeVibeCheck", "Your choice only continues after it saves") &&
     !includes("webVibeCheck", "Soft nudge") &&
     !includes("nativeVibeCheck", "Soft nudge"),
   "Pass/Vibe",
