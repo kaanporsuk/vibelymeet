@@ -124,6 +124,20 @@ assert(
   `${webVideoCallPath}: Video Date must create its Daily call object through the Video Date media helper`
 );
 assert(
+  webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK") &&
+    webVideoCall.includes("scheduleRemoteRenderValidation") &&
+    webVideoCall.includes("requestVideoFrameCallback") &&
+    webVideoCall.includes("forceRemoteMediaReattach") &&
+    webVideoCall.includes("daily_remote_same_track_render_validated") &&
+    webVideoCall.includes("daily_remote_render_validation_timed_out"),
+  `${webVideoCallPath}: web receiver must validate same-track remote frame rendering and recover blank camera-switch renders`
+);
+assert(
+  /attempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK/.test(webVideoCall) &&
+    webVideoCall.includes("daily_remote_render_recovery_skipped"),
+  `${webVideoCallPath}: web receiver remote render recovery must be bounded by a max-attempt guard`
+);
+assert(
   !/createCallObject\(\s*\{[\s\S]*?videoSource:\s*true[\s\S]*?\}\s*\)/.test(webVideoCall),
   `${webVideoCallPath}: Video Date must not use raw Daily call-object media options`
 );

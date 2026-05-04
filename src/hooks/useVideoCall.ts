@@ -66,6 +66,23 @@ const VIDEO_DATE_PREJOIN_TIMEOUT_MS = 12_000;
 const FIRST_REMOTE_TIMEOUT_MS = 25_000;
 const CREATE_DATE_ROOM_RETRY_DELAYS_MS = [700, 1_600] as const;
 const DAILY_TRANSPORT_RECONNECT_GRACE_MS = 12_000;
+const REMOTE_RENDER_VALIDATION_DELAY_MS = 650;
+const REMOTE_RENDER_FRAME_TIMEOUT_MS = 1_400;
+const REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK = 2;
+
+type RemoteVideoFrameCallbackMetadata = {
+  presentedFrames?: number;
+  mediaTime?: number;
+  width?: number;
+  height?: number;
+};
+
+type RemoteVideoElementWithFrameCallback = HTMLVideoElement & {
+  requestVideoFrameCallback?: (
+    callback: (now: DOMHighResTimeStamp, metadata: RemoteVideoFrameCallbackMetadata) => void
+  ) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
+};
 
 function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined) {
   if (!track || typeof track.getSettings !== "function") return null;
@@ -179,6 +196,12 @@ function getTrackIdsKey(p: DailyParticipant | undefined, includeAudio: boolean):
   return `${videoId}|${audioId}`;
 }
 
+function getParticipantIdentity(p: DailyParticipant | undefined): string | null {
+  if (!p) return null;
+  const participant = p as DailyParticipant & { user_id?: string; userId?: string };
+  return participant.session_id ?? participant.user_id ?? participant.userId ?? null;
+}
+
 function streamHasTrackId(stream: MediaStream | null, trackId: string): boolean {
   if (!stream || !trackId) return false;
   return stream.getTracks().some((t) => t.id === trackId);
@@ -231,6 +254,18 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const lastRemoteMountedTrackKeyRef = useRef<string>("");
   const firstRemoteWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noRemoteAutoRecoveryCountRef = useRef(0);
+  const remoteRenderValidationDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteRenderValidationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteRenderValidationFrameCallbackRef = useRef<number | null>(null);
+  const remoteRenderValidationSeqRef = useRef(0);
+  const remoteRenderRecoveryReattachTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const remoteRenderRecoveryAttemptsRef = useRef<Map<string, number>>(new Map());
+  const remoteRenderRecoveryInFlightRef = useRef<{
+    key: string;
+    attempt: number;
+    source: string;
+  } | null>(null);
+  const lastRemoteRenderParticipantIdRef = useRef<string | null>(null);
   const startAttemptNonceRef = useRef(0);
   const startCallInFlightSessionRef = useRef<string | null>(null);
   const activeCallSessionIdRef = useRef<string | null>(null);
@@ -369,6 +404,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const stream = new MediaStream();
       const videoTrack = participant.tracks.video?.persistentTrack;
       const audioTrack = participant.tracks.audio?.persistentTrack;
+      const remoteTrackKey = isLocal ? "" : getTrackIdsKey(participant, true);
       if (videoTrack) stream.addTrack(videoTrack);
       if (audioTrack && !isLocal) stream.addTrack(audioTrack);
       const hasRemoteMedia = !isLocal && (Boolean(videoTrack) || Boolean(audioTrack));
@@ -392,6 +428,26 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               .then(() => {
                 const recoveredFromBlock = playbackBlockedRef.current;
                 playbackBlockedRef.current = false;
+                if (!isLocal && remoteTrackKey) {
+                  const recovery = remoteRenderRecoveryInFlightRef.current;
+                  remoteRenderRecoveryAttemptsRef.current.delete(remoteTrackKey);
+                  if (recovery?.key === remoteTrackKey) {
+                    vdbg("daily_remote_render_recovery_succeeded", {
+                      sessionId: optionsRef.current?.roomId ?? null,
+                      eventId: optionsRef.current?.eventId ?? null,
+                      userId: optionsRef.current?.userId ?? null,
+                      participantSessionId: participant.session_id ?? null,
+                      videoTrackId: videoTrack?.id ?? null,
+                      audioTrackId: audioTrack?.id ?? null,
+                      source: recovery.source,
+                      attempt: recovery.attempt,
+                      videoElementReadyState: videoEl.readyState,
+                      videoElementWidth: videoEl.videoWidth,
+                      videoElementHeight: videoEl.videoHeight,
+                    });
+                    remoteRenderRecoveryInFlightRef.current = null;
+                  }
+                }
                 setRemotePlayback((prev) => ({
                   ...prev,
                   playSucceeded: true,
@@ -408,6 +464,23 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               })
               .catch((error: unknown) => {
                 playbackBlockedRef.current = true;
+                if (!isLocal && remoteTrackKey) {
+                  const recovery = remoteRenderRecoveryInFlightRef.current;
+                  if (recovery?.key === remoteTrackKey) {
+                    vdbg("daily_remote_render_recovery_failed", {
+                      sessionId: optionsRef.current?.roomId ?? null,
+                      eventId: optionsRef.current?.eventId ?? null,
+                      userId: optionsRef.current?.userId ?? null,
+                      participantSessionId: participant.session_id ?? null,
+                      videoTrackId: videoTrack?.id ?? null,
+                      audioTrackId: audioTrack?.id ?? null,
+                      source: recovery.source,
+                      attempt: recovery.attempt,
+                      error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+                    });
+                    remoteRenderRecoveryInFlightRef.current = null;
+                  }
+                }
                 setRemotePlayback((prev) => ({
                   ...prev,
                   playSucceeded: false,
@@ -515,6 +588,244 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     clearTimeout(firstRemoteWatchdogRef.current);
     firstRemoteWatchdogRef.current = null;
   }, []);
+
+  const remoteRenderDiagnostics = useCallback(
+    (participant: DailyParticipant | undefined, videoEl: HTMLVideoElement | null) => {
+      const videoTrack = participant?.tracks?.video?.persistentTrack;
+      const audioTrack = participant?.tracks?.audio?.persistentTrack;
+      return {
+        sessionId: optionsRef.current?.roomId ?? null,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: optionsRef.current?.userId ?? null,
+        participantSessionId: participant?.session_id ?? null,
+        remoteTrackKey: getTrackIdsKey(participant, true) || null,
+        videoTrackId: videoTrack?.id ?? null,
+        audioTrackId: audioTrack?.id ?? null,
+        videoTrackReadyState: videoTrack?.readyState ?? null,
+        videoTrackMuted: typeof videoTrack?.muted === "boolean" ? videoTrack.muted : null,
+        videoTrackEnabled: typeof videoTrack?.enabled === "boolean" ? videoTrack.enabled : null,
+        videoElementReadyState: videoEl?.readyState ?? null,
+        videoElementPaused: videoEl?.paused ?? null,
+        videoElementWidth: videoEl?.videoWidth ?? null,
+        videoElementHeight: videoEl?.videoHeight ?? null,
+        videoElementCurrentTime:
+          typeof videoEl?.currentTime === "number" ? Number(videoEl.currentTime.toFixed(3)) : null,
+      };
+    },
+    []
+  );
+
+  const clearRemoteRenderValidation = useCallback((options?: { cancelReattach?: boolean }) => {
+    remoteRenderValidationSeqRef.current += 1;
+    if (remoteRenderValidationDelayRef.current) {
+      clearTimeout(remoteRenderValidationDelayRef.current);
+      remoteRenderValidationDelayRef.current = null;
+    }
+    if (remoteRenderValidationTimeoutRef.current) {
+      clearTimeout(remoteRenderValidationTimeoutRef.current);
+      remoteRenderValidationTimeoutRef.current = null;
+    }
+    const videoEl = remoteVideoRef.current as RemoteVideoElementWithFrameCallback | null;
+    if (
+      videoEl &&
+      remoteRenderValidationFrameCallbackRef.current != null &&
+      typeof videoEl.cancelVideoFrameCallback === "function"
+    ) {
+      videoEl.cancelVideoFrameCallback(remoteRenderValidationFrameCallbackRef.current);
+    }
+    remoteRenderValidationFrameCallbackRef.current = null;
+    if (options?.cancelReattach !== false && remoteRenderRecoveryReattachTimeoutRef.current) {
+      clearTimeout(remoteRenderRecoveryReattachTimeoutRef.current);
+      remoteRenderRecoveryReattachTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetRemoteRenderRecoveryForParticipant = useCallback((participant: DailyParticipant | undefined) => {
+    const participantId = getParticipantIdentity(participant);
+    if (!participantId || participantId === lastRemoteRenderParticipantIdRef.current) return;
+    lastRemoteRenderParticipantIdRef.current = participantId;
+    remoteRenderRecoveryAttemptsRef.current.clear();
+    remoteRenderRecoveryInFlightRef.current = null;
+  }, []);
+
+  const forceRemoteMediaReattach = useCallback(
+    (participant: DailyParticipant | undefined, source: string, roomName: string | null) => {
+      const videoEl = remoteVideoRef.current;
+      const remoteKey = getTrackIdsKey(participant, true);
+      const videoTrack = participant?.tracks?.video?.persistentTrack;
+      if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack) {
+        vdbg("daily_remote_render_recovery_skipped", {
+          ...remoteRenderDiagnostics(participant, videoEl),
+          source,
+          reason: !videoEl ? "missing_video_element" : !remoteKey || !videoTrack ? "missing_video_track" : "missing_tracks",
+        });
+        return;
+      }
+
+      const attempts = remoteRenderRecoveryAttemptsRef.current.get(remoteKey) ?? 0;
+      if (attempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK) {
+        vdbg("daily_remote_render_recovery_skipped", {
+          ...remoteRenderDiagnostics(participant, videoEl),
+          source,
+          reason: "max_attempts_exhausted",
+          attempts,
+          maxAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
+        });
+        return;
+      }
+
+      const nextAttempt = attempts + 1;
+      remoteRenderRecoveryAttemptsRef.current.set(remoteKey, nextAttempt);
+      remoteRenderRecoveryInFlightRef.current = { key: remoteKey, attempt: nextAttempt, source };
+      clearRemoteRenderValidation({ cancelReattach: true });
+
+      vdbg("daily_remote_render_recovery_started", {
+        ...remoteRenderDiagnostics(participant, videoEl),
+        source,
+        attempt: nextAttempt,
+        maxAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
+      });
+
+      try {
+        videoEl.pause();
+        videoEl.srcObject = null;
+      } catch {
+        videoEl.srcObject = null;
+      }
+
+      remoteRenderRecoveryReattachTimeoutRef.current = setTimeout(() => {
+        remoteRenderRecoveryReattachTimeoutRef.current = null;
+        const latestParticipant = latestRemoteParticipantRef.current ?? participant;
+        const latestKey = getTrackIdsKey(latestParticipant, true);
+        if (latestKey !== remoteKey) {
+          vdbg("daily_remote_render_recovery_skipped", {
+            ...remoteRenderDiagnostics(latestParticipant, remoteVideoRef.current),
+            source,
+            reason: "stale_track_key",
+            expectedTrackKey: remoteKey,
+            latestTrackKey: latestKey || null,
+            attempt: nextAttempt,
+          });
+          if (remoteRenderRecoveryInFlightRef.current?.key === remoteKey) {
+            remoteRenderRecoveryInFlightRef.current = null;
+          }
+          return;
+        }
+        attachTracks(latestParticipant, remoteVideoRef.current, false);
+        logTrackMounted("remote_render_recovery", {
+          isLocal: false,
+          participant: latestParticipant,
+          roomName,
+        });
+      }, 0);
+    },
+    [attachTracks, clearRemoteRenderValidation, logTrackMounted, remoteRenderDiagnostics]
+  );
+
+  const scheduleRemoteRenderValidation = useCallback(
+    (participant: DailyParticipant | undefined, source: string, roomName: string | null) => {
+      const videoEl = remoteVideoRef.current;
+      const remoteKey = getTrackIdsKey(participant, true);
+      const videoTrack = participant?.tracks?.video?.persistentTrack;
+      if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack || videoTrack.readyState === "ended") {
+        vdbg("daily_remote_render_validation_skipped", {
+          ...remoteRenderDiagnostics(participant, videoEl),
+          source,
+          reason: !videoEl
+            ? "missing_video_element"
+            : !remoteKey || !videoTrack
+              ? "missing_video_track"
+              : videoTrack?.readyState === "ended"
+                ? "video_track_ended"
+                : "missing_tracks",
+        });
+        return;
+      }
+
+      clearRemoteRenderValidation({ cancelReattach: true });
+      const validationSeq = remoteRenderValidationSeqRef.current + 1;
+      remoteRenderValidationSeqRef.current = validationSeq;
+      remoteRenderValidationDelayRef.current = setTimeout(() => {
+        remoteRenderValidationDelayRef.current = null;
+        if (remoteRenderValidationSeqRef.current !== validationSeq) return;
+
+        const latestParticipant = latestRemoteParticipantRef.current ?? participant;
+        const latestVideoEl = remoteVideoRef.current;
+        const latestKey = getTrackIdsKey(latestParticipant, true);
+        if (!latestVideoEl || latestKey !== remoteKey) {
+          vdbg("daily_remote_render_validation_skipped", {
+            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+            source,
+            reason: !latestVideoEl ? "missing_video_element" : "stale_track_key",
+            expectedTrackKey: remoteKey,
+            latestTrackKey: latestKey || null,
+          });
+          return;
+        }
+
+        vdbg("daily_remote_same_track_render_validation_started", {
+          ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+          source,
+          delayMs: REMOTE_RENDER_VALIDATION_DELAY_MS,
+          timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
+        });
+
+        const finishValidated = (method: string, metadata?: RemoteVideoFrameCallbackMetadata) => {
+          if (remoteRenderValidationSeqRef.current !== validationSeq) return;
+          if (remoteRenderValidationTimeoutRef.current) {
+            clearTimeout(remoteRenderValidationTimeoutRef.current);
+            remoteRenderValidationTimeoutRef.current = null;
+          }
+          remoteRenderValidationFrameCallbackRef.current = null;
+          vdbg("daily_remote_same_track_render_validated", {
+            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+            source,
+            method,
+            presentedFrames: metadata?.presentedFrames ?? null,
+            mediaTime: metadata?.mediaTime ?? null,
+            frameWidth: metadata?.width ?? null,
+            frameHeight: metadata?.height ?? null,
+          });
+        };
+
+        const finishTimedOut = (reason: string) => {
+          if (remoteRenderValidationSeqRef.current !== validationSeq) return;
+          remoteRenderValidationTimeoutRef.current = null;
+          remoteRenderValidationFrameCallbackRef.current = null;
+          vdbg("daily_remote_render_validation_timed_out", {
+            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+            source,
+            reason,
+            timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
+          });
+          forceRemoteMediaReattach(latestParticipant, `${source}:${reason}`, roomName);
+        };
+
+        const videoWithFrameCallback = latestVideoEl as RemoteVideoElementWithFrameCallback;
+        if (typeof videoWithFrameCallback.requestVideoFrameCallback === "function") {
+          remoteRenderValidationFrameCallbackRef.current = videoWithFrameCallback.requestVideoFrameCallback(
+            (_now, metadata) => finishValidated("request_video_frame_callback", metadata)
+          );
+          remoteRenderValidationTimeoutRef.current = setTimeout(
+            () => finishTimedOut("request_video_frame_callback_timeout"),
+            REMOTE_RENDER_FRAME_TIMEOUT_MS
+          );
+          return;
+        }
+
+        remoteRenderValidationTimeoutRef.current = setTimeout(() => {
+          const hasRenderableMedia =
+            latestVideoEl.readyState >= 2 && latestVideoEl.videoWidth > 0 && latestVideoEl.videoHeight > 0;
+          if (hasRenderableMedia) {
+            finishValidated("ready_state_fallback");
+            return;
+          }
+          finishTimedOut("ready_state_fallback_timeout");
+        }, REMOTE_RENDER_FRAME_TIMEOUT_MS);
+      }, REMOTE_RENDER_VALIDATION_DELAY_MS);
+    },
+    [clearRemoteRenderValidation, forceRemoteMediaReattach, remoteRenderDiagnostics]
+  );
 
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
@@ -692,10 +1003,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setNetworkTier("good");
       setRemotePlayback(createRemotePlaybackState());
       setPeerMissing({ terminal: false });
+      clearRemoteRenderValidation({ cancelReattach: true });
       clearReconnectGraceTimers();
       reconnectGraceActiveRef.current = false;
       reconnectPartnerAwayTriggeredRef.current = false;
       reconnectSyncRequestedRef.current = false;
+      remoteRenderRecoveryAttemptsRef.current.clear();
+      remoteRenderRecoveryInFlightRef.current = null;
+      lastRemoteRenderParticipantIdRef.current = null;
       activePreparedEntryCacheRef.current = null;
       dailyJoinStartedAtMsRef.current = null;
       setDailyReconnectState("connected");
@@ -711,7 +1026,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       latestLocalParticipantRef.current = undefined;
       latestRemoteParticipantRef.current = undefined;
     },
-    [clearFirstRemoteWatchdog, clearReconnectGraceTimers]
+    [clearFirstRemoteWatchdog, clearReconnectGraceTimers, clearRemoteRenderValidation]
   );
 
   const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
@@ -1272,6 +1587,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           if (event && !event.participant?.local) {
             recoverTransport("participant_joined");
             latestRemoteParticipantRef.current = event.participant;
+            resetRemoteRenderRecoveryForParticipant(event.participant);
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
               clearFirstRemoteWatchdog();
@@ -1345,6 +1661,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           } else {
             recoverTransport("participant_updated");
             latestRemoteParticipantRef.current = event.participant;
+            resetRemoteRenderRecoveryForParticipant(event.participant);
             if (!firstRemoteObservedRef.current) {
               firstRemoteObservedRef.current = true;
               clearFirstRemoteWatchdog();
@@ -1382,8 +1699,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             }
             const remoteKey = getTrackIdsKey(event.participant, true);
             const remoteKeyChanged = remoteKey !== lastRemoteTrackIdsRef.current;
+            let remoteRenderValidationSource = remoteKeyChanged
+              ? "participant_updated_track_changed"
+              : "participant_updated_same_track";
             if (remoteKeyChanged) {
               lastRemoteTrackIdsRef.current = remoteKey;
+              remoteRenderRecoveryAttemptsRef.current.clear();
+              remoteRenderRecoveryInFlightRef.current = null;
               if (remoteVideoRef.current) {
                 attachTracks(event.participant, remoteVideoRef.current, false);
                 logTrackMounted("participant_updated", {
@@ -1403,6 +1725,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               remoteVideoRef.current &&
               needsTrackReattach(remoteVideoRef.current, event.participant, false)
             ) {
+              remoteRenderValidationSource = "participant_updated_reattach";
               attachTracks(event.participant, remoteVideoRef.current, false);
               logTrackMounted("participant_updated_reattach", {
                 isLocal: false,
@@ -1410,11 +1733,20 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 roomName: roomData.room_name ?? null,
               });
             }
+            scheduleRemoteRenderValidation(
+              event.participant,
+              remoteRenderValidationSource,
+              roomData.room_name ?? null
+            );
           }
         });
 
         callObject.on("participant-left", (event) => {
           if (event && !event.participant?.local) {
+            clearRemoteRenderValidation({ cancelReattach: true });
+            remoteRenderRecoveryAttemptsRef.current.clear();
+            remoteRenderRecoveryInFlightRef.current = null;
+            lastRemoteRenderParticipantIdRef.current = null;
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
             setRemotePlayback(createRemotePlaybackState());
@@ -1464,6 +1796,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         callObject.on("left-meeting", () => {
           clearReconnectGrace("left_meeting", false);
+          clearRemoteRenderValidation({ cancelReattach: true });
+          remoteRenderRecoveryAttemptsRef.current.clear();
+          remoteRenderRecoveryInFlightRef.current = null;
+          lastRemoteRenderParticipantIdRef.current = null;
           vdbg("daily_call_left_meeting", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
@@ -1781,6 +2117,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const remoteParticipants = Object.values(participants).filter((p) => !p.local);
         if (remoteParticipants.length > 0) {
           latestRemoteParticipantRef.current = remoteParticipants[0];
+          resetRemoteRenderRecoveryForParticipant(remoteParticipants[0]);
           if (!firstRemoteObservedRef.current) {
             firstRemoteObservedRef.current = true;
             clearFirstRemoteWatchdog();
@@ -1986,6 +2323,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       logTrackMounted,
       needsTrackReattach,
       preflightMediaPermission,
+      resetRemoteRenderRecoveryForParticipant,
+      scheduleRemoteRenderValidation,
+      clearRemoteRenderValidation,
     ]
   );
 
