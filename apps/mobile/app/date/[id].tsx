@@ -176,7 +176,7 @@ const ICE_BREAKER_CLOCK_TICK_MS = 1_000;
 const DATE_CONTROLS_STACK_HEIGHT = 104;
 const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
 const HANDSHAKE_CTA_STACK_HEIGHT = 92;
-const HANDSHAKE_CTA_DOCK_TIGHTEN_PX = 24;
+const HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET = 24;
 const FLOATING_CHROME_GAP = 10;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
@@ -5824,7 +5824,10 @@ export default function VideoDateScreen() {
   }, []);
   const measuredControlsStackHeight = Math.max(DATE_CONTROLS_STACK_HEIGHT, controlsStackHeight);
   const handshakeBottomOffset =
-    insets.bottom + measuredControlsStackHeight + 10 - HANDSHAKE_CTA_DOCK_TIGHTEN_PX;
+    insets.bottom +
+    measuredControlsStackHeight +
+    FLOATING_CHROME_GAP -
+    HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET;
   const advanceIceBreaker = useCallback(() => {
     if (!sessionId || !vibeQuestionState.questions.length) return;
     const pauseStartedAtMs = Date.now();
