@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Loader2, ArrowLeft, Play, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,25 @@ export const ConnectionOverlay = ({
   const playbackRejected = Boolean(remotePlayback?.playRejected);
   const peerMissingTerminal = Boolean(peerMissing?.terminal);
   const openingPartnerName = isConnecting && partnerName?.trim() ? partnerName.trim() : null;
+  const [connectingElapsedMs, setConnectingElapsedMs] = useState(0);
+
+  useEffect(() => {
+    if (!isConnecting) {
+      setConnectingElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setConnectingElapsedMs(0);
+    const interval = window.setInterval(() => {
+      setConnectingElapsedMs(Math.max(0, Date.now() - startedAt));
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [isConnecting]);
+
+  if (isConnecting && connectingElapsedMs < 700) return null;
+
+  const connectingSlow = isConnecting && connectingElapsedMs >= 3_000;
+  const connectingVerySlow = isConnecting && connectingElapsedMs >= 8_000;
 
   return (
     <motion.div
@@ -97,7 +117,9 @@ export const ConnectionOverlay = ({
               : playbackRejected
                 ? "Tap to gently resume"
                 : isConnecting
-                  ? "Opening the room..."
+                  ? connectingSlow
+                    ? "Still connecting..."
+                    : "Opening the room..."
                   : "Holding the room for them..."}
           </h3>
           <p className="text-sm leading-6 text-muted-foreground">
@@ -106,9 +128,13 @@ export const ConnectionOverlay = ({
               : playbackRejected
               ? "Your match is here, but your browser paused the video or audio."
               : isConnecting
-                ? openingPartnerName
-                  ? `Setting up a quiet start with ${openingPartnerName}.`
-                  : "Setting up a quiet start for your video date."
+                ? connectingVerySlow
+                  ? "This is taking longer than usual. You can leave safely if the room does not open."
+                  : connectingSlow
+                    ? "This usually takes a moment."
+                    : openingPartnerName
+                      ? `Setting up a quiet start with ${openingPartnerName}.`
+                      : "Setting up a quiet start for your video date."
                 : "We'll keep the space ready and let you continue calmly if they need too long."}
           </p>
         </div>

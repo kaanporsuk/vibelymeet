@@ -32,7 +32,7 @@ import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
-import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { ensureVideoDateRoom, prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -61,6 +61,7 @@ import {
   recordReadyGateToDateLatencyCheckpoint,
   startReadyGateToDateLatencyContext,
 } from '@clientShared/observability/videoDateOperatorMetrics';
+import { setVideoDatePermissionHandoff } from '@clientShared/matching/videoDatePermissionHandoff';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -160,6 +161,7 @@ export function ReadyGateOverlay({
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
+  const roomWarmupStartedRef = useRef(false);
   const duplicateNavSuppressionKeysRef = useRef(new Set<string>());
   const duplicateTerminalSuppressionKeysRef = useRef(new Set<string>());
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
@@ -175,7 +177,25 @@ export function ReadyGateOverlay({
   const [terminalActionError, setTerminalActionError] = useState<string | null>(null);
 
   const requestMediaPermissions = useCallback(async (): Promise<boolean> => {
+    const markPermissionResult = (ok: boolean, source: string) => {
+      setHasMediaPermission(ok);
+      setPermissionsResolved(true);
+      if (ok) {
+        setVideoDatePermissionHandoff({
+          sessionId,
+          userId,
+          platform: 'native',
+          source,
+        });
+      }
+    };
     if (Platform.OS === 'android') {
+      const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+      const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      if (camOk && micOk) {
+        markPermissionResult(true, 'ready_gate_android_existing_grants');
+        return true;
+      }
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.CAMERA,
         PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
@@ -183,17 +203,21 @@ export function ReadyGateOverlay({
       const ok =
         granted[PermissionsAndroid.PERMISSIONS.CAMERA] === PermissionsAndroid.RESULTS.GRANTED &&
         granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] === PermissionsAndroid.RESULTS.GRANTED;
-      setHasMediaPermission(ok);
-      setPermissionsResolved(true);
+      markPermissionResult(ok, 'ready_gate_android_request');
       return ok;
+    }
+    const camExisting = await Camera.getCameraPermissionsAsync();
+    const micExisting = await Camera.getMicrophonePermissionsAsync();
+    if (camExisting.status === 'granted' && micExisting.status === 'granted') {
+      markPermissionResult(true, 'ready_gate_native_existing_grants');
+      return true;
     }
     const cam = await Camera.requestCameraPermissionsAsync();
     const mic = await Camera.requestMicrophonePermissionsAsync();
     const ok = cam.status === 'granted' && mic.status === 'granted';
-    setHasMediaPermission(ok);
-    setPermissionsResolved(true);
+    markPermissionResult(ok, 'ready_gate_native_request');
     return ok;
-  }, []);
+  }, [sessionId, userId]);
 
   const trackNativeReadyGateEvent = useCallback(
     (eventName: string, payload: Record<string, string | number | boolean | null | undefined>) => {
@@ -207,6 +231,21 @@ export function ReadyGateOverlay({
     },
     [eventId, sessionId],
   );
+
+  const startRoomWarmup = useCallback((source: string) => {
+    if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
+    roomWarmupStartedRef.current = true;
+    void ensureVideoDateRoom(sessionId, {
+      eventId,
+      source,
+    }).then((result) => {
+      if (result.ok === false && result.retryable) {
+        roomWarmupStartedRef.current = false;
+      }
+    }).catch(() => {
+      roomWarmupStartedRef.current = false;
+    });
+  }, [eventId, sessionId]);
 
   const suppressDuplicateNav = useCallback(
     (source: string) => {
@@ -729,6 +768,7 @@ export function ReadyGateOverlay({
     manualExitRequestedRef.current = false;
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
+    roomWarmupStartedRef.current = false;
     prepareEntryHandoffStartedRef.current = false;
     duplicateNavSuppressionKeysRef.current.clear();
     duplicateTerminalSuppressionKeysRef.current.clear();
@@ -838,6 +878,7 @@ export function ReadyGateOverlay({
 
   useEffect(() => {
     if (!permissionsResolved || hasMediaPermission !== true || isTransitioning || isBothReady) return;
+    startRoomWarmup('ready_gate_open_permissions_ready');
     if (!iAmReady || partnerReady || snoozedByPartner) return;
     if (openingPartnerWaitRef.current) return;
     openingPartnerWaitRef.current = true;
@@ -857,6 +898,7 @@ export function ReadyGateOverlay({
     permissionsResolved,
     sessionId,
     snoozedByPartner,
+    startRoomWarmup,
   ]);
 
   useEffect(() => {

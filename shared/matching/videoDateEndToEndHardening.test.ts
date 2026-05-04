@@ -718,6 +718,31 @@ test("daily-room prepare_date_entry creates deterministic rooms and scoped token
   assert.match(dailyRoomFunction, /reused_room: reusedRoom/);
 });
 
+test("daily-room supports room-only warmup without token issuance or entry transition", () => {
+  assert.match(dailyRoomContracts, /"ensure_date_room"/);
+  assert.match(dailyRoomFunction, /action === "ensure_date_room"/);
+  assert.match(dailyRoomFunction, /Room-only warmup/);
+  assert.match(dailyRoomFunction, /ensureVideoDateProviderRoomForToken/);
+  const warmupIndex = dailyRoomFunction.indexOf('if (action === "ensure_date_room")');
+  const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
+  assert.ok(warmupIndex > 0);
+  assert.ok(prepareIndex > warmupIndex);
+  const warmupBlock = dailyRoomFunction.slice(warmupIndex, prepareIndex);
+  assert.doesNotMatch(warmupBlock, /createMeetingToken/);
+  assert.doesNotMatch(warmupBlock, /p_action: "prepare_entry"/);
+  assert.doesNotMatch(warmupBlock, /confirmVideoDateEntryPrepared/);
+  assert.match(warmupBlock, /ready", "ready_a", "ready_b", "both_ready"/);
+});
+
+test("daily-room freshness proof and token guards reject stale terminal shortcuts", () => {
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS/);
+  assert.match(dailyRoomFunction, /verifiedAtMs - nowMs > DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS/);
+  assert.match(dailyRoomFunction, /function videoDateRoomGateSessionEnded/);
+  assert.match(dailyRoomFunction, /session\.state === "ended"/);
+  assert.match(dailyRoomFunction, /session\.phase === "ended"/);
+  assert.match(dailyRoomFunction, /if \(videoDateRoomGateSessionEnded\(session\)\)/);
+});
+
 test("prepare_entry remains idempotent for concurrent and already-entry calls", () => {
   assert.match(prepareEntryMigration, /SELECT \* INTO v_session[\s\S]*FOR UPDATE/);
   assert.match(
@@ -751,15 +776,18 @@ test("daily-room makes DAILY_DOMAIN fallback visible without logging secrets", (
 
 test("daily-room prepare_date_entry verifies or recreates unsafe provider room state before token issuance", () => {
   assert.match(dailyRoomFunction, /async function ensureVideoDateProviderRoomForToken/);
+  assert.match(dailyRoomFunction, /hasFreshVideoDateProviderRoomProof/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS/);
   assert.match(dailyRoomFunction, /const providerRoomState = await getDailyRoomProviderState\(roomName\)/);
   assert.match(dailyRoomFunction, /const recoveryPlan = planDailyProviderRoomRecovery\(providerRoomState\)/);
   assert.match(dailyRoomFunction, /if \(recoveryPlan\.shouldCreate\) \{/);
   assert.match(dailyRoomFunction, /video_date_provider_room_missing_or_expired_recovering/);
   assert.match(dailyRoomFunction, /await createDailyRoom\(roomName, videoDateRoomProperties\(\)\)/);
   assert.match(dailyRoomFunction, /providerRoomRecovered = Boolean\(existingRoomName\) \|\| providerRoomState\.expired/);
+  assert.match(dailyRoomFunction, /providerVerifySkipped: true/);
   assert.match(dailyRoomFunction, /providerVerifySkipped: false/);
-  assert.doesNotMatch(dailyRoomFunction, /shouldSkipDailyProviderVerifyForVideoDate/);
-  assert.doesNotMatch(dailyRoomFunction, /provider_verify_skipped",/);
+  assert.match(dailyRoomFunction, /fresh_provider_room_proof/);
+  assert.doesNotMatch(dailyRoomFunction, /skip.*old DB metadata/i);
 
   const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
   const prepareTokenIndex = dailyRoomFunction.indexOf(
@@ -777,7 +805,7 @@ test("legacy join_date_room verifies or recovers provider room before token issu
   const joinBlock = dailyRoomFunction.slice(joinIndex, nextActionIndex);
 
   assert.match(joinBlock, /daily_room_name, daily_room_url/);
-  assert.match(joinBlock, /if \(session\.ended_at\)[\s\S]*code: "SESSION_ENDED"/);
+  assert.match(joinBlock, /if \(videoDateRoomGateSessionEnded\(session\)\)[\s\S]*code: "SESSION_ENDED"/);
   assert.match(joinBlock, /if \(!canIssueVideoDateRoomToken\(session\)\)[\s\S]*code: "READY_GATE_NOT_READY"/);
   assert.doesNotMatch(joinBlock, /if \(!session\.daily_room_name\)[\s\S]*code: "ROOM_NOT_FOUND"/);
   assert.doesNotMatch(joinBlock, /daily_room_name_guard/);

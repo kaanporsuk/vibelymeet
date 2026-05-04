@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import {
   PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS,
   clearPreparedVideoDateEntryCache,
+  consumePreparedVideoDateEntryHandoff,
   createVideoDateEntryAttemptId,
   getCachedPreparedVideoDateEntry,
+  peekPreparedVideoDateEntryHandoff,
   prepareVideoDateEntryWithClient,
   rejectCachedPreparedVideoDateEntry,
 } from "./videoDatePrepareEntry";
@@ -18,8 +20,13 @@ function successPayload() {
     room_name: "date-11111111111141118111111111111111",
     room_url: "https://vibelyapp.daily.co/date-11111111111141118111111111111111",
     token: "short-lived-client-token",
+    token_expires_at: "2099-04-24T00:48:01.000Z",
     session_state: "handshake",
     session_phase: "handshake",
+    ready_gate_status: "both_ready",
+    ready_gate_expires_at: "2026-04-24T00:34:01.000Z",
+    participant_1_id: USER_ID,
+    participant_2_id: "33333333-3333-4333-8333-333333333333",
     handshake_started_at: "2026-04-24T00:33:01.000Z",
   };
 }
@@ -68,6 +75,121 @@ test("prepareVideoDateEntryWithClient caches a successful token by session and u
   assert.equal(cached.ok && cached.data.video_date_trace_id, "attempt-cache-1");
   assert.equal(calls, 1);
   assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 2000)?.value.token, "short-lived-client-token");
+});
+
+test("prepared entry handoff is session/user scoped and consumed once", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    entryAttemptId: "handoff-attempt-1",
+    invoke: async () => ({ data: successPayload() }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  const peeked = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  assert.equal(peeked.ok, true);
+  assert.equal(peeked.ok && peeked.envelope.handoffVersion, 1);
+  assert.equal(peeked.ok && peeked.envelope.sessionId, SESSION_ID);
+  assert.equal(peeked.ok && peeked.envelope.userId, USER_ID);
+  assert.equal(peeked.ok && peeked.envelope.readyGateStatus, "both_ready");
+  assert.equal(peeked.ok && peeked.envelope.phase, "handshake");
+
+  const consumed = consumePreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  assert.equal(consumed.ok, true);
+  assert.equal(consumed.ok && consumed.envelope.token, "short-lived-client-token");
+  assert.equal(consumePreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200).ok, false);
+  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200)?.value.token, "short-lived-client-token");
+});
+
+test("prepared entry handoff rejects stale or unsafe envelopes", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    invoke: async () => ({
+      data: {
+        ...successPayload(),
+        ready_gate_status: "ready",
+      },
+    }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.ok === false && rejected.reason, "invalid_ready_gate");
+  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+});
+
+test("prepared entry handoff rejects terminal state even when ready gate metadata looks reusable", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    invoke: async () => ({
+      data: {
+        ...successPayload(),
+        session_state: "ended",
+      },
+    }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.ok === false && rejected.reason, "invalid_state");
+  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+});
+
+test("prepared entry handoff rejects missing phase proof", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    invoke: async () => ({
+      data: {
+        ...successPayload(),
+        session_phase: null,
+      },
+    }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.ok === false && rejected.reason, "invalid_phase");
+  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
+});
+
+test("prepared entry handoff rejects missing token expiry proof", async () => {
+  clearPreparedVideoDateEntryCache();
+
+  await prepareVideoDateEntryWithClient({
+    sessionId: SESSION_ID,
+    userId: USER_ID,
+    nowMs: 1000,
+    invoke: async () => ({
+      data: {
+        ...successPayload(),
+        token_expires_at: null,
+      },
+    }),
+    classifyFailure: async () => ({ kind: "unknown", retryable: false }),
+  });
+
+  const rejected = peekPreparedVideoDateEntryHandoff(SESSION_ID, USER_ID, 1200);
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.ok === false && rejected.reason, "token_expired");
+  assert.equal(getCachedPreparedVideoDateEntry(SESSION_ID, USER_ID, 1200), null);
 });
 
 test("prepareVideoDateEntryWithClient preserves server trace ids when returned", async () => {

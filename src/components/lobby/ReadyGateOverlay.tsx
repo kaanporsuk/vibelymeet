@@ -6,7 +6,7 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import { ensureVideoDateRoom, prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
@@ -158,6 +158,7 @@ const ReadyGateOverlay = ({
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
+  const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
@@ -315,6 +316,21 @@ const ReadyGateOverlay = ({
     },
     [eventId, sessionId],
   );
+
+  const startRoomWarmup = useCallback((source: string) => {
+    if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
+    roomWarmupStartedRef.current = true;
+    void ensureVideoDateRoom(sessionId, {
+      eventId,
+      source,
+    }).then((result) => {
+      if (result.ok === false && result.retryable) {
+        roomWarmupStartedRef.current = false;
+      }
+    }).catch(() => {
+      roomWarmupStartedRef.current = false;
+    });
+  }, [eventId, sessionId]);
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current && !dateNavigationStartedRef.current) return;
@@ -1015,6 +1031,7 @@ const ReadyGateOverlay = ({
     bothReadyObservedAtMsRef.current = null;
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
+    roomWarmupStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
@@ -1060,6 +1077,11 @@ const ReadyGateOverlay = ({
       });
     }
   }, [sessionId, eventId]);
+
+  useEffect(() => {
+    if (!sessionId || !eventId || !user?.id) return;
+    startRoomWarmup("ready_gate_open");
+  }, [eventId, sessionId, startRoomWarmup, user?.id]);
 
   useEffect(() => {
     return () => {

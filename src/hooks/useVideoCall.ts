@@ -11,6 +11,7 @@ import {
   videoDateWebMediaStreamConstraints,
 } from "@/lib/dailyCallObjectConfig";
 import {
+  consumePreparedVideoDateEntry,
   prepareVideoDateEntry,
   rejectPreparedVideoDateEntry,
 } from "@/lib/videoDatePrepareEntry";
@@ -35,6 +36,7 @@ import {
   createVideoDateCameraSwitchRenderHint,
   parseVideoDateCameraSwitchRenderHint,
 } from "@clientShared/matching/videoDateCameraSwitchRenderHint";
+import { getVideoDatePermissionHandoff } from "@clientShared/matching/videoDatePermissionHandoff";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -292,6 +294,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const roomNameRef = useRef<string | null>(null);
   const optionsRef = useRef(options);
   const firstRemoteObservedRef = useRef(false);
+  const localVideoReadyTrackedRef = useRef(false);
   const lastLocalTrackIdsRef = useRef<string>("");
   const lastLocalStreamRef = useRef<MediaStream | null>(null);
   const lastRemoteTrackIdsRef = useRef<string>("");
@@ -1021,6 +1024,31 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
+      const permissionStartedAt = Date.now();
+      const startedContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId: eventId ?? null,
+        sourceSurface: "video_date_daily",
+        checkpoint: "permission_check_started",
+        nowMs: permissionStartedAt,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: startedContext,
+          checkpoint: "permission_check_started",
+          sourceAction: "permission_check_started",
+          outcome: "success",
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_STARTED, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId ?? null,
+        source_surface: "video_date_daily",
+        source_action: "permission_check_started",
+      });
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
@@ -1032,6 +1060,46 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reason: "media_devices_unavailable",
         });
         return false;
+      }
+
+      const permissionHandoff = userId ? getVideoDatePermissionHandoff(sessionId, userId) : null;
+      if (permissionHandoff) {
+        setHasPermission(true);
+        setMediaPermissionError(null);
+        const durationMs = Math.max(0, Date.now() - permissionStartedAt);
+        const successContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId: eventId ?? null,
+          sourceSurface: "video_date_daily",
+          checkpoint: "permission_check_success",
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: successContext,
+            checkpoint: "permission_check_success",
+            sourceAction: "permission_handoff",
+            outcome: "success",
+            durationMs,
+          }),
+        );
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          source_surface: "video_date_daily",
+          source_action: "permission_handoff",
+          duration_ms: durationMs,
+          latency_bucket: bucketVideoDateLatencyMs(durationMs),
+        });
+        vdbg("daily_media_permission_handoff_used", {
+          sessionId,
+          eventId: eventId ?? null,
+          userId,
+          handoffSource: permissionHandoff.source,
+        });
+        return true;
       }
 
       try {
@@ -1067,6 +1135,33 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         stream.getTracks().forEach((track) => track.stop());
         setHasPermission(true);
         setMediaPermissionError(null);
+        const durationMs = Math.max(0, Date.now() - permissionStartedAt);
+        const successContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId: eventId ?? null,
+          sourceSurface: "video_date_daily",
+          checkpoint: "permission_check_success",
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: successContext,
+            checkpoint: "permission_check_success",
+            sourceAction: "media_permission_preflight_succeeded",
+            outcome: "success",
+            durationMs,
+          }),
+        );
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          source_surface: "video_date_daily",
+          source_action: "media_permission_preflight_succeeded",
+          duration_ms: durationMs,
+          latency_bucket: bucketVideoDateLatencyMs(durationMs),
+        });
         vdbg("daily_media_permission_preflight_succeeded", {
           sessionId,
           eventId: eventId ?? null,
@@ -1204,6 +1299,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       lastRemoteRenderParticipantIdRef.current = null;
       activePreparedEntryCacheRef.current = null;
       dailyJoinStartedAtMsRef.current = null;
+      localVideoReadyTrackedRef.current = false;
       setDailyReconnectState("connected");
       setReconnectGraceTimeLeft(0);
       firstRemoteObservedRef.current = false;
@@ -1247,6 +1343,58 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           failure: VideoCallStartFailure;
         }
     > => {
+      if (userId) {
+        const handoff = consumePreparedVideoDateEntry(sessionId, userId);
+        if (handoff.ok === true) {
+          const successfulRoomData: DailyRoomSuccessResponse = {
+            room_name: handoff.envelope.roomName,
+            room_url: handoff.envelope.roomUrl,
+            token: handoff.envelope.token,
+            token_expires_at: handoff.envelope.tokenExpiresAt,
+            entry_attempt_id: handoff.envelope.entryAttemptId,
+            video_date_trace_id: handoff.envelope.videoDateTraceId,
+          };
+          const entryAttemptId = successfulRoomData.entry_attempt_id ?? handoff.cacheEntry.entryAttemptId ?? null;
+          const videoDateTraceId = successfulRoomData.video_date_trace_id ?? entryAttemptId;
+          vdbg("daily_room_handoff_used", {
+            action: "prepare_date_entry",
+            sessionId,
+            eventId: truthRow?.event_id ?? eventId,
+            userId,
+            roomName: successfulRoomData.room_name,
+            entryAttemptId,
+            videoDateTraceId,
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_TOKEN_SUCCESS, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: truthRow?.event_id ?? eventId,
+            source_surface: "video_date_daily",
+            source_action: "daily_token_handoff_used",
+            cached: true,
+            handoff_used: true,
+            attempt: 1,
+            attempt_count: 1,
+            entry_attempt_id: entryAttemptId,
+            video_date_trace_id: videoDateTraceId,
+            duration_ms: 0,
+            latency_bucket: bucketVideoDateLatencyMs(0),
+          });
+          return {
+            ok: true,
+            roomData: successfulRoomData,
+            cacheEntry: handoff.cacheEntry,
+            cached: true,
+          };
+        }
+        vdbg("daily_room_handoff_missed", {
+          action: "prepare_date_entry",
+          sessionId,
+          eventId: truthRow?.event_id ?? eventId,
+          userId,
+          reason: handoff.reason,
+        });
+      }
       let lastFailure: VideoCallStartFailure | null = null;
 
       for (let attempt = 0; attempt <= CREATE_DATE_ROOM_RETRY_DELAYS_MS.length; attempt += 1) {
@@ -2338,6 +2486,32 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               isLocal: true,
               participant: localParticipant,
               roomName: roomData.room_name ?? null,
+            });
+          }
+          if (!localVideoReadyTrackedRef.current) {
+            localVideoReadyTrackedRef.current = true;
+            const localVideoContext = recordReadyGateToDateLatencyCheckpoint({
+              sessionId,
+              platform: "web",
+              eventId: truthRow.event_id ?? eventId,
+              sourceSurface: "video_date_daily",
+              checkpoint: "local_video_ready",
+            });
+            trackEvent(
+              LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+              buildReadyGateToDateLatencyPayload({
+                context: localVideoContext,
+                checkpoint: "local_video_ready",
+                sourceAction: "post_join_snapshot",
+                outcome: "success",
+              }),
+            );
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_LOCAL_VIDEO_READY, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: truthRow.event_id ?? eventId,
+              source_surface: "video_date_daily",
+              source_action: "post_join_snapshot",
             });
           }
         }

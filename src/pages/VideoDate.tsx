@@ -358,6 +358,8 @@ const VideoDate = () => {
   const phaseRef = useRef<CallPhase>("handshake");
   const timeLeftRef = useRef<number | null>(null);
   const countdownCompletionKeyRef = useRef<string | null>(null);
+  const remoteReadableTrackedRef = useRef(false);
+  const warmupTimerStartedTrackedRef = useRef<string | null>(null);
   const timerDriftTrackingReadyRef = useRef(false);
   const sessionIdRef = useRef(id);
   const eventIdRef = useRef<string | undefined>(undefined);
@@ -949,6 +951,29 @@ const VideoDate = () => {
           outcome: "success",
         }),
       );
+      const shellContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId: id,
+        platform: "web",
+        eventId: eventId ?? null,
+        sourceSurface: "video_date_route",
+        checkpoint: "video_stage_shell_visible",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: shellContext,
+          checkpoint: "video_stage_shell_visible",
+          sourceAction: "route_mount",
+          outcome: "success",
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_VIDEO_STAGE_SHELL_VISIBLE, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+        source_surface: "video_date_route",
+        source_action: "route_mount",
+      });
     }
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROUTE_ENTERED, {
       platform: "web",
@@ -1764,6 +1789,7 @@ const VideoDate = () => {
   useEffect(() => {
     if (isConnected) {
       trackEvent('video_date_started', { session_id: id, phase: 'handshake' });
+      remoteReadableTrackedRef.current = false;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           setBlurAmount(0);
@@ -1771,6 +1797,38 @@ const VideoDate = () => {
       });
     }
   }, [isConnected, id]);
+
+  useEffect(() => {
+    if (!isConnected || blurAmount !== 0 || remoteReadableTrackedRef.current || !id) return;
+    const timerId = window.setTimeout(() => {
+      if (remoteReadableTrackedRef.current) return;
+      remoteReadableTrackedRef.current = true;
+      const readableContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId: id,
+        platform: "web",
+        eventId: eventId ?? null,
+        sourceSurface: "video_date_daily",
+        checkpoint: "remote_readable",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: readableContext,
+          checkpoint: "remote_readable",
+          sourceAction: "progressive_blur_complete",
+          outcome: "success",
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_READABLE, {
+        platform: "web",
+        session_id: id,
+        event_id: eventId ?? null,
+        source_surface: "video_date_daily",
+        source_action: "progressive_blur_complete",
+      });
+    }, 10_000);
+    return () => window.clearTimeout(timerId);
+  }, [blurAmount, eventId, id, isConnected]);
 
   // Countdown timer: display derives from server-owned phase timestamps, never from route mount time.
   useEffect(() => {
@@ -2986,6 +3044,37 @@ const VideoDate = () => {
     phase === "handshake" && handshakeTimerStarted
       ? "bottom-[14rem]"
       : "bottom-[6.75rem]";
+
+  useEffect(() => {
+    if (!id || !handshakeTimerStarted || phase !== "handshake") return;
+    const key = `${id}:${handshakeStartedAt ?? "phase_not_handshake"}`;
+    if (warmupTimerStartedTrackedRef.current === key) return;
+    warmupTimerStartedTrackedRef.current = key;
+    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+      sessionId: id,
+      platform: "web",
+      eventId: eventId ?? null,
+      sourceSurface: "video_date_route",
+      checkpoint: "warmup_timer_started",
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context: latencyContext,
+        checkpoint: "warmup_timer_started",
+        sourceAction: "server_handshake_started_at",
+        outcome: "success",
+      }),
+    );
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_WARMUP_TIMER_STARTED, {
+      platform: "web",
+      session_id: id,
+      event_id: eventId ?? null,
+      source_surface: "video_date_route",
+      source_action: "server_handshake_started_at",
+      handshake_started_at: handshakeStartedAt ?? null,
+    });
+  }, [eventId, handshakeStartedAt, handshakeTimerStarted, id, phase]);
 
   if (!id || videoDateAccess === "not_found") {
     return (

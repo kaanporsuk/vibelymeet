@@ -126,7 +126,7 @@ export function canPrepareDailyRoomFromReadyGateTruth(
   row: VideoSessionDailyRoomTruth | null,
   nowMs: number = Date.now(),
 ): boolean {
-  if (!row || row.ended_at) return false;
+  if (!row || videoSessionRowIsEnded(row)) return false;
   if (canAttemptDailyRoomFromVideoSessionTruth(row, nowMs)) return true;
   if (row.ready_gate_status !== "both_ready") return false;
   const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
@@ -142,7 +142,7 @@ export function canAttemptDailyRoomFromVideoSessionTruth(
   row: VideoSessionDailyRoomTruth | null,
   _nowMs: number = Date.now(),
 ): boolean {
-  if (!row || row.ended_at) return false;
+  if (!row || videoSessionRowIsEnded(row)) return false;
   if (!videoSessionHasProviderRoom(row)) return false;
   if (
     row.state === "handshake" ||

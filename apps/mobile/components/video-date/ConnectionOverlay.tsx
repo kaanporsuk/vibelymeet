@@ -2,7 +2,7 @@
  * Shown while connecting to Daily room. Pulsing rings + "Connecting you..." message.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable, Image, ActivityIndicator } from 'react-native';
 import { typography, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
@@ -45,6 +45,7 @@ export function ConnectionOverlay({
   const openingPartnerName = resolvedMode === 'joining' && partnerName?.trim() ? partnerName.trim() : null;
   const showOpeningIdentity = resolvedMode === 'joining' && Boolean(openingPartnerName || partnerAvatarUri);
   const partnerInitial = openingPartnerName?.slice(0, 1).toUpperCase() || 'V';
+  const [connectingElapsedMs, setConnectingElapsedMs] = useState(0);
 
   useEffect(() => {
     const anim1 = Animated.loop(
@@ -67,6 +68,24 @@ export function ConnectionOverlay({
       anim2.stop();
     };
   }, [ring1, ring2]);
+
+  useEffect(() => {
+    if (resolvedMode !== 'joining') {
+      setConnectingElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setConnectingElapsedMs(0);
+    const intervalId = setInterval(() => {
+      setConnectingElapsedMs(Math.max(0, Date.now() - startedAt));
+    }, 250);
+    return () => clearInterval(intervalId);
+  }, [resolvedMode]);
+
+  if (resolvedMode === 'joining' && connectingElapsedMs < 700) return null;
+
+  const connectingSlow = resolvedMode === 'joining' && connectingElapsedMs >= 3_000;
+  const connectingVerySlow = resolvedMode === 'joining' && connectingElapsedMs >= 8_000;
 
   return (
     <View style={styles.overlay}>
@@ -108,14 +127,20 @@ export function ConnectionOverlay({
         ) : null}
         <Text style={[styles.title, { color: theme.text }]}>
           {resolvedMode === 'joining'
-            ? 'Opening the room...'
+            ? connectingSlow
+              ? 'Still connecting...'
+              : 'Opening the room...'
             : waitingPeerTitle ?? 'Holding the room softly'}
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
           {resolvedMode === 'joining'
-            ? openingPartnerName
-              ? `Setting up a quiet start with ${openingPartnerName}.`
-              : 'Setting up a quiet start for your video date.'
+            ? connectingVerySlow
+              ? 'This is taking longer than usual. You can leave safely if the room does not open.'
+              : connectingSlow
+                ? 'This usually takes a moment.'
+                : openingPartnerName
+                  ? `Setting up a quiet start with ${openingPartnerName}.`
+                  : 'Setting up a quiet start for your video date.'
             : waitingPeerSubtitle ?? 'Your date will start once you are both here.'}
         </Text>
         <Pressable

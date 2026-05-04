@@ -38,6 +38,7 @@ import {
   getDailyRoomTokenWithTimeout,
   enterHandshakeWithTimeout,
   VideoDateRequestTimeoutError,
+  type GetDailyRoomTokenResult,
   type RoomTokenFailureCode,
   endVideoDate,
   recordHandshakeDecision,
@@ -104,6 +105,7 @@ import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { setSafeAudioMode } from '@/lib/safeAudioMode';
 import {
+  consumePreparedVideoDateEntry,
   getPreparedVideoDateEntry,
   preparedEntryBothReadyToFirstRemoteFrameMs,
   preparedEntryPrepareToJoinStartMs,
@@ -117,6 +119,7 @@ import {
   bucketVideoDateLatencyMs,
   recordReadyGateToDateLatencyCheckpoint,
 } from '@clientShared/observability/videoDateOperatorMetrics';
+import { getVideoDatePermissionHandoff } from '@clientShared/matching/videoDatePermissionHandoff';
 import { LiveSurfaceOfflineStrip } from '@/components/connectivity/LiveSurfaceOfflineStrip';
 import { avatarUrl } from '@/lib/imageUrl';
 import {
@@ -783,6 +786,9 @@ export default function VideoDateScreen() {
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
   const firstPlayableRemoteTimedRef = useRef(false);
+  const localVideoReadyTrackedRef = useRef(false);
+  const remoteReadableTrackedRef = useRef(false);
+  const warmupTimerStartedTrackedRef = useRef<string | null>(null);
   const abortConnectionInFlightRef = useRef(false);
   const warmupChoiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Epoch ms when the first playable remote track was mounted; 0 = not yet. */
@@ -1603,6 +1609,9 @@ export default function VideoDateScreen() {
     firstIceConnectedLoggedRef.current = false;
     firstRemoteParticipantTimedRef.current = false;
     firstPlayableRemoteTimedRef.current = false;
+    localVideoReadyTrackedRef.current = false;
+    remoteReadableTrackedRef.current = false;
+    warmupTimerStartedTrackedRef.current = null;
     firstPlayableRemoteAtMsRef.current = 0;
     vdbg('prejoin_state_hasStartedJoinRef', {
       value: false,
@@ -1676,6 +1685,29 @@ export default function VideoDateScreen() {
         }),
       );
       trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROUTE_ENTERED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId || null,
+        source_surface: 'video_date_route',
+        source_action: 'route_mount',
+      });
+      const shellContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId: eventId || null,
+        sourceSurface: 'video_date_route',
+        checkpoint: 'video_stage_shell_visible',
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: shellContext,
+          checkpoint: 'video_stage_shell_visible',
+          sourceAction: 'route_mount',
+          outcome: 'success',
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_VIDEO_STAGE_SHELL_VISIBLE, {
         platform: 'native',
         session_id: sessionId,
         event_id: eventId || null,
@@ -2469,13 +2501,46 @@ export default function VideoDateScreen() {
       const elapsed = Date.now() - startTime;
       if (elapsed >= duration) {
         setBlurIntensity(0);
+        if (!remoteReadableTrackedRef.current && sessionId) {
+          remoteReadableTrackedRef.current = true;
+          const readableContext = recordReadyGateToDateLatencyCheckpoint({
+            sessionId,
+            platform: 'native',
+            eventId: eventId || null,
+            sourceSurface: 'video_date_daily',
+            checkpoint: 'remote_readable',
+          });
+          const firstRemoteFrameToReadableMs =
+            firstPlayableRemoteAtMsRef.current > 0
+              ? Math.max(0, Date.now() - firstPlayableRemoteAtMsRef.current)
+              : null;
+          trackEvent(
+            LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+            buildReadyGateToDateLatencyPayload({
+              context: readableContext,
+              checkpoint: 'remote_readable',
+              sourceAction: 'progressive_blur_complete',
+              outcome: 'success',
+              durationMs: firstRemoteFrameToReadableMs,
+            }),
+          );
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_REMOTE_READABLE, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: eventId || null,
+            source_surface: 'video_date_daily',
+            source_action: 'progressive_blur_complete',
+            duration_ms: firstRemoteFrameToReadableMs,
+            latency_bucket: bucketVideoDateLatencyMs(firstRemoteFrameToReadableMs),
+          });
+        }
         return;
       }
       setBlurIntensity(start - (start * elapsed) / duration);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-  }, [hasRemotePartner, phase]);
+  }, [eventId, hasRemotePartner, phase, sessionId]);
 
   const refreshCredits = useCallback(() => {
     if (!user?.id) return;
@@ -2484,8 +2549,34 @@ export default function VideoDateScreen() {
 
   useEffect(() => {
     if (!localInDailyRoom) return;
+    if (!localVideoReadyTrackedRef.current && sessionId) {
+      localVideoReadyTrackedRef.current = true;
+      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId: eventId || null,
+        sourceSurface: 'video_date_daily',
+        checkpoint: 'local_video_ready',
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: latencyContext,
+          checkpoint: 'local_video_ready',
+          sourceAction: 'local_daily_joined',
+          outcome: 'success',
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_LOCAL_VIDEO_READY, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId || null,
+        source_surface: 'video_date_daily',
+        source_action: 'local_daily_joined',
+      });
+    }
     refreshCredits();
-  }, [refreshCredits, localInDailyRoom]);
+  }, [eventId, localInDailyRoom, refreshCredits, sessionId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -3376,6 +3467,72 @@ export default function VideoDateScreen() {
   }, [extendBanner]);
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
+    const permissionStartedAt = Date.now();
+    if (sessionId) {
+      const startedContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId: eventId || null,
+        sourceSurface: 'video_date_daily',
+        checkpoint: 'permission_check_started',
+        nowMs: permissionStartedAt,
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: startedContext,
+          checkpoint: 'permission_check_started',
+          sourceAction: 'permission_check_started',
+          outcome: 'success',
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_STARTED, {
+        platform: 'native',
+        session_id: sessionId,
+        event_id: eventId || null,
+        source_surface: 'video_date_daily',
+        source_action: 'permission_check_started',
+      });
+    }
+    const finishPermissionCheck = (ok: boolean, source: string) => {
+      if (sessionId && ok) {
+        const successContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId: eventId || null,
+          sourceSurface: 'video_date_daily',
+          checkpoint: 'permission_check_success',
+        });
+        const durationMs = Math.max(0, Date.now() - permissionStartedAt);
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: successContext,
+            checkpoint: 'permission_check_success',
+            sourceAction: source,
+            outcome: 'success',
+            durationMs,
+          }),
+        );
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          source_surface: 'video_date_daily',
+          source_action: source,
+          duration_ms: durationMs,
+          latency_bucket: bucketVideoDateLatencyMs(durationMs),
+        });
+      }
+      return ok;
+    };
+    const permissionHandoff =
+      sessionId && user?.id ? getVideoDatePermissionHandoff(sessionId, user.id) : null;
+    if (permissionHandoff) {
+      vdbg('prejoin_state_hasPermission', { value: true, source: 'ready_gate_permission_handoff' });
+      setHasPermission(true);
+      return finishPermissionCheck(true, 'ready_gate_permission_handoff');
+    }
     if (Platform.OS === 'android') {
       const camOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
       const micOk = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
@@ -3394,7 +3551,7 @@ export default function VideoDateScreen() {
           ok: true,
           source: 'existing_grants',
         });
-        return true;
+        return finishPermissionCheck(true, 'existing_grants');
       }
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.CAMERA,
@@ -3416,7 +3573,7 @@ export default function VideoDateScreen() {
         ok,
         source: 'request',
       });
-      return ok;
+      return finishPermissionCheck(ok, 'request');
     }
     const camExisting = await Camera.getCameraPermissionsAsync();
     const micExisting = await Camera.getMicrophonePermissionsAsync();
@@ -3439,7 +3596,7 @@ export default function VideoDateScreen() {
         ok: true,
         source: 'existing_grants',
       });
-      return true;
+      return finishPermissionCheck(true, 'existing_grants');
     }
     const cam = await Camera.requestCameraPermissionsAsync();
     const mic = await Camera.requestMicrophonePermissionsAsync();
@@ -3455,8 +3612,8 @@ export default function VideoDateScreen() {
       ok,
       source: 'request',
     });
-    return ok;
-  }, []);
+    return finishPermissionCheck(ok, 'request');
+  }, [eventId, sessionId, user?.id]);
 
   const handleRetryInitialConnect = useCallback(async () => {
     if (peerMissingTerminal && sessionId) {
@@ -4457,7 +4614,7 @@ export default function VideoDateScreen() {
         timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
         willCallDailyRoom: !cancelled,
       });
-      let tokenRes;
+      let tokenRes: GetDailyRoomTokenResult;
       let dailyTokenStartedAtMs = Date.now();
       try {
         currentStep = setPrejoinStep('daily_room');
@@ -4476,7 +4633,34 @@ export default function VideoDateScreen() {
           userId: user.id,
           timeoutMs: PREJOIN_STEP_TIMEOUT_MS,
         });
-        tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+        const handoff = consumePreparedVideoDateEntry(sessionId, user.id);
+        if (handoff.ok === true) {
+          activePreparedEntryCacheRef.current = handoff.cacheEntry;
+          tokenRes = {
+            ok: true,
+            data: {
+              room_name: handoff.envelope.roomName,
+              room_url: handoff.envelope.roomUrl,
+              token: handoff.envelope.token,
+              token_expires_at: handoff.envelope.tokenExpiresAt,
+              entry_attempt_id: handoff.envelope.entryAttemptId,
+              video_date_trace_id: handoff.envelope.videoDateTraceId,
+            },
+          } satisfies GetDailyRoomTokenResult;
+          vdbg('prejoin_step_prejoin_daily_room_handoff_used', {
+            sessionId,
+            userId: user.id,
+            entryAttemptId: handoff.envelope.entryAttemptId,
+            videoDateTraceId: handoff.envelope.videoDateTraceId,
+          });
+        } else {
+          vdbg('prejoin_step_prejoin_daily_room_handoff_missed', {
+            sessionId,
+            userId: user.id,
+            reason: handoff.reason,
+          });
+          tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+        }
         endBootstrapTiming('daily_room_acquire', {
           source: 'prejoin',
           ok: tokenRes.ok,
@@ -4724,7 +4908,8 @@ export default function VideoDateScreen() {
       }
 
       const tokenResult = tokenRes.data;
-      activePreparedEntryCacheRef.current = getPreparedVideoDateEntry(sessionId, user.id);
+      activePreparedEntryCacheRef.current =
+        activePreparedEntryCacheRef.current ?? getPreparedVideoDateEntry(sessionId, user.id);
       const entryAttemptId = tokenResult.entry_attempt_id ?? activePreparedEntryCacheRef.current?.entryAttemptId ?? null;
       const videoDateTraceId =
         tokenResult.video_date_trace_id ??
@@ -5862,6 +6047,37 @@ export default function VideoDateScreen() {
     phase !== 'handshake' || Boolean(session?.handshake_started_at);
   const handshakeDeadlineUrgent =
     phase === 'handshake' && handshakeTimerStarted && displayTimeLeft <= 10;
+
+  useEffect(() => {
+    if (!sessionId || !handshakeTimerStarted || phase !== 'handshake') return;
+    const key = `${sessionId}:${session?.handshake_started_at ?? 'phase_not_handshake'}`;
+    if (warmupTimerStartedTrackedRef.current === key) return;
+    warmupTimerStartedTrackedRef.current = key;
+    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+      sessionId,
+      platform: 'native',
+      eventId: eventId || null,
+      sourceSurface: 'video_date_route',
+      checkpoint: 'warmup_timer_started',
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context: latencyContext,
+        checkpoint: 'warmup_timer_started',
+        sourceAction: 'server_handshake_started_at',
+        outcome: 'success',
+      }),
+    );
+    trackEvent(LobbyPostDateEvents.VIDEO_DATE_WARMUP_TIMER_STARTED, {
+      platform: 'native',
+      session_id: sessionId,
+      event_id: eventId || null,
+      source_surface: 'video_date_route',
+      source_action: 'server_handshake_started_at',
+      handshake_started_at: session?.handshake_started_at ?? null,
+    });
+  }, [eventId, handshakeTimerStarted, phase, session?.handshake_started_at, sessionId]);
 
   useEffect(() => {
     if (!handshakeDeadlineUrgent) {

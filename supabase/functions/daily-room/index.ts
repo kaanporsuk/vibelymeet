@@ -38,6 +38,8 @@ const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 * 60;
 // while covering the normal 5-minute flow plus generous extension/reconnect room.
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
+const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
+const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
 
 type VideoDateRoomGateSession = {
   id: string;
@@ -46,6 +48,9 @@ type VideoDateRoomGateSession = {
   participant_2_id: string | null;
   daily_room_name?: string | null;
   daily_room_url?: string | null;
+  daily_room_verified_at?: string | null;
+  daily_room_expires_at?: string | null;
+  daily_room_provider_verify_reason?: string | null;
   ended_at: string | null;
   ended_reason?: string | null;
   handshake_started_at: string | null;
@@ -151,6 +156,7 @@ function readVideoDateTraceContext(body: Record<string, unknown>, action: unknow
   const providedTraceId = sanitizeEntryAttemptId(body?.video_date_trace_id ?? body?.videoDateTraceId);
   const shouldGenerateTrace =
     action === "prepare_date_entry" ||
+    action === "ensure_date_room" ||
     action === "create_date_room" ||
     action === "join_date_room";
   const videoDateTraceId = providedTraceId ?? providedEntryAttemptId ?? (shouldGenerateTrace ? createServerVideoDateTraceId() : null);
@@ -451,6 +457,7 @@ type VideoDateProviderObservabilityOperation =
   | "create_date_room_provider_already_exists"
   | "create_date_room_provider_created"
   | "create_date_room_provider_recovered_or_recreated"
+  | "create_date_room_provider_verify_skipped"
   | "create_date_room_token_issued"
   | "create_date_room_blocked_session_ended"
   | "create_date_room_blocked_access_denied"
@@ -575,8 +582,9 @@ function canIssueVideoDateRoomToken(session: {
   ended_at: string | null;
   handshake_started_at: string | null;
   state: string | null;
+  phase?: string | null;
 }): boolean {
-  if (session.ended_at) return false;
+  if (videoDateRoomGateSessionEnded(session)) return false;
   if (
     session.state === "handshake" ||
     session.state === "date" ||
@@ -585,6 +593,22 @@ function canIssueVideoDateRoomToken(session: {
     return true;
   }
   return false;
+}
+
+function videoDateRoomGateSessionEnded(session: {
+  ended_at?: string | null;
+  state?: string | null;
+  phase?: string | null;
+  ready_gate_status?: string | null;
+} | null): boolean {
+  return Boolean(
+    session &&
+      (session.ended_at ||
+        session.state === "ended" ||
+        session.phase === "ended" ||
+        session.ready_gate_status === "expired" ||
+        session.ready_gate_status === "forfeited")
+  );
 }
 
 async function persistVideoDateRoomMetadata(
@@ -597,6 +621,9 @@ async function persistVideoDateRoomMetadata(
     action: DateRoomAction;
     entryAttemptId?: string | null;
     videoDateTraceId?: string | null;
+    verifiedAt?: string | null;
+    expiresAt?: string | null;
+    providerVerifyReason?: string | null;
   },
 ): Promise<
   | { ok: true }
@@ -610,7 +637,13 @@ async function persistVideoDateRoomMetadata(
 > {
   const { data, error } = await serviceClient
     .from("video_sessions")
-    .update({ daily_room_name: params.roomName, daily_room_url: params.roomUrl })
+    .update({
+      daily_room_name: params.roomName,
+      daily_room_url: params.roomUrl,
+      daily_room_verified_at: params.verifiedAt ?? new Date().toISOString(),
+      daily_room_expires_at: params.expiresAt ?? null,
+      daily_room_provider_verify_reason: params.providerVerifyReason ?? null,
+    })
     .eq("id", params.sessionId)
     .is("ended_at", null)
     .select("id")
@@ -632,7 +665,7 @@ async function persistVideoDateRoomMetadata(
     const { data: latest, error: readError } = await serviceClient
       .from("video_sessions")
       .select(
-        "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, ended_reason, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+        "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, ended_reason, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
       )
       .eq("id", params.sessionId)
       .maybeSingle();
@@ -961,7 +994,11 @@ async function createDailyRoom(
   return { url: room.url, name: room.name, alreadyExisted: false };
 }
 
-async function getDailyRoomProviderState(roomName: string, retries = 2): Promise<{ exists: boolean; expired: boolean }> {
+async function getDailyRoomProviderState(roomName: string, retries = 2): Promise<{
+  exists: boolean;
+  expired: boolean;
+  expiresAt: string | null;
+}> {
   const res = await fetch(`${DAILY_API_URL}/rooms/${encodeURIComponent(roomName)}`, {
     method: "GET",
     headers: { Authorization: `Bearer ${DAILY_API_KEY}` },
@@ -972,7 +1009,7 @@ async function getDailyRoomProviderState(roomName: string, retries = 2): Promise
     return getDailyRoomProviderState(roomName, retries - 1);
   }
 
-  if (res.status === 404) return { exists: false, expired: false };
+  if (res.status === 404) return { exists: false, expired: false, expiresAt: null };
   if (!res.ok) {
     throw await dailyProviderErrorFromResponse(res, "lookup_room", roomName);
   }
@@ -980,7 +1017,11 @@ async function getDailyRoomProviderState(roomName: string, retries = 2): Promise
   const room = (await res.json().catch(() => null)) as { config?: { exp?: number } } | null;
   const exp = typeof room?.config?.exp === "number" ? room.config.exp : null;
   const expired = exp != null && exp <= Math.floor(Date.now() / 1000);
-  return { exists: true, expired };
+  return {
+    exists: true,
+    expired,
+    expiresAt: exp == null ? null : new Date(exp * 1000).toISOString(),
+  };
 }
 
 type DeleteDailyRoomOutcome = "deleted" | "not_found_idempotent";
@@ -1096,9 +1137,34 @@ type VideoDateProviderRoomProof =
       reusedRoom: boolean;
       providerRoomRecreated: boolean;
       providerRoomRecovered: boolean;
-      providerVerifySkipped: false;
+      providerVerifySkipped: boolean;
+      providerVerifyReason: string;
+      dailyRoomVerifiedAt: string | null;
+      dailyRoomExpiresAt: string | null;
     }
   | { ok: false; response: Response };
+
+function hasFreshVideoDateProviderRoomProof(params: {
+  session: VideoDateRoomGateSession;
+  roomName: string;
+  roomUrl: string;
+  nowMs?: number;
+}): boolean {
+  const nowMs = params.nowMs ?? Date.now();
+  if (params.session.daily_room_name !== params.roomName) return false;
+  if (params.session.daily_room_url !== params.roomUrl) return false;
+  const verifiedAtMs = params.session.daily_room_verified_at
+    ? new Date(params.session.daily_room_verified_at).getTime()
+    : NaN;
+  if (!Number.isFinite(verifiedAtMs)) return false;
+  if (verifiedAtMs - nowMs > DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS) return false;
+  if (nowMs - verifiedAtMs > DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS) return false;
+  const expiresAtMs = params.session.daily_room_expires_at
+    ? new Date(params.session.daily_room_expires_at).getTime()
+    : NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs + 60_000) return false;
+  return true;
+}
 
 async function ensureVideoDateProviderRoomForToken(params: {
   serviceClient: ReturnType<typeof createClient>;
@@ -1121,6 +1187,9 @@ async function ensureVideoDateProviderRoomForToken(params: {
   let reusedRoom = metadataMatchesCanonical;
   let providerRoomRecreated = false;
   let providerRoomRecovered = false;
+  let providerVerifyReason = "provider_room_exists";
+  let dailyRoomVerifiedAt: string | null = null;
+  let dailyRoomExpiresAt: string | null = null;
 
   const providerStartedAt = Date.now();
   await recordVideoDateProviderObservability({
@@ -1141,12 +1210,50 @@ async function ensureVideoDateProviderRoomForToken(params: {
     },
   });
 
+  if (hasFreshVideoDateProviderRoomProof({ session: params.session, roomName, roomUrl })) {
+    providerVerifyReason = "fresh_provider_room_proof";
+    await recordVideoDateProviderObservability({
+      serviceClient: params.serviceClient,
+      operation: "create_date_room_provider_verify_skipped",
+      outcome: "success",
+      reasonCode: providerVerifyReason,
+      latencyMs: Date.now() - providerStartedAt,
+      eventId: params.session.event_id ?? null,
+      actorId: params.userId,
+      sessionId: params.sessionId,
+      action: params.action,
+      entryAttemptId: params.entryAttemptId ?? null,
+      videoDateTraceId: params.videoDateTraceId ?? null,
+      roomName,
+      detail: {
+        daily_room_verified_at: params.session.daily_room_verified_at ?? null,
+        daily_room_expires_at: params.session.daily_room_expires_at ?? null,
+        metadata_matches_canonical: metadataMatchesCanonical,
+      },
+    });
+    return {
+      ok: true,
+      roomName,
+      roomUrl,
+      reusedRoom: true,
+      providerRoomRecreated: false,
+      providerRoomRecovered: false,
+      providerVerifySkipped: true,
+      providerVerifyReason,
+      dailyRoomVerifiedAt: params.session.daily_room_verified_at ?? null,
+      dailyRoomExpiresAt: params.session.daily_room_expires_at ?? null,
+    };
+  }
+
   const providerRoomState = await getDailyRoomProviderState(roomName);
   const recoveryPlan = planDailyProviderRoomRecovery(providerRoomState);
+  dailyRoomVerifiedAt = new Date().toISOString();
+  dailyRoomExpiresAt = providerRoomState.expiresAt ?? null;
   if (recoveryPlan.shouldCreate) {
     providerRoomRecovered = Boolean(existingRoomName) || providerRoomState.expired;
     providerRoomRecreated = Boolean(existingRoomName) || providerRoomState.expired;
     reusedRoom = false;
+    providerVerifyReason = providerRoomState.expired ? "provider_expired" : "provider_missing";
     console.log(JSON.stringify({
       event: "video_date_provider_room_missing_or_expired_recovering",
       action: params.action,
@@ -1164,6 +1271,15 @@ async function ensureVideoDateProviderRoomForToken(params: {
       await deleteDailyRoom(roomName, { throwOnProviderError: true });
     }
     const providerRoom = await createDailyRoom(roomName, videoDateRoomProperties());
+    dailyRoomVerifiedAt = new Date().toISOString();
+    if (providerRoom.alreadyExisted === true) {
+      const verifiedExisting = await getDailyRoomProviderState(roomName);
+      dailyRoomVerifiedAt = new Date().toISOString();
+      dailyRoomExpiresAt = verifiedExisting.expiresAt ?? null;
+      providerVerifyReason = verifiedExisting.expired ? "provider_expired" : "provider_already_exists_after_create";
+    } else {
+      dailyRoomExpiresAt = new Date(Date.now() + DAILY_VIDEO_DATE_ROOM_TTL_SECONDS * 1000).toISOString();
+    }
     await recordVideoDateProviderObservability({
       serviceClient: params.serviceClient,
       operation: providerRoom.alreadyExisted
@@ -1212,6 +1328,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
     }
   } else if (!metadataMatchesCanonical) {
     reusedRoom = true;
+    providerVerifyReason = "provider_room_exists_recanonicalized";
     await recordVideoDateProviderObservability({
       serviceClient: params.serviceClient,
       operation: "create_date_room_provider_already_exists",
@@ -1243,6 +1360,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
       video_date_trace_id: params.videoDateTraceId ?? params.entryAttemptId ?? null,
     }));
   } else {
+    providerVerifyReason = "provider_room_exists";
     await recordVideoDateProviderObservability({
       serviceClient: params.serviceClient,
       operation: "create_date_room_reused_existing_db_room",
@@ -1283,7 +1401,7 @@ async function ensureVideoDateProviderRoomForToken(params: {
     });
   }
 
-  if (!metadataMatchesCanonical || providerRoomRecovered || providerRoomRecreated) {
+  if (!metadataMatchesCanonical || providerRoomRecovered || providerRoomRecreated || dailyRoomVerifiedAt) {
     const persisted = await persistVideoDateRoomMetadata(params.serviceClient, {
       sessionId: params.sessionId,
       roomName,
@@ -1292,6 +1410,9 @@ async function ensureVideoDateProviderRoomForToken(params: {
       action: params.action,
       entryAttemptId: params.entryAttemptId,
       videoDateTraceId: params.videoDateTraceId,
+      verifiedAt: dailyRoomVerifiedAt,
+      expiresAt: dailyRoomExpiresAt,
+      providerVerifyReason,
     });
     if (!persisted.ok) {
       return {
@@ -1331,6 +1452,9 @@ async function ensureVideoDateProviderRoomForToken(params: {
     providerRoomRecreated,
     providerRoomRecovered,
     providerVerifySkipped: false,
+    providerVerifyReason,
+    dailyRoomVerifiedAt,
+    dailyRoomExpiresAt,
   };
 }
 
@@ -1619,11 +1743,13 @@ async function maybeCreateMatchCallRetryResponse(params: {
 }
 
 serve(async (req) => {
+  const requestStartedAt = Date.now();
   if (req.method === "OPTIONS")
     return new Response("ok", { headers: corsHeaders });
 
   let actionForLog: string | null = null;
   let userIdForLog: string | null = null;
+  let authTimingMs: number | null = null;
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -1654,10 +1780,12 @@ serve(async (req) => {
     });
     const serviceClient = createClient(supabaseUrl, serviceRoleKey);
 
+    const authStartedAt = Date.now();
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser();
+    authTimingMs = Date.now() - authStartedAt;
     if (authError || !user) {
       return new Response(
         JSON.stringify({ error: "Unauthorized", code: "UNAUTHORIZED" }),
@@ -1851,6 +1979,189 @@ serve(async (req) => {
       );
     }
 
+    // ── ACTION: ensure_date_room ──
+    // Room-only warmup for Ready Gate. This verifies/creates the deterministic
+    // Daily room but never issues a token, joins media, or transitions date state.
+    if (action === "ensure_date_room") {
+      const actionName: DateRoomAction = "ensure_date_room";
+      const timings: Record<string, number> = {};
+      const totalStartedAt = Date.now();
+      if (authTimingMs != null) timings.auth_ms = authTimingMs;
+      timings.request_to_action_ms = Math.max(0, totalStartedAt - requestStartedAt);
+      let session: VideoDateRoomGateSession | null = null;
+
+      if (typeof sessionId !== "string" || !sessionId) {
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 400,
+          code: "MISSING_SESSION_ID",
+          error: "Missing or invalid sessionId",
+          requestContext,
+        });
+      }
+
+      try {
+        const sessionStartedAt = Date.now();
+        const { data, error } = await supabase
+          .from("video_sessions")
+          .select(
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+          )
+          .eq("id", sessionId)
+          .maybeSingle();
+        timings.session_fetch_ms = Date.now() - sessionStartedAt;
+        session = (data as VideoDateRoomGateSession | null) ?? null;
+
+        if (error || !session) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 404,
+            code: "SESSION_NOT_FOUND",
+            error: "Session not found",
+            requestContext,
+            detail: error ? error.message : null,
+            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+          });
+        }
+
+        if (session.participant_1_id !== user.id && session.participant_2_id !== user.id) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "ACCESS_DENIED",
+            error: "Access denied",
+            requestContext,
+            session,
+            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+          });
+        }
+
+        const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+        if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
+          return createBlockedDateRoomResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+            detail: "ensure_date_room_block_check",
+          });
+        }
+
+        if (videoDateRoomGateSessionEnded(session)) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 410,
+            code: "SESSION_ENDED",
+            error: "Session has ended",
+            requestContext,
+            session,
+            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+          });
+        }
+
+        const warmupEligibleStatuses = new Set(["ready", "ready_a", "ready_b", "both_ready"]);
+        if (!warmupEligibleStatuses.has(String(session.ready_gate_status ?? ""))) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "READY_GATE_NOT_READY",
+            error: "Ready Gate must be open before warming the room",
+            requestContext,
+            session,
+            extra: {
+              ready_gate_status: session.ready_gate_status ?? null,
+              entry_attempt_id: entryAttemptId,
+              video_date_trace_id: videoDateTraceId,
+            },
+          });
+        }
+
+        const roomStartedAt = Date.now();
+        const roomProof = await ensureVideoDateProviderRoomForToken({
+          serviceClient,
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          session,
+          requestContext,
+          entryAttemptId,
+          videoDateTraceId,
+        });
+        timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
+        timings.total_ms = Date.now() - totalStartedAt;
+        timings.response_ready_ms = timings.total_ms;
+        if (!roomProof.ok) return roomProof.response;
+
+        console.log(JSON.stringify({
+          event: "ensure_date_room_ok",
+          session_id: sessionId,
+          user_id: user.id,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
+          room_name: roomProof.roomName,
+          provider_verify_skipped: roomProof.providerVerifySkipped,
+          provider_verify_reason: roomProof.providerVerifyReason,
+          timings,
+        }));
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            room_name: roomProof.roomName,
+            room_url: roomProof.roomUrl,
+            reused_room: roomProof.reusedRoom,
+            provider_room_recreated: roomProof.providerRoomRecreated,
+            provider_room_recovered: roomProof.providerRoomRecovered,
+            provider_verify_skipped: roomProof.providerVerifySkipped,
+            provider_verify_reason: roomProof.providerVerifyReason,
+            daily_room_verified_at: roomProof.dailyRoomVerifiedAt,
+            daily_room_expires_at: roomProof.dailyRoomExpiresAt,
+            entry_attempt_id: entryAttemptId,
+            video_date_trace_id: videoDateTraceId,
+            timings,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      } catch (error) {
+        if (isDailyProviderError(error)) {
+          return await createDailyProviderFailureResponse({
+            serviceClient,
+            error,
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+            entryAttemptId,
+            videoDateTraceId,
+          });
+        }
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 503,
+          code: "DAILY_PROVIDER_ERROR",
+          error: "Video service temporarily unavailable",
+          requestContext,
+          session,
+          detail: error instanceof Error ? error.message : String(error),
+          extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+        });
+      }
+    }
+
     // ── ACTION: prepare_date_entry ──
     // Single idempotent entry path for Ready Gate -> Daily join:
     // atomically prepare server state, create/reuse the deterministic Daily room,
@@ -1860,6 +2171,8 @@ serve(async (req) => {
       const actionName: DateRoomAction = "prepare_date_entry";
       const timings: Record<string, number> = {};
       const totalStartedAt = Date.now();
+      if (authTimingMs != null) timings.auth_ms = authTimingMs;
+      timings.request_to_action_ms = Math.max(0, totalStartedAt - requestStartedAt);
       let sessionForLog: VideoDateRoomGateSession | null = null;
 
       if (typeof sessionId !== "string" || !sessionId) {
@@ -2002,7 +2315,7 @@ serve(async (req) => {
         const { data: sessionRow, error: sessionError } = await serviceClient
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -2024,7 +2337,7 @@ serve(async (req) => {
 
         sessionForLog = (sessionRow as VideoDateRoomGateSession | null) ?? sessionForLog;
 
-        if (sessionForLog?.ended_at) {
+        if (videoDateRoomGateSessionEnded(sessionForLog)) {
           await recordVideoDateProviderObservability({
             serviceClient,
             operation: "create_date_room_blocked_session_ended",
@@ -2084,6 +2397,9 @@ serve(async (req) => {
           providerRoomRecreated,
           providerRoomRecovered,
           providerVerifySkipped,
+          providerVerifyReason,
+          dailyRoomVerifiedAt,
+          dailyRoomExpiresAt,
         } = roomProof;
         timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
 
@@ -2109,6 +2425,9 @@ serve(async (req) => {
             provider_room_recreated: providerRoomRecreated,
             provider_room_recovered: providerRoomRecovered,
             provider_verify_skipped: providerVerifySkipped,
+            provider_verify_reason: providerVerifyReason,
+            daily_room_verified_at: dailyRoomVerifiedAt,
+            daily_room_expires_at: dailyRoomExpiresAt,
           },
         });
         const confirmStartedAt = Date.now();
@@ -2120,6 +2439,7 @@ serve(async (req) => {
         });
         timings.confirm_prepare_ms = Date.now() - confirmStartedAt;
         timings.total_ms = Date.now() - totalStartedAt;
+        timings.response_ready_ms = timings.total_ms;
         if (confirmError || confirmPayload?.success !== true) {
           const code = confirmPayload?.code ?? (confirmError ? "REGISTRATION_PERSIST_FAILED" : "UNKNOWN");
           return createDateRoomRejectResponse({
@@ -2157,6 +2477,9 @@ serve(async (req) => {
           provider_room_recreated: providerRoomRecreated,
           provider_room_recovered: providerRoomRecovered,
           provider_verify_skipped: providerVerifySkipped,
+          provider_verify_reason: providerVerifyReason,
+          daily_room_verified_at: dailyRoomVerifiedAt,
+          daily_room_expires_at: dailyRoomExpiresAt,
           state: confirmPayload.state ?? null,
           phase: confirmPayload.phase ?? null,
           timings,
@@ -2172,12 +2495,19 @@ serve(async (req) => {
             session_state: confirmPayload.state ?? null,
             session_phase: confirmPayload.phase ?? null,
             handshake_started_at: confirmPayload.handshake_started_at ?? null,
+            ready_gate_status: confirmPayload.ready_gate_status ?? null,
+            ready_gate_expires_at: confirmPayload.ready_gate_expires_at ?? null,
+            participant_1_id: confirmPayload.participant_1_id ?? participant1,
+            participant_2_id: confirmPayload.participant_2_id ?? participant2,
             entry_attempt_id: entryAttemptId,
             video_date_trace_id: videoDateTraceId,
             reused_room: reusedRoom,
             provider_room_recreated: providerRoomRecreated,
             provider_room_recovered: providerRoomRecovered,
             provider_verify_skipped: providerVerifySkipped,
+            provider_verify_reason: providerVerifyReason,
+            daily_room_verified_at: dailyRoomVerifiedAt,
+            daily_room_expires_at: dailyRoomExpiresAt,
             timings,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -2218,7 +2548,7 @@ serve(async (req) => {
         const { data } = await supabase
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -2308,7 +2638,7 @@ serve(async (req) => {
           });
         }
 
-        if (session.ended_at) {
+        if (videoDateRoomGateSessionEnded(session)) {
           await recordVideoDateProviderObservability({
             serviceClient,
             operation: "create_date_room_blocked_session_ended",
@@ -2390,6 +2720,9 @@ serve(async (req) => {
           providerRoomRecreated,
           providerRoomRecovered,
           providerVerifySkipped,
+          providerVerifyReason,
+          dailyRoomVerifiedAt,
+          dailyRoomExpiresAt,
         } = roomProof;
 
         const tokenStartedAt = Date.now();
@@ -2412,6 +2745,9 @@ serve(async (req) => {
             provider_room_recreated: providerRoomRecreated,
             provider_room_recovered: providerRoomRecovered,
             provider_verify_skipped: providerVerifySkipped,
+            provider_verify_reason: providerVerifyReason,
+            daily_room_verified_at: dailyRoomVerifiedAt,
+            daily_room_expires_at: dailyRoomExpiresAt,
           },
         });
         const { data: confirmPayload, error: confirmError } = await confirmVideoDateEntryPrepared(serviceClient, {
@@ -2446,6 +2782,9 @@ serve(async (req) => {
             provider_room_recreated: providerRoomRecreated,
             provider_room_recovered: providerRoomRecovered,
             provider_verify_skipped: providerVerifySkipped,
+            provider_verify_reason: providerVerifyReason,
+            daily_room_verified_at: dailyRoomVerifiedAt,
+            daily_room_expires_at: dailyRoomExpiresAt,
             entry_attempt_id: entryAttemptId,
             video_date_trace_id: videoDateTraceId,
           }),
@@ -2487,7 +2826,7 @@ serve(async (req) => {
         const { data } = await supabase
           .from("video_sessions")
           .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
           )
           .eq("id", sessionId)
           .maybeSingle();
@@ -2578,7 +2917,7 @@ serve(async (req) => {
           });
         }
 
-        if (session.ended_at) {
+        if (videoDateRoomGateSessionEnded(session)) {
           await recordVideoDateProviderObservability({
             serviceClient,
             operation: "create_date_room_blocked_session_ended",
@@ -2678,6 +3017,9 @@ serve(async (req) => {
             provider_room_recreated: roomProof.providerRoomRecreated,
             provider_room_recovered: roomProof.providerRoomRecovered,
             provider_verify_skipped: roomProof.providerVerifySkipped,
+            provider_verify_reason: roomProof.providerVerifyReason,
+            daily_room_verified_at: roomProof.dailyRoomVerifiedAt,
+            daily_room_expires_at: roomProof.dailyRoomExpiresAt,
           },
         });
 
@@ -2691,6 +3033,9 @@ serve(async (req) => {
             provider_room_recreated: roomProof.providerRoomRecreated,
             provider_room_recovered: roomProof.providerRoomRecovered,
             provider_verify_skipped: roomProof.providerVerifySkipped,
+            provider_verify_reason: roomProof.providerVerifyReason,
+            daily_room_verified_at: roomProof.dailyRoomVerifiedAt,
+            daily_room_expires_at: roomProof.dailyRoomExpiresAt,
             entry_attempt_id: entryAttemptId,
             video_date_trace_id: videoDateTraceId,
           }),
