@@ -1,4 +1,6 @@
+import 'react-native-get-random-values';
 import 'react-native-url-polyfill/auto';
+import '@/lib/webCryptoSha256';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, processLock } from '@supabase/supabase-js';
 

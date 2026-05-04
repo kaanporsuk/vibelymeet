@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import * as Sentry from '@sentry/react-native';
 import { supabase } from '@/lib/supabase';
+import { avatarUrl } from '@/lib/imageUrl';
 import { vdbg } from '@/lib/vdbg';
 import { trackEvent } from '@/lib/analytics';
 import { submitNativePostDateOutboxItem } from '@/lib/postDateOutbox/execute';
@@ -306,11 +307,12 @@ export function useVideoDateSession(
 
       if (profile) {
         const row = profile as { id?: string; name?: string | null; age?: number | null; avatar_url?: string | null };
+        const rawAvatarUrl = typeof row.avatar_url === 'string' ? row.avatar_url : null;
         setPartner({
           id: row.id ?? partnerId,
           name: row.name ?? 'Your date',
           age: row.age ?? null,
-          avatar_url: row.avatar_url ?? null,
+          avatar_url: rawAvatarUrl ? avatarUrl(rawAvatarUrl, 'avatar') : null,
         });
       }
 

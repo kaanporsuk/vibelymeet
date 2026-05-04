@@ -32,6 +32,7 @@ const LAUNCH_CRITICAL_ENV_KEYS = [
   "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY",
   "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY",
 ];
+const ONESIGNAL_APP_GROUP = "group.com.vibelymeet.vibely.onesignal";
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -73,6 +74,42 @@ function main() {
     if (aps === "development") {
       info.push(
         "app.json entitlements aps-environment is development; EAS preview/production builds still use OneSignal production APNs via app.config.js — confirm with docs/kaan-launch-closure-execution-sheet.md § OneSignal.",
+      );
+    }
+    const appGroups = app?.expo?.ios?.entitlements?.["com.apple.security.application-groups"];
+    if (!Array.isArray(appGroups) || !appGroups.includes(ONESIGNAL_APP_GROUP)) {
+      errors.push(`app.json ios.entitlements must include OneSignal app group ${ONESIGNAL_APP_GROUP}`);
+    }
+    const extensionGroups =
+      app?.expo?.extra?.eas?.build?.experimental?.ios?.appExtensions?.find(
+        (extension) => extension?.bundleIdentifier === `${expected}.OneSignalNotificationServiceExtension`,
+      )?.entitlements?.["com.apple.security.application-groups"];
+    if (!Array.isArray(extensionGroups) || !extensionGroups.includes(ONESIGNAL_APP_GROUP)) {
+      errors.push(`OneSignal extension entitlements must include app group ${ONESIGNAL_APP_GROUP}`);
+    }
+    const generatedMainEntitlements = join(MOBILE, "ios", "Vibely", "Vibely.entitlements");
+    if (existsSync(generatedMainEntitlements)) {
+      const text = readText(generatedMainEntitlements);
+      if (!text.includes(ONESIGNAL_APP_GROUP)) {
+        errors.push(`Generated Vibely.entitlements is missing ${ONESIGNAL_APP_GROUP}`);
+      }
+    }
+    const generatedExtensionEntitlements = join(
+      MOBILE,
+      "ios",
+      "OneSignalNotificationServiceExtension",
+      "OneSignalNotificationServiceExtension.entitlements",
+    );
+    if (existsSync(generatedExtensionEntitlements)) {
+      const text = readText(generatedExtensionEntitlements);
+      if (!text.includes(ONESIGNAL_APP_GROUP)) {
+        errors.push(`Generated OneSignal extension entitlements is missing ${ONESIGNAL_APP_GROUP}`);
+      }
+    }
+    const sceneManifest = app?.expo?.ios?.infoPlist?.UIApplicationSceneManifest;
+    if (sceneManifest && !sceneManifest.UISceneConfigurations) {
+      info.push(
+        "UIScene manifest is currently single-scene only; keep the Apple UIScene lifecycle migration tracked for the next native-template pass.",
       );
     }
   }
