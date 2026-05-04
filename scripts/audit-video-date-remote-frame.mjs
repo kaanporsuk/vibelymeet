@@ -46,6 +46,8 @@ const webDailyConfigPath = "src/lib/dailyCallObjectConfig.ts";
 const webDailyConfig = read(webDailyConfigPath);
 const mediaContractPath = "shared/matching/videoDateMediaContract.ts";
 const mediaContract = read(mediaContractPath);
+const cameraSwitchHintPath = "shared/matching/videoDateCameraSwitchRenderHint.ts";
+const cameraSwitchHint = read(cameraSwitchHintPath);
 const webRemoteContainerClass = extractStringConst(webDate, "REMOTE_DATE_VIDEO_CONTAINER_CLASS", webDatePath);
 const webRemoteVideoClass = extractStringConst(webDate, "REMOTE_DATE_VIDEO_CLASS", webDatePath);
 const webRemoteRender = sliceBetween(
@@ -108,6 +110,15 @@ assert(
   `${mediaContractPath}: shared web/native capture contract must remain explicit`
 );
 assert(
+  cameraSwitchHint.includes('VIDEO_DATE_CAMERA_SWITCH_RENDER_HINT_TYPE = "video_date_camera_switch_render_hint"') &&
+    /VIDEO_DATE_CAMERA_SWITCH_RENDER_HINT_VERSION\s*=\s*1/.test(cameraSwitchHint) &&
+    cameraSwitchHint.includes("createVideoDateCameraSwitchRenderHint") &&
+    cameraSwitchHint.includes("parseVideoDateCameraSwitchRenderHint") &&
+    cameraSwitchHint.includes('VideoDateCameraSwitchRenderHintPlatform = "web" | "native"') &&
+    cameraSwitchHint.includes("sourcePlatform: VideoDateCameraSwitchRenderHintPlatform"),
+  `${cameraSwitchHintPath}: camera-switch render hint contract must remain shared, versioned, and parseable`
+);
+assert(
   webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
     webDailyConfig.includes("videoDateWebMediaStreamConstraints") &&
     webDailyConfig.includes("inputSettings") &&
@@ -131,6 +142,15 @@ assert(
     webVideoCall.includes("daily_remote_same_track_render_validated") &&
     webVideoCall.includes("daily_remote_render_validation_timed_out"),
   `${webVideoCallPath}: web receiver must validate same-track remote frame rendering and recover blank camera-switch renders`
+);
+assert(
+  webVideoCall.includes("createVideoDateCameraSwitchRenderHint") &&
+    webVideoCall.includes("parseVideoDateCameraSwitchRenderHint") &&
+    webVideoCall.includes("sendAppMessage") &&
+    webVideoCall.includes("daily_camera_switch_render_hint_received") &&
+    webVideoCall.includes("app_message_camera_switch_hint") &&
+    webVideoCall.includes("camera_switch_hint:${hint.switchId}"),
+  `${webVideoCallPath}: web Video Date must send and receive shared camera-switch render hints`
 );
 assert(
   /attempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK/.test(webVideoCall) &&
@@ -193,6 +213,30 @@ assert(
 assert(
   nativeRemoteBlock.includes("DailyMediaView defaults to cover"),
   `${nativeDatePath}: remote DailyMediaView must keep the invariant comment explaining contain`
+);
+assert(
+  nativeDate.includes("createVideoDateCameraSwitchRenderHint") &&
+    nativeDate.includes("parseVideoDateCameraSwitchRenderHint") &&
+    nativeDate.includes("sendAppMessage") &&
+    nativeDate.includes("native_camera_switch_render_hint_received") &&
+    nativeDate.includes("native_camera_switch_render_hint_sent") &&
+    nativeDate.includes("app_message_camera_switch_hint") &&
+    nativeDate.includes("camera_switch_hint:${hint.switchId}"),
+  `${nativeDatePath}: native Video Date must send and receive shared camera-switch render hints`
+);
+assert(
+  nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE") &&
+    nativeDate.includes("remoteMediaRenderNonce") &&
+    nativeDate.includes("native_remote_render_remount_scheduled") &&
+    nativeDate.includes("native_remote_render_remounted") &&
+    nativeDate.includes("participant_updated_same_track") &&
+    nativeRemoteBlock.includes("key={remoteMediaViewKey}"),
+  `${nativeDatePath}: native receiver must use bounded keyed DailyMediaView remount recovery`
+);
+assert(
+  /attempts\s*>=\s*NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE/.test(nativeDate) &&
+    nativeDate.includes("max_attempts_reached"),
+  `${nativeDatePath}: native receiver remount recovery must be bounded by a max-attempt guard`
 );
 assert(
   !/\bwidth\s*:/.test(nativeIdealConstraints) &&
