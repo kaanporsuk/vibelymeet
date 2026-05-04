@@ -80,6 +80,10 @@ import {
   videoSessionRowIndicatesHandshakeOrDate,
 } from '@clientShared/matching/activeSession';
 import { handshakeDecisionFailureIndicatesSessionEnded } from '@clientShared/matching/videoDateHandshakePersistence';
+import {
+  createVideoDateCameraSwitchRenderHint,
+  parseVideoDateCameraSwitchRenderHint,
+} from '@clientShared/matching/videoDateCameraSwitchRenderHint';
 import { VibeCheckButton } from '@/components/video-date/VibeCheckButton';
 import { IceBreakerCard } from '@/components/video-date/IceBreakerCard';
 import { HandshakeTimer } from '@/components/video-date/HandshakeTimer';
@@ -178,6 +182,8 @@ const DATE_PHASE_ICE_BREAKER_MIN_BOTTOM = 148;
 const HANDSHAKE_CTA_STACK_HEIGHT = 92;
 const HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET = 24;
 const FLOATING_CHROME_GAP = 10;
+const NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS = 650;
+const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE = 2;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -213,6 +219,9 @@ type NativeDailyCameraFacingMode = 'user' | 'environment';
 type NativeDailyCameraControls = {
   getCameraFacingMode?: () => Promise<NativeDailyCameraFacingMode | null>;
   cycleCamera?: () => Promise<{ device: { facingMode: NativeDailyCameraFacingMode } | null }>;
+};
+type NativeDailyAppMessageControls = {
+  sendAppMessage?: (data: unknown, to?: string | string[]) => unknown;
 };
 
 function summarizeSharedDailyError(error: unknown): string {
@@ -436,6 +445,14 @@ function dailyParticipantId(p: DailyParticipant | undefined): string | undefined
   if (!p) return undefined;
   const u = p as unknown as { user_id?: string; userId?: string; session_id?: string };
   return u.user_id ?? u.userId ?? u.session_id;
+}
+
+function nativeRemoteRenderTrackKey(p: DailyParticipant | undefined): string | null {
+  if (!p) return null;
+  const participantId = dailyParticipantId(p) ?? 'remote';
+  const videoTrackId = getTrack(p, 'video')?.id ?? 'no-video';
+  const audioTrackId = getTrack(p, 'audio')?.id ?? 'no-audio';
+  return `${participantId}:${videoTrackId}:${audioTrackId}`;
 }
 
 function videoDateDailyDiagnostic(
@@ -677,6 +694,10 @@ export default function VideoDateScreen() {
   const remotePromotionLoggedRef = useRef(false);
   const lastLocalMountedTrackIdRef = useRef<string | null>(null);
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
+  const remoteParticipantRef = useRef<DailyParticipant | null>(null);
+  const nativeRemoteRenderRemountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeRemoteRenderAttemptsRef = useRef<Map<string, number>>(new Map());
+  const lastNativeRemoteRenderTrackKeyRef = useRef<string | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const surveyOpenedRef = useRef(false);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
@@ -730,6 +751,7 @@ export default function VideoDateScreen() {
   const [warmupChoiceNotice, setWarmupChoiceNotice] = useState<VideoDateWarmupChoiceNotice | null>(null);
   const [localParticipant, setLocalParticipant] = useState<DailyParticipant | null>(null);
   const [remoteParticipant, setRemoteParticipant] = useState<DailyParticipant | null>(null);
+  const [remoteMediaRenderNonce, setRemoteMediaRenderNonce] = useState(0);
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -739,6 +761,8 @@ export default function VideoDateScreen() {
   const [awaitingFirstConnect, setAwaitingFirstConnect] = useState(false);
   const [preJoinFailed, setPreJoinFailed] = useState(false);
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
+
+  remoteParticipantRef.current = remoteParticipant;
 
   useEffect(() => {
     void setSafeAudioMode({
@@ -1000,12 +1024,147 @@ export default function VideoDateScreen() {
     setDateEntryPermissionEligible(false);
   }, [sessionId, user?.id]);
 
+  const nativeRemoteRenderDiagnostics = useCallback(
+    (participant: DailyParticipant | null | undefined) => {
+      const videoTrack = getTrack(participant ?? undefined, 'video');
+      const audioTrack = getTrack(participant ?? undefined, 'audio');
+      return {
+        session_id: sessionId ?? '',
+        event_id: eventId || null,
+        participant_id: dailyParticipantId(participant ?? undefined) ?? null,
+        track_key: nativeRemoteRenderTrackKey(participant ?? undefined),
+        video_track_id: videoTrack?.id ?? null,
+        audio_track_id: audioTrack?.id ?? null,
+        video_ready_state: videoTrack?.readyState ?? null,
+        audio_ready_state: audioTrack?.readyState ?? null,
+        video_enabled: videoTrack?.enabled ?? null,
+        audio_enabled: audioTrack?.enabled ?? null,
+      };
+    },
+    [eventId, sessionId]
+  );
+
+  const clearNativeRemoteRenderRemount = useCallback(
+    (reason: string) => {
+      if (nativeRemoteRenderRemountTimerRef.current) {
+        clearTimeout(nativeRemoteRenderRemountTimerRef.current);
+        nativeRemoteRenderRemountTimerRef.current = null;
+        videoDateDailyDiagnostic('native_remote_render_remount_timer_cleared', {
+          session_id: sessionId ?? '',
+          event_id: eventId || null,
+          reason,
+        });
+      }
+    },
+    [eventId, sessionId]
+  );
+
+  const resetNativeRemoteRenderRecovery = useCallback(
+    (participant: DailyParticipant | null | undefined, reason: string) => {
+      clearNativeRemoteRenderRemount(reason);
+      nativeRemoteRenderAttemptsRef.current.clear();
+      lastNativeRemoteRenderTrackKeyRef.current = nativeRemoteRenderTrackKey(participant ?? undefined);
+      videoDateDailyDiagnostic('native_remote_render_recovery_reset', {
+        ...nativeRemoteRenderDiagnostics(participant),
+        reason,
+      });
+    },
+    [clearNativeRemoteRenderRemount, nativeRemoteRenderDiagnostics]
+  );
+
+  const scheduleNativeRemoteRenderRemount = useCallback(
+    (participant: DailyParticipant | null | undefined, source: string, recoveryScope = source) => {
+      const trackKey = nativeRemoteRenderTrackKey(participant ?? undefined);
+      const videoTrack = getTrack(participant ?? undefined, 'video');
+      if (!participant || !trackKey || !videoTrack) {
+        videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
+          ...nativeRemoteRenderDiagnostics(participant),
+          source,
+          recovery_scope: recoveryScope,
+          reason: participant ? 'missing_remote_video_track' : 'missing_remote_participant',
+        });
+        return;
+      }
+
+      const previousTrackKey = lastNativeRemoteRenderTrackKeyRef.current;
+      if (previousTrackKey !== trackKey) {
+        lastNativeRemoteRenderTrackKeyRef.current = trackKey;
+        nativeRemoteRenderAttemptsRef.current.clear();
+        videoDateDailyDiagnostic('native_remote_render_track_key_changed', {
+          ...nativeRemoteRenderDiagnostics(participant),
+          source,
+          previous_track_key: previousTrackKey,
+        });
+      }
+
+      const attemptKey = `${trackKey}:${recoveryScope}`;
+      const attempts = nativeRemoteRenderAttemptsRef.current.get(attemptKey) ?? 0;
+      if (attempts >= NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE) {
+        videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
+          ...nativeRemoteRenderDiagnostics(participant),
+          source,
+          recovery_scope: recoveryScope,
+          reason: 'max_attempts_reached',
+          attempts,
+          max_attempts: NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE,
+        });
+        return;
+      }
+
+      nativeRemoteRenderAttemptsRef.current.set(attemptKey, attempts + 1);
+      clearNativeRemoteRenderRemount('reschedule_remote_render_remount');
+      videoDateDailyDiagnostic('native_remote_render_remount_scheduled', {
+        ...nativeRemoteRenderDiagnostics(participant),
+        source,
+        recovery_scope: recoveryScope,
+        attempt: attempts + 1,
+        delay_ms: NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS,
+      });
+
+      nativeRemoteRenderRemountTimerRef.current = setTimeout(() => {
+        nativeRemoteRenderRemountTimerRef.current = null;
+        const latestParticipant = remoteParticipantRef.current ?? participant;
+        const latestTrackKey = nativeRemoteRenderTrackKey(latestParticipant ?? undefined);
+        if (latestTrackKey !== trackKey) {
+          videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
+            ...nativeRemoteRenderDiagnostics(latestParticipant),
+            source,
+            recovery_scope: recoveryScope,
+            reason: 'stale_track_key',
+            scheduled_track_key: trackKey,
+          });
+          return;
+        }
+
+        setRemoteMediaRenderNonce((nonce) => nonce + 1);
+        videoDateDailyDiagnostic('native_remote_render_remounted', {
+          ...nativeRemoteRenderDiagnostics(latestParticipant),
+          source,
+          recovery_scope: recoveryScope,
+          attempt: attempts + 1,
+        });
+      }, NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS);
+    },
+    [clearNativeRemoteRenderRemount, nativeRemoteRenderDiagnostics]
+  );
+
+  useEffect(() => {
+    const remountAttempts = nativeRemoteRenderAttemptsRef.current;
+    return () => {
+      clearNativeRemoteRenderRemount('screen_unmount');
+      remountAttempts.clear();
+      lastNativeRemoteRenderTrackKeyRef.current = null;
+      remoteParticipantRef.current = null;
+    };
+  }, [clearNativeRemoteRenderRemount]);
+
   const boundCallRef = useRef<DailyCallObject | null>(null);
   const boundHandlersRef = useRef<{
     onParticipantJoined: (event: { participant?: DailyParticipant }) => void;
     onParticipantUpdated: (event: { participant?: DailyParticipant }) => void;
     onParticipantLeft: (event: { participant?: DailyParticipant }) => void;
     onLeftMeeting: () => void;
+    onAppMessage: (event: { data?: unknown; fromId?: string }) => void;
     onError: (event: unknown) => void;
     onNetworkQualityChange?: (event: unknown) => void;
   } | null>(null);
@@ -1019,6 +1178,7 @@ export default function VideoDateScreen() {
     callAny.off?.('participant-updated', handlers.onParticipantUpdated as (...args: unknown[]) => void);
     callAny.off?.('participant-left', handlers.onParticipantLeft as (...args: unknown[]) => void);
     callAny.off?.('left-meeting', handlers.onLeftMeeting as (...args: unknown[]) => void);
+    callAny.off?.('app-message', handlers.onAppMessage as (...args: unknown[]) => void);
     callAny.off?.('error', handlers.onError as (...args: unknown[]) => void);
     if (handlers.onNetworkQualityChange) {
       callAny.off?.('network-quality-change', handlers.onNetworkQualityChange as (...args: unknown[]) => void);
@@ -1103,6 +1263,8 @@ export default function VideoDateScreen() {
           setAwaitingFirstConnect(false);
           setPartnerEverJoined(true);
           setIsConnecting(false);
+          remoteParticipantRef.current = p;
+          resetNativeRemoteRenderRecovery(p, 'participant_joined');
           setRemoteParticipant(p);
           requestReconnectSyncRef.current('daily_participant_joined');
         }
@@ -1154,6 +1316,14 @@ export default function VideoDateScreen() {
             });
           }
           setPartnerEverJoined(true);
+          const nextTrackKey = nativeRemoteRenderTrackKey(p);
+          const previousTrackKey = lastNativeRemoteRenderTrackKeyRef.current;
+          remoteParticipantRef.current = p;
+          if (nextTrackKey && previousTrackKey && nextTrackKey === previousTrackKey) {
+            scheduleNativeRemoteRenderRemount(p, 'participant_updated_same_track');
+          } else {
+            resetNativeRemoteRenderRecovery(p, 'participant_updated_track_changed');
+          }
           setRemoteParticipant(p);
         }
       };
@@ -1168,6 +1338,8 @@ export default function VideoDateScreen() {
             participant_id: dailyParticipantId(p) ?? 'unknown',
           });
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
+          remoteParticipantRef.current = null;
+          resetNativeRemoteRenderRecovery(null, 'participant_left');
           setRemoteParticipant(null);
           if (!partnerEverJoinedRef.current || !sessionId || phaseRef.current === 'ended') return;
           setIsPartnerDisconnected(true);
@@ -1181,7 +1353,48 @@ export default function VideoDateScreen() {
         setAwaitingFirstConnect(false);
         setLocalInDailyRoom(false);
         setIsConnecting(false);
+        remoteParticipantRef.current = null;
+        resetNativeRemoteRenderRecovery(null, 'left_meeting');
         releaseSharedCallIfOwned(call, 'left_meeting');
+      };
+      const onAppMessage = (event: { data?: unknown; fromId?: string }) => {
+        const hint = parseVideoDateCameraSwitchRenderHint(event?.data);
+        if (!hint) return;
+
+        let localParticipantId: string | null = null;
+        try {
+          localParticipantId = dailyParticipantId(call.participants()?.local as DailyParticipant | undefined) ?? null;
+        } catch {
+          localParticipantId = null;
+        }
+        const fromId = typeof event?.fromId === 'string' ? event.fromId : null;
+        if (fromId && localParticipantId && fromId === localParticipantId) {
+          videoDateDailyDiagnostic('native_camera_switch_render_hint_ignored', {
+            session_id: sessionId ?? '',
+            event_id: eventId || null,
+            room_name: roomName,
+            switch_id: hint.switchId,
+            source_platform: hint.sourcePlatform,
+            reason: 'self_origin',
+          });
+          return;
+        }
+
+        const remote = remoteParticipantRef.current;
+        videoDateDailyDiagnostic('native_camera_switch_render_hint_received', {
+          ...nativeRemoteRenderDiagnostics(remote),
+          room_name: roomName,
+          from_id: fromId,
+          switch_id: hint.switchId,
+          source_platform: hint.sourcePlatform,
+          facing_mode: hint.facingMode,
+          sent_at_ms: hint.sentAtMs,
+        });
+        scheduleNativeRemoteRenderRemount(
+          remote,
+          'app_message_camera_switch_hint',
+          `camera_switch_hint:${hint.switchId}`
+        );
       };
       const onError = (event: unknown) => {
         const msg =
@@ -1213,6 +1426,12 @@ export default function VideoDateScreen() {
       call.on('participant-left', onParticipantLeft);
       call.on('left-meeting', onLeftMeeting);
       call.on('error', onError);
+      const callAny = call as unknown as { on?: (event: string, handler: (...args: unknown[]) => void) => void };
+      try {
+        callAny.on?.('app-message', onAppMessage as (...args: unknown[]) => void);
+      } catch {
+        /* SDK may omit this event on some builds */
+      }
       try {
         call.on('network-quality-change', onNetworkQualityChange);
       } catch {
@@ -1224,6 +1443,7 @@ export default function VideoDateScreen() {
         onParticipantUpdated,
         onParticipantLeft,
         onLeftMeeting,
+        onAppMessage,
         onError,
         onNetworkQualityChange,
       };
@@ -1233,7 +1453,18 @@ export default function VideoDateScreen() {
         roomName,
       });
     },
-    [clearFirstConnectWatchdog, detachCallListeners, releaseSharedCallIfOwned, endBootstrapTiming, eventId, sessionId, user?.id]
+    [
+      clearFirstConnectWatchdog,
+      detachCallListeners,
+      releaseSharedCallIfOwned,
+      endBootstrapTiming,
+      eventId,
+      nativeRemoteRenderDiagnostics,
+      resetNativeRemoteRenderRecovery,
+      scheduleNativeRemoteRenderRemount,
+      sessionId,
+      user?.id,
+    ]
   );
 
   phaseRef.current = phase;
@@ -1912,6 +2143,8 @@ export default function VideoDateScreen() {
             step: 'no_remote_auto_recovery',
           });
           setIsConnecting(false);
+          remoteParticipantRef.current = null;
+          resetNativeRemoteRenderRecovery(null, 'no_remote_auto_recovery');
           setRemoteParticipant(null);
           hasStartedJoinRef.current = false;
           vdbg('prejoin_state_hasStartedJoinRef', {
@@ -1989,6 +2222,7 @@ export default function VideoDateScreen() {
     clearFirstConnectWatchdog,
     releaseSharedCallIfOwned,
     detachCallListeners,
+    resetNativeRemoteRenderRecovery,
   ]);
 
   useEffect(() => {
@@ -2200,10 +2434,13 @@ export default function VideoDateScreen() {
       }
       const remotes = participants ? Object.values(participants).filter((p) => !(p as unknown as { local?: boolean }).local) : [];
       if (remotes[0]) {
-        setRemoteParticipant(remotes[0] as DailyParticipant);
+        const remote = remotes[0] as DailyParticipant;
+        remoteParticipantRef.current = remote;
+        resetNativeRemoteRenderRecovery(remote, 'focus_snapshot');
+        setRemoteParticipant(remote);
         setPartnerEverJoined(true);
       }
-    }, [localInDailyRoom])
+    }, [localInDailyRoom, resetNativeRemoteRenderRecovery])
   );
 
   useEffect(() => {
@@ -2249,6 +2486,8 @@ export default function VideoDateScreen() {
       roomNameRef.current = null;
     }
     setLocalParticipant(null);
+    remoteParticipantRef.current = null;
+    resetNativeRemoteRenderRecovery(null, 'leave_and_cleanup');
     setRemoteParticipant(null);
     vdbg('prejoin_state_localInDailyRoom', {
       value: false,
@@ -2294,6 +2533,7 @@ export default function VideoDateScreen() {
     releaseSharedCallIfOwned,
     detachCallListeners,
     clearHandshakeGraceState,
+    resetNativeRemoteRenderRecovery,
   ]);
 
   const cleanupForAbortWithoutServerEnd = useCallback(async () => {
@@ -3189,6 +3429,8 @@ export default function VideoDateScreen() {
       step: 'retry_initial_connect',
     });
     setCallError(null);
+    remoteParticipantRef.current = null;
+    resetNativeRemoteRenderRecovery(null, 'retry_initial_connect');
     setRemoteParticipant(null);
     vdbg('prejoin_state_localInDailyRoom', {
       value: false,
@@ -3233,6 +3475,7 @@ export default function VideoDateScreen() {
     eventId,
     peerMissingTerminal,
     releaseSharedCallIfOwned,
+    resetNativeRemoteRenderRecovery,
     sessionId,
     user?.id,
   ]);
@@ -3497,10 +3740,15 @@ export default function VideoDateScreen() {
         setLocalParticipant(local as DailyParticipant | null);
         applyLocalMediaUiFromParticipant(local as DailyParticipant, { setIsVideoOff, setIsMuted });
         if (remotes.length > 0) {
-          setRemoteParticipant(remotes[0] as DailyParticipant);
+          const remote = remotes[0] as DailyParticipant;
+          remoteParticipantRef.current = remote;
+          resetNativeRemoteRenderRecovery(remote, 'shared_call_snapshot');
+          setRemoteParticipant(remote);
           setPartnerEverJoined(true);
           setAwaitingFirstConnect(false);
         } else {
+          remoteParticipantRef.current = null;
+          resetNativeRemoteRenderRecovery(null, 'shared_call_snapshot_no_remote');
           setRemoteParticipant(null);
           setAwaitingFirstConnect(true);
         }
@@ -4869,7 +5117,10 @@ export default function VideoDateScreen() {
           });
           setAwaitingFirstConnect(false);
           setPartnerEverJoined(true);
-          setRemoteParticipant(remotes[0] as DailyParticipant);
+          const remote = remotes[0] as DailyParticipant;
+          remoteParticipantRef.current = remote;
+          resetNativeRemoteRenderRecovery(remote, 'post_join_snapshot');
+          setRemoteParticipant(remote);
           videoDateDailyDiagnostic('first_remote_observed', {
             session_id: sessionId,
             room_name: tokenResult.room_name,
@@ -5138,6 +5389,7 @@ export default function VideoDateScreen() {
     detachCallListeners,
     refetchVideoSession,
     recoverFromNotStartableDateTruth,
+    resetNativeRemoteRenderRecovery,
     beginBootstrapTiming,
     endBootstrapTiming,
   ]);
@@ -5491,6 +5743,27 @@ export default function VideoDateScreen() {
     setIsFlippingCamera(true);
     try {
       const result = await controls.cycleCamera();
+      const hint = createVideoDateCameraSwitchRenderHint({
+        sourcePlatform: 'native',
+        facingMode: result?.device?.facingMode ?? null,
+      });
+      try {
+        const appMessageControls = callRef.current as unknown as NativeDailyAppMessageControls | null;
+        await appMessageControls?.sendAppMessage?.(hint);
+        videoDateDailyDiagnostic('native_camera_switch_render_hint_sent', {
+          sessionId: sessionId ?? null,
+          eventId: eventId || null,
+          switch_id: hint.switchId,
+          facing_mode: hint.facingMode,
+        });
+      } catch (hintError) {
+        videoDateDailyDiagnostic('native_camera_switch_render_hint_send_failed', {
+          sessionId: sessionId ?? null,
+          eventId: eventId || null,
+          switch_id: hint.switchId,
+          error: hintError instanceof Error ? hintError.message : String(hintError),
+        });
+      }
       videoDateDailyDiagnostic('native_camera_flipped', {
         sessionId: sessionId ?? null,
         eventId: eventId || null,
@@ -5684,6 +5957,7 @@ export default function VideoDateScreen() {
 
   const remoteVideoTrack = remoteParticipant ? getTrack(remoteParticipant, 'video') : null;
   const remoteAudioTrack = remoteParticipant ? getTrack(remoteParticipant, 'audio') : null;
+  const remoteMediaViewKey = `${nativeRemoteRenderTrackKey(remoteParticipant ?? undefined) ?? 'no-remote'}:${remoteMediaRenderNonce}`;
   const localVideoTrack = localParticipant ? getTrack(localParticipant, 'video') : null;
 
   useEffect(() => {
@@ -6097,6 +6371,7 @@ export default function VideoDateScreen() {
               // Remote date video must preserve the full encoded camera frame.
               // DailyMediaView defaults to cover, so keep this explicit.
               <DailyMediaView
+                key={remoteMediaViewKey}
                 videoTrack={remoteVideoTrack}
                 audioTrack={remoteAudioTrack}
                 mirror={false}

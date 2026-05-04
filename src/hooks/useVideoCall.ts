@@ -31,6 +31,10 @@ import {
   videoDateAspectRatio,
   type VideoDateMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
+import {
+  createVideoDateCameraSwitchRenderHint,
+  parseVideoDateCameraSwitchRenderHint,
+} from "@clientShared/matching/videoDateCameraSwitchRenderHint";
 
 interface UseVideoCallOptions {
   roomId?: string;
@@ -261,7 +265,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const remoteRenderRecoveryReattachTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteRenderRecoveryAttemptsRef = useRef<Map<string, number>>(new Map());
   const remoteRenderRecoveryInFlightRef = useRef<{
-    key: string;
+    trackKey: string;
+    attemptKey: string;
     attempt: number;
     source: string;
   } | null>(null);
@@ -430,8 +435,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 playbackBlockedRef.current = false;
                 if (!isLocal && remoteTrackKey) {
                   const recovery = remoteRenderRecoveryInFlightRef.current;
-                  remoteRenderRecoveryAttemptsRef.current.delete(remoteTrackKey);
-                  if (recovery?.key === remoteTrackKey) {
+                  if (recovery?.trackKey === remoteTrackKey) {
+                    remoteRenderRecoveryAttemptsRef.current.delete(recovery.attemptKey);
                     vdbg("daily_remote_render_recovery_succeeded", {
                       sessionId: optionsRef.current?.roomId ?? null,
                       eventId: optionsRef.current?.eventId ?? null,
@@ -466,7 +471,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 playbackBlockedRef.current = true;
                 if (!isLocal && remoteTrackKey) {
                   const recovery = remoteRenderRecoveryInFlightRef.current;
-                  if (recovery?.key === remoteTrackKey) {
+                  if (recovery?.trackKey === remoteTrackKey) {
                     vdbg("daily_remote_render_recovery_failed", {
                       sessionId: optionsRef.current?.roomId ?? null,
                       eventId: optionsRef.current?.eventId ?? null,
@@ -649,9 +654,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, []);
 
   const forceRemoteMediaReattach = useCallback(
-    (participant: DailyParticipant | undefined, source: string, roomName: string | null) => {
+    (
+      participant: DailyParticipant | undefined,
+      source: string,
+      roomName: string | null,
+      recoveryScope = source
+    ) => {
       const videoEl = remoteVideoRef.current;
       const remoteKey = getTrackIdsKey(participant, true);
+      const attemptKey = `${remoteKey}:${recoveryScope}`;
       const videoTrack = participant?.tracks?.video?.persistentTrack;
       if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack) {
         vdbg("daily_remote_render_recovery_skipped", {
@@ -662,11 +673,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         return;
       }
 
-      const attempts = remoteRenderRecoveryAttemptsRef.current.get(remoteKey) ?? 0;
+      const attempts = remoteRenderRecoveryAttemptsRef.current.get(attemptKey) ?? 0;
       if (attempts >= REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK) {
         vdbg("daily_remote_render_recovery_skipped", {
           ...remoteRenderDiagnostics(participant, videoEl),
           source,
+          recoveryScope,
           reason: "max_attempts_exhausted",
           attempts,
           maxAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
@@ -675,13 +687,19 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       }
 
       const nextAttempt = attempts + 1;
-      remoteRenderRecoveryAttemptsRef.current.set(remoteKey, nextAttempt);
-      remoteRenderRecoveryInFlightRef.current = { key: remoteKey, attempt: nextAttempt, source };
+      remoteRenderRecoveryAttemptsRef.current.set(attemptKey, nextAttempt);
+      remoteRenderRecoveryInFlightRef.current = {
+        trackKey: remoteKey,
+        attemptKey,
+        attempt: nextAttempt,
+        source,
+      };
       clearRemoteRenderValidation({ cancelReattach: true });
 
       vdbg("daily_remote_render_recovery_started", {
         ...remoteRenderDiagnostics(participant, videoEl),
         source,
+        recoveryScope,
         attempt: nextAttempt,
         maxAttempts: REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK,
       });
@@ -706,7 +724,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             latestTrackKey: latestKey || null,
             attempt: nextAttempt,
           });
-          if (remoteRenderRecoveryInFlightRef.current?.key === remoteKey) {
+          if (remoteRenderRecoveryInFlightRef.current?.trackKey === remoteKey) {
             remoteRenderRecoveryInFlightRef.current = null;
           }
           return;
@@ -723,7 +741,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   );
 
   const scheduleRemoteRenderValidation = useCallback(
-    (participant: DailyParticipant | undefined, source: string, roomName: string | null) => {
+    (
+      participant: DailyParticipant | undefined,
+      source: string,
+      roomName: string | null,
+      recoveryScope = source
+    ) => {
       const videoEl = remoteVideoRef.current;
       const remoteKey = getTrackIdsKey(participant, true);
       const videoTrack = participant?.tracks?.video?.persistentTrack;
@@ -795,10 +818,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           vdbg("daily_remote_render_validation_timed_out", {
             ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
             source,
+            recoveryScope,
             reason,
             timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
           });
-          forceRemoteMediaReattach(latestParticipant, `${source}:${reason}`, roomName);
+          forceRemoteMediaReattach(latestParticipant, `${source}:${reason}`, roomName, recoveryScope);
         };
 
         const videoWithFrameCallback = latestVideoEl as RemoteVideoElementWithFrameCallback;
@@ -1844,9 +1868,50 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         });
 
         callObject.on("app-message", (event) => {
+          const hint = parseVideoDateCameraSwitchRenderHint(
+            event && typeof event === "object" && "data" in event ? (event as { data?: unknown }).data : undefined
+          );
           logTransportState("daily_app_message", {
             hasData: Boolean(event && typeof event === "object" && "data" in (event as object)),
+            isCameraSwitchRenderHint: Boolean(hint),
           });
+          if (!hint) return;
+
+          const fromId =
+            event && typeof event === "object" && "fromId" in event
+              ? String((event as { fromId?: unknown }).fromId ?? "")
+              : "";
+          const localSessionId =
+            latestLocalParticipantRef.current?.session_id ?? callObject.participants().local?.session_id ?? "";
+          if (fromId && localSessionId && fromId === localSessionId) {
+            vdbg("daily_camera_switch_render_hint_ignored", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              switchId: hint.switchId,
+              sourcePlatform: hint.sourcePlatform,
+              reason: "self_origin",
+            });
+            return;
+          }
+
+          const participant = latestRemoteParticipantRef.current;
+          vdbg("daily_camera_switch_render_hint_received", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            switchId: hint.switchId,
+            sourcePlatform: hint.sourcePlatform,
+            facingMode: hint.facingMode,
+            fromId: fromId || null,
+            hasRemoteParticipant: Boolean(participant),
+          });
+          scheduleRemoteRenderValidation(
+            participant,
+            "app_message_camera_switch_hint",
+            roomData.room_name ?? null,
+            `camera_switch_hint:${hint.switchId}`
+          );
         });
 
         callObject.on("network-quality-change", (event: { threshold?: string; quality?: number }) => {
@@ -2476,7 +2541,48 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
     setIsFlippingCamera(true);
     try {
-      await co.cycleCamera({ preferDifferentFacingMode: true });
+      const result = await co.cycleCamera({ preferDifferentFacingMode: true });
+      if (typeof co.sendAppMessage === "function") {
+        try {
+          const hint = createVideoDateCameraSwitchRenderHint({
+            sourcePlatform: "web",
+            facingMode:
+              result?.device && "facingMode" in result.device && typeof result.device.facingMode === "string"
+                ? result.device.facingMode
+                : null,
+          });
+          void Promise.resolve(co.sendAppMessage(hint))
+            .then(() => {
+              vdbg("daily_camera_switch_render_hint_sent", {
+                sessionId: activeCallSessionIdRef.current,
+                eventId: optionsRef.current?.eventId ?? null,
+                userId: optionsRef.current?.userId ?? null,
+                platform: "web",
+                switchId: hint.switchId,
+                facingMode: hint.facingMode,
+              });
+            })
+            .catch((hintError) => {
+              vdbg("daily_camera_switch_render_hint_send_failed", {
+                sessionId: activeCallSessionIdRef.current,
+                eventId: optionsRef.current?.eventId ?? null,
+                userId: optionsRef.current?.userId ?? null,
+                platform: "web",
+                switchId: hint.switchId,
+                error:
+                  hintError instanceof Error ? { name: hintError.name, message: hintError.message } : String(hintError),
+              });
+            });
+        } catch (hintError) {
+          vdbg("daily_camera_switch_render_hint_send_failed", {
+            sessionId: activeCallSessionIdRef.current,
+            eventId: optionsRef.current?.eventId ?? null,
+            userId: optionsRef.current?.userId ?? null,
+            platform: "web",
+            error: hintError instanceof Error ? { name: hintError.name, message: hintError.message } : String(hintError),
+          });
+        }
+      }
     } catch (error) {
       setCanFlipCamera(false);
       trackEvent("video_date_flip_camera_failed", {
