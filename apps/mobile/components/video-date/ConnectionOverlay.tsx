@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Animated, Pressable, Image, ActivityIndicator } from 'react-native';
 import { typography, spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { withAlpha } from '@/lib/colorUtils';
@@ -22,6 +22,8 @@ type Props = {
   waitingPeerTitle?: string;
   /** When `waiting_peer`, optional subtitle (e.g. reconnect vs not-in-app — caller decides). */
   waitingPeerSubtitle?: string;
+  partnerName?: string | null;
+  partnerAvatarUri?: string | null;
 };
 
 export function ConnectionOverlay({
@@ -31,6 +33,8 @@ export function ConnectionOverlay({
   isLeaving = false,
   waitingPeerTitle,
   waitingPeerSubtitle,
+  partnerName,
+  partnerAvatarUri,
 }: Props) {
   const resolvedMode: ConnectionOverlayMode =
     mode ?? (isConnecting ? 'joining' : 'waiting_peer');
@@ -38,6 +42,9 @@ export function ConnectionOverlay({
   const theme = Colors[colorScheme];
   const ring1 = useRef(new Animated.Value(1)).current;
   const ring2 = useRef(new Animated.Value(1)).current;
+  const openingPartnerName = resolvedMode === 'joining' && partnerName?.trim() ? partnerName.trim() : null;
+  const showOpeningIdentity = resolvedMode === 'joining' && Boolean(openingPartnerName || partnerAvatarUri);
+  const partnerInitial = openingPartnerName?.slice(0, 1).toUpperCase() || 'V';
 
   useEffect(() => {
     const anim1 = Animated.loop(
@@ -80,9 +87,25 @@ export function ConnectionOverlay({
             ]}
           />
           <View style={[styles.centerDot, { backgroundColor: withAlpha(theme.tint, 0.19) }]}>
-            <View style={[styles.innerDot, { backgroundColor: theme.tint }]} />
+            {showOpeningIdentity ? (
+              <>
+                {partnerAvatarUri ? (
+                  <Image source={{ uri: partnerAvatarUri }} style={styles.partnerAvatar} resizeMode="cover" />
+                ) : (
+                  <Text style={[styles.partnerInitial, { color: theme.text }]}>{partnerInitial}</Text>
+                )}
+                <View style={[styles.loadingBadge, { backgroundColor: theme.background, borderColor: theme.glassBorder }]}>
+                  <ActivityIndicator size="small" color={theme.tint} />
+                </View>
+              </>
+            ) : (
+              <View style={[styles.innerDot, { backgroundColor: theme.tint }]} />
+            )}
           </View>
         </View>
+        {openingPartnerName ? (
+          <Text style={[styles.eyebrow, { color: theme.tint }]}>You're both ready</Text>
+        ) : null}
         <Text style={[styles.title, { color: theme.text }]}>
           {resolvedMode === 'joining'
             ? 'Opening the room...'
@@ -90,7 +113,9 @@ export function ConnectionOverlay({
         </Text>
         <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
           {resolvedMode === 'joining'
-            ? 'Setting up a quiet start for your video date.'
+            ? openingPartnerName
+              ? `Setting up a quiet start with ${openingPartnerName}.`
+              : 'Setting up a quiet start for your video date.'
             : waitingPeerSubtitle ?? 'Your date will start once you are both here.'}
         </Text>
         <Pressable
@@ -150,6 +175,34 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
+  },
+  partnerAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  partnerInitial: {
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  loadingBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  eyebrow: {
+    marginBottom: spacing.xs,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
   },
   title: {
     ...typography.titleMD,

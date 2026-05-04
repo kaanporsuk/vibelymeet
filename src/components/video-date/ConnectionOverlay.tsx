@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Loader2, ArrowLeft, Play, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import type { PeerMissingState, RemotePlaybackState } from "@/hooks/useVideoCall";
 
 interface ConnectionOverlayProps {
@@ -12,6 +13,8 @@ interface ConnectionOverlayProps {
   onKeepWaitingPeerMissing?: () => void;
   onLeave: () => void;
   isLeaving?: boolean;
+  partnerName?: string | null;
+  partnerAvatarUrl?: string | null;
 }
 
 export const ConnectionOverlay = ({
@@ -23,9 +26,12 @@ export const ConnectionOverlay = ({
   onKeepWaitingPeerMissing,
   onLeave,
   isLeaving = false,
+  partnerName,
+  partnerAvatarUrl,
 }: ConnectionOverlayProps) => {
   const playbackRejected = Boolean(remotePlayback?.playRejected);
   const peerMissingTerminal = Boolean(peerMissing?.terminal);
+  const openingPartnerName = isConnecting && partnerName?.trim() ? partnerName.trim() : null;
 
   return (
     <motion.div
@@ -54,7 +60,21 @@ export const ConnectionOverlay = ({
           />
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-16 h-16 rounded-full bg-primary/20 border border-primary/25 flex items-center justify-center shadow-[0_0_32px_hsl(var(--primary)/0.24)]">
-              {isConnecting ? (
+              {isConnecting && openingPartnerName ? (
+                <>
+                  <ProfilePhoto
+                    avatarUrl={partnerAvatarUrl}
+                    name={openingPartnerName}
+                    size="full"
+                    rounded="full"
+                    loading="eager"
+                    className="h-full w-full border border-primary/35 shadow-[0_0_28px_hsl(var(--primary)/0.18)]"
+                  />
+                  <span className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-black/75 shadow-[0_0_18px_hsl(var(--primary)/0.22)]">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  </span>
+                </>
+              ) : isConnecting ? (
                 <Loader2 className="w-7 h-7 animate-spin text-primary" />
               ) : playbackRejected ? (
                 <Play className="w-7 h-7 text-primary" />
@@ -66,6 +86,11 @@ export const ConnectionOverlay = ({
         </div>
 
         <div>
+          {isConnecting && openingPartnerName && (
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/85">
+              You're both ready
+            </p>
+          )}
           <h3 className="font-display font-semibold text-lg text-foreground mb-1">
             {peerMissingTerminal
               ? "They may need a little more time."
@@ -81,7 +106,9 @@ export const ConnectionOverlay = ({
               : playbackRejected
               ? "Your match is here, but your browser paused the video or audio."
               : isConnecting
-                ? "Setting up a quiet start for your video date."
+                ? openingPartnerName
+                  ? `Setting up a quiet start with ${openingPartnerName}.`
+                  : "Setting up a quiet start for your video date."
                 : "We'll keep the space ready and let you continue calmly if they need too long."}
           </p>
         </div>

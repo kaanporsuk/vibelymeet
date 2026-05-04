@@ -6457,7 +6457,13 @@ export default function VideoDateScreen() {
       </View>
 
         {showJoiningOverlay && (
-          <ConnectionOverlay mode="joining" onLeave={handleAbortConnection} isLeaving={isAbortingConnection} />
+          <ConnectionOverlay
+            mode="joining"
+            onLeave={handleAbortConnection}
+            isLeaving={isAbortingConnection}
+            partnerName={partnerFirstName}
+            partnerAvatarUri={partnerAvatarUri}
+          />
         )}
         {showPeerWaitOverlay && (
           <ConnectionOverlay

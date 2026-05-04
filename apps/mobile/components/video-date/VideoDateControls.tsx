@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { View, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -48,7 +48,6 @@ export function VideoDateControls({
   const quietButtonSize = { width: buttonSize, height: buttonSize };
   const leaveButtonSize = { width: leaveSize, height: leaveSize, borderRadius: leaveSize / 2 };
   const iconOn = theme.text;
-  const leaveRotation = '135deg' as const;
 
   const profileBlock = (
     <Pressable
@@ -105,9 +104,7 @@ export function VideoDateControls({
           accessibilityRole="button"
           accessibilityLabel="End call"
         >
-          <View style={[styles.leaveInner, { transform: [{ rotate: leaveRotation }] }]}>
-            <Ionicons name="call" size={leaveIconSize} color="#fff" />
-          </View>
+          <MaterialCommunityIcons name="phone-hangup" size={leaveIconSize} color="#fff" />
         </Pressable>
 
         <Pressable
@@ -224,10 +221,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 14,
     elevation: 6,
-  },
-  leaveInner: {
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   pressed: {
     opacity: 0.88,

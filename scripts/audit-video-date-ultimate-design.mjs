@@ -266,8 +266,8 @@ check(
 check(
   !includes("webControls", "partnerName") &&
     !includes("nativeControls", "partnerName") &&
-    matches("webControls", /User[\s\S]*Mic[\s\S]*PhoneOff[\s\S]*Video[\s\S]*Shield/) &&
-    matches("nativeControls", /person[\s\S]*mic[\s\S]*call[\s\S]*videocam[\s\S]*shield-checkmark/),
+    matches("webControls", /User[\s\S]*Mic[\s\S]*aria-label="End call"[\s\S]*PhoneOff[\s\S]*Video[\s\S]*Shield/) &&
+    matches("nativeControls", /person[\s\S]*mic[\s\S]*phone-hangup[\s\S]*videocam[\s\S]*shield-checkmark/),
   "Bottom Dock",
   "Bottom dock is icon-only and ordered Profile, Mic, End, Camera, Safety.",
   `${files.webControls}, ${files.nativeControls}`,

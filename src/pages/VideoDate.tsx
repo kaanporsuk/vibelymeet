@@ -3359,6 +3359,8 @@ const VideoDate = () => {
                 onKeepWaitingPeerMissing={handlePeerMissingKeepWaiting}
                 onLeave={peerMissing.terminal ? handlePeerMissingLeave : handlePreDateExit}
                 isLeaving={isLeavingVideoDate}
+                partnerName={partnerFirstName}
+                partnerAvatarUrl={partnerPhotoUrl}
               />
             )}
         </AnimatePresence>

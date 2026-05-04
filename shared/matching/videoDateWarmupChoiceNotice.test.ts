@@ -7,8 +7,8 @@ test("self timeout copy is calm and actor-relative", () => {
     getVideoDateWarmupChoiceNotice({ waitingForSelf: true, waitingForPartner: false }),
     {
       actor: "self",
-      title: "Warm-up wrapped before you chose",
-      message: "No Vibe or Pass was selected, so this one won't move forward.",
+      title: "Warm-up ended",
+      message: "Make your private choice when it feels right.",
     },
   );
 });
@@ -18,8 +18,8 @@ test("partner timeout copy is calm and actor-relative", () => {
     getVideoDateWarmupChoiceNotice({ waitingForSelf: false, waitingForPartner: true }),
     {
       actor: "partner",
-      title: "Warm-up wrapped before they chose",
-      message: "They didn't choose Vibe or Pass, so this one won't move forward.",
+      title: "Choice saved",
+      message: "You'll only match if you both choose Vibe.",
     },
   );
 });
@@ -29,8 +29,8 @@ test("both timeout copy handles neither participant choosing", () => {
     getVideoDateWarmupChoiceNotice({ waitingForSelf: true, waitingForPartner: true }),
     {
       actor: "both",
-      title: "Warm-up wrapped without both choices",
-      message: "No Vibe or Pass choices were selected, so this one won't move forward.",
+      title: "Warm-up ended",
+      message: "Make your private choice when it feels right.",
     },
   );
 });
@@ -38,7 +38,23 @@ test("both timeout copy handles neither participant choosing", () => {
 test("fallback copy handles grace or missing actor fields", () => {
   assert.deepEqual(getVideoDateWarmupChoiceNotice(), {
     actor: "fallback",
-    title: "Warm-up wrapped",
-    message: "The warm-up ended before both choices were in, so this one won't move forward.",
+    title: "Warm-up ended",
+    message: "Make your private choice when it feels right.",
   });
+});
+
+test("pre-check-in timeout copy does not use premature terminal language", () => {
+  const notices = [
+    getVideoDateWarmupChoiceNotice({ waitingForSelf: true, waitingForPartner: false }),
+    getVideoDateWarmupChoiceNotice({ waitingForSelf: false, waitingForPartner: true }),
+    getVideoDateWarmupChoiceNotice({ waitingForSelf: true, waitingForPartner: true }),
+    getVideoDateWarmupChoiceNotice(),
+  ];
+
+  for (const notice of notices) {
+    const copy = `${notice.title} ${notice.message}`;
+    assert.equal(copy.includes("won't move forward"), false);
+    assert.equal(copy.includes("Warm-up wrapped"), false);
+    assert.equal(copy.includes("No Vibe or Pass"), false);
+  }
 });
