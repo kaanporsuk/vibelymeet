@@ -3196,7 +3196,7 @@ const VideoDate = () => {
 
       <div
         data-video-date-stage
-        className="relative z-10 flex h-[100dvh] w-screen flex-col overflow-hidden bg-background md:h-[min(calc(100dvh_-_2rem),920px)] md:max-h-[920px] md:w-[min(calc(100vw_-_2rem),500px)] md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_34px_110px_rgba(0,0,0,0.56),0_0_60px_rgba(139,92,246,0.12)]"
+        className="relative z-10 flex h-[100dvh] w-screen flex-col overflow-hidden bg-background md:h-[min(calc(100dvh_-_2rem),920px)] md:max-h-[920px] md:w-[min(calc(100vw_-_2rem),500px)] md:translate-y-2 md:rounded-[2rem] md:border md:border-white/10 md:shadow-[0_34px_110px_rgba(0,0,0,0.56),0_0_60px_rgba(139,92,246,0.12)]"
       >
       <UrgentBorderEffect isActive={isUrgent && !showFeedback} />
 
@@ -3204,9 +3204,9 @@ const VideoDate = () => {
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 px-4 pb-3"
+        className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between gap-3 px-4 pb-3 md:px-5"
         style={{
-          paddingTop: "max(0.875rem, env(safe-area-inset-top))",
+          paddingTop: "max(1rem, env(safe-area-inset-top))",
           background:
             "linear-gradient(to bottom, hsl(var(--background) / 0.92), hsl(var(--background) / 0.42) 62%, transparent)",
         }}

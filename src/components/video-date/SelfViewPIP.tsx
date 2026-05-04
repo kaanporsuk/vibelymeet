@@ -95,7 +95,7 @@ export const SelfViewPIP = ({
       dragElastic={0.05}
       dragMomentum={false}
       whileDrag={{ scale: 1.05 }}
-      className="absolute right-4 top-[6.75rem] w-[112px] h-[154px] sm:w-[124px] sm:h-[170px] rounded-[1.35rem] overflow-hidden z-40 cursor-grab active:cursor-grabbing bg-black"
+      className="absolute right-4 top-[6.75rem] w-[112px] h-[154px] rounded-[1.35rem] overflow-hidden z-40 cursor-grab active:cursor-grabbing bg-black sm:w-[124px] sm:h-[170px] md:right-5 md:top-[7.125rem]"
       style={{
         boxShadow:
           "0 20px 54px rgba(0,0,0,0.5), 0 0 0 1.5px hsl(var(--primary) / 0.48), inset 0 1px 0 rgba(255,255,255,0.12)",
