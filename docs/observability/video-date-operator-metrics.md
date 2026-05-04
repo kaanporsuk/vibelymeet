@@ -29,11 +29,13 @@ Returned aggregates:
 - survey completion to next Ready Gate conversion within 10 minutes
 - queue drain attempts, failures, failure rate, and top failure reasons
 - timer drift recovery source note for the PostHog-only metric
+- ready-tap to first blurred remote-frame latency from durable client checkpoints
 
 ## Metric Catalog
 
 | Metric ID | Label | Source | Healthy Direction | Notes |
 | --- | --- | --- | --- | --- |
+| `ready_tap_to_first_remote_frame_latency` | Ready tap to first remote frame latency | `video_date_launch_latency_checkpoint` rows mirrored from client checkpoints | lower | Primary perceived launch metric; p95 thresholds are 8s warning / 15s critical. |
 | `ready_gate_open_to_date_join_latency` | Ready Gate open to date join latency | `event_loop_observability_events` + `video_sessions` | lower | Ready Gate open is derived from promotion rows, not a dedicated timestamp column. |
 | `simultaneous_swipe_collision_rate` | Simultaneous swipe collision rate | `v_event_loop_swipe_mutual_events` | lower | After `20260501092000_handle_swipe_presence_and_already_matched_session.sql`, `already_matched + session_id` represents a recovered/routable same-pair session. |
 | `survey_to_next_ready_gate_conversion` | Survey to next Ready Gate conversion | PostHog continuity events, plus DB approximation | higher | PostHog is the clean source for route decisions; DB approximation is useful for spot checks. |
@@ -42,7 +44,30 @@ Returned aggregates:
 
 Default threshold helpers live in `shared/observability/videoDateOperatorMetrics.ts`.
 
-## 1. Ready Gate Open To Date Join Latency
+## 1. Ready Tap To First Remote Frame Latency
+
+Source:
+
+- Authenticated client checkpoint mirror: `event_loop_observability_events.operation = 'video_date_launch_latency_checkpoint'`
+- First blurred remote frame: `reason_code = 'first_remote_frame'`
+
+SQL:
+
+```sql
+select
+  percentile_cont(0.5) within group (order by latency_ms) as p50_ms,
+  percentile_cont(0.95) within group (order by latency_ms) as p95_ms,
+  count(*) as sample_count
+from public.event_loop_observability_events
+where created_at >= now() - interval '7 days'
+  and operation = 'video_date_launch_latency_checkpoint'
+  and reason_code = 'first_remote_frame'
+  and latency_ms is not null;
+```
+
+Segment with `detail->>'platform'`, `detail->>'ready_actor_order'`, `detail->>'cached_prepare_entry'`, `detail->>'provider_verify_skipped'`, and `detail->>'permission_handoff_used'`.
+
+## 2. Ready Gate Open To Date Join Latency
 
 Source:
 
@@ -107,7 +132,7 @@ Operational read:
 - Warning: p95 10-20 seconds.
 - Critical: p95 over 20 seconds.
 
-## 2. Simultaneous Swipe Collision Rate
+## 3. Simultaneous Swipe Collision Rate
 
 Source:
 
@@ -136,7 +161,7 @@ Operational read:
 
 This measures collision-like backend outcomes. `already_matched` rows with a non-null `session_id` / returned `video_session_id` represent recovered same-pair sessions that clients can route back into. Rows without a session id, or `participant_has_active_session_conflict`, should still be treated as non-recovered collision/conflict signals.
 
-## 3. Survey To Next Ready Gate Conversion
+## 4. Survey To Next Ready Gate Conversion
 
 Primary source:
 
@@ -210,7 +235,7 @@ order by conversion_rate asc nulls last;
 
 The DB query is a correlation aid. Use PostHog for the exact client route decision because the continuity bridge can route to Ready Gate, fresh deck, last-chance, or empty states based on multiple backend-derived inputs.
 
-## 4. Queue Drain Failure Rate
+## 5. Queue Drain Failure Rate
 
 Source:
 
@@ -262,7 +287,7 @@ order by drain_failure_rate desc nulls last;
 
 If the normalized view is unavailable in a local or stale environment, use `public.v_event_loop_drain_events` directly and do not add promotion-engine rows to the same denominator.
 
-## 5. Timer Drift Recovered By Server Truth
+## 6. Timer Drift Recovered By Server Truth
 
 Source:
 

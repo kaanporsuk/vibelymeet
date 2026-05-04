@@ -9,12 +9,20 @@ export type VideoDateCameraSwitchRenderHint = {
   switchId: string;
   sourcePlatform: VideoDateCameraSwitchRenderHintPlatform;
   facingMode: string | null;
+  commitConfirmed?: boolean;
+  commitMethod?: string | null;
+  localVideoTrackId?: string | null;
+  commitLatencyMs?: number | null;
   sentAtMs: number;
 };
 
 type CreateVideoDateCameraSwitchRenderHintInput = {
   sourcePlatform: VideoDateCameraSwitchRenderHintPlatform;
   facingMode?: string | null;
+  commitConfirmed?: boolean;
+  commitMethod?: string | null;
+  localVideoTrackId?: string | null;
+  commitLatencyMs?: number | null;
   sentAtMs?: number;
   random?: () => number;
 };
@@ -37,6 +45,10 @@ function makeVideoDateCameraSwitchRenderHintId(
 export function createVideoDateCameraSwitchRenderHint({
   sourcePlatform,
   facingMode = null,
+  commitConfirmed = true,
+  commitMethod = null,
+  localVideoTrackId = null,
+  commitLatencyMs = null,
   sentAtMs = Date.now(),
   random = Math.random,
 }: CreateVideoDateCameraSwitchRenderHintInput): VideoDateCameraSwitchRenderHint {
@@ -46,6 +58,14 @@ export function createVideoDateCameraSwitchRenderHint({
     switchId: makeVideoDateCameraSwitchRenderHintId(sentAtMs, random),
     sourcePlatform,
     facingMode: typeof facingMode === "string" && facingMode.trim() ? facingMode.trim() : null,
+    commitConfirmed,
+    commitMethod: typeof commitMethod === "string" && commitMethod.trim() ? commitMethod.trim() : null,
+    localVideoTrackId:
+      typeof localVideoTrackId === "string" && localVideoTrackId.trim() ? localVideoTrackId.trim() : null,
+    commitLatencyMs:
+      typeof commitLatencyMs === "number" && Number.isFinite(commitLatencyMs) && commitLatencyMs >= 0
+        ? Math.round(commitLatencyMs)
+        : null,
     sentAtMs,
   };
 }
@@ -62,6 +82,15 @@ export function parseVideoDateCameraSwitchRenderHint(
   }
   if (!isVideoDateCameraSwitchRenderHintPlatform(raw.sourcePlatform)) return null;
   if (raw.facingMode != null && typeof raw.facingMode !== "string") return null;
+  if (raw.commitConfirmed != null && typeof raw.commitConfirmed !== "boolean") return null;
+  if (raw.commitMethod != null && typeof raw.commitMethod !== "string") return null;
+  if (raw.localVideoTrackId != null && typeof raw.localVideoTrackId !== "string") return null;
+  if (
+    raw.commitLatencyMs != null &&
+    (typeof raw.commitLatencyMs !== "number" || !Number.isFinite(raw.commitLatencyMs) || raw.commitLatencyMs < 0)
+  ) {
+    return null;
+  }
   if (typeof raw.sentAtMs !== "number" || !Number.isFinite(raw.sentAtMs) || raw.sentAtMs <= 0) {
     return null;
   }
@@ -72,6 +101,13 @@ export function parseVideoDateCameraSwitchRenderHint(
     switchId: raw.switchId.trim(),
     sourcePlatform: raw.sourcePlatform,
     facingMode: typeof raw.facingMode === "string" && raw.facingMode.trim() ? raw.facingMode.trim() : null,
+    commitConfirmed: raw.commitConfirmed === true,
+    commitMethod: typeof raw.commitMethod === "string" && raw.commitMethod.trim() ? raw.commitMethod.trim() : null,
+    localVideoTrackId:
+      typeof raw.localVideoTrackId === "string" && raw.localVideoTrackId.trim()
+        ? raw.localVideoTrackId.trim()
+        : null,
+    commitLatencyMs: typeof raw.commitLatencyMs === "number" ? Math.round(raw.commitLatencyMs) : null,
     sentAtMs: raw.sentAtMs,
   };
 }

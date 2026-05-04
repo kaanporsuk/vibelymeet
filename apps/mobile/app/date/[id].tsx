@@ -190,6 +190,8 @@ const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK = 4;
 const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE = 2;
 const NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS = 30_000;
 const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPT_KEYS = 24;
+const NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
+const NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 // Minimum time (ms) the Vibe/Pass CTA must be visible after first playable remote
 // media before the server deadline is allowed to call completeHandshake.
 // Prevents expiry on slow Daily join where media arrives just before the 60 s mark.
@@ -222,12 +224,35 @@ function nativePrejoinPipelineKey(sessionId: string, userId: string): string {
 }
 type NativeMediaStreamTrack = import('@daily-co/react-native-webrtc').MediaStreamTrack;
 type NativeDailyCameraFacingMode = 'user' | 'environment';
+type NativeDailyCameraDevice = {
+  deviceId?: string | number;
+  id?: string | number;
+  kind?: string;
+  facing?: unknown;
+  facingMode?: unknown;
+  label?: string;
+};
 type NativeDailyCameraControls = {
   getCameraFacingMode?: () => Promise<NativeDailyCameraFacingMode | null>;
   cycleCamera?: () => Promise<{ device: { facingMode: NativeDailyCameraFacingMode } | null }>;
+  setCamera?: (cameraDeviceId: string | number) => Promise<{ device: { facingMode: NativeDailyCameraFacingMode } | null }>;
+  enumerateDevices?: () => Promise<{ devices: NativeDailyCameraDevice[] }>;
 };
 type NativeDailyAppMessageControls = {
   sendAppMessage?: (data: unknown, to?: string | string[]) => unknown;
+};
+
+type NativeCameraSwitchCommitMethod = 'set_camera' | 'cycle_camera';
+type NativeLocalCameraSnapshot = {
+  trackId: string | null;
+  deviceId: string | null;
+  facingMode: NativeDailyCameraFacingMode | null;
+  readyState: string | null;
+  enabled: boolean | null;
+};
+type NativeCameraSwitchCommit = NativeLocalCameraSnapshot & {
+  method: NativeCameraSwitchCommitMethod;
+  latencyMs: number;
 };
 
 function summarizeSharedDailyError(error: unknown): string {
@@ -428,12 +453,95 @@ function summarizeVideoTrackSettings(track: NativeMediaStreamTrack | null | unde
   if (!track || typeof track.getSettings !== 'function') return null;
   const settings = track.getSettings();
   return {
+    deviceId: typeof settings.deviceId === 'string' ? settings.deviceId : null,
     width: typeof settings.width === 'number' ? settings.width : null,
     height: typeof settings.height === 'number' ? settings.height : null,
     aspectRatio: videoDateAspectRatio(settings.width, settings.height),
     frameRate: typeof settings.frameRate === 'number' ? settings.frameRate : null,
     facingMode: typeof settings.facingMode === 'string' ? settings.facingMode : null,
   };
+}
+
+function sleepNativeCameraSwitch(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeNativeCameraFacingMode(value: unknown): NativeDailyCameraFacingMode | null {
+  return value === 'user' || value === 'environment' ? value : null;
+}
+
+function oppositeNativeCameraFacingMode(value: NativeDailyCameraFacingMode | null): NativeDailyCameraFacingMode | null {
+  if (value === 'user') return 'environment';
+  if (value === 'environment') return 'user';
+  return null;
+}
+
+function nativeCameraDeviceId(device: NativeDailyCameraDevice | null | undefined): string | number | null {
+  if (!device) return null;
+  if (typeof device.deviceId === 'string' || typeof device.deviceId === 'number') return device.deviceId;
+  if (typeof device.id === 'string' || typeof device.id === 'number') return device.id;
+  return null;
+}
+
+function nativeCameraDeviceKey(device: NativeDailyCameraDevice | null | undefined): string | null {
+  const id = nativeCameraDeviceId(device);
+  return id == null ? null : String(id);
+}
+
+function nativeCameraFacingModeFromLabel(label: unknown): NativeDailyCameraFacingMode | null {
+  if (typeof label !== 'string') return null;
+  const normalized = label.toLowerCase();
+  if (/\b(front|user|self|face)\b/.test(normalized)) return 'user';
+  if (/\b(back|rear|environment|world)\b/.test(normalized)) return 'environment';
+  return null;
+}
+
+function nativeCameraDeviceFacingMode(device: NativeDailyCameraDevice | null | undefined): NativeDailyCameraFacingMode | null {
+  if (!device) return null;
+  const explicitFacing = normalizeNativeCameraFacingMode(device.facingMode) ?? normalizeNativeCameraFacingMode(device.facing);
+  if (explicitFacing) return explicitFacing;
+  return nativeCameraFacingModeFromLabel(device.label);
+}
+
+function nativeLocalCameraSnapshot(participant: DailyParticipant | null | undefined): NativeLocalCameraSnapshot {
+  const videoTrack = getTrack(participant ?? undefined, 'video');
+  const settings = summarizeVideoTrackSettings(videoTrack);
+  return {
+    trackId: videoTrack?.id ?? null,
+    deviceId: typeof settings?.deviceId === 'string' ? settings.deviceId : null,
+    facingMode: normalizeNativeCameraFacingMode(settings?.facingMode) ?? nativeCameraFacingModeFromLabel(videoTrack?.label),
+    readyState: videoTrack?.readyState ?? null,
+    enabled: typeof videoTrack?.enabled === 'boolean' ? videoTrack.enabled : null,
+  };
+}
+
+function chooseNativeCameraDevice(
+  devices: NativeDailyCameraDevice[],
+  desiredFacing: NativeDailyCameraFacingMode | null,
+  before: NativeLocalCameraSnapshot
+): NativeDailyCameraDevice | null {
+  const videoDevices = devices.filter((device) => device.kind === undefined || device.kind === 'videoinput');
+  const usable = videoDevices.length > 0 ? videoDevices : devices;
+  if (usable.length === 0) return null;
+  const currentDeviceKey = before.deviceId == null ? null : String(before.deviceId);
+  const candidates = currentDeviceKey != null
+    ? usable.filter((device) => nativeCameraDeviceKey(device) !== currentDeviceKey)
+    : usable;
+  if (currentDeviceKey != null && candidates.length === 0) return null;
+  if (desiredFacing) {
+    const facingMatch = candidates.find((device) => nativeCameraDeviceFacingMode(device) === desiredFacing);
+    if (facingMatch) return facingMatch;
+    return null;
+  }
+  if (currentDeviceKey != null) {
+    return candidates[0] ?? null;
+  }
+  return null;
+}
+
+function describeNativeCameraSwitchError(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) return { name: error.name || 'Error', message: error.message };
+  return { name: 'unknown', message: String(error) };
 }
 
 /** Sync UI toggles from Daily participant track state (source of truth after join / reconnect). */
@@ -738,11 +846,14 @@ export default function VideoDateScreen() {
   const remotePromotionLoggedRef = useRef(false);
   const lastLocalMountedTrackIdRef = useRef<string | null>(null);
   const lastRemoteMountedTrackIdRef = useRef<string | null>(null);
+  const localParticipantRef = useRef<DailyParticipant | null>(null);
   const remoteParticipantRef = useRef<DailyParticipant | null>(null);
+  const nativeCameraSwitchInFlightRef = useRef(false);
   const nativeRemoteRenderRemountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nativeRemoteRenderTrackAttemptsRef = useRef<Map<string, NativeRemoteRenderAttemptEntry>>(new Map());
   const nativeRemoteRenderScopedAttemptsRef = useRef<Map<string, NativeRemoteRenderAttemptEntry>>(new Map());
   const lastNativeRemoteRenderTrackKeyRef = useRef<string | null>(null);
+  const lastNativeRemoteCameraSwitchHintIdRef = useRef<string | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const surveyOpenedRef = useRef(false);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
@@ -811,6 +922,7 @@ export default function VideoDateScreen() {
   const [joinAttemptNonce, setJoinAttemptNonce] = useState(0);
 
   remoteParticipantRef.current = remoteParticipant;
+  localParticipantRef.current = localParticipant;
 
   useEffect(() => {
     void setSafeAudioMode({
@@ -1233,6 +1345,9 @@ export default function VideoDateScreen() {
       remountScopedAttempts.clear();
       lastNativeRemoteRenderTrackKeyRef.current = null;
       remoteParticipantRef.current = null;
+      localParticipantRef.current = null;
+      nativeCameraSwitchInFlightRef.current = false;
+      lastNativeRemoteCameraSwitchHintIdRef.current = null;
     };
   }, [clearNativeRemoteRenderRemount]);
 
@@ -1291,6 +1406,12 @@ export default function VideoDateScreen() {
           kind: isLocal ? 'local' : 'remote',
           participant_id: p ? dailyParticipantId(p) ?? 'unknown' : 'none',
         });
+        if (p && isLocal) {
+          localParticipantRef.current = p;
+          setLocalParticipant(p);
+          applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
+          return;
+        }
         if (p && !isLocal) {
           if (!firstRemoteParticipantTimedRef.current) {
             firstRemoteParticipantTimedRef.current = true;
@@ -1305,6 +1426,16 @@ export default function VideoDateScreen() {
               eventId: eventId || null,
               sourceSurface: 'video_date_daily',
               checkpoint: 'remote_seen',
+              entryAttemptId:
+                activePreparedEntryCacheRef.current?.entryAttemptId ??
+                activePreparedEntryCacheRef.current?.value.entry_attempt_id ??
+                null,
+              videoDateTraceId:
+                activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
+                activePreparedEntryCacheRef.current?.entryAttemptId ??
+                null,
+              cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+              providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
             });
             const latencyPayload = buildReadyGateToDateLatencyPayload({
               context: latencyContext,
@@ -1358,6 +1489,7 @@ export default function VideoDateScreen() {
           participant_id: dailyParticipantId(p) ?? 'unknown',
         });
         if (isLocal) {
+          localParticipantRef.current = p;
           setLocalParticipant(p);
           applyLocalMediaUiFromParticipant(p, { setIsVideoOff, setIsMuted });
         } else {
@@ -1374,6 +1506,16 @@ export default function VideoDateScreen() {
               eventId: eventId || null,
               sourceSurface: 'video_date_daily',
               checkpoint: 'remote_seen',
+              entryAttemptId:
+                activePreparedEntryCacheRef.current?.entryAttemptId ??
+                activePreparedEntryCacheRef.current?.value.entry_attempt_id ??
+                null,
+              videoDateTraceId:
+                activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
+                activePreparedEntryCacheRef.current?.entryAttemptId ??
+                null,
+              cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+              providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
             });
             const latencyPayload = buildReadyGateToDateLatencyPayload({
               context: latencyContext,
@@ -1417,6 +1559,7 @@ export default function VideoDateScreen() {
           });
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
           remoteParticipantRef.current = null;
+          lastNativeRemoteCameraSwitchHintIdRef.current = null;
           resetNativeRemoteRenderRecovery(null, 'participant_left');
           setRemoteParticipant(null);
           if (!partnerEverJoinedRef.current || !sessionId || phaseRef.current === 'ended') return;
@@ -1431,7 +1574,10 @@ export default function VideoDateScreen() {
         setAwaitingFirstConnect(false);
         setLocalInDailyRoom(false);
         setIsConnecting(false);
+        localParticipantRef.current = null;
         remoteParticipantRef.current = null;
+        nativeCameraSwitchInFlightRef.current = false;
+        lastNativeRemoteCameraSwitchHintIdRef.current = null;
         resetNativeRemoteRenderRecovery(null, 'left_meeting');
         releaseSharedCallIfOwned(call, 'left_meeting');
       };
@@ -1459,6 +1605,11 @@ export default function VideoDateScreen() {
         }
 
         const remote = remoteParticipantRef.current;
+        if (lastNativeRemoteCameraSwitchHintIdRef.current !== hint.switchId) {
+          lastNativeRemoteCameraSwitchHintIdRef.current = hint.switchId;
+          nativeRemoteRenderTrackAttemptsRef.current.clear();
+          nativeRemoteRenderScopedAttemptsRef.current.clear();
+        }
         videoDateDailyDiagnostic('native_camera_switch_render_hint_received', {
           ...nativeRemoteRenderDiagnostics(remote),
           room_name: roomName,
@@ -1466,6 +1617,10 @@ export default function VideoDateScreen() {
           switch_id: hint.switchId,
           source_platform: hint.sourcePlatform,
           facing_mode: hint.facingMode,
+          commit_confirmed: hint.commitConfirmed,
+          commit_method: hint.commitMethod,
+          local_video_track_id: hint.localVideoTrackId,
+          commit_latency_ms: hint.commitLatencyMs,
           sent_at_ms: hint.sentAtMs,
         });
         scheduleNativeRemoteRenderRemount(
@@ -2248,6 +2403,7 @@ export default function VideoDateScreen() {
           });
           setIsConnecting(false);
           remoteParticipantRef.current = null;
+          lastNativeRemoteCameraSwitchHintIdRef.current = null;
           resetNativeRemoteRenderRecovery(null, 'no_remote_auto_recovery');
           setRemoteParticipant(null);
           hasStartedJoinRef.current = false;
@@ -2454,6 +2610,13 @@ export default function VideoDateScreen() {
           eventId: eventId || null,
           sourceSurface: 'video_date_daily',
           checkpoint: 'first_remote_frame',
+          entryAttemptId: activePreparedEntryCacheRef.current?.entryAttemptId ?? activePreparedEntryCacheRef.current?.value.entry_attempt_id ?? null,
+          videoDateTraceId:
+            activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
+            activePreparedEntryCacheRef.current?.entryAttemptId ??
+            null,
+          cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+          providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -2592,6 +2755,7 @@ export default function VideoDateScreen() {
       const participants = call.participants();
       const local = participants?.local;
       if (local) {
+        localParticipantRef.current = local;
         setLocalParticipant(local);
         applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
       }
@@ -2648,8 +2812,11 @@ export default function VideoDateScreen() {
       });
       roomNameRef.current = null;
     }
+    localParticipantRef.current = null;
     setLocalParticipant(null);
     remoteParticipantRef.current = null;
+    nativeCameraSwitchInFlightRef.current = false;
+    lastNativeRemoteCameraSwitchHintIdRef.current = null;
     resetNativeRemoteRenderRecovery(null, 'leave_and_cleanup');
     setRemoteParticipant(null);
     vdbg('prejoin_state_localInDailyRoom', {
@@ -3502,6 +3669,7 @@ export default function VideoDateScreen() {
           eventId: eventId || null,
           sourceSurface: 'video_date_daily',
           checkpoint: 'permission_check_success',
+          permissionHandoffUsed: source === 'ready_gate_permission_handoff',
         });
         const durationMs = Math.max(0, Date.now() - permissionStartedAt);
         trackEvent(
@@ -3659,6 +3827,7 @@ export default function VideoDateScreen() {
     });
     setCallError(null);
     remoteParticipantRef.current = null;
+    lastNativeRemoteCameraSwitchHintIdRef.current = null;
     resetNativeRemoteRenderRecovery(null, 'retry_initial_connect');
     setRemoteParticipant(null);
     vdbg('prejoin_state_localInDailyRoom', {
@@ -3966,6 +4135,7 @@ export default function VideoDateScreen() {
           state: entry.state,
         });
         setLocalInDailyRoom(true);
+        localParticipantRef.current = local as DailyParticipant;
         setLocalParticipant(local as DailyParticipant | null);
         applyLocalMediaUiFromParticipant(local as DailyParticipant, { setIsVideoOff, setIsMuted });
         if (remotes.length > 0) {
@@ -3977,6 +4147,7 @@ export default function VideoDateScreen() {
           setAwaitingFirstConnect(false);
         } else {
           remoteParticipantRef.current = null;
+          lastNativeRemoteCameraSwitchHintIdRef.current = null;
           resetNativeRemoteRenderRecovery(null, 'shared_call_snapshot_no_remote');
           setRemoteParticipant(null);
           setAwaitingFirstConnect(true);
@@ -5031,6 +5202,10 @@ export default function VideoDateScreen() {
           checkpoint: 'daily_join_started',
           nowMs: dailyJoinStartedAtMs,
           attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+          entryAttemptId,
+          videoDateTraceId,
+          cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+          providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -5191,6 +5366,10 @@ export default function VideoDateScreen() {
           checkpoint: 'daily_join_success',
           nowMs: Date.now(),
           attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
+          entryAttemptId,
+          videoDateTraceId,
+          cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+          providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
         });
         const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
           context: joinSuccessLatencyContext,
@@ -5320,6 +5499,7 @@ export default function VideoDateScreen() {
         });
         const local = participants?.local;
         if (local) {
+          localParticipantRef.current = local;
           setLocalParticipant(local);
           applyLocalMediaUiFromParticipant(local, { setIsVideoOff, setIsMuted });
         }
@@ -5345,6 +5525,10 @@ export default function VideoDateScreen() {
               eventId: eventId || null,
               sourceSurface: 'video_date_daily',
               checkpoint: 'remote_seen',
+              entryAttemptId,
+              videoDateTraceId,
+              cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+              providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
             });
             const latencyPayload = buildReadyGateToDateLatencyPayload({
               context: latencyContext,
@@ -5985,24 +6169,222 @@ export default function VideoDateScreen() {
     setIsVideoOff(nextVideoOff);
   }, [isVideoOff]);
 
+  const readNativeLocalCameraSnapshot = useCallback((call: DailyCallObject | null | undefined) => {
+    let local = localParticipantRef.current;
+    try {
+      const callLocal = call?.participants?.()?.local as DailyParticipant | undefined;
+      if (callLocal) {
+        local = callLocal;
+        localParticipantRef.current = callLocal;
+      }
+    } catch {
+      /* Keep the most recent participant snapshot from Daily events. */
+    }
+    return nativeLocalCameraSnapshot(local);
+  }, []);
+
+  const waitForNativeCameraSwitchCommit = useCallback(
+    async (
+      controls: NativeDailyCameraControls,
+      call: DailyCallObject,
+      before: NativeLocalCameraSnapshot,
+      method: NativeCameraSwitchCommitMethod,
+      expectedFacing: NativeDailyCameraFacingMode | null
+    ): Promise<NativeCameraSwitchCommit | null> => {
+      const startedAtMs = Date.now();
+      while (Date.now() - startedAtMs <= NATIVE_CAMERA_SWITCH_COMMIT_TIMEOUT_MS) {
+        let controlsFacing: NativeDailyCameraFacingMode | null = null;
+        try {
+          controlsFacing =
+            typeof controls.getCameraFacingMode === 'function'
+              ? normalizeNativeCameraFacingMode(await controls.getCameraFacingMode())
+              : null;
+        } catch {
+          controlsFacing = null;
+        }
+
+        const snapshot = readNativeLocalCameraSnapshot(call);
+        const committedFacing = controlsFacing ?? snapshot.facingMode;
+        const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
+        const deviceChanged = Boolean(before.deviceId && snapshot.deviceId && snapshot.deviceId !== before.deviceId);
+        const facingChanged = Boolean(before.facingMode && committedFacing && committedFacing !== before.facingMode);
+        const expectedFacingMatched = Boolean(
+          expectedFacing &&
+            expectedFacing !== before.facingMode &&
+            committedFacing === expectedFacing
+        );
+        const live = snapshot.readyState === 'live' && snapshot.enabled !== false;
+
+        if (live && (trackChanged || deviceChanged || facingChanged || expectedFacingMatched || !before.trackId)) {
+          return {
+            ...snapshot,
+            facingMode: committedFacing,
+            method,
+            latencyMs: Date.now() - startedAtMs,
+          };
+        }
+
+        await sleepNativeCameraSwitch(NATIVE_CAMERA_SWITCH_COMMIT_POLL_MS);
+      }
+      return null;
+    },
+    [readNativeLocalCameraSnapshot]
+  );
+
   useEffect(() => {
-    const controls = callRef.current as unknown as NativeDailyCameraControls | null;
-    setCanFlipCamera(Platform.OS !== 'web' && typeof controls?.cycleCamera === 'function');
-  }, [localParticipant, joinAttemptNonce]);
+    let cancelled = false;
+
+    const refresh = async () => {
+      const controls = callRef.current as unknown as NativeDailyCameraControls | null;
+      if (
+        Platform.OS === 'web' ||
+        isVideoOff ||
+        (!controls || (typeof controls.cycleCamera !== 'function' && typeof controls.setCamera !== 'function'))
+      ) {
+        if (!cancelled) setCanFlipCamera(false);
+        return;
+      }
+
+      if (typeof controls.enumerateDevices === 'function') {
+        try {
+          const result = await controls.enumerateDevices();
+          const videoDeviceCount = (result.devices ?? []).filter(
+            (device) => device.kind === undefined || device.kind === 'videoinput'
+          ).length;
+          if (!cancelled) setCanFlipCamera(videoDeviceCount > 1);
+          return;
+        } catch {
+          /* Fall back to capability detection below. */
+        }
+      }
+
+      if (!cancelled) setCanFlipCamera(true);
+    };
+
+    void refresh();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isVideoOff, localParticipant, joinAttemptNonce]);
+
+  useEffect(() => {
+    if (isVideoOff) setCanFlipCamera(false);
+  }, [isVideoOff]);
 
   const handleFlipCamera = useCallback(async () => {
-    const controls = callRef.current as unknown as NativeDailyCameraControls | null;
-    if (!controls || typeof controls.cycleCamera !== 'function' || isFlippingCamera || isVideoOff) {
-      if (!controls || typeof controls?.cycleCamera !== 'function') setCanFlipCamera(false);
+    const call = callRef.current;
+    const controls = call as unknown as NativeDailyCameraControls | null;
+    if (
+      !call ||
+      !controls ||
+      isFlippingCamera ||
+      nativeCameraSwitchInFlightRef.current ||
+      isVideoOff ||
+      (typeof controls.setCamera !== 'function' && typeof controls.cycleCamera !== 'function')
+    ) {
+      if (!controls || (typeof controls?.setCamera !== 'function' && typeof controls?.cycleCamera !== 'function')) {
+        setCanFlipCamera(false);
+      }
       return;
     }
 
+    nativeCameraSwitchInFlightRef.current = true;
     setIsFlippingCamera(true);
     try {
-      const result = await controls.cycleCamera();
+      const before = readNativeLocalCameraSnapshot(call);
+      let currentFacing: NativeDailyCameraFacingMode | null = before.facingMode;
+      if (typeof controls.getCameraFacingMode === 'function') {
+        try {
+          currentFacing = normalizeNativeCameraFacingMode(await controls.getCameraFacingMode()) ?? currentFacing;
+        } catch {
+          currentFacing = before.facingMode;
+        }
+      }
+      const desiredFacing = oppositeNativeCameraFacingMode(currentFacing);
+      let commit: NativeCameraSwitchCommit | null = null;
+
+      if (typeof controls.enumerateDevices === 'function' && typeof controls.setCamera === 'function') {
+        try {
+          const result = await controls.enumerateDevices();
+          const targetDevice = chooseNativeCameraDevice(result.devices ?? [], desiredFacing, before);
+          const targetDeviceId = nativeCameraDeviceId(targetDevice);
+          if (targetDeviceId != null) {
+            const setResult = await controls.setCamera(targetDeviceId);
+            const expectedFacing =
+              desiredFacing ??
+              nativeCameraDeviceFacingMode(targetDevice) ??
+              normalizeNativeCameraFacingMode(setResult?.device?.facingMode);
+            commit = await waitForNativeCameraSwitchCommit(controls, call, before, 'set_camera', expectedFacing);
+          }
+        } catch (setCameraError) {
+          videoDateDailyDiagnostic('native_camera_set_camera_failed', {
+            sessionId: sessionId ?? null,
+            eventId: eventId || null,
+            desired_facing_mode: desiredFacing,
+            error: describeNativeCameraSwitchError(setCameraError),
+          });
+        }
+      }
+
+      if (!commit && typeof controls.cycleCamera === 'function') {
+        const result = await controls.cycleCamera();
+        commit = await waitForNativeCameraSwitchCommit(
+          controls,
+          call,
+          before,
+          'cycle_camera',
+          normalizeNativeCameraFacingMode(result?.device?.facingMode) ?? desiredFacing
+        );
+      }
+
+      if (!commit) {
+        const after = readNativeLocalCameraSnapshot(call);
+        videoDateDailyDiagnostic('native_camera_switch_commit_failed', {
+          sessionId: sessionId ?? null,
+          eventId: eventId || null,
+          desired_facing_mode: desiredFacing,
+          before,
+          after,
+        });
+        trackEvent('video_date_camera_switch_commit_failed', {
+          platform: 'native',
+          session_id: sessionId ?? null,
+          event_id: eventId || null,
+          source_surface: 'video_date_call',
+          source_action: 'camera_switch_commit_failed',
+          desired_facing_mode: desiredFacing,
+          before_track_id: before.trackId,
+          before_device_id: before.deviceId,
+          before_facing_mode: before.facingMode,
+          after_track_id: after.trackId,
+          after_device_id: after.deviceId,
+          after_facing_mode: after.facingMode,
+          after_ready_state: after.readyState,
+        });
+        return;
+      }
+
+      trackEvent('video_date_camera_switch_committed', {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: eventId || null,
+        source_surface: 'video_date_call',
+        source_action: 'camera_switch_committed',
+        method: commit.method,
+        facing_mode: commit.facingMode,
+        local_video_track_id: commit.trackId,
+        local_video_device_id: commit.deviceId,
+        commit_latency_ms: commit.latencyMs,
+      });
+
       const hint = createVideoDateCameraSwitchRenderHint({
         sourcePlatform: 'native',
-        facingMode: result?.device?.facingMode ?? null,
+        facingMode: commit.facingMode,
+        commitConfirmed: true,
+        commitMethod: commit.method,
+        localVideoTrackId: commit.trackId,
+        commitLatencyMs: commit.latencyMs,
       });
       try {
         const appMessageControls = callRef.current as unknown as NativeDailyAppMessageControls | null;
@@ -6012,31 +6394,51 @@ export default function VideoDateScreen() {
           eventId: eventId || null,
           switch_id: hint.switchId,
           facing_mode: hint.facingMode,
+          commit_method: hint.commitMethod,
+          local_video_track_id: hint.localVideoTrackId,
+          commit_latency_ms: hint.commitLatencyMs,
         });
       } catch (hintError) {
         videoDateDailyDiagnostic('native_camera_switch_render_hint_send_failed', {
           sessionId: sessionId ?? null,
           eventId: eventId || null,
           switch_id: hint.switchId,
-          error: hintError instanceof Error ? hintError.message : String(hintError),
+          error: describeNativeCameraSwitchError(hintError),
         });
       }
       videoDateDailyDiagnostic('native_camera_flipped', {
         sessionId: sessionId ?? null,
         eventId: eventId || null,
-        next_facing_mode: result?.device?.facingMode ?? null,
+        next_facing_mode: commit.facingMode,
+        commit_method: commit.method,
+        commit_latency_ms: commit.latencyMs,
       });
     } catch (error) {
-      setCanFlipCamera(false);
       videoDateDailyDiagnostic('native_camera_flip_failed', {
         sessionId: sessionId ?? null,
         eventId: eventId || null,
-        error: error instanceof Error ? error.message : String(error),
+        error: describeNativeCameraSwitchError(error),
+      });
+      trackEvent('video_date_flip_camera_failed', {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: eventId || null,
+        source_surface: 'video_date_call',
+        source_action: 'flip_camera_failed',
+        reason_code: error instanceof Error ? error.name : 'unknown',
       });
     } finally {
+      nativeCameraSwitchInFlightRef.current = false;
       setIsFlippingCamera(false);
     }
-  }, [eventId, isFlippingCamera, isVideoOff, sessionId]);
+  }, [
+    eventId,
+    isFlippingCamera,
+    isVideoOff,
+    readNativeLocalCameraSnapshot,
+    sessionId,
+    waitForNativeCameraSwitchCommit,
+  ]);
 
   const totalTime =
     phase === 'handshake'

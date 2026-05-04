@@ -230,6 +230,8 @@ export async function prepareVideoDateEntry(
       checkpoint,
       nowMs: Date.now(),
       attemptCount,
+      entryAttemptId,
+      videoDateTraceId,
     });
     trackEvent(
       LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -345,6 +347,10 @@ export async function prepareVideoDateEntry(
       sourceSurface,
       checkpoint: "token_created",
       attemptCount,
+      entryAttemptId: result.data.entry_attempt_id ?? entryAttemptId,
+      videoDateTraceId: traceId,
+      cachedPrepareEntry: result.cached,
+      providerVerifySkipped,
     });
     trackEvent(
       LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,

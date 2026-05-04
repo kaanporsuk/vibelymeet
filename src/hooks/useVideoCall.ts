@@ -78,6 +78,8 @@ const REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK = 4;
 const REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE = 2;
 const REMOTE_RENDER_RECOVERY_ATTEMPT_TTL_MS = 30_000;
 const REMOTE_RENDER_RECOVERY_MAX_ATTEMPT_KEYS = 24;
+const CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
+const CAMERA_SWITCH_COMMIT_POLL_MS = 80;
 
 type RemoteVideoFrameCallbackMetadata = {
   presentedFrames?: number;
@@ -103,10 +105,35 @@ type RemoteRenderValidationOptions = {
   recoveryFollowUp?: boolean;
 };
 
+type VideoDateCameraFacingMode = "user" | "environment";
+
+type WebCameraSwitchCommitMethod = "cycle_camera" | "set_input_device" | "video_source";
+
+type WebCameraDevice = Partial<MediaDeviceInfo> & {
+  facing?: unknown;
+  facingMode?: unknown;
+  id?: unknown;
+  label?: unknown;
+};
+
+type LocalCameraSnapshot = {
+  trackId: string | null;
+  deviceId: string | null;
+  facingMode: VideoDateCameraFacingMode | null;
+  readyState: MediaStreamTrackState | null;
+  enabled: boolean | null;
+};
+
+type WebCameraSwitchCommit = LocalCameraSnapshot & {
+  method: WebCameraSwitchCommitMethod;
+  latencyMs: number;
+};
+
 function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined) {
   if (!track || typeof track.getSettings !== "function") return null;
   const settings = track.getSettings();
   return {
+    deviceId: typeof settings.deviceId === "string" ? settings.deviceId : null,
     width: typeof settings.width === "number" ? settings.width : null,
     height: typeof settings.height === "number" ? settings.height : null,
     aspectRatio: videoDateAspectRatio(settings.width, settings.height),
@@ -190,6 +217,124 @@ function withTimeout<T>(operation: string, promise: Promise<T>, timeoutMs: numbe
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeCameraFacingMode(value: unknown): VideoDateCameraFacingMode | null {
+  if (value === "user" || value === "environment") return value;
+  return null;
+}
+
+function oppositeCameraFacingMode(value: VideoDateCameraFacingMode | null): VideoDateCameraFacingMode | null {
+  if (value === "user") return "environment";
+  if (value === "environment") return "user";
+  return null;
+}
+
+function getDeviceId(device: WebCameraDevice | null | undefined): string | null {
+  if (!device) return null;
+  if (typeof device.deviceId === "string" && device.deviceId) return device.deviceId;
+  if (typeof device.id === "string" && device.id) return device.id;
+  return null;
+}
+
+function inferCameraFacingModeFromLabel(label: unknown): VideoDateCameraFacingMode | null {
+  if (typeof label !== "string") return null;
+  const normalized = label.toLowerCase();
+  if (/\b(front|user|self|face)\b/.test(normalized)) return "user";
+  if (/\b(back|rear|environment|world)\b/.test(normalized)) return "environment";
+  return null;
+}
+
+function getDeviceFacingMode(device: WebCameraDevice | null | undefined): VideoDateCameraFacingMode | null {
+  if (!device) return null;
+  return (
+    normalizeCameraFacingMode(device.facingMode) ??
+    normalizeCameraFacingMode(device.facing) ??
+    inferCameraFacingModeFromLabel(device.label)
+  );
+}
+
+function getTrackDeviceId(track: MediaStreamTrack | null | undefined): string | null {
+  if (!track || typeof track.getSettings !== "function") return null;
+  const settings = track.getSettings();
+  return typeof settings.deviceId === "string" && settings.deviceId ? settings.deviceId : null;
+}
+
+function getTrackFacingMode(track: MediaStreamTrack | null | undefined): VideoDateCameraFacingMode | null {
+  if (!track || typeof track.getSettings !== "function") return null;
+  return normalizeCameraFacingMode(track.getSettings().facingMode) ?? inferCameraFacingModeFromLabel(track.label);
+}
+
+function getLocalVideoTrack(participant: DailyParticipant | undefined): MediaStreamTrack | null {
+  return participant?.tracks?.video?.persistentTrack ?? null;
+}
+
+function getLocalCameraSnapshot(participant: DailyParticipant | undefined): LocalCameraSnapshot {
+  const track = getLocalVideoTrack(participant);
+  return {
+    trackId: track?.id ?? null,
+    deviceId: getTrackDeviceId(track),
+    facingMode: getTrackFacingMode(track),
+    readyState: track?.readyState ?? null,
+    enabled: typeof track?.enabled === "boolean" ? track.enabled : null,
+  };
+}
+
+async function enumerateWebVideoDevices(call: DailyCall): Promise<WebCameraDevice[]> {
+  try {
+    if (typeof call.enumerateDevices === "function") {
+      const dailyDevices = await call.enumerateDevices();
+      const devices = Array.isArray(dailyDevices?.devices) ? dailyDevices.devices : [];
+      const videoDevices = devices.filter((device) => device.kind === "videoinput");
+      if (videoDevices.length > 0) return videoDevices;
+    }
+  } catch {
+    /* Fall back to browser enumeration below. */
+  }
+
+  try {
+    const browserDevices = await navigator.mediaDevices?.enumerateDevices?.();
+    return (browserDevices ?? []).filter((device) => device.kind === "videoinput");
+  } catch {
+    return [];
+  }
+}
+
+function chooseWebVideoDevice(
+  devices: WebCameraDevice[],
+  before: LocalCameraSnapshot,
+  desiredFacing: VideoDateCameraFacingMode | null,
+): WebCameraDevice | null {
+  if (devices.length === 0) return null;
+  const currentDeviceId = before.deviceId;
+  const candidates = currentDeviceId
+    ? devices.filter((device) => getDeviceId(device) !== currentDeviceId)
+    : devices;
+  if (currentDeviceId && candidates.length === 0) return null;
+  if (desiredFacing) {
+    const facingMatch = candidates.find((device) => getDeviceFacingMode(device) === desiredFacing);
+    if (facingMatch) return facingMatch;
+    if (!currentDeviceId) return null;
+  }
+  return currentDeviceId ? candidates[0] ?? null : null;
+}
+
+function videoOnlyCameraSwitchConstraints(
+  profile: VideoDateMediaCaptureProfile,
+  desiredFacing: VideoDateCameraFacingMode | null,
+): MediaStreamConstraints {
+  const baseVideo = videoDateWebMediaStreamConstraints(profile).video;
+  const video =
+    baseVideo && typeof baseVideo === "object"
+      ? ({ ...baseVideo } as MediaTrackConstraints)
+      : ({} as MediaTrackConstraints);
+  if (desiredFacing) video.facingMode = { ideal: desiredFacing };
+  return { audio: false, video };
+}
+
+function describeCameraSwitchError(error: unknown): { name: string; message: string } {
+  if (error instanceof Error) return { name: error.name || "Error", message: error.message };
+  return { name: "unknown", message: String(error) };
 }
 
 function isInvokeTimeoutError(error: unknown): boolean {
@@ -332,6 +477,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const activeCallSessionIdRef = useRef<string | null>(null);
   const latestLocalParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
+  const cameraSwitchInFlightRef = useRef(false);
+  const lastRemoteCameraSwitchHintIdRef = useRef<string | null>(null);
   const reconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectGraceTickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectRecoveryResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -431,6 +578,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         sourceSurface: "video_date_daily",
         checkpoint: "first_remote_frame",
         nowMs,
+        entryAttemptId: entry?.entryAttemptId ?? entry?.value.entry_attempt_id ?? null,
+        videoDateTraceId: entry?.value.video_date_trace_id ?? entry?.entryAttemptId ?? null,
+        cachedPrepareEntry: Boolean(entry),
       });
       trackEvent(
         LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -1022,6 +1172,162 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
   scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;
 
+  const readLocalCameraSnapshot = useCallback((call: DailyCall): LocalCameraSnapshot => {
+    let localParticipant = latestLocalParticipantRef.current;
+    try {
+      localParticipant = call.participants().local ?? localParticipant;
+    } catch {
+      /* Keep the most recent participant snapshot from Daily events. */
+    }
+    return getLocalCameraSnapshot(localParticipant);
+  }, []);
+
+  const waitForLocalCameraSwitchCommit = useCallback(
+    async (
+      call: DailyCall,
+      before: LocalCameraSnapshot,
+      method: WebCameraSwitchCommitMethod,
+      opts: {
+        expectedFacing?: VideoDateCameraFacingMode | null;
+        expectedDeviceId?: string | null;
+        timeoutMs?: number;
+      } = {},
+    ): Promise<WebCameraSwitchCommit | null> => {
+      const startedAtMs = Date.now();
+      const timeoutMs = opts.timeoutMs ?? CAMERA_SWITCH_COMMIT_TIMEOUT_MS;
+      while (Date.now() - startedAtMs <= timeoutMs) {
+        const snapshot = readLocalCameraSnapshot(call);
+        const trackChanged = Boolean(before.trackId && snapshot.trackId && snapshot.trackId !== before.trackId);
+        const deviceChanged = Boolean(before.deviceId && snapshot.deviceId && snapshot.deviceId !== before.deviceId);
+        const facingChanged = Boolean(before.facingMode && snapshot.facingMode && snapshot.facingMode !== before.facingMode);
+        const expectedDeviceMatched = Boolean(
+          opts.expectedDeviceId &&
+            opts.expectedDeviceId !== before.deviceId &&
+            snapshot.deviceId === opts.expectedDeviceId
+        );
+        const expectedFacingMatched = Boolean(
+          opts.expectedFacing &&
+            opts.expectedFacing !== before.facingMode &&
+            snapshot.facingMode === opts.expectedFacing
+        );
+        const live = snapshot.readyState === "live" && snapshot.enabled !== false;
+
+        if (
+          live &&
+          (trackChanged ||
+            deviceChanged ||
+            facingChanged ||
+            expectedDeviceMatched ||
+            expectedFacingMatched ||
+            !before.trackId)
+        ) {
+          return {
+            ...snapshot,
+            method,
+            latencyMs: Date.now() - startedAtMs,
+          };
+        }
+
+        await sleep(CAMERA_SWITCH_COMMIT_POLL_MS);
+      }
+      return null;
+    },
+    [readLocalCameraSnapshot],
+  );
+
+  const fallbackToDeterministicWebCamera = useCallback(
+    async (
+      call: DailyCall,
+      before: LocalCameraSnapshot,
+      desiredFacing: VideoDateCameraFacingMode | null,
+    ): Promise<WebCameraSwitchCommit | null> => {
+      if (typeof call.setInputDevicesAsync !== "function") return null;
+
+      const devices = await enumerateWebVideoDevices(call);
+      const device = chooseWebVideoDevice(devices, before, desiredFacing);
+      const deviceId = getDeviceId(device);
+      if (deviceId) {
+        await call.setInputDevicesAsync({ videoDeviceId: deviceId });
+        const deviceCommit = await waitForLocalCameraSwitchCommit(call, before, "set_input_device", {
+          expectedDeviceId: deviceId,
+          expectedFacing: getDeviceFacingMode(device) ?? desiredFacing,
+        });
+        if (deviceCommit) return deviceCommit;
+      }
+
+      if (typeof navigator === "undefined" || typeof navigator.mediaDevices?.getUserMedia !== "function") {
+        return null;
+      }
+
+      let stream: MediaStream | null = null;
+      let videoTrack: MediaStreamTrack | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          videoOnlyCameraSwitchConstraints(captureProfileRef.current, desiredFacing)
+        );
+        videoTrack = stream.getVideoTracks()[0] ?? null;
+        if (!videoTrack) return null;
+        await call.setInputDevicesAsync({ videoSource: videoTrack });
+        const sourceCommit = await waitForLocalCameraSwitchCommit(call, before, "video_source", {
+          expectedDeviceId: getTrackDeviceId(videoTrack),
+          expectedFacing: getTrackFacingMode(videoTrack) ?? desiredFacing,
+        });
+        if (sourceCommit) return sourceCommit;
+        videoTrack.stop();
+        return null;
+      } catch (error) {
+        videoTrack?.stop();
+        vdbg("daily_camera_switch_video_source_fallback_failed", {
+          sessionId: activeCallSessionIdRef.current,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          platform: "web",
+          desiredFacing,
+          error: describeCameraSwitchError(error),
+        });
+        return null;
+      } finally {
+        stream?.getAudioTracks().forEach((track) => track.stop());
+      }
+    },
+    [waitForLocalCameraSwitchCommit],
+  );
+
+  const sendCommittedCameraSwitchHint = useCallback(async (call: DailyCall, commit: WebCameraSwitchCommit) => {
+    if (typeof call.sendAppMessage !== "function") {
+      vdbg("daily_camera_switch_render_hint_send_failed", {
+        sessionId: activeCallSessionIdRef.current,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: optionsRef.current?.userId ?? null,
+        platform: "web",
+        reason: "send_app_message_unavailable",
+      });
+      return;
+    }
+
+    const hint = createVideoDateCameraSwitchRenderHint({
+      sourcePlatform: "web",
+      facingMode: commit.facingMode,
+      commitConfirmed: true,
+      commitMethod: commit.method,
+      localVideoTrackId: commit.trackId,
+      commitLatencyMs: commit.latencyMs,
+    });
+
+    await Promise.resolve(call.sendAppMessage(hint));
+    vdbg("daily_camera_switch_render_hint_sent", {
+      sessionId: activeCallSessionIdRef.current,
+      eventId: optionsRef.current?.eventId ?? null,
+      userId: optionsRef.current?.userId ?? null,
+      platform: "web",
+      switchId: hint.switchId,
+      facingMode: hint.facingMode,
+      commitMethod: hint.commitMethod,
+      localVideoTrackId: hint.localVideoTrackId,
+      commitLatencyMs: hint.commitLatencyMs,
+    });
+  }, []);
+
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
       const permissionStartedAt = Date.now();
@@ -1073,6 +1379,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: eventId ?? null,
           sourceSurface: "video_date_daily",
           checkpoint: "permission_check_success",
+          permissionHandoffUsed: true,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -1142,6 +1449,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: eventId ?? null,
           sourceSurface: "video_date_daily",
           checkpoint: "permission_check_success",
+          permissionHandoffUsed: false,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -1312,6 +1620,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       lastRemoteMountedTrackKeyRef.current = "";
       latestLocalParticipantRef.current = undefined;
       latestRemoteParticipantRef.current = undefined;
+      cameraSwitchInFlightRef.current = false;
+      lastRemoteCameraSwitchHintIdRef.current = null;
     },
     [clearFirstRemoteWatchdog, clearReconnectGraceTimers, clearRemoteRenderValidation, resetRemoteRenderRecoveryAttempts]
   );
@@ -1943,6 +2253,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 eventId: truthRow.event_id ?? eventId,
                 sourceSurface: "video_date_daily",
                 checkpoint: "remote_seen",
+                entryAttemptId,
+                videoDateTraceId,
+                cachedPrepareEntry: roomResult.cached,
+                providerVerifySkipped: roomData.provider_verify_skipped ?? null,
               });
               const latencyPayload = buildReadyGateToDateLatencyPayload({
                 context: latencyContext,
@@ -2017,6 +2331,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 eventId: truthRow.event_id ?? eventId,
                 sourceSurface: "video_date_daily",
                 checkpoint: "remote_seen",
+                entryAttemptId,
+                videoDateTraceId,
+                cachedPrepareEntry: roomResult.cached,
+                providerVerifySkipped: roomData.provider_verify_skipped ?? null,
               });
               const latencyPayload = buildReadyGateToDateLatencyPayload({
                 context: latencyContext,
@@ -2084,6 +2402,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             clearRemoteRenderValidation({ cancelReattach: true });
             resetRemoteRenderRecoveryAttempts();
             lastRemoteRenderParticipantIdRef.current = null;
+            lastRemoteCameraSwitchHintIdRef.current = null;
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
             setRemotePlayback(createRemotePlaybackState());
@@ -2136,6 +2455,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           clearRemoteRenderValidation({ cancelReattach: true });
           resetRemoteRenderRecoveryAttempts();
           lastRemoteRenderParticipantIdRef.current = null;
+          lastRemoteCameraSwitchHintIdRef.current = null;
           vdbg("daily_call_left_meeting", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
@@ -2208,6 +2528,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
 
           const participant = latestRemoteParticipantRef.current;
+          if (lastRemoteCameraSwitchHintIdRef.current !== hint.switchId) {
+            lastRemoteCameraSwitchHintIdRef.current = hint.switchId;
+            resetRemoteRenderRecoveryAttempts();
+          }
           vdbg("daily_camera_switch_render_hint_received", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
@@ -2215,6 +2539,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             switchId: hint.switchId,
             sourcePlatform: hint.sourcePlatform,
             facingMode: hint.facingMode,
+            commitConfirmed: hint.commitConfirmed,
+            commitMethod: hint.commitMethod,
+            localVideoTrackId: hint.localVideoTrackId,
+            commitLatencyMs: hint.commitLatencyMs,
             fromId: fromId || null,
             hasRemoteParticipant: Boolean(participant),
           });
@@ -2284,6 +2612,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           checkpoint: "daily_join_started",
           nowMs: dailyJoinStartedAtMs,
           attemptCount: opts?.internalRetry ? 2 : 1,
+          entryAttemptId,
+          videoDateTraceId,
+          cachedPrepareEntry: roomResult.cached,
+          providerVerifySkipped: roomData.provider_verify_skipped ?? null,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -2344,6 +2676,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           checkpoint: "daily_join_success",
           nowMs: Date.now(),
           attemptCount: opts?.internalRetry ? 2 : 1,
+          entryAttemptId,
+          videoDateTraceId,
+          cachedPrepareEntry: roomResult.cached,
+          providerVerifySkipped: roomData.provider_verify_skipped ?? null,
         });
         const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
           context: joinSuccessLatencyContext,
@@ -2390,7 +2726,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: truthRow.event_id ?? eventId,
           userId,
         });
-        const joinedConfirmation = await markDailyJoinedWithBackoff({
+        void markDailyJoinedWithBackoff({
           sleep,
           confirm: async (attempt) => {
             const { data: joinedData, error: joinedError } = await supabase.rpc(
@@ -2445,24 +2781,25 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               });
             }
           },
+        }).then((joinedConfirmation) => {
+          if (!joinedConfirmation.ok) {
+            void emitWebVideoDateClientStuckState({
+              sessionId,
+              eventName: "daily_join_confirmation_failed",
+              payload: {
+                source_surface: "video_date_daily",
+                source_action: "mark_video_date_daily_joined",
+                reason_code: joinedConfirmation.code ?? "unknown",
+                code: joinedConfirmation.code ?? "unknown",
+                retryable: joinedConfirmation.retryable,
+                exhausted: joinedConfirmation.exhausted,
+                attempt_count: joinedConfirmation.attempts,
+                entry_attempt_id: entryAttemptId ?? undefined,
+                video_date_trace_id: videoDateTraceId ?? undefined,
+              },
+            });
+          }
         });
-        if (!joinedConfirmation.ok) {
-          void emitWebVideoDateClientStuckState({
-            sessionId,
-            eventName: "daily_join_confirmation_failed",
-            payload: {
-              source_surface: "video_date_daily",
-              source_action: "mark_video_date_daily_joined",
-              reason_code: joinedConfirmation.code ?? "unknown",
-              code: joinedConfirmation.code ?? "unknown",
-              retryable: joinedConfirmation.retryable,
-              exhausted: joinedConfirmation.exhausted,
-              attempt_count: joinedConfirmation.attempts,
-              entry_attempt_id: entryAttemptId ?? undefined,
-              video_date_trace_id: videoDateTraceId ?? undefined,
-            },
-          });
-        }
 
         const localParticipant = callObject.participants().local;
         if (localParticipant) {
@@ -2853,17 +3190,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
     const refresh = async () => {
       const co = callObjectRef.current;
-      if (!co || typeof co.cycleCamera !== "function") {
+      if (!co || (typeof co.cycleCamera !== "function" && typeof co.setInputDevicesAsync !== "function")) {
         if (!cancelled) setCanFlipCamera(false);
         return;
       }
 
       try {
-        const devices = await navigator.mediaDevices?.enumerateDevices?.();
-        const videoInputCount = devices?.filter((device) => device.kind === "videoinput").length ?? 0;
-        if (!cancelled) setCanFlipCamera(videoInputCount > 1);
+        const devices = await enumerateWebVideoDevices(co);
+        if (!cancelled) setCanFlipCamera(!isVideoOff && devices.length > 1);
       } catch {
-        if (!cancelled) setCanFlipCamera(true);
+        if (!cancelled) setCanFlipCamera(!isVideoOff && typeof co.cycleCamera === "function");
       }
     };
 
@@ -2872,58 +3208,91 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     return () => {
       cancelled = true;
     };
-  }, [isConnected, localStream]);
+  }, [isConnected, isVideoOff, localStream]);
 
   const flipCamera = useCallback(async () => {
     const co = callObjectRef.current;
-    if (!co || typeof co.cycleCamera !== "function" || isFlippingCamera) return;
+    if (!co || isFlippingCamera || cameraSwitchInFlightRef.current || isVideoOff) return;
+    if (typeof co.cycleCamera !== "function" && typeof co.setInputDevicesAsync !== "function") {
+      setCanFlipCamera(false);
+      return;
+    }
 
+    cameraSwitchInFlightRef.current = true;
     setIsFlippingCamera(true);
     try {
-      const result = await co.cycleCamera({ preferDifferentFacingMode: true });
-      if (typeof co.sendAppMessage === "function") {
-        try {
-          const hint = createVideoDateCameraSwitchRenderHint({
-            sourcePlatform: "web",
-            facingMode:
-              result?.device && "facingMode" in result.device && typeof result.device.facingMode === "string"
-                ? result.device.facingMode
-                : null,
-          });
-          void Promise.resolve(co.sendAppMessage(hint))
-            .then(() => {
-              vdbg("daily_camera_switch_render_hint_sent", {
-                sessionId: activeCallSessionIdRef.current,
-                eventId: optionsRef.current?.eventId ?? null,
-                userId: optionsRef.current?.userId ?? null,
-                platform: "web",
-                switchId: hint.switchId,
-                facingMode: hint.facingMode,
-              });
-            })
-            .catch((hintError) => {
-              vdbg("daily_camera_switch_render_hint_send_failed", {
-                sessionId: activeCallSessionIdRef.current,
-                eventId: optionsRef.current?.eventId ?? null,
-                userId: optionsRef.current?.userId ?? null,
-                platform: "web",
-                switchId: hint.switchId,
-                error:
-                  hintError instanceof Error ? { name: hintError.name, message: hintError.message } : String(hintError),
-              });
-            });
-        } catch (hintError) {
-          vdbg("daily_camera_switch_render_hint_send_failed", {
-            sessionId: activeCallSessionIdRef.current,
-            eventId: optionsRef.current?.eventId ?? null,
-            userId: optionsRef.current?.userId ?? null,
-            platform: "web",
-            error: hintError instanceof Error ? { name: hintError.name, message: hintError.message } : String(hintError),
-          });
-        }
+      const before = readLocalCameraSnapshot(co);
+      const desiredFacing = oppositeCameraFacingMode(before.facingMode);
+      let commit: WebCameraSwitchCommit | null = null;
+
+      if (typeof co.cycleCamera === "function") {
+        const result = await co.cycleCamera({ preferDifferentFacingMode: true });
+        const resultDevice = result?.device as WebCameraDevice | null | undefined;
+        commit = await waitForLocalCameraSwitchCommit(co, before, "cycle_camera", {
+          expectedDeviceId: getDeviceId(resultDevice),
+          expectedFacing: getDeviceFacingMode(resultDevice) ?? desiredFacing,
+        });
+      }
+
+      if (!commit) {
+        commit = await fallbackToDeterministicWebCamera(co, before, desiredFacing);
+      }
+
+      if (!commit) {
+        const after = readLocalCameraSnapshot(co);
+        vdbg("daily_camera_switch_commit_failed", {
+          sessionId: activeCallSessionIdRef.current,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          platform: "web",
+          desiredFacing,
+          before,
+          after,
+        });
+        trackEvent("video_date_camera_switch_commit_failed", {
+          platform: "web",
+          session_id: activeCallSessionIdRef.current,
+          event_id: optionsRef.current?.eventId ?? null,
+          source_surface: "video_date_call",
+          source_action: "camera_switch_commit_failed",
+          desired_facing_mode: desiredFacing,
+          before_track_id: before.trackId,
+          before_device_id: before.deviceId,
+          before_facing_mode: before.facingMode,
+          after_track_id: after.trackId,
+          after_device_id: after.deviceId,
+          after_facing_mode: after.facingMode,
+          after_ready_state: after.readyState,
+        });
+        return;
+      }
+
+      trackEvent("video_date_camera_switch_committed", {
+        platform: "web",
+        session_id: activeCallSessionIdRef.current,
+        event_id: optionsRef.current?.eventId ?? null,
+        source_surface: "video_date_call",
+        source_action: "camera_switch_committed",
+        method: commit.method,
+        facing_mode: commit.facingMode,
+        local_video_track_id: commit.trackId,
+        local_video_device_id: commit.deviceId,
+        commit_latency_ms: commit.latencyMs,
+      });
+
+      try {
+        await sendCommittedCameraSwitchHint(co, commit);
+      } catch (hintError) {
+        vdbg("daily_camera_switch_render_hint_send_failed", {
+          sessionId: activeCallSessionIdRef.current,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          platform: "web",
+          commitMethod: commit.method,
+          error: describeCameraSwitchError(hintError),
+        });
       }
     } catch (error) {
-      setCanFlipCamera(false);
       trackEvent("video_date_flip_camera_failed", {
         platform: "web",
         session_id: activeCallSessionIdRef.current,
@@ -2932,10 +3301,25 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         source_action: "flip_camera_failed",
         reason_code: error instanceof Error ? error.name : "unknown",
       });
+      vdbg("daily_camera_flip_failed", {
+        sessionId: activeCallSessionIdRef.current,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: optionsRef.current?.userId ?? null,
+        platform: "web",
+        error: describeCameraSwitchError(error),
+      });
     } finally {
+      cameraSwitchInFlightRef.current = false;
       setIsFlippingCamera(false);
     }
-  }, [isFlippingCamera]);
+  }, [
+    fallbackToDeterministicWebCamera,
+    isFlippingCamera,
+    isVideoOff,
+    readLocalCameraSnapshot,
+    sendCommittedCameraSwitchHint,
+    waitForLocalCameraSwitchCommit,
+  ]);
 
   useEffect(() => {
     return () => {

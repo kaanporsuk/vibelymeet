@@ -4,6 +4,7 @@ import {
 } from "../analytics/lobbyToPostDateJourney";
 
 export type VideoDateOperatorMetricId =
+  | "ready_tap_to_first_remote_frame_latency"
   | "ready_gate_open_to_date_join_latency"
   | "simultaneous_swipe_collision_rate"
   | "survey_to_next_ready_gate_conversion"
@@ -37,6 +38,15 @@ export type VideoDateOperatorMetricDefinition = {
 };
 
 export const VIDEO_DATE_OPERATOR_METRIC_DEFINITIONS = [
+  {
+    id: "ready_tap_to_first_remote_frame_latency",
+    label: "Ready tap to first remote frame latency",
+    source: "mixed",
+    primarySources: ["video_date_launch_latency_checkpoint", "ready_gate_to_date_latency_checkpoint"],
+    thresholds: { warning: 8_000, critical: 15_000, direction: "lower_is_better" },
+    unit: "milliseconds",
+    limitation: "Durable samples require the authenticated client launch-latency checkpoint mirror.",
+  },
   {
     id: "ready_gate_open_to_date_join_latency",
     label: "Ready Gate open to date join latency",
@@ -171,6 +181,11 @@ export type ReadyGateToDateLatencyContext = {
   sessionId: string;
   eventId?: string | null;
   sourceSurface: string;
+  entryAttemptId?: string | null;
+  videoDateTraceId?: string | null;
+  cachedPrepareEntry?: boolean | null;
+  providerVerifySkipped?: boolean | null;
+  permissionHandoffUsed?: boolean | null;
   readyGateOpenedAtMs?: number;
   readyTapAtMs?: number;
   readyGateTransitionStartedAtMs?: number;
@@ -204,6 +219,12 @@ export type ReadyGateToDateLatencyContext = {
 
 export type ReadyGateToDateLatencyDurations = {
   readyGateOpenToReadyTapMs: number | null;
+  readyTapToBothReadyMs: number | null;
+  readyTapToPrepareEntryMs: number | null;
+  readyTapToDateRouteMs: number | null;
+  readyTapToDailyJoinMs: number | null;
+  readyTapToRemoteSeenMs: number | null;
+  readyTapToFirstRemoteFrameMs: number | null;
   bothReadyToDateRouteMs: number | null;
   bothReadyToDailyTokenMs: number | null;
   bothReadyToDailyJoinMs: number | null;
@@ -211,6 +232,11 @@ export type ReadyGateToDateLatencyDurations = {
   bothReadyToFirstRemoteFrameMs: number | null;
   bothReadyToVideoStageShellMs: number | null;
   bothReadyToLocalVideoReadyMs: number | null;
+  dateRouteBootstrapMs: number | null;
+  dateRouteToDailyJoinMs: number | null;
+  dailyJoinToRemoteSeenMs: number | null;
+  dailyJoinToFirstRemoteFrameMs: number | null;
+  remoteSeenToFirstRemoteFrameMs: number | null;
   firstRemoteFrameToReadableMs: number | null;
   dailyTokenDurationMs: number | null;
   dailyJoinDurationMs: number | null;
@@ -300,12 +326,22 @@ export function startReadyGateToDateLatencyContext({
   sessionId,
   eventId,
   sourceSurface,
+  entryAttemptId,
+  videoDateTraceId,
+  cachedPrepareEntry,
+  providerVerifySkipped,
+  permissionHandoffUsed,
   nowMs = Date.now(),
 }: {
   platform: LobbyPostDatePlatform;
   sessionId: string;
   eventId?: string | null;
   sourceSurface: string;
+  entryAttemptId?: string | null;
+  videoDateTraceId?: string | null;
+  cachedPrepareEntry?: boolean | null;
+  providerVerifySkipped?: boolean | null;
+  permissionHandoffUsed?: boolean | null;
   nowMs?: number;
 }): ReadyGateToDateLatencyContext {
   const context: ReadyGateToDateLatencyContext = {
@@ -313,6 +349,11 @@ export function startReadyGateToDateLatencyContext({
     sessionId,
     eventId,
     sourceSurface,
+    entryAttemptId,
+    videoDateTraceId,
+    cachedPrepareEntry,
+    providerVerifySkipped,
+    permissionHandoffUsed,
     readyGateOpenedAtMs: nowMs,
   };
   readyGateToDateLatencyContexts.set(sessionId, context);
@@ -334,6 +375,11 @@ export function recordReadyGateToDateLatencyCheckpoint({
   checkpoint,
   nowMs = Date.now(),
   attemptCount,
+  entryAttemptId,
+  videoDateTraceId,
+  cachedPrepareEntry,
+  providerVerifySkipped,
+  permissionHandoffUsed,
 }: {
   sessionId: string;
   platform?: LobbyPostDatePlatform;
@@ -342,6 +388,11 @@ export function recordReadyGateToDateLatencyCheckpoint({
   checkpoint: ReadyGateToDateLatencyCheckpoint;
   nowMs?: number;
   attemptCount?: number;
+  entryAttemptId?: string | null;
+  videoDateTraceId?: string | null;
+  cachedPrepareEntry?: boolean | null;
+  providerVerifySkipped?: boolean | null;
+  permissionHandoffUsed?: boolean | null;
 }): ReadyGateToDateLatencyContext {
   const context =
     readyGateToDateLatencyContexts.get(sessionId) ??
@@ -355,6 +406,11 @@ export function recordReadyGateToDateLatencyCheckpoint({
   if (eventId !== undefined) context.eventId = eventId;
   if (sourceSurface) context.sourceSurface = sourceSurface;
   if (attemptCount !== undefined) context.attemptCount = attemptCount;
+  if (entryAttemptId !== undefined) context.entryAttemptId = entryAttemptId;
+  if (videoDateTraceId !== undefined) context.videoDateTraceId = videoDateTraceId;
+  if (cachedPrepareEntry !== undefined) context.cachedPrepareEntry = cachedPrepareEntry;
+  if (providerVerifySkipped !== undefined) context.providerVerifySkipped = providerVerifySkipped;
+  if (permissionHandoffUsed !== undefined) context.permissionHandoffUsed = permissionHandoffUsed;
 
   const field = checkpointField(checkpoint);
   (context as Record<string, unknown>)[field] = nowMs;
@@ -367,6 +423,12 @@ export function getReadyGateToDateLatencyDurations(
 ): ReadyGateToDateLatencyDurations {
   return {
     readyGateOpenToReadyTapMs: diffMs(context?.readyGateOpenedAtMs, context?.readyTapAtMs),
+    readyTapToBothReadyMs: diffMs(context?.readyTapAtMs, context?.bothReadyObservedAtMs),
+    readyTapToPrepareEntryMs: diffMs(context?.readyTapAtMs, context?.prepareEntryCompletedAtMs),
+    readyTapToDateRouteMs: diffMs(context?.readyTapAtMs, context?.dateRouteEnteredAtMs),
+    readyTapToDailyJoinMs: diffMs(context?.readyTapAtMs, context?.dailyJoinCompletedAtMs),
+    readyTapToRemoteSeenMs: diffMs(context?.readyTapAtMs, context?.remoteSeenAtMs),
+    readyTapToFirstRemoteFrameMs: diffMs(context?.readyTapAtMs, context?.firstRemoteFrameAtMs),
     bothReadyToDateRouteMs: diffMs(context?.bothReadyObservedAtMs, context?.dateRouteEnteredAtMs),
     bothReadyToDailyTokenMs: diffMs(context?.bothReadyObservedAtMs, context?.dailyTokenCompletedAtMs),
     bothReadyToDailyJoinMs: diffMs(context?.bothReadyObservedAtMs, context?.dailyJoinCompletedAtMs),
@@ -374,6 +436,11 @@ export function getReadyGateToDateLatencyDurations(
     bothReadyToFirstRemoteFrameMs: diffMs(context?.bothReadyObservedAtMs, context?.firstRemoteFrameAtMs),
     bothReadyToVideoStageShellMs: diffMs(context?.bothReadyObservedAtMs, context?.videoStageShellVisibleAtMs),
     bothReadyToLocalVideoReadyMs: diffMs(context?.bothReadyObservedAtMs, context?.localVideoReadyAtMs),
+    dateRouteBootstrapMs: diffMs(context?.dateRouteEnteredAtMs, context?.dailyJoinStartedAtMs),
+    dateRouteToDailyJoinMs: diffMs(context?.dateRouteEnteredAtMs, context?.dailyJoinCompletedAtMs),
+    dailyJoinToRemoteSeenMs: diffMs(context?.dailyJoinCompletedAtMs, context?.remoteSeenAtMs),
+    dailyJoinToFirstRemoteFrameMs: diffMs(context?.dailyJoinCompletedAtMs, context?.firstRemoteFrameAtMs),
+    remoteSeenToFirstRemoteFrameMs: diffMs(context?.remoteSeenAtMs, context?.firstRemoteFrameAtMs),
     firstRemoteFrameToReadableMs: diffMs(context?.firstRemoteFrameAtMs, context?.remoteReadableAtMs),
     dailyTokenDurationMs: diffMs(context?.dailyTokenStartedAtMs, context?.dailyTokenCompletedAtMs),
     dailyJoinDurationMs: diffMs(context?.dailyJoinStartedAtMs, context?.dailyJoinCompletedAtMs),
@@ -421,9 +488,40 @@ export function buildReadyGateToDateLatencyPayload({
     outcome,
     reason_code: reasonCode ?? null,
     attempt_count: attemptCount ?? context.attemptCount ?? null,
+    entry_attempt_id: context.entryAttemptId ?? null,
+    video_date_trace_id: context.videoDateTraceId ?? null,
+    cached_prepare_entry: context.cachedPrepareEntry ?? null,
+    provider_verify_skipped: context.providerVerifySkipped ?? null,
+    permission_handoff_used: context.permissionHandoffUsed ?? null,
     duration_ms: resolvedDurationMs,
     latency_bucket: bucketVideoDateLatencyMs(resolvedDurationMs),
     ...durations,
+    ready_gate_open_to_ready_tap_ms: durations.readyGateOpenToReadyTapMs,
+    ready_tap_to_both_ready_ms: durations.readyTapToBothReadyMs,
+    ready_tap_to_prepare_entry_ms: durations.readyTapToPrepareEntryMs,
+    ready_tap_to_date_route_ms: durations.readyTapToDateRouteMs,
+    ready_tap_to_daily_join_ms: durations.readyTapToDailyJoinMs,
+    ready_tap_to_remote_seen_ms: durations.readyTapToRemoteSeenMs,
+    ready_tap_to_first_remote_frame_ms: durations.readyTapToFirstRemoteFrameMs,
+    both_ready_to_date_route_ms: durations.bothReadyToDateRouteMs,
+    both_ready_to_daily_token_ms: durations.bothReadyToDailyTokenMs,
+    both_ready_to_daily_join_ms: durations.bothReadyToDailyJoinMs,
+    both_ready_to_remote_seen_ms: durations.bothReadyToRemoteSeenMs,
+    both_ready_to_first_remote_frame_ms: durations.bothReadyToFirstRemoteFrameMs,
+    both_ready_to_video_stage_shell_ms: durations.bothReadyToVideoStageShellMs,
+    both_ready_to_local_video_ready_ms: durations.bothReadyToLocalVideoReadyMs,
+    date_route_bootstrap_ms: durations.dateRouteBootstrapMs,
+    date_route_to_daily_join_ms: durations.dateRouteToDailyJoinMs,
+    daily_join_to_remote_seen_ms: durations.dailyJoinToRemoteSeenMs,
+    daily_join_to_first_remote_frame_ms: durations.dailyJoinToFirstRemoteFrameMs,
+    remote_seen_to_first_remote_frame_ms: durations.remoteSeenToFirstRemoteFrameMs,
+    first_remote_frame_to_readable_ms: durations.firstRemoteFrameToReadableMs,
+    daily_token_ms: durations.dailyTokenDurationMs,
+    daily_join_ms: durations.dailyJoinDurationMs,
+    room_warmup_ms: durations.roomWarmupDurationMs,
+    prepare_entry_ms: durations.prepareEntryDurationMs,
+    provider_verify_ms: durations.providerVerifyDurationMs,
+    permission_check_ms: durations.permissionCheckDurationMs,
     ...(extra ?? {}),
   };
 }

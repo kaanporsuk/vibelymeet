@@ -89,6 +89,15 @@ interface VideoDateOpsWindow {
   label: string;
   hours: number;
   since: string;
+  ready_tap_to_first_remote_frame_latency: {
+    sample_count: number;
+    p50_ms: number | null;
+    p95_ms: number | null;
+    max_ms: number | null;
+    status: VideoDateOpsStatus;
+    source_error?: string;
+    truncated?: boolean;
+  };
   ready_gate_open_to_date_join_latency: {
     sample_count: number;
     p50_ms: number | null;
@@ -727,7 +736,7 @@ const AdminLiveEventMetrics = () => {
                   Video Date Ops
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Service-role aggregate health for Ready Gate, swipe recovery, post-survey continuity, drain, and timer drift.
+                  Service-role aggregate health for first-frame latency, Ready Gate, swipe recovery, post-survey continuity, drain, and timer drift.
                 </p>
               </div>
               {videoDateOps?.generated_at && (
@@ -743,7 +752,7 @@ const AdminLiveEventMetrics = () => {
                   <div key={window} className="rounded-xl border border-white/10 bg-secondary/20 p-4 space-y-3">
                     <div className="h-4 w-24 rounded bg-secondary/60 animate-pulse" />
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {Array.from({ length: 5 }).map((_, index) => (
+                      {Array.from({ length: 6 }).map((_, index) => (
                         <div key={index} className="h-24 rounded-xl bg-secondary/50 animate-pulse" />
                       ))}
                     </div>
@@ -762,12 +771,14 @@ const AdminLiveEventMetrics = () => {
             {videoDateOps?.windows && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {videoDateOps.windows.map((window) => {
+                  const readyTapToFrame = window.ready_tap_to_first_remote_frame_latency;
                   const latency = window.ready_gate_open_to_date_join_latency;
                   const swipe = window.simultaneous_swipe_recovery;
                   const survey = window.survey_to_next_ready_gate_conversion;
                   const drain = window.queue_drain_failures;
                   const timer = window.timer_drift_recovered_by_server_truth;
                   const truncated = [
+                    readyTapToFrame.truncated,
                     latency.truncated,
                     swipe.truncated,
                     survey.truncated,
@@ -791,6 +802,15 @@ const AdminLiveEventMetrics = () => {
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <VideoDateOpsTile
+                          label="Ready tap -> frame"
+                          value={`${formatMs(readyTapToFrame.p95_ms)} p95`}
+                          detail={
+                            readyTapToFrame.source_error ||
+                            `${readyTapToFrame.sample_count} first-frame samples, ${formatMs(readyTapToFrame.p50_ms)} p50`
+                          }
+                          status={readyTapToFrame.status}
+                        />
                         <VideoDateOpsTile
                           label="Ready Gate -> join"
                           value={`${formatMs(latency.p95_ms)} p95`}

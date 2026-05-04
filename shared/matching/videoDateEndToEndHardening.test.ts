@@ -127,6 +127,10 @@ const clientStuckObservabilityMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501151000_video_date_client_stuck_observability.sql"),
   "utf8",
 );
+const launchLatencyCheckpointObservabilityMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260505120000_video_date_launch_latency_checkpoint_observability.sql"),
+  "utf8",
+);
 const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
   "utf8",
@@ -203,6 +207,18 @@ const nativePrepareEntry = readFileSync(
   join(process.cwd(), "apps/mobile/lib/videoDatePrepareEntry.ts"),
   "utf8",
 );
+const webAnalytics = readFileSync(
+  join(process.cwd(), "src/lib/analytics.ts"),
+  "utf8",
+);
+const nativeAnalytics = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/analytics.ts"),
+  "utf8",
+);
+const launchLatencyCheckpointObservability = readFileSync(
+  join(process.cwd(), "shared/observability/videoDateLaunchLatencyCheckpointObservability.ts"),
+  "utf8",
+);
 const webActiveSessionHook = readFileSync(
   join(process.cwd(), "src/hooks/useActiveSession.ts"),
   "utf8",
@@ -247,6 +263,10 @@ const webVideoCallHook = readFileSync(
 );
 const webVideoDatePage = readFileSync(
   join(process.cwd(), "src/pages/VideoDate.tsx"),
+  "utf8",
+);
+const cameraSwitchRenderHintContract = readFileSync(
+  join(process.cwd(), "shared/matching/videoDateCameraSwitchRenderHint.ts"),
   "utf8",
 );
 const webIceBreakerCard = readFileSync(
@@ -1290,6 +1310,29 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(nativeVideoDateRoute, /cycleCamera/);
 });
 
+test("video date camera switch hints are sent only after committed live capture", () => {
+  assert.match(cameraSwitchRenderHintContract, /commitConfirmed\?: boolean/);
+  assert.match(cameraSwitchRenderHintContract, /commitMethod\?: string \| null/);
+  assert.match(cameraSwitchRenderHintContract, /localVideoTrackId\?: string \| null/);
+  assert.match(cameraSwitchRenderHintContract, /commitLatencyMs\?: number \| null/);
+  assert.match(webVideoCallHook, /waitForLocalCameraSwitchCommit/);
+  assert.match(webVideoCallHook, /setInputDevicesAsync/);
+  assert.match(webVideoCallHook, /video_date_camera_switch_committed/);
+  assert.match(webVideoCallHook, /opts\.expectedFacing !== before\.facingMode/);
+  assert.match(webVideoCallHook, /inferCameraFacingModeFromLabel/);
+  assert.match(webVideoCallHook, /return currentDeviceId \? candidates\[0\] \?\? null : null/);
+  assert.match(webVideoCallHook, /lastRemoteCameraSwitchHintIdRef/);
+  assert.match(nativeVideoDateRoute, /waitForNativeCameraSwitchCommit/);
+  assert.match(nativeVideoDateRoute, /setCamera/);
+  assert.match(nativeVideoDateRoute, /enumerateDevices/);
+  assert.match(nativeVideoDateRoute, /video_date_camera_switch_committed/);
+  assert.match(nativeVideoDateRoute, /expectedFacing !== before\.facingMode/);
+  assert.match(nativeVideoDateRoute, /nativeCameraDeviceFacingMode\(targetDevice\)/);
+  assert.match(nativeVideoDateRoute, /nativeCameraDeviceKey/);
+  assert.match(nativeVideoDateRoute, /nativeCameraFacingModeFromLabel\(videoTrack\?\.label\)/);
+  assert.match(nativeVideoDateRoute, /lastNativeRemoteCameraSwitchHintIdRef/);
+});
+
 test("queue_status reaches in_handshake only after provider confirm succeeds", () => {
   assert.match(providerAtomicEntryMigration, /'registration_status', 'deferred_until_confirm_prepare_entry'/);
   assert.doesNotMatch(providerAtomicEntryMigration, /prepare_entry_preflight_ok[\s\S]{0,1200}queue_status = 'in_handshake'/);
@@ -2223,6 +2266,37 @@ test("client stuck observability is authenticated, allowlisted, deduped, and tim
   assert.match(nativeVideoDateRoute, /native_background_expired/);
   assert.match(videoDateValidationSql, /client_stuck_observability_rpc_granted_authenticated_only/);
   assert.match(videoDateValidationSql, /timeline_includes_client_stuck_events/);
+});
+
+test("launch latency checkpoints are durable, allowlisted, and admin-visible", () => {
+  assert.match(
+    launchLatencyCheckpointObservabilityMigration,
+    /CREATE OR REPLACE FUNCTION public\.record_video_date_launch_latency_checkpoint/,
+  );
+  assert.match(launchLatencyCheckpointObservabilityMigration, /v_actor uuid := auth\.uid\(\)/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /participant_1_id IS DISTINCT FROM v_actor/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /participant_2_id IS DISTINCT FROM v_actor/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'video_date_launch_latency_checkpoint'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'first_remote_frame'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'ready_tap_to_first_remote_frame_ms'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'date_route_bootstrap_ms'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'daily_join_to_remote_seen_ms'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'cached_prepare_entry'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'provider_verify_skipped'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /'permission_handoff_used'/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /v_ready_actor_order/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /TO authenticated/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /video_date_launch_latency_checkpoint/);
+  assert.match(launchLatencyCheckpointObservabilityMigration, /get_video_date_session_timeline/);
+  assert.match(launchLatencyCheckpointObservability, /emitVideoDateLaunchLatencyCheckpointObservability/);
+  assert.match(launchLatencyCheckpointObservability, /ready_tap_to_first_remote_frame_ms/);
+  assert.match(webAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
+  assert.match(nativeAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
+  assert.match(adminVideoDateOpsFunction, /getReadyTapToFirstRemoteFrameLatency/);
+  assert.match(adminVideoDateOpsFunction, /ready_tap_to_first_remote_frame_latency/);
+  assert.match(videoDateValidationSql, /launch_latency_checkpoint_rpc_granted_authenticated_only/);
+  assert.match(videoDateValidationSql, /launch_latency_checkpoint_primary_fields_allowlisted/);
+  assert.match(videoDateValidationSql, /timeline_includes_launch_latency_checkpoints/);
 });
 
 test("video date trace id is propagated through prepare entry analytics and Daily-room payloads", () => {

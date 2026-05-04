@@ -29,6 +29,15 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim() ? value : null;
 
+const asNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const formatMs = (value: number | null | undefined): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "n/a";
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
+  return `${Math.round(value)}ms`;
+};
+
 const CopyIconButton = ({ value, label }: { value: string | null | undefined; label: string }) => {
   if (!value) return null;
   return (
@@ -103,6 +112,32 @@ const AdminVideoDateTimelinePanel = () => {
     [timelineQuery.data?.rows],
   );
 
+  const firstFrameWaterfalls = useMemo(
+    () =>
+      rows
+        .filter((row) => row.operation === "video_date_launch_latency_checkpoint" && row.reason_code === "first_remote_frame")
+        .map((row) => {
+          const detail = asRecord(redactVideoDateTimelineDetail(row.detail));
+          return {
+            key: `${row.timeline_seq}-${row.actor_id ?? "unknown"}`,
+            actorId: row.actor_id,
+            platform: asString(detail?.platform),
+            readyActorOrder: asString(detail?.ready_actor_order),
+            readyTapToFrameMs: asNumber(detail?.ready_tap_to_first_remote_frame_ms),
+            readyTapToBothReadyMs: asNumber(detail?.ready_tap_to_both_ready_ms),
+            prepareEntryMs: asNumber(detail?.prepare_entry_ms),
+            dateRouteBootstrapMs: asNumber(detail?.date_route_bootstrap_ms),
+            dailyJoinMs: asNumber(detail?.daily_join_ms),
+            dailyJoinToRemoteSeenMs: asNumber(detail?.daily_join_to_remote_seen_ms),
+            remoteSeenToFrameMs: asNumber(detail?.remote_seen_to_first_remote_frame_ms),
+            cachedPrepareEntry: detail?.cached_prepare_entry === true,
+            providerVerifySkipped: detail?.provider_verify_skipped === true,
+            permissionHandoffUsed: detail?.permission_handoff_used === true,
+          };
+        }),
+    [rows],
+  );
+
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextSessionId = sessionInput.trim();
@@ -162,6 +197,52 @@ const AdminVideoDateTimelinePanel = () => {
       {timelineQuery.error && (
         <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
           {timelineQuery.error instanceof Error ? timelineQuery.error.message : "Timeline unavailable"}
+        </div>
+      )}
+
+      {firstFrameWaterfalls.length > 0 && (
+        <div className="glass-card p-5 rounded-2xl space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Ready Tap to First Frame Waterfall</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              One row per participant checkpoint. First frame is still blurred by design.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+            {firstFrameWaterfalls.map((item) => (
+              <div key={item.key} className="rounded-xl border border-white/10 bg-secondary/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 text-xs text-muted-foreground">
+                    <span className="font-mono">{item.actorId || "unknown actor"}</span>
+                  </div>
+                  <Badge className="bg-primary/15 text-primary border-primary/30">
+                    {formatMs(item.readyTapToFrameMs)}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                  <span>platform: {item.platform || "n/a"}</span>
+                  <span>order: {item.readyActorOrder || "n/a"}</span>
+                  <span>tap-&gt;both: {formatMs(item.readyTapToBothReadyMs)}</span>
+                  <span>prepare: {formatMs(item.prepareEntryMs)}</span>
+                  <span>route boot: {formatMs(item.dateRouteBootstrapMs)}</span>
+                  <span>Daily join: {formatMs(item.dailyJoinMs)}</span>
+                  <span>join-&gt;remote: {formatMs(item.dailyJoinToRemoteSeenMs)}</span>
+                  <span>remote-&gt;frame: {formatMs(item.remoteSeenToFrameMs)}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge className="bg-secondary text-muted-foreground border-white/10">
+                    cache: {item.cachedPrepareEntry ? "hit" : "miss/unknown"}
+                  </Badge>
+                  <Badge className="bg-secondary text-muted-foreground border-white/10">
+                    provider verify: {item.providerVerifySkipped ? "skipped" : "ran/unknown"}
+                  </Badge>
+                  <Badge className="bg-secondary text-muted-foreground border-white/10">
+                    permission handoff: {item.permissionHandoffUsed ? "yes" : "no/unknown"}
+                  </Badge>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

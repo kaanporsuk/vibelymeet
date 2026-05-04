@@ -115,8 +115,12 @@ assert(
     cameraSwitchHint.includes("createVideoDateCameraSwitchRenderHint") &&
     cameraSwitchHint.includes("parseVideoDateCameraSwitchRenderHint") &&
     cameraSwitchHint.includes('VideoDateCameraSwitchRenderHintPlatform = "web" | "native"') &&
-    cameraSwitchHint.includes("sourcePlatform: VideoDateCameraSwitchRenderHintPlatform"),
-  `${cameraSwitchHintPath}: camera-switch render hint contract must remain shared, versioned, and parseable`
+    cameraSwitchHint.includes("sourcePlatform: VideoDateCameraSwitchRenderHintPlatform") &&
+    cameraSwitchHint.includes("commitConfirmed?: boolean") &&
+    cameraSwitchHint.includes("commitMethod?: string | null") &&
+    cameraSwitchHint.includes("localVideoTrackId?: string | null") &&
+    cameraSwitchHint.includes("commitLatencyMs?: number | null"),
+  `${cameraSwitchHintPath}: camera-switch render hint contract must remain shared, versioned, parseable, and backward-compatible with optional commit fields`
 );
 assert(
   webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
@@ -147,11 +151,18 @@ assert(
   webVideoCall.includes("createVideoDateCameraSwitchRenderHint") &&
     webVideoCall.includes("parseVideoDateCameraSwitchRenderHint") &&
     webVideoCall.includes("sendAppMessage") &&
+    webVideoCall.includes("waitForLocalCameraSwitchCommit") &&
+    webVideoCall.includes("setInputDevicesAsync") &&
+    webVideoCall.includes("video_date_camera_switch_committed") &&
+    webVideoCall.includes("commitConfirmed: true") &&
+    webVideoCall.includes("opts.expectedFacing !== before.facingMode") &&
+    webVideoCall.includes("inferCameraFacingModeFromLabel") &&
+    webVideoCall.includes("return currentDeviceId ? candidates[0] ?? null : null") &&
     webVideoCall.includes("daily_camera_switch_render_hint_received") &&
     webVideoCall.includes("app_message_camera_switch_hint") &&
     webVideoCall.includes('"camera_switch_hint"') &&
     !webVideoCall.includes("camera_switch_hint:${hint.switchId}"),
-  `${webVideoCallPath}: web Video Date must send and receive shared camera-switch render hints`
+  `${webVideoCallPath}: web Video Date must commit a live camera switch before sending shared render hints`
 );
 assert(
   webVideoCall.includes("remoteRenderRecoveryTrackAttemptsRef") &&
@@ -261,12 +272,21 @@ assert(
   nativeDate.includes("createVideoDateCameraSwitchRenderHint") &&
     nativeDate.includes("parseVideoDateCameraSwitchRenderHint") &&
     nativeDate.includes("sendAppMessage") &&
+    nativeDate.includes("waitForNativeCameraSwitchCommit") &&
+    nativeDate.includes("setCamera") &&
+    nativeDate.includes("enumerateDevices") &&
+    nativeDate.includes("video_date_camera_switch_committed") &&
+    nativeDate.includes("commitConfirmed: true") &&
+    nativeDate.includes("expectedFacing !== before.facingMode") &&
+    nativeDate.includes("nativeCameraDeviceFacingMode(targetDevice)") &&
+    nativeDate.includes("nativeCameraDeviceKey") &&
+    nativeDate.includes("nativeCameraFacingModeFromLabel(videoTrack?.label)") &&
     nativeDate.includes("native_camera_switch_render_hint_received") &&
     nativeDate.includes("native_camera_switch_render_hint_sent") &&
     nativeDate.includes("app_message_camera_switch_hint") &&
     nativeDate.includes("'camera_switch_hint'") &&
     !nativeDate.includes("camera_switch_hint:${hint.switchId}"),
-  `${nativeDatePath}: native Video Date must send and receive shared camera-switch render hints`
+  `${nativeDatePath}: native Video Date must commit a live camera switch before sending shared render hints`
 );
 assert(
   nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE") &&

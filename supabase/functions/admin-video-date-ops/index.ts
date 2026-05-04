@@ -55,6 +55,12 @@ type QueueDrainRow = {
   reason_code: string | null;
 };
 
+type LaunchLatencyCheckpointRow = {
+  latency_ms: number | null;
+  event_id: string | null;
+  detail?: Record<string, unknown> | null;
+};
+
 type QueryResult<T> = {
   rows: T[];
   error?: string;
@@ -244,6 +250,56 @@ async function getReadyGateLatency(
     ...summary,
     status: classifyLowerIsBetter(summary.p95_ms, 10_000, 20_000),
     truncated: readyRows.truncated || sessions.truncated,
+  };
+}
+
+function numericDetailMs(detail: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = detail?.[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+}
+
+async function getReadyTapToFirstRemoteFrameLatency(
+  service: SupabaseClientLike,
+  sinceIso: string,
+  eventId: string | null,
+) {
+  let query = service
+    .from("event_loop_observability_events")
+    .select("latency_ms,event_id,detail")
+    .gte("created_at", sinceIso)
+    .eq("operation", "video_date_launch_latency_checkpoint")
+    .eq("reason_code", "first_remote_frame")
+    .order("created_at", { ascending: false })
+    .limit(MAX_ROWS);
+
+  if (eventId) query = query.eq("event_id", eventId);
+
+  const result = await fetchRows<LaunchLatencyCheckpointRow>(query);
+  if (result.error) {
+    return {
+      sample_count: 0,
+      p50_ms: null,
+      p95_ms: null,
+      max_ms: null,
+      status: "unknown" as MetricStatus,
+      source_error: result.error,
+      truncated: result.truncated,
+    };
+  }
+
+  const latencies = result.rows.flatMap((row) => {
+    const latencyMs =
+      typeof row.latency_ms === "number" && Number.isFinite(row.latency_ms) && row.latency_ms >= 0
+        ? Math.round(row.latency_ms)
+        : numericDetailMs(row.detail, "ready_tap_to_first_remote_frame_ms");
+    return latencyMs === null ? [] : [latencyMs];
+  });
+
+  const summary = summarizeLatencyMs(latencies);
+  return {
+    ...summary,
+    status: classifyLowerIsBetter(summary.p95_ms, 8_000, 15_000),
+    truncated: result.truncated,
   };
 }
 
@@ -473,11 +529,13 @@ async function buildWindowMetrics(
 ) {
   const sinceIso = new Date(Date.now() - window.hours * 60 * 60 * 1000).toISOString();
   const [
+    readyTapToFirstRemoteFrame,
     readyGateLatency,
     simultaneousSwipeRecovery,
     surveyToNextReadyGate,
     queueDrainFailures,
   ] = await Promise.all([
+    getReadyTapToFirstRemoteFrameLatency(service, sinceIso, eventId),
     getReadyGateLatency(service, sinceIso, eventId),
     getSwipeRecovery(service, sinceIso, eventId),
     getSurveyToNextReadyGate(service, sinceIso, eventId),
@@ -489,6 +547,7 @@ async function buildWindowMetrics(
     label: window.label,
     hours: window.hours,
     since: sinceIso,
+    ready_tap_to_first_remote_frame_latency: readyTapToFirstRemoteFrame,
     ready_gate_open_to_date_join_latency: readyGateLatency,
     simultaneous_swipe_recovery: simultaneousSwipeRecovery,
     survey_to_next_ready_gate_conversion: surveyToNextReadyGate,
