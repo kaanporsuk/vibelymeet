@@ -19,6 +19,17 @@ function permissionHandoffKey(sessionId: string, userId: string): string {
   return `${sessionId}:${userId}`;
 }
 
+export function pruneExpiredVideoDatePermissionHandoffs(nowMs: number = Date.now()): number {
+  let removedCount = 0;
+  for (const [key, entry] of permissionHandoffs) {
+    if (entry.expiresAtMs <= nowMs) {
+      permissionHandoffs.delete(key);
+      removedCount += 1;
+    }
+  }
+  return removedCount;
+}
+
 export function setVideoDatePermissionHandoff(params: {
   sessionId: string;
   userId: string;
@@ -28,6 +39,7 @@ export function setVideoDatePermissionHandoff(params: {
   ttlMs?: number;
 }): VideoDatePermissionHandoffState {
   const nowMs = params.nowMs ?? Date.now();
+  pruneExpiredVideoDatePermissionHandoffs(nowMs);
   const entry: VideoDatePermissionHandoffState = {
     sessionId: params.sessionId,
     userId: params.userId,
