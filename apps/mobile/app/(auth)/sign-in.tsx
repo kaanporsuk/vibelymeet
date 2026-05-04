@@ -33,6 +33,34 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
+function errorNativeCode(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const record = error as { nativeErrorCode?: unknown; errorCode?: unknown; code?: unknown };
+  const value = record.nativeErrorCode ?? record.errorCode ?? record.code;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function appleAuthErrorDiagnostics(error: unknown): Record<string, string | number | boolean | null> {
+  const message = errorMessage(error, '');
+  return {
+    code: errorCode(error) ?? null,
+    nativeCode: errorNativeCode(error) ?? null,
+    messagePrefix: message ? message.slice(0, 120) : null,
+    authorizationError1001: /AuthorizationError(?:\s+error)?\s+1001|Code=1001/i.test(message),
+    akAuthentication7003: /AKAuthenticationError(?:\s+Code=)?-7003|Code=-7003/i.test(message),
+  };
+}
+
+function isAppleAuthCancelled(error: unknown): boolean {
+  const code = errorCode(error);
+  if (code === 'ERR_REQUEST_CANCELED' || code === '1001') return true;
+  if (errorNativeCode(error) === 1001) return true;
+  return /AuthorizationError(?:\s+error)?\s+1001|ASAuthorizationController credential request failed/i.test(
+    errorMessage(error, ''),
+  );
+}
+
 function errorStatus(error: unknown): number | undefined {
   return typeof error === 'object' && error !== null && 'status' in error
     ? Number((error as { status?: unknown }).status)
@@ -594,7 +622,13 @@ export default function SignInScreen() {
       trackEvent('auth_social_completed', { provider: 'apple', platform: 'native' });
       setView('success');
     } catch (e: unknown) {
-      if (errorCode(e) === 'ERR_REQUEST_CANCELED') return;
+      const diagnostics = appleAuthErrorDiagnostics(e);
+      if (isAppleAuthCancelled(e)) {
+        addAppleAuthDiagnostic('Authorization cancelled', diagnostics, 'info');
+        trackEvent('auth_social_cancelled', { provider: 'apple', platform: 'native' });
+        return;
+      }
+      addAppleAuthDiagnostic('Authorization failed', diagnostics, 'warning');
       const conflict = mapAuthConflictError(e, 'apple');
       if (conflict.message) {
         setError(conflict.message);

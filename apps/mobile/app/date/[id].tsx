@@ -20,8 +20,10 @@ import {
   AppState,
   Alert,
   Easing,
+  AccessibilityInfo,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, router, usePathname } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -236,6 +238,22 @@ type PrejoinAttemptState = {
 };
 
 type DateTheme = (typeof Colors)[keyof typeof Colors];
+
+type HandshakeCtaTelemetrySnapshot = {
+  cta_visible: boolean;
+  cta_visible_ms: number;
+  cta_last_time_left: number | null;
+  has_remote_partner: boolean;
+  peer_server_joined: boolean;
+  partner_ever_joined: boolean;
+  is_partner_disconnected: boolean;
+  peer_missing_terminal: boolean;
+  remote_video_mounted: boolean;
+  remote_audio_mounted: boolean;
+  first_playable_remote_seen: boolean;
+  first_playable_remote_age_ms: number | null;
+  local_decision: 'vibe' | 'pass' | 'none';
+};
 
 function WarmupChoiceNoticeBanner({
   notice,
@@ -665,6 +683,24 @@ export default function VideoDateScreen() {
   const handshakeDecisionInFlightRef = useRef(false);
   const handshakeCompletionDeadlineKeyRef = useRef<string | null>(null);
   const handshakeCompletionRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handshakeCtaImpressionRef = useRef<{ key: string; shownAtMs: number; lastTimeLeft: number | null } | null>(null);
+  const handshakeCtaLastVisibleMsRef = useRef(0);
+  const handshakeCtaLatestRef = useRef<HandshakeCtaTelemetrySnapshot>({
+    cta_visible: false,
+    cta_visible_ms: 0,
+    cta_last_time_left: null,
+    has_remote_partner: false,
+    peer_server_joined: false,
+    partner_ever_joined: false,
+    is_partner_disconnected: false,
+    peer_missing_terminal: false,
+    remote_video_mounted: false,
+    remote_audio_mounted: false,
+    first_playable_remote_seen: false,
+    first_playable_remote_age_ms: null,
+    local_decision: 'none',
+  });
+  const handshakeFinalTenNudgeKeyRef = useRef<string | null>(null);
   const peerMissingTerminalImpressionRef = useRef(false);
   const localInDailyRoomRef = useRef(false);
   const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
@@ -1279,6 +1315,9 @@ export default function VideoDateScreen() {
     clearHandshakeGraceState();
     handshakeCompletionInFlightRef.current = false;
     handshakeCompletionDeadlineKeyRef.current = null;
+    handshakeCtaImpressionRef.current = null;
+    handshakeCtaLastVisibleMsRef.current = 0;
+    handshakeFinalTenNudgeKeyRef.current = null;
     if (handshakeCompletionRetryTimerRef.current) {
       clearTimeout(handshakeCompletionRetryTimerRef.current);
       handshakeCompletionRetryTimerRef.current = null;
@@ -5159,11 +5198,13 @@ export default function VideoDateScreen() {
         return;
       }
       if (handshakeDecisionInFlightRef.current) {
+        const ctaTelemetry = handshakeCtaLatestRef.current;
         vdbg('complete_handshake_skip', {
           sessionId,
           source,
           reason: 'local_decision_persistence_in_flight',
           retryScheduled: allowRetry,
+          ctaTelemetry,
         });
         if (allowRetry) {
           if (handshakeCompletionRetryTimerRef.current) {
@@ -5204,10 +5245,12 @@ export default function VideoDateScreen() {
 
       handshakeCompletionInFlightRef.current = true;
       try {
+        const ctaTelemetry = handshakeCtaLatestRef.current;
         vdbg('complete_handshake_fire', {
           sessionId,
           source,
           trigger: 'server_deadline',
+          ctaTelemetry,
         });
         const result = await completeHandshake(sessionId);
         if (phaseRef.current !== 'handshake') return;
@@ -5275,6 +5318,7 @@ export default function VideoDateScreen() {
               waiting_for_partner: result.waiting_for_partner ?? null,
               local_decision_persisted: result.local_decision_persisted ?? null,
               partner_decision_persisted: result.partner_decision_persisted ?? null,
+              ctaTelemetry: handshakeCtaLatestRef.current,
             });
           } else if (result.reason === 'handshake_grace_expired') {
             showWarmupChoiceNotice(getVideoDateWarmupChoiceNotice());
@@ -5584,12 +5628,15 @@ export default function VideoDateScreen() {
     !peerMissingTerminal &&
     !isPartnerDisconnected;
 
-  // Show the Vibe/Pass CTA during the hard-deadline handshake.
+  const hasHandshakePeerEvidence = hasRemotePartner || (peerServerJoinedAt != null && !isPartnerDisconnected);
+
+  // Show the Vibe/Pass CTA during the hard-deadline handshake, using server
+  // join evidence as a fallback when Daily participant/track state jitters.
   const showHandshakeChrome =
     !showFeedback &&
     phase === 'handshake' &&
     handshakeTimerStarted &&
-    hasRemotePartner &&
+    hasHandshakePeerEvidence &&
     !peerMissingTerminal;
   const showDatePhaseChrome = !showFeedback && phase === 'date' && hasRemotePartner;
   const localHandshakeDecision = useMemo<boolean | null>(() => {
@@ -5602,6 +5649,153 @@ export default function VideoDateScreen() {
     }
     return null;
   }, [session, user?.id]);
+
+  useEffect(() => {
+    const key = `${sessionId ?? 'none'}:${session?.handshake_started_at ?? 'no-start'}`;
+    if (
+      !showHandshakeChrome ||
+      !handshakeDeadlineUrgent ||
+      localHandshakeDecision !== null ||
+      handshakeFinalTenNudgeKeyRef.current === key
+    ) {
+      return;
+    }
+
+    handshakeFinalTenNudgeKeyRef.current = key;
+    vdbg('handshake_final_10s_nudge', {
+      sessionId: sessionId ?? null,
+      remainingSeconds: displayTimeLeft,
+    });
+    AccessibilityInfo.announceForAccessibility('Choose Vibe or Pass before warm up ends.');
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {
+      /* Haptics must never affect the call path. */
+    });
+  }, [
+    displayTimeLeft,
+    handshakeDeadlineUrgent,
+    localHandshakeDecision,
+    session?.handshake_started_at,
+    sessionId,
+    showHandshakeChrome,
+  ]);
+
+  const remoteVideoTrack = remoteParticipant ? getTrack(remoteParticipant, 'video') : null;
+  const remoteAudioTrack = remoteParticipant ? getTrack(remoteParticipant, 'audio') : null;
+  const localVideoTrack = localParticipant ? getTrack(localParticipant, 'video') : null;
+
+  useEffect(() => {
+    const now = Date.now();
+    const localDecisionLabel: HandshakeCtaTelemetrySnapshot['local_decision'] =
+      localHandshakeDecision === true ? 'vibe' : localHandshakeDecision === false ? 'pass' : 'none';
+    const current = handshakeCtaImpressionRef.current;
+    const firstPlayableRemoteSeen = firstPlayableRemoteAtMsRef.current > 0;
+    const ctaVisibleMs = current ? Math.max(0, now - current.shownAtMs) : handshakeCtaLastVisibleMsRef.current;
+    handshakeCtaLatestRef.current = {
+      cta_visible: showHandshakeChrome,
+      cta_visible_ms: ctaVisibleMs,
+      cta_last_time_left: current?.lastTimeLeft ?? displayTimeLeft ?? null,
+      has_remote_partner: hasRemotePartner,
+      peer_server_joined: peerServerJoinedAt != null,
+      partner_ever_joined: partnerEverJoined,
+      is_partner_disconnected: isPartnerDisconnected,
+      peer_missing_terminal: peerMissingTerminal,
+      remote_video_mounted: Boolean(remoteVideoTrack),
+      remote_audio_mounted: Boolean(remoteAudioTrack),
+      first_playable_remote_seen: firstPlayableRemoteSeen,
+      first_playable_remote_age_ms: firstPlayableRemoteSeen
+        ? Math.max(0, now - firstPlayableRemoteAtMsRef.current)
+        : null,
+      local_decision: localDecisionLabel,
+    };
+
+    const key = `${sessionId ?? 'none'}:${session?.handshake_started_at ?? 'no-start'}`;
+    const logHidden = (reason: string, impression: { key: string; shownAtMs: number; lastTimeLeft: number | null }) => {
+      const visibleMs = Math.max(0, now - impression.shownAtMs);
+      handshakeCtaLastVisibleMsRef.current = visibleMs;
+      vdbg('handshake_cta_hidden', {
+        sessionId: sessionId ?? null,
+        reason,
+        visibleMs,
+        lastTimeLeft: impression.lastTimeLeft,
+        hasRemotePartner,
+        peerServerJoined: peerServerJoinedAt != null,
+        partnerEverJoined,
+        isPartnerDisconnected,
+        peerMissingTerminal,
+        remoteVideoMounted: Boolean(remoteVideoTrack),
+        remoteAudioMounted: Boolean(remoteAudioTrack),
+        localDecision: localDecisionLabel,
+      });
+      trackEvent('video_date_handshake_cta_hidden', {
+        platform: 'native',
+        session_id: sessionId ?? null,
+        event_id: eventId || null,
+        reason,
+        visible_ms: visibleMs,
+        last_time_left: impression.lastTimeLeft,
+        has_remote_partner: hasRemotePartner,
+        peer_server_joined: peerServerJoinedAt != null,
+        remote_video_mounted: Boolean(remoteVideoTrack),
+        remote_audio_mounted: Boolean(remoteAudioTrack),
+        local_decision: localDecisionLabel,
+      });
+    };
+
+    if (showHandshakeChrome && sessionId) {
+      if (!current || current.key !== key) {
+        if (current) logHidden('replaced_by_new_handshake_key', current);
+        handshakeCtaImpressionRef.current = { key, shownAtMs: now, lastTimeLeft: displayTimeLeft ?? null };
+        handshakeCtaLastVisibleMsRef.current = 0;
+        vdbg('handshake_cta_visible', {
+          sessionId,
+          remainingSeconds: displayTimeLeft,
+          hasRemotePartner,
+          peerServerJoined: peerServerJoinedAt != null,
+          partnerEverJoined,
+          remoteVideoMounted: Boolean(remoteVideoTrack),
+          remoteAudioMounted: Boolean(remoteAudioTrack),
+          firstPlayableRemoteSeen,
+          localDecision: localDecisionLabel,
+        });
+        trackEvent('video_date_handshake_cta_visible', {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: eventId || null,
+          remaining_seconds: displayTimeLeft,
+          has_remote_partner: hasRemotePartner,
+          peer_server_joined: peerServerJoinedAt != null,
+          remote_video_mounted: Boolean(remoteVideoTrack),
+          remote_audio_mounted: Boolean(remoteAudioTrack),
+          first_playable_remote_seen: firstPlayableRemoteSeen,
+          local_decision: localDecisionLabel,
+        });
+      } else {
+        current.lastTimeLeft = displayTimeLeft ?? current.lastTimeLeft;
+      }
+      return;
+    }
+
+    if (current) {
+      logHidden(showFeedback ? 'feedback_opened' : phase !== 'handshake' ? `phase_${phase}` : 'cta_condition_false', current);
+      handshakeCtaImpressionRef.current = null;
+    }
+  }, [
+    displayTimeLeft,
+    eventId,
+    hasRemotePartner,
+    isPartnerDisconnected,
+    localHandshakeDecision,
+    partnerEverJoined,
+    peerMissingTerminal,
+    peerServerJoinedAt,
+    phase,
+    remoteAudioTrack,
+    remoteVideoTrack,
+    session?.handshake_started_at,
+    sessionId,
+    showFeedback,
+    showHandshakeChrome,
+  ]);
 
   const effectiveIceBreakerClockMs = useMemo(() => {
     if (!iceBreakerManualPause) return iceBreakerClockMs;
@@ -5877,10 +6071,6 @@ export default function VideoDateScreen() {
   const partnerAge = fullPartner?.age ?? basicPartner?.age ?? 0;
   const partnerAvatarUri = fullPartner?.avatarUrl ?? fullPartner?.photos?.[0] ?? basicPartner?.avatar_url ?? null;
   const partnerInitial = partnerFirstName.slice(0, 1).toUpperCase() || 'V';
-
-  const remoteVideoTrack = remoteParticipant ? getTrack(remoteParticipant, 'video') : null;
-  const remoteAudioTrack = remoteParticipant ? getTrack(remoteParticipant, 'audio') : null;
-  const localVideoTrack = localParticipant ? getTrack(localParticipant, 'video') : null;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
