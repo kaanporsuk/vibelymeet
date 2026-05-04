@@ -318,11 +318,44 @@ check(
 check(
   includes("nativeControls", "layout.minTouchTargetSize") ||
     includes("nativeIceBreaker", "layout.minTouchTargetSize") ||
-    includes("nativeControls", "const BTN = 52"),
+    includes("nativeControls", "BTN_DEFAULT = 52"),
   "Native Layout",
   "Native touch targets meet or exceed 48 px for warm-up controls.",
   `${files.nativeControls}, ${files.nativeIceBreaker}`,
   `${files.nativeControls}, ${files.nativeIceBreaker}`,
+);
+
+check(
+  includes("nativeDate", "onLayout={handleControlsLayout}") &&
+    includes("nativeDate", "bottom: insets.bottom") &&
+    includes("nativeDate", "measuredControlsStackHeight") &&
+    includes("nativeDate", "Math.max(DATE_CONTROLS_STACK_HEIGHT, controlsStackHeight)"),
+  "Native Layout",
+  "Native lower stack derives warm-up offsets from measured dock height and safe-area bottom.",
+  `${evidence("nativeDate", "onLayout={handleControlsLayout")} and ${evidence("nativeDate", "bottom: insets.bottom")}`,
+  files.nativeDate,
+);
+
+check(
+  includes("nativeControls", "COMPACT_DOCK_WIDTH = 350") &&
+    includes("nativeControls", "BTN_COMPACT = 48") &&
+    includes("nativeControls", "LEAVE_COMPACT = 52") &&
+    includes("nativeControls", "useWindowDimensions"),
+  "Native Layout",
+  "Native bottom dock has compact sizing with 48 px minimum quiet controls.",
+  evidence("nativeControls", "COMPACT_DOCK_WIDTH"),
+  files.nativeControls,
+);
+
+check(
+  includes("webControls", "clamp(3rem,14vw,3.5rem)") &&
+    includes("webControls", "gap-[clamp(0.25rem,1.8vw,0.5rem)]") &&
+    includes("webControls", "px-[clamp(0.5rem,2.6vw,1rem)]") &&
+    includes("webControls", "gap-[clamp(0.25rem,2vw,0.625rem)]"),
+  "Web Layout",
+  "Web bottom dock uses clamp sizing so compact mobile web keeps all controls visible.",
+  evidence("webControls", "clamp(3rem,14vw,3.5rem)"),
+  files.webControls,
 );
 
 add(

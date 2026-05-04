@@ -21,6 +21,7 @@ import {
   Alert,
   Easing,
   AccessibilityInfo,
+  type LayoutChangeEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -608,6 +609,7 @@ export default function VideoDateScreen() {
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [controlsStackHeight, setControlsStackHeight] = useState(DATE_CONTROLS_STACK_HEIGHT);
   const [showMutualToast, setShowMutualToast] = useState(false);
   /** Ephemeral feedback after +2 / +5 min credit (web: sonner toasts). */
   const [extendBanner, setExtendBanner] = useState<
@@ -5813,7 +5815,16 @@ export default function VideoDateScreen() {
   );
   const currentQuestion =
     vibeQuestionState.questions[currentQuestionIndex] ?? vibeQuestionState.questions[0] ?? '';
-  const handshakeBottomOffset = insets.bottom + DATE_CONTROLS_STACK_HEIGHT + 10 - HANDSHAKE_CTA_DOCK_TIGHTEN_PX;
+  const handleControlsLayout = useCallback((event: LayoutChangeEvent) => {
+    const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+    if (nextHeight <= 0) return;
+    setControlsStackHeight((previous) =>
+      Math.abs(previous - nextHeight) > 1 ? nextHeight : previous
+    );
+  }, []);
+  const measuredControlsStackHeight = Math.max(DATE_CONTROLS_STACK_HEIGHT, controlsStackHeight);
+  const handshakeBottomOffset =
+    insets.bottom + measuredControlsStackHeight + 10 - HANDSHAKE_CTA_DOCK_TIGHTEN_PX;
   const advanceIceBreaker = useCallback(() => {
     if (!sessionId || !vibeQuestionState.questions.length) return;
     const pauseStartedAtMs = Date.now();
@@ -5864,7 +5875,7 @@ export default function VideoDateScreen() {
   const iceBreakerBottomOffset = showHandshakeChrome
     ? handshakeBottomOffset + HANDSHAKE_CTA_STACK_HEIGHT + FLOATING_CHROME_GAP
     : Math.max(
-        insets.bottom + DATE_CONTROLS_STACK_HEIGHT + FLOATING_CHROME_GAP,
+        insets.bottom + measuredControlsStackHeight + FLOATING_CHROME_GAP,
         DATE_PHASE_ICE_BREAKER_MIN_BOTTOM
       );
 
@@ -6405,7 +6416,15 @@ export default function VideoDateScreen() {
             accessibilityLabel="Show ice-breaker question"
           >
             <Ionicons name="sparkles" size={15} color={theme.tint} />
-            <Text style={[styles.iceBreakerCollapsedText, { color: theme.tint }]}>Icebreaker</Text>
+            <Text
+              style={[styles.iceBreakerCollapsedText, { color: theme.tint }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+              minimumFontScale={0.88}
+            >
+              Icebreaker
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -6480,9 +6499,11 @@ export default function VideoDateScreen() {
       ) : null}
 
       <Animated.View
+        onLayout={handleControlsLayout}
         style={[
           styles.controlsBar,
           {
+            bottom: insets.bottom,
             opacity: controlsAnim,
             transform: [{ translateY: controlsAnim.interpolate({ inputRange: [0.94, 1], outputRange: [10, 0] }) }],
           },

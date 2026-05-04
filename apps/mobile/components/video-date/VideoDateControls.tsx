@@ -4,14 +4,17 @@
  */
 
 import React from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { spacing } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 
-const BTN = 52;
-const LEAVE = 56;
+const COMPACT_DOCK_WIDTH = 350;
+const BTN_DEFAULT = 52;
+const BTN_COMPACT = 48;
+const LEAVE_DEFAULT = 56;
+const LEAVE_COMPACT = 52;
 
 type Props = {
   isMuted: boolean;
@@ -35,6 +38,15 @@ export function VideoDateControls({
 }: Props) {
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const { width: viewportWidth } = useWindowDimensions();
+  const isCompactDock = viewportWidth < COMPACT_DOCK_WIDTH;
+  const buttonSize = isCompactDock ? BTN_COMPACT : BTN_DEFAULT;
+  const leaveSize = isCompactDock ? LEAVE_COMPACT : LEAVE_DEFAULT;
+  const iconSize = isCompactDock ? 21 : 22;
+  const shieldIconSize = isCompactDock ? 23 : 24;
+  const leaveIconSize = isCompactDock ? 25 : 26;
+  const quietButtonSize = { width: buttonSize, height: buttonSize };
+  const leaveButtonSize = { width: leaveSize, height: leaveSize, borderRadius: leaveSize / 2 };
   const iconOn = theme.text;
   const leaveRotation = '135deg' as const;
 
@@ -49,27 +61,33 @@ export function VideoDateControls({
         style={[
           styles.iconBtn,
           styles.quietBtn,
-          { width: BTN, height: BTN, backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
+          quietButtonSize,
+          { backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
         ]}
       >
-        <Ionicons name="person" size={22} color={iconOn} />
+        <Ionicons name="person" size={iconSize} color={iconOn} />
       </View>
     </Pressable>
   );
 
   return (
-    <View style={[styles.bar, { backgroundColor: 'rgba(0,0,0,0.46)', borderColor: theme.glassBorder }]}>
+    <View
+      style={[
+        styles.bar,
+        isCompactDock && styles.barCompact,
+        { backgroundColor: 'rgba(0,0,0,0.46)', borderColor: theme.glassBorder },
+      ]}
+    >
       <View style={[styles.sideSlot, styles.sideLeft]}>{profileBlock}</View>
 
-      <View style={styles.centerRail}>
+      <View style={[styles.centerRail, isCompactDock && styles.centerRailCompact]}>
         <Pressable
           onPress={onToggleMute}
           style={({ pressed }) => [
             styles.iconBtn,
             styles.quietBtn,
+            quietButtonSize,
             {
-              width: BTN,
-              height: BTN,
               backgroundColor: isMuted ? theme.dangerSoft : 'rgba(255,255,255,0.07)',
               borderColor: theme.glassBorder,
             },
@@ -78,17 +96,17 @@ export function VideoDateControls({
           accessibilityRole="button"
           accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
         >
-          <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={22} color={isMuted ? theme.danger : iconOn} />
+          <Ionicons name={isMuted ? 'mic-off' : 'mic'} size={iconSize} color={isMuted ? theme.danger : iconOn} />
         </Pressable>
 
         <Pressable
           onPress={onLeave}
-          style={({ pressed }) => [styles.leaveBtn, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.leaveBtn, leaveButtonSize, pressed && styles.pressed]}
           accessibilityRole="button"
           accessibilityLabel="End call"
         >
           <View style={[styles.leaveInner, { transform: [{ rotate: leaveRotation }] }]}>
-            <Ionicons name="call" size={26} color="#fff" />
+            <Ionicons name="call" size={leaveIconSize} color="#fff" />
           </View>
         </Pressable>
 
@@ -97,9 +115,8 @@ export function VideoDateControls({
           style={({ pressed }) => [
             styles.iconBtn,
             styles.quietBtn,
+            quietButtonSize,
             {
-              width: BTN,
-              height: BTN,
               backgroundColor: isVideoOff ? theme.dangerSoft : 'rgba(255,255,255,0.07)',
               borderColor: theme.glassBorder,
             },
@@ -108,7 +125,7 @@ export function VideoDateControls({
           accessibilityRole="button"
           accessibilityLabel={isVideoOff ? 'Turn camera on' : 'Turn camera off'}
         >
-          <Ionicons name={isVideoOff ? 'videocam-off' : 'videocam'} size={22} color={isVideoOff ? theme.danger : iconOn} />
+          <Ionicons name={isVideoOff ? 'videocam-off' : 'videocam'} size={iconSize} color={isVideoOff ? theme.danger : iconOn} />
         </Pressable>
       </View>
 
@@ -119,16 +136,17 @@ export function VideoDateControls({
             style={({ pressed }) => [
               styles.iconBtn,
               styles.quietBtn,
-              { width: BTN, height: BTN, backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
+              quietButtonSize,
+              { backgroundColor: 'rgba(255,255,255,0.07)', borderColor: theme.glassBorder },
               pressed && styles.pressed,
             ]}
             accessibilityRole="button"
             accessibilityLabel="Safety and report"
           >
-            <Ionicons name="shield-checkmark" size={24} color={theme.tint} />
+            <Ionicons name="shield-checkmark" size={shieldIconSize} color={theme.tint} />
           </Pressable>
         ) : (
-          <View style={{ width: BTN, height: BTN }} accessibilityElementsHidden />
+          <View style={quietButtonSize} accessibilityElementsHidden />
         )}
       </View>
     </View>
@@ -146,12 +164,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     borderWidth: 1,
     borderRadius: 32,
-    minHeight: BTN + spacing.md * 2,
+    minHeight: BTN_DEFAULT + spacing.md * 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 20 },
     shadowOpacity: 0.38,
     shadowRadius: 30,
     elevation: 9,
+  },
+  barCompact: {
+    marginHorizontal: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    borderRadius: 28,
+    minHeight: BTN_COMPACT + spacing.sm * 2,
   },
   sideSlot: {
     flex: 1,
@@ -166,6 +192,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.xs,
+  },
+  centerRailCompact: {
+    gap: spacing.xs,
+    paddingHorizontal: 0,
   },
   profileCluster: {
     flexDirection: 'row',
@@ -183,9 +213,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   leaveBtn: {
-    width: LEAVE,
-    height: LEAVE,
-    borderRadius: LEAVE / 2,
+    width: LEAVE_DEFAULT,
+    height: LEAVE_DEFAULT,
+    borderRadius: LEAVE_DEFAULT / 2,
     backgroundColor: 'hsl(0, 84%, 56%)',
     alignItems: 'center',
     justifyContent: 'center',

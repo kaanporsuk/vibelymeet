@@ -83,7 +83,15 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
       <View style={styles.stripWrap}>
         <View style={[styles.lockedRow, { borderColor: theme.tint, backgroundColor: 'rgba(8,8,12,0.72)' }]}>
           <Ionicons name={decision ? 'heart' : 'close-circle'} size={18} color={theme.tint} />
-          <Text style={[styles.lockedLabel, { color: theme.tint }]}>{decision ? 'Vibe saved' : 'Pass saved'}</Text>
+          <Text
+            style={[styles.lockedLabel, { color: theme.tint }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            adjustsFontSizeToFit
+            minimumFontScale={0.86}
+          >
+            {decision ? 'Vibe saved' : 'Pass saved'}
+          </Text>
         </View>
       </View>
     );
@@ -121,7 +129,15 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
           ) : (
             <>
               <Ionicons name="close" size={18} color={theme.mutedForeground} />
-              <Text style={[styles.passWord, { color: theme.mutedForeground }]}>Pass</Text>
+              <Text
+                style={[styles.passWord, { color: theme.mutedForeground }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                adjustsFontSizeToFit
+                minimumFontScale={0.86}
+              >
+                Pass
+              </Text>
             </>
           )}
         </Pressable>
@@ -151,7 +167,15 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
               ) : (
                 <>
                   <Ionicons name="heart" size={18} color={theme.primaryForeground} style={{ marginRight: 6 }} />
-                  <Text style={[styles.vibeWord, { color: theme.primaryForeground }]}>Vibe</Text>
+                  <Text
+                    style={[styles.vibeWord, { color: theme.primaryForeground }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.86}
+                  >
+                    Vibe
+                  </Text>
                 </>
               )}
             </LinearGradient>
@@ -159,7 +183,15 @@ export function VibeCheckButton({ timeLeft, decision, onVibe, onPass, disabled }
         </Animated.View>
       </View>
 
-      <Text style={[styles.helper, { color: 'rgba(255,255,255,0.54)' }]}>Choose only when it feels right</Text>
+      <Text
+        style={[styles.helper, { color: 'rgba(255,255,255,0.54)' }]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+        adjustsFontSizeToFit
+        minimumFontScale={0.88}
+      >
+        Choose only when it feels right
+      </Text>
 
       {error ? (
         <Text style={[styles.errorText, { color: theme.neonPink }]}>{error}</Text>

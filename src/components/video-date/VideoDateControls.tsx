@@ -33,16 +33,19 @@ export const VideoDateControls = ({
   isLeaving = false,
 }: VideoDateControlsProps) => {
   const controlBtn =
-    "h-14 w-14 rounded-full transition-all duration-200";
+    "h-[clamp(3rem,14vw,3.5rem)] w-[clamp(3rem,14vw,3.5rem)] rounded-full transition-all duration-200";
   const quietBtn =
     "bg-white/[0.07] border border-white/10 hover:bg-white/[0.12] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]";
+  const dockPadding =
+    "gap-[clamp(0.25rem,1.8vw,0.5rem)] px-[clamp(0.5rem,2.6vw,1rem)] py-[clamp(0.5rem,2.4vw,0.875rem)]";
+  const centerGap = "gap-[clamp(0.25rem,2vw,0.625rem)]";
 
   return (
     <motion.div
       initial={{ y: 60, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.4, type: "spring", stiffness: 220, damping: 22 }}
-      className="mx-auto flex w-full max-w-[560px] items-center justify-between gap-2 rounded-[2rem] border border-white/10 bg-black/40 px-4 py-3.5 shadow-[0_22px_70px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl"
+      className={`mx-auto flex w-full max-w-[560px] items-center justify-between rounded-[2rem] border border-white/10 bg-black/40 shadow-[0_22px_70px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl ${dockPadding}`}
     >
       {/* Left: Profile */}
       <motion.div whileTap={{ scale: 0.9 }}>
@@ -58,7 +61,7 @@ export const VideoDateControls = ({
       </motion.div>
 
       {/* Center: Core controls */}
-      <div className="flex items-center gap-2.5">
+      <div className={`flex items-center ${centerGap}`}>
         <motion.div whileTap={{ scale: 0.9 }}>
           <Button
             variant={isMuted ? "destructive" : "secondary"}
