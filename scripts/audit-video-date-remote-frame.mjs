@@ -188,6 +188,19 @@ assert(
   `${webVideoCallPath}: exhausted web render recovery must surface the existing user-visible retry path`
 );
 assert(
+  /remoteRenderRecoveryInFlightRef\.current\?\.trackKey\s*===\s*remoteKey[\s\S]*?remoteRenderRecoveryInFlightRef\.current\s*=\s*null[\s\S]*?remoteRenderRecoveryReattachTimeoutRef\.current[\s\S]*?clearTimeout\(remoteRenderRecoveryReattachTimeoutRef\.current\)[\s\S]*?max_attempts_exhausted/.test(
+    webVideoCall
+  ),
+  `${webVideoCallPath}: exhausted web render recovery must clear stale in-flight recovery and pending reattach timeout`
+);
+assert(
+  webVideoCall.includes("scheduleRemoteRenderValidationRef.current = scheduleRemoteRenderValidation;") &&
+    !/useEffect\(\(\)\s*=>\s*\{\s*scheduleRemoteRenderValidationRef\.current\s*=\s*scheduleRemoteRenderValidation;/.test(
+      webVideoCall
+    ),
+  `${webVideoCallPath}: web recovery follow-up validation ref must be assigned synchronously to avoid early recovery races`
+);
+assert(
   !/createCallObject\(\s*\{[\s\S]*?videoSource:\s*true[\s\S]*?\}\s*\)/.test(webVideoCall),
   `${webVideoCallPath}: Video Date must not use raw Daily call-object media options`
 );
