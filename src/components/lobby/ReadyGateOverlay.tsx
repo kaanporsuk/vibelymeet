@@ -164,6 +164,7 @@ const ReadyGateOverlay = ({
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
+  const activeReadyGateKeyRef = useRef(`${sessionId}:${eventId}`);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
@@ -331,10 +332,12 @@ const ReadyGateOverlay = ({
   const startRoomWarmup = useCallback((source: string) => {
     if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
     roomWarmupStartedRef.current = true;
+    const readyGateKey = `${sessionId}:${eventId}`;
     void ensureVideoDateRoom(sessionId, {
       eventId,
       source,
     }).then((result) => {
+      if (activeReadyGateKeyRef.current !== readyGateKey) return;
       if (result.ok === true) {
         // Preconnect to the actual Daily room origin and the Supabase
         // Functions origin so the TLS handshake is paid in parallel with
@@ -351,6 +354,7 @@ const ReadyGateOverlay = ({
         roomWarmupStartedRef.current = false;
       }
     }).catch(() => {
+      if (activeReadyGateKeyRef.current !== readyGateKey) return;
       roomWarmupStartedRef.current = false;
     });
   }, [eventId, sessionId]);
@@ -372,6 +376,7 @@ const ReadyGateOverlay = ({
       const userId = user?.id;
       if (!userId) return;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+      const readyGateKey = `${sessionId}:${eventId}`;
 
       if (getVideoDatePermissionHandoff(sessionId, userId)) {
         permissionPrewarmStartedRef.current = true;
@@ -383,6 +388,7 @@ const ReadyGateOverlay = ({
           const status = await navigator.permissions?.query?.({
             name: "camera" as PermissionName,
           });
+          if (activeReadyGateKeyRef.current !== readyGateKey) return;
           if (!status || status.state !== "granted") return;
         } catch {
           return;
@@ -439,6 +445,9 @@ const ReadyGateOverlay = ({
           }
         }
         stream = null;
+        if (activeReadyGateKeyRef.current !== readyGateKey) {
+          return;
+        }
 
         if (closedRef.current && !dateNavigationStartedRef.current) {
           return;
@@ -496,9 +505,13 @@ const ReadyGateOverlay = ({
             }
           }
         }
+        const isActiveReadyGate = activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
-          permissionPrewarmStartedRef.current = false;
+          if (isActiveReadyGate) {
+            permissionPrewarmStartedRef.current = false;
+          }
         }
+        if (!isActiveReadyGate) return;
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
           platform: "web",
           session_id: sessionId,
@@ -1202,6 +1215,7 @@ const ReadyGateOverlay = ({
   }, [iAmReady]);
 
   useEffect(() => {
+    activeReadyGateKeyRef.current = `${sessionId}:${eventId}`;
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
@@ -1222,6 +1236,11 @@ const ReadyGateOverlay = ({
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
     roomWarmupStartedRef.current = false;
+    permissionPrewarmStartedRef.current = false;
+    if (preconnectCleanupRef.current) {
+      preconnectCleanupRef.current();
+      preconnectCleanupRef.current = null;
+    }
     prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);

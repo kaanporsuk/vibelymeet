@@ -57,13 +57,14 @@ export function addVideoDatePreconnect(
   const functionsOrigin = safeOrigin(supabaseFunctionsUrl);
   if (functionsOrigin && functionsOrigin !== roomOrigin) targets.push(functionsOrigin);
 
-  if (targets.length === 0) {
+  if (targets.length === 0 || typeof document === "undefined" || !document.head) {
     return () => {};
   }
 
+  const head = document.head;
   const insertedByThisCall: Array<HTMLLinkElement> = [];
   for (const origin of targets) {
-    const before = document.head?.querySelector(
+    const before = head.querySelector(
       `link[${PRECONNECT_DATA_ATTR}][href="${origin}"]`,
     );
     const injection = injectPreconnect(origin);
