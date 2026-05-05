@@ -84,6 +84,8 @@ export type RoomTokenResult = {
   token_expires_at?: string | null;
   entry_attempt_id?: string | null;
   video_date_trace_id?: string | null;
+  cached_prepare_entry?: boolean;
+  provider_verify_skipped?: boolean | null;
 };
 
 /** Classified create_date_room failure (no secrets). */
@@ -441,6 +443,8 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
         token_expires_at: result.data.token_expires_at ?? null,
         entry_attempt_id: result.data.entry_attempt_id ?? null,
         video_date_trace_id: result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? null,
+        cached_prepare_entry: result.cached,
+        provider_verify_skipped: result.data.provider_verify_skipped ?? null,
       },
     };
   }

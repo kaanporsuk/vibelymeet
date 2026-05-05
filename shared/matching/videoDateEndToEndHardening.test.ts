@@ -2292,6 +2292,10 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(launchLatencyCheckpointObservability, /ready_tap_to_first_remote_frame_ms/);
   assert.match(webAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(nativeAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
+  assert.match(webVideoCallHook, /activePreparedEntryCacheHitRef/);
+  assert.doesNotMatch(webVideoCallHook, /cachedPrepareEntry:\s*Boolean\(entry\)/);
+  assert.doesNotMatch(nativeVideoDateRoute, /cachedPrepareEntry:\s*Boolean\(activePreparedEntryCacheRef\.current\)/);
+  assert.match(nativeVideoDateApi, /cached_prepare_entry: result\.cached/);
   assert.match(adminVideoDateOpsFunction, /getReadyTapToFirstRemoteFrameLatency/);
   assert.match(adminVideoDateOpsFunction, /ready_tap_to_first_remote_frame_latency/);
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_rpc_granted_authenticated_only/);

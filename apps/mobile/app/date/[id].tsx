@@ -892,6 +892,7 @@ export default function VideoDateScreen() {
   const appStateBackgroundStartedAtRef = useRef<number | null>(null);
   const bootstrapTimingsRef = useRef<Record<string, number>>({});
   const activePreparedEntryCacheRef = useRef<ReturnType<typeof getPreparedVideoDateEntry> | null>(null);
+  const activePreparedEntryCacheHitRef = useRef<boolean | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
   const preparedJoinRetryUsedRef = useRef(false);
   const firstIceConnectedLoggedRef = useRef(false);
@@ -1434,7 +1435,7 @@ export default function VideoDateScreen() {
                 activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
                 activePreparedEntryCacheRef.current?.entryAttemptId ??
                 null,
-              cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+              cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
               providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
             });
             const latencyPayload = buildReadyGateToDateLatencyPayload({
@@ -1514,7 +1515,7 @@ export default function VideoDateScreen() {
                 activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
                 activePreparedEntryCacheRef.current?.entryAttemptId ??
                 null,
-              cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+              cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
               providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
             });
             const latencyPayload = buildReadyGateToDateLatencyPayload({
@@ -1759,6 +1760,7 @@ export default function VideoDateScreen() {
     dateEstablishedRef.current = false;
     bootstrapTimingsRef.current = {};
     activePreparedEntryCacheRef.current = null;
+    activePreparedEntryCacheHitRef.current = null;
     dailyJoinStartedAtMsRef.current = null;
     preparedJoinRetryUsedRef.current = false;
     firstIceConnectedLoggedRef.current = false;
@@ -2615,7 +2617,7 @@ export default function VideoDateScreen() {
             activePreparedEntryCacheRef.current?.value.video_date_trace_id ??
             activePreparedEntryCacheRef.current?.entryAttemptId ??
             null,
-          cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+          cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
           providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
         });
         trackEvent(
@@ -4807,6 +4809,7 @@ export default function VideoDateScreen() {
         const handoff = consumePreparedVideoDateEntry(sessionId, user.id);
         if (handoff.ok === true) {
           activePreparedEntryCacheRef.current = handoff.cacheEntry;
+          activePreparedEntryCacheHitRef.current = true;
           tokenRes = {
             ok: true,
             data: {
@@ -4816,6 +4819,8 @@ export default function VideoDateScreen() {
               token_expires_at: handoff.envelope.tokenExpiresAt,
               entry_attempt_id: handoff.envelope.entryAttemptId,
               video_date_trace_id: handoff.envelope.videoDateTraceId,
+              cached_prepare_entry: true,
+              provider_verify_skipped: handoff.cacheEntry.value.provider_verify_skipped ?? null,
             },
           } satisfies GetDailyRoomTokenResult;
           vdbg('prejoin_step_prejoin_daily_room_handoff_used', {
@@ -5081,6 +5086,7 @@ export default function VideoDateScreen() {
       const tokenResult = tokenRes.data;
       activePreparedEntryCacheRef.current =
         activePreparedEntryCacheRef.current ?? getPreparedVideoDateEntry(sessionId, user.id);
+      activePreparedEntryCacheHitRef.current = tokenResult.cached_prepare_entry === true;
       const entryAttemptId = tokenResult.entry_attempt_id ?? activePreparedEntryCacheRef.current?.entryAttemptId ?? null;
       const videoDateTraceId =
         tokenResult.video_date_trace_id ??
@@ -5204,7 +5210,7 @@ export default function VideoDateScreen() {
           attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
           entryAttemptId,
           videoDateTraceId,
-          cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+          cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
           providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
         });
         trackEvent(
@@ -5237,7 +5243,7 @@ export default function VideoDateScreen() {
           duration_ms: prepareToJoinStartMs,
           latency_bucket: bucketVideoDateLatencyMs(prepareToJoinStartMs),
           attempt_count: preparedJoinRetryUsedRef.current ? 2 : 1,
-          cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
+          cached_prepare_entry: activePreparedEntryCacheHitRef.current,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
         });
@@ -5368,7 +5374,7 @@ export default function VideoDateScreen() {
           attemptCount: preparedJoinRetryUsedRef.current ? 2 : 1,
           entryAttemptId,
           videoDateTraceId,
-          cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+          cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
           providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
         });
         const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
@@ -5393,7 +5399,7 @@ export default function VideoDateScreen() {
           attempt_count: preparedJoinRetryUsedRef.current ? 2 : 1,
           bothReadyToDailyJoinMs: joinSuccessPayload.bothReadyToDailyJoinMs,
           prepareToJoinStartMs,
-          cached_prepare_entry: Boolean(activePreparedEntryCacheRef.current),
+          cached_prepare_entry: activePreparedEntryCacheHitRef.current,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
         });
@@ -5527,7 +5533,7 @@ export default function VideoDateScreen() {
               checkpoint: 'remote_seen',
               entryAttemptId,
               videoDateTraceId,
-              cachedPrepareEntry: Boolean(activePreparedEntryCacheRef.current),
+              cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
               providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
             });
             const latencyPayload = buildReadyGateToDateLatencyPayload({
@@ -5681,6 +5687,7 @@ export default function VideoDateScreen() {
           releaseSharedCallIfOwned(call, 'daily_join_failed_prepare_retry');
           callRef.current = null;
           activePreparedEntryCacheRef.current = null;
+          activePreparedEntryCacheHitRef.current = null;
           hasStartedJoinRef.current = false;
           setJoining(false);
           setIsConnecting(false);

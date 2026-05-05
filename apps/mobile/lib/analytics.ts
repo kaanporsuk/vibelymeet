@@ -9,8 +9,31 @@ import { supabase } from '@/lib/supabase';
 
 let client: PostHog | null = null;
 let analyticsConsentGranted = false;
+const LAUNCH_LATENCY_CHECKPOINT_EVENT = 'ready_gate_to_date_latency_checkpoint';
 
 type CleanProps = Record<string, string | number | boolean>;
+
+function emitLaunchLatencyCheckpointAsync(
+  eventName: string,
+  properties?: Record<string, string | number | boolean | null | undefined>
+) {
+  if (eventName !== LAUNCH_LATENCY_CHECKPOINT_EVENT) return;
+
+  const emit = () => {
+    void emitVideoDateLaunchLatencyCheckpointObservability({
+      client: supabase,
+      eventName,
+      properties,
+    });
+  };
+
+  if (typeof setTimeout === 'function') {
+    setTimeout(emit, 0);
+    return;
+  }
+
+  emit();
+}
 
 function sanitize(props?: Record<string, string | number | boolean | null | undefined>): CleanProps | undefined {
   if (!props) return undefined;
@@ -59,11 +82,7 @@ export function trackEvent(
   eventName: string,
   properties?: Record<string, string | number | boolean | null | undefined>
 ) {
-  void emitVideoDateLaunchLatencyCheckpointObservability({
-    client: supabase,
-    eventName,
-    properties,
-  });
+  emitLaunchLatencyCheckpointAsync(eventName, properties);
   if (!analyticsConsentGranted) return;
   client?.capture(eventName, sanitize(properties));
 }
