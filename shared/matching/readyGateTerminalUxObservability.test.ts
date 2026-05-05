@@ -13,6 +13,37 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function classNameLiterals(source: string): string[] {
+  return Array.from(source.matchAll(/className\s*=\s*(["'])([\s\S]*?)\1/g), (match) => match[2] ?? "");
+}
+
+function assertHasClassNameTokens(source: string, tokens: string[]) {
+  const classes = classNameLiterals(source).map((className) => new Set(className.trim().split(/\s+/).filter(Boolean)));
+  assert.ok(
+    classes.some((classNames) => tokens.every((token) => classNames.has(token))),
+    `expected one className literal containing tokens: ${tokens.join(", ")}`,
+  );
+}
+
+function assertNoClassNameToken(source: string, token: string) {
+  assert.ok(
+    classNameLiterals(source).every((className) => !className.trim().split(/\s+/).includes(token)),
+    `expected no className literal to contain token: ${token}`,
+  );
+}
+
+function assertStyleStringValue(source: string, property: string, value: string) {
+  assert.match(source, new RegExp(String.raw`\b${escapeRegExp(property)}:\s*['"]${escapeRegExp(value)}['"]`));
+}
+
+function assertNoStyleStringValue(source: string, property: string, value: string) {
+  assert.doesNotMatch(source, new RegExp(String.raw`\b${escapeRegExp(property)}:\s*['"]${escapeRegExp(value)}['"]`));
+}
+
 const webReadyGate = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webReadyGateHook = read("src/hooks/useReadyGate.ts");
 const nativeReadyGateApi = read("apps/mobile/lib/readyGateApi.ts");
@@ -146,16 +177,15 @@ test("ReadyGateOverlay exposes basic dialog accessibility and reduced-motion hoo
 });
 
 test("web ReadyGateOverlay stays centered on mobile instead of becoming a bottom sheet", () => {
-  assert.match(webReadyGate, /className="[^"]*\bfixed\b[^"]*\binset-0\b[^"]*\bitems-center\b/);
-  assert.match(webReadyGate, /className="[^"]*\bjustify-center\b/);
-  assert.match(webReadyGate, /className="[^"]*\boverflow-y-auto\b/);
-  assert.match(webReadyGate, /height:\s*"100dvh"/);
-  assert.doesNotMatch(webReadyGate, /minHeight:\s*"100vh"/);
-  assert.match(webReadyGate, /paddingTop:\s*"max\(1rem, env\(safe-area-inset-top\)\)"/);
-  assert.match(webReadyGate, /paddingBottom:\s*"max\(1rem, env\(safe-area-inset-bottom\)\)"/);
-  assert.match(webReadyGate, /className="[^"]*\bmax-h-full\b[^"]*\boverflow-y-auto\b/);
-  assert.doesNotMatch(webReadyGate, /\bitems-end\b/);
-  assert.doesNotMatch(webReadyGate, /\bmb-4\b[^"]*\bsm:mb-0\b/);
+  assertHasClassNameTokens(webReadyGate, ["fixed", "inset-0", "items-center", "justify-center", "overflow-y-auto"]);
+  assertStyleStringValue(webReadyGate, "height", "100dvh");
+  assertNoStyleStringValue(webReadyGate, "minHeight", "100vh");
+  assertStyleStringValue(webReadyGate, "paddingTop", "max(1rem, env(safe-area-inset-top))");
+  assertStyleStringValue(webReadyGate, "paddingBottom", "max(1rem, env(safe-area-inset-bottom))");
+  assertHasClassNameTokens(webReadyGate, ["max-h-full", "overflow-y-auto"]);
+  assertNoClassNameToken(webReadyGate, "items-end");
+  assertNoClassNameToken(webReadyGate, "mb-4");
+  assertNoClassNameToken(webReadyGate, "sm:mb-0");
 });
 
 test("native Ready Gate preserves backend terminal distinction without full parity rewrite", () => {
