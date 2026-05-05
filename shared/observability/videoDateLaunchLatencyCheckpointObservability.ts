@@ -71,9 +71,17 @@ const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
   "daily_prewarm_started",
   "daily_prewarm_camera_ready",
   "daily_prewarm_preauth_success",
+  "daily_prewarm_join_started",
+  "daily_prewarm_join_success",
+  "daily_prewarm_join_failure",
+  "daily_prewarm_solo_join_started",
+  "daily_prewarm_solo_join_success",
+  "daily_prewarm_solo_join_failure",
   "daily_prewarm_consumed",
   "daily_prewarm_fallback",
   "daily_prewarm_destroyed",
+  "video_date_route_preload_started",
+  "video_date_route_preload_success",
 ]);
 
 const SAFE_PAYLOAD_KEYS = new Set([

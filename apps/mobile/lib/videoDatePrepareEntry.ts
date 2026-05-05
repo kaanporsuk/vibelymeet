@@ -14,14 +14,17 @@ import {
 } from '@clientShared/matching/dailyRoomFailure';
 import {
   PREPARE_VIDEO_DATE_ENTRY_ACTION,
+  PREPARE_VIDEO_DATE_SOLO_ENTRY_ACTION,
   consumePreparedVideoDateEntryHandoff,
   createVideoDateEntryAttemptId,
   getBothReadyToFirstRemoteFrameMs,
   getCachedPreparedVideoDateEntry,
   getPrepareToJoinStartMs,
+  hasPreparedVideoDateSoloEntryPayload,
   prepareVideoDateEntryWithClient,
   rejectCachedPreparedVideoDateEntry,
   type PrepareVideoDateEntryResult,
+  type PrepareVideoDateSoloEntryResult,
   type PreparedVideoDateEntryCacheEntry,
   type PreparedVideoDateEntryHandoffValidation,
 } from '@clientShared/matching/videoDatePrepareEntry';
@@ -41,6 +44,10 @@ async function getCurrentUserId(): Promise<string | null> {
   } = await supabase.auth.getUser();
   if (error || !user?.id) return null;
   return user.id;
+}
+
+export function videoDateDailySoloPrejoinEnabled(): boolean {
+  return String(process.env.EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN ?? 'false').toLowerCase() === 'true';
 }
 
 export async function prepareVideoDateEntry(
@@ -366,6 +373,91 @@ export async function prepareVideoDateEntry(
     videoDateTraceId: traceId,
   });
   return result;
+}
+
+export async function prepareVideoDateSoloEntry(
+  sessionId: string,
+  options: PrepareVideoDateEntryOptions = {},
+): Promise<PrepareVideoDateSoloEntryResult> {
+  if (!videoDateDailySoloPrejoinEnabled()) {
+    return { ok: false, code: 'SOLO_PREJOIN_DISABLED', retryable: false };
+  }
+  const userId = options.userId ?? await getCurrentUserId();
+  if (!userId) {
+    return { ok: false, code: 'UNAUTHORIZED', retryable: false };
+  }
+
+  const startedAt = Date.now();
+  const entryAttemptId = createVideoDateEntryAttemptId(startedAt);
+  try {
+    const { data, error, response } = await supabase.functions.invoke('daily-room', {
+      body: {
+        action: PREPARE_VIDEO_DATE_SOLO_ENTRY_ACTION,
+        sessionId,
+        entry_attempt_id: entryAttemptId,
+        video_date_trace_id: entryAttemptId,
+      },
+    });
+
+    if (!error && hasPreparedVideoDateSoloEntryPayload(data)) {
+      vdbg('video_date_prepare_solo_entry_success', {
+        sessionId,
+        eventId: options.eventId ?? null,
+        userId,
+        source: options.source ?? null,
+        roomName: data.room_name,
+        readyGateStatus: data.ready_gate_status ?? null,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        entryAttemptId: data.entry_attempt_id ?? entryAttemptId,
+      });
+      return {
+        ok: true,
+        data: {
+          ...data,
+          entry_attempt_id: data.entry_attempt_id ?? entryAttemptId,
+          video_date_trace_id: data.video_date_trace_id ?? data.entry_attempt_id ?? entryAttemptId,
+        },
+      };
+    }
+
+    const failure = await classifyDailyRoomInvokeFailure({
+      action: DAILY_ROOM_ACTIONS.PREPARE_SOLO_ENTRY,
+      data,
+      invokeError: error,
+      response,
+    });
+    vdbg('video_date_prepare_solo_entry_failure', {
+      sessionId,
+      eventId: options.eventId ?? null,
+      userId,
+      source: options.source ?? null,
+      code: failure.serverCode ?? failure.kind,
+      httpStatus: failure.httpStatus ?? null,
+      retryable: failure.retryable,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      entryAttemptId,
+    });
+    return {
+      ok: false,
+      code: failure.serverCode ?? failure.kind,
+      httpStatus: failure.httpStatus,
+      retryable: failure.retryable,
+      entryAttemptId,
+    };
+  } catch (error) {
+    const failure = await classifyDailyRoomInvokeFailure({
+      action: DAILY_ROOM_ACTIONS.PREPARE_SOLO_ENTRY,
+      invokeError: error,
+    });
+    return {
+      ok: false,
+      code: failure.serverCode ?? failure.kind,
+      message: error instanceof Error ? error.message : String(error),
+      httpStatus: failure.httpStatus,
+      retryable: failure.retryable,
+      entryAttemptId,
+    };
+  }
 }
 
 export function getPreparedVideoDateEntry(

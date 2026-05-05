@@ -6,10 +6,16 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import {
+  prepareVideoDateEntry,
+  prepareVideoDateSoloEntry,
+  videoDateDailySoloPrejoinEnabled,
+} from "@/lib/videoDatePrepareEntry";
+import { preloadRoute } from "@/lib/routePreload";
 import { videoDateWebMediaStreamConstraints } from "@/lib/dailyCallObjectConfig";
 import {
   destroyWebVideoDateDailyPrewarm,
+  joinWebVideoDateDailyPrewarm,
   preAuthWebVideoDateDailyPrewarm,
   startWebVideoDateDailyPrewarm,
 } from "@/lib/videoDateDailyPrewarm";
@@ -334,6 +340,50 @@ const ReadyGateOverlay = ({
     [sessionId, eventId, onNavigateToDate, suppressDuplicateNav, addReadyGateBreadcrumb]
   );
 
+  const preloadVideoDateRoute = useCallback(
+    (sourceAction: string) => {
+      const startedContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId,
+        sourceSurface: "ready_gate_overlay",
+        checkpoint: "video_date_route_preload_started",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: startedContext,
+          checkpoint: "video_date_route_preload_started",
+          sourceAction,
+          outcome: "success",
+        }),
+      );
+      const preloadPromise = preloadRoute("videoDate");
+      void preloadPromise
+        ?.then(() => {
+          const successContext = recordReadyGateToDateLatencyCheckpoint({
+            sessionId,
+            platform: "web",
+            eventId,
+            sourceSurface: "ready_gate_overlay",
+            checkpoint: "video_date_route_preload_success",
+          });
+          trackEvent(
+            LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+            buildReadyGateToDateLatencyPayload({
+              context: successContext,
+              checkpoint: "video_date_route_preload_success",
+              sourceAction,
+              outcome: "success",
+            }),
+          );
+          vdbg("video_date_route_preloaded", { sessionId, eventId, sourceAction });
+        })
+        .catch(() => undefined);
+    },
+    [eventId, sessionId],
+  );
+
   const markRealtimeDegraded = useCallback(
     (reason: "channel_error" | "channel_closed" | "channel_timed_out" | "missed_progress_detection") => {
       setRealtimeDegraded(true);
@@ -604,6 +654,40 @@ const ReadyGateOverlay = ({
           ok: prewarm.ok,
           reason: prewarm.ok === true ? null : prewarm.reason,
         });
+        if (
+          prewarm.ok === true &&
+          videoDateDailySoloPrejoinEnabled() &&
+          readyGateStatus !== "both_ready" &&
+          !dateNavigationStartedRef.current &&
+          !closedRef.current
+        ) {
+          const soloEntry = await prepareVideoDateSoloEntry(sessionId, {
+            eventId,
+            userId,
+            source: "ready_gate_solo_prejoin",
+          });
+          if (activeReadyGateKeyRef.current !== readyGateKey) return;
+          if (soloEntry.ok !== true || dateNavigationStartedRef.current || closedRef.current) {
+            vdbg("ready_gate_solo_prejoin_skipped", {
+              sessionId,
+              eventId,
+              userId,
+              source,
+              ok: soloEntry.ok,
+              code: soloEntry.ok === true ? null : soloEntry.code,
+            });
+            return;
+          }
+          await joinWebVideoDateDailyPrewarm({
+            sessionId,
+            userId,
+            eventId,
+            roomUrl: soloEntry.data.room_url,
+            token: soloEntry.data.token,
+            source: "ready_gate_solo_prejoin",
+            joinSource: "solo_prejoin",
+          });
+        }
       })();
     },
     [activeReadyGateKey, canStartDailyPrewarmAfterWarmup, eventId, sessionId, user?.id],
@@ -635,6 +719,7 @@ const ReadyGateOverlay = ({
       ? "mark_ready_rpc"
       : "both_ready";
     bothReadyObservedAtMsRef.current = observedAtMs;
+    preloadVideoDateRoute(sourceAction);
     setIsTransitioning(true);
     setPrepareEntryStatus("preparing");
     setPrepareEntryFailure(null);
@@ -720,6 +805,15 @@ const ReadyGateOverlay = ({
                 roomUrl: result.data.room_url,
                 token: result.data.token,
                 source: "ready_gate_prepare_success",
+              });
+              await joinWebVideoDateDailyPrewarm({
+                sessionId,
+                userId: user.id,
+                eventId,
+                roomUrl: result.data.room_url,
+                token: result.data.token,
+                source: "ready_gate_prepare_success",
+                joinSource: "both_ready",
               });
             }
             if (!isCurrentPrepareRun()) return;
@@ -830,7 +924,7 @@ const ReadyGateOverlay = ({
         window.clearTimeout(slowWaitTimer);
       }
     })();
-  }, [eventId, navigateToDate, sessionId, suppressDuplicateNav, trackReadyGateClientEvent, addReadyGateBreadcrumb, user?.id]);
+  }, [eventId, navigateToDate, preloadVideoDateRoute, sessionId, suppressDuplicateNav, trackReadyGateClientEvent, addReadyGateBreadcrumb, user?.id]);
 
   const retryPrepareEntry = useCallback(() => {
     if (dateNavigationStartedRef.current) return;
@@ -1372,7 +1466,8 @@ const ReadyGateOverlay = ({
         source_action: "impression",
       });
     }
-  }, [sessionId, eventId]);
+    preloadVideoDateRoute("ready_gate_open");
+  }, [sessionId, eventId, preloadVideoDateRoute]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;

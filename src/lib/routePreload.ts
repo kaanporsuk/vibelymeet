@@ -44,6 +44,7 @@ export const routeLoaders = {
 } satisfies Record<string, RouteLoader>;
 
 const preloaded = new Set<string>();
+const preloadPromises = new Map<string, Promise<RouteModule>>();
 
 function requestIdle(callback: () => void) {
   if (typeof window === "undefined") return;
@@ -58,11 +59,16 @@ function requestIdle(callback: () => void) {
 }
 
 export function preloadRoute(key: keyof typeof routeLoaders) {
-  if (preloaded.has(key)) return;
+  if (preloaded.has(key)) return preloadPromises.get(key) ?? null;
   preloaded.add(key);
-  void routeLoaders[key]().catch(() => {
+  const promise = routeLoaders[key]().catch((error) => {
     preloaded.delete(key);
+    preloadPromises.delete(key);
+    throw error;
   });
+  preloadPromises.set(key, promise);
+  void promise.catch(() => undefined);
+  return promise;
 }
 
 export function preloadRouteOnIdle(key: keyof typeof routeLoaders) {

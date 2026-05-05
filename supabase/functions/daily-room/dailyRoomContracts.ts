@@ -3,6 +3,7 @@ export type DateRoomAction =
   | "create_date_room"
   | "join_date_room"
   | "prepare_date_entry"
+  | "prepare_solo_entry"
   | "video_date_leave";
 
 export type MatchCallStatus = "ringing" | "active" | "ended" | "missed" | "declined" | string | null;

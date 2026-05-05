@@ -7,6 +7,11 @@ import {
 
 type WebDailyCallObjectMediaOptions = Pick<DailyFactoryOptions, "audioSource" | "videoSource">;
 
+function readBooleanEnvFlag(name: string): boolean {
+  const env = import.meta.env as Record<string, string | undefined>;
+  return String(env[name] ?? "false").toLowerCase() === "true";
+}
+
 export function dailyCallObjectOptions(options: WebDailyCallObjectMediaOptions): DailyFactoryOptions {
   return {
     ...options,
@@ -29,6 +34,8 @@ export function dailyVideoDateCallObjectOptions(
   profile: VideoDateMediaCaptureProfile,
 ): DailyFactoryOptions {
   const videoConstraints = videoDateWebVideoConstraintsForProfile(profile) as MediaTrackConstraints;
+  const bandwidthOptimized = readBooleanEnvFlag("VITE_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED");
+  const devicePreferenceCookies = readBooleanEnvFlag("VITE_VIDEO_DATE_DAILY_DEVICE_PREFERENCE_COOKIES");
 
   return {
     audioSource: true,
@@ -40,9 +47,11 @@ export function dailyVideoDateCallObjectOptions(
     },
     sendSettings: {
       video: "quality-optimized",
+      ...(bandwidthOptimized ? { video: "bandwidth-optimized" as const } : {}),
     },
     dailyConfig: {
       avoidEval: true,
+      ...(devicePreferenceCookies ? { useDevicePreferenceCookies: true } : {}),
     },
   };
 }

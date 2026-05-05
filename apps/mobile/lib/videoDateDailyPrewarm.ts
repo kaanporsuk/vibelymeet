@@ -14,14 +14,20 @@ import {
 
 const NATIVE_DAILY_PREWARM_TTL_MS = 45_000;
 const NATIVE_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS = 250;
+const NATIVE_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 750;
 
 type NativeDailyPrewarmStatus =
   | 'starting'
   | 'camera_ready'
   | 'preauth_ready'
+  | 'joining'
+  | 'joined'
+  | 'join_failed'
   | 'consumed'
   | 'fallback'
   | 'destroyed';
+
+type NativeDailyPrewarmJoinSource = 'both_ready' | 'solo_prejoin';
 
 type NativeDailyPrewarmEntry = {
   key: string;
@@ -37,6 +43,10 @@ type NativeDailyPrewarmEntry = {
   status: NativeDailyPrewarmStatus;
   cameraPromise: Promise<void>;
   preAuthPromise: Promise<boolean> | null;
+  joinPromise: Promise<boolean> | null;
+  joinStartedAtMs: number | null;
+  joinedAtMs: number | null;
+  joinSource: NativeDailyPrewarmJoinSource | null;
   destroyTimer: ReturnType<typeof setTimeout> | null;
 };
 
@@ -46,6 +56,11 @@ type NativeDailyPrewarmPublicEntry = {
   roomUrl: string;
   captureProfile: NativeVideoDateCaptureProfile;
   createdAtMs: number;
+  joined: boolean;
+  joinPromise: Promise<boolean> | null;
+  joinStartedAtMs: number | null;
+  joinedAtMs: number | null;
+  joinSource: NativeDailyPrewarmJoinSource | null;
 };
 
 type NativeDailyPrewarmConsumeResult =
@@ -61,6 +76,11 @@ function publicEntry(entry: NativeDailyPrewarmEntry): NativeDailyPrewarmPublicEn
     roomUrl: entry.roomUrl,
     captureProfile: entry.captureProfile,
     createdAtMs: entry.createdAtMs,
+    joined: entry.status === 'joined',
+    joinPromise: entry.joinPromise,
+    joinStartedAtMs: entry.joinStartedAtMs,
+    joinedAtMs: entry.joinedAtMs,
+    joinSource: entry.joinSource,
   };
 }
 
@@ -68,8 +88,20 @@ function prewarmEnabled(): boolean {
   return String(process.env.EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM ?? 'false').toLowerCase() === 'true';
 }
 
+function joinPrewarmEnabled(joinSource: NativeDailyPrewarmJoinSource): boolean {
+  if (!prewarmEnabled()) return false;
+  const flagName = joinSource === 'solo_prejoin'
+    ? 'EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN'
+    : 'EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM';
+  return String(process.env[flagName] ?? 'false').toLowerCase() === 'true';
+}
+
 function keyFor(sessionId: string, userId: string): string {
   return `${sessionId}:${userId}`;
+}
+
+function entryStopped(entry: NativeDailyPrewarmEntry): boolean {
+  return entry.status === 'destroyed' || entry.status === 'fallback';
 }
 
 function checkpoint(params: {
@@ -107,11 +139,7 @@ function destroyEntry(entry: NativeDailyPrewarmEntry, reason: string, outcome: '
   }
   prewarmEntries.delete(entry.key);
   if (entry.status !== 'consumed') {
-    try {
-      entry.call.destroy();
-    } catch {
-      /* best effort */
-    }
+    cleanupAbandonedCall(entry);
   }
   entry.status = reason === 'consumed' ? 'consumed' : 'destroyed';
   checkpoint({
@@ -129,6 +157,25 @@ function destroyEntry(entry: NativeDailyPrewarmEntry, reason: string, outcome: '
     roomName: entry.roomName,
     reason,
   });
+}
+
+function cleanupAbandonedCall(entry: NativeDailyPrewarmEntry) {
+  const shouldWaitForJoin = entry.status === 'joining';
+  const wasJoined = entry.status === 'joined' || entry.joinedAtMs != null;
+  const cleanup = async () => {
+    try {
+      if (shouldWaitForJoin && entry.joinPromise) {
+        await entry.joinPromise.catch(() => false);
+      }
+      if (wasJoined || entry.joinedAtMs != null) {
+        await entry.call.leave().catch(() => undefined);
+      }
+      entry.call.destroy();
+    } catch {
+      /* best effort */
+    }
+  };
+  void cleanup();
 }
 
 function fallbackEntry(entry: NativeDailyPrewarmEntry, reason: string, reasonCode: string = reason) {
@@ -201,6 +248,10 @@ export function startNativeVideoDateDailyPrewarm(params: {
     status: 'starting',
     cameraPromise: Promise.resolve(),
     preAuthPromise: null,
+    joinPromise: null,
+    joinStartedAtMs: null,
+    joinedAtMs: null,
+    joinSource: null,
     destroyTimer: null,
   };
   prewarmEntries.set(key, entry);
@@ -264,6 +315,9 @@ export async function preAuthNativeVideoDateDailyPrewarm(params: {
   if (!entry || entry.roomUrl !== params.roomUrl || entry.status === 'destroyed' || entry.status === 'fallback') {
     return false;
   }
+  if (entry.status === 'joined') {
+    return true;
+  }
   if (typeof entry.call.preAuth !== 'function') {
     return false;
   }
@@ -293,6 +347,118 @@ export async function preAuthNativeVideoDateDailyPrewarm(params: {
   return (await waitWithTimeout(entry.preAuthPromise, params.waitMs ?? NATIVE_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS)) ?? true;
 }
 
+export async function joinNativeVideoDateDailyPrewarm(params: {
+  sessionId: string;
+  userId: string;
+  eventId: string | null;
+  roomUrl: string;
+  token: string;
+  source: string;
+  joinSource: NativeDailyPrewarmJoinSource;
+  waitMs?: number;
+}): Promise<boolean> {
+  if (!joinPrewarmEnabled(params.joinSource)) return false;
+  const entry = prewarmEntries.get(keyFor(params.sessionId, params.userId));
+  if (!entry || entry.roomUrl !== params.roomUrl || entry.status === 'destroyed' || entry.status === 'fallback') {
+    return false;
+  }
+  if (entry.status === 'joined') return true;
+  if (entry.joinPromise) {
+    return (await waitWithTimeout(entry.joinPromise, params.waitMs ?? NATIVE_DAILY_PREWARM_JOIN_NAV_WAIT_MS)) ?? true;
+  }
+
+  const startedAtMs = Date.now();
+  entry.status = 'joining';
+  entry.joinStartedAtMs = startedAtMs;
+  entry.joinSource = params.joinSource;
+  const startedCheckpoint =
+    params.joinSource === 'solo_prejoin' ? 'daily_prewarm_solo_join_started' : 'daily_prewarm_join_started';
+  const successCheckpoint =
+    params.joinSource === 'solo_prejoin' ? 'daily_prewarm_solo_join_success' : 'daily_prewarm_join_success';
+  const failureCheckpoint =
+    params.joinSource === 'solo_prejoin' ? 'daily_prewarm_solo_join_failure' : 'daily_prewarm_join_failure';
+
+  checkpoint({
+    sessionId: params.sessionId,
+    userId: params.userId,
+    eventId: params.eventId,
+    checkpoint: startedCheckpoint,
+    sourceAction: params.source,
+  });
+  vdbg(startedCheckpoint, {
+    sessionId: params.sessionId,
+    eventId: params.eventId,
+    userId: params.userId,
+    roomName: entry.roomName,
+    joinSource: params.joinSource,
+  });
+
+  entry.joinPromise = (async () => {
+    await entry.cameraPromise.catch(() => undefined);
+    if (entry.preAuthPromise) {
+      const preAuthOk = await entry.preAuthPromise.catch(() => false);
+      if (preAuthOk === false) throw new Error('daily_prewarm_preauth_unavailable');
+    }
+    if (
+      (prewarmEntries.get(entry.key) !== entry && entry.status !== 'consumed') ||
+      entryStopped(entry)
+    ) {
+      throw new Error('daily_prewarm_not_usable');
+    }
+    await entry.call.join({ url: params.roomUrl, token: params.token });
+    if (entryStopped(entry)) {
+      throw new Error('daily_prewarm_not_usable');
+    }
+    entry.status = 'joined';
+    entry.joinedAtMs = Date.now();
+    checkpoint({
+      sessionId: params.sessionId,
+      userId: params.userId,
+      eventId: params.eventId,
+      checkpoint: successCheckpoint,
+      sourceAction: params.source,
+      outcome: 'success',
+    });
+    vdbg(successCheckpoint, {
+      sessionId: params.sessionId,
+      eventId: params.eventId,
+      userId: params.userId,
+      roomName: entry.roomName,
+      joinDurationMs: Math.max(0, entry.joinedAtMs - startedAtMs),
+      joinSource: params.joinSource,
+    });
+    return true;
+  })().catch((error) => {
+    if (prewarmEntries.get(entry.key) === entry) {
+      entry.status = 'join_failed';
+      checkpoint({
+        sessionId: params.sessionId,
+        userId: params.userId,
+        eventId: params.eventId,
+        checkpoint: failureCheckpoint,
+        sourceAction: params.source,
+        outcome: 'failure',
+        reasonCode: error instanceof Error ? error.name : 'join_failed',
+      });
+      fallbackEntry(entry, failureCheckpoint, error instanceof Error ? error.name : 'join_failed');
+    } else if (entry.status === 'consumed') {
+      entry.status = 'join_failed';
+      checkpoint({
+        sessionId: params.sessionId,
+        userId: params.userId,
+        eventId: params.eventId,
+        checkpoint: failureCheckpoint,
+        sourceAction: params.source,
+        outcome: 'failure',
+        reasonCode: error instanceof Error ? error.name : 'join_failed',
+      });
+    }
+    return false;
+  });
+
+  return (await waitWithTimeout(entry.joinPromise, params.waitMs ?? NATIVE_DAILY_PREWARM_JOIN_NAV_WAIT_MS)) ?? true;
+}
+
 export function consumeNativeVideoDateDailyPrewarm(params: {
   sessionId: string;
   userId: string;
@@ -317,7 +483,7 @@ export function consumeNativeVideoDateDailyPrewarm(params: {
     fallbackEntry(entry, 'daily_prewarm_capture_profile_mismatch');
     return { ok: false, reason: 'capture_profile_mismatch' };
   }
-  if (entry.status === 'fallback' || entry.status === 'destroyed') {
+  if (entry.status === 'fallback' || entry.status === 'destroyed' || entry.status === 'join_failed') {
     fallbackEntry(entry, 'daily_prewarm_not_usable');
     return { ok: false, reason: 'not_usable' };
   }

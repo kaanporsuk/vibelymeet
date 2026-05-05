@@ -2060,6 +2060,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             reason: prewarmedCall.reason,
           });
         }
+        const prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
+        const prewarmedJoinPromise = prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
         const callObject = prewarmedCall.ok === true
           ? prewarmedCall.entry.call
           : DailyIframe.createCallObject(
@@ -2076,6 +2078,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           entryAttemptId,
           videoDateTraceId,
           reusedCallObject: prewarmedCall.ok === true,
+          reusedJoinedCallObject: prewarmedAlreadyJoined,
+          reusedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
           prewarmFallbackReason: prewarmedCall.ok === false ? prewarmedCall.reason : null,
         });
 
@@ -2685,7 +2689,27 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
         });
-        await callObject.join({ url: roomData.room_url, token: roomData.token });
+        if (prewarmedAlreadyJoined) {
+          vdbg("daily_join_skipped_prewarmed_already_joined", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            joinSource: prewarmedCall.ok === true ? prewarmedCall.entry.joinSource : null,
+          });
+        } else if (prewarmedJoinPromise) {
+          const prewarmedJoinOk = await prewarmedJoinPromise;
+          if (!prewarmedJoinOk) throw new Error("daily_prewarm_join_failed");
+          vdbg("daily_join_completed_by_prewarm_inflight", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            joinSource: prewarmedCall.ok === true ? prewarmedCall.entry.joinSource : null,
+          });
+        } else {
+          await callObject.join({ url: roomData.room_url, token: roomData.token });
+        }
         const joinDurationMs = Date.now() - dailyJoinStartedAtMs;
         setHasPermission(true);
         activeCallSessionIdRef.current = sessionId;
