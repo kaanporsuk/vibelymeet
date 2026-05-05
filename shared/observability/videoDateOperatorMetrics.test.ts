@@ -246,3 +246,40 @@ test("launch latency checkpoint observability preserves safe first-frame dimensi
   assert.equal(capturedArgs?.p_checkpoint, "first_remote_frame");
   assert.equal(capturedArgs?.p_latency_ms, 1900);
 });
+
+test("permission prewarm skip checkpoint is safe and allowlisted", async () => {
+  const rawProperties = {
+    session_id: "3a54f630-2dec-4529-8dfa-349741bc593c",
+    checkpoint: "permission_check_skipped",
+    platform: "web",
+    source_surface: "ready_gate_overlay",
+    source_action: "permission_prewarm_silent_no_permissions_api",
+    outcome: "no_op",
+    reason_code: "skipped_no_permissions_api",
+    token: "must_not_survive",
+  };
+
+  assert.deepEqual(sanitizeVideoDateLaunchLatencyPayload(rawProperties), {
+    platform: "web",
+    source_surface: "ready_gate_overlay",
+    source_action: "permission_prewarm_silent_no_permissions_api",
+    outcome: "no_op",
+    reason_code: "skipped_no_permissions_api",
+  });
+
+  let capturedArgs: Record<string, unknown> | null = null;
+  const result = await emitVideoDateLaunchLatencyCheckpointObservability({
+    client: {
+      rpc: async (_fn, args) => {
+        capturedArgs = args;
+        return { data: { inserted: true }, error: null };
+      },
+    },
+    eventName: LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+    properties: rawProperties,
+  });
+
+  assert.deepEqual(result, { ok: true, inserted: true });
+  assert.equal(capturedArgs?.p_checkpoint, "permission_check_skipped");
+  assert.equal(capturedArgs?.p_latency_ms, null);
+});

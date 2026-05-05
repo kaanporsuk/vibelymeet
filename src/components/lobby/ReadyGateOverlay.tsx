@@ -73,6 +73,7 @@ interface ReadyGateOverlayProps {
 }
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
+const WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
@@ -88,6 +89,71 @@ type PrepareEntryFailureState = {
   retryable: boolean;
   httpStatus?: number;
 } | null;
+
+function stopMediaStreamTracks(stream: MediaStream | null) {
+  if (!stream) return;
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      /* ignore track-stop errors */
+    }
+  }
+}
+
+function hasLabeledDevice(devices: MediaDeviceInfo[], kind: MediaDeviceKind): boolean {
+  return devices.some((device) => device.kind === kind && device.label.trim().length > 0);
+}
+
+async function hasPriorGrantedVideoDateDeviceLabels(): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) return false;
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return hasLabeledDevice(devices, "videoinput") && hasLabeledDevice(devices, "audioinput");
+}
+
+async function getVideoDatePermissionPrewarmStream(): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia(
+      videoDateWebMediaStreamConstraints("ideal"),
+    );
+  } catch (idealError) {
+    if (!isVideoDateCameraConstraintError(idealError)) throw idealError;
+    return await navigator.mediaDevices.getUserMedia(
+      videoDateWebMediaStreamConstraints("fallback"),
+    );
+  }
+}
+
+function waitForMediaStreamWithTimeout(
+  streamPromise: Promise<MediaStream>,
+  timeoutMs: number,
+): Promise<MediaStream | null> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      settled = true;
+      resolve(null);
+    }, timeoutMs);
+
+    void streamPromise.then(
+      (stream) => {
+        if (settled) {
+          stopMediaStreamTracks(stream);
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(stream);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
 
 type ReadyGateTerminalDetail = {
   status?: string | null;
@@ -183,6 +249,7 @@ const ReadyGateOverlay = ({
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
   const permissionPrewarmStartedRef = useRef(false);
+  const permissionPrewarmSkipLoggedRef = useRef(false);
   const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
@@ -425,22 +492,62 @@ const ReadyGateOverlay = ({
         return;
       }
 
+      let sourceAction =
+        source === "ready_gate_open" ? "permission_prewarm_silent" : "permission_prewarm_gesture";
+      let silentFallbackWaitMs: number | null = null;
+
       if (source === "ready_gate_open") {
         try {
-          const status = await navigator.permissions?.query?.({
-            name: "camera" as PermissionName,
-          });
+          const permissionsQuery = navigator.permissions?.query;
+          if (!permissionsQuery) throw new Error("permissions_api_unavailable");
+          const [cameraStatus, microphoneStatus] = await Promise.all([
+            permissionsQuery.call(navigator.permissions, {
+              name: "camera" as PermissionName,
+            }),
+            permissionsQuery.call(navigator.permissions, {
+              name: "microphone" as PermissionName,
+            }),
+          ]);
           if (activeReadyGateKeyRef.current !== readyGateKey) return;
-          if (!status || status.state !== "granted") return;
+          if (cameraStatus.state !== "granted" || microphoneStatus.state !== "granted") return;
         } catch {
-          return;
+          if (activeReadyGateKeyRef.current !== readyGateKey) return;
+          if (!permissionPrewarmSkipLoggedRef.current) {
+            permissionPrewarmSkipLoggedRef.current = true;
+            const skippedContext = recordReadyGateToDateLatencyCheckpoint({
+              sessionId,
+              platform: "web",
+              eventId,
+              sourceSurface: "ready_gate_overlay",
+              checkpoint: "permission_check_skipped",
+            });
+            trackEvent(
+              LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+              buildReadyGateToDateLatencyPayload({
+                context: skippedContext,
+                checkpoint: "permission_check_skipped",
+                sourceAction: "permission_prewarm_silent_no_permissions_api",
+                outcome: "no_op",
+                reasonCode: "skipped_no_permissions_api",
+              }),
+            );
+          }
+
+          let priorGrantEvidence = false;
+          try {
+            priorGrantEvidence = await hasPriorGrantedVideoDateDeviceLabels();
+          } catch {
+            priorGrantEvidence = false;
+          }
+          if (activeReadyGateKeyRef.current !== readyGateKey) return;
+          if (!priorGrantEvidence) return;
+          sourceAction = "permission_prewarm_silent_no_permissions_api";
+          silentFallbackWaitMs = WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS;
         }
       }
 
       permissionPrewarmStartedRef.current = true;
       const startedAtMs = Date.now();
-      const sourceAction =
-        source === "ready_gate_open" ? "permission_prewarm_silent" : "permission_prewarm_gesture";
 
       const startedContext = recordReadyGateToDateLatencyCheckpoint({
         sessionId,
@@ -468,24 +575,23 @@ const ReadyGateOverlay = ({
 
       let stream: MediaStream | null = null;
       try {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(
-            videoDateWebMediaStreamConstraints("ideal"),
-          );
-        } catch (idealError) {
-          if (!isVideoDateCameraConstraintError(idealError)) throw idealError;
-          stream = await navigator.mediaDevices.getUserMedia(
-            videoDateWebMediaStreamConstraints("fallback"),
-          );
+        const streamPromise = getVideoDatePermissionPrewarmStream();
+        stream = silentFallbackWaitMs == null
+          ? await streamPromise
+          : await waitForMediaStreamWithTimeout(streamPromise, silentFallbackWaitMs);
+        if (!stream) {
+          permissionPrewarmStartedRef.current = false;
+          vdbg("ready_gate_permission_prewarm_silent_fallback_timed_out", {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            waitMs: silentFallbackWaitMs,
+          });
+          return;
         }
 
-        for (const track of stream.getTracks()) {
-          try {
-            track.stop();
-          } catch {
-            /* ignore track-stop errors */
-          }
-        }
+        stopMediaStreamTracks(stream);
         stream = null;
         if (activeReadyGateKeyRef.current !== readyGateKey) {
           return;
@@ -537,15 +643,7 @@ const ReadyGateOverlay = ({
           durationMs,
         });
       } catch (error) {
-        if (stream) {
-          for (const track of stream.getTracks()) {
-            try {
-              track.stop();
-            } catch {
-              /* ignore */
-            }
-          }
-        }
+        stopMediaStreamTracks(stream);
         const isActiveReadyGate = activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
           if (isActiveReadyGate) {
@@ -553,6 +651,19 @@ const ReadyGateOverlay = ({
           }
         }
         if (!isActiveReadyGate) return;
+        if (sourceAction === "permission_prewarm_silent_no_permissions_api") {
+          vdbg("ready_gate_permission_prewarm_silent_fallback_failed", {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            error:
+              error instanceof Error
+                ? { name: error.name, message: error.message }
+                : String(error),
+          });
+          return;
+        }
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
           platform: "web",
           session_id: sessionId,
@@ -1421,6 +1532,7 @@ const ReadyGateOverlay = ({
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
     permissionPrewarmStartedRef.current = false;
+    permissionPrewarmSkipLoggedRef.current = false;
     roomWarmupStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;

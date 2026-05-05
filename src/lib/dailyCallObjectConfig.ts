@@ -6,6 +6,9 @@ import {
 } from "@clientShared/matching/videoDateMediaContract";
 
 type WebDailyCallObjectMediaOptions = Pick<DailyFactoryOptions, "audioSource" | "videoSource">;
+type DailyAdvancedConfigWithVideoDateKnobs = NonNullable<DailyFactoryOptions["dailyConfig"]> & {
+  experimentalChromeVideoMuteLightOff?: boolean;
+};
 
 function readBooleanEnvFlag(name: string): boolean {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -13,11 +16,13 @@ function readBooleanEnvFlag(name: string): boolean {
 }
 
 export function dailyCallObjectOptions(options: WebDailyCallObjectMediaOptions): DailyFactoryOptions {
+  const dailyConfig: DailyAdvancedConfigWithVideoDateKnobs = {
+    avoidEval: true,
+  };
+
   return {
     ...options,
-    dailyConfig: {
-      avoidEval: true,
-    },
+    dailyConfig,
   };
 }
 
@@ -36,6 +41,11 @@ export function dailyVideoDateCallObjectOptions(
   const videoConstraints = videoDateWebVideoConstraintsForProfile(profile) as MediaTrackConstraints;
   const bandwidthOptimized = readBooleanEnvFlag("VITE_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED");
   const devicePreferenceCookies = readBooleanEnvFlag("VITE_VIDEO_DATE_DAILY_DEVICE_PREFERENCE_COOKIES");
+  const dailyConfig: DailyAdvancedConfigWithVideoDateKnobs = {
+    avoidEval: true,
+    experimentalChromeVideoMuteLightOff: true,
+    ...(devicePreferenceCookies ? { useDevicePreferenceCookies: true } : {}),
+  };
 
   return {
     audioSource: true,
@@ -49,10 +59,7 @@ export function dailyVideoDateCallObjectOptions(
       video: "quality-optimized",
       ...(bandwidthOptimized ? { video: "bandwidth-optimized" as const } : {}),
     },
-    dailyConfig: {
-      avoidEval: true,
-      ...(devicePreferenceCookies ? { useDevicePreferenceCookies: true } : {}),
-    },
+    dailyConfig,
   };
 }
 

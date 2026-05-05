@@ -287,6 +287,7 @@ select
   and coalesce(def, '') like '%ready_tap_to_first_remote_frame_ms%'
   and coalesce(def, '') like '%date_route_bootstrap_ms%'
   and coalesce(def, '') like '%daily_join_to_remote_seen_ms%'
+  and coalesce(def, '') like '%permission_check_skipped%'
   and coalesce(def, '') like '%ready_actor_order%'
   and coalesce(def, '') like '%both_ready_observed_via_rpc_short_circuit%'
   as ok

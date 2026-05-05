@@ -139,6 +139,10 @@ const launchLatencyJoinPrewarmCheckpointsMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505231000_video_date_launch_latency_join_prewarm_checkpoints.sql"),
   "utf8",
 );
+const launchLatencyPermissionPrewarmSkipCheckpointMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260505234000_video_date_permission_prewarm_skip_checkpoint.sql"),
+  "utf8",
+);
 const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
   "utf8",
@@ -279,6 +283,10 @@ const webVideoCallHook = readFileSync(
 );
 const webDailyPrewarm = readFileSync(
   join(process.cwd(), "src/lib/videoDateDailyPrewarm.ts"),
+  "utf8",
+);
+const webDailyCallObjectConfig = readFileSync(
+  join(process.cwd(), "src/lib/dailyCallObjectConfig.ts"),
   "utf8",
 );
 const nativeDailyPrewarm = readFileSync(
@@ -1397,7 +1405,13 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(nativeVideoDateDailyMediaConfig, /sendSettings:[\s\S]*video:\s*'quality-optimized'/);
   assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /userMediaVideoConstraints/);
   assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /dailyConfig/);
+  assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /experimentalChromeVideoMuteLightOff/);
   assert.doesNotMatch(nativeVideoDateDailyMediaConfig, /videoDateNativeVideoConstraintsForProfile/);
+  assert.match(webDailyCallObjectConfig, /type DailyAdvancedConfigWithVideoDateKnobs/);
+  assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff\?: boolean/);
+  assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff:\s*true/);
+  assert.match(webDailyCallObjectConfig, /useDevicePreferenceCookies/);
+  assert.match(webDailyCallObjectConfig, /avoidEval:\s*true/);
   assert.match(nativeVideoDateRoute, /diagnostic_scope: 'sender_capture'/);
   assert.match(nativeVideoDateRoute, /diagnostic_scope: 'receiver_layout'/);
   assert.match(nativeVideoDateRoute, /receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT/);
@@ -2413,6 +2427,9 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
     assert.match(launchLatencyCheckpointObservability, new RegExp(`"${checkpoint}"`));
     assert.match(launchLatencyJoinPrewarmCheckpointsMigration, new RegExp(`'${checkpoint}'`));
   }
+  assert.match(videoDateOperatorMetrics, /"permission_check_skipped"/);
+  assert.match(launchLatencyCheckpointObservability, /"permission_check_skipped"/);
+  assert.match(launchLatencyPermissionPrewarmSkipCheckpointMigration, /'permission_check_skipped'/);
   assert.match(webAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(nativeAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(webAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
@@ -2443,6 +2460,7 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_rpc_granted_authenticated_only/);
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_primary_fields_allowlisted/);
   assert.match(videoDateValidationSql, /record_video_date_launch_latency_checkpoint_20260505214500_rpc_short_circuit_base/);
+  assert.match(videoDateValidationSql, /permission_check_skipped/);
   assert.match(videoDateValidationSql, /both_ready_observed_via_rpc_short_circuit/);
   assert.match(videoDateValidationSql, /timeline_includes_launch_latency_checkpoints/);
 });
@@ -2496,6 +2514,16 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);
+  assert.match(readyGateOverlay, /WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100/);
+  assert.match(readyGateOverlay, /permission_check_skipped/);
+  assert.match(readyGateOverlay, /skipped_no_permissions_api/);
+  assert.match(readyGateOverlay, /const \[cameraStatus, microphoneStatus\]/);
+  assert.match(readyGateOverlay, /cameraStatus\.state !== "granted" \|\| microphoneStatus\.state !== "granted"/);
+  assert.match(readyGateOverlay, /hasPriorGrantedVideoDateDeviceLabels/);
+  assert.match(readyGateOverlay, /enumerateDevices/);
+  assert.match(readyGateOverlay, /permission_prewarm_silent_no_permissions_api/);
+  assert.match(readyGateOverlay, /waitForMediaStreamWithTimeout/);
+  assert.match(readyGateOverlay, /stopMediaStreamTracks\(stream\)/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /joinWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /prepareVideoDateSoloEntry/);
