@@ -38,7 +38,7 @@ Instrumentation: Sentry breadcrumbs `video-date-launch` (`prejoin_*` segment del
 
 - **Old audit finding:** A previous speed pass considered skipping `GET /rooms/:name` when `handshake_started_at` was very recent.
 - **Current contract:** Daily provider verification can be skipped only when room freshness is proven by a trusted, recent `daily_room_verified_at` plus non-expired `daily_room_expires_at` for the canonical room metadata. Old DB metadata alone is not sufficient.
-- **Warmup:** `ensure_date_room` may create or verify the deterministic room during Ready Gate, but it does not issue a user token, transition date entry, or join media. `prepare_date_entry` remains authoritative at both-ready.
+- **Warmup:** client-side Ready Gate room warmup is disabled. The backend `ensure_date_room` action is retained only as a backward-compatible room-only surface for older clients; current web/native Ready Gate overlays do not call it, and `prepare_date_entry` remains authoritative after both-ready.
 
 ## `handshake_started_at` vs UI
 
@@ -67,16 +67,16 @@ Captured in **two-device native smoke** with VDBG + Sentry breadcrumbs (`video-d
 | `enter_handshake` RPC | Sentry `duration_ms` | |
 | `daily_room` invoke | Sentry `duration_ms` | |
 
-## Prewarm Daily at Ready Gate (design only)
+## Prewarm Daily at Ready Gate
 
-Creating a Daily room before user-scoped entry is now handled by `ensure_date_room`: room-only, participant-gated, fail-soft, no token, no route-to-date, and no media join before both-ready.
+Pre-ready Daily room creation from Ready Gate is intentionally off for current clients. It previously created stale provider metadata before `ready_gate_transition('mark_ready')`, so Ready Gate now keeps only permission prewarm before both-ready. Daily provider setup starts through `prepare_date_entry` after the backend reports `both_ready`.
 
 ## Rebuild / deploy checklist
 
-- **Supabase Edge Function:** redeploy `daily-room` after merge.
-- **Supabase DB:** run the room freshness migration adding `daily_room_verified_at`, `daily_room_expires_at`, and `daily_room_provider_verify_reason`.
-- **Mobile app:** normal OTA / store build; no new env vars.
-- **Web:** unchanged; shared `activeSession` / prejoin types unchanged except mobile-only coalescing in `videoDateApi.ts`.
+- **Supabase Edge Function:** no deploy required for the Ready Gate mark-ready fix.
+- **Supabase DB:** run the Ready Gate stale pre-ready metadata repair migration before the web/native rebuilds.
+- **Mobile app:** rebuild if shipping the native Ready Gate pre-ready warmup removal; no new env vars.
+- **Web:** rebuild/redeploy so old pre-ready room warmup code is gone.
 
 ## Safety checklist (unchanged intent)
 

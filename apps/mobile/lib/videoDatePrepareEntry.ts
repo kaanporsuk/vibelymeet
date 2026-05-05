@@ -14,7 +14,6 @@ import {
 } from '@clientShared/matching/dailyRoomFailure';
 import {
   PREPARE_VIDEO_DATE_ENTRY_ACTION,
-  ENSURE_VIDEO_DATE_ROOM_ACTION,
   consumePreparedVideoDateEntryHandoff,
   createVideoDateEntryAttemptId,
   getBothReadyToFirstRemoteFrameMs,
@@ -23,8 +22,6 @@ import {
   prepareVideoDateEntryWithClient,
   rejectCachedPreparedVideoDateEntry,
   type PrepareVideoDateEntryResult,
-  type EnsureVideoDateRoomResult,
-  type EnsureVideoDateRoomSuccess,
   type PreparedVideoDateEntryCacheEntry,
   type PreparedVideoDateEntryHandoffValidation,
 } from '@clientShared/matching/videoDatePrepareEntry';
@@ -36,11 +33,6 @@ type PrepareVideoDateEntryOptions = {
   bothReadyObservedAtMs?: number;
 };
 
-type EnsureVideoDateRoomOptions = {
-  eventId?: string | null;
-  source?: string;
-};
-
 async function getCurrentUserId(): Promise<string | null> {
   const {
     data: { user },
@@ -48,145 +40,6 @@ async function getCurrentUserId(): Promise<string | null> {
   } = await supabase.auth.getUser();
   if (error || !user?.id) return null;
   return user.id;
-}
-
-function hasEnsureRoomPayload(data: unknown): data is EnsureVideoDateRoomSuccess {
-  if (!data || typeof data !== 'object') return false;
-  const row = data as Partial<EnsureVideoDateRoomSuccess>;
-  return row.success === true && typeof row.room_name === 'string' && typeof row.room_url === 'string';
-}
-
-export async function ensureVideoDateRoom(
-  sessionId: string,
-  options: EnsureVideoDateRoomOptions = {},
-): Promise<EnsureVideoDateRoomResult> {
-  const userId = await getCurrentUserId();
-  if (!userId) return { ok: false, code: 'UNAUTHORIZED', retryable: false };
-
-  const startedAt = Date.now();
-  const entryAttemptId = createVideoDateEntryAttemptId(startedAt);
-  const latencyContext = recordReadyGateToDateLatencyCheckpoint({
-    sessionId,
-    platform: 'native',
-    eventId: options.eventId ?? null,
-    sourceSurface: 'ready_gate_overlay',
-    checkpoint: 'room_warmup_started',
-    nowMs: startedAt,
-  });
-  trackEvent(
-    LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-    buildReadyGateToDateLatencyPayload({
-      context: latencyContext,
-      checkpoint: 'room_warmup_started',
-      sourceAction: options.source ?? 'ensure_date_room',
-      outcome: 'success',
-    }),
-  );
-  trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROOM_WARMUP_STARTED, {
-    platform: 'native',
-    session_id: sessionId,
-    event_id: options.eventId ?? null,
-    source: options.source ?? null,
-    source_surface: 'ready_gate_overlay',
-    source_action: 'ensure_date_room_started',
-    entry_attempt_id: entryAttemptId,
-    video_date_trace_id: entryAttemptId,
-  });
-
-  const { data, error } = await supabase.functions.invoke('daily-room', {
-    body: {
-      action: ENSURE_VIDEO_DATE_ROOM_ACTION,
-      sessionId,
-      entry_attempt_id: entryAttemptId,
-      video_date_trace_id: entryAttemptId,
-    },
-  });
-
-  if (!error && hasEnsureRoomPayload(data)) {
-    const durationMs = Date.now() - startedAt;
-    const successContext = recordReadyGateToDateLatencyCheckpoint({
-      sessionId,
-      platform: 'native',
-      eventId: options.eventId ?? null,
-      sourceSurface: 'ready_gate_overlay',
-      checkpoint: 'room_warmup_success',
-    });
-    trackEvent(
-      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-      buildReadyGateToDateLatencyPayload({
-        context: successContext,
-        checkpoint: 'room_warmup_success',
-        sourceAction: options.source ?? 'ensure_date_room',
-        outcome: 'success',
-        durationMs,
-      }),
-    );
-    trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROOM_WARMUP_SUCCESS, {
-      platform: 'native',
-      session_id: sessionId,
-      event_id: options.eventId ?? null,
-      source: options.source ?? null,
-      source_surface: 'ready_gate_overlay',
-      source_action: 'ensure_date_room_success',
-      duration_ms: durationMs,
-      latency_bucket: bucketVideoDateLatencyMs(durationMs),
-      reused_room: data.reused_room === true,
-      provider_room_recreated: data.provider_room_recreated === true,
-      provider_verify_skipped: data.provider_verify_skipped === true,
-      provider_verify_reason: data.provider_verify_reason ?? null,
-      entry_attempt_id: data.entry_attempt_id ?? entryAttemptId,
-      video_date_trace_id: data.video_date_trace_id ?? entryAttemptId,
-    });
-    return { ok: true, data };
-  }
-
-  const failure = await classifyDailyRoomInvokeFailure({
-    action: DAILY_ROOM_ACTIONS.ENSURE_ROOM,
-    data,
-    invokeError: error,
-  });
-  const code = failure.serverCode ?? failure.kind;
-  const failureContext = recordReadyGateToDateLatencyCheckpoint({
-    sessionId,
-    platform: 'native',
-    eventId: options.eventId ?? null,
-    sourceSurface: 'ready_gate_overlay',
-    checkpoint: 'room_warmup_failure',
-  });
-  trackEvent(
-    LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-    buildReadyGateToDateLatencyPayload({
-      context: failureContext,
-      checkpoint: 'room_warmup_failure',
-      sourceAction: options.source ?? 'ensure_date_room',
-      outcome: 'failure',
-      reasonCode: code,
-      durationMs: Date.now() - startedAt,
-    }),
-  );
-  trackEvent(LobbyPostDateEvents.VIDEO_DATE_ROOM_WARMUP_FAILURE, {
-    platform: 'native',
-    session_id: sessionId,
-    event_id: options.eventId ?? null,
-    source: options.source ?? null,
-    source_surface: 'ready_gate_overlay',
-    source_action: 'ensure_date_room_failure',
-    code,
-    reason_code: code,
-    httpStatus: failure.httpStatus ?? null,
-    retryable: failure.retryable,
-    duration_ms: Date.now() - startedAt,
-    entry_attempt_id: entryAttemptId,
-    video_date_trace_id: entryAttemptId,
-  });
-  return {
-    ok: false,
-    code,
-    message: error instanceof Error ? error.message : undefined,
-    httpStatus: failure.httpStatus,
-    retryable: failure.retryable,
-    entryAttemptId,
-  };
 }
 
 export async function prepareVideoDateEntry(

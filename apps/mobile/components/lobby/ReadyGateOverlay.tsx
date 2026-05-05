@@ -32,11 +32,10 @@ import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
-import { ensureVideoDateRoom, prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   destroyNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
-  startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -166,9 +165,6 @@ export function ReadyGateOverlay({
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
-  const roomWarmupStartedRef = useRef(false);
-  const roomWarmupProofRef = useRef<{ room_name: string; room_url: string } | null>(null);
-  const iAmReadyRef = useRef(false);
   const duplicateNavSuppressionKeysRef = useRef(new Set<string>());
   const duplicateTerminalSuppressionKeysRef = useRef(new Set<string>());
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
@@ -238,48 +234,6 @@ export function ReadyGateOverlay({
     },
     [eventId, sessionId],
   );
-
-  const maybeStartDailyPrewarm = useCallback(
-    (source: string) => {
-      const proof = roomWarmupProofRef.current;
-      if (!proof || closedRef.current || dateNavigationStartedRef.current) return;
-      startNativeVideoDateDailyPrewarm({
-        sessionId,
-        userId,
-        eventId,
-        roomName: proof.room_name,
-        roomUrl: proof.room_url,
-        captureProfile: 'ideal',
-        source,
-      });
-    },
-    [eventId, sessionId, userId],
-  );
-
-  const startRoomWarmup = useCallback((source: string) => {
-    if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
-    roomWarmupStartedRef.current = true;
-    void ensureVideoDateRoom(sessionId, {
-      eventId,
-      source,
-    }).then((result) => {
-      if (result.ok === true) {
-        roomWarmupProofRef.current = {
-          room_name: result.data.room_name,
-          room_url: result.data.room_url,
-        };
-        if (iAmReadyRef.current) {
-          maybeStartDailyPrewarm('ready_gate_room_warmup_success_after_ready_tap');
-        }
-        return;
-      }
-      if (result.ok === false && result.retryable) {
-        roomWarmupStartedRef.current = false;
-      }
-    }).catch(() => {
-      roomWarmupStartedRef.current = false;
-    });
-  }, [eventId, maybeStartDailyPrewarm, sessionId]);
 
   const suppressDuplicateNav = useCallback(
     (source: string) => {
@@ -811,9 +765,6 @@ export function ReadyGateOverlay({
     manualExitRequestedRef.current = false;
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
-    roomWarmupStartedRef.current = false;
-    roomWarmupProofRef.current = null;
-    iAmReadyRef.current = false;
     prepareEntryHandoffStartedRef.current = false;
     duplicateNavSuppressionKeysRef.current.clear();
     duplicateTerminalSuppressionKeysRef.current.clear();
@@ -907,13 +858,6 @@ export function ReadyGateOverlay({
   }, [iAmReady]);
 
   useEffect(() => {
-    iAmReadyRef.current = iAmReady;
-    if (iAmReady) {
-      maybeStartDailyPrewarm('ready_gate_i_am_ready_state');
-    }
-  }, [iAmReady, maybeStartDailyPrewarm]);
-
-  useEffect(() => {
     if (!iAmReady || isBothReady || isTransitioning) return;
     const timer = setTimeout(() => {
       void reconcileFromCanonicalTruth('overlay_ready_wait_threshold');
@@ -935,7 +879,6 @@ export function ReadyGateOverlay({
 
   useEffect(() => {
     if (!permissionsResolved || hasMediaPermission !== true || isTransitioning || isBothReady) return;
-    startRoomWarmup('ready_gate_open_permissions_ready');
     if (!iAmReady || partnerReady || snoozedByPartner) return;
     if (openingPartnerWaitRef.current) return;
     openingPartnerWaitRef.current = true;
@@ -955,7 +898,6 @@ export function ReadyGateOverlay({
     permissionsResolved,
     sessionId,
     snoozedByPartner,
-    startRoomWarmup,
   ]);
 
   useEffect(() => {
@@ -1320,8 +1262,6 @@ export function ReadyGateOverlay({
                   label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                   onPress={() => {
                     if (markingReady || terminalActionPending) return;
-                    iAmReadyRef.current = true;
-                    maybeStartDailyPrewarm('ready_gate_ready_tap');
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
                       sessionId,
                       platform: 'native',

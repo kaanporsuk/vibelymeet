@@ -6,15 +6,12 @@ import { useReadyGate } from "@/hooks/useReadyGate";
 import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { ensureVideoDateRoom, prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
 import { videoDateWebMediaStreamConstraints } from "@/lib/dailyCallObjectConfig";
 import {
   destroyWebVideoDateDailyPrewarm,
   preAuthWebVideoDateDailyPrewarm,
-  startWebVideoDateDailyPrewarm,
 } from "@/lib/videoDateDailyPrewarm";
-import { addVideoDatePreconnect } from "@/lib/videoDatePreconnect";
-import { SUPABASE_URL } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
@@ -174,10 +171,7 @@ const ReadyGateOverlay = ({
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
-  const roomWarmupStartedRef = useRef(false);
-  const roomWarmupProofRef = useRef<{ room_name: string; room_url: string } | null>(null);
   const permissionPrewarmStartedRef = useRef(false);
-  const preconnectCleanupRef = useRef<(() => void) | null>(null);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
@@ -189,7 +183,6 @@ const ReadyGateOverlay = ({
   const duplicateTerminalSuppressionKeysRef = useRef<Set<string>>(new Set());
   const terminalToastKeyRef = useRef<string | null>(null);
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
-  const iAmReadyRef = useRef(false);
   const latestUnmountCleanupContextRef = useRef({
     sessionId,
     userId: user?.id ?? null,
@@ -208,29 +201,8 @@ const ReadyGateOverlay = ({
     [eventId, sessionId],
   );
 
-  const maybeStartDailyPrewarm = useCallback(
-    (source: string) => {
-      const userId = user?.id;
-      const proof = roomWarmupProofRef.current;
-      if (!userId || !proof || closedRef.current || dateNavigationStartedRef.current) return;
-      if (!getVideoDatePermissionHandoff(sessionId, userId)) return;
-      startWebVideoDateDailyPrewarm({
-        sessionId,
-        userId,
-        eventId,
-        roomName: proof.room_name,
-        roomUrl: proof.room_url,
-        captureProfile: "ideal",
-        source,
-      });
-    },
-    [eventId, sessionId, user?.id],
-  );
-
   useLayoutEffect(() => {
     activeReadyGateKeyRef.current = activeReadyGateKey;
-    roomWarmupProofRef.current = null;
-    iAmReadyRef.current = false;
   }, [activeReadyGateKey]);
 
   useLayoutEffect(() => {
@@ -373,43 +345,6 @@ const ReadyGateOverlay = ({
     [eventId, sessionId],
   );
 
-  const startRoomWarmup = useCallback((source: string) => {
-    if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
-    roomWarmupStartedRef.current = true;
-    const readyGateKey = activeReadyGateKey;
-    void ensureVideoDateRoom(sessionId, {
-      eventId,
-      source,
-    }).then((result) => {
-      if (activeReadyGateKeyRef.current !== readyGateKey) return;
-      if (result.ok === true) {
-        roomWarmupProofRef.current = {
-          room_name: result.data.room_name,
-          room_url: result.data.room_url,
-        };
-        // Preconnect to the actual Daily room origin and the Supabase
-        // Functions origin so the TLS handshake is paid in parallel with
-        // the ready-gate countdown rather than inside `prepare_date_entry`.
-        if (!preconnectCleanupRef.current && !closedRef.current) {
-          preconnectCleanupRef.current = addVideoDatePreconnect(
-            result.data.room_url,
-            SUPABASE_URL,
-          );
-        }
-        if (iAmReadyRef.current) {
-          maybeStartDailyPrewarm("ready_gate_room_warmup_success_after_ready_tap");
-        }
-        return;
-      }
-      if (result.retryable) {
-        roomWarmupStartedRef.current = false;
-      }
-    }).catch(() => {
-      if (activeReadyGateKeyRef.current !== readyGateKey) return;
-      roomWarmupStartedRef.current = false;
-    });
-  }, [activeReadyGateKey, eventId, maybeStartDailyPrewarm, sessionId]);
-
   // Web Ready Gate permission prewarm: writes the existing
   // VideoDatePermissionHandoff (consumed by useVideoCall ~L1372) so the date
   // screen can skip its own getUserMedia roundtrip. Two trigger sources:
@@ -510,10 +445,6 @@ const ReadyGateOverlay = ({
           platform: "web",
           source: "web_ready_gate",
         });
-        if (iAmReadyRef.current) {
-          maybeStartDailyPrewarm("ready_gate_permission_prewarm_success_after_ready_tap");
-        }
-
         const durationMs = Math.max(0, Date.now() - startedAtMs);
         const successContext = recordReadyGateToDateLatencyCheckpoint({
           sessionId,
@@ -586,7 +517,7 @@ const ReadyGateOverlay = ({
         });
       }
     },
-    [activeReadyGateKey, eventId, maybeStartDailyPrewarm, sessionId, user?.id],
+    [activeReadyGateKey, eventId, sessionId, user?.id],
   );
 
   const handleBothReady = useCallback(() => {
@@ -940,13 +871,6 @@ const ReadyGateOverlay = ({
     onBothReady: handleBothReady,
     onForfeited: handleForfeited,
   });
-
-  useEffect(() => {
-    iAmReadyRef.current = iAmReady;
-    if (iAmReady) {
-      maybeStartDailyPrewarm("ready_gate_i_am_ready_state");
-    }
-  }, [iAmReady, maybeStartDailyPrewarm]);
 
   const runTerminalAction = useCallback(
     async (dismissVariant: ReadyGateTerminalAction) => {
@@ -1306,12 +1230,7 @@ const ReadyGateOverlay = ({
     bothReadyObservedAtMsRef.current = null;
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
-    roomWarmupStartedRef.current = false;
     permissionPrewarmStartedRef.current = false;
-    if (preconnectCleanupRef.current) {
-      preconnectCleanupRef.current();
-      preconnectCleanupRef.current = null;
-    }
     prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
@@ -1360,9 +1279,8 @@ const ReadyGateOverlay = ({
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
-    startRoomWarmup("ready_gate_open");
     void runPermissionPrewarm("ready_gate_open");
-  }, [eventId, runPermissionPrewarm, sessionId, startRoomWarmup, user?.id]);
+  }, [eventId, runPermissionPrewarm, sessionId, user?.id]);
 
   useEffect(() => {
     return () => {
@@ -1375,13 +1293,6 @@ const ReadyGateOverlay = ({
           latestContext.userId,
           "ready_gate_unmount_before_date_navigation",
         );
-      }
-      if (preconnectCleanupRef.current) {
-        const cleanup = preconnectCleanupRef.current;
-        preconnectCleanupRef.current = null;
-        window.setTimeout(() => {
-          cleanup();
-        }, 15_000);
       }
     };
   }, []);
@@ -1700,8 +1611,6 @@ const ReadyGateOverlay = ({
                     // in parallel with markReady() — handoff lands well before
                     // the date screen mounts in the typical case.
                     void runPermissionPrewarm("ready_tap");
-                    iAmReadyRef.current = true;
-                    maybeStartDailyPrewarm("ready_gate_ready_tap");
                     recordUserAction("ready_gate_ready_clicked", {
                       surface: "ready_gate_overlay",
                       session_id: sessionId,

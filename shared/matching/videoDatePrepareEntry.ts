@@ -1,5 +1,4 @@
 export const PREPARE_VIDEO_DATE_ENTRY_ACTION = "prepare_date_entry" as const;
-export const ENSURE_VIDEO_DATE_ROOM_ACTION = "ensure_date_room" as const;
 export const PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS = 3 * 60 * 1000;
 export const PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION = 1 as const;
 
@@ -45,33 +44,6 @@ export type PrepareVideoDateEntryFailure = {
   httpStatus?: number;
   retryable?: boolean;
 };
-
-export type EnsureVideoDateRoomSuccess = {
-  success: true;
-  room_name: string;
-  room_url: string;
-  reused_room?: boolean;
-  provider_room_recreated?: boolean;
-  provider_room_recovered?: boolean;
-  provider_verify_skipped?: boolean;
-  provider_verify_reason?: string | null;
-  daily_room_verified_at?: string | null;
-  daily_room_expires_at?: string | null;
-  entry_attempt_id?: string | null;
-  video_date_trace_id?: string | null;
-  timings?: Record<string, number | null | undefined>;
-};
-
-export type EnsureVideoDateRoomResult =
-  | { ok: true; data: EnsureVideoDateRoomSuccess }
-  | {
-      ok: false;
-      code: string;
-      message?: string;
-      httpStatus?: number;
-      retryable: boolean;
-      entryAttemptId?: string | null;
-    };
 
 export type PreparedVideoDateEntryCacheEntry = {
   sessionId: string;
