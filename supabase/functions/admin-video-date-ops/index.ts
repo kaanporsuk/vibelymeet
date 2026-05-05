@@ -56,10 +56,50 @@ type QueueDrainRow = {
 };
 
 type LaunchLatencyCheckpointRow = {
+  created_at?: string | null;
   latency_ms: number | null;
   event_id: string | null;
+  actor_id?: string | null;
+  session_id?: string | null;
+  reason_code?: string | null;
   detail?: Record<string, unknown> | null;
 };
+
+type SegmentLatencySummary = {
+  key: string;
+  label: string;
+  sample_count: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  max_ms: number | null;
+};
+
+type CohortLatencySummary = SegmentLatencySummary & {
+  dimensions: Record<string, string>;
+};
+
+type SlowLaunchSessionSummary = {
+  session_id: string | null;
+  actor_id: string | null;
+  event_id: string | null;
+  occurred_at: string | null;
+  latency_ms: number | null;
+  platform: string;
+  daily_prewarm: string;
+  timeline_rows?: VideoDateSessionTimelineRow[];
+  timeline_error?: string;
+};
+
+const LAUNCH_SEGMENT_KEYS = [
+  ["room_warmup_ms", "Room warmup"],
+  ["prepare_entry_ms", "Prepare entry"],
+  ["provider_verify_ms", "Provider verify"],
+  ["permission_check_ms", "Permission check"],
+  ["date_route_bootstrap_ms", "Date route bootstrap"],
+  ["daily_join_ms", "Daily join"],
+  ["daily_join_to_first_remote_frame_ms", "Join -> first frame"],
+  ["both_ready_to_first_remote_frame_ms", "Both ready -> first frame"],
+] as const;
 
 type QueryResult<T> = {
   rows: T[];
@@ -258,36 +298,118 @@ function numericDetailMs(detail: Record<string, unknown> | null | undefined, key
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
 }
 
+function detailBoolLabel(detail: Record<string, unknown> | null | undefined, key: string): string {
+  const value = detail?.[key];
+  if (value === true) return "true";
+  if (value === false) return "false";
+  return "unknown";
+}
+
+function detailStringLabel(detail: Record<string, unknown> | null | undefined, key: string): string {
+  const value = detail?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "unknown";
+}
+
+function summarizeSegment(key: string, label: string, values: number[]): SegmentLatencySummary {
+  return {
+    key,
+    label,
+    ...summarizeLatencyMs(values),
+  };
+}
+
+function prewarmLookupKey(row: Pick<LaunchLatencyCheckpointRow, "session_id" | "actor_id">): string | null {
+  if (!row.session_id || !row.actor_id) return null;
+  return `${row.session_id}:${row.actor_id}`;
+}
+
+async function fetchSlowLaunchTimelineRows(
+  service: SupabaseClientLike,
+  sessionId: string,
+): Promise<{ rows: VideoDateSessionTimelineRow[]; error?: string }> {
+  const { data, error } = await service.rpc("get_video_date_session_timeline", {
+    p_session_id: sessionId,
+  });
+
+  if (error) {
+    console.error("admin-video-date-ops slow launch timeline rpc:", error.message);
+    return { rows: [], error: "timeline_unavailable" };
+  }
+
+  return {
+    rows: safeVideoDateTimelineRows((data ?? []) as VideoDateSessionTimelineRow[]),
+  };
+}
+
+async function attachSlowLaunchTimelines(
+  service: SupabaseClientLike,
+  sessions: SlowLaunchSessionSummary[],
+): Promise<SlowLaunchSessionSummary[]> {
+  const sessionIds = Array.from(
+    new Set(sessions.flatMap((session) => session.session_id ? [session.session_id] : [])),
+  );
+  const timelineEntries = await Promise.all(
+    sessionIds.map(async (sessionId) => [sessionId, await fetchSlowLaunchTimelineRows(service, sessionId)] as const),
+  );
+  const timelineBySession = new Map(timelineEntries);
+
+  return sessions.map((session) => {
+    if (!session.session_id) return session;
+    const timeline = timelineBySession.get(session.session_id);
+    if (!timeline) return session;
+    return {
+      ...session,
+      timeline_rows: timeline.rows,
+      ...(timeline.error ? { timeline_error: timeline.error } : {}),
+    };
+  });
+}
+
 async function getReadyTapToFirstRemoteFrameLatency(
   service: SupabaseClientLike,
   sinceIso: string,
   eventId: string | null,
 ) {
-  let query = service
+  let allCheckpointQuery = service
     .from("event_loop_observability_events")
-    .select("latency_ms,event_id,detail")
+    .select("created_at,latency_ms,event_id,actor_id,session_id,reason_code,detail")
     .gte("created_at", sinceIso)
     .eq("operation", "video_date_launch_latency_checkpoint")
-    .eq("reason_code", "first_remote_frame")
     .order("created_at", { ascending: false })
     .limit(MAX_ROWS);
 
-  if (eventId) query = query.eq("event_id", eventId);
+  if (eventId) allCheckpointQuery = allCheckpointQuery.eq("event_id", eventId);
 
-  const result = await fetchRows<LaunchLatencyCheckpointRow>(query);
+  const result = await fetchRows<LaunchLatencyCheckpointRow>(allCheckpointQuery);
   if (result.error) {
     return {
       sample_count: 0,
       p50_ms: null,
       p95_ms: null,
       max_ms: null,
+      segment_breakdown: [] as SegmentLatencySummary[],
+      cohort_breakdown: [] as CohortLatencySummary[],
+      slowest_sessions: [] as SlowLaunchSessionSummary[],
       status: "unknown" as MetricStatus,
       source_error: result.error,
       truncated: result.truncated,
     };
   }
 
-  const latencies = result.rows.flatMap((row) => {
+  const prewarmOutcomeByActorSession = new Map<string, string>();
+  for (const row of result.rows) {
+    const key = prewarmLookupKey(row);
+    if (!key) continue;
+    if (row.reason_code === "daily_prewarm_consumed") {
+      prewarmOutcomeByActorSession.set(key, "consumed");
+    } else if (row.reason_code === "daily_prewarm_fallback" && prewarmOutcomeByActorSession.get(key) !== "consumed") {
+      prewarmOutcomeByActorSession.set(key, "fallback");
+    }
+  }
+
+  const firstFrameRows = result.rows.filter((row) => row.reason_code === "first_remote_frame");
+
+  const latencies = firstFrameRows.flatMap((row) => {
     const latencyMs =
       typeof row.latency_ms === "number" && Number.isFinite(row.latency_ms) && row.latency_ms >= 0
         ? Math.round(row.latency_ms)
@@ -295,9 +417,79 @@ async function getReadyTapToFirstRemoteFrameLatency(
     return latencyMs === null ? [] : [latencyMs];
   });
 
+  const segmentBreakdown = LAUNCH_SEGMENT_KEYS.map(([key, label]) =>
+    summarizeSegment(
+      key,
+      label,
+      firstFrameRows.flatMap((row) => {
+        const value = numericDetailMs(row.detail, key);
+        return value == null ? [] : [value];
+      }),
+    )
+  );
+
+  const cohortValues = new Map<string, { dimensions: Record<string, string>; values: number[] }>();
+  for (const row of firstFrameRows) {
+    const latencyMs =
+      typeof row.latency_ms === "number" && Number.isFinite(row.latency_ms) && row.latency_ms >= 0
+        ? Math.round(row.latency_ms)
+        : numericDetailMs(row.detail, "ready_tap_to_first_remote_frame_ms");
+    if (latencyMs == null) continue;
+    const prewarmKey = prewarmLookupKey(row);
+    const prewarmOutcome = prewarmKey
+      ? prewarmOutcomeByActorSession.get(prewarmKey) ?? "none"
+      : "unknown";
+    const dimensions = {
+      platform: detailStringLabel(row.detail, "platform"),
+      cached_prepare_entry: detailBoolLabel(row.detail, "cached_prepare_entry"),
+      provider_verify_skipped: detailBoolLabel(row.detail, "provider_verify_skipped"),
+      permission_handoff_used: detailBoolLabel(row.detail, "permission_handoff_used"),
+      daily_prewarm: prewarmOutcome,
+    };
+    const key = Object.entries(dimensions).map(([name, value]) => `${name}:${value}`).join("|");
+    const existing = cohortValues.get(key) ?? { dimensions, values: [] };
+    existing.values.push(latencyMs);
+    cohortValues.set(key, existing);
+  }
+
+  const cohortBreakdown = Array.from(cohortValues.entries())
+    .map(([key, entry]) => ({
+      ...summarizeSegment(key, key, entry.values),
+      dimensions: entry.dimensions,
+    }))
+    .sort((a, b) => (b.p95_ms ?? -1) - (a.p95_ms ?? -1))
+    .slice(0, 12);
+
+  const slowestSessionsWithoutTimelines = firstFrameRows
+    .map((row) => {
+      const latencyMs =
+        typeof row.latency_ms === "number" && Number.isFinite(row.latency_ms) && row.latency_ms >= 0
+          ? Math.round(row.latency_ms)
+          : numericDetailMs(row.detail, "ready_tap_to_first_remote_frame_ms");
+      const prewarmKey = prewarmLookupKey(row);
+      return {
+        session_id: row.session_id ?? null,
+        actor_id: row.actor_id ?? null,
+        event_id: row.event_id ?? null,
+        occurred_at: row.created_at ?? null,
+        latency_ms: latencyMs,
+        platform: detailStringLabel(row.detail, "platform"),
+        daily_prewarm: prewarmKey
+          ? prewarmOutcomeByActorSession.get(prewarmKey) ?? "none"
+          : "unknown",
+      };
+    })
+    .filter((row) => typeof row.latency_ms === "number")
+    .sort((a, b) => Number(b.latency_ms) - Number(a.latency_ms))
+    .slice(0, 20);
+  const slowestSessions = await attachSlowLaunchTimelines(service, slowestSessionsWithoutTimelines);
+
   const summary = summarizeLatencyMs(latencies);
   return {
     ...summary,
+    segment_breakdown: segmentBreakdown,
+    cohort_breakdown: cohortBreakdown,
+    slowest_sessions: slowestSessions,
     status: classifyLowerIsBetter(summary.p95_ms, 8_000, 15_000),
     truncated: result.truncated,
   };

@@ -261,6 +261,14 @@ const webVideoCallHook = readFileSync(
   join(process.cwd(), "src/hooks/useVideoCall.ts"),
   "utf8",
 );
+const webDailyPrewarm = readFileSync(
+  join(process.cwd(), "src/lib/videoDateDailyPrewarm.ts"),
+  "utf8",
+);
+const nativeDailyPrewarm = readFileSync(
+  join(process.cwd(), "apps/mobile/lib/videoDateDailyPrewarm.ts"),
+  "utf8",
+);
 const webVideoDatePage = readFileSync(
   join(process.cwd(), "src/pages/VideoDate.tsx"),
   "utf8",
@@ -315,6 +323,10 @@ const nativeVibeCheckButton = readFileSync(
 );
 const adminVideoDateOpsFunction = readFileSync(
   join(process.cwd(), "supabase/functions/admin-video-date-ops/index.ts"),
+  "utf8",
+);
+const adminLiveEventMetrics = readFileSync(
+  join(process.cwd(), "src/components/admin/AdminLiveEventMetrics.tsx"),
   "utf8",
 );
 const adminVideoDateTimelinePanel = readFileSync(
@@ -870,7 +882,7 @@ test("native ready-gate paths are success-gated with no timer fallback route", (
   assert.doesNotMatch(nativeReadyGateOverlay, /setTimeout\(\s*\(\)\s*=>[\s\S]{0,200}onNavigateToDate/s);
   assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_SLOW_WAIT/);
   assert.match(nativeReadyGateOverlay, /VIDEO_DATE_PREPARE_ENTRY_FAILED_NO_NAV/);
-  assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\) \{[\s\S]*navigateWithLatency\(`\$\{source\}_prepare_success`\)/s);
+  assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\) \{[\s\S]*preAuthNativeVideoDateDailyPrewarm[\s\S]*navigateWithLatency\(`\$\{source\}_prepare_success`\)/s);
   assert.match(nativeReadyGateOverlay, /setPrepareEntryStatus\('failed'\)/);
   assert.match(nativeReadyGateOverlay, /retryPrepareEntry/);
 });
@@ -2305,9 +2317,52 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(nativeVideoDateApi, /cached_prepare_entry: result\.cached/);
   assert.match(adminVideoDateOpsFunction, /getReadyTapToFirstRemoteFrameLatency/);
   assert.match(adminVideoDateOpsFunction, /ready_tap_to_first_remote_frame_latency/);
+  assert.match(adminVideoDateOpsFunction, /segment_breakdown/);
+  assert.match(adminVideoDateOpsFunction, /cohort_breakdown/);
+  assert.match(adminVideoDateOpsFunction, /slowest_sessions/);
+  assert.match(adminVideoDateOpsFunction, /attachSlowLaunchTimelines/);
+  assert.match(adminVideoDateOpsFunction, /get_video_date_session_timeline/);
+  assert.match(adminLiveEventMetrics, /Slowest sessions/);
+  assert.match(adminVideoDateOpsFunction, /daily_prewarm_consumed/);
+  assert.match(adminVideoDateOpsFunction, /daily_prewarm_fallback/);
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_rpc_granted_authenticated_only/);
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_primary_fields_allowlisted/);
   assert.match(videoDateValidationSql, /timeline_includes_launch_latency_checkpoints/);
+});
+
+test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrumented", () => {
+  assert.match(webDailyPrewarm, /VITE_VIDEO_DATE_DAILY_PREWARM/);
+  assert.match(nativeDailyPrewarm, /EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM/);
+  for (const source of [webDailyPrewarm, nativeDailyPrewarm]) {
+    assert.match(source, /45_000/);
+    assert.match(source, /daily_prewarm_started/);
+    assert.match(source, /daily_prewarm_camera_ready/);
+    assert.match(source, /daily_prewarm_preauth_success/);
+    assert.match(source, /daily_prewarm_consumed/);
+    assert.match(source, /daily_prewarm_fallback/);
+    assert.match(source, /daily_prewarm_destroyed/);
+    assert.match(source, /fallbackEntry/);
+    assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_expired['"]\)/);
+    assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_room_mismatch['"]\)/);
+    assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_capture_profile_mismatch['"]\)/);
+    assert.match(source, /startCamera\(\{ url: params\.roomUrl \}\)/);
+    assert.match(source, /preAuth\(\{ url: params\.roomUrl, token: params\.token \}\)/);
+    assert.match(source, /prewarmEntries\.delete\(key\)/);
+    assert.match(source, /captureProfile !== params\.captureProfile/);
+    assert.match(source, /roomUrl !== params\.roomUrl/);
+  }
+  assert.match(webDailyPrewarm, /DailyIframe\.createCallObject\(dailyVideoDateCallObjectOptions\(captureProfile\)\)/);
+  assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
+  assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
+  assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
+  assert.match(readyGateOverlay, /destroyWebVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /preAuthNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
+  assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);
+  assert.match(webVideoCallHook, /reusedCallObject: prewarmedCall\.ok === true/);
+  assert.match(nativeVideoDateRoute, /consumeNativeVideoDateDailyPrewarm/);
+  assert.match(nativeVideoDateRoute, /reusedCallObject: Boolean\(prewarmed\)/);
 });
 
 test("video date trace id is propagated through prepare entry analytics and Daily-room payloads", () => {

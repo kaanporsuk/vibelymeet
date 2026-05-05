@@ -62,6 +62,7 @@ import { isVdbgEnabled, vdbg } from '@/lib/vdbg';
 import { navigateToDateSessionGuarded } from '@/lib/dateNavigationGuard';
 import { clearDateEntryTransition, isDateEntryTransitionActive } from '@/lib/dateEntryTransitionLatch';
 import { ensureVideoDateStartableBeforeNavigation } from '@/lib/videoDateEntryStartable';
+import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import { markNativeVideoDateLaunchIntent, videoDateLaunchBreadcrumb } from '@/lib/videoDateLaunchTrace';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
@@ -470,6 +471,25 @@ export default function EventLobbyScreen() {
           }
           void refetchActiveSession();
           return;
+        }
+
+        if (user?.id) {
+          const prepared = await prepareVideoDateEntry(sessionIdToOpen, {
+            eventId: id,
+            source: `event_lobby_${trigger}`,
+          });
+          if (prepared.ok !== true) {
+            clearDateEntryTransition(sessionIdToOpen);
+            rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_navigation_prepare_entry_failed', {
+              session_id: sessionIdToOpen,
+              event_id: id,
+              trigger,
+              code: prepared.code,
+              retryable: prepared.retryable,
+            });
+            void refetchActiveSession();
+            return;
+          }
         }
 
         trackEvent(EventLobbyObservabilityEvents.DATE_ENTERED_FROM_LOBBY, {

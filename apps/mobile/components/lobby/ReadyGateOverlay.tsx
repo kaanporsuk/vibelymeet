@@ -34,6 +34,11 @@ import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
 import { ensureVideoDateRoom, prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
+  destroyNativeVideoDateDailyPrewarm,
+  preAuthNativeVideoDateDailyPrewarm,
+  startNativeVideoDateDailyPrewarm,
+} from '@/lib/videoDateDailyPrewarm';
+import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
 } from '@clientShared/matching/activeSession';
@@ -162,6 +167,8 @@ export function ReadyGateOverlay({
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
   const roomWarmupStartedRef = useRef(false);
+  const roomWarmupProofRef = useRef<{ room_name: string; room_url: string } | null>(null);
+  const iAmReadyRef = useRef(false);
   const duplicateNavSuppressionKeysRef = useRef(new Set<string>());
   const duplicateTerminalSuppressionKeysRef = useRef(new Set<string>());
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
@@ -232,6 +239,23 @@ export function ReadyGateOverlay({
     [eventId, sessionId],
   );
 
+  const maybeStartDailyPrewarm = useCallback(
+    (source: string) => {
+      const proof = roomWarmupProofRef.current;
+      if (!proof || closedRef.current || dateNavigationStartedRef.current) return;
+      startNativeVideoDateDailyPrewarm({
+        sessionId,
+        userId,
+        eventId,
+        roomName: proof.room_name,
+        roomUrl: proof.room_url,
+        captureProfile: 'ideal',
+        source,
+      });
+    },
+    [eventId, sessionId, userId],
+  );
+
   const startRoomWarmup = useCallback((source: string) => {
     if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
     roomWarmupStartedRef.current = true;
@@ -239,13 +263,23 @@ export function ReadyGateOverlay({
       eventId,
       source,
     }).then((result) => {
+      if (result.ok === true) {
+        roomWarmupProofRef.current = {
+          room_name: result.data.room_name,
+          room_url: result.data.room_url,
+        };
+        if (iAmReadyRef.current) {
+          maybeStartDailyPrewarm('ready_gate_room_warmup_success_after_ready_tap');
+        }
+        return;
+      }
       if (result.ok === false && result.retryable) {
         roomWarmupStartedRef.current = false;
       }
     }).catch(() => {
       roomWarmupStartedRef.current = false;
     });
-  }, [eventId, sessionId]);
+  }, [eventId, maybeStartDailyPrewarm, sessionId]);
 
   const suppressDuplicateNav = useCallback(
     (source: string) => {
@@ -411,6 +445,15 @@ export function ReadyGateOverlay({
             });
             if (dateNavigationStartedRef.current || closedRef.current) return;
             if (result.ok === true) {
+              await preAuthNativeVideoDateDailyPrewarm({
+                sessionId,
+                userId,
+                eventId,
+                roomUrl: result.data.room_url,
+                token: result.data.token,
+                source: 'ready_gate_prepare_success',
+              });
+              if (dateNavigationStartedRef.current || closedRef.current) return;
               clearTimeout(slowWaitTimer);
               navigateWithLatency(`${source}_prepare_success`);
               return;
@@ -569,7 +612,7 @@ export function ReadyGateOverlay({
         }
       })();
     },
-    [eventId, onLobbyUserMessage, onNavigateToDate, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent],
+    [eventId, onLobbyUserMessage, onNavigateToDate, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent, userId],
   );
 
   const reconcileFromCanonicalTruth = useCallback(
@@ -769,6 +812,8 @@ export function ReadyGateOverlay({
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     roomWarmupStartedRef.current = false;
+    roomWarmupProofRef.current = null;
+    iAmReadyRef.current = false;
     prepareEntryHandoffStartedRef.current = false;
     duplicateNavSuppressionKeysRef.current.clear();
     duplicateTerminalSuppressionKeysRef.current.clear();
@@ -816,7 +861,12 @@ export function ReadyGateOverlay({
         source_action: 'impression',
       });
     }
-  }, [sessionId, eventId]);
+    return () => {
+      if (!dateNavigationStartedRef.current) {
+        destroyNativeVideoDateDailyPrewarm(sessionId, userId, 'ready_gate_unmount_before_date_navigation');
+      }
+    };
+  }, [sessionId, eventId, userId]);
 
   useEffect(() => {
     const sync = () => {
@@ -855,6 +905,13 @@ export function ReadyGateOverlay({
   useEffect(() => {
     if (iAmReady) setMarkingReady(false);
   }, [iAmReady]);
+
+  useEffect(() => {
+    iAmReadyRef.current = iAmReady;
+    if (iAmReady) {
+      maybeStartDailyPrewarm('ready_gate_i_am_ready_state');
+    }
+  }, [iAmReady, maybeStartDailyPrewarm]);
 
   useEffect(() => {
     if (!iAmReady || isBothReady || isTransitioning) return;
@@ -1263,6 +1320,8 @@ export function ReadyGateOverlay({
                   label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
                   onPress={() => {
                     if (markingReady || terminalActionPending) return;
+                    iAmReadyRef.current = true;
+                    maybeStartDailyPrewarm('ready_gate_ready_tap');
                     const latencyContext = recordReadyGateToDateLatencyCheckpoint({
                       sessionId,
                       platform: 'native',

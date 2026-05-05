@@ -103,8 +103,14 @@ test("native overlay maps terminal recovery and observes duplicate side effects"
 });
 
 test("native overlay gates date navigation behind prepareVideoDateEntry success", () => {
-  assert.match(nativeReadyGateOverlay, /prepareVideoDateEntry\(sessionId/);
-  assert.match(nativeReadyGateOverlay, /if \(result\.ok === true\)[\s\S]{0,180}navigateWithLatency\(`\$\{source\}_prepare_success`\)/);
+  const prepareIndex = nativeReadyGateOverlay.indexOf("const result = await prepareVideoDateEntry(sessionId");
+  const successIndex = nativeReadyGateOverlay.indexOf("if (result.ok === true)", prepareIndex);
+  const preAuthIndex = nativeReadyGateOverlay.indexOf("await preAuthNativeVideoDateDailyPrewarm", successIndex);
+  const navigateIndex = nativeReadyGateOverlay.indexOf("navigateWithLatency(`${source}_prepare_success`)", preAuthIndex);
+  assert.ok(prepareIndex >= 0, "native overlay should call prepareVideoDateEntry before date navigation");
+  assert.ok(successIndex > prepareIndex, "native overlay should branch on prepare-entry success");
+  assert.ok(preAuthIndex > successIndex, "native overlay should preauth any Daily prewarm before navigation");
+  assert.ok(navigateIndex > preAuthIndex, "native overlay should navigate only after prepare-entry/preauth success");
   assert.doesNotMatch(nativeReadyGateOverlay, /isBothReady[\s\S]{0,120}onNavigateToDate\(sessionId\)/);
 });
 
@@ -128,6 +134,8 @@ test("native pre-navigation helper treats event-inactive prepare-entry as termin
 
 test("native lobby and date surfaces remain backend prepare-entry gated", () => {
   assert.match(nativeEventLobby, /ensureVideoDateStartableBeforeNavigation/);
+  assert.match(nativeEventLobby, /prepareVideoDateEntry\(sessionIdToOpen/);
+  assert.match(nativeEventLobby, /date_navigation_prepare_entry_failed/);
   assert.match(nativeEventLobby, /navigateToDateSessionGuarded/);
   assert.match(nativeDateRoute, /READY_GATE_NOT_READY/);
   assert.match(nativeDateRoute, /EVENT_NOT_ACTIVE/);
