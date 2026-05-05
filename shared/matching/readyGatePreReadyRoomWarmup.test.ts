@@ -104,6 +104,7 @@ test("Ready Gate repair wrapper returns participant-safe backend truth additivel
 
 test("web Ready Gate diagnostics include Supabase and backend rejection details", () => {
   assert.match(webReadyGateHook, /Sentry\.captureMessage\("ready_gate_transition_failed"/);
+  assert.match(webReadyGateHook, /if \(diagnostic\.outcome === "rpc_error"\)/);
   for (const field of [
     "sessionId",
     "eventId",
@@ -147,4 +148,5 @@ test("validation SQL covers the repair wrapper contract", () => {
   ]) {
     assert.match(validation, new RegExp(marker));
   }
+  assert.match(validation, /has_function_privilege\('anon', 'public\.ready_gate_transition\(uuid,text,text\)', 'EXECUTE'\)/);
 });

@@ -14,6 +14,7 @@ SELECT
   'ready_gate_transition_repair_signature_security' AS check_name,
   to_regprocedure('public.ready_gate_transition(uuid,text,text)') IS NOT NULL
     AND bool_and(prosecdef)
+    AND has_function_privilege('anon', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE')
     AND has_function_privilege('authenticated', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE')
     AND has_function_privilege('service_role', 'public.ready_gate_transition(uuid,text,text)', 'EXECUTE') AS ok
 FROM fn;
