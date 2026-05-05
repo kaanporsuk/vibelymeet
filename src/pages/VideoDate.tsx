@@ -1142,66 +1142,92 @@ const VideoDate = () => {
           return;
         }
 
-        const { data: reg } = await supabase
-          .from("event_registrations")
-          .select("queue_status")
-          .eq("event_id", sessionRow.event_id)
-          .eq("profile_id", user.id)
-          .maybeSingle();
-
-        if (cancelled) return;
-
         if (videoSessionIndicatesTerminalEnd(sessionRow)) {
           await recoverTerminalPostDateSurvey("session_load_terminal", sessionRow);
           return;
         }
 
-        if (reg?.queue_status === "in_ready_gate" && sessionIsDateCapable) {
-          vdbg("date_guard_ready_gate_stale_registration_ignored", {
+        let registrationQueueStatus: string | null = null;
+        const logRegistrationStatus = (queueStatus: string | null | undefined) => {
+          if (!queueStatus) return;
+          if (queueStatus === "in_ready_gate" && sessionIsDateCapable) {
+            vdbg("date_guard_ready_gate_stale_registration_ignored", {
+              sessionId: id,
+              userId: user.id,
+              eventId: sessionRow.event_id,
+              queueStatus,
+              state: sessionRow.state,
+              phase: sessionRow.phase,
+              handshakeStarted: Boolean(sessionRow.handshake_started_at),
+              latchActive: isDateEntryTransitionActive(id),
+              readyGateStatus: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
+              readyGateExpiresAt:
+                (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null,
+            });
+            return;
+          }
+          vdbg("date_guard_registration_status", {
             sessionId: id,
             userId: user.id,
             eventId: sessionRow.event_id,
-            queueStatus: reg.queue_status,
+            queueStatus,
             state: sessionRow.state,
             phase: sessionRow.phase,
             handshakeStarted: Boolean(sessionRow.handshake_started_at),
             latchActive: isDateEntryTransitionActive(id),
-            readyGateStatus: (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null,
-            readyGateExpiresAt:
-              (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null,
           });
-        } else if (reg?.queue_status === "in_ready_gate") {
-          const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
-          const rgExpiresRaw =
-            (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
-          const readyGateBranch = canAttemptDaily
-            ? "daily_startable_staying"
-            : rgStatus === "both_ready"
+        };
+
+        if (canAttemptDaily) {
+          void supabase
+            .from("event_registrations")
+            .select("queue_status")
+            .eq("event_id", sessionRow.event_id)
+            .eq("profile_id", user.id)
+            .maybeSingle()
+            .then(({ data: reg }) => {
+              if (cancelled) return;
+              logRegistrationStatus(reg?.queue_status ?? null);
+            });
+        } else {
+          const { data: reg } = await supabase
+            .from("event_registrations")
+            .select("queue_status")
+            .eq("event_id", sessionRow.event_id)
+            .eq("profile_id", user.id)
+            .maybeSingle();
+
+          if (cancelled) return;
+          registrationQueueStatus = reg?.queue_status ?? null;
+
+          if (registrationQueueStatus === "in_ready_gate") {
+            const rgStatus = (sessionRow as { ready_gate_status?: string | null }).ready_gate_status ?? null;
+            const rgExpiresRaw =
+              (sessionRow as { ready_gate_expires_at?: string | number | null }).ready_gate_expires_at ?? null;
+            const readyGateBranch = rgStatus === "both_ready"
               ? "both_ready_not_provider_prepared_redirecting"
               : "no_both_ready_redirecting";
-          vdbg("date_guard_ready_gate_branch", {
-            sessionId: id,
-            userId: user.id,
-            eventId: sessionRow.event_id,
-            branch: readyGateBranch,
-            truthDecision: canAttemptDaily ? "navigate_date" : "stay_lobby",
-            canAttemptDaily,
-            routeOverride: null,
-            finalRoute: canAttemptDaily ? "date" : "lobby",
-            readyGateStatus: rgStatus,
-            readyGateExpiresAt: rgExpiresRaw,
-            latchActive: isDateEntryTransitionActive(id),
-            state: sessionRow.state,
-            phase: sessionRow.phase,
-            handshakeStarted: Boolean(sessionRow.handshake_started_at),
-          });
-          const allowEntry = canAttemptDaily;
-          if (!allowEntry) {
+            vdbg("date_guard_ready_gate_branch", {
+              sessionId: id,
+              userId: user.id,
+              eventId: sessionRow.event_id,
+              branch: readyGateBranch,
+              truthDecision: "stay_lobby",
+              canAttemptDaily,
+              routeOverride: null,
+              finalRoute: "lobby",
+              readyGateStatus: rgStatus,
+              readyGateExpiresAt: rgExpiresRaw,
+              latchActive: isDateEntryTransitionActive(id),
+              state: sessionRow.state,
+              phase: sessionRow.phase,
+              handshakeStarted: Boolean(sessionRow.handshake_started_at),
+            });
             clearDateEntryTransition(id);
             videoDateDebug("bouncing ready_gate session back to lobby", {
               sessionId: id,
               eventId: sessionRow.event_id,
-              queueStatus: reg.queue_status,
+              queueStatus: registrationQueueStatus,
               state: sessionRow.state,
               phase: sessionRow.phase,
             });
@@ -1209,7 +1235,7 @@ const VideoDate = () => {
               outcome: "redirect_lobby",
               reason: "in_ready_gate_without_provider_prepared_truth",
               sessionId: id,
-              queueStatus: reg.queue_status,
+              queueStatus: registrationQueueStatus,
               sessionTruth: {
                 state: sessionRow.state ?? null,
                 phase: sessionRow.phase ?? null,
@@ -1225,7 +1251,7 @@ const VideoDate = () => {
               sessionId: id,
               userId: user.id,
               eventId: sessionRow.event_id,
-              queueStatus: reg.queue_status,
+              queueStatus: registrationQueueStatus,
               state: sessionRow.state,
               phase: sessionRow.phase,
               handshakeStarted: Boolean(sessionRow.handshake_started_at),
@@ -1238,24 +1264,7 @@ const VideoDate = () => {
             navigate(target, { replace: true });
             return;
           }
-          videoDateDebug("allowing ready_gate registration through date-entry latch", {
-            sessionId: id,
-            eventId: sessionRow.event_id,
-            state: sessionRow.state,
-            phase: sessionRow.phase,
-            handshakeStarted: Boolean(sessionRow.handshake_started_at),
-          });
-        } else if (reg?.queue_status) {
-          vdbg("date_guard_registration_status", {
-            sessionId: id,
-            userId: user.id,
-            eventId: sessionRow.event_id,
-            queueStatus: reg.queue_status,
-            state: sessionRow.state,
-            phase: sessionRow.phase,
-            handshakeStarted: Boolean(sessionRow.handshake_started_at),
-            latchActive: isDateEntryTransitionActive(id),
-          });
+          logRegistrationStatus(registrationQueueStatus);
         }
 
         if (sessionRow.daily_room_name) {
@@ -1270,7 +1279,7 @@ const VideoDate = () => {
           outcome: "stayed_on_date_route",
           reason: "guard_passed",
           sessionId: id,
-          queueStatus: reg?.queue_status ?? null,
+          queueStatus: registrationQueueStatus,
           sessionTruth: {
             state: sessionRow.state ?? null,
             phase: sessionRow.phase ?? null,

@@ -11,11 +11,31 @@ const viteEnv = (
 ) as Record<string, string | undefined>;
 const POSTHOG_HOST =
   viteEnv.VITE_POSTHOG_HOST || POSTHOG_HOST_FALLBACK;
+const LAUNCH_LATENCY_CHECKPOINT_EVENT = "ready_gate_to_date_latency_checkpoint";
 
 let initialized = false;
 let loadPromise: Promise<PostHogClient> | null = null;
 let posthogClient: PostHogClient | null = null;
 const recentEventKeys = new Map<string, number>();
+
+function emitLaunchLatencyCheckpointAsync(eventName: string, properties?: AnalyticsProperties) {
+  if (eventName !== LAUNCH_LATENCY_CHECKPOINT_EVENT) return;
+
+  const emit = () => {
+    void emitVideoDateLaunchLatencyCheckpointObservability({
+      client: supabase,
+      eventName,
+      properties,
+    });
+  };
+
+  if (typeof setTimeout === "function") {
+    setTimeout(emit, 0);
+    return;
+  }
+
+  emit();
+}
 
 function primitiveProperty(properties: AnalyticsProperties | undefined, key: string): string {
   const value = properties?.[key];
@@ -176,11 +196,7 @@ export const resetAnalytics = () => {
 // Track a custom event
 export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
   if (shouldSkipDuplicateEvent(eventName, properties)) return;
-  void emitVideoDateLaunchLatencyCheckpointObservability({
-    client: supabase,
-    eventName,
-    properties,
-  });
+  emitLaunchLatencyCheckpointAsync(eventName, properties);
   void getAnalyticsForCapture().then((posthog) => {
     posthog?.capture(eventName, properties);
   });

@@ -489,6 +489,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const playbackBlockedRef = useRef(false);
   const captureProfileRef = useRef<VideoDateMediaCaptureProfile>("ideal");
   const activePreparedEntryCacheRef = useRef<PreparedVideoDateEntryCacheEntry | null>(null);
+  const activePreparedEntryCacheHitRef = useRef<boolean | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
   const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
 
@@ -580,7 +581,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         nowMs,
         entryAttemptId: entry?.entryAttemptId ?? entry?.value.entry_attempt_id ?? null,
         videoDateTraceId: entry?.value.video_date_trace_id ?? entry?.entryAttemptId ?? null,
-        cachedPrepareEntry: Boolean(entry),
+        cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
       });
       trackEvent(
         LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -1937,6 +1938,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setPeerMissing({ terminal: false });
       firstRemoteObservedRef.current = false;
       playbackBlockedRef.current = false;
+      activePreparedEntryCacheHitRef.current = null;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
       const startNonce = startAttemptNonceRef.current;
@@ -2027,6 +2029,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         const roomData = roomResult.roomData;
         activePreparedEntryCacheRef.current = roomResult.cacheEntry;
+        activePreparedEntryCacheHitRef.current = roomResult.cached;
         const entryAttemptId = roomData.entry_attempt_id ?? roomResult.cacheEntry.entryAttemptId ?? null;
         const videoDateTraceId = roomData.video_date_trace_id ?? entryAttemptId;
 
@@ -2073,12 +2076,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           vdbg(message, {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
-          userId,
-          roomName: roomData.room_name,
-          localParticipantId: latestLocalParticipantRef.current?.session_id ?? null,
-          entryAttemptId,
-          videoDateTraceId,
-          remoteParticipantCount: getRemoteParticipantCount(),
+            userId,
+            roomName: roomData.room_name,
+            localParticipantId: latestLocalParticipantRef.current?.session_id ?? null,
+            entryAttemptId,
+            videoDateTraceId,
+            remoteParticipantCount: getRemoteParticipantCount(),
             dailyMeetingState: getMeetingState(),
             videoSessionState: optionsRef.current?.videoSessionState ?? null,
             localJoined: activeCallSessionIdRef.current === sessionId,
