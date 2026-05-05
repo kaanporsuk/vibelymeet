@@ -119,7 +119,10 @@ assert(
     cameraSwitchHint.includes("commitConfirmed?: boolean") &&
     cameraSwitchHint.includes("commitMethod?: string | null") &&
     cameraSwitchHint.includes("localVideoTrackId?: string | null") &&
-    cameraSwitchHint.includes("commitLatencyMs?: number | null"),
+    cameraSwitchHint.includes("commitLatencyMs?: number | null") &&
+    cameraSwitchHint.includes("publishSequence?: number | null") &&
+    cameraSwitchHint.includes("publishRefreshApplied?: boolean") &&
+    cameraSwitchHint.includes("hintSequence?: number | null"),
   `${cameraSwitchHintPath}: camera-switch render hint contract must remain shared, versioned, parseable, and backward-compatible with optional commit fields`
 );
 assert(
@@ -155,16 +158,33 @@ assert(
     webVideoCall.includes("sendAppMessage") &&
     webVideoCall.includes("waitForLocalCameraSwitchCommit") &&
     webVideoCall.includes("setInputDevicesAsync") &&
+    webVideoCall.includes("videoSource: false") &&
+    webVideoCall.includes("CAMERA_SWITCH_HINT_RESEND_DELAY_MS") &&
+    webVideoCall.includes("publishRefreshApplied") &&
+    webVideoCall.includes("requireFreshFrame") &&
+    webVideoCall.includes("freshFrameBaseline") &&
+    webVideoCall.includes("daily_camera_switch_video_source_restore_failed") &&
+    webVideoCall.includes("dailyVideoTrackAdopted") &&
     webVideoCall.includes("video_date_camera_switch_committed") &&
     webVideoCall.includes("commitConfirmed: true") &&
     webVideoCall.includes("opts.expectedFacing !== before.facingMode") &&
     webVideoCall.includes("inferCameraFacingModeFromLabel") &&
     webVideoCall.includes("return currentDeviceId ? candidates[0] ?? null : null") &&
     webVideoCall.includes("daily_camera_switch_render_hint_received") &&
+    webVideoCall.includes("daily_camera_switch_render_watch_started") &&
+    webVideoCall.includes("fresh_frame_not_observed") &&
     webVideoCall.includes("app_message_camera_switch_hint") &&
     webVideoCall.includes('"camera_switch_hint"') &&
     !webVideoCall.includes("camera_switch_hint:${hint.switchId}"),
   `${webVideoCallPath}: web Video Date must commit a live camera switch before sending shared render hints`
+);
+const deterministicCameraSwitchIndex = webVideoCall.indexOf(
+  "switchToDeterministicWebCamera(co, before, desiredFacing"
+);
+const cycleCameraFallbackIndex = webVideoCall.indexOf("co.cycleCamera", deterministicCameraSwitchIndex);
+assert(
+  deterministicCameraSwitchIndex >= 0 && cycleCameraFallbackIndex > deterministicCameraSwitchIndex,
+  `${webVideoCallPath}: web camera switching must prefer deterministic publish refresh before cycleCamera fallback`
 );
 assert(
   webVideoCall.includes("remoteRenderRecoveryTrackAttemptsRef") &&
@@ -175,6 +195,7 @@ assert(
     webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPT_KEYS") &&
     webVideoCall.includes("normalizeRemoteRenderRecoveryScope") &&
     webVideoCall.includes("pruneRemoteRenderRecoveryAttempts") &&
+    webVideoCall.includes('reason: "recovery_already_in_flight"') &&
     /trackAttempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK/.test(webVideoCall) &&
     /scopeAttempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE/.test(webVideoCall) &&
     webVideoCall.includes("daily_remote_render_recovery_skipped"),
