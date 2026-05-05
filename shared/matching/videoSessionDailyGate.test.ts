@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ACTIVE_SESSION_DATE_BASE_SECONDS,
+  ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS,
+  ACTIVE_SESSION_HANDSHAKE_FRESH_MS,
   activeSessionDirectFallbackStaleReason,
   canAttemptDailyRoomFromVideoSessionTruth,
   canPrepareDailyRoomFromReadyGateTruth,
@@ -79,6 +82,40 @@ test("ready_gate + both_ready + future expiry allows prepare but not date entry"
   );
   assert.equal(canPrepareDailyRoomFromReadyGateTruth(row, NOW_MS), true);
 });
+
+for (const status of ["ready", "ready_a", "ready_b", "snoozed", "both_ready"] as const) {
+  test(`ready gate status ${status} without expiry is not routeable`, () => {
+    assert.equal(
+      decideVideoSessionRouteFromTruth(
+        {
+          ended_at: null,
+          state: "ready_gate",
+          handshake_started_at: null,
+          ready_gate_status: status,
+          ready_gate_expires_at: null,
+        },
+        NOW_MS,
+      ),
+      "stay_lobby",
+    );
+  });
+
+  test(`ready gate status ${status} with elapsed expiry is not routeable`, () => {
+    assert.equal(
+      decideVideoSessionRouteFromTruth(
+        {
+          ended_at: null,
+          state: "ready_gate",
+          handshake_started_at: null,
+          ready_gate_status: status,
+          ready_gate_expires_at: "2026-04-24T00:32:59.000Z",
+        },
+        NOW_MS,
+      ),
+      "stay_lobby",
+    );
+  });
+}
 
 test("handshake state without provider metadata does not allow Daily room attempts", () => {
   assert.equal(
@@ -568,6 +605,50 @@ test("active-session direct fallback keeps fresh live date rows visible", () => 
   assert.equal(activeSessionDirectFallbackStaleReason(row, NOW_MS), null);
 });
 
+test("active-session direct fallback honors exact server date timeout budget", () => {
+  const maxAgeSeconds = ACTIVE_SESSION_DATE_BASE_SECONDS + ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS;
+  const row = {
+    ended_at: null,
+    state: "date",
+    phase: "date",
+    handshake_started_at: "2026-04-24T00:27:00.000Z",
+    date_started_at: new Date(NOW_MS - (maxAgeSeconds - 1) * 1000).toISOString(),
+    date_extra_seconds: 0,
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), true);
+
+  const expiredAtBoundary = {
+    ...row,
+    date_started_at: new Date(NOW_MS - maxAgeSeconds * 1000).toISOString(),
+  };
+  assert.equal(isActiveSessionDirectFallbackFresh(expiredAtBoundary, NOW_MS), false);
+  assert.equal(activeSessionDirectFallbackStaleReason(expiredAtBoundary, NOW_MS), "direct_video_session_fallback_stale");
+});
+
+test("active-session direct fallback includes extra credit seconds in date timeout budget", () => {
+  const maxAgeSeconds =
+    ACTIVE_SESSION_DATE_BASE_SECONDS + 120 + ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS;
+  const row = {
+    ended_at: null,
+    state: "date",
+    phase: "date",
+    handshake_started_at: "2026-04-24T00:25:00.000Z",
+    date_started_at: new Date(NOW_MS - (maxAgeSeconds - 1) * 1000).toISOString(),
+    date_extra_seconds: 120,
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), true);
+
+  const expiredAtBoundary = {
+    ...row,
+    date_started_at: new Date(NOW_MS - maxAgeSeconds * 1000).toISOString(),
+  };
+  assert.equal(isActiveSessionDirectFallbackFresh(expiredAtBoundary, NOW_MS), false);
+});
+
 test("active-session direct fallback suppresses stale non-ended date rows", () => {
   const row = {
     ended_at: null,
@@ -582,6 +663,25 @@ test("active-session direct fallback suppresses stale non-ended date rows", () =
   assert.equal(canAttemptDailyRoomFromVideoSessionTruth(row, NOW_MS), true);
   assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), false);
   assert.equal(activeSessionDirectFallbackStaleReason(row, NOW_MS), "direct_video_session_fallback_stale");
+});
+
+test("active-session direct fallback suppresses handshake at the 90 second warmup boundary", () => {
+  const row = {
+    ended_at: null,
+    state: "handshake",
+    phase: "handshake",
+    handshake_started_at: new Date(NOW_MS - ACTIVE_SESSION_HANDSHAKE_FRESH_MS + 1000).toISOString(),
+    ...PROVIDER_ROOM,
+  };
+
+  assert.equal(isActiveSessionDirectFallbackFresh(row, NOW_MS), true);
+
+  const expiredAtBoundary = {
+    ...row,
+    handshake_started_at: new Date(NOW_MS - ACTIVE_SESSION_HANDSHAKE_FRESH_MS).toISOString(),
+  };
+  assert.equal(isActiveSessionDirectFallbackFresh(expiredAtBoundary, NOW_MS), false);
+  assert.equal(activeSessionDirectFallbackStaleReason(expiredAtBoundary, NOW_MS), "direct_video_session_fallback_stale");
 });
 
 test("active-session direct fallback allows active reconnect grace", () => {

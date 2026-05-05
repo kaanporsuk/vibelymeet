@@ -11,8 +11,11 @@ import {
   getVideoSessionPartnerIdForUser,
   inferVideoQueueStatusFromSessionTruth,
   isActiveSessionDirectFallbackFresh,
+  normalizeReadyGateTransitionActiveSessionTruth,
   pickRecoverablePendingPostDateSurveySession,
   pickRegistrationForActiveSession,
+  readyGateTransitionResultHasDateCapableTruth,
+  readyGateTransitionResultReadyGateEligible,
   videoSessionHasPostDateSurveyTruth,
   videoSessionHasRecoverablePostDateSurveyTruth,
   type ActiveSessionBase,
@@ -36,6 +39,13 @@ type StaleActiveSessionPayload = {
 };
 
 type EmitStaleActiveSessionDetected = (payload: StaleActiveSessionPayload) => void;
+
+type ActiveSessionVideoTruth = Parameters<typeof decideVideoSessionRouteFromTruth>[0] & {
+  id?: string | null;
+  event_id?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+};
 
 type ShadowRpcError = {
   message?: string;
@@ -220,6 +230,82 @@ function pendingSurveyHydrationReason(
     : "pending_post_date_survey";
 }
 
+async function syncReadyGateActiveSession(
+  truth: ActiveSessionVideoTruth,
+  userId: string,
+  base: {
+    sessionId: string;
+    eventId: string;
+    partnerName: string | null;
+  },
+  emitStaleActiveSessionDetected?: EmitStaleActiveSessionDetected,
+): Promise<{ activeSession: ActiveSession | null; reason: string }> {
+  const { data, error } = await supabase.rpc("ready_gate_transition", {
+    p_session_id: base.sessionId,
+    p_action: "sync",
+    p_reason: "active_session_hydration",
+  });
+
+  if (error) {
+    emitStaleActiveSessionDetected?.({
+      reason: "ready_gate_sync_failed",
+      eventId: base.eventId,
+      sessionId: base.sessionId,
+      queueStatus: "in_ready_gate",
+      currentPartnerPresent: Boolean(getVideoSessionPartnerIdForUser(truth, userId)),
+    });
+    return { activeSession: null, reason: "ready_gate_sync_failed" };
+  }
+
+  const syncTruth = normalizeReadyGateTransitionActiveSessionTruth(data);
+  const nowMs = Date.now();
+  const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(truth, nowMs);
+  const freshDateRoute =
+    (canAttemptDaily || readyGateTransitionResultHasDateCapableTruth(syncTruth)) &&
+    isActiveSessionDirectFallbackFresh(truth, nowMs);
+
+  if (freshDateRoute) {
+    return {
+      activeSession: {
+        kind: "video",
+        ...base,
+        queueStatus: inferVideoQueueStatusFromSessionTruth(truth),
+      },
+      reason: "ready_gate_sync_date_capable",
+    };
+  }
+
+  const mergedTruth = {
+    ...truth,
+    ready_gate_status: syncTruth?.ready_gate_status ?? syncTruth?.status ?? truth?.ready_gate_status,
+    ready_gate_expires_at: syncTruth?.ready_gate_expires_at ?? truth?.ready_gate_expires_at,
+  };
+
+  if (
+    readyGateTransitionResultReadyGateEligible(syncTruth, nowMs) &&
+    decideVideoSessionRouteFromTruth(mergedTruth, nowMs) === "navigate_ready"
+  ) {
+    return {
+      activeSession: { kind: "ready_gate", ...base, queueStatus: "in_ready_gate" },
+      reason: "ready_gate_sync_valid",
+    };
+  }
+
+  emitStaleActiveSessionDetected?.({
+    reason:
+      syncTruth?.reason ??
+      syncTruth?.error_code ??
+      syncTruth?.code ??
+      syncTruth?.error ??
+      "ready_gate_sync_not_startable",
+    eventId: base.eventId,
+    sessionId: base.sessionId,
+    queueStatus: "in_ready_gate",
+    currentPartnerPresent: Boolean(getVideoSessionPartnerIdForUser(truth, userId)),
+  });
+  return { activeSession: null, reason: "ready_gate_sync_not_startable" };
+}
+
 async function findDirectVideoSessionFallback(
   userId: string,
   eventFilter: string | null,
@@ -282,21 +368,22 @@ async function findDirectVideoSessionFallback(
     partnerName = await fetchPartnerNameForViewer(partnerId);
   }
 
-  return canAttemptDaily || decision === "navigate_date"
-    ? {
-        kind: "video",
-        sessionId: candidate.id as string,
-        eventId: candidate.event_id as string,
-        partnerName,
-        queueStatus: inferVideoQueueStatusFromSessionTruth(candidate),
-      }
-    : {
-        kind: "ready_gate",
-        sessionId: candidate.id as string,
-        eventId: candidate.event_id as string,
-        partnerName,
-        queueStatus: "in_ready_gate",
-      };
+  const base = {
+    sessionId: candidate.id as string,
+    eventId: candidate.event_id as string,
+    partnerName,
+  };
+
+  if (canAttemptDaily || decision === "navigate_date") {
+    return {
+      kind: "video",
+      ...base,
+      queueStatus: inferVideoQueueStatusFromSessionTruth(candidate),
+    };
+  }
+
+  const synced = await syncReadyGateActiveSession(candidate, userId, base, emitStaleActiveSessionDetected);
+  return synced.activeSession;
 }
 
 export function useActiveSession(
@@ -547,7 +634,13 @@ export function useActiveSession(
           "ready_gate_stale_registration_session_truth"
         );
       } else if (truthDecision === "navigate_ready") {
-        commitActiveSession({ kind: "ready_gate", ...base, queueStatus: "in_ready_gate" }, "ready_gate_registration");
+        const synced = await syncReadyGateActiveSession(
+          session,
+          userId,
+          base,
+          emitStaleActiveSessionDetected,
+        );
+        commitActiveSession(synced.activeSession, synced.reason);
       } else {
         const directSession = await findDirectVideoSessionFallback(userId, eventFilter, emitStaleActiveSessionDetected);
         if (directSession) {
@@ -565,10 +658,13 @@ export function useActiveSession(
       }
     } else if (qs === "in_handshake" || qs === "in_date") {
       if (!freshDateRoute && truthDecision === "navigate_ready") {
-        commitActiveSession(
-          { kind: "ready_gate", ...base, queueStatus: "in_ready_gate" },
-          "video_registration_truth_ready_gate"
+        const synced = await syncReadyGateActiveSession(
+          session,
+          userId,
+          base,
+          emitStaleActiveSessionDetected,
         );
+        commitActiveSession(synced.activeSession, synced.reason);
       } else if (freshDateRoute) {
         commitActiveSession({ kind: "video", ...base, queueStatus: qs }, "video_registration");
       } else {

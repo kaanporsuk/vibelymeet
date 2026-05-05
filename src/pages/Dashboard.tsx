@@ -40,6 +40,12 @@ import { preloadRoute } from "@/lib/routePreload";
 import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
 import { getDashboardEventRailHeading } from "@clientShared/eventTimingBuckets";
+import {
+  normalizeReadyGateTransitionActiveSessionTruth,
+  readyGateTransitionResultHasDateCapableTruth,
+  readyGateTransitionResultReadyGateEligible,
+} from "@clientShared/matching/activeSession";
+import { resolveReadyGateTerminalRecovery } from "@clientShared/matching/readyGateTerminalRecovery";
 import { motion, AnimatePresence } from "framer-motion";
 import { PhoneVerificationNudge } from "@/components/PhoneVerificationNudge";
 
@@ -181,6 +187,60 @@ const Dashboard = () => {
       await refetchActiveSession();
     }
   }, [activeSession, refetchActiveSession]);
+
+  const handleActiveSessionRejoin = useCallback(async () => {
+    if (!activeSession) return;
+
+    if (activeSession.kind !== "ready_gate") {
+      navigate(`/date/${activeSession.sessionId}`);
+      return;
+    }
+
+    recordUserAction("dashboard_ready_gate_continue_clicked", {
+      surface: "dashboard",
+      session_kind: activeSession.kind,
+      queue_status: activeSession.queueStatus,
+    });
+
+    try {
+      const { data, error } = await supabase.rpc("ready_gate_transition", {
+        p_session_id: activeSession.sessionId,
+        p_action: "sync",
+        p_reason: "dashboard_active_banner_continue",
+      });
+      if (error) throw error;
+
+      const truth = normalizeReadyGateTransitionActiveSessionTruth(data);
+      await refetchActiveSession();
+
+      if (readyGateTransitionResultHasDateCapableTruth(truth)) {
+        navigate(`/date/${activeSession.sessionId}`);
+        return;
+      }
+
+      if (readyGateTransitionResultReadyGateEligible(truth)) {
+        navigate(`/event/${activeSession.eventId}/lobby`);
+        return;
+      }
+
+      const recovery = resolveReadyGateTerminalRecovery({
+        status: truth?.ready_gate_status ?? truth?.status ?? null,
+        reason: truth?.reason ?? truth?.error ?? null,
+        errorCode: truth?.error_code ?? null,
+        code: truth?.code ?? null,
+        inactiveReason: truth?.inactive_reason ?? null,
+        terminal: truth?.terminal ?? null,
+        source: "dashboard_active_banner_continue",
+      });
+      toast(recovery.toast);
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.warn("[home] ready gate continue failed:", error);
+      }
+      toast.error("Ready Gate could not open. Please try again.");
+      await refetchActiveSession();
+    }
+  }, [activeSession, navigate, refetchActiveSession]);
 
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
@@ -590,11 +650,7 @@ const Dashboard = () => {
                       ? "survey"
                       : "video"
                 }
-                onRejoin={() =>
-                  activeSession.kind === "ready_gate"
-                    ? navigate(`/event/${activeSession.eventId}/lobby`)
-                    : navigate(`/date/${activeSession.sessionId}`)
-                }
+                onRejoin={handleActiveSessionRejoin}
                 onEnd={
                   activeSession.kind === "video" && activeSession.queueStatus === "in_survey"
                     ? undefined

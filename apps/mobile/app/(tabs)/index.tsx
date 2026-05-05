@@ -73,6 +73,12 @@ import {
   classifyEventTimingHeading,
   getDashboardEventRailHeading,
 } from '@clientShared/eventTimingBuckets';
+import {
+  normalizeReadyGateTransitionActiveSessionTruth,
+  readyGateTransitionResultHasDateCapableTruth,
+  readyGateTransitionResultReadyGateEligible,
+} from '@clientShared/matching/activeSession';
+import { resolveReadyGateTerminalRecovery } from '@clientShared/matching/readyGateTerminalRecovery';
 
 const PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_dashboard_dismissed';
 
@@ -543,6 +549,7 @@ export default function DashboardScreen() {
         const { data, error } = await supabase.rpc('ready_gate_transition', {
           p_session_id: activeSession.sessionId,
           p_action: 'forfeit',
+          p_reason: 'dashboard_active_banner',
         });
         if (error) throw error;
         const failureMessage = transitionFailureMessage(data);
@@ -561,6 +568,51 @@ export default function DashboardScreen() {
       await refetchActiveSession();
     }
   }, [activeSession, user?.id, refetchActiveSession]);
+
+  const handleActiveSessionRejoin = useCallback(async () => {
+    if (!activeSession) return;
+    if (activeSession.kind !== 'ready_gate') {
+      router.push(hrefForActiveSession(activeSession));
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('ready_gate_transition', {
+        p_session_id: activeSession.sessionId,
+        p_action: 'sync',
+        p_reason: 'dashboard_active_banner_continue',
+      });
+      if (error) throw error;
+
+      const truth = normalizeReadyGateTransitionActiveSessionTruth(data);
+      await refetchActiveSession();
+
+      if (readyGateTransitionResultHasDateCapableTruth(truth)) {
+        router.push(`/date/${activeSession.sessionId}` as Href);
+        return;
+      }
+
+      if (readyGateTransitionResultReadyGateEligible(truth)) {
+        router.push(hrefForActiveSession(activeSession));
+        return;
+      }
+
+      const recovery = resolveReadyGateTerminalRecovery({
+        status: truth?.ready_gate_status ?? truth?.status ?? null,
+        reason: truth?.reason ?? truth?.error ?? null,
+        errorCode: truth?.error_code ?? null,
+        code: truth?.code ?? null,
+        inactiveReason: truth?.inactive_reason ?? null,
+        terminal: truth?.terminal ?? null,
+        source: 'dashboard_active_banner_continue',
+      });
+      Alert.alert(recovery.title, recovery.body);
+    } catch (error) {
+      if (__DEV__) console.warn('[home] ready gate continue failed:', error);
+      Alert.alert("Couldn't open Ready Gate", 'Check your connection and try again.');
+      await refetchActiveSession();
+    }
+  }, [activeSession, refetchActiveSession]);
 
   const matchesRailLoading = matchesLoading;
   const eventsRailLoading = eventsLoading;
@@ -945,7 +997,7 @@ export default function DashboardScreen() {
                     ? 'survey'
                     : 'video'
               }
-              onRejoin={() => router.push(hrefForActiveSession(activeSession))}
+              onRejoin={handleActiveSessionRejoin}
               onEnd={activeSession.kind === 'video' && activeSession.queueStatus === 'in_survey' ? undefined : handleEndActiveSession}
             />
           </View>
