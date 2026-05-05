@@ -476,6 +476,7 @@ export default function EventLobbyScreen() {
         if (user?.id) {
           const prepared = await prepareVideoDateEntry(sessionIdToOpen, {
             eventId: id,
+            userId: user.id,
             source: `event_lobby_${trigger}`,
           });
           if (prepared.ok !== true) {

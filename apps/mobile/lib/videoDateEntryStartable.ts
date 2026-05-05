@@ -239,6 +239,7 @@ export async function ensureVideoDateStartableBeforeNavigation(
       const prepared = await withPrepareTimeout(
         prepareVideoDateEntry(sessionId, {
           eventId: truth?.event_id ?? null,
+          userId,
           source: `pre_nav_${source}`,
         }),
         PREPARE_ENTRY_PRENAV_TIMEOUT_MS,

@@ -4839,7 +4839,7 @@ export default function VideoDateScreen() {
             userId: user.id,
             reason: handoff.reason,
           });
-          tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+          tokenRes = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS, user.id);
         }
         endBootstrapTiming('daily_room_acquire', {
           source: 'prejoin',
@@ -4973,7 +4973,7 @@ export default function VideoDateScreen() {
             const { startable } = await refetchTruthAndCheckStartable(sessionId);
             if (!startable) continue;
             try {
-              const retried = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS);
+              const retried = await getDailyRoomTokenWithTimeout(sessionId, PREJOIN_STEP_TIMEOUT_MS, user.id);
               if (retried.ok) {
                 tokenRes = retried;
                 dailyRoomRecovered = true;

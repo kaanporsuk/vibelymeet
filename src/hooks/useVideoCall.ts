@@ -1727,6 +1727,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             "daily_room",
             prepareVideoDateEntry(sessionId, {
               eventId: truthRow?.event_id ?? eventId,
+              userId,
               source: "use_video_call_start",
               force: attempt > 0,
             }),
@@ -1998,6 +1999,17 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           } as VideoCallStartResult;
         }
 
+        vdbg("video_date_transition_skipped", {
+          action: "sync_reconnect_enter_handshake",
+          sessionId,
+          userId,
+          eventId: truthRow.event_id ?? eventId,
+          reason: "prepare_date_entry_owns_reconnect_and_handshake",
+          state: truthRow.state,
+          phase: truthRow.phase,
+          handshakeStarted: Boolean(truthRow.handshake_started_at),
+        });
+
         const mediaAllowed = await preflightMediaPermission(
           sessionId,
           truthRow.event_id ?? eventId,
@@ -2010,17 +2022,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             failure: { kind: "media_permission_denied", retryable: true },
           } as VideoCallStartResult;
         }
-
-        vdbg("video_date_transition_skipped", {
-          action: "sync_reconnect_enter_handshake",
-          sessionId,
-          userId,
-          eventId: truthRow.event_id ?? eventId,
-          reason: "prepare_date_entry_owns_reconnect_and_handshake",
-          state: truthRow.state,
-          phase: truthRow.phase,
-          handshakeStarted: Boolean(truthRow.handshake_started_at),
-        });
 
         const roomResult = await acquireDateRoom(
           sessionId,

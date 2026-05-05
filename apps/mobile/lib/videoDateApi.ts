@@ -402,11 +402,11 @@ export function useVideoDateSession(
 }
 
 /** Get Daily room token via daily-room Edge Function (prepare_date_entry). Same contract as web; returns classified errors. */
-export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoomTokenResult> {
+export async function getDailyRoomToken(sessionId: string, userId?: string | null): Promise<GetDailyRoomTokenResult> {
   const args = { action: 'prepare_date_entry', sessionId };
   vdbg('daily_room_before', { action: 'prepare_date_entry', args });
   const invokeStarted = Date.now();
-  const result = await prepareVideoDateEntry(sessionId, { source: 'native_video_date_token' });
+  const result = await prepareVideoDateEntry(sessionId, { userId, source: 'native_video_date_token' });
   Sentry.addBreadcrumb({
     category: 'video-date-launch',
     message: 'daily_room_edge_invoke',
@@ -470,9 +470,10 @@ export async function getDailyRoomToken(sessionId: string): Promise<GetDailyRoom
 
 export async function getDailyRoomTokenWithTimeout(
   sessionId: string,
-  timeoutMs: number
+  timeoutMs: number,
+  userId?: string | null,
 ): Promise<GetDailyRoomTokenResult> {
-  return withTimeout('getDailyRoomToken', getDailyRoomToken(sessionId), timeoutMs);
+  return withTimeout('getDailyRoomToken', getDailyRoomToken(sessionId, userId), timeoutMs);
 }
 
 /** Server-owned: enter handshake (start timer). Idempotent; surfaces RPC JSON errors. */

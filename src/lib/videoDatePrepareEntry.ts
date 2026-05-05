@@ -28,6 +28,7 @@ import {
 
 type PrepareVideoDateEntryOptions = {
   eventId?: string | null;
+  userId?: string | null;
   source?: string;
   force?: boolean;
   bothReadyObservedAtMs?: number;
@@ -46,7 +47,7 @@ export async function prepareVideoDateEntry(
   sessionId: string,
   options: PrepareVideoDateEntryOptions = {},
 ): Promise<PrepareVideoDateEntryResult> {
-  const userId = await getCurrentUserId();
+  const userId = options.userId ?? await getCurrentUserId();
   if (!userId) {
     return { ok: false, code: "UNAUTHORIZED", retryable: false };
   }
