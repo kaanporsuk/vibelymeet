@@ -99,13 +99,13 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **49**
+Deployable functions: **51**
 
 Shared helper directory:
 - `_shared`
 
 ### Function config (post-hardening)
-All 49 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 31 functions. Public-but-protected (verify_jwt false): 18 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `generate-daily-drops`, and scheduled cleanup/drainer functions.
+All 51 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 32 functions. Public-but-protected (verify_jwt false): 19 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `generate-daily-drops`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
 
 ## D. Secrets/runtime layer
 Supabase stores and exposes runtime secrets used by Edge Functions.
@@ -175,9 +175,9 @@ Verify:
 
 ## D. Edge Function parity
 Verify:
-- all 49 deployable functions are present and listed in config.toml
+- all 51 deployable functions are present and listed in config.toml
 - `_shared` compiles into dependents correctly
-- 31 functions deployed with JWT enforced; 18 public-but-protected with correct secrets/tokens set
+- 32 functions deployed with JWT enforced; 19 public-but-protected with correct secrets/tokens set
 
 ## E. Secrets parity
 Verify all required secrets exist before testing function flows.
@@ -229,13 +229,13 @@ Do not assume the checked-in root `.env` covers this set. It does not.
 ## 8. Supabase function deployment sheet (post-hardening)
 
 ### Function count
-- 49 deployable functions; all listed in `supabase/config.toml`.
+- 51 deployable functions; all listed in `supabase/config.toml`.
 
 ### JWT-at-gateway (`verify_jwt = true`)
-daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, create-video-upload, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
+daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
 
 ### Public-but-protected (`verify_jwt = false`)
-event-reminders, video-webhook, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email. These use provider secrets, URL tokens, service-role/admin controls, or CRON_SECRET-style guards in code.
+event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email. These use provider secrets, URL tokens, service-role/admin controls, or CRON_SECRET-style guards in code.
 
 ### Stream 19 rebuild-sensitive posture notes
 - `forward-geocode`: `verify_jwt = true`; also resolves the Supabase user in code, gates admin/premium/onboarding city search, applies a per-user rate limit, and then calls OpenStreetMap Nominatim.

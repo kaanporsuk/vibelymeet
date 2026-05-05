@@ -67,7 +67,7 @@ For current backend verification and deploy work, supplement this frozen runbook
 4. `_cursor_context/vibely_schema_appendix.md`
 5. `_cursor_context/vibely_migration_manifest.md`
 6. `_cursor_context/vibely_edge_function_manifest.md`
-7. `_cursor_context/vibely_machine_readable_inventory.json`
+7. `_cursor_context/vibely_machine_readable_inventory.json` (historical unless regenerated)
 
 Sprint 1 media lifecycle foundation is additive to the frozen rebuild baseline:
 - migration `20260417100000_media_lifecycle_foundation.sql`
@@ -454,10 +454,10 @@ supabase secrets list
 
 Current repo state:
 
-- 49 deployable function directories exist under `supabase/functions`, excluding `_shared`.
-- 49 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- 51 deployable function directories exist under `supabase/functions`, excluding `_shared`.
+- 51 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
 - Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
-- Source-of-truth inventory files are `supabase/config.toml`, `_cursor_context/vibely_edge_function_manifest.md`, and `_cursor_context/vibely_machine_readable_inventory.json`.
+- Source-of-truth inventory files are `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md`; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 
 Confirm the deployable inventory before any broad rebuild:
 
@@ -483,9 +483,9 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 
 ### JWT behavior
 
-`supabase/config.toml` configures all 49 current function entries.
+`supabase/config.toml` configures all 51 current function entries.
 
-**31 functions** have `verify_jwt = true`:
+**32 functions** have `verify_jwt = true`:
 
 - `admin-media-lifecycle-controls`
 - `admin-proof-selfie-sign`
@@ -513,13 +513,14 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 - `send-support-reply`
 - `swipe-actions`
 - `sync-revenuecat-subscriber`
+- `sync-vibe-video-status`
 - `upload-chat-video`
 - `upload-event-cover`
 - `upload-image`
 - `upload-voice`
 - `verify-admin`
 
-**18 functions** have `verify_jwt = false`:
+**19 functions** have `verify_jwt = false`:
 
 - `create-credits-checkout`
 - `credit-replenish`
@@ -527,6 +528,7 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 - `date-suggestion-expiry`
 - `event-reminders`
 - `generate-daily-drops`
+- `get-chat-media-url`
 - `health`
 - `match-call-room-cleanup`
 - `post-date-verdict-reminders`

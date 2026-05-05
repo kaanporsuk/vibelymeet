@@ -207,7 +207,11 @@ export function recordBrowserEvent(
     /* diagnostics must never affect app behavior */
   }
 
-  trackEvent(eventName, data);
+  try {
+    trackEvent(eventName, data);
+  } catch {
+    /* diagnostics must never affect app behavior */
+  }
 
   if (safeImportEnvFlag("VITE_BROWSER_DIAGNOSTICS_DEBUG") || (import.meta.env?.DEV && !isLocalhost())) {
     console.info("[BrowserDiagnostics]", eventName, data);

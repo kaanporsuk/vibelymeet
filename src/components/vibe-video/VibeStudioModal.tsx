@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { heroVideoStart } from "@/lib/heroVideo/heroVideoUploadController";
+import { trackEvent } from "@/lib/analytics";
 import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from "@/lib/vibeVideo/vibeVideoTelemetry";
 import { MAX_VIBE_CAPTION_LEN, MAX_VIBE_VIDEO_DURATION_S } from "@/lib/vibeVideo/constants";
 
@@ -391,9 +392,7 @@ export const VibeStudioModal = ({
     setVibeCaption(existingCaption);
     setCaptionEdited(false);
 
-    void import("@/lib/analytics").then(({ trackEvent }) => {
-      trackEvent('vibe_video_confirmed');
-    });
+    trackEvent('vibe_video_confirmed');
   }, [recordedBlob, uploadedFile, recordedVideoUrl, vibeCaption, captionEdited, uploadContext, onConfirmed, onOpenChange, stopCameraTracks, existingCaption, hasExistingVideo, existingVideoUrl]);
 
   const handleClose = useCallback(() => {
