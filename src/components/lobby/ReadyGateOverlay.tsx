@@ -7,6 +7,9 @@ import { vdbg } from "@/lib/vdbg";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { ensureVideoDateRoom, prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import { videoDateWebMediaStreamConstraints } from "@/lib/dailyCallObjectConfig";
+import { addVideoDatePreconnect } from "@/lib/videoDatePreconnect";
+import { SUPABASE_URL } from "@/integrations/supabase/client";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
@@ -17,9 +20,15 @@ import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJour
 import { EventLobbyObservabilityEvents } from "@clientShared/observability/eventLobbyObservability";
 import {
   buildReadyGateToDateLatencyPayload,
+  bucketVideoDateLatencyMs,
   recordReadyGateToDateLatencyCheckpoint,
   startReadyGateToDateLatencyContext,
 } from "@clientShared/observability/videoDateOperatorMetrics";
+import {
+  getVideoDatePermissionHandoff,
+  setVideoDatePermissionHandoff,
+} from "@clientShared/matching/videoDatePermissionHandoff";
+import { isVideoDateCameraConstraintError } from "@clientShared/matching/videoDateMediaContract";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -159,6 +168,8 @@ const ReadyGateOverlay = ({
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
   const roomWarmupStartedRef = useRef(false);
+  const permissionPrewarmStartedRef = useRef(false);
+  const preconnectCleanupRef = useRef<(() => void) | null>(null);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
@@ -324,13 +335,192 @@ const ReadyGateOverlay = ({
       eventId,
       source,
     }).then((result) => {
-      if (result.ok === false && result.retryable) {
+      if (result.ok === true) {
+        // Preconnect to the actual Daily room origin and the Supabase
+        // Functions origin so the TLS handshake is paid in parallel with
+        // the ready-gate countdown rather than inside `prepare_date_entry`.
+        if (!preconnectCleanupRef.current && !closedRef.current) {
+          preconnectCleanupRef.current = addVideoDatePreconnect(
+            result.data.room_url,
+            SUPABASE_URL,
+          );
+        }
+        return;
+      }
+      if (result.retryable) {
         roomWarmupStartedRef.current = false;
       }
     }).catch(() => {
       roomWarmupStartedRef.current = false;
     });
   }, [eventId, sessionId]);
+
+  // Web Ready Gate permission prewarm: writes the existing
+  // VideoDatePermissionHandoff (consumed by useVideoCall ~L1372) so the date
+  // screen can skip its own getUserMedia roundtrip. Two trigger sources:
+  //   * "ready_gate_open"  — silent fast-path; only runs when the Permissions
+  //     API reports camera state === "granted", so no prompt is ever shown
+  //     outside of a user gesture.
+  //   * "ready_tap"        — invoked in the "I'm Ready" click handler so the
+  //     prompt (if any) fires inside transient activation.
+  // Tracks are stopped immediately after acquisition; Phase 2's Daily prewarm
+  // will own the stream lifetime.
+  const runPermissionPrewarm = useCallback(
+    async (source: "ready_gate_open" | "ready_tap"): Promise<void> => {
+      if (permissionPrewarmStartedRef.current) return;
+      if (closedRef.current || dateNavigationStartedRef.current) return;
+      const userId = user?.id;
+      if (!userId) return;
+      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
+
+      if (getVideoDatePermissionHandoff(sessionId, userId)) {
+        permissionPrewarmStartedRef.current = true;
+        return;
+      }
+
+      if (source === "ready_gate_open") {
+        try {
+          const status = await navigator.permissions?.query?.({
+            name: "camera" as PermissionName,
+          });
+          if (!status || status.state !== "granted") return;
+        } catch {
+          return;
+        }
+      }
+
+      permissionPrewarmStartedRef.current = true;
+      const startedAtMs = Date.now();
+      const sourceAction =
+        source === "ready_gate_open" ? "permission_prewarm_silent" : "permission_prewarm_gesture";
+
+      const startedContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: "web",
+        eventId,
+        sourceSurface: "ready_gate_overlay",
+        checkpoint: "permission_check_started",
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: startedContext,
+          checkpoint: "permission_check_started",
+          sourceAction,
+          outcome: "success",
+        }),
+      );
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_STARTED, {
+        platform: "web",
+        session_id: sessionId,
+        event_id: eventId,
+        source_surface: "ready_gate_overlay",
+        source_action: sourceAction,
+      });
+
+      let stream: MediaStream | null = null;
+      try {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(
+            videoDateWebMediaStreamConstraints("ideal"),
+          );
+        } catch (idealError) {
+          if (!isVideoDateCameraConstraintError(idealError)) throw idealError;
+          stream = await navigator.mediaDevices.getUserMedia(
+            videoDateWebMediaStreamConstraints("fallback"),
+          );
+        }
+
+        for (const track of stream.getTracks()) {
+          try {
+            track.stop();
+          } catch {
+            /* ignore track-stop errors */
+          }
+        }
+        stream = null;
+
+        if (closedRef.current && !dateNavigationStartedRef.current) {
+          return;
+        }
+
+        setVideoDatePermissionHandoff({
+          sessionId,
+          userId,
+          platform: "web",
+          source: "web_ready_gate",
+        });
+
+        const durationMs = Math.max(0, Date.now() - startedAtMs);
+        const successContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: "web",
+          eventId,
+          sourceSurface: "ready_gate_overlay",
+          checkpoint: "permission_check_success",
+          permissionHandoffUsed: true,
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: successContext,
+            checkpoint: "permission_check_success",
+            sourceAction,
+            outcome: "success",
+            durationMs,
+          }),
+        );
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          source_surface: "ready_gate_overlay",
+          source_action: sourceAction,
+          duration_ms: durationMs,
+          latency_bucket: bucketVideoDateLatencyMs(durationMs),
+        });
+        vdbg("ready_gate_permission_prewarm_success", {
+          sessionId,
+          eventId,
+          userId,
+          source,
+          durationMs,
+        });
+      } catch (error) {
+        if (stream) {
+          for (const track of stream.getTracks()) {
+            try {
+              track.stop();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        if (source === "ready_gate_open") {
+          permissionPrewarmStartedRef.current = false;
+        }
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_MEDIA_PERMISSION_DENIED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId,
+          reason: error instanceof Error ? error.name : "permission_prewarm_failed",
+          source_surface: "ready_gate_overlay",
+          source_action: sourceAction,
+        });
+        vdbg("ready_gate_permission_prewarm_failed", {
+          sessionId,
+          eventId,
+          userId,
+          source,
+          error:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        });
+      }
+    },
+    [eventId, sessionId, user?.id],
+  );
 
   const handleBothReady = useCallback(() => {
     if (closedRef.current && !dateNavigationStartedRef.current) return;
@@ -1081,12 +1271,17 @@ const ReadyGateOverlay = ({
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
     startRoomWarmup("ready_gate_open");
-  }, [eventId, sessionId, startRoomWarmup, user?.id]);
+    void runPermissionPrewarm("ready_gate_open");
+  }, [eventId, runPermissionPrewarm, sessionId, startRoomWarmup, user?.id]);
 
   useEffect(() => {
     return () => {
       mountedRef.current = false;
       prepareEntryRunIdRef.current += 1;
+      if (preconnectCleanupRef.current) {
+        preconnectCleanupRef.current();
+        preconnectCleanupRef.current = null;
+      }
     };
   }, []);
 
@@ -1399,6 +1594,11 @@ const ReadyGateOverlay = ({
                   whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
                   onClick={() => {
                     if (markingReady || requestingSnooze || terminalActionPending) return;
+                    // Fire the gesture-bound permission prewarm BEFORE any
+                    // await so the browser sees a live user activation. Runs
+                    // in parallel with markReady() — handoff lands well before
+                    // the date screen mounts in the typical case.
+                    void runPermissionPrewarm("ready_tap");
                     recordUserAction("ready_gate_ready_clicked", {
                       surface: "ready_gate_overlay",
                       session_id: sessionId,

@@ -174,7 +174,13 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "remote_seen"
   | "first_remote_frame"
   | "remote_readable"
-  | "warmup_timer_started";
+  | "warmup_timer_started"
+  | "daily_prewarm_started"
+  | "daily_prewarm_camera_ready"
+  | "daily_prewarm_preauth_success"
+  | "daily_prewarm_consumed"
+  | "daily_prewarm_fallback"
+  | "daily_prewarm_destroyed";
 
 export type ReadyGateToDateLatencyContext = {
   platform: LobbyPostDatePlatform;
@@ -214,6 +220,12 @@ export type ReadyGateToDateLatencyContext = {
   firstRemoteFrameAtMs?: number;
   remoteReadableAtMs?: number;
   warmupTimerStartedAtMs?: number;
+  dailyPrewarmStartedAtMs?: number;
+  dailyPrewarmCameraReadyAtMs?: number;
+  dailyPrewarmPreAuthSuccessAtMs?: number;
+  dailyPrewarmConsumedAtMs?: number;
+  dailyPrewarmFallbackAtMs?: number;
+  dailyPrewarmDestroyedAtMs?: number;
   attemptCount?: number;
 };
 
@@ -318,6 +330,18 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
       return "remoteReadableAtMs";
     case "warmup_timer_started":
       return "warmupTimerStartedAtMs";
+    case "daily_prewarm_started":
+      return "dailyPrewarmStartedAtMs";
+    case "daily_prewarm_camera_ready":
+      return "dailyPrewarmCameraReadyAtMs";
+    case "daily_prewarm_preauth_success":
+      return "dailyPrewarmPreAuthSuccessAtMs";
+    case "daily_prewarm_consumed":
+      return "dailyPrewarmConsumedAtMs";
+    case "daily_prewarm_fallback":
+      return "dailyPrewarmFallbackAtMs";
+    case "daily_prewarm_destroyed":
+      return "dailyPrewarmDestroyedAtMs";
   }
 }
 
