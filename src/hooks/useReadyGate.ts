@@ -171,15 +171,17 @@ function captureReadyGateTransitionDiagnostic(diagnostic: ReadyGateTransitionDia
     message: "ready_gate_transition_failed",
     data,
   });
-  Sentry.captureMessage("ready_gate_transition_failed", {
-    level: "warning",
-    tags: {
-      feature: "ready_gate",
-      action: diagnostic.action,
-      outcome: diagnostic.outcome,
-    },
-    extra: data,
-  });
+  if (diagnostic.outcome === "rpc_error") {
+    Sentry.captureMessage("ready_gate_transition_failed", {
+      level: "warning",
+      tags: {
+        feature: "ready_gate",
+        action: diagnostic.action,
+        outcome: diagnostic.outcome,
+      },
+      extra: data,
+    });
+  }
 }
 
 export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: UseReadyGateOptions) => {
