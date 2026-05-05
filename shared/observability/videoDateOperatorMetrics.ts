@@ -146,6 +146,7 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "ready_gate_transition_started"
   | "ready_gate_transition_success"
   | "both_ready_observed"
+  | "both_ready_observed_via_rpc_short_circuit"
   | "room_warmup_started"
   | "room_warmup_success"
   | "room_warmup_failure"
@@ -277,6 +278,7 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "ready_gate_transition_success":
       return "readyGateTransitionCompletedAtMs";
     case "both_ready_observed":
+    case "both_ready_observed_via_rpc_short_circuit":
       return "bothReadyObservedAtMs";
     case "room_warmup_started":
       return "roomWarmupStartedAtMs";

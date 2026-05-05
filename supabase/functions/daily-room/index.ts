@@ -40,6 +40,7 @@ const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
+const EDGE_PROCESS_STARTED_AT_MS = Date.now();
 
 type VideoDateRoomGateSession = {
   id: string;
@@ -147,6 +148,41 @@ function createServerVideoDateTraceId(nowMs: number = Date.now()): string {
   if (randomUUID) return randomUUID();
   const random = Math.random().toString(36).slice(2, 12);
   return `vdt_${nowMs.toString(36)}_${random}`;
+}
+
+function createDailyRoomHealthPingResponse(params: {
+  requestStartedAt: number;
+  edgeProcessUptimeMs: number;
+  authTimingMs?: number | null;
+  authenticatedUserId?: string | null;
+  source?: unknown;
+}) {
+  const responseReadyMs = Math.max(0, Date.now() - params.requestStartedAt);
+  const timings: Record<string, number> = {
+    edge_cold_start_ms: params.edgeProcessUptimeMs,
+    edge_process_uptime_ms: params.edgeProcessUptimeMs,
+    response_ready_ms: responseReadyMs,
+    total_ms: responseReadyMs,
+  };
+  if (params.authTimingMs != null) timings.auth_ms = params.authTimingMs;
+  console.log(JSON.stringify({
+    event: "daily_room_health_ping_ok",
+    source: typeof params.source === "string" ? params.source : null,
+    authenticated: Boolean(params.authenticatedUserId),
+    user_id: params.authenticatedUserId ?? null,
+    timings,
+  }));
+  return new Response(
+    JSON.stringify({
+      success: true,
+      ok: true,
+      action: "health_ping",
+      edge_cold_start_ms: params.edgeProcessUptimeMs,
+      edge_process_uptime_ms: params.edgeProcessUptimeMs,
+      timings,
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
 }
 
 function readVideoDateTraceContext(body: Record<string, unknown>, action: unknown): {
@@ -1751,6 +1787,7 @@ async function maybeCreateMatchCallRetryResponse(params: {
 
 serve(async (req) => {
   const requestStartedAt = Date.now();
+  const edgeProcessUptimeMs = Math.max(0, requestStartedAt - EDGE_PROCESS_STARTED_AT_MS);
   if (req.method === "OPTIONS")
     return new Response("ok", { headers: corsHeaders });
 
@@ -1770,6 +1807,18 @@ serve(async (req) => {
     const { action, sessionId, matchId, callType, callId } = body;
     const { entryAttemptId, videoDateTraceId } = readVideoDateTraceContext(body, action);
     actionForLog = typeof action === "string" ? action : null;
+
+    if (action === "health_ping") {
+      const cronSecret = Deno.env.get("CRON_SECRET")?.trim();
+      const cronHeader = req.headers.get("x-cron-secret")?.trim();
+      if (cronSecret && cronHeader === cronSecret) {
+        return createDailyRoomHealthPingResponse({
+          requestStartedAt,
+          edgeProcessUptimeMs,
+          source: body.source,
+        });
+      }
+    }
 
     // All actions require auth
     if (!authHeader) {
@@ -1803,6 +1852,16 @@ serve(async (req) => {
       );
     }
     userIdForLog = user.id;
+
+    if (action === "health_ping") {
+      return createDailyRoomHealthPingResponse({
+        requestStartedAt,
+        edgeProcessUptimeMs,
+        authTimingMs,
+        authenticatedUserId: user.id,
+        source: body.source,
+      });
+    }
 
     // ── ACTION: video_date_leave ──
     // Authenticated, non-destructive leave/away signal for unload/background paths.
@@ -1993,6 +2052,8 @@ serve(async (req) => {
       const actionName: DateRoomAction = "ensure_date_room";
       const timings: Record<string, number> = {};
       const totalStartedAt = Date.now();
+      timings.edge_cold_start_ms = edgeProcessUptimeMs;
+      timings.edge_process_uptime_ms = edgeProcessUptimeMs;
       if (authTimingMs != null) timings.auth_ms = authTimingMs;
       timings.request_to_action_ms = Math.max(0, totalStartedAt - requestStartedAt);
       let session: VideoDateRoomGateSession | null = null;
@@ -2178,6 +2239,8 @@ serve(async (req) => {
       const actionName: DateRoomAction = "prepare_date_entry";
       const timings: Record<string, number> = {};
       const totalStartedAt = Date.now();
+      timings.edge_cold_start_ms = edgeProcessUptimeMs;
+      timings.edge_process_uptime_ms = edgeProcessUptimeMs;
       if (authTimingMs != null) timings.auth_ms = authTimingMs;
       timings.request_to_action_ms = Math.max(0, totalStartedAt - requestStartedAt);
       let sessionForLog: VideoDateRoomGateSession | null = null;

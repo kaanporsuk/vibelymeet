@@ -273,19 +273,24 @@ select
   as ok;
 
 -- 19) Launch-latency checkpoints expose the primary ready-tap-to-frame metric.
+with launch_latency_checkpoint_defs as (
+  select string_agg(pg_get_functiondef(oid), E'\n') as def
+  from pg_proc
+  where oid = 'public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)'::regprocedure
+     or oid = to_regprocedure(
+       'public.record_video_date_launch_latency_checkpoint_20260505214500_rpc_short_circuit_base(uuid,text,jsonb,integer)'
+     )
+)
 select
   'launch_latency_checkpoint_primary_fields_allowlisted' as check_name,
-  pg_get_functiondef('public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)'::regprocedure)
-    like '%first_remote_frame%'
-  and pg_get_functiondef('public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)'::regprocedure)
-    like '%ready_tap_to_first_remote_frame_ms%'
-  and pg_get_functiondef('public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)'::regprocedure)
-    like '%date_route_bootstrap_ms%'
-  and pg_get_functiondef('public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)'::regprocedure)
-    like '%daily_join_to_remote_seen_ms%'
-  and pg_get_functiondef('public.record_video_date_launch_latency_checkpoint(uuid,text,jsonb,integer)'::regprocedure)
-    like '%ready_actor_order%'
-  as ok;
+  coalesce(def, '') like '%first_remote_frame%'
+  and coalesce(def, '') like '%ready_tap_to_first_remote_frame_ms%'
+  and coalesce(def, '') like '%date_route_bootstrap_ms%'
+  and coalesce(def, '') like '%daily_join_to_remote_seen_ms%'
+  and coalesce(def, '') like '%ready_actor_order%'
+  and coalesce(def, '') like '%both_ready_observed_via_rpc_short_circuit%'
+  as ok
+from launch_latency_checkpoint_defs;
 
 -- 20) Launch-latency rows are visible in the existing admin timeline.
 select

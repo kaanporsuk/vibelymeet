@@ -18,6 +18,9 @@ const SNOOZED = 'snoozed';
 const EXPIRED = 'expired';
 const POLL_MS = 2000;
 type ReadyGateTransitionAction = 'mark_ready' | 'forfeit' | 'snooze' | 'sync';
+type ReadyGateBothReadySourceAction =
+  | 'both_ready_observed'
+  | 'both_ready_observed_via_rpc_short_circuit';
 
 export type ReadyGateState = {
   status: string;
@@ -38,6 +41,8 @@ type ReadyGateSessionTruth = {
   participant_2_id?: string | null;
   ready_gate_status?: string | null;
   status?: string | null;
+  result_status?: string | null;
+  result_ready_gate_status?: string | null;
   ended_reason?: string | null;
   ready_participant_1_at?: string | null;
   ready_participant_2_at?: string | null;
@@ -89,7 +94,7 @@ export type ReadyGateTerminalDetail = {
 
 export type UseReadyGateOptions = {
   eventId?: string | null;
-  onBothReady?: () => void;
+  onBothReady?: (sourceAction?: ReadyGateBothReadySourceAction) => void;
   onForfeited?: (reason: 'timeout' | 'skip', detail?: ReadyGateTerminalDetail) => void;
 };
 
@@ -128,12 +133,16 @@ export function useReadyGate(
     syncSessionInFlightRef.current = null;
   }, [sessionId]);
 
-  const notifyTerminal = useCallback((status: string, detail?: ReadyGateTerminalDetail) => {
+  const notifyTerminal = useCallback((
+    status: string,
+    detail?: ReadyGateTerminalDetail,
+    bothReadySourceAction: ReadyGateBothReadySourceAction = 'both_ready_observed',
+  ) => {
     const terminalKey = `${status}:${detail?.reason ?? detail?.inactiveReason ?? detail?.errorCode ?? detail?.code ?? ''}`;
     if (terminalHandledRef.current === terminalKey) return;
     terminalHandledRef.current = terminalKey;
     if (status === BOTH_READY) {
-      onBothReadyRef.current?.();
+      onBothReadyRef.current?.(bothReadySourceAction);
     } else if (status === FORFEITED || status === EXPIRED) {
       onForfeitedRef.current?.(status === EXPIRED ? 'timeout' : 'skip', {
         status,
@@ -144,7 +153,10 @@ export function useReadyGate(
 
   const applyReadyGateTruth = useCallback((
     truth: ReadyGateSessionTruth,
-    options?: { partnerName?: string | null },
+    options?: {
+      partnerName?: string | null;
+      bothReadySourceAction?: ReadyGateBothReadySourceAction;
+    },
   ): ReadyGateSyncSuccess => {
     const p1 = typeof truth.participant_1_id === 'string' ? truth.participant_1_id : null;
     const p2 = typeof truth.participant_2_id === 'string' ? truth.participant_2_id : null;
@@ -160,7 +172,12 @@ export function useReadyGate(
     const hasParticipantPosition = position === 'p1' || position === 'p2';
     const myReadyAt = position === 'p1' ? truth.ready_participant_1_at : truth.ready_participant_2_at;
     const partnerReadyAt = position === 'p1' ? truth.ready_participant_2_at : truth.ready_participant_1_at;
-    const status = truth.ready_gate_status ?? truth.status ?? 'queued';
+    const status =
+      truth.ready_gate_status ??
+      truth.status ??
+      truth.result_ready_gate_status ??
+      truth.result_status ??
+      'queued';
     const hasSnoozedBy = Object.prototype.hasOwnProperty.call(truth, 'snoozed_by');
     const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'snooze_expires_at');
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'ready_gate_expires_at');
@@ -194,7 +211,7 @@ export function useReadyGate(
         errorCode: truth.error_code ?? truth.code ?? null,
         code: truth.code ?? null,
         terminal: truth.terminal ?? null,
-      });
+      }, options?.bothReadySourceAction);
     } else {
       terminalHandledRef.current = null;
     }
@@ -341,9 +358,24 @@ export function useReadyGate(
       ? (data as ReadyGateSessionTruth & { success?: boolean; error?: string | null })
       : null;
     if (payload) {
+      const payloadStatus =
+        payload.ready_gate_status ??
+        payload.status ??
+        payload.result_ready_gate_status ??
+        payload.result_status ??
+        'queued';
       const result = applyReadyGateTruth({
         ...payload,
-        ready_gate_status: payload.status ?? payload.ready_gate_status,
+        ready_gate_status:
+          payload.ready_gate_status ??
+          payload.status ??
+          payload.result_ready_gate_status ??
+          payload.result_status,
+      }, {
+        bothReadySourceAction:
+          action === 'mark_ready' && payloadStatus === BOTH_READY
+            ? 'both_ready_observed_via_rpc_short_circuit'
+            : undefined,
       });
       const errorCode = payload.error_code ?? payload.code ?? null;
       const reason = sanitizeReasonCode(
@@ -358,7 +390,12 @@ export function useReadyGate(
           payload.reason === 'event_not_active';
         if (terminal && !result.isTerminal) {
           notifyTerminal(EXPIRED, {
-            status: payload.status ?? payload.ready_gate_status ?? EXPIRED,
+            status:
+              payload.ready_gate_status ??
+              payload.status ??
+              payload.result_ready_gate_status ??
+              payload.result_status ??
+              EXPIRED,
             reason: payload.reason ?? payload.error ?? null,
             inactiveReason: payload.inactive_reason ?? null,
             errorCode,
@@ -514,7 +551,11 @@ export function useReadyGate(
         return { ok: false, error: 'invalid_ready_gate_sync_response' };
       }
       if (payload.success === false) {
-        const normalizedStatus = payload.status ?? payload.ready_gate_status;
+        const normalizedStatus =
+          payload.ready_gate_status ??
+          payload.status ??
+          payload.result_ready_gate_status ??
+          payload.result_status;
         if (normalizedStatus) {
           applyReadyGateTruth({
             ...payload,
@@ -552,7 +593,11 @@ export function useReadyGate(
 
       return applyReadyGateTruth({
         ...payload,
-        ready_gate_status: payload.status ?? payload.ready_gate_status,
+        ready_gate_status:
+          payload.ready_gate_status ??
+          payload.status ??
+          payload.result_ready_gate_status ??
+          payload.result_status,
       });
     })();
 
