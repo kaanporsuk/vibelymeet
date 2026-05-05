@@ -13,26 +13,20 @@ const LAUNCH_LATENCY_CHECKPOINT_EVENT = 'ready_gate_to_date_latency_checkpoint';
 
 type CleanProps = Record<string, string | number | boolean>;
 
-function emitLaunchLatencyCheckpointAsync(
+function recordOperationalLaunchLatencyCheckpoint(
   eventName: string,
   properties?: Record<string, string | number | boolean | null | undefined>
 ) {
   if (eventName !== LAUNCH_LATENCY_CHECKPOINT_EVENT) return;
 
-  const emit = () => {
-    void emitVideoDateLaunchLatencyCheckpointObservability({
-      client: supabase,
-      eventName,
-      properties,
-    });
-  };
-
-  if (typeof setTimeout === 'function') {
-    setTimeout(emit, 0);
-    return;
-  }
-
-  emit();
+  // This is operational reliability telemetry, not PostHog/product analytics:
+  // the authenticated RPC stores only allowlisted launch checkpoint fields so
+  // operators can debug whether a paid/safety-critical Video Date actually connected.
+  void emitVideoDateLaunchLatencyCheckpointObservability({
+    client: supabase,
+    eventName,
+    properties,
+  });
 }
 
 function sanitize(props?: Record<string, string | number | boolean | null | undefined>): CleanProps | undefined {
@@ -82,7 +76,7 @@ export function trackEvent(
   eventName: string,
   properties?: Record<string, string | number | boolean | null | undefined>
 ) {
-  emitLaunchLatencyCheckpointAsync(eventName, properties);
+  recordOperationalLaunchLatencyCheckpoint(eventName, properties);
   if (!analyticsConsentGranted) return;
   client?.capture(eventName, sanitize(properties));
 }
