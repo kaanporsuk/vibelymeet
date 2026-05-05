@@ -2360,10 +2360,10 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   }
   assert.match(webDailyPrewarm, /DailyIframe\.createCallObject\(dailyVideoDateCallObjectOptions\(captureProfile\)\)/);
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
-  assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
+  assert.doesNotMatch(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /destroyWebVideoDateDailyPrewarm/);
-  assert.match(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
+  assert.doesNotMatch(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /preAuthNativeVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);

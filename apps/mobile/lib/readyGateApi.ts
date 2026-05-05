@@ -212,8 +212,8 @@ export function useReadyGate(
     };
   }, [notifyTerminal, userId]);
 
-  const fetchSession = useCallback(async () => {
-    if (!sessionId || !userId) return;
+  const fetchSession = useCallback(async (): Promise<ReadyGateSyncResult | null> => {
+    if (!sessionId || !userId) return null;
     const { data: session, error } = await supabase
       .from('video_sessions')
       .select(
@@ -222,7 +222,22 @@ export function useReadyGate(
       .eq('id', sessionId)
       .maybeSingle();
 
-    if (error || !session) return;
+    if (error) {
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code ?? null,
+        terminal: false,
+      };
+    }
+
+    if (!session) {
+      return {
+        ok: false,
+        error: 'session_not_found',
+        terminal: false,
+      };
+    }
 
     const isP1 = session.participant_1_id === userId;
     const partnerId = isP1 ? session.participant_2_id : session.participant_1_id;
@@ -232,7 +247,7 @@ export function useReadyGate(
     const partnerProfile = profile as { name?: string | null } | null;
     if (partnerProfile) partnerName = partnerProfile.name ?? 'Your match';
 
-    applyReadyGateTruth(session, { partnerName });
+    return applyReadyGateTruth(session, { partnerName });
   }, [sessionId, userId, applyReadyGateTruth]);
 
   useEffect(() => {
@@ -423,6 +438,13 @@ export function useReadyGate(
           outcome: 'success',
         }),
       );
+      const hasReadyTimestamps =
+        Object.prototype.hasOwnProperty.call(payload, 'ready_participant_1_at') &&
+        Object.prototype.hasOwnProperty.call(payload, 'ready_participant_2_at');
+      if (action === 'mark_ready' && !result.isTerminal && !hasReadyTimestamps) {
+        const refreshed = await fetchSession();
+        if (refreshed?.ok === true) return refreshed;
+      }
       return result;
     }
 
@@ -455,7 +477,9 @@ export function useReadyGate(
         outcome: 'success',
       }),
     );
-    await fetchSession();
+    const refreshed = await fetchSession();
+    if (refreshed?.ok === true) return refreshed;
+
     return {
       ok: true,
       status: state.status,
