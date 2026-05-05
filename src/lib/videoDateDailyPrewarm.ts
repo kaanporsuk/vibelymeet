@@ -53,6 +53,16 @@ type WebDailyPrewarmConsumeResult =
 
 const prewarmEntries = new Map<string, WebDailyPrewarmEntry>();
 
+function publicEntry(entry: WebDailyPrewarmEntry): WebDailyPrewarmPublicEntry {
+  return {
+    call: entry.call,
+    roomName: entry.roomName,
+    roomUrl: entry.roomUrl,
+    captureProfile: entry.captureProfile,
+    createdAtMs: entry.createdAtMs,
+  };
+}
+
 function prewarmEnabled(): boolean {
   return String(import.meta.env.VITE_VIDEO_DATE_DAILY_PREWARM ?? "false").toLowerCase() === "true";
 }
@@ -172,7 +182,7 @@ export function startWebVideoDateDailyPrewarm(params: {
   const existing = prewarmEntries.get(key);
   if (existing) {
     if (existing.expiresAtMs > Date.now()) {
-      if (existing.roomUrl === params.roomUrl) return { ok: true, entry: existing };
+      if (existing.roomUrl === params.roomUrl) return { ok: true, entry: publicEntry(existing) };
       fallbackEntry(existing, "daily_prewarm_room_changed");
     } else {
       fallbackEntry(existing, "daily_prewarm_expired_before_restart");
@@ -248,7 +258,7 @@ export function startWebVideoDateDailyPrewarm(params: {
     },
   );
 
-  return { ok: true, entry };
+  return { ok: true, entry: publicEntry(entry) };
 }
 
 export async function preAuthWebVideoDateDailyPrewarm(params: {
@@ -335,7 +345,7 @@ export function consumeWebVideoDateDailyPrewarm(params: {
     checkpoint: "daily_prewarm_consumed",
     sourceAction: "daily_prewarm_consumed",
   });
-  return { ok: true, entry };
+  return { ok: true, entry: publicEntry(entry) };
 }
 
 export function destroyWebVideoDateDailyPrewarm(sessionId: string, userId: string, reason: string): boolean {

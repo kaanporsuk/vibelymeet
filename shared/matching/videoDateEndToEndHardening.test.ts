@@ -2322,6 +2322,10 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(adminVideoDateOpsFunction, /slowest_sessions/);
   assert.match(adminVideoDateOpsFunction, /attachSlowLaunchTimelines/);
   assert.match(adminVideoDateOpsFunction, /get_video_date_session_timeline/);
+  assert.match(adminVideoDateOpsFunction, /SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5/);
+  assert.match(adminVideoDateOpsFunction, /SLOW_LAUNCH_TIMELINE_ROW_LIMIT = 12/);
+  assert.match(adminVideoDateOpsFunction, /\.slice\(0, SLOW_LAUNCH_TIMELINE_SESSION_LIMIT\)/);
+  assert.match(adminVideoDateOpsFunction, /\.slice\(-SLOW_LAUNCH_TIMELINE_ROW_LIMIT\)/);
   assert.match(adminLiveEventMetrics, /Slowest sessions/);
   assert.match(adminVideoDateOpsFunction, /daily_prewarm_consumed/);
   assert.match(adminVideoDateOpsFunction, /daily_prewarm_fallback/);
@@ -2342,6 +2346,9 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
     assert.match(source, /daily_prewarm_fallback/);
     assert.match(source, /daily_prewarm_destroyed/);
     assert.match(source, /fallbackEntry/);
+    assert.match(source, /function publicEntry/);
+    assert.doesNotMatch(source, /return \{ ok: true, entry: existing \}/);
+    assert.doesNotMatch(source, /return \{ ok: true, entry \}/);
     assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_expired['"]\)/);
     assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_room_mismatch['"]\)/);
     assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_capture_profile_mismatch['"]\)/);
@@ -2363,6 +2370,15 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(webVideoCallHook, /reusedCallObject: prewarmedCall\.ok === true/);
   assert.match(nativeVideoDateRoute, /consumeNativeVideoDateDailyPrewarm/);
   assert.match(nativeVideoDateRoute, /reusedCallObject: Boolean\(prewarmed\)/);
+  assert.match(readyGateOverlay, /latestUnmountCleanupContextRef/);
+  assert.match(
+    readyGateOverlay,
+    /useEffect\(\(\) => \{\s*return \(\) => \{[\s\S]*mountedRef\.current = false[\s\S]*latestUnmountCleanupContextRef\.current[\s\S]*\};\s*\}, \[\]\);/,
+  );
+  assert.doesNotMatch(
+    readyGateOverlay,
+    /ready_gate_unmount_before_date_navigation[\s\S]{0,500}\}, \[sessionId, user\?\.id\]\);/,
+  );
 });
 
 test("video date trace id is propagated through prepare entry analytics and Daily-room payloads", () => {
