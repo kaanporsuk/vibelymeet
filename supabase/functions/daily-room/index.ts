@@ -37,6 +37,7 @@ const DAILY_MATCH_CALL_ROOM_TTL_SECONDS = 60 * 60;
 // Video dates can be extended with credits; keep provider credentials finite
 // while covering the normal 5-minute flow plus generous extension/reconnect room.
 const DAILY_VIDEO_DATE_TOKEN_TTL_SECONDS = 15 * 60;
+const DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60;
 const DAILY_VIDEO_DATE_ROOM_TTL_SECONDS = 14_400;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_FRESH_MS = 90_000;
 const DAILY_VIDEO_DATE_PROVIDER_PROOF_CLOCK_SKEW_MS = 5_000;
@@ -58,6 +59,8 @@ type VideoDateRoomGateSession = {
   date_started_at?: string | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | null;
+  ready_participant_1_at?: string | null;
+  ready_participant_2_at?: string | null;
   state: string | null;
   phase?: string | null;
 };
@@ -193,6 +196,7 @@ function readVideoDateTraceContext(body: Record<string, unknown>, action: unknow
   const providedTraceId = sanitizeEntryAttemptId(body?.video_date_trace_id ?? body?.videoDateTraceId);
   const shouldGenerateTrace =
     action === "prepare_date_entry" ||
+    action === "prepare_solo_entry" ||
     action === "ensure_date_room" ||
     action === "create_date_room" ||
     action === "join_date_room";
@@ -630,6 +634,18 @@ function canIssueVideoDateRoomToken(session: {
     return true;
   }
   return false;
+}
+
+function canIssueSoloPrejoinVideoDateToken(
+  session: VideoDateRoomGateSession,
+  userId: string,
+): { ok: true } | { ok: false; code: "READY_GATE_NOT_READY" | "READY_GATE_ALREADY_BOTH_READY" } {
+  const status = String(session.ready_gate_status ?? "");
+  if (status === "both_ready") return { ok: false, code: "READY_GATE_ALREADY_BOTH_READY" };
+  if (status !== "ready_a" && status !== "ready_b") return { ok: false, code: "READY_GATE_NOT_READY" };
+  if (session.participant_1_id === userId && session.ready_participant_1_at) return { ok: true };
+  if (session.participant_2_id === userId && session.ready_participant_2_at) return { ok: true };
+  return { ok: false, code: "READY_GATE_NOT_READY" };
 }
 
 function videoDateRoomGateSessionEnded(session: {
@@ -2197,6 +2213,267 @@ serve(async (req) => {
             daily_room_expires_at: roomProof.dailyRoomExpiresAt,
             entry_attempt_id: entryAttemptId,
             video_date_trace_id: videoDateTraceId,
+            timings,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      } catch (error) {
+        if (isDailyProviderError(error)) {
+          return await createDailyProviderFailureResponse({
+            serviceClient,
+            error,
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+            entryAttemptId,
+            videoDateTraceId,
+          });
+        }
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 503,
+          code: "DAILY_PROVIDER_ERROR",
+          error: "Video service temporarily unavailable",
+          requestContext,
+          session,
+          detail: error instanceof Error ? error.message : String(error),
+          extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+        });
+      }
+    }
+
+    // ── ACTION: prepare_solo_entry ──
+    // Aggressive first-ready media prejoin. This returns a short-lived Daily
+    // token for the caller only, but never confirms routeability or mutates
+    // handshake/date state. The normal prepare_date_entry action remains the
+    // only routeable handoff after both participants are ready.
+    if (action === "prepare_solo_entry") {
+      const actionName: DateRoomAction = "prepare_solo_entry";
+      const timings: Record<string, number> = {};
+      const totalStartedAt = Date.now();
+      timings.edge_cold_start_ms = edgeProcessUptimeMs;
+      timings.edge_process_uptime_ms = edgeProcessUptimeMs;
+      if (authTimingMs != null) timings.auth_ms = authTimingMs;
+      timings.request_to_action_ms = Math.max(0, totalStartedAt - requestStartedAt);
+      let session: VideoDateRoomGateSession | null = null;
+
+      if (typeof sessionId !== "string" || !sessionId) {
+        return createDateRoomRejectResponse({
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          status: 400,
+          code: "MISSING_SESSION_ID",
+          error: "Missing or invalid sessionId",
+          requestContext,
+        });
+      }
+
+      try {
+        const sessionStartedAt = Date.now();
+        const { data, error } = await supabase
+          .from("video_sessions")
+          .select(
+            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, ready_participant_1_at, ready_participant_2_at, state, phase",
+          )
+          .eq("id", sessionId)
+          .maybeSingle();
+        timings.session_fetch_ms = Date.now() - sessionStartedAt;
+        session = (data as VideoDateRoomGateSession | null) ?? null;
+
+        if (error || !session) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 404,
+            code: "SESSION_NOT_FOUND",
+            error: "Session not found",
+            requestContext,
+            detail: error ? error.message : null,
+            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+          });
+        }
+
+        if (session.participant_1_id !== user.id && session.participant_2_id !== user.id) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 403,
+            code: "ACCESS_DENIED",
+            error: "Access denied",
+            requestContext,
+            session,
+            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+          });
+        }
+
+        const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+        if (!partnerId || await isPairBlocked(serviceClient, user.id, partnerId)) {
+          return createBlockedDateRoomResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            requestContext,
+            session,
+            detail: "prepare_solo_entry_block_check",
+          });
+        }
+
+        if (videoDateRoomGateSessionEnded(session)) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: 410,
+            code: "SESSION_ENDED",
+            error: "Session has ended",
+            requestContext,
+            session,
+            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
+          });
+        }
+
+        if (session.event_id) {
+          const eventActiveStartedAt = Date.now();
+          const { data: inactiveData, error: inactiveError } = await serviceClient.rpc("get_event_lobby_inactive_reason", {
+            p_event_id: session.event_id,
+          });
+          timings.event_active_check_ms = Date.now() - eventActiveStartedAt;
+          const inactiveReason = typeof inactiveData === "string" && inactiveData ? inactiveData : null;
+          if (inactiveError || inactiveReason) {
+            return createDateRoomRejectResponse({
+              action: actionName,
+              sessionId,
+              userId: user.id,
+              status: 409,
+              code: "EVENT_NOT_ACTIVE",
+              error: "Event is no longer active",
+              requestContext,
+              session,
+              detail: inactiveReason ?? inactiveError?.message ?? null,
+              extra: {
+                entry_attempt_id: entryAttemptId,
+                video_date_trace_id: videoDateTraceId,
+                event_inactive_reason: inactiveReason,
+              },
+            });
+          }
+        }
+
+        const soloGate = canIssueSoloPrejoinVideoDateToken(session, user.id);
+        if (!soloGate.ok) {
+          return createDateRoomRejectResponse({
+            action: actionName,
+            sessionId,
+            userId: user.id,
+            status: soloGate.code === "READY_GATE_ALREADY_BOTH_READY" ? 409 : 403,
+            code: soloGate.code,
+            error: soloGate.code === "READY_GATE_ALREADY_BOTH_READY"
+              ? "Both participants are already ready"
+              : "Caller must be ready before solo prejoin",
+            requestContext,
+            session,
+            extra: {
+              ready_gate_status: session.ready_gate_status ?? null,
+              entry_attempt_id: entryAttemptId,
+              video_date_trace_id: videoDateTraceId,
+            },
+          });
+        }
+
+        const roomStartedAt = Date.now();
+        const roomProof = await ensureVideoDateProviderRoomForToken({
+          serviceClient,
+          action: actionName,
+          sessionId,
+          userId: user.id,
+          session,
+          requestContext,
+          entryAttemptId,
+          videoDateTraceId,
+        });
+        timings.room_create_or_verify_ms = Date.now() - roomStartedAt;
+        if (!roomProof.ok) return roomProof.response;
+
+        const tokenStartedAt = Date.now();
+        const tokenExpiresAt = meetingTokenExpiresAtIso(DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS, tokenStartedAt);
+        const token = await createMeetingToken(
+          roomProof.roomName,
+          user.id,
+          DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS,
+        );
+        timings.token_ms = Date.now() - tokenStartedAt;
+        timings.total_ms = Date.now() - totalStartedAt;
+        timings.response_ready_ms = timings.total_ms;
+
+        await recordVideoDateProviderObservability({
+          serviceClient,
+          operation: "create_date_room_token_issued",
+          outcome: "success",
+          reasonCode: "solo_prejoin_token_issued",
+          latencyMs: timings.token_ms,
+          eventId: session.event_id ?? null,
+          actorId: user.id,
+          sessionId,
+          action: actionName,
+          entryAttemptId,
+          videoDateTraceId,
+          roomName: roomProof.roomName,
+          detail: {
+            solo_prejoin: true,
+            provider_room_reused: roomProof.reusedRoom,
+            provider_room_recreated: roomProof.providerRoomRecreated,
+            provider_room_recovered: roomProof.providerRoomRecovered,
+            provider_verify_skipped: roomProof.providerVerifySkipped,
+            provider_verify_reason: roomProof.providerVerifyReason,
+            daily_room_verified_at: roomProof.dailyRoomVerifiedAt,
+            daily_room_expires_at: roomProof.dailyRoomExpiresAt,
+            ready_gate_status: session.ready_gate_status ?? null,
+          },
+        });
+
+        console.log(JSON.stringify({
+          event: "prepare_solo_entry_ok",
+          session_id: sessionId,
+          user_id: user.id,
+          entry_attempt_id: entryAttemptId,
+          video_date_trace_id: videoDateTraceId,
+          room_name: roomProof.roomName,
+          ready_gate_status: session.ready_gate_status ?? null,
+          provider_verify_skipped: roomProof.providerVerifySkipped,
+          provider_verify_reason: roomProof.providerVerifyReason,
+          timings,
+        }));
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            solo_prejoin: true,
+            room_name: roomProof.roomName,
+            room_url: roomProof.roomUrl,
+            token,
+            token_expires_at: tokenExpiresAt,
+            session_state: session.state ?? null,
+            session_phase: session.phase ?? null,
+            ready_gate_status: session.ready_gate_status ?? null,
+            ready_gate_expires_at: session.ready_gate_expires_at ?? null,
+            participant_1_id: session.participant_1_id ?? null,
+            participant_2_id: session.participant_2_id ?? null,
+            entry_attempt_id: entryAttemptId,
+            video_date_trace_id: videoDateTraceId,
+            reused_room: roomProof.reusedRoom,
+            provider_room_recreated: roomProof.providerRoomRecreated,
+            provider_room_recovered: roomProof.providerRoomRecovered,
+            provider_verify_skipped: roomProof.providerVerifySkipped,
+            provider_verify_reason: roomProof.providerVerifyReason,
+            daily_room_verified_at: roomProof.dailyRoomVerifiedAt,
+            daily_room_expires_at: roomProof.dailyRoomExpiresAt,
             timings,
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },

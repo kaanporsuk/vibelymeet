@@ -135,8 +135,16 @@ const rpcShortCircuitAndKeepwarmMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505214500_video_date_rpc_short_circuit_and_daily_keepwarm.sql"),
   "utf8",
 );
+const launchLatencyJoinPrewarmCheckpointsMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260505231000_video_date_launch_latency_join_prewarm_checkpoints.sql"),
+  "utf8",
+);
 const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
+  "utf8",
+);
+const soloPrejoinJoinGuardMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260505230000_video_date_solo_prejoin_daily_join_guard.sql"),
   "utf8",
 );
 const handshakeDeadlineFinalizerMigration = readFileSync(
@@ -275,6 +283,14 @@ const webDailyPrewarm = readFileSync(
 );
 const nativeDailyPrewarm = readFileSync(
   join(process.cwd(), "apps/mobile/lib/videoDateDailyPrewarm.ts"),
+  "utf8",
+);
+const webEnvExample = readFileSync(
+  join(process.cwd(), ".env.example"),
+  "utf8",
+);
+const nativeEnvExample = readFileSync(
+  join(process.cwd(), "apps/mobile/.env.example"),
   "utf8",
 );
 const webVideoDatePage = readFileSync(
@@ -764,15 +780,39 @@ test("daily-room supports room-only warmup without token issuance or entry trans
   assert.match(dailyRoomFunction, /Room-only warmup/);
   assert.match(dailyRoomFunction, /ensureVideoDateProviderRoomForToken/);
   const warmupIndex = dailyRoomFunction.indexOf('if (action === "ensure_date_room")');
+  const soloIndex = dailyRoomFunction.indexOf('if (action === "prepare_solo_entry")');
   const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
   assert.ok(warmupIndex > 0);
-  assert.ok(prepareIndex > warmupIndex);
-  const warmupBlock = dailyRoomFunction.slice(warmupIndex, prepareIndex);
+  assert.ok(soloIndex > warmupIndex || prepareIndex > warmupIndex);
+  const warmupEndIndex = Math.min(
+    ...[soloIndex, prepareIndex].filter((index) => index > warmupIndex),
+  );
+  const warmupBlock = dailyRoomFunction.slice(warmupIndex, warmupEndIndex);
   assert.doesNotMatch(warmupBlock, /createMeetingToken/);
   assert.doesNotMatch(warmupBlock, /p_action: "prepare_entry"/);
   assert.doesNotMatch(warmupBlock, /confirmVideoDateEntryPrepared/);
   assert.match(warmupBlock, /"ready_a", "ready_b", "both_ready"/);
   assert.doesNotMatch(warmupBlock, /"ready", "ready_a"/);
+});
+
+test("daily-room solo prejoin is token-only and never route-confirms the session", () => {
+  assert.match(dailyRoomContracts, /"prepare_solo_entry"/);
+  assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60/);
+  assert.match(dailyRoomFunction, /function canIssueSoloPrejoinVideoDateToken/);
+  const soloIndex = dailyRoomFunction.indexOf('if (action === "prepare_solo_entry")');
+  const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
+  assert.ok(soloIndex > 0);
+  assert.ok(prepareIndex > soloIndex);
+  const soloBlock = dailyRoomFunction.slice(soloIndex, prepareIndex);
+  assert.match(soloBlock, /get_event_lobby_inactive_reason/);
+  assert.match(soloBlock, /isPairBlocked/);
+  assert.match(soloBlock, /canIssueSoloPrejoinVideoDateToken\(session, user\.id\)/);
+  assert.match(soloBlock, /READY_GATE_ALREADY_BOTH_READY/);
+  assert.match(soloBlock, /createMeetingToken\([\s\S]*DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS/s);
+  assert.match(soloBlock, /solo_prejoin: true/);
+  assert.doesNotMatch(soloBlock, /confirmVideoDateEntryPrepared/);
+  assert.doesNotMatch(soloBlock, /p_action: "prepare_entry"/);
+  assert.doesNotMatch(soloBlock, /confirm_video_date_entry_prepared/);
 });
 
 test("daily-room freshness proof and token guards reject stale terminal shortcuts", () => {
@@ -1447,6 +1487,18 @@ test("latest handshake migration starts the visible timer only after both Daily 
   assert.match(markJoinedBody, /'handshake_started_after_both_daily_joined'/);
   assert.match(markJoinedBody, /'handshake_started', v_started_handshake/);
   assert.match(markJoinedBody, /'handshake_started_at', v_row\.handshake_started_at/);
+});
+
+test("Daily join stamping is routeable-only so solo prejoin cannot start handshake", () => {
+  assert.match(soloPrejoinJoinGuardMigration, /CREATE OR REPLACE FUNCTION public\.mark_video_date_daily_joined/);
+  assert.match(soloPrejoinJoinGuardMigration, /v_routeable :=/);
+  assert.match(soloPrejoinJoinGuardMigration, /v_row\.ready_gate_status = 'both_ready'/);
+  assert.match(soloPrejoinJoinGuardMigration, /'error', 'not_routeable'/);
+  assert.match(soloPrejoinJoinGuardMigration, /IF NOT v_routeable THEN[\s\S]*RETURN jsonb_build_object/s);
+  assert.match(soloPrejoinJoinGuardMigration, /REVOKE ALL ON FUNCTION public\.mark_video_date_daily_joined\(uuid\)[\s\S]*FROM PUBLIC, anon, authenticated, service_role/s);
+  assert.match(soloPrejoinJoinGuardMigration, /GRANT EXECUTE ON FUNCTION public\.mark_video_date_daily_joined\(uuid\)[\s\S]*TO authenticated/s);
+  assert.match(soloPrejoinJoinGuardMigration, /participant_1_joined_at = COALESCE/);
+  assert.match(soloPrejoinJoinGuardMigration, /UPDATE public\.event_registrations/);
 });
 
 test("prepared-but-never-joined video dates are repaired without starting the handshake timer", () => {
@@ -2345,6 +2397,20 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(launchLatencyCheckpointObservabilityMigration, /get_video_date_session_timeline/);
   assert.match(launchLatencyCheckpointObservability, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(launchLatencyCheckpointObservability, /ready_tap_to_first_remote_frame_ms/);
+  for (const checkpoint of [
+    "daily_prewarm_join_started",
+    "daily_prewarm_join_success",
+    "daily_prewarm_join_failure",
+    "daily_prewarm_solo_join_started",
+    "daily_prewarm_solo_join_success",
+    "daily_prewarm_solo_join_failure",
+    "video_date_route_preload_started",
+    "video_date_route_preload_success",
+  ]) {
+    assert.match(videoDateOperatorMetrics, new RegExp(`"${checkpoint}"`));
+    assert.match(launchLatencyCheckpointObservability, new RegExp(`"${checkpoint}"`));
+    assert.match(launchLatencyJoinPrewarmCheckpointsMigration, new RegExp(`'${checkpoint}'`));
+  }
   assert.match(webAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(nativeAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(webAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
@@ -2381,17 +2447,35 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
 
 test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrumented", () => {
   assert.match(webDailyPrewarm, /VITE_VIDEO_DATE_DAILY_PREWARM/);
+  assert.match(webDailyPrewarm, /VITE_VIDEO_DATE_DAILY_JOIN_PREWARM/);
   assert.match(nativeDailyPrewarm, /EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM/);
+  assert.match(nativeDailyPrewarm, /EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_JOIN_PREWARM=false/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN=false/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED=false/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_DEVICE_PREFERENCE_COOKIES=false/);
+  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM=false/);
+  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN=false/);
+  assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED=false/);
   for (const source of [webDailyPrewarm, nativeDailyPrewarm]) {
     assert.match(source, /45_000/);
     assert.match(source, /daily_prewarm_started/);
     assert.match(source, /daily_prewarm_camera_ready/);
     assert.match(source, /daily_prewarm_preauth_success/);
+    assert.match(source, /daily_prewarm_join_started/);
+    assert.match(source, /daily_prewarm_join_success/);
+    assert.match(source, /daily_prewarm_join_failure/);
+    assert.match(source, /daily_prewarm_solo_join_started/);
+    assert.match(source, /daily_prewarm_solo_join_success/);
+    assert.match(source, /daily_prewarm_solo_join_failure/);
     assert.match(source, /daily_prewarm_consumed/);
     assert.match(source, /daily_prewarm_fallback/);
     assert.match(source, /daily_prewarm_destroyed/);
     assert.match(source, /fallbackEntry/);
     assert.match(source, /function publicEntry/);
+    assert.match(source, /function joinPrewarmEnabled\([^)]*joinSource/);
+    assert.match(source, /joinSource === ['"]solo_prejoin['"]/);
+    assert.match(source, /if \(\s*entry\.status === ['"]joined['"]\s*\)\s*\{\s*return true;/s);
     assert.doesNotMatch(source, /return \{ ok: true, entry: existing \}/);
     assert.doesNotMatch(source, /return \{ ok: true, entry \}/);
     assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_expired['"]\)/);
@@ -2399,6 +2483,9 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
     assert.match(source, /fallbackEntry\(entry, ['"]daily_prewarm_capture_profile_mismatch['"]\)/);
     assert.match(source, /startCamera\(\{ url: params\.roomUrl \}\)/);
     assert.match(source, /preAuth\(\{ url: params\.roomUrl, token: params\.token \}\)/);
+    assert.match(source, /\.join\(\{ url: params\.roomUrl, token: params\.token \}\)/);
+    assert.match(source, /entry\.status !== ['"]consumed['"]/);
+    assert.match(source, /entry\.status === ['"]consumed['"]/);
     assert.match(source, /prewarmEntries\.delete\(key\)/);
     assert.match(source, /captureProfile !== params\.captureProfile/);
     assert.match(source, /roomUrl !== params\.roomUrl/);
@@ -2408,14 +2495,27 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
+  assert.match(readyGateOverlay, /joinWebVideoDateDailyPrewarm/);
+  assert.match(readyGateOverlay, /prepareVideoDateSoloEntry/);
+  assert.match(readyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
+  assert.match(readyGateOverlay, /preloadVideoDateRoute/);
+  assert.match(nativeReadyGateOverlay, /preloadVideoDateRoute/);
+  assert.match(nativeReadyGateOverlay, /router\.prefetch\(`\/date\/\$\{sessionId\}` as Href\)/);
   assert.match(readyGateOverlay, /destroyWebVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /startRoomWarmupAfterReady\('ready_tap_mark_ready_success'/);
   assert.match(nativeReadyGateOverlay, /preAuthNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /joinNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /prepareVideoDateSoloEntry/);
+  assert.match(nativeReadyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
   assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);
+  assert.match(webVideoCallHook, /daily_join_skipped_prewarmed_already_joined/);
+  assert.match(webVideoCallHook, /daily_join_completed_by_prewarm_inflight/);
   assert.match(webVideoCallHook, /reusedCallObject: prewarmedCall\.ok === true/);
   assert.match(nativeVideoDateRoute, /consumeNativeVideoDateDailyPrewarm/);
+  assert.match(nativeVideoDateRoute, /daily_join_skipped_prewarmed_already_joined/);
+  assert.match(nativeVideoDateRoute, /daily_join_completed_by_prewarm_inflight/);
   assert.match(nativeVideoDateRoute, /reusedCallObject: Boolean\(prewarmed\)/);
   assert.match(readyGateOverlay, /latestUnmountCleanupContextRef/);
   assert.match(

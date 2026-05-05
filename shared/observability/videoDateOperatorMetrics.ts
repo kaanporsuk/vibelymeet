@@ -179,9 +179,17 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "daily_prewarm_started"
   | "daily_prewarm_camera_ready"
   | "daily_prewarm_preauth_success"
+  | "daily_prewarm_join_started"
+  | "daily_prewarm_join_success"
+  | "daily_prewarm_join_failure"
+  | "daily_prewarm_solo_join_started"
+  | "daily_prewarm_solo_join_success"
+  | "daily_prewarm_solo_join_failure"
   | "daily_prewarm_consumed"
   | "daily_prewarm_fallback"
-  | "daily_prewarm_destroyed";
+  | "daily_prewarm_destroyed"
+  | "video_date_route_preload_started"
+  | "video_date_route_preload_success";
 
 export type ReadyGateToDateLatencyContext = {
   platform: LobbyPostDatePlatform;
@@ -224,9 +232,15 @@ export type ReadyGateToDateLatencyContext = {
   dailyPrewarmStartedAtMs?: number;
   dailyPrewarmCameraReadyAtMs?: number;
   dailyPrewarmPreAuthSuccessAtMs?: number;
+  dailyPrewarmJoinStartedAtMs?: number;
+  dailyPrewarmJoinCompletedAtMs?: number;
+  dailyPrewarmSoloJoinStartedAtMs?: number;
+  dailyPrewarmSoloJoinCompletedAtMs?: number;
   dailyPrewarmConsumedAtMs?: number;
   dailyPrewarmFallbackAtMs?: number;
   dailyPrewarmDestroyedAtMs?: number;
+  videoDateRoutePreloadStartedAtMs?: number;
+  videoDateRoutePreloadCompletedAtMs?: number;
   attemptCount?: number;
 };
 
@@ -338,12 +352,26 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
       return "dailyPrewarmCameraReadyAtMs";
     case "daily_prewarm_preauth_success":
       return "dailyPrewarmPreAuthSuccessAtMs";
+    case "daily_prewarm_join_started":
+      return "dailyPrewarmJoinStartedAtMs";
+    case "daily_prewarm_join_success":
+    case "daily_prewarm_join_failure":
+      return "dailyPrewarmJoinCompletedAtMs";
+    case "daily_prewarm_solo_join_started":
+      return "dailyPrewarmSoloJoinStartedAtMs";
+    case "daily_prewarm_solo_join_success":
+    case "daily_prewarm_solo_join_failure":
+      return "dailyPrewarmSoloJoinCompletedAtMs";
     case "daily_prewarm_consumed":
       return "dailyPrewarmConsumedAtMs";
     case "daily_prewarm_fallback":
       return "dailyPrewarmFallbackAtMs";
     case "daily_prewarm_destroyed":
       return "dailyPrewarmDestroyedAtMs";
+    case "video_date_route_preload_started":
+      return "videoDateRoutePreloadStartedAtMs";
+    case "video_date_route_preload_success":
+      return "videoDateRoutePreloadCompletedAtMs";
   }
 }
 

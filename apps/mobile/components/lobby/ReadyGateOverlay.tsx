@@ -19,6 +19,7 @@ import {
 import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera } from 'expo-camera';
+import { router, type Href } from 'expo-router';
 import Colors from '@/constants/Colors';
 import { Card, VibelyButton } from '@/components/ui';
 import { withAlpha } from '@/lib/colorUtils';
@@ -32,9 +33,14 @@ import { vdbg } from '@/lib/vdbg';
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from '@shared/matching/videoSessionFlow';
 import { trackEvent } from '@/lib/analytics';
 import { emitNativeVideoDateClientStuckState } from '@/lib/videoDateClientStuckObservability';
-import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
+import {
+  prepareVideoDateEntry,
+  prepareVideoDateSoloEntry,
+  videoDateDailySoloPrejoinEnabled,
+} from '@/lib/videoDatePrepareEntry';
 import {
   destroyNativeVideoDateDailyPrewarm,
+  joinNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
   startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
@@ -353,9 +359,92 @@ export function ReadyGateOverlay({
           ok: prewarm.ok,
           reason: prewarm.ok === true ? null : prewarm.reason,
         });
+        if (
+          prewarm.ok === true &&
+          videoDateDailySoloPrejoinEnabled() &&
+          readyGateStatus !== 'both_ready' &&
+          !dateNavigationStartedRef.current &&
+          !closedRef.current
+        ) {
+          const soloEntry = await prepareVideoDateSoloEntry(sessionId, {
+            eventId,
+            userId,
+            source: 'ready_gate_solo_prejoin',
+          });
+          if (activeReadyGateKeyRef.current !== readyGateKey) return;
+          if (soloEntry.ok !== true || dateNavigationStartedRef.current || closedRef.current) {
+            vdbg('ready_gate_solo_prejoin_skipped', {
+              sessionId,
+              eventId,
+              userId,
+              source,
+              ok: soloEntry.ok,
+              code: soloEntry.ok === true ? null : soloEntry.code,
+            });
+            return;
+          }
+          await joinNativeVideoDateDailyPrewarm({
+            sessionId,
+            userId,
+            eventId,
+            roomUrl: soloEntry.data.room_url,
+            token: soloEntry.data.token,
+            source: 'ready_gate_solo_prejoin',
+            joinSource: 'solo_prejoin',
+          });
+        }
       })();
     },
     [activeReadyGateKey, eventId, hasMediaPermission, sessionId, userId],
+  );
+
+  const preloadVideoDateRoute = useCallback(
+    (sourceAction: string) => {
+      const startedContext = recordReadyGateToDateLatencyCheckpoint({
+        sessionId,
+        platform: 'native',
+        eventId,
+        sourceSurface: 'ready_gate_overlay',
+        checkpoint: 'video_date_route_preload_started',
+      });
+      trackEvent(
+        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+        buildReadyGateToDateLatencyPayload({
+          context: startedContext,
+          checkpoint: 'video_date_route_preload_started',
+          sourceAction,
+          outcome: 'success',
+        }),
+      );
+      try {
+        router.prefetch(`/date/${sessionId}` as Href);
+        const successContext = recordReadyGateToDateLatencyCheckpoint({
+          sessionId,
+          platform: 'native',
+          eventId,
+          sourceSurface: 'ready_gate_overlay',
+          checkpoint: 'video_date_route_preload_success',
+        });
+        trackEvent(
+          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+          buildReadyGateToDateLatencyPayload({
+            context: successContext,
+            checkpoint: 'video_date_route_preload_success',
+            sourceAction,
+            outcome: 'success',
+          }),
+        );
+        vdbg('video_date_route_preloaded', { sessionId, eventId, sourceAction });
+      } catch (error) {
+        vdbg('video_date_route_preload_failed', {
+          sessionId,
+          eventId,
+          sourceAction,
+          error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+        });
+      }
+    },
+    [eventId, sessionId],
   );
 
   useLayoutEffect(() => {
@@ -413,6 +502,7 @@ export function ReadyGateOverlay({
         eventId,
         source,
       });
+      preloadVideoDateRoute(bothReadyCheckpoint);
 
       const navigateWithLatency = (navigateSource: string) => {
         if (dateNavigationStartedRef.current) {
@@ -491,6 +581,15 @@ export function ReadyGateOverlay({
                 roomUrl: result.data.room_url,
                 token: result.data.token,
                 source: 'ready_gate_prepare_success',
+              });
+              await joinNativeVideoDateDailyPrewarm({
+                sessionId,
+                userId,
+                eventId,
+                roomUrl: result.data.room_url,
+                token: result.data.token,
+                source: 'ready_gate_prepare_success',
+                joinSource: 'both_ready',
               });
               if (dateNavigationStartedRef.current || closedRef.current) return;
               clearTimeout(slowWaitTimer);
@@ -651,7 +750,7 @@ export function ReadyGateOverlay({
         }
       })();
     },
-    [eventId, onLobbyUserMessage, onNavigateToDate, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent, userId],
+    [eventId, onLobbyUserMessage, onNavigateToDate, preloadVideoDateRoute, sessionId, suppressDuplicateNav, trackNativeReadyGateEvent, userId],
   );
 
   const reconcileFromCanonicalTruth = useCallback(
@@ -907,12 +1006,13 @@ export function ReadyGateOverlay({
         source_action: 'impression',
       });
     }
+    preloadVideoDateRoute('ready_gate_open');
     return () => {
       if (!dateNavigationStartedRef.current) {
         destroyNativeVideoDateDailyPrewarm(sessionId, userId, 'ready_gate_unmount_before_date_navigation');
       }
     };
-  }, [sessionId, eventId, userId]);
+  }, [sessionId, eventId, preloadVideoDateRoute, userId]);
 
   useEffect(() => {
     const sync = () => {

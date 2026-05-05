@@ -5162,21 +5162,35 @@ export default function VideoDateScreen() {
           reason: prewarmedCall.reason,
         });
       }
+      const prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
+      const prewarmedJoinStartedAtMs = prewarmedCall.ok === true ? prewarmedCall.entry.joinStartedAtMs : null;
+      const prewarmedJoinSource = prewarmedCall.ok === true ? prewarmedCall.entry.joinSource : null;
+      const prewarmedJoinPromiseForShared =
+        prewarmedCall.ok === true && prewarmedCall.entry.joinPromise
+          ? prewarmedCall.entry.joinPromise.then((ok) => {
+              if (!ok) throw new Error('daily_prewarm_join_failed');
+            })
+          : null;
       const installDailyCall = (
         profile: NativeVideoDateCaptureProfile,
         prewarmed?: VideoDateDailyCallObject | null,
       ) => {
         const nextCall = prewarmed ?? createVideoDateDailyCallObject(profile);
+        const reusedPrewarmed = Boolean(prewarmed);
         dailyPrewarmConsumedForJoin = Boolean(prewarmed);
         sharedDailyCallEntry = {
           sessionId,
           call: nextCall,
           roomName: tokenResult.room_name,
           captureProfile: profile,
-          state: 'creating',
-          joinPromise: null,
+          state: reusedPrewarmed && prewarmedAlreadyJoined
+            ? 'joined'
+            : reusedPrewarmed && prewarmedJoinPromiseForShared
+              ? 'joining'
+              : 'creating',
+          joinPromise: reusedPrewarmed ? prewarmedJoinPromiseForShared : null,
           createdAtMs: Date.now(),
-          joinStartedAtMs: null,
+          joinStartedAtMs: reusedPrewarmed ? prewarmedJoinStartedAtMs : null,
           lastError: null,
         };
         captureProfileRef.current = profile;
@@ -5187,6 +5201,9 @@ export default function VideoDateScreen() {
           roomName: tokenResult.room_name,
           captureProfile: profile,
           reusedCallObject: Boolean(prewarmed),
+          reusedJoinedCallObject: reusedPrewarmed && prewarmedAlreadyJoined,
+          reusedJoinInFlight: reusedPrewarmed && Boolean(prewarmedJoinPromiseForShared) && !prewarmedAlreadyJoined,
+          prewarmJoinSource: reusedPrewarmed ? prewarmedJoinSource : null,
         });
         videoDateDailyDiagnostic('daily_call_object_created', {
           session_id: sessionId,
@@ -5301,6 +5318,25 @@ export default function VideoDateScreen() {
         });
         const joinDailyCall = async () => {
           try {
+            if (dailyPrewarmConsumedForJoin && prewarmedAlreadyJoined) {
+              vdbg('daily_join_skipped_prewarmed_already_joined', {
+                sessionId,
+                userId: user.id,
+                roomName: tokenResult.room_name,
+                joinSource: prewarmedJoinSource,
+              });
+              return;
+            }
+            if (dailyPrewarmConsumedForJoin && prewarmedJoinPromiseForShared) {
+              await prewarmedJoinPromiseForShared;
+              vdbg('daily_join_completed_by_prewarm_inflight', {
+                sessionId,
+                userId: user.id,
+                roomName: tokenResult.room_name,
+                joinSource: prewarmedJoinSource,
+              });
+              return;
+            }
             await call.join({ url: tokenResult.room_url, token: tokenResult.token });
             return;
           } catch (joinError) {

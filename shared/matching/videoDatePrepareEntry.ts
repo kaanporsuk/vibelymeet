@@ -1,4 +1,5 @@
 export const PREPARE_VIDEO_DATE_ENTRY_ACTION = "prepare_date_entry" as const;
+export const PREPARE_VIDEO_DATE_SOLO_ENTRY_ACTION = "prepare_solo_entry" as const;
 export const PREPARED_VIDEO_DATE_ENTRY_CACHE_TTL_MS = 3 * 60 * 1000;
 export const PREPARED_VIDEO_DATE_ENTRY_HANDOFF_VERSION = 1 as const;
 
@@ -22,6 +23,31 @@ export type PreparedVideoDateEntry = {
   session_state?: string | null;
   session_phase?: string | null;
   handshake_started_at?: string | null;
+  ready_gate_status?: string | null;
+  ready_gate_expires_at?: string | null;
+  participant_1_id?: string | null;
+  participant_2_id?: string | null;
+  reused_room?: boolean;
+  provider_room_recreated?: boolean;
+  provider_room_recovered?: boolean;
+  provider_verify_skipped?: boolean;
+  provider_verify_reason?: string | null;
+  daily_room_verified_at?: string | null;
+  daily_room_expires_at?: string | null;
+  timings?: PrepareVideoDateEntryTimings;
+};
+
+export type PreparedVideoDateSoloEntry = {
+  success: true;
+  solo_prejoin: true;
+  room_name: string;
+  room_url: string;
+  token: string;
+  token_expires_at?: string | null;
+  entry_attempt_id?: string | null;
+  video_date_trace_id?: string | null;
+  session_state?: string | null;
+  session_phase?: string | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
   participant_1_id?: string | null;
@@ -102,6 +128,20 @@ export type PrepareVideoDateEntryResult =
       cached: boolean;
       cacheKey: string;
       cacheEntry: PreparedVideoDateEntryCacheEntry;
+    }
+  | {
+      ok: false;
+      code: string;
+      message?: string;
+      httpStatus?: number;
+      retryable: boolean;
+      entryAttemptId?: string | null;
+    };
+
+export type PrepareVideoDateSoloEntryResult =
+  | {
+      ok: true;
+      data: PreparedVideoDateSoloEntry;
     }
   | {
       ok: false;
@@ -296,6 +336,18 @@ function hasPreparedEntryPayload(data: unknown): data is PreparedVideoDateEntry 
   if (!data || typeof data !== "object") return false;
   const row = data as Partial<PreparedVideoDateEntry>;
   return row.success === true && typeof row.room_name === "string" && typeof row.room_url === "string" && typeof row.token === "string";
+}
+
+export function hasPreparedVideoDateSoloEntryPayload(data: unknown): data is PreparedVideoDateSoloEntry {
+  if (!data || typeof data !== "object") return false;
+  const row = data as Partial<PreparedVideoDateSoloEntry>;
+  return (
+    row.success === true &&
+    row.solo_prejoin === true &&
+    typeof row.room_name === "string" &&
+    typeof row.room_url === "string" &&
+    typeof row.token === "string"
+  );
 }
 
 function readFailureMessage(data: unknown, fallback?: string): string | undefined {
