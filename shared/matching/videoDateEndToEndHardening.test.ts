@@ -799,6 +799,8 @@ test("daily-room solo prejoin is token-only and never route-confirms the session
   assert.match(dailyRoomContracts, /"prepare_solo_entry"/);
   assert.match(dailyRoomFunction, /DAILY_VIDEO_DATE_SOLO_PREJOIN_TOKEN_TTL_SECONDS = 60/);
   assert.match(dailyRoomFunction, /function canIssueSoloPrejoinVideoDateToken/);
+  assert.match(dailyRoomFunction, /session\.ready_gate_expires_at \? Date\.parse\(session\.ready_gate_expires_at\) : NaN/);
+  assert.match(dailyRoomFunction, /expiresAtMs <= Date\.now\(\)/);
   const soloIndex = dailyRoomFunction.indexOf('if (action === "prepare_solo_entry")');
   const prepareIndex = dailyRoomFunction.indexOf('if (action === "prepare_date_entry")');
   assert.ok(soloIndex > 0);
@@ -2510,6 +2512,7 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(nativeReadyGateOverlay, /videoDateDailySoloPrejoinEnabled/);
   assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);
+  assert.match(webVideoCallHook, /provider_verify_skipped: handoff\.cacheEntry\.value\.provider_verify_skipped/);
   assert.match(webVideoCallHook, /daily_join_skipped_prewarmed_already_joined/);
   assert.match(webVideoCallHook, /daily_join_completed_by_prewarm_inflight/);
   assert.match(webVideoCallHook, /reusedCallObject: prewarmedCall\.ok === true/);

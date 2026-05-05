@@ -643,6 +643,10 @@ function canIssueSoloPrejoinVideoDateToken(
   const status = String(session.ready_gate_status ?? "");
   if (status === "both_ready") return { ok: false, code: "READY_GATE_ALREADY_BOTH_READY" };
   if (status !== "ready_a" && status !== "ready_b") return { ok: false, code: "READY_GATE_NOT_READY" };
+  const expiresAtMs = session.ready_gate_expires_at ? Date.parse(session.ready_gate_expires_at) : NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    return { ok: false, code: "READY_GATE_NOT_READY" };
+  }
   if (session.participant_1_id === userId && session.ready_participant_1_at) return { ok: true };
   if (session.participant_2_id === userId && session.ready_participant_2_at) return { ok: true };
   return { ok: false, code: "READY_GATE_NOT_READY" };

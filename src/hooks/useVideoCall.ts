@@ -1668,6 +1668,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             token_expires_at: handoff.envelope.tokenExpiresAt,
             entry_attempt_id: handoff.envelope.entryAttemptId,
             video_date_trace_id: handoff.envelope.videoDateTraceId,
+            reused_room: handoff.cacheEntry.value.reused_room,
+            provider_room_recreated: handoff.cacheEntry.value.provider_room_recreated,
+            provider_verify_skipped: handoff.cacheEntry.value.provider_verify_skipped,
           };
           const entryAttemptId = successfulRoomData.entry_attempt_id ?? handoff.cacheEntry.entryAttemptId ?? null;
           const videoDateTraceId = successfulRoomData.video_date_trace_id ?? entryAttemptId;
