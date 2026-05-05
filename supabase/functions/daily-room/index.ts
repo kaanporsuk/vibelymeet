@@ -54,6 +54,7 @@ type VideoDateRoomGateSession = {
   ended_at: string | null;
   ended_reason?: string | null;
   handshake_started_at: string | null;
+  date_started_at?: string | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | null;
   state: string | null;
