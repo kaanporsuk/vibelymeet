@@ -24,6 +24,9 @@ const corsHeaders = {
 
 const MAX_ROWS = 10_000;
 const SURVEY_CONVERSION_WINDOW_MS = 10 * 60 * 1000;
+const SLOW_LAUNCH_SESSION_LIMIT = 20;
+const SLOW_LAUNCH_TIMELINE_SESSION_LIMIT = 5;
+const SLOW_LAUNCH_TIMELINE_ROW_LIMIT = 12;
 
 type SupabaseClientLike = ReturnType<typeof createClient>;
 
@@ -337,7 +340,8 @@ async function fetchSlowLaunchTimelineRows(
   }
 
   return {
-    rows: safeVideoDateTimelineRows((data ?? []) as VideoDateSessionTimelineRow[]),
+    rows: safeVideoDateTimelineRows((data ?? []) as VideoDateSessionTimelineRow[])
+      .slice(-SLOW_LAUNCH_TIMELINE_ROW_LIMIT),
   };
 }
 
@@ -346,7 +350,11 @@ async function attachSlowLaunchTimelines(
   sessions: SlowLaunchSessionSummary[],
 ): Promise<SlowLaunchSessionSummary[]> {
   const sessionIds = Array.from(
-    new Set(sessions.flatMap((session) => session.session_id ? [session.session_id] : [])),
+    new Set(
+      sessions
+        .slice(0, SLOW_LAUNCH_TIMELINE_SESSION_LIMIT)
+        .flatMap((session) => session.session_id ? [session.session_id] : []),
+    ),
   );
   const timelineEntries = await Promise.all(
     sessionIds.map(async (sessionId) => [sessionId, await fetchSlowLaunchTimelineRows(service, sessionId)] as const),
@@ -481,7 +489,7 @@ async function getReadyTapToFirstRemoteFrameLatency(
     })
     .filter((row) => typeof row.latency_ms === "number")
     .sort((a, b) => Number(b.latency_ms) - Number(a.latency_ms))
-    .slice(0, 20);
+    .slice(0, SLOW_LAUNCH_SESSION_LIMIT);
   const slowestSessions = await attachSlowLaunchTimelines(service, slowestSessionsWithoutTimelines);
 
   const summary = summarizeLatencyMs(latencies);

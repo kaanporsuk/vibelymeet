@@ -190,6 +190,10 @@ const ReadyGateOverlay = ({
   const terminalToastKeyRef = useRef<string | null>(null);
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
   const iAmReadyRef = useRef(false);
+  const latestUnmountCleanupContextRef = useRef({
+    sessionId,
+    userId: user?.id ?? null,
+  });
 
   const trackReadyGateClientEvent = useCallback(
     (eventName: string, payload: Record<string, unknown>) => {
@@ -228,6 +232,13 @@ const ReadyGateOverlay = ({
     roomWarmupProofRef.current = null;
     iAmReadyRef.current = false;
   }, [activeReadyGateKey]);
+
+  useLayoutEffect(() => {
+    latestUnmountCleanupContextRef.current = {
+      sessionId,
+      userId: user?.id ?? null,
+    };
+  }, [sessionId, user?.id]);
 
   const addReadyGateBreadcrumb = useCallback(
     (message: string, data?: Record<string, unknown>) => {
@@ -1357,8 +1368,13 @@ const ReadyGateOverlay = ({
     return () => {
       mountedRef.current = false;
       prepareEntryRunIdRef.current += 1;
-      if (!dateNavigationStartedRef.current && user?.id) {
-        destroyWebVideoDateDailyPrewarm(sessionId, user.id, "ready_gate_unmount_before_date_navigation");
+      const latestContext = latestUnmountCleanupContextRef.current;
+      if (!dateNavigationStartedRef.current && latestContext.userId) {
+        destroyWebVideoDateDailyPrewarm(
+          latestContext.sessionId,
+          latestContext.userId,
+          "ready_gate_unmount_before_date_navigation",
+        );
       }
       if (preconnectCleanupRef.current) {
         const cleanup = preconnectCleanupRef.current;
@@ -1368,7 +1384,7 @@ const ReadyGateOverlay = ({
         }, 15_000);
       }
     };
-  }, [sessionId, user?.id]);
+  }, []);
 
   useEffect(() => {
     dialogRef.current?.focus();
