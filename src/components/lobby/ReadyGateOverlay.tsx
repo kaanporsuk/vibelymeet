@@ -1213,7 +1213,6 @@ const ReadyGateOverlay = ({
       className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto px-4 py-4"
       style={{
         boxSizing: "border-box",
-        minHeight: "100vh",
         height: "100dvh",
         paddingTop: "max(1rem, env(safe-area-inset-top))",
         paddingBottom: "max(1rem, env(safe-area-inset-bottom))",

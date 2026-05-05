@@ -146,16 +146,16 @@ test("ReadyGateOverlay exposes basic dialog accessibility and reduced-motion hoo
 });
 
 test("web ReadyGateOverlay stays centered on mobile instead of becoming a bottom sheet", () => {
-  assert.match(
-    webReadyGate,
-    /className="fixed inset-0 z-\[60\] flex items-center justify-center overflow-y-auto px-4 py-4"/,
-  );
+  assert.match(webReadyGate, /className="[^"]*\bfixed\b[^"]*\binset-0\b[^"]*\bitems-center\b/);
+  assert.match(webReadyGate, /className="[^"]*\bjustify-center\b/);
+  assert.match(webReadyGate, /className="[^"]*\boverflow-y-auto\b/);
   assert.match(webReadyGate, /height:\s*"100dvh"/);
+  assert.doesNotMatch(webReadyGate, /minHeight:\s*"100vh"/);
   assert.match(webReadyGate, /paddingTop:\s*"max\(1rem, env\(safe-area-inset-top\)\)"/);
   assert.match(webReadyGate, /paddingBottom:\s*"max\(1rem, env\(safe-area-inset-bottom\)\)"/);
-  assert.match(webReadyGate, /className="relative z-10 max-h-full w-full max-w-sm overflow-y-auto/);
-  assert.doesNotMatch(webReadyGate, /items-end sm:items-center/);
-  assert.doesNotMatch(webReadyGate, /mb-4 sm:mb-0/);
+  assert.match(webReadyGate, /className="[^"]*\bmax-h-full\b[^"]*\boverflow-y-auto\b/);
+  assert.doesNotMatch(webReadyGate, /\bitems-end\b/);
+  assert.doesNotMatch(webReadyGate, /\bmb-4\b[^"]*\bsm:mb-0\b/);
 });
 
 test("native Ready Gate preserves backend terminal distinction without full parity rewrite", () => {
