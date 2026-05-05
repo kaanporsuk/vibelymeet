@@ -212,7 +212,7 @@ export const useSwipeAction = ({
               level: "info",
             });
             if (raw.immediate && sessionId) {
-              toast.success("It's a match! Opening Ready Gate…", { duration: 2800 });
+              toast.success("Mutual Vibe! Opening Ready Gate…", { duration: 2800 });
               onVideoSessionReady?.(sessionId);
               onMatch?.(sessionId);
             } else {
