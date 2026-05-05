@@ -127,7 +127,9 @@ assert(
     webDailyConfig.includes("videoDateWebMediaStreamConstraints") &&
     webDailyConfig.includes("inputSettings") &&
     webDailyConfig.includes("settings: videoConstraints") &&
-    webDailyConfig.includes("avoidEval: true"),
+    webDailyConfig.includes("avoidEval: true") &&
+    webDailyConfig.includes("experimentalChromeVideoMuteLightOff: true") &&
+    webDailyConfig.includes("DailyAdvancedConfigWithVideoDateKnobs"),
   `${webDailyConfigPath}: web Video Date Daily options must use the shared CSP-safe media helper`
 );
 assert(

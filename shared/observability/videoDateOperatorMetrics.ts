@@ -162,6 +162,7 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "video_stage_shell_visible"
   | "permission_check_started"
   | "permission_check_success"
+  | "permission_check_skipped"
   | "enter_handshake_started"
   | "enter_handshake_success"
   | "enter_handshake_failure"
@@ -320,6 +321,7 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "permission_check_started":
       return "permissionCheckStartedAtMs";
     case "permission_check_success":
+    case "permission_check_skipped":
       return "permissionCheckCompletedAtMs";
     case "enter_handshake_started":
       return "enterHandshakeStartedAtMs";

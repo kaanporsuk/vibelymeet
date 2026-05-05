@@ -54,6 +54,7 @@ const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
   "video_stage_shell_visible",
   "permission_check_started",
   "permission_check_success",
+  "permission_check_skipped",
   "enter_handshake_started",
   "enter_handshake_success",
   "enter_handshake_failure",
