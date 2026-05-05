@@ -63,6 +63,7 @@ import {
   resolveReadyGateTerminalRecovery,
   type ReadyGateTerminalRecoveryInput,
 } from "@clientShared/matching/readyGateTerminalRecovery";
+import { getReadyGateReadinessStatusCopy } from "@clientShared/matching/readyGateReadiness";
 
 interface ReadyGateOverlayProps {
   sessionId: string;
@@ -1158,6 +1159,8 @@ const ReadyGateOverlay = ({
   const {
     iAmReady,
     partnerReady,
+    partnerReadyKnown,
+    isBothReady,
     partnerName,
     snoozedByPartner,
     expiresAt,
@@ -1606,7 +1609,7 @@ const ReadyGateOverlay = ({
   }, [sessionId]);
 
   useEffect(() => {
-    if (isTransitioning || !iAmReady || partnerReady || snoozedByPartner) return;
+    if (isTransitioning || isBothReady || !iAmReady || !partnerReadyKnown || partnerReady || snoozedByPartner) return;
     if (openingWaitImpressionRef.current) return;
     openingWaitImpressionRef.current = true;
     trackEvent(LobbyPostDateEvents.READY_GATE_OPENING_WAIT_IMPRESSION, {
@@ -1614,7 +1617,7 @@ const ReadyGateOverlay = ({
       session_id: sessionId,
       event_id: eventId,
     });
-  }, [eventId, iAmReady, isTransitioning, partnerReady, sessionId, snoozedByPartner]);
+  }, [eventId, iAmReady, isBothReady, isTransitioning, partnerReady, partnerReadyKnown, sessionId, snoozedByPartner]);
 
   // Fetch partner photo + shared vibes
   useEffect(() => {
@@ -1711,6 +1714,16 @@ const ReadyGateOverlay = ({
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - progress);
   const transitionCopy = prepareEntryTransitionCopy(prepareEntryStatus, prepareEntryFailure);
+  const readyGateReadinessCopy = getReadyGateReadinessStatusCopy({
+    iAmReady,
+    partnerReady,
+    partnerReadyKnown,
+    isBothReady,
+    markingReady,
+    partnerName,
+  });
+  const showConnectingReadinessCopy = readyGateReadinessCopy.key === "both_ready_connecting";
+  const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
 
   return (
     <motion.div
@@ -1901,7 +1914,7 @@ const ReadyGateOverlay = ({
           )}
 
           {/* Action area */}
-          {!iAmReady ? (
+          {showReadyActionControls ? (
             <div className="space-y-3">
               {/* Ready button with countdown ring */}
               <div className="flex justify-center">
@@ -2096,9 +2109,15 @@ const ReadyGateOverlay = ({
                 aria-live="polite"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary/10 border border-primary/20"
               >
-                <Check className="w-4 h-4 text-primary" aria-hidden="true" />
+                {showConnectingReadinessCopy ? (
+                  <Sparkles className="w-4 h-4 text-primary" aria-hidden="true" />
+                ) : readyGateReadinessCopy.key === "syncing" ? (
+                  <Clock className="w-4 h-4 text-primary" aria-hidden="true" />
+                ) : (
+                  <Check className="w-4 h-4 text-primary" aria-hidden="true" />
+                )}
                 <span className="text-sm font-medium text-foreground">
-                  You're ready. Waiting for {partnerName}...
+                  {readyGateReadinessCopy.text}
                 </span>
               </motion.div>
               <button

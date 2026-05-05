@@ -80,6 +80,7 @@ import {
   getVideoDatePermissionHandoff,
   setVideoDatePermissionHandoff,
 } from '@clientShared/matching/videoDatePermissionHandoff';
+import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -929,6 +930,7 @@ export function ReadyGateOverlay({
   const {
     iAmReady,
     partnerReady,
+    partnerReadyKnown,
     partnerName,
     snoozedByPartner,
     expiresAt,
@@ -1074,7 +1076,7 @@ export function ReadyGateOverlay({
 
   useEffect(() => {
     if (!permissionsResolved || hasMediaPermission !== true || isTransitioning || isBothReady) return;
-    if (!iAmReady || partnerReady || snoozedByPartner) return;
+    if (!iAmReady || !partnerReadyKnown || partnerReady || snoozedByPartner) return;
     if (openingPartnerWaitRef.current) return;
     openingPartnerWaitRef.current = true;
     trackEvent(LobbyPostDateEvents.READY_GATE_OPENING_WAIT_IMPRESSION, {
@@ -1090,6 +1092,7 @@ export function ReadyGateOverlay({
     isBothReady,
     isTransitioning,
     partnerReady,
+    partnerReadyKnown,
     permissionsResolved,
     sessionId,
     snoozedByPartner,
@@ -1273,6 +1276,21 @@ export function ReadyGateOverlay({
   const dashOffset = CIRC * (1 - progress);
 
   const displayName = partnerName || 'someone';
+  const readyGateReadinessCopy = getReadyGateReadinessStatusCopy({
+    iAmReady,
+    partnerReady,
+    partnerReadyKnown,
+    isBothReady,
+    markingReady,
+    partnerName: displayName,
+  });
+  const showConnectingReadinessCopy = readyGateReadinessCopy.key === 'both_ready_connecting';
+  const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
+  const readinessStatusIcon = showConnectingReadinessCopy
+    ? 'sparkles'
+    : readyGateReadinessCopy.key === 'syncing'
+      ? 'time-outline'
+      : 'checkmark-circle';
   const retryPrepareEntry = () => {
     if (dateNavigationStartedRef.current) return;
     prepareEntryHandoffStartedRef.current = false;
@@ -1424,7 +1442,7 @@ export function ReadyGateOverlay({
               <Text style={[styles.terminalError, { color: theme.danger }]}>{terminalActionError}</Text>
             ) : null}
 
-            {!iAmReady ? (
+            {showReadyActionControls ? (
               <>
                 <View style={styles.ringWrap}>
                   <Svg width={RING_SIZE} height={RING_SIZE} style={styles.ringSvg}>
@@ -1581,9 +1599,13 @@ export function ReadyGateOverlay({
             ) : (
               <>
                 <View style={[styles.waitingPill, { borderColor: withAlpha(theme.tint, 0.35), backgroundColor: theme.tintSoft }]}>
-                  <Ionicons name="checkmark-circle" size={18} color={theme.tint} />
+                  <Ionicons
+                    name={readinessStatusIcon}
+                    size={18}
+                    color={theme.tint}
+                  />
                   <Text style={[styles.waitingPillText, { color: theme.text }]}>
-                    You&apos;re ready. Waiting for {displayName}...
+                    {readyGateReadinessCopy.text}
                   </Text>
                 </View>
                 <Pressable

@@ -37,6 +37,7 @@ import {
   isReadyGatePrepareEntryNonRetryable,
   resolveReadyGateTerminalRecovery,
 } from '@clientShared/matching/readyGateTerminalRecovery';
+import { getReadyGateReadinessStatusCopy } from '@clientShared/matching/readyGateReadiness';
 
 const GATE_TIMEOUT_SEC = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const READY_GATE_TRUTH_RECONCILE_MS = 10_000;
@@ -52,6 +53,7 @@ export default function ReadyGateScreen() {
   const {
     iAmReady,
     partnerReady,
+    partnerReadyKnown,
     partnerName,
     snoozedByPartner,
     snoozeExpiresAt,
@@ -629,13 +631,26 @@ export default function ReadyGateScreen() {
     );
   }
 
+  const readyGateReadinessCopy = getReadyGateReadinessStatusCopy({
+    iAmReady,
+    partnerReady,
+    partnerReadyKnown,
+    isBothReady,
+    markingReady,
+    partnerName: partnerName ?? 'Your match',
+  });
+  const showConnectingReadinessCopy = readyGateReadinessCopy.key === 'both_ready_connecting';
+  const showReadyActionControls = !iAmReady && !showConnectingReadinessCopy;
+  const readinessStatusIcon = showConnectingReadinessCopy
+    ? 'sparkles'
+    : readyGateReadinessCopy.key === 'syncing'
+      ? 'time-outline'
+      : 'checkmark-circle';
   const statusLine = isSnoozed
     ? `${partnerName ?? 'Partner'} needs a moment — back in ${Math.floor(snoozeTimeLeft / 60)}:${String(snoozeTimeLeft % 60).padStart(2, '0')}`
-    : iAmReady
-      ? `You're ready. Waiting for ${partnerName ?? 'partner'}...`
-      : partnerReady
-        ? `${partnerName ?? 'Your match'} is ready. Tap Ready when you're ready.`
-        : `Ready check ends in ${timeLeft}s`;
+    : readyGateReadinessCopy.key === 'waiting_both'
+      ? `Ready check ends in ${timeLeft}s`
+      : readyGateReadinessCopy.text;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -684,7 +699,7 @@ export default function ReadyGateScreen() {
         </Card>
 
         <View style={styles.actions}>
-          {!iAmReady ? (
+          {showReadyActionControls ? (
             <>
               <VibelyButton
                 label={markingReady ? 'Marking ready...' : "I'm Ready ✨"}
@@ -692,10 +707,10 @@ export default function ReadyGateScreen() {
                   if (markingReady || requestingSnooze || terminalActionPending) return;
                   setMarkingReady(true);
                   void (async () => {
-                      try {
-                        setTerminalActionError(null);
-                        const result = await markReady();
-                        if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
+                    try {
+                      setTerminalActionError(null);
+                      const result = await markReady();
+                      if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
                     } catch (e) {
                       setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
                       rcBreadcrumb(RC_CATEGORY.readyGate, 'standalone_mark_ready_failed_kept_open', {
@@ -768,8 +783,12 @@ export default function ReadyGateScreen() {
           ) : (
             <>
               <View style={[styles.waitingPill, { backgroundColor: theme.tintSoft, borderColor: withAlpha(theme.tint, 0.31) }]}>
-                <Ionicons name="checkmark-circle" size={22} color={theme.tint} />
-                <Text style={[styles.waitingText, { color: theme.text }]}>You're ready! Waiting for {partnerName ?? 'partner'}...</Text>
+                <Ionicons
+                  name={readinessStatusIcon}
+                  size={22}
+                  color={theme.tint}
+                />
+                <Text style={[styles.waitingText, { color: theme.text }]}>{readyGateReadinessCopy.text}</Text>
               </View>
               <Pressable
                 onPress={handleSkip}

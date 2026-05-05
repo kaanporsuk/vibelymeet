@@ -13,11 +13,20 @@ import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
 } from "@clientShared/observability/videoDateOperatorMetrics";
+import {
+  deriveReadyGateReadinessState,
+  getReadyGateParticipantPosition,
+  initialReadyGateReadinessState,
+  type ReadyGateParticipantPosition,
+} from "@clientShared/matching/readyGateReadiness";
 
 interface ReadyGateState {
   status: ReadyGateStatus;
   iAmReady: boolean;
   partnerReady: boolean;
+  iAmReadyKnown: boolean;
+  partnerReadyKnown: boolean;
+  isBothReady: boolean;
   partnerName: string | null;
   snoozedByPartner: boolean;
   snoozeExpiresAt: string | null;
@@ -194,8 +203,11 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const { user } = useUserProfile();
   const [state, setState] = useState<ReadyGateState>({
     status: ReadyGateStatus.Queued,
-    iAmReady: false,
-    partnerReady: false,
+    iAmReady: initialReadyGateReadinessState.iAmReady,
+    partnerReady: initialReadyGateReadinessState.partnerReady,
+    iAmReadyKnown: initialReadyGateReadinessState.iAmReadyKnown,
+    partnerReadyKnown: initialReadyGateReadinessState.partnerReadyKnown,
+    isBothReady: initialReadyGateReadinessState.isBothReady,
     partnerName: null,
     snoozedByPartner: false,
     snoozeExpiresAt: null,
@@ -204,7 +216,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
   const onBothReadyRef = useRef(onBothReady);
   const onForfeitedRef = useRef(onForfeited);
   const terminalHandledRef = useRef<ReadyGateStatus | null>(null);
-  const participantPositionRef = useRef<"p1" | "p2" | null>(null);
+  const participantPositionRef = useRef<ReadyGateParticipantPosition | null>(null);
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
 
   useEffect(() => {
@@ -251,39 +263,48 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       truth.result_ready_gate_status ??
       truth.result_status,
     );
-    const p1 = typeof truth.participant_1_id === "string" ? truth.participant_1_id : null;
-    const p2 = typeof truth.participant_2_id === "string" ? truth.participant_2_id : null;
+    const participantPosition = getReadyGateParticipantPosition(
+      truth,
+      user?.id ?? null,
+      participantPositionRef.current,
+    );
+    participantPositionRef.current = participantPosition;
 
-    if (user?.id && p1 && p2) {
-      if (p1 === user.id) {
-        participantPositionRef.current = "p1";
-      } else if (p2 === user.id) {
-        participantPositionRef.current = "p2";
-      }
-    }
-
-    const position = participantPositionRef.current;
-    const hasParticipantPosition = position === "p1" || position === "p2";
-    const myReadyAt = position === "p1" ? truth.ready_participant_1_at : truth.ready_participant_2_at;
-    const partnerReadyAt = position === "p1" ? truth.ready_participant_2_at : truth.ready_participant_1_at;
     const hasSnoozedBy = Object.prototype.hasOwnProperty.call(truth, "snoozed_by");
     const hasSnoozeExpiresAt = Object.prototype.hasOwnProperty.call(truth, "snooze_expires_at");
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, "ready_gate_expires_at");
     const expiresAt = normalizeReadyGateTimestamp(truth.ready_gate_expires_at);
 
-    setState((prev) => ({
-      status: nextStatus,
-      iAmReady: hasParticipantPosition ? !!myReadyAt : prev.iAmReady,
-      partnerReady: hasParticipantPosition ? !!partnerReadyAt : prev.partnerReady,
-      partnerName: options?.partnerName ?? prev.partnerName,
-      snoozedByPartner: hasSnoozedBy
-        ? typeof truth.snoozed_by === "string" && truth.snoozed_by !== user?.id
-        : prev.snoozedByPartner,
-      snoozeExpiresAt: hasSnoozeExpiresAt
-        ? normalizeReadyGateTimestamp(truth.snooze_expires_at)
-        : prev.snoozeExpiresAt,
-      expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
-    }));
+    setState((prev) => {
+      const readiness = deriveReadyGateReadinessState({
+        truth: {
+          ...truth,
+          ready_gate_status: nextStatus,
+        },
+        userId: user?.id ?? null,
+        previous: {
+          ...prev,
+          participantPosition,
+        },
+      });
+
+      return {
+        status: nextStatus,
+        iAmReady: readiness.iAmReady,
+        partnerReady: readiness.partnerReady,
+        iAmReadyKnown: readiness.iAmReadyKnown,
+        partnerReadyKnown: readiness.partnerReadyKnown,
+        isBothReady: readiness.isBothReady,
+        partnerName: options?.partnerName ?? prev.partnerName,
+        snoozedByPartner: hasSnoozedBy
+          ? typeof truth.snoozed_by === "string" && truth.snoozed_by !== user?.id
+          : prev.snoozedByPartner,
+        snoozeExpiresAt: hasSnoozeExpiresAt
+          ? normalizeReadyGateTimestamp(truth.snooze_expires_at)
+          : prev.snoozeExpiresAt,
+        expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
+      };
+    });
 
     if (isTerminalReadyGateStatus(nextStatus)) {
       notifyTerminal(nextStatus, {

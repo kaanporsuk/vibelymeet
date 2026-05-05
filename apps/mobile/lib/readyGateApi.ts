@@ -11,6 +11,12 @@ import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
 } from '@clientShared/observability/videoDateOperatorMetrics';
+import {
+  deriveReadyGateReadinessState,
+  getReadyGateParticipantPosition,
+  initialReadyGateReadinessState,
+  type ReadyGateParticipantPosition,
+} from '@clientShared/matching/readyGateReadiness';
 
 const BOTH_READY = 'both_ready';
 const FORFEITED = 'forfeited';
@@ -26,6 +32,9 @@ export type ReadyGateState = {
   status: string;
   iAmReady: boolean;
   partnerReady: boolean;
+  iAmReadyKnown: boolean;
+  partnerReadyKnown: boolean;
+  isBothReady: boolean;
   partnerName: string | null;
   snoozedByPartner: boolean;
   snoozeExpiresAt: string | null;
@@ -105,8 +114,11 @@ export function useReadyGate(
 ) {
   const [state, setState] = useState<ReadyGateState>({
     status: 'queued',
-    iAmReady: false,
-    partnerReady: false,
+    iAmReady: initialReadyGateReadinessState.iAmReady,
+    partnerReady: initialReadyGateReadinessState.partnerReady,
+    iAmReadyKnown: initialReadyGateReadinessState.iAmReadyKnown,
+    partnerReadyKnown: initialReadyGateReadinessState.partnerReadyKnown,
+    isBothReady: initialReadyGateReadinessState.isBothReady,
     partnerName: null,
     snoozedByPartner: false,
     snoozeExpiresAt: null,
@@ -120,7 +132,7 @@ export function useReadyGate(
   const onBothReadyRef = useRef(options?.onBothReady);
   const onForfeitedRef = useRef(options?.onForfeited);
   const terminalHandledRef = useRef<string | null>(null);
-  const participantPositionRef = useRef<'p1' | 'p2' | null>(null);
+  const participantPositionRef = useRef<ReadyGateParticipantPosition | null>(null);
   const syncSessionInFlightRef = useRef<Promise<ReadyGateSyncResult> | null>(null);
   useEffect(() => {
     onBothReadyRef.current = options?.onBothReady;
@@ -158,20 +170,13 @@ export function useReadyGate(
       bothReadySourceAction?: ReadyGateBothReadySourceAction;
     },
   ): ReadyGateSyncSuccess => {
-    const p1 = typeof truth.participant_1_id === 'string' ? truth.participant_1_id : null;
-    const p2 = typeof truth.participant_2_id === 'string' ? truth.participant_2_id : null;
-    if (userId && p1 && p2) {
-      if (p1 === userId) {
-        participantPositionRef.current = 'p1';
-      } else if (p2 === userId) {
-        participantPositionRef.current = 'p2';
-      }
-    }
+    const participantPosition = getReadyGateParticipantPosition(
+      truth,
+      userId,
+      participantPositionRef.current,
+    );
+    participantPositionRef.current = participantPosition;
 
-    const position = participantPositionRef.current;
-    const hasParticipantPosition = position === 'p1' || position === 'p2';
-    const myReadyAt = position === 'p1' ? truth.ready_participant_1_at : truth.ready_participant_2_at;
-    const partnerReadyAt = position === 'p1' ? truth.ready_participant_2_at : truth.ready_participant_1_at;
     const status =
       truth.ready_gate_status ??
       truth.status ??
@@ -183,25 +188,42 @@ export function useReadyGate(
     const hasReadyGateExpiresAt = Object.prototype.hasOwnProperty.call(truth, 'ready_gate_expires_at');
     const expiresAt = typeof truth.ready_gate_expires_at === 'string' ? truth.ready_gate_expires_at : null;
 
-    setState((prev) => ({
-      status,
-      iAmReady: hasParticipantPosition ? !!myReadyAt : prev.iAmReady,
-      partnerReady: hasParticipantPosition ? !!partnerReadyAt : prev.partnerReady,
-      partnerName: options?.partnerName ?? prev.partnerName,
-      snoozedByPartner: hasSnoozedBy
-        ? typeof truth.snoozed_by === 'string' && truth.snoozed_by !== userId
-        : prev.snoozedByPartner,
-      snoozeExpiresAt: hasSnoozeExpiresAt
-        ? typeof truth.snooze_expires_at === 'string'
-          ? truth.snooze_expires_at
-          : null
-        : prev.snoozeExpiresAt,
-      expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
-      reason: truth.reason ?? truth.ended_reason ?? null,
-      inactiveReason: truth.inactive_reason ?? null,
-      errorCode: truth.error_code ?? truth.code ?? null,
-      terminal: truth.terminal ?? null,
-    }));
+    setState((prev) => {
+      const readiness = deriveReadyGateReadinessState({
+        truth: {
+          ...truth,
+          ready_gate_status: status,
+        },
+        userId,
+        previous: {
+          ...prev,
+          participantPosition,
+        },
+      });
+
+      return {
+        status,
+        iAmReady: readiness.iAmReady,
+        partnerReady: readiness.partnerReady,
+        iAmReadyKnown: readiness.iAmReadyKnown,
+        partnerReadyKnown: readiness.partnerReadyKnown,
+        isBothReady: readiness.isBothReady,
+        partnerName: options?.partnerName ?? prev.partnerName,
+        snoozedByPartner: hasSnoozedBy
+          ? typeof truth.snoozed_by === 'string' && truth.snoozed_by !== userId
+          : prev.snoozedByPartner,
+        snoozeExpiresAt: hasSnoozeExpiresAt
+          ? typeof truth.snooze_expires_at === 'string'
+            ? truth.snooze_expires_at
+            : null
+          : prev.snoozeExpiresAt,
+        expiresAt: hasReadyGateExpiresAt ? expiresAt : prev.expiresAt,
+        reason: truth.reason ?? truth.ended_reason ?? null,
+        inactiveReason: truth.inactive_reason ?? null,
+        errorCode: truth.error_code ?? truth.code ?? null,
+        terminal: truth.terminal ?? null,
+      };
+    });
 
     if (status === BOTH_READY || status === FORFEITED || status === EXPIRED) {
       notifyTerminal(status, {
@@ -623,7 +645,7 @@ export function useReadyGate(
     return runReadyGateTransition('snooze');
   }, [runReadyGateTransition]);
 
-  const isBothReady = state.status === BOTH_READY;
+  const isBothReady = state.isBothReady || state.status === BOTH_READY;
   const isForfeited = state.status === FORFEITED || state.status === EXPIRED;
   const isSnoozed = state.status === SNOOZED;
 
