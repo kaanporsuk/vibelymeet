@@ -137,6 +137,21 @@ function getSwipeFailureUserMessage(result: HandleSwipeSessionPayload): string {
   }
 }
 
+function isActiveSessionConflictRpcError(
+  error: { code?: string; message?: string; details?: string; hint?: string } | null | undefined,
+): boolean {
+  if (!error) return false;
+  const haystack = [
+    error.code,
+    error.message,
+    error.details,
+    error.hint,
+  ].filter(Boolean).join(" ").toLowerCase();
+
+  return haystack.includes("participant_has_active_session_conflict") ||
+    (error.code === "23505" && haystack.includes("active_session_conflict"));
+}
+
 function isDuplicateSwipeResult(result: HandleSwipeSessionPayload): boolean {
   const outcome = getSwipeOutcome(result);
   return result.duplicate === true ||
@@ -239,23 +254,40 @@ serve(async (req) => {
 
     if (error) {
       console.error("swipe-actions handle_swipe error:", error);
+      const activeSessionConflict = isActiveSessionConflictRpcError(error);
+      const rpcFailurePayload: HandleSwipeSessionPayload = activeSessionConflict
+        ? {
+          success: false,
+          outcome: "participant_has_active_session_conflict",
+          result: "participant_has_active_session_conflict",
+          error: "participant_has_active_session_conflict",
+          message: "You are already in a live Ready Gate or video date. Finish it before matching again.",
+          notification_suppressed: true,
+          dedupe_reason: "active_session_conflict",
+        }
+        : {
+          success: false,
+          error: "swipe_failed",
+          message: "Unable to complete swipe. Try again in a moment.",
+        };
+      const rpcFailureOutcome = getSwipeOutcome(rpcFailurePayload);
       logLifecycle({
         event_id: String(event_id),
         session_id: null,
         user_id: actorId,
         event_name: "lobby_swipe_result",
         category: "swipe_action",
-        result: "rpc_error",
-        outcome: "rpc_error",
-        reason: error.code ?? "rpc_error",
+        result: rpcFailureOutcome,
+        outcome: rpcFailureOutcome,
+        reason: rpcFailurePayload.dedupe_reason ?? error.code ?? "rpc_error",
         session_id_present: false,
         notification_attempted: false,
         notification_suppressed: true,
-        notification_suppressed_reason: "rpc_error",
-        error_reason: error.code ?? "rpc_error",
+        notification_suppressed_reason: rpcFailurePayload.dedupe_reason ?? "rpc_error",
+        error_reason: error.code ?? rpcFailureOutcome,
       });
       return new Response(
-        JSON.stringify({ success: false, error: "swipe_failed", message: "Unable to complete swipe. Try again in a moment." }),
+        JSON.stringify(rpcFailurePayload),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
