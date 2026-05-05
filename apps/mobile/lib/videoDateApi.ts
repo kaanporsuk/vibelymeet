@@ -406,7 +406,7 @@ export async function getDailyRoomToken(sessionId: string, userId?: string | nul
   const args = { action: 'prepare_date_entry', sessionId, userId: userId ?? null };
   vdbg('daily_room_before', { action: 'prepare_date_entry', args });
   const invokeStarted = Date.now();
-  const result = await prepareVideoDateEntry(sessionId, { source: 'native_video_date_token' });
+  const result = await prepareVideoDateEntry(sessionId, { userId, source: 'native_video_date_token' });
   Sentry.addBreadcrumb({
     category: 'video-date-launch',
     message: 'daily_room_edge_invoke',

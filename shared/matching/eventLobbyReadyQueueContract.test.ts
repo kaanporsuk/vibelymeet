@@ -10,6 +10,7 @@ const validation = read("supabase/validation/event_lobby_ready_queue_contract.sq
 const stream8Migration = read("supabase/migrations/20260501224000_event_lobby_swipe_already_swiped.sql");
 const activeEventMigration = read("supabase/migrations/20260501223000_event_lobby_canonical_active_state.sql");
 const queuedBrowseRepairMigration = read("supabase/migrations/20260505220000_event_lobby_browse_while_queued_repair.sql");
+const promotionLockOrderRepairMigration = read("supabase/migrations/20260505223000_ready_gate_promotion_lock_order_repair.sql");
 const readyQueueDoc = read("docs/contracts/event-lobby-ready-queue-contract.md");
 const verificationDoc = read("docs/audits/event-lobby-ready-queue-contract-verification.md");
 const webLobbyCard = read("src/components/lobby/LobbyProfileCard.tsx");
@@ -21,6 +22,10 @@ function read(path: string): string {
 
 function queuedBrowseSection(startMarker: string, endMarker: string): string {
   return sectionFrom(queuedBrowseRepairMigration, startMarker, endMarker);
+}
+
+function promotionLockOrderSection(startMarker: string, endMarker: string): string {
+  return sectionFrom(promotionLockOrderRepairMigration, startMarker, endMarker);
 }
 
 function sectionFrom(source: string, startMarker: string, endMarker: string): string {
@@ -43,7 +48,7 @@ test("Ready/queue migration exists after prior Event Lobby streams", () => {
     .filter((version) => /^\d{14}$/.test(version))
     .sort();
 
-  for (const version of ["20260501223000", "20260501224000", "20260501225000", "20260505220000"]) {
+  for (const version of ["20260501223000", "20260501224000", "20260501225000", "20260505220000", "20260505223000"]) {
     assert.ok(versions.includes(version), `${version} should be present`);
   }
   assert.ok(
@@ -53,6 +58,10 @@ test("Ready/queue migration exists after prior Event Lobby streams", () => {
   assert.ok(
     versions.indexOf("20260505220000") > versions.indexOf("20260505214500"),
     "Queued-browse repair must sort after the latest Ready Gate hardening",
+  );
+  assert.ok(
+    versions.indexOf("20260505223000") > versions.indexOf("20260505220000"),
+    "Promotion lock-order repair must sort after queued-browse repair",
   );
 });
 
@@ -93,6 +102,32 @@ test("queued-browse promotion ignores other queued rows but keeps true active co
   assert.match(promote, /z\.ended_at\s*\)/);
   assert.match(promote, /'step', 'pre_promotion_active_session_guard'/);
   assert.doesNotMatch(promote, /AND\s+z\.ended_at IS NULL[\s\S]{0,500}public\.event_lobby_video_session_blocks_new_match/);
+});
+
+test("promotion lock-order repair takes participant advisory locks before row locks", () => {
+  const promote = promotionLockOrderSection(
+    "CREATE OR REPLACE FUNCTION public.promote_ready_gate_if_eligible",
+    "COMMENT ON FUNCTION public.promote_ready_gate_if_eligible",
+  );
+
+  const candidateIndex = promote.indexOf("SELECT vs.id, vs.participant_1_id, vs.participant_2_id");
+  const advisoryIndex = promote.indexOf("PERFORM pg_advisory_xact_lock", candidateIndex);
+  const rowLockIndex = promote.indexOf("FOR UPDATE OF vs;", advisoryIndex);
+  const delegateIndex = promote.indexOf("promote_ready_gate_if_eligible_20260505223000_lock_order_base", rowLockIndex);
+
+  assert.ok(candidateIndex > 0, "FIFO candidate selection should be present");
+  assert.ok(advisoryIndex > candidateIndex, "participant advisory locks should follow candidate selection");
+  assert.ok(rowLockIndex > advisoryIndex, "video_sessions row lock must happen after advisory locks");
+  assert.ok(delegateIndex > rowLockIndex, "delegated promotion body must run after lock-order revalidation");
+  assert.doesNotMatch(promote.slice(candidateIndex, advisoryIndex), /FOR UPDATE OF vs/);
+  assert.match(promote, /ORDER BY vs\.started_at ASC NULLS LAST, vs\.id ASC/);
+  assert.match(promote, /\(vs\.participant_1_id = p_uid AND vs\.participant_2_id = v_partner_id\)/);
+  assert.match(promote, /\(vs\.participant_1_id = v_partner_id AND vs\.participant_2_id = p_uid\)/);
+  assert.match(promote, /'reason', 'session_not_promotable'/);
+  assert.match(
+    promotionLockOrderRepairMigration,
+    /Promotes queued Ready Gate matches with participant advisory locks acquired before video_sessions row locks/,
+  );
 });
 
 test("get_event_deck keeps active-event rejection and hides busy in-session candidates", () => {

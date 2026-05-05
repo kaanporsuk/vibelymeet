@@ -74,7 +74,7 @@ test("native date route exists and gates bootstrap on backend video-date truth",
 });
 
 test("native date entry remains prepare-entry and Daily-room gated", () => {
-  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ source: 'native_video_date_token' \}\)/);
+  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
   assert.match(nativePrepareEntry, /supabase\.functions\.invoke\('daily-room'/);
   assert.match(nativePrepareEntry, /action:\s*PREPARE_VIDEO_DATE_ENTRY_ACTION/);
   assert.match(nativePrepareEntry, /VIDEO_DATE_PREPARE_ENTRY_STARTED/);
