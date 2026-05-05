@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from "react";
 import * as Sentry from "@sentry/react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Check, Clock, Sparkles, X } from "lucide-react";
@@ -166,7 +166,6 @@ const ReadyGateOverlay = ({
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
   const activeReadyGateKey = `${sessionId}:${eventId}`;
   const activeReadyGateKeyRef = useRef(activeReadyGateKey);
-  activeReadyGateKeyRef.current = activeReadyGateKey;
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
@@ -197,6 +196,10 @@ const ReadyGateOverlay = ({
     },
     [eventId, sessionId],
   );
+
+  useLayoutEffect(() => {
+    activeReadyGateKeyRef.current = activeReadyGateKey;
+  }, [activeReadyGateKey]);
 
   const addReadyGateBreadcrumb = useCallback(
     (message: string, data?: Record<string, unknown>) => {
