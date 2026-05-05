@@ -76,6 +76,22 @@ interface EventPaymentExceptionItem {
 
 type VideoDateOpsStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
 
+type VideoDateOpsLatencySummary = {
+  sample_count: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  max_ms: number | null;
+};
+
+type VideoDateOpsSegmentSummary = VideoDateOpsLatencySummary & {
+  key: string;
+  label: string;
+};
+
+type VideoDateOpsCohortSummary = VideoDateOpsSegmentSummary & {
+  dimensions: Record<string, string>;
+};
+
 interface AdminVideoDateOpsResponse {
   ok: boolean;
   error?: string;
@@ -94,6 +110,26 @@ interface VideoDateOpsWindow {
     p50_ms: number | null;
     p95_ms: number | null;
     max_ms: number | null;
+    segment_breakdown?: VideoDateOpsSegmentSummary[];
+    cohort_breakdown?: VideoDateOpsCohortSummary[];
+    slowest_sessions?: Array<{
+      session_id: string | null;
+      actor_id: string | null;
+      event_id: string | null;
+      occurred_at: string | null;
+      latency_ms: number | null;
+      platform: string;
+      daily_prewarm: string;
+      timeline_error?: string;
+      timeline_rows?: Array<{
+        timeline_seq: number;
+        occurred_at: string;
+        source: string;
+        operation: string;
+        outcome: string;
+        reason_code: string | null;
+      }>;
+    }>;
     status: VideoDateOpsStatus;
     source_error?: string;
     truncated?: boolean;
@@ -860,6 +896,66 @@ const AdminLiveEventMetrics = () => {
                           status={timer.status}
                         />
                       </div>
+
+                      {readyTapToFrame.segment_breakdown?.length ? (
+                        <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
+                          <div className="mb-2 text-xs font-medium text-foreground">Launch segments</div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                            {readyTapToFrame.segment_breakdown.map((segment) => (
+                              <div key={segment.key} className="rounded-lg bg-background/50 p-2">
+                                <div>{segment.label}</div>
+                                <div className="font-medium text-foreground">
+                                  {formatMs(segment.p50_ms)} p50 / {formatMs(segment.p95_ms)} p95
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {readyTapToFrame.cohort_breakdown?.length ? (
+                        <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
+                          <div className="mb-2 text-xs font-medium text-foreground">Slow cohorts</div>
+                          <div className="space-y-2 text-[11px] text-muted-foreground">
+                            {readyTapToFrame.cohort_breakdown.slice(0, 4).map((cohort) => (
+                              <div key={cohort.key} className="rounded-lg bg-background/50 p-2">
+                                <div className="font-medium text-foreground">
+                                  {formatMs(cohort.p95_ms)} p95, {cohort.sample_count} samples
+                                </div>
+                                <div>
+                                  {Object.entries(cohort.dimensions)
+                                    .map(([key, value]) => `${key}: ${value}`)
+                                    .join(" / ")}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {readyTapToFrame.slowest_sessions?.length ? (
+                        <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
+                          <div className="mb-2 text-xs font-medium text-foreground">Slowest sessions</div>
+                          <div className="space-y-2 text-[11px] text-muted-foreground">
+                            {readyTapToFrame.slowest_sessions.slice(0, 5).map((session, index) => (
+                              <div
+                                key={`${session.session_id}:${session.actor_id}:${session.occurred_at}:${index}`}
+                                className="rounded-lg bg-background/50 p-2"
+                              >
+                                <div className="font-medium text-foreground">
+                                  {formatMs(session.latency_ms)} / {session.platform} / prewarm {session.daily_prewarm}
+                                </div>
+                                <div className="font-mono text-[10px] break-all">{session.session_id || "-"}</div>
+                                <div>
+                                  {(session.timeline_rows ?? []).slice(-4).map((row) => row.reason_code ?? row.operation).join(" -> ") ||
+                                    session.timeline_error ||
+                                    "timeline unavailable"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}

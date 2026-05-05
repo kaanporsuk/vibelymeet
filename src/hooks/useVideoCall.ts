@@ -11,6 +11,10 @@ import {
   videoDateWebMediaStreamConstraints,
 } from "@/lib/dailyCallObjectConfig";
 import {
+  consumeWebVideoDateDailyPrewarm,
+  markWebVideoDateDailyPrewarmFallback,
+} from "@/lib/videoDateDailyPrewarm";
+import {
   consumePreparedVideoDateEntry,
   prepareVideoDateEntry,
   rejectPreparedVideoDateEntry,
@@ -1942,6 +1946,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
       const startNonce = startAttemptNonceRef.current;
+      let dailyPrewarmConsumedForJoin = false;
       if (!opts?.internalRetry) {
         noRemoteAutoRecoveryCountRef.current = 0;
       }
@@ -2036,9 +2041,30 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         roomNameRef.current = roomData.room_name;
 
         const captureProfileForCall = captureProfileRef.current;
-        const callObject = DailyIframe.createCallObject(
-          dailyVideoDateCallObjectOptions(captureProfileForCall)
-        );
+        const prewarmedCall = userId
+          ? consumeWebVideoDateDailyPrewarm({
+              sessionId,
+              userId,
+              eventId: truthRow.event_id ?? eventId,
+              roomName: roomData.room_name,
+              roomUrl: roomData.room_url,
+              captureProfile: captureProfileForCall,
+            })
+          : { ok: false as const, reason: "missing_user" };
+        if (prewarmedCall.ok === false) {
+          vdbg("daily_prewarm_fallback", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            reason: prewarmedCall.reason,
+          });
+        }
+        const callObject = prewarmedCall.ok === true
+          ? prewarmedCall.entry.call
+          : DailyIframe.createCallObject(
+              dailyVideoDateCallObjectOptions(captureProfileForCall)
+            );
+        dailyPrewarmConsumedForJoin = prewarmedCall.ok === true;
         callObjectRef.current = callObject;
         vdbg("daily_call_object_created", {
           sessionId,
@@ -2048,7 +2074,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           captureProfile: captureProfileForCall,
           entryAttemptId,
           videoDateTraceId,
-          reusedCallObject: false,
+          reusedCallObject: prewarmedCall.ok === true,
+          prewarmFallbackReason: prewarmedCall.ok === false ? prewarmedCall.reason : null,
         });
 
         const getRemoteParticipantCount = () => {
@@ -3030,6 +3057,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             attemptCount: opts?.internalRetry ? 2 : 1,
           }),
         );
+        if (dailyPrewarmConsumedForJoin && userId) {
+          markWebVideoDateDailyPrewarmFallback({
+            sessionId,
+            userId,
+            eventId,
+            reason: "daily_join_failed_after_prewarm_consumed",
+          });
+        }
         await cleanupCallObject("startCall", "start_failure");
         if (preparedEntryAtFailure && userId && !opts?.internalRetry) {
           rejectPreparedVideoDateEntry(sessionId, userId, "daily_join_failed", eventId);

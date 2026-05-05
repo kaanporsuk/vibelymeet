@@ -158,6 +158,10 @@ import {
   type VideoDateDailyCallObject,
 } from '@/lib/videoDateDailyMediaConfig';
 import {
+  consumeNativeVideoDateDailyPrewarm,
+  markNativeVideoDateDailyPrewarmFallback,
+} from '@/lib/videoDateDailyPrewarm';
+import {
   VIDEO_DATE_REMOTE_OBJECT_FIT,
   VIDEO_DATE_REMOTE_OBJECT_POSITION,
   videoDateAspectRatio,
@@ -5141,8 +5145,29 @@ export default function VideoDateScreen() {
       }
 
       let callCaptureProfile: NativeVideoDateCaptureProfile = 'ideal';
-      const installDailyCall = (profile: NativeVideoDateCaptureProfile) => {
-        const nextCall = createVideoDateDailyCallObject(profile);
+      let dailyPrewarmConsumedForJoin = false;
+      const prewarmedCall = consumeNativeVideoDateDailyPrewarm({
+        sessionId,
+        userId: user.id,
+        eventId: eventId || null,
+        roomName: tokenResult.room_name,
+        roomUrl: tokenResult.room_url,
+        captureProfile: callCaptureProfile,
+      });
+      if (!prewarmedCall.ok) {
+        vdbg('daily_prewarm_fallback', {
+          sessionId,
+          userId: user.id,
+          eventId: eventId || null,
+          reason: prewarmedCall.reason,
+        });
+      }
+      const installDailyCall = (
+        profile: NativeVideoDateCaptureProfile,
+        prewarmed?: VideoDateDailyCallObject | null,
+      ) => {
+        const nextCall = prewarmed ?? createVideoDateDailyCallObject(profile);
+        dailyPrewarmConsumedForJoin = Boolean(prewarmed);
         sharedDailyCallEntry = {
           sessionId,
           call: nextCall,
@@ -5161,18 +5186,23 @@ export default function VideoDateScreen() {
           userId: user.id,
           roomName: tokenResult.room_name,
           captureProfile: profile,
+          reusedCallObject: Boolean(prewarmed),
         });
         videoDateDailyDiagnostic('daily_call_object_created', {
           session_id: sessionId,
           room_name: tokenResult.room_name,
           capture_profile: profile,
+          reused_call_object: Boolean(prewarmed),
         });
         callRef.current = nextCall;
         roomNameRef.current = tokenResult.room_name;
         bindCallListeners(nextCall, tokenResult.room_name);
         return nextCall;
       };
-      let call = installDailyCall(callCaptureProfile);
+      let call = installDailyCall(
+        callCaptureProfile,
+        prewarmedCall.ok ? prewarmedCall.entry.call : null,
+      );
       let joinPromise: Promise<void> | null = null;
       const markSharedJoinInFlight = () => {
         if (!joinPromise) return;
@@ -5670,6 +5700,14 @@ export default function VideoDateScreen() {
           entry_attempt_id: preparedEntryAtFailure?.entryAttemptId ?? entryAttemptId,
           video_date_trace_id: preparedEntryAtFailure?.value.video_date_trace_id ?? videoDateTraceId,
         });
+        if (dailyPrewarmConsumedForJoin) {
+          markNativeVideoDateDailyPrewarmFallback({
+            sessionId,
+            userId: user.id,
+            eventId: eventId || null,
+            reason: 'daily_join_failed_after_prewarm_consumed',
+          });
+        }
         if (preparedEntryAtFailure && !preparedJoinRetryUsedRef.current) {
           preparedJoinRetryUsedRef.current = true;
           rejectPreparedVideoDateEntry(sessionId, user.id, 'daily_join_failed', eventId || null);
