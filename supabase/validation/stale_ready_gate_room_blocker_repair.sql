@@ -38,8 +38,19 @@ with cleanup as (
 select
   'expire_cleanup_wraps_stale_room_metadata_repair' as check_name,
   def like '%public.terminalize_stale_pre_date_ready_gate_blockers(%'
-  and def like '%expire_stale_video_sessions_bounded_20260506090000_stale_room_base%' as ok
+  and def like '%expire_stale_vsessions_bounded_202605060900_base%' as ok
 from cleanup;
+
+select
+  'stale_cleanup_base_name_is_not_truncated' as check_name,
+  to_regprocedure('public.expire_stale_vsessions_bounded_202605060900_base(integer)') is not null
+  and not exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'expire_stale_video_sessions_bounded_20260506090000_stale_room_b'
+  ) as ok;
 
 with repair as (
   select pg_get_functiondef('public.terminalize_stale_pre_date_ready_gate_blockers(integer,text)'::regprocedure) as def

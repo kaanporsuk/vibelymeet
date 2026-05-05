@@ -11,6 +11,7 @@ function read(path: string): string {
 
 const migrationPath = "supabase/migrations/20260506090000_stale_ready_gate_room_blocker_repair.sql";
 const migration = read(migrationPath);
+const namePolishMigration = read("supabase/migrations/20260506093000_stale_ready_gate_cleanup_base_name_polish.sql");
 const validation = read("supabase/validation/stale_ready_gate_room_blocker_repair.sql");
 const swipeActions = read("supabase/functions/swipe-actions/index.ts");
 
@@ -80,6 +81,8 @@ test("cleanup terminalizes expired or event-inactive pre-date room metadata bloc
   assert.match(migration, /public\.terminalize_stale_pre_date_ready_gate_blockers\(\s*500,\s*'migration_backfill'\s*\)/);
   assert.match(migration, /ALTER FUNCTION public\.expire_stale_video_sessions_bounded\(integer\)\s+RENAME TO expire_stale_video_sessions_bounded_20260506090000_stale_room_base/s);
   assert.match(migration, /v_repaired := public\.terminalize_stale_pre_date_ready_gate_blockers/);
+  assert.match(namePolishMigration, /RENAME TO expire_stale_vsessions_bounded_202605060900_base/);
+  assert.match(namePolishMigration, /public\.expire_stale_vsessions_bounded_202605060900_base\(v_limit\)/);
 });
 
 test("event-ended terminalization no longer treats room metadata alone as provider proof", () => {
@@ -130,6 +133,7 @@ test("production validation remains read-only and covers the repaired root cause
   assert.match(validation, /global_active_conflict_helper_ignores_stale_ready_gates/);
   assert.match(validation, /one_active_session_trigger_uses_global_helper/);
   assert.match(validation, /expire_cleanup_wraps_stale_room_metadata_repair/);
+  assert.match(validation, /stale_cleanup_base_name_is_not_truncated/);
   assert.match(validation, /event_ended_terminalization_allows_stale_room_metadata_cleanup/);
   assert.match(validation, /handle_swipe_global_preflight_returns_structured_conflict/);
   assert.match(validation, /no_nonended_expired_pre_date_room_metadata_blockers/);
