@@ -2292,6 +2292,13 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(launchLatencyCheckpointObservability, /ready_tap_to_first_remote_frame_ms/);
   assert.match(webAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
   assert.match(nativeAnalytics, /emitVideoDateLaunchLatencyCheckpointObservability/);
+  assert.match(webAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
+  assert.match(nativeAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
+  assert.doesNotMatch(webAnalytics, /setTimeout\(emit, 0\)/);
+  assert.doesNotMatch(nativeAnalytics, /setTimeout\(emit, 0\)/);
+  assert.match(webAnalytics, /operational reliability telemetry/);
+  assert.match(nativeAnalytics, /operational reliability telemetry/);
+  assert.match(webVideoDatePage, /date_guard_registration_status_failed/);
   assert.match(webVideoCallHook, /activePreparedEntryCacheHitRef/);
   assert.doesNotMatch(webVideoCallHook, /cachedPrepareEntry:\s*Boolean\(entry\)/);
   assert.doesNotMatch(nativeVideoDateRoute, /cachedPrepareEntry:\s*Boolean\(activePreparedEntryCacheRef\.current\)/);

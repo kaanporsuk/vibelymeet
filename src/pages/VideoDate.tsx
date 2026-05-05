@@ -1179,16 +1179,28 @@ const VideoDate = () => {
         };
 
         if (canAttemptDaily) {
-          void supabase
-            .from("event_registrations")
-            .select("queue_status")
-            .eq("event_id", sessionRow.event_id)
-            .eq("profile_id", user.id)
-            .maybeSingle()
-            .then(({ data: reg }) => {
+          void (async () => {
+            try {
+              const { data: reg } = await supabase
+                .from("event_registrations")
+                .select("queue_status")
+                .eq("event_id", sessionRow.event_id)
+                .eq("profile_id", user.id)
+                .maybeSingle();
               if (cancelled) return;
               logRegistrationStatus(reg?.queue_status ?? null);
-            });
+            } catch (error: unknown) {
+              if (cancelled) return;
+              vdbg("date_guard_registration_status_failed", {
+                sessionId: id,
+                userId: user.id,
+                eventId: sessionRow.event_id,
+                state: sessionRow.state,
+                phase: sessionRow.phase,
+                error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+              });
+            }
+          })();
         } else {
           const { data: reg } = await supabase
             .from("event_registrations")

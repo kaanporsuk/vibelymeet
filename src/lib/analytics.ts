@@ -18,23 +18,17 @@ let loadPromise: Promise<PostHogClient> | null = null;
 let posthogClient: PostHogClient | null = null;
 const recentEventKeys = new Map<string, number>();
 
-function emitLaunchLatencyCheckpointAsync(eventName: string, properties?: AnalyticsProperties) {
+function recordOperationalLaunchLatencyCheckpoint(eventName: string, properties?: AnalyticsProperties) {
   if (eventName !== LAUNCH_LATENCY_CHECKPOINT_EVENT) return;
 
-  const emit = () => {
-    void emitVideoDateLaunchLatencyCheckpointObservability({
-      client: supabase,
-      eventName,
-      properties,
-    });
-  };
-
-  if (typeof setTimeout === "function") {
-    setTimeout(emit, 0);
-    return;
-  }
-
-  emit();
+  // This is operational reliability telemetry, not PostHog/product analytics:
+  // the authenticated RPC stores only allowlisted launch checkpoint fields so
+  // operators can debug whether a paid/safety-critical Video Date actually connected.
+  void emitVideoDateLaunchLatencyCheckpointObservability({
+    client: supabase,
+    eventName,
+    properties,
+  });
 }
 
 function primitiveProperty(properties: AnalyticsProperties | undefined, key: string): string {
@@ -196,7 +190,7 @@ export const resetAnalytics = () => {
 // Track a custom event
 export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
   if (shouldSkipDuplicateEvent(eventName, properties)) return;
-  emitLaunchLatencyCheckpointAsync(eventName, properties);
+  recordOperationalLaunchLatencyCheckpoint(eventName, properties);
   void getAnalyticsForCapture().then((posthog) => {
     posthog?.capture(eventName, properties);
   });
