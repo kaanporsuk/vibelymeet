@@ -84,6 +84,8 @@ const REMOTE_RENDER_RECOVERY_ATTEMPT_TTL_MS = 30_000;
 const REMOTE_RENDER_RECOVERY_MAX_ATTEMPT_KEYS = 24;
 const CAMERA_SWITCH_COMMIT_TIMEOUT_MS = 1_800;
 const CAMERA_SWITCH_COMMIT_POLL_MS = 80;
+const CAMERA_SWITCH_HINT_RESEND_DELAY_MS = 850;
+const REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
 
 type RemoteVideoFrameCallbackMetadata = {
   presentedFrames?: number;
@@ -107,6 +109,22 @@ type RemoteRenderRecoveryAttemptEntry = {
 type RemoteRenderValidationOptions = {
   allowRecovery?: boolean;
   recoveryFollowUp?: boolean;
+  requireFreshFrame?: boolean;
+  freshFrameBaseline?: RemoteRenderFrameState | null;
+};
+
+type RemoteRenderFrameState = {
+  currentTime: number | null;
+  decodedFrameCount: number | null;
+  readyState: number | null;
+  videoWidth: number | null;
+  videoHeight: number | null;
+};
+
+type RemoteCameraSwitchRenderWatch = {
+  switchId: string;
+  publishSequence: number | null;
+  expiresAtMs: number;
 };
 
 type VideoDateCameraFacingMode = "user" | "environment";
@@ -131,6 +149,7 @@ type LocalCameraSnapshot = {
 type WebCameraSwitchCommit = LocalCameraSnapshot & {
   method: WebCameraSwitchCommitMethod;
   latencyMs: number;
+  publishRefreshApplied: boolean;
 };
 
 function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined) {
@@ -324,16 +343,102 @@ function chooseWebVideoDevice(
 }
 
 function videoOnlyCameraSwitchConstraints(
-  profile: VideoDateMediaCaptureProfile,
   desiredFacing: VideoDateCameraFacingMode | null,
+  deviceId?: string | null,
 ): MediaStreamConstraints {
-  const baseVideo = videoDateWebMediaStreamConstraints(profile).video;
-  const video =
-    baseVideo && typeof baseVideo === "object"
-      ? ({ ...baseVideo } as MediaTrackConstraints)
-      : ({} as MediaTrackConstraints);
-  if (desiredFacing) video.facingMode = { ideal: desiredFacing };
+  const video: MediaTrackConstraints = {};
+  if (deviceId) {
+    video.deviceId = { exact: deviceId };
+  } else if (desiredFacing) {
+    video.facingMode = { ideal: desiredFacing };
+  }
   return { audio: false, video };
+}
+
+function isWebKitCameraSwitchRuntime(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent ?? "";
+  const vendor = navigator.vendor ?? "";
+  const isiOS = /\b(iPhone|iPad|iPod)\b/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR)/i.test(ua);
+  return isiOS || (/Apple/i.test(vendor) && /AppleWebKit/i.test(ua) && isSafari);
+}
+
+function readRemoteRenderFrameState(videoEl: HTMLVideoElement | null | undefined): RemoteRenderFrameState | null {
+  if (!videoEl) return null;
+  const extended = videoEl as HTMLVideoElement & {
+    webkitDecodedFrameCount?: number;
+  };
+  let playbackQualityFrames: number | null = null;
+  try {
+    const quality =
+      typeof videoEl.getVideoPlaybackQuality === "function" ? videoEl.getVideoPlaybackQuality() : null;
+    playbackQualityFrames =
+      typeof quality?.totalVideoFrames === "number" && Number.isFinite(quality.totalVideoFrames)
+        ? quality.totalVideoFrames
+        : null;
+  } catch {
+    playbackQualityFrames = null;
+  }
+  const webkitFrames =
+    typeof extended.webkitDecodedFrameCount === "number" && Number.isFinite(extended.webkitDecodedFrameCount)
+      ? extended.webkitDecodedFrameCount
+      : null;
+  return {
+    currentTime:
+      typeof videoEl.currentTime === "number" && Number.isFinite(videoEl.currentTime)
+        ? Number(videoEl.currentTime.toFixed(3))
+        : null,
+    decodedFrameCount: playbackQualityFrames ?? webkitFrames,
+    readyState: typeof videoEl.readyState === "number" ? videoEl.readyState : null,
+    videoWidth: typeof videoEl.videoWidth === "number" ? videoEl.videoWidth : null,
+    videoHeight: typeof videoEl.videoHeight === "number" ? videoEl.videoHeight : null,
+  };
+}
+
+function hasRenderableRemoteFrame(state: RemoteRenderFrameState | null): boolean {
+  return Boolean(
+    state &&
+      (state.readyState ?? 0) >= 2 &&
+      (state.videoWidth ?? 0) > 0 &&
+      (state.videoHeight ?? 0) > 0
+  );
+}
+
+function hasFreshRemoteRenderFrame(
+  baseline: RemoteRenderFrameState | null | undefined,
+  latest: RemoteRenderFrameState | null,
+  metadata?: RemoteVideoFrameCallbackMetadata,
+): boolean {
+  if (!hasRenderableRemoteFrame(latest)) return false;
+  if (!baseline) return true;
+
+  let comparedFreshSignals = false;
+  if (
+    typeof metadata?.presentedFrames === "number" &&
+    typeof baseline.decodedFrameCount === "number"
+  ) {
+    comparedFreshSignals = true;
+    if (metadata.presentedFrames > baseline.decodedFrameCount) return true;
+  }
+  if (typeof metadata?.mediaTime === "number" && typeof baseline.currentTime === "number") {
+    comparedFreshSignals = true;
+    if (metadata.mediaTime > baseline.currentTime + 0.03) return true;
+  }
+  if (typeof latest?.decodedFrameCount === "number" && typeof baseline.decodedFrameCount === "number") {
+    comparedFreshSignals = true;
+    if (latest.decodedFrameCount > baseline.decodedFrameCount) return true;
+  }
+  if (typeof latest?.currentTime === "number" && typeof baseline.currentTime === "number") {
+    comparedFreshSignals = true;
+    if (latest.currentTime > baseline.currentTime + 0.03) return true;
+    if (latest.currentTime < Math.max(0, baseline.currentTime - 0.25) && latest.currentTime > 0.03) {
+      return true;
+    }
+  }
+  if ((baseline.videoWidth ?? 0) <= 0 || (baseline.videoHeight ?? 0) <= 0) return true;
+  if (metadata && !comparedFreshSignals) return true;
+  return false;
 }
 
 function describeCameraSwitchError(error: unknown): { name: string; message: string } {
@@ -482,7 +587,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const latestLocalParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const latestRemoteParticipantRef = useRef<DailyParticipant | undefined>(undefined);
   const cameraSwitchInFlightRef = useRef(false);
+  const cameraSwitchPublishSequenceRef = useRef(0);
+  const cameraSwitchHintResendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRemoteCameraSwitchHintIdRef = useRef<string | null>(null);
+  const activeRemoteCameraSwitchRenderWatchRef = useRef<RemoteCameraSwitchRenderWatch | null>(null);
   const reconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectGraceTickerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectRecoveryResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -876,7 +984,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       participant: DailyParticipant | undefined,
       source: string,
       roomName: string | null,
-      recoveryScope = source
+      recoveryScope = source,
+      validationOptions: RemoteRenderValidationOptions = {},
     ) => {
       const videoEl = remoteVideoRef.current;
       const remoteKey = getTrackIdsKey(participant, true);
@@ -890,6 +999,26 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           recoveryScope,
           scopeKey,
           reason: !videoEl ? "missing_video_element" : !remoteKey || !videoTrack ? "missing_video_track" : "missing_tracks",
+        });
+        return;
+      }
+
+      const currentRecovery = remoteRenderRecoveryInFlightRef.current;
+      if (
+        currentRecovery?.trackKey === remoteKey &&
+        currentRecovery.scopeKey === scopeKey &&
+        validationOptions.recoveryFollowUp !== true
+      ) {
+        vdbg("daily_remote_render_recovery_skipped", {
+          ...remoteRenderDiagnostics(participant, videoEl),
+          source,
+          recoveryScope,
+          scopeKey,
+          reason: "recovery_already_in_flight",
+          recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
+          trackAttempt: currentRecovery.trackAttempt,
+          scopeAttempt: currentRecovery.scopeAttempt,
+          originalSource: currentRecovery.source,
         });
         return;
       }
@@ -1006,7 +1135,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           "remote_render_recovery_followup",
           roomName,
           scopeKey,
-          { allowRecovery: true, recoveryFollowUp: true }
+          {
+            allowRecovery: true,
+            recoveryFollowUp: true,
+            requireFreshFrame: validationOptions.requireFreshFrame,
+            freshFrameBaseline: validationOptions.freshFrameBaseline,
+          }
         );
       }, 0);
     },
@@ -1024,12 +1158,21 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       const videoEl = remoteVideoRef.current;
       const remoteKey = getTrackIdsKey(participant, true);
       const videoTrack = participant?.tracks?.video?.persistentTrack;
+      const requireFreshFrame = validationOptions.requireFreshFrame === true;
+      const freshFrameBaseline =
+        validationOptions.freshFrameBaseline !== undefined
+          ? validationOptions.freshFrameBaseline
+          : requireFreshFrame
+            ? readRemoteRenderFrameState(videoEl)
+            : null;
       if (!videoEl || !participant?.tracks || !remoteKey || !videoTrack || videoTrack.readyState === "ended") {
         clearRemoteRenderValidation({ cancelReattach: true });
         vdbg("daily_remote_render_validation_skipped", {
           ...remoteRenderDiagnostics(participant, videoEl),
           source,
           recoveryScope,
+          requireFreshFrame,
+          freshFrameBaseline,
           reason: !videoEl
             ? "missing_video_element"
             : !remoteKey || !videoTrack
@@ -1067,10 +1210,66 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           source,
           delayMs: REMOTE_RENDER_VALIDATION_DELAY_MS,
           timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
+          requireFreshFrame,
+          freshFrameBaseline,
         });
 
-        const finishValidated = (method: string, metadata?: RemoteVideoFrameCallbackMetadata) => {
+        function finishTimedOut(reason: string) {
           if (remoteRenderValidationSeqRef.current !== validationSeq) return;
+          if (remoteRenderValidationTimeoutRef.current) {
+            clearTimeout(remoteRenderValidationTimeoutRef.current);
+            remoteRenderValidationTimeoutRef.current = null;
+          }
+          remoteRenderValidationFrameCallbackRef.current = null;
+          const latestFrameState = readRemoteRenderFrameState(latestVideoEl);
+          if (reconnectGraceActiveRef.current) {
+            vdbg("daily_remote_render_validation_deferred", {
+              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+              source,
+              recoveryScope,
+              reason: "reconnect_grace_active",
+              timeoutReason: reason,
+              requireFreshFrame,
+              freshFrameBaseline,
+              latestFrameState,
+            });
+            return;
+          }
+          vdbg("daily_remote_render_validation_timed_out", {
+            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
+            source,
+            recoveryScope,
+            recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
+            reason,
+            timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
+            requireFreshFrame,
+            freshFrameBaseline,
+            latestFrameState,
+          });
+          if (validationOptions.allowRecovery === false) {
+            setRemotePlayback((prev) => ({
+              ...prev,
+              mediaAttached: true,
+              playSucceeded: false,
+              playRejected: true,
+              error: "Remote video paused. Tap to resume.",
+            }));
+            return;
+          }
+          forceRemoteMediaReattach(latestParticipant, `${source}:${reason}`, roomName, recoveryScope, {
+            ...validationOptions,
+            requireFreshFrame,
+            freshFrameBaseline,
+          });
+        }
+
+        function finishValidated(method: string, metadata?: RemoteVideoFrameCallbackMetadata) {
+          if (remoteRenderValidationSeqRef.current !== validationSeq) return;
+          const latestFrameState = readRemoteRenderFrameState(latestVideoEl);
+          if (requireFreshFrame && !hasFreshRemoteRenderFrame(freshFrameBaseline, latestFrameState, metadata)) {
+            finishTimedOut("fresh_frame_not_observed");
+            return;
+          }
           if (remoteRenderValidationTimeoutRef.current) {
             clearTimeout(remoteRenderValidationTimeoutRef.current);
             remoteRenderValidationTimeoutRef.current = null;
@@ -1093,7 +1292,13 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               mediaTime: metadata?.mediaTime ?? null,
               frameWidth: metadata?.width ?? null,
               frameHeight: metadata?.height ?? null,
+              requireFreshFrame,
+              freshFrameBaseline,
+              latestFrameState,
             });
+          }
+          if (recoveryScope === "camera_switch_hint") {
+            activeRemoteCameraSwitchRenderWatchRef.current = null;
           }
           setRemotePlayback((prev) => ({
             ...prev,
@@ -1111,43 +1316,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             mediaTime: metadata?.mediaTime ?? null,
             frameWidth: metadata?.width ?? null,
             frameHeight: metadata?.height ?? null,
+            requireFreshFrame,
+            freshFrameBaseline,
+            latestFrameState,
           });
-        };
-
-        const finishTimedOut = (reason: string) => {
-          if (remoteRenderValidationSeqRef.current !== validationSeq) return;
-          remoteRenderValidationTimeoutRef.current = null;
-          remoteRenderValidationFrameCallbackRef.current = null;
-          if (reconnectGraceActiveRef.current) {
-            vdbg("daily_remote_render_validation_deferred", {
-              ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-              source,
-              recoveryScope,
-              reason: "reconnect_grace_active",
-              timeoutReason: reason,
-            });
-            return;
-          }
-          vdbg("daily_remote_render_validation_timed_out", {
-            ...remoteRenderDiagnostics(latestParticipant, latestVideoEl),
-            source,
-            recoveryScope,
-            recoveryFollowUp: Boolean(validationOptions.recoveryFollowUp),
-            reason,
-            timeoutMs: REMOTE_RENDER_FRAME_TIMEOUT_MS,
-          });
-          if (validationOptions.allowRecovery === false) {
-            setRemotePlayback((prev) => ({
-              ...prev,
-              mediaAttached: true,
-              playSucceeded: false,
-              playRejected: true,
-              error: "Remote video paused. Tap to resume.",
-            }));
-            return;
-          }
-          forceRemoteMediaReattach(latestParticipant, `${source}:${reason}`, roomName, recoveryScope);
-        };
+        }
 
         const videoWithFrameCallback = latestVideoEl as RemoteVideoElementWithFrameCallback;
         if (typeof videoWithFrameCallback.requestVideoFrameCallback === "function") {
@@ -1195,6 +1368,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       opts: {
         expectedFacing?: VideoDateCameraFacingMode | null;
         expectedDeviceId?: string | null;
+        publishRefreshApplied?: boolean;
         timeoutMs?: number;
       } = {},
     ): Promise<WebCameraSwitchCommit | null> => {
@@ -1230,6 +1404,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             ...snapshot,
             method,
             latencyMs: Date.now() - startedAtMs,
+            publishRefreshApplied: opts.publishRefreshApplied === true,
           };
         }
 
@@ -1240,25 +1415,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [readLocalCameraSnapshot],
   );
 
-  const fallbackToDeterministicWebCamera = useCallback(
+  const switchToWebCameraVideoSource = useCallback(
     async (
       call: DailyCall,
       before: LocalCameraSnapshot,
       desiredFacing: VideoDateCameraFacingMode | null,
+      expectedDeviceId?: string | null,
+      restoreDeviceId = expectedDeviceId ?? before.deviceId,
     ): Promise<WebCameraSwitchCommit | null> => {
       if (typeof call.setInputDevicesAsync !== "function") return null;
-
-      const devices = await enumerateWebVideoDevices(call);
-      const device = chooseWebVideoDevice(devices, before, desiredFacing);
-      const deviceId = getDeviceId(device);
-      if (deviceId) {
-        await call.setInputDevicesAsync({ videoDeviceId: deviceId });
-        const deviceCommit = await waitForLocalCameraSwitchCommit(call, before, "set_input_device", {
-          expectedDeviceId: deviceId,
-          expectedFacing: getDeviceFacingMode(device) ?? desiredFacing,
-        });
-        if (deviceCommit) return deviceCommit;
-      }
 
       if (typeof navigator === "undefined" || typeof navigator.mediaDevices?.getUserMedia !== "function") {
         return null;
@@ -1266,22 +1431,54 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       let stream: MediaStream | null = null;
       let videoTrack: MediaStreamTrack | null = null;
+      let dailyVideoInputCleared = false;
+      let dailyVideoTrackAdopted = false;
+      const restoreDailyVideoInput = async () => {
+        try {
+          call.setLocalVideo(true);
+          if (!dailyVideoInputCleared) return true;
+          if (!restoreDeviceId) return false;
+          await call.setInputDevicesAsync({ videoDeviceId: restoreDeviceId });
+          call.setLocalVideo(true);
+          dailyVideoInputCleared = false;
+          dailyVideoTrackAdopted = false;
+          return true;
+        } catch (restoreError) {
+          vdbg("daily_camera_switch_video_source_restore_failed", {
+            sessionId: activeCallSessionIdRef.current,
+            eventId: optionsRef.current?.eventId ?? null,
+            userId: optionsRef.current?.userId ?? null,
+            platform: "web",
+            desiredFacing,
+            restoreDeviceId,
+            error: describeCameraSwitchError(restoreError),
+          });
+          return false;
+        }
+      };
       try {
         stream = await navigator.mediaDevices.getUserMedia(
-          videoOnlyCameraSwitchConstraints(captureProfileRef.current, desiredFacing)
+          videoOnlyCameraSwitchConstraints(desiredFacing, expectedDeviceId)
         );
         videoTrack = stream.getVideoTracks()[0] ?? null;
         if (!videoTrack) return null;
+        await call.setInputDevicesAsync({ videoSource: false });
+        dailyVideoInputCleared = true;
         await call.setInputDevicesAsync({ videoSource: videoTrack });
+        dailyVideoTrackAdopted = true;
+        call.setLocalVideo(true);
         const sourceCommit = await waitForLocalCameraSwitchCommit(call, before, "video_source", {
           expectedDeviceId: getTrackDeviceId(videoTrack),
           expectedFacing: getTrackFacingMode(videoTrack) ?? desiredFacing,
+          publishRefreshApplied: true,
         });
         if (sourceCommit) return sourceCommit;
-        videoTrack.stop();
+        const restored = await restoreDailyVideoInput();
+        if (restored || !dailyVideoTrackAdopted) videoTrack.stop();
         return null;
       } catch (error) {
-        videoTrack?.stop();
+        const restored = await restoreDailyVideoInput();
+        if (restored || !dailyVideoTrackAdopted) videoTrack?.stop();
         vdbg("daily_camera_switch_video_source_fallback_failed", {
           sessionId: activeCallSessionIdRef.current,
           eventId: optionsRef.current?.eventId ?? null,
@@ -1298,6 +1495,45 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     [waitForLocalCameraSwitchCommit],
   );
 
+  const switchToDeterministicWebCamera = useCallback(
+    async (
+      call: DailyCall,
+      before: LocalCameraSnapshot,
+      desiredFacing: VideoDateCameraFacingMode | null,
+      opts: { forceVideoSourceRefresh?: boolean } = {},
+    ): Promise<WebCameraSwitchCommit | null> => {
+      if (typeof call.setInputDevicesAsync !== "function") return null;
+
+      const devices = await enumerateWebVideoDevices(call);
+      const device = chooseWebVideoDevice(devices, before, desiredFacing);
+      const deviceId = getDeviceId(device);
+      if (deviceId) {
+        const sourceFacing = getDeviceFacingMode(device) ?? desiredFacing;
+        await call.setInputDevicesAsync({ videoDeviceId: deviceId });
+        const deviceCommit = await waitForLocalCameraSwitchCommit(call, before, "set_input_device", {
+          expectedDeviceId: deviceId,
+          expectedFacing: sourceFacing,
+        });
+        if (deviceCommit && !opts.forceVideoSourceRefresh) return deviceCommit;
+        const sourceCommit = await switchToWebCameraVideoSource(
+          call,
+          before,
+          sourceFacing,
+          deviceId
+        );
+        if (sourceCommit) return sourceCommit;
+        if (opts.forceVideoSourceRefresh) {
+          const facingSourceCommit = await switchToWebCameraVideoSource(call, before, sourceFacing, null, deviceId);
+          if (facingSourceCommit) return facingSourceCommit;
+        }
+        if (deviceCommit) return deviceCommit;
+      }
+
+      return switchToWebCameraVideoSource(call, before, desiredFacing);
+    },
+    [switchToWebCameraVideoSource, waitForLocalCameraSwitchCommit],
+  );
+
   const sendCommittedCameraSwitchHint = useCallback(async (call: DailyCall, commit: WebCameraSwitchCommit) => {
     if (typeof call.sendAppMessage !== "function") {
       vdbg("daily_camera_switch_render_hint_send_failed", {
@@ -1310,6 +1546,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       return;
     }
 
+    if (cameraSwitchHintResendTimeoutRef.current) {
+      clearTimeout(cameraSwitchHintResendTimeoutRef.current);
+      cameraSwitchHintResendTimeoutRef.current = null;
+    }
+    cameraSwitchPublishSequenceRef.current += 1;
+    const publishSequence = cameraSwitchPublishSequenceRef.current;
     const hint = createVideoDateCameraSwitchRenderHint({
       sourcePlatform: "web",
       facingMode: commit.facingMode,
@@ -1317,20 +1559,47 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       commitMethod: commit.method,
       localVideoTrackId: commit.trackId,
       commitLatencyMs: commit.latencyMs,
+      publishSequence,
+      publishRefreshApplied: commit.publishRefreshApplied,
+      hintSequence: 1,
     });
 
-    await Promise.resolve(call.sendAppMessage(hint));
-    vdbg("daily_camera_switch_render_hint_sent", {
-      sessionId: activeCallSessionIdRef.current,
-      eventId: optionsRef.current?.eventId ?? null,
-      userId: optionsRef.current?.userId ?? null,
-      platform: "web",
-      switchId: hint.switchId,
-      facingMode: hint.facingMode,
-      commitMethod: hint.commitMethod,
-      localVideoTrackId: hint.localVideoTrackId,
-      commitLatencyMs: hint.commitLatencyMs,
-    });
+    const sendHint = async (hintSequence: number) => {
+      const payload = { ...hint, hintSequence, sentAtMs: Date.now() };
+      await Promise.resolve(call.sendAppMessage(payload));
+      vdbg("daily_camera_switch_render_hint_sent", {
+        sessionId: activeCallSessionIdRef.current,
+        eventId: optionsRef.current?.eventId ?? null,
+        userId: optionsRef.current?.userId ?? null,
+        platform: "web",
+        switchId: payload.switchId,
+        facingMode: payload.facingMode,
+        commitMethod: payload.commitMethod,
+        localVideoTrackId: payload.localVideoTrackId,
+        commitLatencyMs: payload.commitLatencyMs,
+        publishSequence: payload.publishSequence,
+        publishRefreshApplied: payload.publishRefreshApplied,
+        hintSequence: payload.hintSequence,
+      });
+    };
+
+    await sendHint(1);
+    cameraSwitchHintResendTimeoutRef.current = setTimeout(() => {
+      cameraSwitchHintResendTimeoutRef.current = null;
+      if (callObjectRef.current !== call || !activeCallSessionIdRef.current) return;
+      void sendHint(2).catch((error) => {
+        vdbg("daily_camera_switch_render_hint_send_failed", {
+          sessionId: activeCallSessionIdRef.current,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          platform: "web",
+          commitMethod: commit.method,
+          publishSequence,
+          hintSequence: 2,
+          error: describeCameraSwitchError(error),
+        });
+      });
+    }, CAMERA_SWITCH_HINT_RESEND_DELAY_MS);
   }, []);
 
   const preflightMediaPermission = useCallback(
@@ -1612,6 +1881,10 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       lastRemoteRenderParticipantIdRef.current = null;
       activePreparedEntryCacheRef.current = null;
       dailyJoinStartedAtMsRef.current = null;
+      if (cameraSwitchHintResendTimeoutRef.current) {
+        clearTimeout(cameraSwitchHintResendTimeoutRef.current);
+        cameraSwitchHintResendTimeoutRef.current = null;
+      }
       localVideoReadyTrackedRef.current = false;
       setDailyReconnectState("connected");
       setReconnectGraceTimeLeft(0);
@@ -1626,7 +1899,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       latestLocalParticipantRef.current = undefined;
       latestRemoteParticipantRef.current = undefined;
       cameraSwitchInFlightRef.current = false;
+      cameraSwitchPublishSequenceRef.current = 0;
       lastRemoteCameraSwitchHintIdRef.current = null;
+      activeRemoteCameraSwitchRenderWatchRef.current = null;
     },
     [clearFirstRemoteWatchdog, clearReconnectGraceTimers, clearRemoteRenderValidation, resetRemoteRenderRecoveryAttempts]
   );
@@ -2397,6 +2672,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             let remoteRenderValidationSource = remoteKeyChanged
               ? "participant_updated_track_changed"
               : "participant_updated_same_track";
+            const cameraSwitchRenderWatch = activeRemoteCameraSwitchRenderWatchRef.current;
+            const cameraSwitchRenderWatchActive = Boolean(
+              cameraSwitchRenderWatch && cameraSwitchRenderWatch.expiresAtMs > Date.now()
+            );
+            if (cameraSwitchRenderWatch && !cameraSwitchRenderWatchActive) {
+              activeRemoteCameraSwitchRenderWatchRef.current = null;
+            }
+            const cameraSwitchFreshFrameBaseline = cameraSwitchRenderWatchActive
+              ? readRemoteRenderFrameState(remoteVideoRef.current)
+              : null;
             if (remoteKeyChanged) {
               lastRemoteTrackIdsRef.current = remoteKey;
               resetRemoteRenderRecoveryAttempts();
@@ -2427,11 +2712,43 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
                 roomName: roomData.room_name ?? null,
               });
             }
-            scheduleRemoteRenderValidation(
-              event.participant,
-              remoteRenderValidationSource,
-              roomData.room_name ?? null
-            );
+            if (cameraSwitchRenderWatchActive && !remoteKeyChanged && remoteKey) {
+              vdbg("daily_camera_switch_render_watch_participant_update", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                switchId: cameraSwitchRenderWatch?.switchId ?? null,
+                publishSequence: cameraSwitchRenderWatch?.publishSequence ?? null,
+                remoteRenderValidationSource,
+                remoteKey,
+                freshFrameBaseline: cameraSwitchFreshFrameBaseline,
+              });
+              forceRemoteMediaReattach(
+                event.participant,
+                "participant_updated_same_track_camera_switch",
+                roomData.room_name ?? null,
+                "camera_switch_hint",
+                {
+                  requireFreshFrame: true,
+                  freshFrameBaseline: cameraSwitchFreshFrameBaseline,
+                }
+              );
+            } else {
+              scheduleRemoteRenderValidation(
+                event.participant,
+                cameraSwitchRenderWatchActive
+                  ? `${remoteRenderValidationSource}_camera_switch_watch`
+                  : remoteRenderValidationSource,
+                roomData.room_name ?? null,
+                cameraSwitchRenderWatchActive ? "camera_switch_hint" : remoteRenderValidationSource,
+                cameraSwitchRenderWatchActive
+                  ? {
+                      requireFreshFrame: true,
+                      freshFrameBaseline: cameraSwitchFreshFrameBaseline,
+                    }
+                  : undefined
+              );
+            }
           }
         });
 
@@ -2441,6 +2758,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             resetRemoteRenderRecoveryAttempts();
             lastRemoteRenderParticipantIdRef.current = null;
             lastRemoteCameraSwitchHintIdRef.current = null;
+            activeRemoteCameraSwitchRenderWatchRef.current = null;
             setIsConnected(false);
             if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
             setRemotePlayback(createRemotePlaybackState());
@@ -2494,6 +2812,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           resetRemoteRenderRecoveryAttempts();
           lastRemoteRenderParticipantIdRef.current = null;
           lastRemoteCameraSwitchHintIdRef.current = null;
+          activeRemoteCameraSwitchRenderWatchRef.current = null;
           vdbg("daily_call_left_meeting", {
             sessionId,
             eventId: truthRow.event_id ?? eventId,
@@ -2566,7 +2885,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           }
 
           const participant = latestRemoteParticipantRef.current;
-          if (lastRemoteCameraSwitchHintIdRef.current !== hint.switchId) {
+          const isNewCameraSwitchHint = lastRemoteCameraSwitchHintIdRef.current !== hint.switchId;
+          const freshFrameBaseline = readRemoteRenderFrameState(remoteVideoRef.current);
+          activeRemoteCameraSwitchRenderWatchRef.current = {
+            switchId: hint.switchId,
+            publishSequence: hint.publishSequence ?? null,
+            expiresAtMs: Date.now() + REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS,
+          };
+          if (isNewCameraSwitchHint) {
             lastRemoteCameraSwitchHintIdRef.current = hint.switchId;
             resetRemoteRenderRecoveryAttempts();
           }
@@ -2581,14 +2907,50 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             commitMethod: hint.commitMethod,
             localVideoTrackId: hint.localVideoTrackId,
             commitLatencyMs: hint.commitLatencyMs,
+            publishSequence: hint.publishSequence ?? null,
+            publishRefreshApplied: hint.publishRefreshApplied === true,
+            hintSequence: hint.hintSequence ?? null,
             fromId: fromId || null,
             hasRemoteParticipant: Boolean(participant),
+            isNewCameraSwitchHint,
+            freshFrameBaseline,
           });
+          vdbg("daily_camera_switch_render_watch_started", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            switchId: hint.switchId,
+            sourcePlatform: hint.sourcePlatform,
+            facingMode: hint.facingMode,
+            publishSequence: hint.publishSequence ?? null,
+            publishRefreshApplied: hint.publishRefreshApplied === true,
+            hintSequence: hint.hintSequence ?? null,
+            isNewCameraSwitchHint,
+            freshFrameBaseline,
+            watchTtlMs: REMOTE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS,
+          });
+          if (isNewCameraSwitchHint) {
+            forceRemoteMediaReattach(
+              participant,
+              "app_message_camera_switch_hint",
+              roomData.room_name ?? null,
+              "camera_switch_hint",
+              {
+                requireFreshFrame: true,
+                freshFrameBaseline,
+              }
+            );
+            return;
+          }
           scheduleRemoteRenderValidation(
             participant,
-            "app_message_camera_switch_hint",
+            "app_message_camera_switch_hint_resend",
             roomData.room_name ?? null,
-            "camera_switch_hint"
+            "camera_switch_hint",
+            {
+              requireFreshFrame: true,
+              freshFrameBaseline,
+            }
           );
         });
 
@@ -3126,6 +3488,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       clearFirstRemoteWatchdog,
       clearReconnectGraceTimers,
       fetchVideoDateTruth,
+      forceRemoteMediaReattach,
       logTrackMounted,
       needsTrackReattach,
       preflightMediaPermission,
@@ -3289,19 +3652,32 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     try {
       const before = readLocalCameraSnapshot(co);
       const desiredFacing = oppositeCameraFacingMode(before.facingMode);
+      const forceVideoSourceRefresh = isWebKitCameraSwitchRuntime();
       let commit: WebCameraSwitchCommit | null = null;
 
-      if (typeof co.cycleCamera === "function") {
+      try {
+        commit = await switchToDeterministicWebCamera(co, before, desiredFacing, {
+          forceVideoSourceRefresh,
+        });
+      } catch (error) {
+        vdbg("daily_camera_switch_deterministic_publish_refresh_failed", {
+          sessionId: activeCallSessionIdRef.current,
+          eventId: optionsRef.current?.eventId ?? null,
+          userId: optionsRef.current?.userId ?? null,
+          platform: "web",
+          desiredFacing,
+          forceVideoSourceRefresh,
+          error: describeCameraSwitchError(error),
+        });
+      }
+
+      if (!commit && typeof co.cycleCamera === "function") {
         const result = await co.cycleCamera({ preferDifferentFacingMode: true });
         const resultDevice = result?.device as WebCameraDevice | null | undefined;
         commit = await waitForLocalCameraSwitchCommit(co, before, "cycle_camera", {
           expectedDeviceId: getDeviceId(resultDevice),
           expectedFacing: getDeviceFacingMode(resultDevice) ?? desiredFacing,
         });
-      }
-
-      if (!commit) {
-        commit = await fallbackToDeterministicWebCamera(co, before, desiredFacing);
       }
 
       if (!commit) {
@@ -3312,6 +3688,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           userId: optionsRef.current?.userId ?? null,
           platform: "web",
           desiredFacing,
+          forceVideoSourceRefresh,
           before,
           after,
         });
@@ -3344,6 +3721,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         local_video_track_id: commit.trackId,
         local_video_device_id: commit.deviceId,
         commit_latency_ms: commit.latencyMs,
+        publish_refresh_applied: commit.publishRefreshApplied,
       });
 
       try {
@@ -3379,11 +3757,11 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setIsFlippingCamera(false);
     }
   }, [
-    fallbackToDeterministicWebCamera,
     isFlippingCamera,
     isVideoOff,
     readLocalCameraSnapshot,
     sendCommittedCameraSwitchHint,
+    switchToDeterministicWebCamera,
     waitForLocalCameraSwitchCommit,
   ]);
 

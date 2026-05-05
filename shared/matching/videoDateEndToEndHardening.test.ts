@@ -22,6 +22,10 @@ import {
   resolveVideoDateIceBreakerIndex,
   shuffleVideoDateIceBreakerQuestions,
 } from "./videoDateIceBreakers";
+import {
+  createVideoDateCameraSwitchRenderHint,
+  parseVideoDateCameraSwitchRenderHint,
+} from "./videoDateCameraSwitchRenderHint";
 
 const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501090000_video_date_end_to_end_hardening.sql"),
@@ -1426,13 +1430,32 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(cameraSwitchRenderHintContract, /commitMethod\?: string \| null/);
   assert.match(cameraSwitchRenderHintContract, /localVideoTrackId\?: string \| null/);
   assert.match(cameraSwitchRenderHintContract, /commitLatencyMs\?: number \| null/);
+  assert.match(cameraSwitchRenderHintContract, /publishSequence\?: number \| null/);
+  assert.match(cameraSwitchRenderHintContract, /publishRefreshApplied\?: boolean/);
+  assert.match(cameraSwitchRenderHintContract, /hintSequence\?: number \| null/);
   assert.match(webVideoCallHook, /waitForLocalCameraSwitchCommit/);
   assert.match(webVideoCallHook, /setInputDevicesAsync/);
+  assert.match(webVideoCallHook, /videoSource: false/);
+  assert.match(webVideoCallHook, /CAMERA_SWITCH_HINT_RESEND_DELAY_MS/);
+  assert.match(webVideoCallHook, /publishRefreshApplied/);
+  assert.match(webVideoCallHook, /requireFreshFrame/);
+  assert.match(webVideoCallHook, /freshFrameBaseline/);
+  assert.match(webVideoCallHook, /daily_camera_switch_video_source_restore_failed/);
+  assert.match(webVideoCallHook, /dailyVideoTrackAdopted/);
+  assert.match(webVideoCallHook, /recovery_already_in_flight/);
   assert.match(webVideoCallHook, /video_date_camera_switch_committed/);
   assert.match(webVideoCallHook, /opts\.expectedFacing !== before\.facingMode/);
   assert.match(webVideoCallHook, /inferCameraFacingModeFromLabel/);
   assert.match(webVideoCallHook, /return currentDeviceId \? candidates\[0\] \?\? null : null/);
   assert.match(webVideoCallHook, /lastRemoteCameraSwitchHintIdRef/);
+  assert.match(webVideoCallHook, /daily_camera_switch_render_watch_started/);
+  assert.match(webVideoCallHook, /fresh_frame_not_observed/);
+  const deterministicCameraSwitchIndex = webVideoCallHook.indexOf(
+    "switchToDeterministicWebCamera(co, before, desiredFacing",
+  );
+  const cycleCameraFallbackIndex = webVideoCallHook.indexOf("co.cycleCamera", deterministicCameraSwitchIndex);
+  assert.ok(deterministicCameraSwitchIndex > 0);
+  assert.ok(cycleCameraFallbackIndex > deterministicCameraSwitchIndex);
   assert.match(nativeVideoDateRoute, /waitForNativeCameraSwitchCommit/);
   assert.match(nativeVideoDateRoute, /setCamera/);
   assert.match(nativeVideoDateRoute, /enumerateDevices/);
@@ -1442,6 +1465,45 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(nativeVideoDateRoute, /nativeCameraDeviceKey/);
   assert.match(nativeVideoDateRoute, /nativeCameraFacingModeFromLabel\(videoTrack\?\.label\)/);
   assert.match(nativeVideoDateRoute, /lastNativeRemoteCameraSwitchHintIdRef/);
+});
+
+test("camera switch render hints preserve optional publish metadata without breaking legacy hints", () => {
+  const enrichedHint = createVideoDateCameraSwitchRenderHint({
+    sourcePlatform: "web",
+    facingMode: "environment",
+    commitMethod: "video_source",
+    localVideoTrackId: "track-2",
+    commitLatencyMs: 32.7,
+    publishSequence: 3.2,
+    publishRefreshApplied: true,
+    hintSequence: 2.8,
+    sentAtMs: 1_777,
+    random: () => 0.42,
+  });
+
+  assert.equal(enrichedHint.publishSequence, 3);
+  assert.equal(enrichedHint.publishRefreshApplied, true);
+  assert.equal(enrichedHint.hintSequence, 3);
+  const parsedEnrichedHint = parseVideoDateCameraSwitchRenderHint(enrichedHint);
+  assert.equal(parsedEnrichedHint?.publishSequence, 3);
+  assert.equal(parsedEnrichedHint?.publishRefreshApplied, true);
+  assert.equal(parsedEnrichedHint?.hintSequence, 3);
+
+  const legacyParsedHint = parseVideoDateCameraSwitchRenderHint({
+    type: "video_date_camera_switch_render_hint",
+    version: 1,
+    switchId: "legacy-switch",
+    sourcePlatform: "native",
+    facingMode: "user",
+    sentAtMs: 1_778,
+  });
+  assert.equal(legacyParsedHint?.publishSequence, null);
+  assert.equal(legacyParsedHint?.publishRefreshApplied, false);
+  assert.equal(legacyParsedHint?.hintSequence, null);
+
+  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...enrichedHint, publishSequence: 0 }), null);
+  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...enrichedHint, publishRefreshApplied: "yes" }), null);
+  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...enrichedHint, hintSequence: Number.NaN }), null);
 });
 
 test("queue_status reaches in_handshake only after provider confirm succeeds", () => {
