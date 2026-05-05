@@ -87,11 +87,26 @@ export function videoSessionIdFromDrainPayload(
 
 /**
  * When `handle_swipe` returns `participant_has_active_session_conflict`, the server refused a new
- * mutual session because either user already has another non-ended `video_sessions` row in this event
- * (see `promote_ready_gate_if_eligible` / mutual insert guard). Surfacing this copy improves trust vs a silent no-op.
+ * mutual session because a user is already in a non-queued Ready Gate / video date stage for this event.
+ * Surfacing this copy improves trust vs a silent no-op.
  */
 export const SWIPE_SESSION_CONFLICT_USER_MESSAGE =
-  "You already have a pending match in this event. Finish Ready Gate or wait for that session to end before matching with someone else.";
+  "You are already in a live Ready Gate or video date. Finish it before matching again.";
+
+export const SWIPE_PAIR_ALREADY_MET_USER_MESSAGE =
+  "You already met this person in this event. Keep browsing for new people.";
+
+export const SWIPE_TARGET_UNAVAILABLE_USER_MESSAGE =
+  "This person is no longer available in the lobby.";
+
+export const SWIPE_ACCOUNT_PAUSED_USER_MESSAGE =
+  "Resume your account before swiping in this event.";
+
+export const SWIPE_ALREADY_RECORDED_USER_MESSAGE =
+  "You already swiped on this person.";
+
+export const SWIPE_GENERIC_FAILURE_USER_MESSAGE =
+  "Unable to complete swipe. Try again in a moment.";
 
 /** Shown when a queued mutual session hits server TTL (`expire_stale_video_sessions` → `queued_ttl_expired`). */
 export const QUEUED_MATCH_TIMED_OUT_USER_MESSAGE =
@@ -130,10 +145,52 @@ export function buildEventLobbyPendingSessionUrl(eventId: string, videoSessionId
   return `/event/${eventId}/lobby?pendingVideoSession=${enc}&pendingMatch=${enc}`;
 }
 
+export function getSwipeFailureUserMessage(
+  payload: SwipeSessionStageResult | null | undefined,
+): string {
+  const code = normalizedSwipeSessionStageResult(payload?.result ?? payload?.outcome ?? payload?.error);
+  switch (code) {
+    case "participant_has_active_session_conflict":
+      return SWIPE_SESSION_CONFLICT_USER_MESSAGE;
+    case "pair_already_met_this_event":
+      return SWIPE_PAIR_ALREADY_MET_USER_MESSAGE;
+    case "target_unavailable":
+    case "target_not_found":
+      return SWIPE_TARGET_UNAVAILABLE_USER_MESSAGE;
+    case "account_paused":
+      return SWIPE_ACCOUNT_PAUSED_USER_MESSAGE;
+    case "blocked":
+    case "reported":
+      return "This person is not available for matching.";
+    case "event_not_active":
+      return "This event is no longer active.";
+    case "not_registered":
+      return "Only confirmed guests can swipe in this lobby.";
+    case "swipe_already_recorded":
+      return SWIPE_ALREADY_RECORDED_USER_MESSAGE;
+    case "already_super_vibed_recently":
+      return "You recently Super Vibed this person.";
+    case "limit_reached":
+      return "You've used all 3 Super Vibes for this event.";
+    case "unauthorized":
+      return "Sign in again to keep swiping.";
+    default: {
+      const message = payload?.message?.trim();
+      return message || SWIPE_GENERIC_FAILURE_USER_MESSAGE;
+    }
+  }
+}
+
 /** `handle_swipe` results where the lobby deck should not advance the current card. */
 export const LOBBY_SWIPE_NO_ADVANCE_RESULTS: ReadonlySet<string> = new Set([
   "blocked",
   "reported",
+  "account_paused",
+  "unauthorized",
+  "invalid_request",
+  "swipe_failed",
+  "internal_error",
+  "unknown",
   "not_registered",
   "target_not_found",
   "limit_reached",

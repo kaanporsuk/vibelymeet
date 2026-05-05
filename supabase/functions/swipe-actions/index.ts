@@ -29,6 +29,7 @@ type HandleSwipeSessionPayload = {
   dedupe_reason?: string;
   existing_swipe_type?: string;
   requested_swipe_type?: string;
+  message?: string;
 };
 
 /** Deep link + OneSignal `data` for session-stage notifications (ready gate / video date entry). */
@@ -104,6 +105,38 @@ function getSwipeOutcome(result: HandleSwipeSessionPayload): string {
   return sanitizeReasonCode(result.outcome ?? result.result ?? result.error ?? "ok");
 }
 
+function getSwipeFailureUserMessage(result: HandleSwipeSessionPayload): string {
+  const outcome = getSwipeOutcome(result);
+  switch (outcome) {
+    case "participant_has_active_session_conflict":
+      return "You are already in a live Ready Gate or video date. Finish it before matching again.";
+    case "pair_already_met_this_event":
+      return "You already met this person in this event. Keep browsing for new people.";
+    case "target_unavailable":
+    case "target_not_found":
+      return "This person is no longer available in the lobby.";
+    case "account_paused":
+      return "Resume your account before swiping in this event.";
+    case "blocked":
+    case "reported":
+      return "This person is not available for matching.";
+    case "event_not_active":
+      return "This event is no longer active.";
+    case "not_registered":
+      return "Only confirmed guests can swipe in this lobby.";
+    case "swipe_already_recorded":
+      return "You already swiped on this person.";
+    case "limit_reached":
+      return "You've used all 3 Super Vibes for this event.";
+    case "already_super_vibed_recently":
+      return "You recently Super Vibed this person.";
+    case "unauthorized":
+      return "Sign in again to keep swiping.";
+    default:
+      return result.message?.trim() || "Unable to complete swipe. Try again in a moment.";
+  }
+}
+
 function isDuplicateSwipeResult(result: HandleSwipeSessionPayload): boolean {
   const outcome = getSwipeOutcome(result);
   return result.duplicate === true ||
@@ -123,6 +156,9 @@ function shouldSuppressSwipeNotification(result: HandleSwipeSessionPayload): boo
     "reported",
     "account_paused",
     "target_unavailable",
+    "target_not_found",
+    "not_registered",
+    "pair_already_met_this_event",
     "participant_has_active_session_conflict",
   ]);
   return result.notification_suppressed === true ||
@@ -180,7 +216,7 @@ serve(async (req) => {
 
     if (!event_id || !target_id || !swipe_type) {
       return new Response(
-        JSON.stringify({ success: false, error: "invalid_request" }),
+        JSON.stringify({ success: false, error: "invalid_request", message: "Unable to complete swipe. Try again in a moment." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -219,7 +255,7 @@ serve(async (req) => {
         error_reason: error.code ?? "rpc_error",
       });
       return new Response(
-        JSON.stringify({ success: false, error: "swipe_failed" }),
+        JSON.stringify({ success: false, error: "swipe_failed", message: "Unable to complete swipe. Try again in a moment." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -236,6 +272,9 @@ serve(async (req) => {
         result.video_session_id = result.match_id;
       }
       result.event_id = result.event_id ?? String(event_id);
+    }
+    if (result.success === false) {
+      result.message = getSwipeFailureUserMessage(result);
     }
 
     const sessionId = result.video_session_id ?? result.match_id;
@@ -571,7 +610,7 @@ serve(async (req) => {
       error_reason: "internal_error",
     });
     return new Response(
-      JSON.stringify({ success: false, error: "internal_error" }),
+      JSON.stringify({ success: false, error: "internal_error", message: "Unable to complete swipe. Try again in a moment." }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }

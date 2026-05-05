@@ -16,8 +16,10 @@ test("native lobby normalizes swipe outcome fields before routing and telemetry"
   assert.match(nativeLobby, /result: envelope\.result \?\? envelope\.outcome \?\? envelope\.error \?\? null/);
   assert.match(nativeLobby, /const failureOutcome = getSwipeOutcome\(normalizedEnvelope\)/);
   assert.match(nativeLobby, /showSwipeToast\(failureOutcome\)/);
+  assert.match(nativeLobby, /getSwipeFailureUserMessage\(normalizedEnvelope\)/);
   assert.match(nativeLobby, /const outcome = getSwipeOutcome\(normalizedEnvelope\)/);
   assert.match(nativeLobby, /shouldAdvanceLobbyDeckAfterSwipe\(outcome\)/);
+  assert.match(nativeLobby, /shouldAdvanceLobbyDeckAfterSwipe\(failureOutcome\)/);
   assert.match(nativeLobby, /videoSessionIdFromSwipePayload\(normalizedEnvelope\)/);
   assert.match(nativeLobby, /shouldOpenReadyGateFromSwipePayload\(normalizedEnvelope\)/);
 });
@@ -47,12 +49,17 @@ test("native lobby covers backend swipe outcome taxonomy without client side eff
     "swipe_already_recorded",
     "event_not_active",
     "participant_has_active_session_conflict",
+    "pair_already_met_this_event",
     "limit_reached",
     "already_super_vibed_recently",
     "target_unavailable",
     "target_not_found",
     "account_paused",
     "not_registered",
+    "unauthorized",
+    "invalid_request",
+    "swipe_failed",
+    "internal_error",
     "blocked",
     "reported",
   ]) {

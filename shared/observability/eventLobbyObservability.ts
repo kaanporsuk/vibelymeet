@@ -91,6 +91,9 @@ const SUPPRESSED_OUTCOMES = new Set([
   "reported",
   "account_paused",
   "target_unavailable",
+  "target_not_found",
+  "not_registered",
+  "pair_already_met_this_event",
   "participant_has_active_session_conflict",
 ]);
 

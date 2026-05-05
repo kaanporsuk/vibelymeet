@@ -132,6 +132,7 @@ test("swipe-actions suppresses duplicate, replay, blocked, conflict, and inactiv
     "reported",
     "account_paused",
     "target_unavailable",
+    "pair_already_met_this_event",
     "participant_has_active_session_conflict",
   ]) {
     assert.match(swipeActions, new RegExp(`"${outcome}"`));

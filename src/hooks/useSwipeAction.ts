@@ -13,6 +13,7 @@ import {
 } from "@clientShared/observability/eventLobbyObservability";
 import { bucketVideoDateLatencyMs } from "@clientShared/observability/videoDateOperatorMetrics";
 import {
+  getSwipeFailureUserMessage,
   type SwipeSessionStageResult,
   SWIPE_SESSION_CONFLICT_USER_MESSAGE,
   shouldOpenReadyGateFromSwipePayload,
@@ -104,6 +105,8 @@ export const useSwipeAction = ({
 
         const raw = data as unknown as SwipeSessionStageResult;
         if (raw && typeof raw === "object" && raw.success === false) {
+          const failureCode = raw.result ?? raw.outcome ?? raw.error;
+          const failureMessage = getSwipeFailureUserMessage(raw);
           trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
             ...buildLobbySwipeResultPayload({
               eventId,
@@ -112,8 +115,18 @@ export const useSwipeAction = ({
               result: raw,
             }),
           });
-          toast.error(raw.message || "Unable to complete swipe");
-          return null;
+          if (
+            failureCode === "participant_has_active_session_conflict" ||
+            failureCode === "pair_already_met_this_event" ||
+            failureCode === "target_unavailable" ||
+            failureCode === "target_not_found" ||
+            failureCode === "account_paused"
+          ) {
+            toast.info(failureMessage, { duration: 4200 });
+          } else {
+            toast.error(failureMessage);
+          }
+          return raw;
         }
 
         const outcome =
