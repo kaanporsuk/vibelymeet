@@ -473,6 +473,7 @@ const EventLobby = () => {
       };
       void prepareVideoDateEntry(sessionId, {
         eventId,
+        userId: user?.id ?? null,
         source: `event_lobby_${source}`,
         bothReadyObservedAtMs: observedAtMs,
       })
@@ -539,7 +540,7 @@ const EventLobby = () => {
           prepareNavigationInFlightRef.current.delete(sessionId);
         });
     },
-    [eventId, navigateToDateSession, openReadyGateSession],
+    [eventId, navigateToDateSession, openReadyGateSession, user?.id],
   );
 
   // Pending video session from post-date queue / push deep link (canonical + legacy query names)

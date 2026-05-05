@@ -2,7 +2,7 @@
  * In-lobby ready gate: server-backed `ready_gate_transition` + realtime, aligned with web ReadyGateOverlay.
  * No visual redesign — behavior and state machine parity only.
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -36,7 +36,12 @@ import { prepareVideoDateEntry } from '@/lib/videoDatePrepareEntry';
 import {
   destroyNativeVideoDateDailyPrewarm,
   preAuthNativeVideoDateDailyPrewarm,
+  startNativeVideoDateDailyPrewarm,
 } from '@/lib/videoDateDailyPrewarm';
+import {
+  ensureVideoDateRoomWarmup,
+  videoDateRoomWarmupAfterReadyEnabled,
+} from '@/lib/videoDateRoomWarmup';
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -65,7 +70,10 @@ import {
   recordReadyGateToDateLatencyCheckpoint,
   startReadyGateToDateLatencyContext,
 } from '@clientShared/observability/videoDateOperatorMetrics';
-import { setVideoDatePermissionHandoff } from '@clientShared/matching/videoDatePermissionHandoff';
+import {
+  getVideoDatePermissionHandoff,
+  setVideoDatePermissionHandoff,
+} from '@clientShared/matching/videoDatePermissionHandoff';
 
 const RING_SIZE = 88;
 const STROKE = 4;
@@ -163,8 +171,11 @@ export function ReadyGateOverlay({
   const manualExitRequestedRef = useRef(false);
   const pendingForfeitReasonRef = useRef<'timeout' | 'skip' | null>(null);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT_SEC * 1000);
+  const activeReadyGateKey = `${sessionId}:${eventId}`;
+  const activeReadyGateKeyRef = useRef(activeReadyGateKey);
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const prepareEntryHandoffStartedRef = useRef(false);
+  const roomWarmupStartedRef = useRef(false);
   const duplicateNavSuppressionKeysRef = useRef(new Set<string>());
   const duplicateTerminalSuppressionKeysRef = useRef(new Set<string>());
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
@@ -282,6 +293,75 @@ export function ReadyGateOverlay({
     [eventId, sessionId, trackNativeReadyGateEvent],
   );
 
+  const startRoomWarmupAfterReady = useCallback(
+    (source: string, readyGateStatus?: string | null) => {
+      if (!videoDateRoomWarmupAfterReadyEnabled()) return;
+      if (roomWarmupStartedRef.current || dateNavigationStartedRef.current || closedRef.current) return;
+      if (readyGateStatus && !['ready_a', 'ready_b', 'both_ready'].includes(readyGateStatus)) return;
+      if (readyGateStatus === 'both_ready' && prepareEntryHandoffStartedRef.current) return;
+      roomWarmupStartedRef.current = true;
+      const readyGateKey = activeReadyGateKey;
+
+      void (async () => {
+        const result = await ensureVideoDateRoomWarmup(sessionId, {
+          eventId,
+          userId,
+          source,
+        });
+        if (activeReadyGateKeyRef.current !== readyGateKey) return;
+        if (dateNavigationStartedRef.current || closedRef.current) return;
+        if (result.ok !== true) {
+          vdbg('ready_gate_room_warmup_after_ready_skipped', {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            code: result.code,
+            retryable: result.retryable,
+          });
+          return;
+        }
+
+        const permissionProven =
+          hasMediaPermission === true || Boolean(getVideoDatePermissionHandoff(sessionId, userId));
+        if (activeReadyGateKeyRef.current !== readyGateKey) return;
+        if (!permissionProven || dateNavigationStartedRef.current || closedRef.current) {
+          vdbg('ready_gate_daily_prewarm_after_room_warmup_skipped', {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            reason: permissionProven ? 'closed_or_navigating' : 'permission_not_proven',
+          });
+          return;
+        }
+
+        const prewarm = startNativeVideoDateDailyPrewarm({
+          sessionId,
+          userId,
+          eventId,
+          roomName: result.data.room_name,
+          roomUrl: result.data.room_url,
+          source: 'ready_gate_room_warmup_success',
+        });
+        vdbg('ready_gate_daily_prewarm_after_room_warmup', {
+          sessionId,
+          eventId,
+          userId,
+          source,
+          roomName: result.data.room_name,
+          ok: prewarm.ok,
+          reason: prewarm.ok === true ? null : prewarm.reason,
+        });
+      })();
+    },
+    [activeReadyGateKey, eventId, hasMediaPermission, sessionId, userId],
+  );
+
+  useLayoutEffect(() => {
+    activeReadyGateKeyRef.current = activeReadyGateKey;
+  }, [activeReadyGateKey]);
+
   const startPrepareEntryHandoff = useCallback(
     (source: string) => {
       if (closedRef.current || prepareEntryHandoffStartedRef.current) {
@@ -393,6 +473,7 @@ export function ReadyGateOverlay({
             setPrepareEntryStatus(attempt === 0 ? 'preparing' : 'retrying');
             const result = await prepareVideoDateEntry(sessionId, {
               eventId,
+              userId,
               source: attempt === 0 ? `ready_gate_${source}` : `ready_gate_${source}_retry`,
               force: attempt > 0,
               bothReadyObservedAtMs: observedAtMs,
@@ -766,6 +847,7 @@ export function ReadyGateOverlay({
     pendingForfeitReasonRef.current = null;
     bothReadyObservedAtMsRef.current = null;
     prepareEntryHandoffStartedRef.current = false;
+    roomWarmupStartedRef.current = false;
     duplicateNavSuppressionKeysRef.current.clear();
     duplicateTerminalSuppressionKeysRef.current.clear();
     nonRetryablePrepareFailureRef.current = null;
@@ -1298,6 +1380,7 @@ export function ReadyGateOverlay({
                         setTerminalActionError(null);
                         const result = await markReady();
                         if (!result.ok) throw new Error('ready_gate_mark_ready_failed');
+                        startRoomWarmupAfterReady('ready_tap_mark_ready_success', result.status ?? null);
                       } catch (e) {
                         setTerminalActionError("We couldn't mark you ready. Check your connection and try again.");
                         rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_mark_ready_exception', {

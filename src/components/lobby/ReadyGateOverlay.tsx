@@ -11,7 +11,12 @@ import { videoDateWebMediaStreamConstraints } from "@/lib/dailyCallObjectConfig"
 import {
   destroyWebVideoDateDailyPrewarm,
   preAuthWebVideoDateDailyPrewarm,
+  startWebVideoDateDailyPrewarm,
 } from "@/lib/videoDateDailyPrewarm";
+import {
+  ensureVideoDateRoomWarmup,
+  videoDateRoomWarmupAfterReadyEnabled,
+} from "@/lib/videoDateRoomWarmup";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 import { toast } from "sonner";
 import { READY_GATE_STALE_OR_ENDED_USER_MESSAGE } from "@shared/matching/videoSessionFlow";
@@ -172,6 +177,7 @@ const ReadyGateOverlay = ({
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
   const permissionPrewarmStartedRef = useRef(false);
+  const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
   const realtimeFallbackLoggedRef = useRef(false);
   const readyGateRealtimeDegradedLoggedRef = useRef(false);
@@ -520,6 +526,89 @@ const ReadyGateOverlay = ({
     [activeReadyGateKey, eventId, sessionId, user?.id],
   );
 
+  const canStartDailyPrewarmAfterWarmup = useCallback(
+    async (userId: string): Promise<boolean> => {
+      if (getVideoDatePermissionHandoff(sessionId, userId)) return true;
+      if (typeof navigator === "undefined" || !navigator.permissions?.query) return false;
+      try {
+        const [camera, microphone] = await Promise.all([
+          navigator.permissions.query({ name: "camera" as PermissionName }),
+          navigator.permissions.query({ name: "microphone" as PermissionName }),
+        ]);
+        return camera.state === "granted" && microphone.state === "granted";
+      } catch {
+        return false;
+      }
+    },
+    [sessionId],
+  );
+
+  const startRoomWarmupAfterReady = useCallback(
+    (source: string, readyGateStatus?: string | null) => {
+      if (!videoDateRoomWarmupAfterReadyEnabled()) return;
+      if (roomWarmupStartedRef.current || dateNavigationStartedRef.current || closedRef.current) return;
+      if (readyGateStatus && !["ready_a", "ready_b", "both_ready"].includes(readyGateStatus)) return;
+      if (readyGateStatus === "both_ready" && prepareEntryHandoffStartedRef.current) return;
+      const userId = user?.id;
+      if (!userId) return;
+
+      roomWarmupStartedRef.current = true;
+      const readyGateKey = activeReadyGateKey;
+      void (async () => {
+        const result = await ensureVideoDateRoomWarmup(sessionId, {
+          eventId,
+          userId,
+          source,
+        });
+        if (activeReadyGateKeyRef.current !== readyGateKey) return;
+        if (dateNavigationStartedRef.current || closedRef.current) return;
+        if (result.ok !== true) {
+          vdbg("ready_gate_room_warmup_after_ready_skipped", {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            code: result.code,
+            retryable: result.retryable,
+          });
+          return;
+        }
+
+        const canPrewarmDaily = await canStartDailyPrewarmAfterWarmup(userId);
+        if (activeReadyGateKeyRef.current !== readyGateKey) return;
+        if (!canPrewarmDaily || dateNavigationStartedRef.current || closedRef.current) {
+          vdbg("ready_gate_daily_prewarm_after_room_warmup_skipped", {
+            sessionId,
+            eventId,
+            userId,
+            source,
+            reason: canPrewarmDaily ? "closed_or_navigating" : "permission_not_proven",
+          });
+          return;
+        }
+
+        const prewarm = startWebVideoDateDailyPrewarm({
+          sessionId,
+          userId,
+          eventId,
+          roomName: result.data.room_name,
+          roomUrl: result.data.room_url,
+          source: "ready_gate_room_warmup_success",
+        });
+        vdbg("ready_gate_daily_prewarm_after_room_warmup", {
+          sessionId,
+          eventId,
+          userId,
+          source,
+          roomName: result.data.room_name,
+          ok: prewarm.ok,
+          reason: prewarm.ok === true ? null : prewarm.reason,
+        });
+      })();
+    },
+    [activeReadyGateKey, canStartDailyPrewarmAfterWarmup, eventId, sessionId, user?.id],
+  );
+
   const handleBothReady = useCallback(() => {
     if (closedRef.current && !dateNavigationStartedRef.current) return;
     if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) {
@@ -610,6 +699,7 @@ const ReadyGateOverlay = ({
           setPrepareEntryStatus(attempt === 0 ? "preparing" : "retrying");
           const result = await prepareVideoDateEntry(sessionId, {
             eventId,
+            userId: user?.id ?? null,
             source: attempt === 0 ? "ready_gate_both_ready" : "ready_gate_both_ready_retry",
             force: attempt > 0,
             bothReadyObservedAtMs: observedAtMs,
@@ -1231,6 +1321,7 @@ const ReadyGateOverlay = ({
     readyGateOpenedAtMsRef.current = Date.now();
     prepareEntryHandoffStartedRef.current = false;
     permissionPrewarmStartedRef.current = false;
+    roomWarmupStartedRef.current = false;
     prepareEntryRunIdRef.current += 1;
     fallbackGateDeadlineMsRef.current = Date.now() + GATE_TIMEOUT * 1000;
     setIsTransitioning(false);
@@ -1654,6 +1745,7 @@ const ReadyGateOverlay = ({
                         if (!result.ok) {
                           throw new Error("ready_gate_mark_ready_failed");
                         }
+                        startRoomWarmupAfterReady("ready_tap_mark_ready_success", result.status ?? null);
                       } catch (error) {
                         const message = "We couldn't mark you ready. Check your connection and try again.";
                         setTerminalActionError(message);

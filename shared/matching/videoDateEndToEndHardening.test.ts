@@ -763,7 +763,8 @@ test("daily-room supports room-only warmup without token issuance or entry trans
   assert.doesNotMatch(warmupBlock, /createMeetingToken/);
   assert.doesNotMatch(warmupBlock, /p_action: "prepare_entry"/);
   assert.doesNotMatch(warmupBlock, /confirmVideoDateEntryPrepared/);
-  assert.match(warmupBlock, /ready", "ready_a", "ready_b", "both_ready"/);
+  assert.match(warmupBlock, /"ready_a", "ready_b", "both_ready"/);
+  assert.doesNotMatch(warmupBlock, /"ready", "ready_a"/);
 });
 
 test("daily-room freshness proof and token guards reject stale terminal shortcuts", () => {
@@ -2360,10 +2361,12 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   }
   assert.match(webDailyPrewarm, /DailyIframe\.createCallObject\(dailyVideoDateCallObjectOptions\(captureProfile\)\)/);
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
-  assert.doesNotMatch(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
+  assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
+  assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /destroyWebVideoDateDailyPrewarm/);
-  assert.doesNotMatch(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /startNativeVideoDateDailyPrewarm/);
+  assert.match(nativeReadyGateOverlay, /startRoomWarmupAfterReady\('ready_tap_mark_ready_success'/);
   assert.match(nativeReadyGateOverlay, /preAuthNativeVideoDateDailyPrewarm/);
   assert.match(nativeReadyGateOverlay, /destroyNativeVideoDateDailyPrewarm/);
   assert.match(webVideoCallHook, /consumeWebVideoDateDailyPrewarm/);

@@ -54,6 +54,7 @@ type VideoDateRoomGateSession = {
   ended_at: string | null;
   ended_reason?: string | null;
   handshake_started_at: string | null;
+  date_started_at?: string | null;
   ready_gate_status: string | null;
   ready_gate_expires_at: string | null;
   state: string | null;
@@ -1465,14 +1466,20 @@ type PrepareEntryTransitionPayload = {
   preflight_only?: boolean;
   state?: string | null;
   phase?: string | null;
+  ended_at?: string | null;
+  ended_reason?: string | null;
   event_id?: string | null;
   participant_1_id?: string | null;
   participant_2_id?: string | null;
   handshake_started_at?: string | null;
+  date_started_at?: string | null;
   ready_gate_status?: string | null;
   ready_gate_expires_at?: string | null;
   daily_room_name?: string | null;
   daily_room_url?: string | null;
+  daily_room_verified_at?: string | null;
+  daily_room_expires_at?: string | null;
+  daily_room_provider_verify_reason?: string | null;
   entry_attempt_id?: string | null;
 };
 
@@ -2068,7 +2075,7 @@ serve(async (req) => {
           });
         }
 
-        const warmupEligibleStatuses = new Set(["ready", "ready_a", "ready_b", "both_ready"]);
+        const warmupEligibleStatuses = new Set(["ready_a", "ready_b", "both_ready"]);
         if (!warmupEligibleStatuses.has(String(session.ready_gate_status ?? ""))) {
           return createDateRoomRejectResponse({
             action: actionName,
@@ -2312,30 +2319,27 @@ serve(async (req) => {
           });
         }
 
-        const { data: sessionRow, error: sessionError } = await serviceClient
-          .from("video_sessions")
-          .select(
-            "id, event_id, participant_1_id, participant_2_id, daily_room_name, daily_room_url, daily_room_verified_at, daily_room_expires_at, daily_room_provider_verify_reason, ended_at, handshake_started_at, date_started_at, ready_gate_status, ready_gate_expires_at, state, phase",
-          )
-          .eq("id", sessionId)
-          .maybeSingle();
+        const sessionRow: VideoDateRoomGateSession = {
+          id: sessionId,
+          event_id: preparePayload.event_id ?? null,
+          participant_1_id: participant1,
+          participant_2_id: participant2,
+          daily_room_name: preparePayload.daily_room_name ?? null,
+          daily_room_url: preparePayload.daily_room_url ?? null,
+          daily_room_verified_at: preparePayload.daily_room_verified_at ?? null,
+          daily_room_expires_at: preparePayload.daily_room_expires_at ?? null,
+          daily_room_provider_verify_reason: preparePayload.daily_room_provider_verify_reason ?? null,
+          ended_at: preparePayload.ended_at ?? (preparePayload.state === "ended" ? new Date().toISOString() : null),
+          ended_reason: preparePayload.ended_reason ?? null,
+          handshake_started_at: preparePayload.handshake_started_at ?? null,
+          date_started_at: preparePayload.date_started_at ?? null,
+          ready_gate_status: preparePayload.ready_gate_status ?? null,
+          ready_gate_expires_at: preparePayload.ready_gate_expires_at ?? null,
+          state: preparePayload.state ?? null,
+          phase: preparePayload.phase ?? null,
+        };
 
-        if (sessionError || !sessionRow) {
-          return createDateRoomRejectResponse({
-            action: actionName,
-            sessionId,
-            userId: user.id,
-            status: 404,
-            code: "SESSION_NOT_FOUND",
-            error: "Session not found",
-            requestContext,
-            session: sessionForLog,
-            detail: sessionError ? sessionError.message : null,
-            extra: { entry_attempt_id: entryAttemptId, video_date_trace_id: videoDateTraceId },
-          });
-        }
-
-        sessionForLog = (sessionRow as VideoDateRoomGateSession | null) ?? sessionForLog;
+        sessionForLog = sessionRow;
 
         if (videoDateRoomGateSessionEnded(sessionForLog)) {
           await recordVideoDateProviderObservability({

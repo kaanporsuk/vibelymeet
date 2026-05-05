@@ -984,6 +984,7 @@ const VideoDate = () => {
     });
     logJourney("date_route_entered", { source: "mount" }, "date_route_entered");
     if (!id || !user?.id) return;
+    if (!import.meta.env.DEV) return;
     const userId = user.id;
     let cancelled = false;
     void supabase
@@ -1302,70 +1303,72 @@ const VideoDate = () => {
         });
         setVideoDateAccess("allowed");
 
-        try {
-          const { data: profile, error: profileError } = await supabase.rpc("get_profile_for_viewer", {
-            p_target_id: pId,
-          });
-
-          if (cancelled) return;
-
-          if (profileError) {
-            vdbg("date_guard_partner_profile_failed", {
-              sessionId: id,
-              eventId: sessionRow.event_id ?? null,
-              error: { code: profileError.code, message: profileError.message },
+        void (async () => {
+          try {
+            const { data: profile, error: profileError } = await supabase.rpc("get_profile_for_viewer", {
+              p_target_id: pId,
             });
-          }
 
-          if (profile) {
-            const row = profile as Record<string, unknown>;
-            const tags = Array.isArray(row.vibes)
-              ? row.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-              : [];
+            if (cancelled) return;
 
-            let prompts: { question: string; answer: string }[] = [];
-            if (Array.isArray(row.prompts)) {
-              prompts = (row.prompts as Array<{ question?: string; answer?: string }>).map((p) => ({
-                question: p.question || "",
-                answer: p.answer || "",
-              }));
+            if (profileError) {
+              vdbg("date_guard_partner_profile_failed", {
+                sessionId: id,
+                eventId: sessionRow.event_id ?? null,
+                error: { code: profileError.code, message: profileError.message },
+              });
             }
 
-            const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === "string") : [];
-            const avatarUrl = typeof row.avatar_url === "string" ? row.avatar_url : null;
-            const primaryPath = photoArr[0] || avatarUrl;
-            const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
-            setPartnerPhotoUrl(resolvedUrl);
+            if (profile) {
+              const row = profile as Record<string, unknown>;
+              const tags = Array.isArray(row.vibes)
+                ? row.vibes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+                : [];
 
-            const resolvedPhotos: string[] = photoArr
-              .slice(0, 6)
-              .map((p) => resolvePhoto(p))
-              .filter(Boolean) as string[];
+              let prompts: { question: string; answer: string }[] = [];
+              if (Array.isArray(row.prompts)) {
+                prompts = (row.prompts as Array<{ question?: string; answer?: string }>).map((p) => ({
+                  question: p.question || "",
+                  answer: p.answer || "",
+                }));
+              }
 
-            setPartner({
-              name: typeof row.name === "string" ? row.name : "Your date",
-              age: typeof row.age === "number" ? row.age : 0,
-              tags,
-              avatarUrl: resolvedUrl || undefined,
-              photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
-              about_me: typeof row.about_me === "string" ? row.about_me : undefined,
-              job: typeof row.job === "string" ? row.job : undefined,
-              location: typeof row.location === "string" ? row.location : undefined,
-              heightCm: typeof row.height_cm === "number" ? row.height_cm : undefined,
-              prompts,
-            });
+              const photoArr = Array.isArray(row.photos) ? row.photos.filter((p): p is string => typeof p === "string") : [];
+              const avatarUrl = typeof row.avatar_url === "string" ? row.avatar_url : null;
+              const primaryPath = photoArr[0] || avatarUrl;
+              const resolvedUrl = primaryPath ? resolvePhoto(primaryPath) : null;
+              setPartnerPhotoUrl(resolvedUrl);
+
+              const resolvedPhotos: string[] = photoArr
+                .slice(0, 6)
+                .map((p) => resolvePhoto(p))
+                .filter(Boolean) as string[];
+
+              setPartner({
+                name: typeof row.name === "string" ? row.name : "Your date",
+                age: typeof row.age === "number" ? row.age : 0,
+                tags,
+                avatarUrl: resolvedUrl || undefined,
+                photos: resolvedPhotos.length > 0 ? resolvedPhotos : undefined,
+                about_me: typeof row.about_me === "string" ? row.about_me : undefined,
+                job: typeof row.job === "string" ? row.job : undefined,
+                location: typeof row.location === "string" ? row.location : undefined,
+                heightCm: typeof row.height_cm === "number" ? row.height_cm : undefined,
+                prompts,
+              });
+            }
+          } catch (profileErr) {
+            if (!cancelled) {
+              vdbg("date_guard_partner_profile_failed", {
+                sessionId: id,
+                eventId: sessionRow.event_id ?? null,
+                error: profileErr instanceof Error
+                  ? { name: profileErr.name, message: profileErr.message }
+                  : String(profileErr),
+              });
+            }
           }
-        } catch (profileErr) {
-          if (!cancelled) {
-            vdbg("date_guard_partner_profile_failed", {
-              sessionId: id,
-              eventId: sessionRow.event_id ?? null,
-              error: profileErr instanceof Error
-                ? { name: profileErr.name, message: profileErr.message }
-                : String(profileErr),
-            });
-          }
-        }
+        })();
       } catch (err) {
         console.error("Error loading video date session:", err);
         vdbg("date_guard_exception", {
