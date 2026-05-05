@@ -87,7 +87,9 @@ select
   def like '%pre_swipe_global_active_session_guard%'
   and def like '%public.video_session_blocks_global_active_conflict(%'
   and def like '%handle_swipe_20260506090000_stale_room_base%'
-  and position('pre_swipe_global_active_session_guard' in def) < position('handle_swipe_20260506090000_stale_room_base' in def)
+  and position('RETURN public.handle_swipe_20260506090000_stale_room_base' in substring(
+    def from position('pre_swipe_global_active_session_guard' in def)
+  )) > 0
   and def like '%''outcome'', ''participant_has_active_session_conflict''%' as ok
 from swipe;
 
