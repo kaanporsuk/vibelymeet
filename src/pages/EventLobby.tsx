@@ -1142,7 +1142,7 @@ const EventLobby = () => {
     sortedProfiles.length,
   ]);
 
-  const afterSuccessfulSwipe = useCallback(
+  const advanceDeckAfterSwipe = useCallback(
     (targetId: string) => {
       seenProfileIds.current.add(targetId);
       setDeckNonce((n) => n + 1);
@@ -1161,9 +1161,16 @@ const EventLobby = () => {
     });
     haptics.light();
     const result = await swipe(targetId, "vibe");
-    if (!result || result.success === false) return;
+    if (!result) return;
 
-    const code = result.result === "swipe_recorded" ? "vibe_recorded" : result.result;
+    const rawCode = result.result ?? result.outcome ?? result.error;
+    const code = rawCode === "swipe_recorded" ? "vibe_recorded" : rawCode;
+    if (result.success === false) {
+      if (shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        advanceDeckAfterSwipe(targetId);
+      }
+      return;
+    }
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "vibe", target_present: true });
@@ -1178,8 +1185,8 @@ const EventLobby = () => {
       haptics.medium();
     }
 
-    afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
+    advanceDeckAfterSwipe(targetId);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId]);
 
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
@@ -1190,9 +1197,15 @@ const EventLobby = () => {
       swipe_type: "pass",
     });
     const result = await swipe(targetId, "pass");
-    if (!result || result.success === false) return;
+    if (!result) return;
 
-    const code = result.result;
+    const code = result.result ?? result.outcome ?? result.error;
+    if (result.success === false) {
+      if (shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        advanceDeckAfterSwipe(targetId);
+      }
+      return;
+    }
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
     trackEvent("lobby_profile_swiped", { event_id: eventId, swipe_type: "pass", target_present: true });
@@ -1203,8 +1216,8 @@ const EventLobby = () => {
       result_code: code,
     });
 
-    afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
+    advanceDeckAfterSwipe(targetId);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId]);
 
   const handleSuperVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
@@ -1216,9 +1229,15 @@ const EventLobby = () => {
       swipe_type: "super_vibe",
     });
     const result = await swipe(targetId, "super_vibe");
-    if (!result || result.success === false) return;
+    if (!result) return;
 
-    const code = result.result;
+    const code = result.result ?? result.outcome ?? result.error;
+    if (result.success === false) {
+      if (shouldAdvanceLobbyDeckAfterSwipe(code)) {
+        advanceDeckAfterSwipe(targetId);
+      }
+      return;
+    }
     if (!shouldAdvanceLobbyDeckAfterSwipe(code)) return;
 
     if (code === "super_vibe_sent") {
@@ -1234,8 +1253,8 @@ const EventLobby = () => {
       result_code: code,
     });
 
-    afterSuccessfulSwipe(targetId);
-  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, afterSuccessfulSwipe, eventId]);
+    advanceDeckAfterSwipe(targetId);
+  }, [currentProfile, isProcessing, lobbyActionsEnabled, swipe, advanceDeckAfterSwipe, eventId]);
 
   const yieldingToVideoDateUi = Boolean(dateNavigationSessionId || sameEventScopedSession?.kind === "video");
   const yieldingToReadyGateUi = Boolean(

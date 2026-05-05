@@ -77,6 +77,7 @@ import {
 import { getRelationshipIntentDisplaySafe } from '@shared/profileContracts';
 import { resolvePrimaryProfilePhotoPath } from '../../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
+  getSwipeFailureUserMessage,
   videoSessionIdFromSwipePayload,
   videoSessionIdFromDrainPayload,
   shouldOpenReadyGateFromSwipePayload,
@@ -91,6 +92,13 @@ import { eventLobbyHref } from '@/lib/activeSessionRoutes';
 
 const READY_GATE_ACTIVE_STATUSES = new Set(['ready', 'ready_a', 'ready_b', 'both_ready', 'snoozed']);
 const READY_GATE_MANUAL_EXIT_SUPPRESS_MS = 45_000;
+const GENERIC_SWIPE_FAILURE_OUTCOMES = new Set([
+  'unknown',
+  'swipe_failed',
+  'internal_error',
+  'invalid_request',
+  'unauthorized',
+]);
 
 /**
  * If the in-lobby Ready Gate overlay stops making progress (realtime gaps, missed transitions),
@@ -1363,6 +1371,14 @@ export default function EventLobbyScreen() {
             primaryAction: { label: 'OK', onPress: () => {} },
           });
           break;
+        case 'pair_already_met_this_event':
+          show({
+            title: 'Already met',
+            message: 'You already met this person in this event. Keep browsing for new people.',
+            variant: 'info',
+            primaryAction: { label: 'OK', onPress: () => {} },
+          });
+          break;
         case 'event_not_active':
           show({
             title: 'Event not active',
@@ -1920,13 +1936,22 @@ export default function EventLobbyScreen() {
           void queryClient.invalidateQueries({ queryKey: ['event-details', id] });
         }
         showSwipeToast(failureOutcome);
-        if (failureOutcome === 'unknown') {
+        if (GENERIC_SWIPE_FAILURE_OUTCOMES.has(failureOutcome)) {
           show({
             title: 'Unable to swipe',
-            message: envelope.message ?? 'Try again in a moment.',
+            message: getSwipeFailureUserMessage(normalizedEnvelope),
             variant: 'warning',
             primaryAction: { label: 'OK', onPress: () => {} },
           });
+        }
+        if (shouldAdvanceLobbyDeckAfterSwipe(failureOutcome)) {
+          seenProfileIdsRef.current.add(targetId);
+          setDeckNonce((n) => n + 1);
+          void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
+          const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id)).length;
+          if (remainingVisible === 0) {
+            void refetchDeck();
+          }
         }
         return;
       }
@@ -2088,10 +2113,7 @@ export default function EventLobbyScreen() {
         refreshQueueAndSuperVibe();
       }
 
-      const shouldAdvanceDeck =
-        shouldAdvanceLobbyDeckAfterSwipe(outcome) &&
-        outcome !== 'target_unavailable' &&
-        outcome !== 'account_paused';
+      const shouldAdvanceDeck = shouldAdvanceLobbyDeckAfterSwipe(outcome);
       if (!shouldAdvanceDeck) {
         return;
       }

@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  getSwipeFailureUserMessage,
   normalizedSwipeSessionStageResult,
   shouldAdvanceLobbyDeckAfterSwipe,
   shouldOpenReadyGateFromSwipePayload,
   shouldTrackQueuedSwipeSession,
+  SWIPE_PAIR_ALREADY_MET_USER_MESSAGE,
+  SWIPE_SESSION_CONFLICT_USER_MESSAGE,
+  SWIPE_TARGET_UNAVAILABLE_USER_MESSAGE,
   videoSessionIdFromSwipePayload,
 } from "./videoSessionFlow";
 
@@ -75,5 +79,24 @@ test("match_immediate and match_queued semantics remain distinct", () => {
 test("already_matched remains a no-advance deck result even when routable", () => {
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("already_matched"), false);
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("already_swiped"), false);
+  assert.equal(shouldAdvanceLobbyDeckAfterSwipe("account_paused"), false);
+  assert.equal(shouldAdvanceLobbyDeckAfterSwipe("swipe_failed"), false);
   assert.equal(shouldAdvanceLobbyDeckAfterSwipe("swipe_recorded"), true);
+  assert.equal(shouldAdvanceLobbyDeckAfterSwipe("target_unavailable"), true);
+  assert.equal(shouldAdvanceLobbyDeckAfterSwipe("pair_already_met_this_event"), true);
+});
+
+test("known swipe failures map to explicit user copy", () => {
+  assert.equal(
+    getSwipeFailureUserMessage({ success: false, result: "participant_has_active_session_conflict" }),
+    SWIPE_SESSION_CONFLICT_USER_MESSAGE,
+  );
+  assert.equal(
+    getSwipeFailureUserMessage({ success: false, result: "pair_already_met_this_event" }),
+    SWIPE_PAIR_ALREADY_MET_USER_MESSAGE,
+  );
+  assert.equal(
+    getSwipeFailureUserMessage({ success: false, error: "target_unavailable" }),
+    SWIPE_TARGET_UNAVAILABLE_USER_MESSAGE,
+  );
 });
