@@ -164,7 +164,9 @@ const ReadyGateOverlay = ({
   const expirySyncInFlightRef = useRef(false);
   const expirySyncRetryAtMsRef = useRef(0);
   const fallbackGateDeadlineMsRef = useRef(Date.now() + GATE_TIMEOUT * 1000);
-  const activeReadyGateKeyRef = useRef(`${sessionId}:${eventId}`);
+  const activeReadyGateKey = `${sessionId}:${eventId}`;
+  const activeReadyGateKeyRef = useRef(activeReadyGateKey);
+  activeReadyGateKeyRef.current = activeReadyGateKey;
   const bothReadyObservedAtMsRef = useRef<number | null>(null);
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
@@ -332,7 +334,7 @@ const ReadyGateOverlay = ({
   const startRoomWarmup = useCallback((source: string) => {
     if (roomWarmupStartedRef.current || closedRef.current || dateNavigationStartedRef.current) return;
     roomWarmupStartedRef.current = true;
-    const readyGateKey = `${sessionId}:${eventId}`;
+    const readyGateKey = activeReadyGateKey;
     void ensureVideoDateRoom(sessionId, {
       eventId,
       source,
@@ -357,7 +359,7 @@ const ReadyGateOverlay = ({
       if (activeReadyGateKeyRef.current !== readyGateKey) return;
       roomWarmupStartedRef.current = false;
     });
-  }, [eventId, sessionId]);
+  }, [activeReadyGateKey, eventId, sessionId]);
 
   // Web Ready Gate permission prewarm: writes the existing
   // VideoDatePermissionHandoff (consumed by useVideoCall ~L1372) so the date
@@ -376,7 +378,7 @@ const ReadyGateOverlay = ({
       const userId = user?.id;
       if (!userId) return;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
-      const readyGateKey = `${sessionId}:${eventId}`;
+      const readyGateKey = activeReadyGateKey;
 
       if (getVideoDatePermissionHandoff(sessionId, userId)) {
         permissionPrewarmStartedRef.current = true;
@@ -532,7 +534,7 @@ const ReadyGateOverlay = ({
         });
       }
     },
-    [eventId, sessionId, user?.id],
+    [activeReadyGateKey, eventId, sessionId, user?.id],
   );
 
   const handleBothReady = useCallback(() => {
@@ -1215,7 +1217,6 @@ const ReadyGateOverlay = ({
   }, [iAmReady]);
 
   useEffect(() => {
-    activeReadyGateKeyRef.current = `${sessionId}:${eventId}`;
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
