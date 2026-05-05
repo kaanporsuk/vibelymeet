@@ -20,6 +20,26 @@ export type ActiveSessionBase = {
 
 export type VideoSessionTruthRouteDecision = "navigate_date" | "navigate_ready" | "stay_lobby" | "ended";
 
+export type ReadyGateTransitionActiveSessionTruth = {
+  code?: string | null;
+  date_capable?: boolean | null;
+  error?: string | null;
+  error_code?: string | null;
+  inactive_reason?: string | null;
+  ready_gate_expires_at?: string | number | null;
+  ready_gate_status?: string | null;
+  reason?: string | null;
+  status?: string | null;
+  success?: boolean | null;
+  terminal?: boolean | null;
+};
+
+export function normalizeReadyGateTransitionActiveSessionTruth(
+  data: unknown,
+): ReadyGateTransitionActiveSessionTruth | null {
+  return data && typeof data === "object" ? (data as ReadyGateTransitionActiveSessionTruth) : null;
+}
+
 type VideoSessionDailyRoomTruth = {
   daily_room_name?: string | null;
   daily_room_url?: string | null;
@@ -40,9 +60,9 @@ type VideoSessionDailyRoomTruth = {
 };
 
 export const POST_DATE_SURVEY_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const ACTIVE_SESSION_HANDSHAKE_FRESH_MS = 2 * 60 * 1000;
+export const ACTIVE_SESSION_HANDSHAKE_FRESH_MS = 90 * 1000;
 export const ACTIVE_SESSION_DATE_BASE_SECONDS = 300;
-export const ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS = 120;
+export const ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS = 60;
 export const ACTIVE_SESSION_FALLBACK_MAX_AGE_MS = 10 * 60 * 1000;
 
 export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
@@ -57,6 +77,41 @@ export const POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS = [
 const postDateSurveyIneligibleEndedReasons = new Set<string>(
   POST_DATE_SURVEY_INELIGIBLE_ENDED_REASONS,
 );
+
+const ACTIVE_SESSION_READY_GATE_BLOCKING_CODES = new Set([
+  "ACCESS_DENIED",
+  "EVENT_NOT_ACTIVE",
+  "READY_GATE_NOT_READY",
+  "UNAUTHORIZED",
+  "access_denied",
+  "event_archived",
+  "event_cancelled",
+  "event_ended",
+  "event_inactive",
+  "event_not_active",
+  "event_not_live",
+  "event_outside_live_window",
+  "expired",
+  "forfeited",
+  "guarded_update_zero_rows",
+  "missing_participant_registration",
+  "partner_forfeited",
+  "participant_forfeited",
+  "ready_gate_event_archived",
+  "ready_gate_event_cancelled",
+  "ready_gate_event_ended",
+  "ready_gate_event_inactive",
+  "ready_gate_expired",
+  "ready_gate_forfeit",
+  "ready_gate_registration_desync",
+  "ready_gate_timeout",
+  "registration_desync",
+  "session_ended",
+  "session_no_longer_ready_gate_mutable",
+  "session_not_found",
+  "stale_transition",
+  "terminal_state",
+]);
 
 export type VideoSessionPendingSurveyTruth = {
   id?: string | null;
@@ -89,6 +144,31 @@ function timestampMs(raw: string | number | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+function normalizeReason(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readyGateTransitionStatus(
+  truth: ReadyGateTransitionActiveSessionTruth | null | undefined,
+): string | null {
+  return normalizeReason(truth?.ready_gate_status) ?? normalizeReason(truth?.status);
+}
+
+function readyGateTransitionReasons(
+  truth: ReadyGateTransitionActiveSessionTruth | null | undefined,
+): string[] {
+  return [
+    readyGateTransitionStatus(truth),
+    normalizeReason(truth?.reason),
+    normalizeReason(truth?.error),
+    normalizeReason(truth?.error_code),
+    normalizeReason(truth?.code),
+    normalizeReason(truth?.inactive_reason),
+  ].filter((value): value is string => Boolean(value));
+}
+
 function isTimestampFresh(
   raw: string | number | null | undefined,
   nowMs: number,
@@ -96,7 +176,7 @@ function isTimestampFresh(
 ): boolean {
   const ms = timestampMs(raw);
   if (ms == null) return false;
-  return nowMs - ms <= maxAgeMs;
+  return nowMs - ms < maxAgeMs;
 }
 
 function activeReconnectGraceIsOpen(
@@ -280,12 +360,52 @@ export function videoSessionRowReadyGateEligible(
 ): boolean {
   if (!row) return false;
   const status = row.ready_gate_status ?? null;
-  if (status === "ready" || status === "ready_a" || status === "ready_b" || status === "snoozed") {
-    return true;
+  if (
+    status === "ready" ||
+    status === "ready_a" ||
+    status === "ready_b" ||
+    status === "snoozed" ||
+    status === "both_ready"
+  ) {
+    const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
+    return expiresMs != null && expiresMs > nowMs;
   }
-  if (status !== "both_ready") return false;
-  const expiresMs = readyGateExpiryMs(row.ready_gate_expires_at);
-  return expiresMs != null && expiresMs > nowMs;
+  return false;
+}
+
+export function readyGateTransitionResultHasDateCapableTruth(
+  truth: ReadyGateTransitionActiveSessionTruth | null | undefined,
+): boolean {
+  return truth?.date_capable === true;
+}
+
+export function readyGateTransitionResultBlocksActiveSession(
+  truth: ReadyGateTransitionActiveSessionTruth | null | undefined,
+): boolean {
+  if (!truth || typeof truth !== "object") return true;
+  if (truth.success === false) return true;
+
+  const status = readyGateTransitionStatus(truth);
+  if (status === "expired" || status === "forfeited") return true;
+  if (truth.terminal === true && status !== "both_ready") return true;
+
+  return readyGateTransitionReasons(truth).some((reason) =>
+    ACTIVE_SESSION_READY_GATE_BLOCKING_CODES.has(reason),
+  );
+}
+
+export function readyGateTransitionResultReadyGateEligible(
+  truth: ReadyGateTransitionActiveSessionTruth | null | undefined,
+  nowMs: number = Date.now(),
+): boolean {
+  if (readyGateTransitionResultBlocksActiveSession(truth)) return false;
+  return videoSessionRowReadyGateEligible(
+    {
+      ready_gate_status: readyGateTransitionStatus(truth),
+      ready_gate_expires_at: truth?.ready_gate_expires_at,
+    },
+    nowMs,
+  );
 }
 
 export function decideVideoSessionRouteFromTruth(
@@ -320,7 +440,7 @@ export function isActiveSessionDirectFallbackFresh(
         : 0;
     const maxDateAgeMs =
       (ACTIVE_SESSION_DATE_BASE_SECONDS + extraSeconds + ACTIVE_SESSION_DATE_STALE_BUFFER_SECONDS) * 1000;
-    return nowMs - dateStartedMs <= maxDateAgeMs;
+    return nowMs - dateStartedMs < maxDateAgeMs;
   }
 
   if (row.state === "date" || row.phase === "date") {

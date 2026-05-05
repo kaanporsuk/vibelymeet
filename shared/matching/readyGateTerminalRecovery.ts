@@ -45,7 +45,10 @@ const READY_GATE_EVENT_INACTIVE_CODES = new Set([
 
 const READY_GATE_FORFEIT_CODES = new Set([
   "forfeited",
+  "missing_participant_registration",
   "ready_gate_forfeit",
+  "ready_gate_registration_desync",
+  "registration_desync",
   "partner_forfeited",
   "participant_forfeited",
 ]);
