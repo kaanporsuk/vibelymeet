@@ -24,10 +24,14 @@ interface ReadyGateState {
   expiresAt: string | null;
 }
 
+type ReadyGateBothReadySourceAction =
+  | "both_ready_observed"
+  | "both_ready_observed_via_rpc_short_circuit";
+
 interface UseReadyGateOptions {
   sessionId: string;
   eventId?: string | null;
-  onBothReady: () => void;
+  onBothReady: (sourceAction?: ReadyGateBothReadySourceAction) => void;
   onForfeited: (reason: "timeout" | "skip", detail?: ReadyGateTerminalDetail) => void;
 }
 
@@ -65,6 +69,8 @@ type ReadyGateSessionTruth = {
   participant_2_id?: string | null;
   ready_gate_status?: ReadyGateStatus | string | null;
   status?: ReadyGateStatus | string | null;
+  result_status?: ReadyGateStatus | string | null;
+  result_ready_gate_status?: ReadyGateStatus | string | null;
   ready_participant_1_at?: string | null;
   ready_participant_2_at?: string | null;
   ready_gate_expires_at?: string | null;
@@ -212,12 +218,16 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
     syncSessionInFlightRef.current = null;
   }, [sessionId]);
 
-  const notifyTerminal = useCallback((status: TerminalReadyGateStatus, detail?: ReadyGateTerminalDetail) => {
+  const notifyTerminal = useCallback((
+    status: TerminalReadyGateStatus,
+    detail?: ReadyGateTerminalDetail,
+    bothReadySourceAction: ReadyGateBothReadySourceAction = "both_ready_observed",
+  ) => {
     if (terminalHandledRef.current === status) return;
     terminalHandledRef.current = status;
     readyGateDebug("terminal status notification", { sessionId, status });
     if (status === ReadyGateStatus.BothReady) {
-      onBothReadyRef.current();
+      onBothReadyRef.current(bothReadySourceAction);
       return;
     }
     if (status === ReadyGateStatus.Forfeited || status === ReadyGateStatus.Expired) {
@@ -230,9 +240,17 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
 
   const applyReadyGateTruth = useCallback((
     truth: ReadyGateSessionTruth,
-    options?: { partnerName?: string | null },
+    options?: {
+      partnerName?: string | null;
+      bothReadySourceAction?: ReadyGateBothReadySourceAction;
+    },
   ): ReadyGateSyncResult => {
-    const nextStatus = normalizeReadyGateStatus(truth.ready_gate_status ?? truth.status);
+    const nextStatus = normalizeReadyGateStatus(
+      truth.ready_gate_status ??
+      truth.status ??
+      truth.result_ready_gate_status ??
+      truth.result_status,
+    );
     const p1 = typeof truth.participant_1_id === "string" ? truth.participant_1_id : null;
     const p2 = typeof truth.participant_2_id === "string" ? truth.participant_2_id : null;
 
@@ -275,7 +293,7 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         errorCode: truth.error_code ?? truth.code ?? null,
         code: truth.code ?? null,
         terminal: truth.terminal ?? null,
-      });
+      }, options?.bothReadySourceAction);
     } else {
       terminalHandledRef.current = null;
     }
@@ -468,12 +486,27 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
       ? (data as ReadyGateSessionTruth & { success?: boolean; error?: string | null })
       : null;
     if (payload) {
+      const payloadStatus = normalizeReadyGateStatus(
+        payload.ready_gate_status ??
+        payload.status ??
+        payload.result_ready_gate_status ??
+        payload.result_status,
+      );
       const result = applyReadyGateTruth({
         ...payload,
-        ready_gate_status: payload.status ?? payload.ready_gate_status,
+        ready_gate_status:
+          payload.ready_gate_status ??
+          payload.status ??
+          payload.result_ready_gate_status ??
+          payload.result_status,
+      }, {
+        bothReadySourceAction:
+          action === "mark_ready" && payloadStatus === ReadyGateStatus.BothReady
+            ? "both_ready_observed_via_rpc_short_circuit"
+            : undefined,
       });
       const errorCode = payload.error_code ?? payload.code ?? null;
-      const transitionStatus = result.ok === true ? result.status : normalizeReadyGateStatus(payload.status ?? payload.ready_gate_status);
+      const transitionStatus = result.ok === true ? result.status : payloadStatus;
       const transitionTerminal = result.ok === true ? result.isTerminal : isTerminalReadyGateStatus(transitionStatus);
       const reason = sanitizeReasonCode(
         payload.reason ?? payload.error ?? errorCode ?? transitionStatus ?? action,
@@ -502,7 +535,12 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
         });
         if (errorCode === "EVENT_NOT_ACTIVE" || payload.reason === "event_not_active") {
           notifyTerminal(ReadyGateStatus.Expired, {
-            status: payload.status ?? payload.ready_gate_status ?? ReadyGateStatus.Expired,
+            status:
+              payload.ready_gate_status ??
+              payload.status ??
+              payload.result_ready_gate_status ??
+              payload.result_status ??
+              ReadyGateStatus.Expired,
             reason: payload.reason ?? payload.error ?? "event_not_active",
             inactiveReason: payload.inactive_reason ?? null,
             errorCode,
@@ -704,7 +742,12 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
           hint: payload.hint ?? null,
           reason: payload.reason ?? payload.error ?? null,
           errorCode: payload.error_code ?? payload.code ?? null,
-          readyGateStatus: payload.ready_gate_status ?? payload.status ?? null,
+          readyGateStatus:
+            payload.ready_gate_status ??
+            payload.status ??
+            payload.result_ready_gate_status ??
+            payload.result_status ??
+            null,
           terminal: payload.terminal ?? null,
         });
         return {
@@ -722,7 +765,11 @@ export const useReadyGate = ({ sessionId, eventId, onBothReady, onForfeited }: U
 
       return applyReadyGateTruth({
         ...payload,
-        ready_gate_status: payload.status ?? payload.ready_gate_status,
+        ready_gate_status:
+          payload.ready_gate_status ??
+          payload.status ??
+          payload.result_ready_gate_status ??
+          payload.result_status,
       });
     })();
 

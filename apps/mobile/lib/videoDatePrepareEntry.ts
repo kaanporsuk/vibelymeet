@@ -274,6 +274,8 @@ export async function prepareVideoDateEntry(
       room_create_or_verify_ms: result.data.timings?.room_create_or_verify_ms ?? null,
       token_ms: result.data.timings?.token_ms ?? null,
       confirm_prepare_ms: result.data.timings?.confirm_prepare_ms ?? null,
+      edge_cold_start_ms: result.data.timings?.edge_cold_start_ms ?? null,
+      edge_process_uptime_ms: result.data.timings?.edge_process_uptime_ms ?? null,
       edge_total_ms: result.data.timings?.total_ms ?? null,
       entry_attempt_id: result.data.entry_attempt_id ?? entryAttemptId,
       video_date_trace_id: traceId,

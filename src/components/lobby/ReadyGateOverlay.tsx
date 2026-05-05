@@ -609,7 +609,9 @@ const ReadyGateOverlay = ({
     [activeReadyGateKey, canStartDailyPrewarmAfterWarmup, eventId, sessionId, user?.id],
   );
 
-  const handleBothReady = useCallback(() => {
+  const handleBothReady = useCallback((
+    sourceAction: "both_ready_observed" | "both_ready_observed_via_rpc_short_circuit" = "both_ready_observed",
+  ) => {
     if (closedRef.current && !dateNavigationStartedRef.current) return;
     if (prepareEntryHandoffStartedRef.current || dateNavigationStartedRef.current) {
       suppressDuplicateNav(prepareEntryHandoffStartedRef.current ? "prepare_entry_inflight" : "date_navigation_inflight");
@@ -629,6 +631,9 @@ const ReadyGateOverlay = ({
       !closedRef.current &&
       !dateNavigationStartedRef.current;
     const observedAtMs = Date.now();
+    const observedSource = sourceAction === "both_ready_observed_via_rpc_short_circuit"
+      ? "mark_ready_rpc"
+      : "both_ready";
     bothReadyObservedAtMsRef.current = observedAtMs;
     setIsTransitioning(true);
     setPrepareEntryStatus("preparing");
@@ -638,15 +643,15 @@ const ReadyGateOverlay = ({
       platform: "web",
       eventId,
       sourceSurface: "ready_gate_overlay",
-      checkpoint: "both_ready_observed",
+      checkpoint: sourceAction,
       nowMs: observedAtMs,
     });
     trackEvent(
       LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
       buildReadyGateToDateLatencyPayload({
         context: latencyContext,
-        checkpoint: "both_ready_observed",
-        sourceAction: "both_ready_observed",
+        checkpoint: sourceAction,
+        sourceAction,
         outcome: "success",
       }),
     );
@@ -654,14 +659,15 @@ const ReadyGateOverlay = ({
       platform: "web",
       session_id: sessionId,
       event_id: eventId,
-      source: "both_ready",
+      source: observedSource,
       source_surface: "ready_gate_overlay",
-      source_action: "both_ready_observed",
+      source_action: sourceAction,
     });
     vdbg("ready_gate_both_ready_observed", {
       sessionId,
       eventId,
-      source: "both_ready",
+      source: observedSource,
+      sourceAction,
     });
 
     const slowWaitTimer = window.setTimeout(() => {

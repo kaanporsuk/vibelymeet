@@ -373,6 +373,10 @@ export function ReadyGateOverlay({
       setPrepareEntryStatus('preparing');
       setPrepareEntryFailure(null);
       const observedAtMs = Date.now();
+      const bothReadyCheckpoint =
+        source === 'both_ready_observed_via_rpc_short_circuit'
+          ? 'both_ready_observed_via_rpc_short_circuit'
+          : 'both_ready_observed';
       bothReadyObservedAtMsRef.current = observedAtMs;
       rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_observed', {
         event_id: eventId,
@@ -385,22 +389,22 @@ export function ReadyGateOverlay({
         event_id: eventId,
         source,
         source_surface: 'ready_gate_overlay',
-        source_action: 'both_ready_observed',
+        source_action: bothReadyCheckpoint,
       });
       const latencyContext = recordReadyGateToDateLatencyCheckpoint({
         sessionId,
         platform: 'native',
         eventId,
         sourceSurface: 'ready_gate_overlay',
-        checkpoint: 'both_ready_observed',
+        checkpoint: bothReadyCheckpoint,
         nowMs: observedAtMs,
       });
       trackEvent(
         LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
         buildReadyGateToDateLatencyPayload({
           context: latencyContext,
-          checkpoint: 'both_ready_observed',
-          sourceAction: source,
+          checkpoint: bothReadyCheckpoint,
+          sourceAction: bothReadyCheckpoint,
           outcome: 'success',
         }),
       );
@@ -725,32 +729,41 @@ export function ReadyGateOverlay({
     [eventId, onClose, onLobbyUserMessage, sessionId, startPrepareEntryHandoff, userId]
   );
 
-  const handleBothReady = useCallback(() => {
+  const handleBothReady = useCallback((
+    sourceAction: 'both_ready_observed' | 'both_ready_observed_via_rpc_short_circuit' = 'both_ready_observed',
+  ) => {
     if (closedRef.current) return;
-    rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', { event_id: eventId, session_id: sessionId });
-    rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId });
+    const source = sourceAction === 'both_ready_observed_via_rpc_short_circuit'
+      ? 'mark_ready_rpc'
+      : 'both_ready';
+    const handoffSource = sourceAction === 'both_ready_observed_via_rpc_short_circuit'
+      ? sourceAction
+      : 'both_ready';
+    rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_both_ready_seen', { event_id: eventId, session_id: sessionId, source_action: sourceAction });
+    rcBreadcrumb(RC_CATEGORY.readyGate, 'lobby_overlay_both_ready', { eventId, source_action: sourceAction });
     trackEvent(LobbyPostDateEvents.READY_GATE_BOTH_READY, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
-      source: 'both_ready',
+      source,
       source_surface: 'ready_gate_overlay',
-      source_action: 'both_ready',
+      source_action: sourceAction,
     });
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_BOTH_READY, {
       platform: 'native',
       session_id: sessionId,
       event_id: eventId,
-      source: 'both_ready',
+      source,
       source_surface: 'ready_gate_overlay',
-      source_action: 'both_ready',
+      source_action: sourceAction,
     });
     vdbg('lobby_navigate_to_date', {
       trigger: 'ready_gate_overlay_both_ready',
       sessionId,
       eventId,
+      sourceAction,
     });
-    startPrepareEntryHandoff('both_ready');
+    startPrepareEntryHandoff(handoffSource);
   }, [sessionId, eventId, startPrepareEntryHandoff]);
 
   const handleForfeited = useCallback(

@@ -131,6 +131,10 @@ const launchLatencyCheckpointObservabilityMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505120000_video_date_launch_latency_checkpoint_observability.sql"),
   "utf8",
 );
+const rpcShortCircuitAndKeepwarmMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260505214500_video_date_rpc_short_circuit_and_daily_keepwarm.sql"),
+  "utf8",
+);
 const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
   "utf8",
@@ -217,6 +221,10 @@ const nativeAnalytics = readFileSync(
 );
 const launchLatencyCheckpointObservability = readFileSync(
   join(process.cwd(), "shared/observability/videoDateLaunchLatencyCheckpointObservability.ts"),
+  "utf8",
+);
+const videoDateOperatorMetrics = readFileSync(
+  join(process.cwd(), "shared/observability/videoDateOperatorMetrics.ts"),
   "utf8",
 );
 const webActiveSessionHook = readFileSync(
@@ -913,7 +921,7 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
   assert.match(webReadyGateHook, /const \{ error \} = await supabase\.rpc\("ready_gate_transition"/);
   assert.match(webReadyGateHook, /const syncSession = useCallback\(async \(\): Promise<ReadyGateSyncResult> =>/);
   assert.match(webReadyGateHook, /p_action: "sync" satisfies ReadyGateTransitionAction/);
-  assert.match(webReadyGateHook, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status: payload\.status \?\? payload\.ready_gate_status/s);
+  assert.match(webReadyGateHook, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status:[\s\S]*payload\.ready_gate_status[\s\S]*payload\.result_status/s);
   assert.match(webReadyGateHook, /ok: false[\s\S]*ok: true/);
   assert.match(readyGateOverlay, /const runTerminalAction = useCallback\(/);
   assert.match(readyGateOverlay, /const result = await skip\(\)/);
@@ -936,7 +944,7 @@ test("ready-gate terminal actions wait for server forfeit before closing", () =>
   assert.match(nativeReadyGateApi, /const \{ error \} = await supabase\.rpc\('ready_gate_transition'/);
   assert.match(nativeReadyGateApi, /const syncSession = useCallback\(async \(\): Promise<ReadyGateSyncResult> =>/);
   assert.match(nativeReadyGateApi, /p_action: 'sync' satisfies ReadyGateTransitionAction/);
-  assert.match(nativeReadyGateApi, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status: payload\.status \?\? payload\.ready_gate_status/s);
+  assert.match(nativeReadyGateApi, /return applyReadyGateTruth\(\{[\s\S]*ready_gate_status:[\s\S]*payload\.ready_gate_status[\s\S]*payload\.result_status/s);
   assert.match(nativeReadyGateApi, /ok: false[\s\S]*ok: true/);
   assert.match(nativeReadyGateOverlay, /const handleSkip = useCallback\(async \(reason: 'skip' = 'skip'\) =>/);
   assert.match(nativeReadyGateOverlay, /const result = await forfeit\(\)/);
@@ -1005,6 +1013,40 @@ test("ready-gate RPC failures surface retryable UI and web expiry syncs server t
   assert.match(nativeReadyRoute, /if \(!result\.ok\) throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyRoute, /throw new Error\('ready_gate_snooze_failed'\)/);
   assert.match(nativeReadyRoute, /We couldn't snooze this match\. Check your connection and try again\./);
+});
+
+test("ready-gate mark_ready both_ready uses RPC short-circuit telemetry", () => {
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /result_status/);
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /result_ready_gate_status/);
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /ready_gate_transition_20260505214500_result_status_base/);
+  assert.match(
+    rpcShortCircuitAndKeepwarmMigration,
+    /v_status := COALESCE\([\s\S]*v_result->>'ready_gate_status'[\s\S]*v_result->>'status'[\s\S]*v_result->>'result_status'/,
+  );
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /both_ready_observed_via_rpc_short_circuit/);
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /record_video_date_launch_latency_checkpoint_20260505214500_rpc_short_circuit_base/);
+
+  assert.match(webReadyGateHook, /bothReadySourceAction:[\s\S]*action === "mark_ready"[\s\S]*ReadyGateStatus\.BothReady[\s\S]*both_ready_observed_via_rpc_short_circuit/s);
+  assert.match(nativeReadyGateApi, /bothReadySourceAction:[\s\S]*action === 'mark_ready'[\s\S]*payloadStatus === BOTH_READY[\s\S]*both_ready_observed_via_rpc_short_circuit/s);
+  assert.match(readyGateOverlay, /sourceAction: "both_ready_observed" \| "both_ready_observed_via_rpc_short_circuit"/);
+  assert.match(nativeReadyGateOverlay, /sourceAction: 'both_ready_observed' \| 'both_ready_observed_via_rpc_short_circuit'/);
+  assert.match(launchLatencyCheckpointObservability, /both_ready_observed_via_rpc_short_circuit/);
+  assert.match(videoDateOperatorMetrics, /both_ready_observed_via_rpc_short_circuit/);
+});
+
+test("daily-room health ping and edge cold-start timing are additive", () => {
+  assert.match(dailyRoomFunction, /EDGE_PROCESS_STARTED_AT_MS = Date\.now\(\)/);
+  assert.match(dailyRoomFunction, /createDailyRoomHealthPingResponse/);
+  assert.match(dailyRoomFunction, /action === "health_ping"[\s\S]*x-cron-secret/s);
+  assert.match(dailyRoomFunction, /edge_cold_start_ms: params\.edgeProcessUptimeMs/);
+  assert.match(dailyRoomFunction, /timings\.edge_cold_start_ms = edgeProcessUptimeMs/);
+  assert.match(dailyRoomFunction, /timings\.edge_process_uptime_ms = edgeProcessUptimeMs/);
+  assert.match(webPrepareEntry, /edge_cold_start_ms: result\.data\.timings\?\.edge_cold_start_ms/);
+  assert.match(nativePrepareEntry, /edge_cold_start_ms: result\.data\.timings\?\.edge_cold_start_ms/);
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /daily-room-keepwarm/);
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /'anon_key', 'supabase_anon_key', 'service_role_key'/);
+  assert.match(rpcShortCircuitAndKeepwarmMigration, /missing project_url, cron_secret, or function JWT secret/);
+  assert.match(supabaseConfig, /\[functions\.daily-room\][\s\S]{0,80}verify_jwt = true/);
 });
 
 test("daily-room classifies Daily provider failures without leaking raw response bodies", () => {
@@ -2332,6 +2374,8 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(adminVideoDateOpsFunction, /daily_prewarm_fallback/);
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_rpc_granted_authenticated_only/);
   assert.match(videoDateValidationSql, /launch_latency_checkpoint_primary_fields_allowlisted/);
+  assert.match(videoDateValidationSql, /record_video_date_launch_latency_checkpoint_20260505214500_rpc_short_circuit_base/);
+  assert.match(videoDateValidationSql, /both_ready_observed_via_rpc_short_circuit/);
   assert.match(videoDateValidationSql, /timeline_includes_launch_latency_checkpoints/);
 });
 
