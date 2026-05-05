@@ -164,7 +164,7 @@ test("web and native date paths remain backend prepare-entry gated", () => {
   assert.match(webVideoCall, /action:\s*"prepare_date_entry"/);
   assert.match(nativePrepareEntry, /PREPARE_VIDEO_DATE_ENTRY_ACTION/);
   assert.match(nativePrepareEntry, /supabase\.functions\.invoke\('daily-room'/);
-  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ source: 'native_video_date_token' \}\)/);
+  assert.match(nativeVideoDateApi, /prepareVideoDateEntry\(sessionId, \{ userId, source: 'native_video_date_token' \}\)/);
   assert.match(nativeEntryStartable, /ensureVideoDateStartableBeforeNavigation/);
   assert.match(nativeEntryStartable, /prepareVideoDateEntry\(sessionId/);
 });
@@ -187,7 +187,8 @@ test("web and native Daily runtime paths preserve join, reconnect, leave, and te
 });
 
 test("web Daily call objects use the CSP-friendly avoidEval path", () => {
-  assert.match(webDailyCallObjectConfig, /dailyConfig:\s*\{\s*avoidEval:\s*true/s);
+  assert.match(webDailyCallObjectConfig, /const dailyConfig: DailyAdvancedConfigWithVideoDateKnobs = \{\s*avoidEval:\s*true/s);
+  assert.match(webDailyCallObjectConfig, /dailyConfig,/);
   assert.match(webVideoCall, /dailyVideoDateCallObjectOptions/);
   assert.match(webMatchCall, /dailyCallObjectOptions/);
   for (const [label, source] of [
@@ -281,7 +282,12 @@ test("Daily operational QA adds no env vars, migrations, native modules, expo-av
       .map((match) => match[1])
       .filter((name) => name.includes("DAILY"))),
   ).sort();
-  assert.deepEqual(dailyEnvNames, ["DAILY_API_KEY", "DAILY_DOMAIN"]);
+  assert.deepEqual(dailyEnvNames, [
+    "DAILY_API_KEY",
+    "DAILY_DOMAIN",
+    "EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN",
+    "VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN",
+  ]);
   assert.equal(
     readdirSync(join(root, "supabase/migrations")).some((name) => name.includes("daily_provider_operational_qa")),
     false,

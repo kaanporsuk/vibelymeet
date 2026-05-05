@@ -96,7 +96,7 @@ It carries:
 ### Rebuild-critical notes (post-hardening)
 - the frozen migration history is not clean schema-only history
 - generated types expose at least two objects not created in the preserved migration set: `feedback`, `premium_history`
-- all 49 deployable functions are in `supabase/config.toml`; 31 JWT-at-gateway, 18 public-but-protected
+- all 51 deployable functions are in `supabase/config.toml`; 32 JWT-at-gateway, 19 public-but-protected
 - Stream 19 posture lock: `forward-geocode` is gateway-JWT protected and internally user-gated/rate-limited before OpenStreetMap Nominatim calls; `push-webhook` is gateway-public for provider callbacks but secret-gated with `PUSH_WEBHOOK_SECRET` / `x-webhook-secret`
 - live Supabase storage buckets (project inventory): historically documented as `chat-videos` and `proof-selfies` among others; **inline chat / Vibe Clip video uploads** in current app code use **`upload-chat-video` → Bunny Storage** (path prefix `chat-videos/…`), not a Supabase upload for that pipeline — see `vibely_bunny_provider_sheet.md` §4
 - required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus existing)
