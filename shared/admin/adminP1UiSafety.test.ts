@@ -47,7 +47,8 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
 
   assert.match(adminGrantCredits, /Grant credits to/);
   assert.match(adminGrantCredits, /if \(creditError\) throw creditError/);
-  assert.match(adminGrantCredits, /if \(adjustmentError\) throw adjustmentError/);
+  assert.match(adminGrantCredits, /Credit adjustment audit failed after credits were granted/);
+  assert.match(adminGrantCredits, /Do not retry this grant/);
   assert.match(userModeration, /Suspend .*?\?/);
   assert.match(userModeration, /Lift suspension/);
   assert.match(userModeration, /Send warning/);
@@ -104,6 +105,12 @@ test("push campaigns are draft-only and do not enqueue browser notification even
   assert.doesNotMatch(adminPushCampaigns, />Schedule</);
   assert.doesNotMatch(adminPushCampaigns, /Campaign paused/);
   assert.doesNotMatch(adminPushCampaigns, /35\.8%/);
+});
+
+test("push campaign delete warning matches cascaded notification analytics behavior", () => {
+  assert.match(adminPushCampaigns, /database cascade can also delete that campaign's notification analytics history/);
+  assert.match(adminPushCampaigns, /Delivered pushes cannot be recalled/);
+  assert.doesNotMatch(adminPushCampaigns, /It does not cancel or undo any notification events already created/);
 });
 
 test("push campaign targeting UI exposes only supported filters and flags legacy unsupported filters", () => {

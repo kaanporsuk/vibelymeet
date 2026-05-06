@@ -44,6 +44,13 @@ test("admin event controls receive raw and computed lifecycle state", () => {
   assert.match(adminEventControls, /!\s*isComputedEnded && \(/);
 });
 
+test("admin event computed lifecycle refreshes while the panel stays open", () => {
+  assert.match(adminEventsPanel, /const \[lifecycleNowMs, setLifecycleNowMs\] = useState\(\(\) => Date\.now\(\)\)/);
+  assert.match(adminEventsPanel, /window\.setInterval\(\(\) => setLifecycleNowMs\(Date\.now\(\)\), 30_000\)/);
+  assert.match(adminEventsPanel, /getComputedStatus\(event, lifecycleNowMs\)/);
+  assert.match(adminEventsPanel, /\[events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo\]/);
+});
+
 test("expired computed events cannot be cancelled from the row menu", () => {
   const rowRender = section(adminEventsPanel, "const renderEventRow", "return (");
 

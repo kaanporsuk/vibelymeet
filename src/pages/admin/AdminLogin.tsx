@@ -11,18 +11,23 @@ import { toast } from "sonner";
 const verifyAdminSession = async (accessToken?: string | null) => {
   if (!accessToken) return false;
 
-  const { data, error } = await supabase.functions.invoke("verify-admin", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  try {
+    const { data, error } = await supabase.functions.invoke("verify-admin", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
 
-  if (error) {
-    console.error("Admin verification failed");
+    if (error) {
+      console.error("Admin verification failed");
+      return false;
+    }
+
+    return data?.isAdmin === true;
+  } catch (err) {
+    console.error("Admin verification request failed:", err);
     return false;
   }
-
-  return data?.isAdmin === true;
 };
 
 const AdminLogin = () => {
@@ -36,14 +41,19 @@ const AdminLogin = () => {
   useEffect(() => {
     // Check if already logged in as admin
     const checkExistingSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const isAdmin = await verifyAdminSession(session.access_token);
-        if (isAdmin) {
-          navigate('/kaan/dashboard');
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const isAdmin = await verifyAdminSession(session.access_token);
+          if (isAdmin) {
+            navigate('/kaan/dashboard');
+          }
         }
+      } catch (err) {
+        console.error("Admin session check failed:", err);
+      } finally {
+        setIsCheckingAuth(false);
       }
-      setIsCheckingAuth(false);
     };
     checkExistingSession();
   }, [navigate]);

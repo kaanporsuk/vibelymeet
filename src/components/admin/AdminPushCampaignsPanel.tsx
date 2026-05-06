@@ -798,7 +798,7 @@ const AdminPushCampaignsPanel = () => {
       <AdminConfirmDialog
         open={!!campaignToDelete}
         title="Delete push campaign?"
-        description={`This permanently deletes the campaign row "${campaignToDelete?.title || "selected campaign"}". It does not cancel or undo any notification events already created by older flows.`}
+        description={`This permanently deletes the campaign row "${campaignToDelete?.title || "selected campaign"}". If delivery event rows exist, the database cascade can also delete that campaign's notification analytics history. Delivered pushes cannot be recalled.`}
         confirmLabel="Delete Campaign"
         isPending={isDeletingCampaign}
         onOpenChange={(open) => {
