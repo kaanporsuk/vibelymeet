@@ -8,6 +8,23 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+const verifyAdminSession = async (accessToken?: string | null) => {
+  if (!accessToken) return false;
+
+  const { data, error } = await supabase.functions.invoke("verify-admin", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (error) {
+    console.error("Admin verification failed");
+    return false;
+  }
+
+  return data?.isAdmin === true;
+};
+
 const AdminLogin = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -21,14 +38,8 @@ const AdminLogin = () => {
     const checkExistingSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        const { data: roleData } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', session.user.id)
-          .eq('role', 'admin')
-          .maybeSingle();
-        
-        if (roleData) {
+        const isAdmin = await verifyAdminSession(session.access_token);
+        if (isAdmin) {
           navigate('/kaan/dashboard');
         }
       }
@@ -54,15 +65,8 @@ const AdminLogin = () => {
       }
 
       if (data.user) {
-        // Check if user is admin
-        const { data: roleData, error: roleError } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', data.user.id)
-          .eq('role', 'admin')
-          .maybeSingle();
-
-        if (roleError || !roleData) {
+        const isAdmin = await verifyAdminSession(data.session?.access_token);
+        if (!isAdmin) {
           await supabase.auth.signOut();
           toast.error("Access Denied", { description: "You don't have admin privileges" });
           setIsLoading(false);
@@ -197,7 +201,7 @@ const AdminLogin = () => {
           {/* Security Notice */}
           <div className="mt-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20">
             <p className="text-xs text-center text-muted-foreground">
-              🔒 This is a secure admin-only area. All access attempts are logged.
+              Secure admin-only area. Access is verified server-side before dashboard entry.
             </p>
           </div>
         </motion.div>
