@@ -82,7 +82,15 @@ const AdminGrantCreditsModal = ({
             adjustment_reason: reason || null,
           }))
         );
-        if (adjustmentError) throw adjustmentError;
+        if (adjustmentError) {
+          console.error("Credit adjustment audit failed after credits were granted:", adjustmentError);
+          toast.warning(
+            `Credits were granted to ${userName}, but the audit record failed. Do not retry this grant; check credit history/RLS before taking another action.`
+          );
+          setConfirmOpen(false);
+          onClose();
+          return;
+        }
       }
 
       toast.success(
@@ -90,6 +98,7 @@ const AdminGrantCreditsModal = ({
           extraTime > 0 && extendedVibe > 0 ? " + " : ""
         }${extendedVibe > 0 ? `${extendedVibe}× Extended Vibe` : ""} to ${userName}`
       );
+      setConfirmOpen(false);
       onClose();
     } catch (err) {
       console.error("Error granting credits:", err);

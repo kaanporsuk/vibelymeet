@@ -1,4 +1,4 @@
-import { useState, useMemo, type ReactNode } from "react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
 import { eventCoverThumbUrl } from "@/utils/imageUrl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -59,12 +59,13 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-const getComputedStatus = (event: AdminEventRow): string => {
+const getComputedStatus = (event: AdminEventRow, nowMs = Date.now()): string => {
   return resolveEventLifecycle({
     status: event.status,
     event_date: event.event_date,
     duration_minutes: event.duration_minutes,
     ended_at: event.ended_at,
+    nowMs,
   }).lifecycle;
 };
 
@@ -117,10 +118,16 @@ const AdminEventsPanel = () => {
   const [dateTo, setDateTo] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [groupBySeries, setGroupBySeries] = useState(false);
+  const [lifecycleNowMs, setLifecycleNowMs] = useState(() => Date.now());
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setLifecycleNowMs(Date.now()), 30_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   // Fetch events
   const { data: events = [], isLoading } = useQuery({
@@ -150,7 +157,7 @@ const AdminEventsPanel = () => {
   // Filtered events
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
-      const computed = getComputedStatus(event);
+      const computed = getComputedStatus(event, lifecycleNowMs);
       if (statusFilter !== 'all' && computed !== statusFilter) return false;
       if (scopeFilter !== 'all' && (event.scope || 'global') !== scopeFilter) return false;
       if (cityFilter !== 'all' && event.city !== cityFilter) return false;
@@ -158,7 +165,7 @@ const AdminEventsPanel = () => {
       if (dateTo && new Date(event.event_date) > new Date(dateTo + 'T23:59')) return false;
       return true;
     });
-  }, [events, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo]);
+  }, [events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo]);
 
   // Grouped by series
   const groupedEvents = useMemo(() => {
@@ -288,7 +295,7 @@ const AdminEventsPanel = () => {
   };
 
   const renderEventRow = (event: AdminEventRow, isChild = false): ReactNode => {
-    const computed = getComputedStatus(event);
+    const computed = getComputedStatus(event, lifecycleNowMs);
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];
     const isExpanded = expandedParents.has(event.id);

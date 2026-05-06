@@ -32,6 +32,23 @@ test("admin login uses the same server verification path as the protected dashbo
   assert.doesNotMatch(adminLogin, /\.from\(['"]user_roles['"]\)/);
 });
 
+test("admin login clears session-check loading even when verification rejects", () => {
+  const sessionCheck = adminLogin.slice(
+    adminLogin.indexOf("const checkExistingSession"),
+    adminLogin.indexOf("checkExistingSession();"),
+  );
+  const verifier = adminLogin.slice(
+    adminLogin.indexOf("const verifyAdminSession"),
+    adminLogin.indexOf("const AdminLogin"),
+  );
+
+  assert.match(verifier, /try \{/);
+  assert.match(verifier, /catch \(err\)/);
+  assert.match(sessionCheck, /try \{/);
+  assert.match(sessionCheck, /finally \{/);
+  assert.match(sessionCheck, /setIsCheckingAuth\(false\)/);
+});
+
 test("push campaigns dashboard copy is honest about draft-only delivery", () => {
   assert.match(adminDashboard, /Draft campaign copy and supported targeting until backend delivery is available/);
   assert.doesNotMatch(adminDashboard, /Send targeted notifications to user segments/);
