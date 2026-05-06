@@ -32,11 +32,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
-import { useUserProfile } from "@/contexts/AuthContext";
-import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 interface UserModerationActionsProps {
   userId: string;
@@ -52,8 +51,6 @@ const UserModerationActions = ({
   onClose,
 }: UserModerationActionsProps) => {
   const queryClient = useQueryClient();
-  const { user } = useUserProfile();
-  const { logActivity } = useAdminActivityLog();
   const [activeTab, setActiveTab] = useState("actions");
   
   // Suspend form state
@@ -117,45 +114,16 @@ const UserModerationActions = ({
         ? null 
         : new Date(Date.now() + parseInt(suspendDuration) * 24 * 60 * 60 * 1000).toISOString();
 
-      // Create suspension record
-      const { error: suspensionError } = await supabase
-        .from('user_suspensions')
-        .insert({
-          user_id: userId,
-          suspended_by: user?.id,
-          reason: suspendReason,
-          expires_at: expiresAt,
-          status: 'active',
-        });
-      if (suspensionError) throw suspensionError;
-
-      // Update profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ 
-          is_suspended: true,
-          suspension_reason: suspendReason 
-        })
-        .eq('id', userId);
-      if (profileError) throw profileError;
-
-      // Create admin notification
-      await supabase.from('admin_notifications').insert({
-        type: 'user_suspended',
-        title: 'User Suspended',
-        message: `User "${userName}" has been suspended. Reason: ${suspendReason}`,
-        data: { user_id: userId, reason: suspendReason },
+      await callAdminRpc("admin_moderate_user", {
+        p_user_id: userId,
+        p_action: "suspend_user",
+        p_reason: suspendReason,
+        p_message: null,
+        p_suspension_expires_at: expiresAt,
+        p_idempotency_key: createAdminIdempotencyKey("admin_moderate_user"),
       });
     },
-    onSuccess: async () => {
-      // Log activity
-      await logActivity({
-        actionType: 'suspend_user',
-        targetType: 'user',
-        targetId: userId,
-        details: { userName, reason: suspendReason, duration: suspendDuration }
-      });
-      
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-suspension', userId] });
       queryClient.invalidateQueries({ queryKey: ['user-suspension-history', userId] });
       queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
@@ -174,34 +142,16 @@ const UserModerationActions = ({
     mutationFn: async () => {
       if (!currentSuspension) return;
 
-      const { error: suspensionError } = await supabase
-        .from('user_suspensions')
-        .update({ 
-          status: 'lifted',
-          lifted_at: new Date().toISOString(),
-          lifted_by: user?.id,
-        })
-        .eq('id', currentSuspension.id);
-      if (suspensionError) throw suspensionError;
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ 
-          is_suspended: false,
-          suspension_reason: null 
-        })
-        .eq('id', userId);
-      if (profileError) throw profileError;
-    },
-    onSuccess: async () => {
-      // Log activity
-      await logActivity({
-        actionType: 'lift_suspension',
-        targetType: 'user',
-        targetId: userId,
-        details: { userName }
+      await callAdminRpc("admin_moderate_user", {
+        p_user_id: userId,
+        p_action: "lift_suspension",
+        p_reason: "Lift active suspension",
+        p_message: null,
+        p_suspension_expires_at: null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_moderate_user"),
       });
-      
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-suspension', userId] });
       queryClient.invalidateQueries({ queryKey: ['user-suspension-history', userId] });
       queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
@@ -215,25 +165,16 @@ const UserModerationActions = ({
   // Send warning mutation
   const sendWarning = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('user_warnings')
-        .insert({
-          user_id: userId,
-          issued_by: user?.id,
-          reason: warningReason,
-          message: warningMessage,
-        });
-      if (error) throw error;
-    },
-    onSuccess: async () => {
-      // Log activity
-      await logActivity({
-        actionType: 'warn_user',
-        targetType: 'user',
-        targetId: userId,
-        details: { userName, reason: warningReason }
+      await callAdminRpc("admin_moderate_user", {
+        p_user_id: userId,
+        p_action: "issue_warning",
+        p_reason: warningReason,
+        p_message: warningMessage,
+        p_suspension_expires_at: null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_moderate_user"),
       });
-      
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user-warning-history', userId] });
       toast.success(`Warning sent to ${userName}`);
       setWarningReason("");
@@ -274,7 +215,7 @@ const UserModerationActions = ({
                 onClick={() => {
                   setConfirmation({
                     title: `Lift suspension for ${userName}?`,
-                    description: "This immediately restores account access by lifting the active suspension and clearing the profile suspension reason.",
+                    description: "This calls the backend admin_moderate_user RPC. The active suspension row, profile state, and admin audit row commit together or fail together.",
                     confirmLabel: "Lift Suspension",
                     onConfirm: () => liftSuspension.mutateAsync(),
                   });

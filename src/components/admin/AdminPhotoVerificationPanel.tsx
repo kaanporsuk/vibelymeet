@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -255,17 +256,12 @@ const AdminPhotoVerificationPanel = () => {
 
   const approveMutation = useMutation({
     mutationFn: async (verification: PhotoVerificationRow) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error: fnError } = await supabase.functions.invoke("admin-review-verification", {
-        body: {
-          verification_id: verification.id,
-          action: "approve",
-          admin_id: user.id,
-        },
+      await callAdminRpc("admin_review_photo_verification", {
+        p_verification_id: verification.id,
+        p_action: "approve",
+        p_rejection_reason: null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_review_photo_verification"),
       });
-      if (fnError) throw fnError;
     },
     onSuccess: () => {
       toast.success("User verified successfully");
@@ -280,18 +276,12 @@ const AdminPhotoVerificationPanel = () => {
 
   const rejectMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error: fnError } = await supabase.functions.invoke("admin-review-verification", {
-        body: {
-          verification_id: id,
-          action: "reject",
-          admin_id: user.id,
-          rejection_reason: reason,
-        },
+      await callAdminRpc("admin_review_photo_verification", {
+        p_verification_id: id,
+        p_action: "reject",
+        p_rejection_reason: reason,
+        p_idempotency_key: createAdminIdempotencyKey("admin_review_photo_verification"),
       });
-      if (fnError) throw fnError;
     },
     onSuccess: () => {
       toast.success("Verification rejected");

@@ -29,6 +29,7 @@ import { STATUS_CONFIG, PRIORITY_CONFIG, type SupportStatus, type SupportPriorit
 import { SUPPORT_CATEGORIES, type PrimaryType } from "@/lib/supportCategories";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 type TicketRow = {
   id: string;
@@ -351,7 +352,7 @@ export default function SupportInbox() {
   const createExceptionMutation = useMutation({
     mutationFn: async () => {
       if (!selected?.event_id) throw new Error("Missing event context on ticket");
-      const { data, error } = await supabase.rpc("admin_create_event_payment_exception", {
+      const data = await callAdminRpc("admin_create_event_payment_exception", {
         p_event_id: selected.event_id,
         p_profile_id: selected.user_id,
         p_exception_type: exceptionTypeDraft,
@@ -359,8 +360,8 @@ export default function SupportInbox() {
         p_checkout_session_id: selected.checkout_session_id,
         p_support_ticket_id: selected.id,
         p_notes: exceptionNotesDraft.trim() || null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_create_event_payment_exception"),
       });
-      if (error) throw error;
       const ok = (data as { success?: boolean; error?: string } | null)?.success;
       if (!ok) {
         throw new Error((data as { error?: string } | null)?.error ?? "Failed to create exception");
@@ -379,7 +380,7 @@ export default function SupportInbox() {
   const transitionExceptionMutation = useMutation({
     mutationFn: async () => {
       if (!linkedException?.id) throw new Error("No linked payment exception case");
-      const { data, error } = await supabase.rpc("admin_transition_event_payment_exception", {
+      const data = await callAdminRpc("admin_transition_event_payment_exception", {
         p_exception_id: linkedException.id,
         p_exception_type: exceptionTypeDraft,
         p_exception_status: exceptionStatusDraft,
@@ -388,8 +389,8 @@ export default function SupportInbox() {
         p_refund_handled_externally: exceptionTypeDraft === "refund_handled_externally" ? true : null,
         p_external_refund_reference: externalRefundReferenceDraft.trim() || null,
         p_support_ticket_id: selected?.id ?? null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_transition_event_payment_exception"),
       });
-      if (error) throw error;
       const ok = (data as { success?: boolean; error?: string } | null)?.success;
       if (!ok) {
         throw new Error((data as { error?: string } | null)?.error ?? "Failed to update exception");

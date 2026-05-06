@@ -59,21 +59,22 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(adminNotifications, /Delete every admin notification row\?/);
 
   assert.match(adminGrantCredits, /Grant credits to/);
-  assert.match(adminGrantCredits, /if \(creditError\) throw creditError/);
-  assert.match(adminGrantCredits, /Credit adjustment audit failed after credits were granted/);
-  assert.match(adminGrantCredits, /Do not retry this grant/);
+  assert.match(adminGrantCredits, /admin_adjust_user_credits/);
+  assert.match(adminGrantCredits, /balance update, credit_adjustments rows, and admin_activity_logs row commit together or fail together/);
   assert.match(userModeration, /Suspend .*?\?/);
   assert.match(userModeration, /Lift suspension/);
   assert.match(userModeration, /Send warning/);
+  assert.match(userModeration, /admin_moderate_user/);
   assert.match(adminReports, /showActionConfirm/);
-  assert.match(adminReports, /mark this report as action taken only after the warning write succeeds/);
-  assert.match(adminReports, /so the report was not marked complete/);
+  assert.match(adminReports, /admin_resolve_report/);
+  assert.match(adminReports, /same backend transaction/);
 
   assert.match(adminEventControls, /Set "\$?\{eventTitle\}" live\?/);
-  assert.match(adminEventControls, /events\.status = live/);
+  assert.match(adminEventControls, /admin_go_live_event/);
   assert.match(adminEventControls, /events\.status = ended and ended_at/);
   assert.match(adminEventControls, /updates events\.duration_minutes/);
-  assert.match(adminEventControls, /sends push notifications to confirmed attendees and waitlisted users/);
+  assert.match(adminEventControls, /admin_send_event_reminder/);
+  assert.match(adminEventControls, /reports whether a notification dispatcher queued user sends/);
   assert.match(adminEvents, /Generate \$?\{pendingEventAction\.count\} more occurrences\?/);
   assert.match(adminEvents, /Archive recurring series/);
   assert.match(adminEvents, /Archive Selected/);
@@ -84,8 +85,8 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(supportInbox, /Open payment exception case\?/);
   assert.match(supportInbox, /Save payment exception transition\?/);
   assert.match(supportInbox, /does not process a refund in-app/);
-  assert.match(adminPremium, /Premium profile updates and premium_history writes happen in separate steps/);
-  assert.match(adminPremium, /These writes are not atomic in this P1 frontend pass/);
+  assert.match(adminPremium, /admin_set_premium_status/);
+  assert.match(adminPremium, /Profile premium state, premium_history, and admin_activity_logs commit together or fail together/);
 
   assert.match(adminTierConfig, /requestSetOverride/);
   assert.match(adminTierConfig, /requestResetOverride/);
@@ -106,23 +107,19 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   }
 });
 
-test("report actions create real warning rows and fail before marking reports when side effects fail", () => {
-  assert.match(adminReports, /\.from\("user_warnings"\)\.insert/);
-  assert.match(adminReports, /if \(profileError\) throw profileError/);
-  assert.match(adminReports, /if \(suspensionError\) throw suspensionError/);
+test("report actions use backend transaction instead of client side-effect orchestration", () => {
+  assert.match(adminReports, /callAdminRpc\("admin_resolve_report"/);
+  assert.match(adminReports, /p_action: rpcAction/);
+  assert.match(adminReports, /p_idempotency_key: createAdminIdempotencyKey\("admin_resolve_report"\)/);
+  assert.match(adminReports, /The required moderation side effect and report closure run in one backend transaction/);
+  assert.doesNotMatch(adminReports, /\.from\("user_warnings"\)\.insert/);
+  assert.doesNotMatch(adminReports, /\.from\("user_suspensions"\)\.insert/);
 
   const actionHandler = section(adminReports, "const handleTakeAction", "const requestReportActionConfirmation");
-  assert.match(actionHandler, /await suspendUser\.mutateAsync/);
-  assert.match(actionHandler, /await issueWarning\.mutateAsync/);
-  assert.match(actionHandler, /await updateReport\.mutateAsync/);
-  assert.ok(
-    actionHandler.indexOf("await suspendUser.mutateAsync") < actionHandler.indexOf("await updateReport.mutateAsync"),
-    "suspension must happen before report status update",
-  );
-  assert.ok(
-    actionHandler.indexOf("await issueWarning.mutateAsync") < actionHandler.indexOf("await updateReport.mutateAsync"),
-    "warning must happen before report status update",
-  );
+  assert.match(actionHandler, /await resolveReport\.mutateAsync/);
+  assert.doesNotMatch(actionHandler, /await updateReport\.mutateAsync/);
+  assert.doesNotMatch(actionHandler, /await suspendUser\.mutateAsync/);
+  assert.doesNotMatch(actionHandler, /await issueWarning\.mutateAsync/);
 });
 
 test("overview metrics and event analytics labels match query semantics", () => {
@@ -131,11 +128,11 @@ test("overview metrics and event analytics labels match query semantics", () => 
   assert.match(adminStats, /All event rows, including draft\/cancelled\/archived\/ended/);
   assert.doesNotMatch(adminStats, /Match Rate/);
   assert.match(adminStats, /Matches\/User/);
-  assert.match(adminStats, /matchesCount \/ usersCount\)\.toFixed\(2\)/);
+  assert.match(adminStats, /matches_per_user/);
 
   assert.match(adminLiveEventMetrics, /Platform Reports/);
   assert.match(adminLiveEventMetrics, /Global\/platform count; not scoped to this event/);
-  assert.match(adminLiveEventMetrics, /true event-scoped reports are deferred/);
+  assert.match(adminLiveEventMetrics, /global until a true event-scoped report source exists/);
 });
 
 test("quick actions show only actionable upcoming events", () => {
@@ -149,12 +146,13 @@ test("quick actions show only actionable upcoming events", () => {
   assert.match(adminQuickActions, /Registered seats/);
 });
 
-test("push analytics uses the admin-safe telemetry view and honest states", () => {
-  assert.match(usePushAnalytics, /\.from\("push_notification_events_admin"\)/);
+test("push analytics uses the backend admin telemetry RPC and honest states", () => {
+  assert.match(usePushAnalytics, /callAdminRpc\("admin_get_push_delivery_metrics"/);
+  assert.match(usePushAnalytics, /telemetrySource: "admin_get_push_delivery_metrics"/);
+  assert.doesNotMatch(usePushAnalytics, /\.from\("push_notification_events_admin"\)/);
   assert.doesNotMatch(usePushAnalytics, /\.from\("push_notification_events"\)/);
-  assert.match(usePushAnalytics, /telemetrySource: "push_notification_events_admin"/);
 
-  assert.match(pushAnalyticsDashboard, /Unable to read push analytics from the admin telemetry view/);
+  assert.match(pushAnalyticsDashboard, /Unable to read push analytics from the backend admin metrics RPC/);
   assert.match(pushAnalyticsDashboard, /No telemetry available in this range; this does not prove no notifications were sent/);
   assert.match(pushAnalyticsDashboard, /provider sends may exist outside these rows/);
 });
@@ -183,12 +181,12 @@ test("password reset is visibly unavailable instead of toast-only fake action", 
   assert.match(userModeration, /Unavailable — requires backend Admin API support/);
 });
 
-test("premium operations surface profile and history failures separately", () => {
-  assert.match(adminPremium, /const \{ error: updateErr \}/);
-  assert.match(adminPremium, /const \{ error: historyError \} = await supabase\.from\("premium_history"\)\.insert/);
-  assert.match(adminPremium, /if \(historyError\)/);
-  assert.match(adminPremium, /Premium history insert failed after profile update/);
-  assert.match(adminPremium, /Profile state changed, but premium_history did not record it/);
+test("premium operations use backend transaction RPC", () => {
+  assert.match(adminPremium, /callAdminRpc\("admin_set_premium_status"/);
+  assert.match(adminPremium, /p_idempotency_key: createAdminIdempotencyKey\("admin_set_premium_status"\)/);
+  assert.match(adminPremium, /profile state, premium_history, and admin audit logging are transactional/);
+  assert.doesNotMatch(adminPremium, /\.from\("profiles"\)\.update/);
+  assert.doesNotMatch(adminPremium, /\.from\("premium_history"\)\.insert/);
   assert.match(adminPremium, /AdminConfirmDialog/);
 });
 

@@ -623,7 +623,7 @@ const AdminPushCampaignsPanel = () => {
                   {campaign.scheduledAt && (
                     <div className="text-xs text-amber-500">
                       <Clock className="w-3 h-3 inline mr-1" />
-                      Legacy scheduled timestamp stored for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}; no dispatcher was found in this frontend-only pass.
+                      Legacy scheduled timestamp stored for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}; no backend dispatcher is connected.
                     </div>
                   )}
                 </motion.div>
@@ -702,7 +702,7 @@ const AdminPushCampaignsPanel = () => {
                       />
                     </div>
                     <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
-                      Delivery is disabled in this frontend-only pass. Campaigns are saved as drafts and do not queue push notification events.
+                      Delivery is disabled until a backend dispatcher is connected. Campaigns are saved as drafts and do not queue push notification events.
                     </div>
                   </CardContent>
                 </Card>

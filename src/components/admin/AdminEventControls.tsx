@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { sendNotification } from "@/lib/notifications";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 interface AdminEventControlsProps {
   eventId: string;
@@ -15,7 +15,6 @@ interface AdminEventControlsProps {
   computedStatus: string;
   endedAt?: string | null;
   archivedAt?: string | null;
-  durationMinutes: number | null;
 }
 
 type PendingEventControlAction =
@@ -32,7 +31,6 @@ const AdminEventControls = ({
   computedStatus,
   endedAt,
   archivedAt,
-  durationMinutes,
 }: AdminEventControlsProps) => {
   const queryClient = useQueryClient();
   const [pendingAction, setPendingAction] = useState<PendingEventControlAction>(null);
@@ -40,70 +38,13 @@ const AdminEventControls = ({
   const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [isGoingLive, setIsGoingLive] = useState(false);
 
-  /** Confirmed seats only (lobby-eligible). Waitlist excluded. */
-  const notifyRegistrantsConfirmedOnly = async (category: string, title: string, body: string) => {
-    const { data: registrations } = await supabase
-      .from("event_registrations")
-      .select("profile_id")
-      .eq("event_id", eventId)
-      .eq("admission_status", "confirmed");
-
-    if (registrations) {
-      await Promise.allSettled(
-        registrations.filter((r) => Boolean(r.profile_id)).map((r) =>
-          sendNotification({
-            user_id: r.profile_id,
-            category,
-            title,
-            body,
-            data: { url: `/event/${eventId}/lobby`, event_id: eventId, admission_status: "confirmed" },
-          })
-        )
-      );
-    }
-    return registrations?.length || 0;
-  };
-
-  /** Confirmed + waitlisted (everyone on the guest list except canceled/other statuses). */
-  const notifyRegistrantsConfirmedAndWaitlist = async (
-    category: string,
-    title: string,
-    confirmedBody: string,
-    waitlistedBody: string
-  ) => {
-    const { data: registrations } = await supabase
-      .from("event_registrations")
-      .select("profile_id, admission_status")
-      .eq("event_id", eventId)
-      .in("admission_status", ["confirmed", "waitlisted"]);
-
-    if (registrations) {
-      await Promise.allSettled(
-        registrations.filter((r) => Boolean(r.profile_id)).map((r) =>
-          sendNotification({
-            user_id: r.profile_id,
-            category,
-            title,
-            body: r.admission_status === "waitlisted" ? waitlistedBody : confirmedBody,
-            data: {
-              event_id: eventId,
-              admission_status: r.admission_status,
-            },
-          })
-        )
-      );
-    }
-    return registrations?.length || 0;
-  };
-
   const endEvent = useMutation({
     mutationFn: async () => {
-      const endedAt = new Date().toISOString();
-      const { error } = await supabase
-        .from("events")
-        .update({ status: "ended", ended_at: endedAt })
-        .eq("id", eventId);
-      if (error) throw error;
+      await callAdminRpc("admin_end_event", {
+        p_event_id: eventId,
+        p_reason: "Ended from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_end_event"),
+      });
 
       const channel = supabase.channel(`event-status-${eventId}`);
       await channel.send({
@@ -124,12 +65,12 @@ const AdminEventControls = ({
 
   const extendEvent = useMutation({
     mutationFn: async (extraMinutes: number) => {
-      const newDuration = (durationMinutes || 60) + extraMinutes;
-      const { error } = await supabase
-        .from("events")
-        .update({ duration_minutes: newDuration })
-        .eq("id", eventId);
-      if (error) throw error;
+      await callAdminRpc("admin_extend_event", {
+        p_event_id: eventId,
+        p_minutes: extraMinutes,
+        p_reason: "Extended from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_extend_event"),
+      });
       return extraMinutes;
     },
     onSuccess: (extraMinutes) => {
@@ -153,21 +94,18 @@ const AdminEventControls = ({
   const handleGoLive = async () => {
     setIsGoingLive(true);
     try {
-      const { error } = await supabase
-        .from("events")
-        .update({ status: "live" })
-        .eq("id", eventId);
-      if (error) throw error;
+      const payload = await callAdminRpc("admin_go_live_event", {
+        p_event_id: eventId,
+        p_reason: "Set live from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_go_live_event"),
+      });
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
-      const count = await notifyRegistrantsConfirmedOnly(
-        "event_live",
-        `${eventTitle} is live! 🎉`,
-        "Join now and start meeting people"
-      );
-      toast.success(
-        `"${eventTitle}" is live — notified ${count} confirmed attendee${count === 1 ? "" : "s"} (waitlist not notified)`
-      );
+      toast.success(`"${eventTitle}" is live`, {
+        description: payload.notifications_not_queued
+          ? "Backend lifecycle update succeeded. User notifications were not queued by the event lifecycle backend."
+          : undefined,
+      });
     } catch (error) {
       toast.error("Failed to set event live");
       throw error;
@@ -179,16 +117,17 @@ const AdminEventControls = ({
   const handleSendReminder = async () => {
     setIsSendingReminder(true);
     try {
-      const count = await notifyRegistrantsConfirmedAndWaitlist(
-        "event_reminder",
-        `${eventTitle} starts soon! ⏰`,
-        "Get ready — starting in 15 minutes",
-        "You’re still on the waitlist. Keep an eye on the event page for status updates."
-      );
+      const payload = await callAdminRpc("admin_send_event_reminder", {
+        p_event_id: eventId,
+        p_reason: "Reminder requested from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_send_event_reminder"),
+      });
       setReminderSentAt(Date.now());
-      toast.success(
-        `Reminder sent to ${count} user${count === 1 ? "" : "s"} (confirmed + waitlist)`
-      );
+      toast.success("Reminder request recorded", {
+        description: payload.notifications_not_queued
+          ? "No user notifications were queued because a backend dispatcher did not handle this reminder."
+          : undefined,
+      });
     } catch {
       toast.error("Failed to send reminder");
       throw new Error("Failed to send reminder");
@@ -205,28 +144,28 @@ const AdminEventControls = ({
         return {
           title: `Set "${eventTitle}" live?`,
           description:
-            "This immediately writes events.status = live for this event and sends a live notification to confirmed attendees only. Waitlisted users are not notified by this action. The lobby still depends on the scheduled event window.",
+            "This calls admin_go_live_event. The backend validates the scheduled event window, writes the lifecycle state, and audits the action. User notifications are only sent if a backend dispatcher supports them.",
           confirmLabel: "Go Live",
         };
       case "end":
         return {
           title: `End "${eventTitle}"?`,
           description:
-            "This immediately writes events.status = ended and ended_at, then broadcasts that the event ended. This is a production lifecycle change and is not a reminder or archive action.",
+            "This calls admin_end_event. The backend writes events.status = ended and ended_at, audits the action, then the client broadcasts the local event-ended signal.",
           confirmLabel: "End Event",
         };
       case "extend":
         return {
           title: `Extend "${eventTitle}" by ${pendingAction.minutes} minutes?`,
           description:
-            "This immediately updates events.duration_minutes. It can keep the event window active longer, but it does not notify users by itself.",
+            "This calls admin_extend_event. The backend validates the transition, updates events.duration_minutes, and audits the action.",
           confirmLabel: `Extend +${pendingAction.minutes}`,
         };
       case "reminder":
         return {
           title: `Send reminder for "${eventTitle}"?`,
           description:
-            "This sends push notifications to confirmed attendees and waitlisted users with separate copy. It does not change the event status or duration.",
+            "This calls admin_send_event_reminder. The backend records and audits the request, then reports whether a notification dispatcher queued user sends.",
           confirmLabel: "Send Reminder",
         };
       default:

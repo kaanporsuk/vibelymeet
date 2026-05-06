@@ -356,7 +356,7 @@ const AdminLiveEventMetrics = () => {
         .select("*", { count: "exact", head: true })
         .eq("event_id", eventId);
 
-      // Platform report telemetry is global in this P1 pass; true event-scoped reports are deferred.
+      // Platform report telemetry is global until a true event-scoped report source exists.
       const sessionIds = allSessions.map((s) => s.id);
       let reportsCount = 0;
       if (sessionIds.length > 0) {

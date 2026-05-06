@@ -32,10 +32,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
-import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 const notificationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   new_user: User,
@@ -81,20 +81,35 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     onConfirm: () => void | Promise<unknown>;
   } | null>(null);
 
+  type AdminNotificationRow = {
+    id: string;
+    type: string;
+    title: string;
+    message: string;
+    read: boolean | null;
+    created_at: string | null;
+    data: unknown;
+  };
+
   // Fetch notifications
-  const { data: notifications, isLoading, isError, refetch } = useQuery({
+  const { data: notificationPayload, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-notifications'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return data || [];
+      const data = await callAdminRpc("admin_list_notifications", {
+        p_limit: 100,
+        p_offset: 0,
+        p_filters: {},
+      });
+      return {
+        rows: (data.rows || []) as AdminNotificationRow[],
+        totalCount: Number(data.total_count || 0),
+        unreadCount: Number(data.unread_count || 0),
+      };
     },
     refetchInterval: 30000,
   });
+
+  const notifications = notificationPayload?.rows;
 
   // Filtered notifications
   const filteredNotifications = useMemo(() => {
@@ -166,11 +181,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   // Mark as read mutation
   const markAsRead = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('admin_notifications')
-        .update({ read: true })
-        .eq('id', id);
-      if (error) throw error;
+      await callAdminRpc("admin_mark_notifications_read", {
+        p_scope: "selected",
+        p_ids: [id],
+        p_filters: {},
+        p_idempotency_key: createAdminIdempotencyKey("admin_mark_notifications_read"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
@@ -180,11 +196,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   // Bulk mark as read
   const bulkMarkAsRead = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from('admin_notifications')
-        .update({ read: true })
-        .in('id', ids);
-      if (error) throw error;
+      await callAdminRpc("admin_mark_notifications_read", {
+        p_scope: "selected",
+        p_ids: ids,
+        p_filters: {},
+        p_idempotency_key: createAdminIdempotencyKey("admin_mark_notifications_read"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
@@ -196,11 +213,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   // Mark all as read
   const markAllAsRead = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('admin_notifications')
-        .update({ read: true })
-        .eq('read', false);
-      if (error) throw error;
+      await callAdminRpc("admin_mark_notifications_read", {
+        p_scope: "all_unread",
+        p_ids: null,
+        p_filters: {},
+        p_idempotency_key: createAdminIdempotencyKey("admin_mark_notifications_read"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
@@ -211,11 +229,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   // Delete notification
   const deleteNotification = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('admin_notifications')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
+      await callAdminRpc("admin_delete_notifications", {
+        p_scope: "selected",
+        p_ids: [id],
+        p_filters: {},
+        p_idempotency_key: createAdminIdempotencyKey("admin_delete_notifications"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
@@ -225,11 +244,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   // Bulk delete
   const bulkDelete = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from('admin_notifications')
-        .delete()
-        .in('id', ids);
-      if (error) throw error;
+      await callAdminRpc("admin_delete_notifications", {
+        p_scope: "selected",
+        p_ids: ids,
+        p_filters: {},
+        p_idempotency_key: createAdminIdempotencyKey("admin_delete_notifications"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
@@ -241,11 +261,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   // Clear all notifications
   const clearAll = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('admin_notifications')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
-      if (error) throw error;
+      await callAdminRpc("admin_delete_notifications", {
+        p_scope: "all",
+        p_ids: null,
+        p_filters: {},
+        p_idempotency_key: createAdminIdempotencyKey("admin_delete_notifications"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
@@ -253,7 +274,9 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
     },
   });
 
-  const unreadCount = notifications?.filter((n) => !n.read).length || 0;
+  const loadedUnreadCount = notifications?.filter((n) => !n.read).length || 0;
+  const totalCount = notificationPayload?.totalCount || notifications?.length || 0;
+  const unreadCount = notificationPayload?.unreadCount ?? loadedUnreadCount;
   const hasFilters = activeFilters.size > 0 || showUnreadOnly;
   const destructivePending =
     markAllAsRead.isPending || deleteNotification.isPending || bulkDelete.isPending || clearAll.isPending;
@@ -288,7 +311,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
             <div>
               <h2 className="text-lg font-semibold text-foreground">Notification Center</h2>
               <p className="text-xs text-muted-foreground">
-                {unreadCount} unread in latest 100 loaded • {notifications?.length || 0} loaded
+                {loadedUnreadCount} unread in latest 100 loaded • {unreadCount} total unread • {notifications?.length || 0} of {totalCount} loaded
               </p>
             </div>
           </div>
@@ -615,7 +638,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
               Showing {filteredNotifications.length} of {notifications?.length || 0} latest 100 loaded
             </span>
             <span>
-              {unreadCount} unread in latest 100 loaded
+              {loadedUnreadCount} unread in latest 100 loaded • {unreadCount} total unread
             </span>
           </div>
         </div>
