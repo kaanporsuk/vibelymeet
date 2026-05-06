@@ -71,7 +71,7 @@ const PushAnalyticsDashboard = () => {
       <div>
         <h3 className="text-lg font-semibold text-foreground">Push Notification Analytics</h3>
         <p className="text-sm text-muted-foreground">
-          Admin telemetry view only; provider sends may exist outside these rows.
+          Backend admin metrics RPC only; provider sends may exist outside these rows.
         </p>
       </div>
       <Select value={dateRange} onValueChange={(v: PushAnalyticsRange) => setDateRange(v)}>
@@ -102,7 +102,7 @@ const PushAnalyticsDashboard = () => {
         {renderHeader()}
         <Card className="bg-card border-border">
           <CardContent className="p-6 text-center text-muted-foreground">
-            Unable to read push analytics from the admin telemetry view.
+            Unable to read push analytics from the backend admin metrics RPC.
           </CardContent>
         </Card>
       </div>

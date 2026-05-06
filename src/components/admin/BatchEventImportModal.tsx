@@ -28,10 +28,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import Papa from "papaparse";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 interface BatchEventImportModalProps {
   onClose: () => void;
@@ -300,8 +300,14 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         vibes: ev.vibe_tags || [],
       }));
 
-      const { error } = await supabase.from("events").insert(rows);
-      if (error) throw error;
+      await Promise.all(
+        rows.map((row) =>
+          callAdminRpc("admin_create_event", {
+            p_payload: row,
+            p_idempotency_key: createAdminIdempotencyKey("admin_create_event"),
+          })
+        )
+      );
 
       const skipped = events.length - toImport.length;
       toast.success(

@@ -55,6 +55,7 @@ import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -155,88 +156,38 @@ const AdminReportsPanel = () => {
     enabled: !!reports?.length,
   });
 
-  // Update report mutation
-  const updateReport = useMutation({
+  const resolveReport = useMutation({
     mutationFn: async ({
-      reportId,
-      status,
-      actionTaken,
+      report,
+      action,
+      notes,
     }: {
-      reportId: string;
-      status: string;
-      actionTaken: string;
+      report: UserReportRow;
+      action: ReportActionType;
+      notes: string;
     }) => {
-      const { data: session } = await supabase.auth.getSession();
-      if (!session.session?.user.id) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("user_reports")
-        .update({
-          status,
-          action_taken: actionTaken,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: session.session.user.id,
-        })
-        .eq("id", reportId);
-      if (error) throw error;
+      const rpcAction =
+        action === "warn" ? "issue_warning" : action === "suspend" ? "suspend_user" : "dismiss";
+      return callAdminRpc("admin_resolve_report", {
+        p_report_id: report.id,
+        p_action: rpcAction,
+        p_reason: notes || reasonLabels[report.reason] || report.reason,
+        p_message: notes || null,
+        p_suspension_expires_at: null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_resolve_report"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-      toast.success("Report updated successfully");
+      toast.success("Report action completed");
       setShowActionDialog(false);
       setSelectedReport(null);
       setActionNotes("");
     },
     onError: () => {
-      toast.error("Failed to update report");
-    },
-  });
-
-  // Suspend user mutation
-  const suspendUser = useMutation({
-    mutationFn: async (userId: string) => {
-      const { data: session } = await supabase.auth.getSession();
-      const adminId = session.session?.user.id;
-      if (!adminId) throw new Error("Not authenticated");
-
-      // Update profile
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ is_suspended: true, suspension_reason: actionNotes || "Multiple reports" })
-        .eq("id", userId);
-      if (profileError) throw profileError;
-
-      // Create suspension record
-      const { error: suspensionError } = await supabase.from("user_suspensions").insert({
-        user_id: userId,
-        suspended_by: adminId,
-        reason: actionNotes || "Multiple reports",
-        status: "active",
+      toast.error("Report action was not completed", {
+        description: "The backend admin_resolve_report transaction failed, so no partial UI success was reported.",
       });
-      if (suspensionError) throw suspensionError;
-    },
-  });
-
-  const issueWarning = useMutation({
-    mutationFn: async ({
-      userId,
-      reason,
-      message,
-    }: {
-      userId: string;
-      reason: ReportReasonId;
-      message: string;
-    }) => {
-      const { data: session } = await supabase.auth.getSession();
-      const adminId = session.session?.user.id;
-      if (!adminId) throw new Error("Not authenticated");
-
-      const { error } = await supabase.from("user_warnings").insert({
-        user_id: userId,
-        issued_by: adminId,
-        reason,
-        message,
-      });
-      if (error) throw error;
     },
   });
 
@@ -293,28 +244,17 @@ const AdminReportsPanel = () => {
     }
 
     try {
-      if (actionType === "suspend") {
-        await suspendUser.mutateAsync(selectedReport.reported_id);
-      }
-      if (actionType === "warn") {
-        await issueWarning.mutateAsync({
-          userId: selectedReport.reported_id,
-          reason: selectedReport.reason,
-          message: notes,
-        });
-      }
-
-      await updateReport.mutateAsync({
-        reportId: selectedReport.id,
-        status: actionType === "dismiss" ? "dismissed" : "action_taken",
-        actionTaken: `${actionType}: ${notes || "No notes"}`,
+      await resolveReport.mutateAsync({
+        report: selectedReport,
+        action: actionType,
+        notes,
       });
     } catch (error) {
       toast.error("Report action was not completed", {
         description:
           actionType === "dismiss"
-            ? "The report status update failed."
-            : "A required moderation write failed, so the report was not marked complete. Review the user and report state before retrying.",
+            ? "The backend report resolution transaction failed."
+            : "The required moderation side effect and report closure run in one backend transaction. Review the user and report state before retrying.",
       });
       throw error;
     }
@@ -330,15 +270,15 @@ const AdminReportsPanel = () => {
     setShowActionConfirm(true);
   };
 
-  const reportActionPending = updateReport.isPending || suspendUser.isPending || issueWarning.isPending;
+  const reportActionPending = resolveReport.isPending;
   const reportActionLabel =
     actionType === "suspend" ? "Suspend User" : actionType === "warn" ? "Issue Warning" : "Dismiss Report";
   const reportActionDescription = selectedReport
     ? actionType === "suspend"
       ? `This will suspend ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, create a suspension record, and mark this report as action taken only after the suspension writes succeed.\n\nReason: ${actionNotes.trim()}`
       : actionType === "warn"
-        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"} and mark this report as action taken only after the warning write succeeds.\n\nMessage: ${actionNotes.trim()}`
-        : `This will mark the report as dismissed.${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
+        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"} and mark this report as action taken in the same backend transaction.\n\nMessage: ${actionNotes.trim()}`
+        : `This will mark the report as dismissed through admin_resolve_report.${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
     : "";
 
   // Filter by search query

@@ -18,9 +18,9 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
 import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import React from "react";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 interface AdminEventFormModalProps {
   event?: AdminEventFormEvent | null;
@@ -166,7 +166,6 @@ CollapsibleSection.displayName = "CollapsibleSection";
 
 const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const queryClient = useQueryClient();
-  const { logActivity } = useAdminActivityLog();
   const isEditing = !!event;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -414,21 +413,21 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       if (!isEditing) eventData.status = 'upcoming';
 
       if (isEditing) {
-        const { error } = await supabase.from('events').update(eventData).eq('id', event.id);
-        if (error) throw error;
-        return { id: event.id, action: 'edit_event', eventData };
+        const payload = await callAdminRpc("admin_update_event", {
+          p_event_id: event.id,
+          p_payload: eventData,
+          p_idempotency_key: createAdminIdempotencyKey("admin_update_event"),
+        });
+        return { id: event.id, action: 'edit_event', eventData: (payload.event || eventData) as EventSavePayload };
       } else {
-        const { data, error } = await supabase.from('events').insert(eventData).select().single();
-        if (error) throw error;
-        return { id: data.id, action: 'create_event', eventData: data };
+        const payload = await callAdminRpc("admin_create_event", {
+          p_payload: eventData,
+          p_idempotency_key: createAdminIdempotencyKey("admin_create_event"),
+        });
+        return { id: String(payload.event_id), action: 'create_event', eventData: (payload.event || eventData) as EventSavePayload };
       }
     },
     onSuccess: async (result) => {
-      await logActivity({
-        actionType: result.action as 'create_event' | 'edit_event',
-        targetType: 'event', targetId: result.id, details: { title }
-      });
-
       if (result.action === 'create_event') {
         try {
           await supabase.functions.invoke('event-notifications', {
@@ -439,11 +438,12 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         if (isRecurring) {
           setIsGenerating(true);
           try {
-            const { data: genCount } = await supabase.rpc('generate_recurring_events', {
-              p_parent_id: result.id,
+            const recurringPayload = await callAdminRpc("admin_generate_recurring_events", {
+              p_parent_event_id: result.id,
               p_count: generateCount,
+              p_idempotency_key: createAdminIdempotencyKey("admin_generate_recurring_events"),
             });
-            toast.success(`Created recurring event + ${genCount} upcoming occurrences ✨`);
+            toast.success(`Created recurring event + ${Number(recurringPayload.generated_count || 0)} upcoming occurrences`);
           } catch (_) {
             toast.success('Event created successfully');
           } finally {

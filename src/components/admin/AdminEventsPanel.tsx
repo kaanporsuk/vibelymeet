@@ -20,16 +20,15 @@ import {
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { useUserProfile } from "@/contexts/AuthContext";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
 import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
 import AdminEventControls from "./AdminEventControls";
 import BatchEventImportModal from "./BatchEventImportModal";
-import { notifyAttendeesOfEventCancellation } from "@/lib/adminEventCancellationNotify";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -112,7 +111,6 @@ const getRecurrenceSummary = (event: AdminEventRow): string => {
 
 const AdminEventsPanel = () => {
   const queryClient = useQueryClient();
-  const { user } = useUserProfile();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBatchImport, setShowBatchImport] = useState(false);
@@ -197,11 +195,11 @@ const AdminEventsPanel = () => {
   // Archive mutation
   const archiveEvent = useMutation({
     mutationFn: async ({ id, unarchive }: { id: string; unarchive?: boolean }) => {
-      const { error } = await supabase.from('events').update({
-        archived_at: unarchive ? null : new Date().toISOString(),
-        archived_by: unarchive ? null : user?.id,
-      }).eq('id', id);
-      if (error) throw error;
+      await callAdminRpc(unarchive ? "admin_unarchive_event" : "admin_archive_event", {
+        p_event_id: id,
+        p_reason: unarchive ? "Unarchived from /kaan dashboard" : "Archived from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey(unarchive ? "admin_unarchive_event" : "admin_archive_event"),
+      });
     },
     onSuccess: (_, { unarchive }) => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
@@ -212,12 +210,11 @@ const AdminEventsPanel = () => {
 
   const deleteEvent = useMutation({
     mutationFn: async (eventId: string) => {
-      const { data, error } = await supabase.rpc('admin_delete_event', { p_event_id: eventId });
-      if (error) throw error;
-      const payload = data as { ok?: boolean; error?: string } | null;
-      if (payload && payload.ok === false) {
-        throw new Error(payload.error || 'delete_failed');
-      }
+      await callAdminRpc('admin_delete_event', {
+        p_event_id: eventId,
+        p_reason: "Permanently deleted from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_delete_event"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
@@ -228,24 +225,19 @@ const AdminEventsPanel = () => {
 
   const cancelEvent = useMutation({
     mutationFn: async ({ eventId, title }: { eventId: string; title: string }) => {
-      const { data, error } = await supabase.rpc('admin_cancel_event', { p_event_id: eventId });
-      if (error) throw error;
-      const payload = data as { ok?: boolean; error?: string; status?: string } | null;
-      if (payload && payload.ok === false) {
-        const msg =
-          payload.error === 'already_terminal'
-            ? `Event is already ${payload.status || 'in a terminal state'}`
-            : payload.error || 'cancel_failed';
-        throw new Error(msg);
-      }
-      const counts = await notifyAttendeesOfEventCancellation(eventId, title);
-      return counts;
+      return callAdminRpc('admin_cancel_event', {
+        p_event_id: eventId,
+        p_reason: `Cancelled from /kaan dashboard: ${title}`,
+        p_idempotency_key: createAdminIdempotencyKey("admin_cancel_event"),
+      });
     },
-    onSuccess: (counts) => {
+    onSuccess: (payload) => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      const c = counts?.confirmedSent ?? 0;
-      const w = counts?.waitlistSent ?? 0;
-      toast.success(`Event cancelled — push sent: ${c} confirmed, ${w} waitlisted`);
+      toast.success("Event cancelled", {
+        description: payload.notifications_not_queued
+          ? "Backend lifecycle update succeeded. User cancellation notifications were not queued by the event lifecycle backend."
+          : undefined,
+      });
     },
     onError: (err: unknown) => toast.error(errorMessage(err, 'Failed to cancel event')),
   });
@@ -253,13 +245,11 @@ const AdminEventsPanel = () => {
   // Archive entire series
   const archiveSeries = useMutation({
     mutationFn: async (parentId: string) => {
-      const childIds = getChildrenOf(parentId).map(c => c.id);
-      const allIds = [parentId, ...childIds];
-      const { error } = await supabase.from('events').update({
-        archived_at: new Date().toISOString(),
-        archived_by: user?.id,
-      }).in('id', allIds);
-      if (error) throw error;
+      await callAdminRpc("admin_archive_event_series", {
+        p_parent_event_id: parentId,
+        p_reason: "Archived recurring series from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_archive_event_series"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
@@ -273,14 +263,11 @@ const AdminEventsPanel = () => {
     if (selectedIds.size === 0) return;
     setIsBulkArchiving(true);
     try {
-      const { error } = await supabase.from('events').update({
-        archived_at: new Date().toISOString(),
-        archived_by: user?.id,
-      }).in('id', [...selectedIds]);
-      if (error) {
-        toast.error('Failed to archive selected events', { description: error.message });
-        throw error;
-      }
+      await callAdminRpc("admin_bulk_archive_events", {
+        p_event_ids: [...selectedIds],
+        p_reason: "Bulk archived from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_bulk_archive_events"),
+      });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       const count = selectedIds.size;
       setSelectedIds(new Set());
@@ -294,13 +281,13 @@ const AdminEventsPanel = () => {
   const generateMore = async (parentId: string, count: number) => {
     setIsGeneratingOccurrences(true);
     try {
-      const { data, error } = await supabase.rpc('generate_recurring_events', { p_parent_id: parentId, p_count: count });
-      if (error) {
-        toast.error('Failed to generate occurrences');
-        throw error;
-      }
+      const data = await callAdminRpc("admin_generate_recurring_events", {
+        p_parent_event_id: parentId,
+        p_count: count,
+        p_idempotency_key: createAdminIdempotencyKey("admin_generate_recurring_events"),
+      });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      toast.success(`Generated ${data} new occurrences ✨`);
+      toast.success(`Generated ${Number(data.generated_count || 0)} new occurrences`);
     } finally {
       setIsGeneratingOccurrences(false);
     }
@@ -311,35 +298,35 @@ const AdminEventsPanel = () => {
       case "generate-more":
         return {
           title: `Generate ${pendingEventAction.count} more occurrences?`,
-          description: `This calls generate_recurring_events for "${pendingEventAction.event.title}" and creates new event rows immediately. It does not notify users.`,
+          description: `This calls admin_generate_recurring_events for "${pendingEventAction.event.title}". The backend validates admin access, recurrence bounds, duplicate protection, and writes an audit log. It does not notify users.`,
           confirmLabel: "Generate Occurrences",
           variant: "default" as const,
         };
       case "archive":
         return {
           title: `Archive "${pendingEventAction.event.title}"?`,
-          description: "This immediately writes archived_at and archived_by on this event. It hides the event from normal admin/user views but preserves event data and can be reversed.",
+          description: "This calls admin_archive_event. The backend writes archived_at/archived_by and an admin audit log in one transaction.",
           confirmLabel: "Archive Event",
           variant: "destructive" as const,
         };
       case "unarchive":
         return {
           title: `Unarchive "${pendingEventAction.event.title}"?`,
-          description: "This clears archived_at and archived_by. The event can become visible again if its lifecycle, status, and other visibility rules allow it.",
+          description: "This calls admin_unarchive_event. The backend clears archived_at/archived_by and writes an admin audit log.",
           confirmLabel: "Unarchive Event",
           variant: "default" as const,
         };
       case "archive-series":
         return {
           title: `Archive recurring series "${pendingEventAction.event.title}"?`,
-          description: `This immediately archives the parent event and ${pendingEventAction.childCount} loaded occurrence${pendingEventAction.childCount === 1 ? "" : "s"}. Data is preserved, but the series is hidden from normal user-facing event lists.`,
+          description: `This calls admin_archive_event_series for the parent event and backend-discovered occurrences. ${pendingEventAction.childCount} loaded occurrence${pendingEventAction.childCount === 1 ? "" : "s"} are visible in the current filtered view.`,
           confirmLabel: "Archive Series",
           variant: "destructive" as const,
         };
       case "bulk-archive":
         return {
           title: `Archive ${pendingEventAction.count} selected event${pendingEventAction.count === 1 ? "" : "s"}?`,
-          description: "This immediately writes archived_at and archived_by on the selected loaded events. Data is preserved, but the events are hidden from normal user-facing event lists.",
+          description: "This calls admin_bulk_archive_events for the selected loaded event IDs. The backend writes archive fields and one audit log.",
           confirmLabel: "Archive Selected",
           variant: "destructive" as const,
         };
@@ -435,7 +422,6 @@ const AdminEventsPanel = () => {
                   computedStatus={computed}
                   endedAt={event.ended_at}
                   archivedAt={event.archived_at}
-                  durationMinutes={event.duration_minutes}
                 />
               </div>
             </div>

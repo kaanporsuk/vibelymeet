@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format, addWeeks, addMonths, addYears } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 interface AdminPremiumModalProps {
   userId: string;
@@ -119,45 +120,19 @@ const AdminPremiumModal = ({
     ]);
   };
 
-  const handlePremiumHistoryFailure = async (action: string, error: unknown) => {
-    console.error("Premium history insert failed after profile update", error);
-    await invalidatePremiumQueries();
-    toast.warning(`Premium ${action}, but history/audit recording failed`, {
-      description: "Profile state changed, but premium_history did not record it. Verify Premium History before taking another premium action.",
-    });
-    onClose();
-  };
-
   const handleGrant = async () => {
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
       const targetDate = getTargetDate(new Date());
 
-      const { error: updateErr } = await supabase
-        .from("profiles")
-        .update({
-          is_premium: true,
-          subscription_tier: grantTier,
-          premium_until: targetDate.toISOString(),
-          premium_granted_by: user.id,
-          premium_granted_at: new Date().toISOString(),
-        })
-        .eq("id", userId);
-      if (updateErr) throw updateErr;
-
-      const { error: historyError } = await supabase.from("premium_history").insert({
-        user_id: userId,
-        admin_id: user.id,
-        action: "granted",
-        premium_until: targetDate.toISOString(),
-        reason: reason || null,
+      await callAdminRpc("admin_set_premium_status", {
+        p_user_id: userId,
+        p_action: "grant",
+        p_premium_until: targetDate.toISOString(),
+        p_subscription_tier: grantTier,
+        p_reason: reason || null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
       });
-      if (historyError) {
-        await handlePremiumHistoryFailure("granted", historyError);
-        return;
-      }
 
       toast.success(`Premium granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
       await invalidatePremiumQueries();
@@ -172,8 +147,6 @@ const AdminPremiumModal = ({
   const handleExtend = async () => {
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
       const base = currentPremiumUntil ? new Date(currentPremiumUntil) : new Date();
       let targetDate: Date;
       if (duration === "custom" && customDate) {
@@ -183,23 +156,14 @@ const AdminPremiumModal = ({
         targetDate = calcDate(base, duration);
       }
 
-      const { error: updateErr } = await supabase
-        .from("profiles")
-        .update({ premium_until: targetDate.toISOString() })
-        .eq("id", userId);
-      if (updateErr) throw updateErr;
-
-      const { error: historyError } = await supabase.from("premium_history").insert({
-        user_id: userId,
-        admin_id: user.id,
-        action: "extended",
-        premium_until: targetDate.toISOString(),
-        reason: reason || null,
+      await callAdminRpc("admin_set_premium_status", {
+        p_user_id: userId,
+        p_action: "extend",
+        p_premium_until: targetDate.toISOString(),
+        p_subscription_tier: grantTier,
+        p_reason: reason || null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
       });
-      if (historyError) {
-        await handlePremiumHistoryFailure("extended", historyError);
-        return;
-      }
 
       toast.success(`Premium extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
       await invalidatePremiumQueries();
@@ -214,30 +178,14 @@ const AdminPremiumModal = ({
   const handleRevoke = async () => {
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { error: updateErr } = await supabase
-        .from("profiles")
-        .update({
-          is_premium: false,
-          subscription_tier: "free",
-          premium_until: null,
-        })
-        .eq("id", userId);
-      if (updateErr) throw updateErr;
-
-      const { error: historyError } = await supabase.from("premium_history").insert({
-        user_id: userId,
-        admin_id: user.id,
-        action: "revoked",
-        premium_until: null,
-        reason: reason || null,
+      await callAdminRpc("admin_set_premium_status", {
+        p_user_id: userId,
+        p_action: "revoke",
+        p_premium_until: null,
+        p_subscription_tier: "free",
+        p_reason: reason || null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_set_premium_status"),
       });
-      if (historyError) {
-        await handlePremiumHistoryFailure("revoked", historyError);
-        return;
-      }
 
       toast.success(`Premium revoked for ${userName}`);
       await invalidatePremiumQueries();
@@ -253,7 +201,7 @@ const AdminPremiumModal = ({
     if (pendingAction === "grant") {
       return {
         title: `Grant premium to ${userName}?`,
-        description: "This immediately updates the user's profile premium state and then writes a premium_history row. These writes are not atomic in this P1 frontend pass; if history recording fails, the UI will warn you instead of claiming a fully audited grant.",
+        description: "This calls the backend admin premium RPC. Profile premium state, premium_history, and admin_activity_logs commit together or fail together.",
         confirmLabel: "Grant Premium",
         variant: "default" as const,
       };
@@ -261,7 +209,7 @@ const AdminPremiumModal = ({
     if (pendingAction === "extend") {
       return {
         title: `Extend premium for ${userName}?`,
-        description: "This immediately updates premium_until on the user's profile and then writes a premium_history row. These writes are not atomic in this P1 frontend pass; if history recording fails, the UI will warn you instead of claiming a fully audited extension.",
+        description: "This calls the backend admin premium RPC. The premium_until update, premium_history row, and admin audit row commit together or fail together.",
         confirmLabel: "Extend Premium",
         variant: "default" as const,
       };
@@ -269,7 +217,7 @@ const AdminPremiumModal = ({
     if (pendingAction === "revoke") {
       return {
         title: `Revoke premium for ${userName}?`,
-        description: "This immediately removes premium access from the user's profile and then writes a premium_history row. These writes are not atomic in this P1 frontend pass; if history recording fails, the UI will warn you instead of claiming a fully audited revocation.",
+        description: "This calls the backend admin premium RPC. Premium removal, premium_history, and admin_activity_logs commit together or fail together.",
         confirmLabel: "Revoke Premium",
         variant: "destructive" as const,
       };
@@ -339,8 +287,8 @@ const AdminPremiumModal = ({
           </div>
         )}
 
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
-          Premium profile updates and premium_history writes happen in separate steps in this frontend pass; backend atomicity is deferred.
+        <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-700 dark:text-green-300">
+          Premium changes use the backend admin_set_premium_status RPC so profile state, premium_history, and admin audit logging are transactional.
         </div>
 
         {/* Tier (new grants only) */}

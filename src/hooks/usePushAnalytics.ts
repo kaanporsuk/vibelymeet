@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { format, subDays, eachDayOfInterval, startOfDay } from "date-fns";
-import { supabase } from "@/integrations/supabase/client";
+import { format, subDays } from "date-fns";
+import { callAdminRpc } from "@/lib/adminRpc";
 
 export type PushAnalyticsRange = "7d" | "14d" | "30d";
 
@@ -47,7 +47,7 @@ export type PushAnalyticsBestTime = {
 
 export type PushAnalyticsResult = {
   range: PushAnalyticsRange;
-  telemetrySource: "push_notification_events_admin";
+  telemetrySource: "admin_get_push_delivery_metrics";
   telemetryRowCount: number;
   byDay: PushAnalyticsDay[];
   kpis: PushAnalyticsKpis;
@@ -56,21 +56,9 @@ export type PushAnalyticsResult = {
   bestTimes: PushAnalyticsBestTime[];
 };
 
-const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
 function safeRate(numerator: number, denominator: number): number {
   if (!denominator) return 0;
   return Math.round((numerator / denominator) * 100);
-}
-
-function isDelivered(status?: string | null) {
-  return status === "delivered" || status === "opened" || status === "clicked";
-}
-function isOpened(status?: string | null) {
-  return status === "opened" || status === "clicked";
-}
-function isClicked(status?: string | null) {
-  return status === "clicked";
 }
 
 export function usePushAnalytics(range: PushAnalyticsRange) {
@@ -80,73 +68,34 @@ export function usePushAnalytics(range: PushAnalyticsRange) {
     queryFn: async (): Promise<PushAnalyticsResult> => {
       const days = range === "7d" ? 7 : range === "14d" ? 14 : 30;
       const start = subDays(new Date(), days - 1);
-      const dayBuckets = eachDayOfInterval({ start, end: new Date() });
-
-      const { data: events, error } = await supabase
-        .from("push_notification_events_admin")
-        .select(
-          "id, campaign_id, platform, status, created_at, sent_at, delivered_at, opened_at, clicked_at",
-        )
-        .gte("created_at", start.toISOString());
-
-      if (error) throw error;
-
-      const rows = events || [];
-
-      // ---- Device distribution ----
-      const platformCounts: Record<string, number> = {};
-      for (const r of rows) {
-        const p = (r.platform as string) || "unknown";
-        platformCounts[p] = (platformCounts[p] || 0) + 1;
-      }
-      const totalForDevices = rows.length;
-      const platformLabel: Record<string, string> = {
-        ios: "iOS",
-        android: "Android",
-        web: "Web",
-        pwa: "PWA",
-        unknown: "Unknown",
-      };
-      const deviceDistribution: PushAnalyticsDeviceItem[] = Object.entries(platformCounts)
-        .map(([platform, count]) => ({
-          name: platformLabel[platform] || platform,
-          value: safeRate(count, totalForDevices),
-        }))
-        .sort((a, b) => b.value - a.value);
-
-      // ---- By day ----
-      const byDay: PushAnalyticsDay[] = dayBuckets.map((day) => {
-        const dayStart = startOfDay(day).getTime();
-        const dayRows = rows.filter((r) => startOfDay(new Date(r.created_at)).getTime() === dayStart);
-
-        const sent = dayRows.length;
-        const delivered = dayRows.filter((r) => !!r.delivered_at || isDelivered(r.status as string)).length;
-        const opened = dayRows.filter((r) => !!r.opened_at || isOpened(r.status as string)).length;
-        const clicked = dayRows.filter((r) => !!r.clicked_at || isClicked(r.status as string)).length;
-
-        return {
-          date: format(day, "MMM d"),
-          fullDate: day.toISOString(),
-          sent,
-          delivered,
-          opened,
-          clicked,
-          deliveryRate: safeRate(delivered, sent),
-          openRate: safeRate(opened, delivered || sent),
-          clickRate: safeRate(clicked, opened || sent),
-        };
+      const end = new Date();
+      const data = await callAdminRpc("admin_get_push_delivery_metrics", {
+        p_window_start: start.toISOString(),
+        p_window_end: end.toISOString(),
       });
 
-      // ---- KPIs ----
-      const totals = byDay.reduce(
-        (acc, d) => ({
-          sent: acc.sent + d.sent,
-          delivered: acc.delivered + d.delivered,
-          opened: acc.opened + d.opened,
-          clicked: acc.clicked + d.clicked,
-        }),
-        { sent: 0, delivered: 0, opened: 0, clicked: 0 },
-      );
+      const pushTelemetry = (data.push_telemetry || {}) as Record<string, number>;
+      const appLog = (data.app_notification_log || {}) as Record<string, number>;
+      const totals = {
+        sent: Number(pushTelemetry.sent_rows || pushTelemetry.queued_rows || 0),
+        delivered: Number(pushTelemetry.delivered_rows || 0),
+        opened: Number(pushTelemetry.opened_rows || 0),
+        clicked: Number(pushTelemetry.clicked_rows || 0),
+      };
+
+      const byDay: PushAnalyticsDay[] = [
+        {
+          date: `${format(start, "MMM d")}–${format(end, "MMM d")}`,
+          fullDate: start.toISOString(),
+          sent: totals.sent,
+          delivered: totals.delivered,
+          opened: totals.opened,
+          clicked: totals.clicked,
+          deliveryRate: safeRate(totals.delivered, totals.sent),
+          openRate: safeRate(totals.opened, totals.delivered || totals.sent),
+          clickRate: safeRate(totals.clicked, totals.opened || totals.sent),
+        },
+      ];
 
       const kpis: PushAnalyticsKpis = {
         ...totals,
@@ -155,66 +104,28 @@ export function usePushAnalytics(range: PushAnalyticsRange) {
         avgClickRate: safeRate(totals.clicked, totals.opened || totals.sent),
       };
 
-      // ---- Performance breakdown (Top campaigns) ----
-      const byCampaign: Record<string, { sent: number; opened: number; clicked: number }> = {};
-      for (const r of rows) {
-        const cid = (r.campaign_id as string) || "unknown";
-        if (!byCampaign[cid]) byCampaign[cid] = { sent: 0, opened: 0, clicked: 0 };
-        byCampaign[cid].sent += 1;
-        byCampaign[cid].opened += !!r.opened_at || isOpened(r.status as string) ? 1 : 0;
-        byCampaign[cid].clicked += !!r.clicked_at || isClicked(r.status as string) ? 1 : 0;
-      }
+      const performance: PushAnalyticsBreakdownItem[] = [
+        {
+          name: "Provider telemetry",
+          sent: totals.sent,
+          opened: totals.opened,
+          clicked: totals.clicked,
+        },
+        {
+          name: "App notification log",
+          sent: Number(appLog.log_rows || 0),
+          opened: Number(appLog.delivered_rows || 0),
+          clicked: 0,
+        },
+      ].filter((item) => item.sent > 0 || item.opened > 0 || item.clicked > 0);
 
-      const campaignIds = Object.keys(byCampaign).filter((id) => id !== "unknown");
-      const { data: campaigns } = campaignIds.length
-        ? await supabase.from("push_campaigns").select("id, title").in("id", campaignIds)
-        : { data: [] as Array<{ id: string; title: string }> };
-
-      const campaignTitleById = new Map((campaigns || []).map((c) => [c.id, c.title] as const));
-
-      const performance: PushAnalyticsBreakdownItem[] = Object.entries(byCampaign)
-        .map(([campaignId, stats]) => ({
-          name: campaignId === "unknown" ? "Unattributed" : campaignTitleById.get(campaignId) || "Campaign",
-          sent: stats.sent,
-          opened: stats.opened,
-          clicked: stats.clicked,
-        }))
-        .sort((a, b) => b.sent - a.sent)
-        .slice(0, 6);
-
-      // ---- Best times (by day-of-week + hour) ----
-      const bySlot: Record<string, { sent: number; opened: number }> = {};
-      for (const r of rows) {
-        const dt = new Date((r.sent_at as string) || (r.created_at as string));
-        const dow = dt.getDay();
-        const hour = dt.getHours();
-        const key = `${dow}-${hour}`;
-        if (!bySlot[key]) bySlot[key] = { sent: 0, opened: 0 };
-        bySlot[key].sent += 1;
-        bySlot[key].opened += !!r.opened_at || isOpened(r.status as string) ? 1 : 0;
-      }
-
-      const bestTimes: PushAnalyticsBestTime[] = Object.entries(bySlot)
-        .map(([key, stats]) => {
-          const [dowStr, hourStr] = key.split("-");
-          const dow = Number(dowStr);
-          const hour = Number(hourStr);
-          const hour12 = ((hour + 11) % 12) + 1;
-          const ampm = hour >= 12 ? "PM" : "AM";
-          return {
-            day: DAY_LABELS[dow] || "",
-            time: `${hour12}:00 ${ampm}`,
-            openRate: safeRate(stats.opened, stats.sent),
-            reason: "Top open window",
-          };
-        })
-        .sort((a, b) => b.openRate - a.openRate)
-        .slice(0, 4);
+      const deviceDistribution: PushAnalyticsDeviceItem[] = [];
+      const bestTimes: PushAnalyticsBestTime[] = [];
 
       return {
         range,
-        telemetrySource: "push_notification_events_admin",
-        telemetryRowCount: rows.length,
+        telemetrySource: "admin_get_push_delivery_metrics",
+        telemetryRowCount: totals.sent,
         byDay,
         kpis,
         performance,

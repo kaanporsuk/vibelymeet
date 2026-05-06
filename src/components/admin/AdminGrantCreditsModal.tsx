@@ -3,9 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, Coins, Sparkles, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { useUserProfile } from "@/contexts/AuthContext";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
@@ -25,7 +24,6 @@ const AdminGrantCreditsModal = ({
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const { user } = useUserProfile();
 
   const grantSummary = `${extraTime > 0 ? `${extraTime} Extra Time` : ""}${
     extraTime > 0 && extendedVibe > 0 ? " + " : ""
@@ -48,50 +46,17 @@ const AdminGrantCreditsModal = ({
     setIsSubmitting(true);
 
     try {
-      const { data: existing, error: fetchError } = await supabase
-        .from("user_credits")
-        .select("extra_time_credits, extended_vibe_credits")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (fetchError) throw fetchError;
+      const adjustments = [
+        ...(extraTime > 0 ? [{ credit_type: "extra_time", delta: extraTime }] : []),
+        ...(extendedVibe > 0 ? [{ credit_type: "extended_vibe", delta: extendedVibe }] : []),
+      ];
 
-      const prevExtra = existing?.extra_time_credits || 0;
-      const prevExtended = existing?.extended_vibe_credits || 0;
-
-      const { error: creditError } = await supabase
-        .from("user_credits")
-        .upsert({
-          user_id: userId,
-          extra_time_credits: prevExtra + extraTime,
-          extended_vibe_credits: prevExtended + extendedVibe,
-        }, { onConflict: 'user_id' });
-      if (creditError) throw creditError;
-
-      const adjustments = [];
-      if (extraTime > 0) adjustments.push({ credit_type: "extra_time", previous_value: prevExtra, new_value: prevExtra + extraTime });
-      if (extendedVibe > 0) adjustments.push({ credit_type: "extended_vibe", previous_value: prevExtended, new_value: prevExtended + extendedVibe });
-
-      if (user?.id && adjustments.length > 0) {
-        const { error: adjustmentError } = await supabase.from("credit_adjustments").insert(
-          adjustments.map((a) => ({
-            admin_id: user.id,
-            user_id: userId,
-            credit_type: a.credit_type,
-            previous_value: a.previous_value,
-            new_value: a.new_value,
-            adjustment_reason: reason || null,
-          }))
-        );
-        if (adjustmentError) {
-          console.error("Credit adjustment audit failed after credits were granted:", adjustmentError);
-          toast.warning(
-            `Credits were granted to ${userName}, but the audit record failed. Do not retry this grant; check credit history/RLS before taking another action.`
-          );
-          setConfirmOpen(false);
-          onClose();
-          return;
-        }
-      }
+      await callAdminRpc("admin_adjust_user_credits", {
+        p_user_id: userId,
+        p_adjustments: adjustments,
+        p_reason: reason || null,
+        p_idempotency_key: createAdminIdempotencyKey("admin_adjust_user_credits"),
+      });
 
       toast.success(
         `Granted ${extraTime > 0 ? `${extraTime}× Extra Time` : ""}${
@@ -204,7 +169,7 @@ const AdminGrantCreditsModal = ({
             <AdminConfirmDialog
               open={confirmOpen}
               title={`Grant credits to ${userName}?`}
-              description={`This will immediately add ${grantSummary} to ${userName}'s credit balance and write a credit adjustment record.${reason.trim() ? `\n\nReason: ${reason.trim()}` : ""}`}
+              description={`This calls the backend admin credit adjustment RPC for ${grantSummary || "the selected credits"}. The balance update, credit_adjustments rows, and admin_activity_logs row commit together or fail together.${reason.trim() ? `\n\nReason: ${reason.trim()}` : ""}`}
               confirmLabel="Grant Credits"
               variant="default"
               isPending={isSubmitting}

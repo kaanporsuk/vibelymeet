@@ -8,80 +8,25 @@ import {
   TrendingUp,
   UserCheck,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { callAdminRpc } from "@/lib/adminRpc";
 
 const AdminStatsCards = () => {
-  // Fetch total users
-  const { data: usersCount } = useQuery({
-    queryKey: ['admin-users-count'],
+  const { data: metrics } = useQuery({
+    queryKey: ['admin-overview-metrics'],
     queryFn: async () => {
-      const { count } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true });
-      return count || 0;
+      return callAdminRpc("admin_get_overview_metrics", {
+        p_now: new Date().toISOString(),
+      });
     },
   });
 
-  // Fetch total matches
-  const { data: matchesCount } = useQuery({
-    queryKey: ['admin-matches-count'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('matches')
-        .select('*', { count: 'exact', head: true });
-      return count || 0;
-    },
-  });
-
-  // Fetch total messages
-  const { data: messagesCount } = useQuery({
-    queryKey: ['admin-messages-count'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('messages')
-        .select('*', { count: 'exact', head: true });
-      return count || 0;
-    },
-  });
-
-  // Fetch total events
-  const { data: eventsCount } = useQuery({
-    queryKey: ['admin-events-count'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('events')
-        .select('*', { count: 'exact', head: true });
-      return count || 0;
-    },
-  });
-
-  // Fetch verified users
-  const { data: verifiedCount } = useQuery({
-    queryKey: ['admin-verified-count'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .eq('photo_verified', true);
-      return count || 0;
-    },
-  });
-
-  // Fetch today's new users
-  const { data: todayUsersCount } = useQuery({
-    queryKey: ['admin-today-users'],
-    queryFn: async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const { count } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', today.toISOString());
-      return count || 0;
-    },
-  });
-
-  const matchesPerUser = usersCount && matchesCount ? (matchesCount / usersCount).toFixed(2) : '0.00';
+  const usersCount = Number(metrics?.total_users || 0);
+  const todayUsersCount = Number(metrics?.today_users || 0);
+  const matchesCount = Number(metrics?.total_matches || 0);
+  const messagesCount = Number(metrics?.total_messages || 0);
+  const eventsCount = Number((metrics?.events as { total?: number } | undefined)?.total || 0);
+  const verifiedCount = Number(metrics?.verified_users || 0);
+  const matchesPerUser = Number(metrics?.matches_per_user || 0).toFixed(2);
 
   const stats = [
     {
@@ -126,7 +71,7 @@ const AdminStatsCards = () => {
       icon: TrendingUp,
       color: 'from-violet-500 to-purple-600',
       change: 'All-time avg',
-      description: 'All-time matches divided by total users.',
+      description: 'Server-computed all-time matches divided by total users. UTC reporting.',
     },
   ];
 
