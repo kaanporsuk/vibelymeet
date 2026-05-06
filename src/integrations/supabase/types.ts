@@ -86,6 +86,39 @@ export type Database = {
         }
         Relationships: []
       }
+      admin_idempotency_keys: {
+        Row: {
+          admin_id: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          operation: string
+          request_hash: string
+          response: Json | null
+          updated_at: string
+        }
+        Insert: {
+          admin_id: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          operation: string
+          request_hash: string
+          response?: Json | null
+          updated_at?: string
+        }
+        Update: {
+          admin_id?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          operation?: string
+          request_hash?: string
+          response?: Json | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       admin_notifications: {
         Row: {
           created_at: string | null
@@ -115,6 +148,59 @@ export type Database = {
           type?: string
         }
         Relationships: []
+      }
+      admin_permissions: {
+        Row: {
+          area: string
+          created_at: string
+          description: string
+          is_break_glass: boolean
+          label: string
+          permission: string
+        }
+        Insert: {
+          area: string
+          created_at?: string
+          description: string
+          is_break_glass?: boolean
+          label: string
+          permission: string
+        }
+        Update: {
+          area?: string
+          created_at?: string
+          description?: string
+          is_break_glass?: boolean
+          label?: string
+          permission?: string
+        }
+        Relationships: []
+      }
+      admin_role_permissions: {
+        Row: {
+          created_at: string
+          permission: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          created_at?: string
+          permission: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          created_at?: string
+          permission?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_role_permissions_permission_fkey"
+            columns: ["permission"]
+            isOneToOne: false
+            referencedRelation: "admin_permissions"
+            referencedColumns: ["permission"]
+          },
+        ]
       }
       age_gate_blocks: {
         Row: {
@@ -1966,6 +2052,33 @@ export type Database = {
           },
         ]
       }
+      migration_classifications: {
+        Row: {
+          classification: string
+          created_at: string
+          destructive_requires_signoff: boolean
+          migration_version: string
+          risk_notes: string
+          title: string
+        }
+        Insert: {
+          classification: string
+          created_at?: string
+          destructive_requires_signoff?: boolean
+          migration_version: string
+          risk_notes?: string
+          title: string
+        }
+        Update: {
+          classification?: string
+          created_at?: string
+          destructive_requires_signoff?: boolean
+          migration_version?: string
+          risk_notes?: string
+          title?: string
+        }
+        Relationships: []
+      }
       notification_log: {
         Row: {
           body: string
@@ -2788,6 +2901,27 @@ export type Database = {
         }
         Relationships: []
       }
+      public_account_deletion_request_log: {
+        Row: {
+          created_at: string
+          email_hash: string
+          id: string
+          ip_hash: string
+        }
+        Insert: {
+          created_at?: string
+          email_hash: string
+          id?: string
+          ip_hash: string
+        }
+        Update: {
+          created_at?: string
+          email_hash?: string
+          id?: string
+          ip_hash?: string
+        }
+        Relationships: []
+      }
       push_campaigns: {
         Row: {
           body: string
@@ -2913,6 +3047,75 @@ export type Database = {
         }
         Relationships: []
       }
+      rebuild_rehearsal_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          findings: Json
+          id: string
+          notes: string | null
+          operator_id: string | null
+          scope: string
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          findings?: Json
+          id?: string
+          notes?: string | null
+          operator_id?: string | null
+          scope: string
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          findings?: Json
+          id?: string
+          notes?: string | null
+          operator_id?: string | null
+          scope?: string
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      revenuecat_webhook_events: {
+        Row: {
+          app_user_id: string | null
+          error_code: string | null
+          event_type: string | null
+          metadata_summary: Json
+          processed_at: string | null
+          received_at: string
+          revenuecat_event_id: string
+          status: string
+        }
+        Insert: {
+          app_user_id?: string | null
+          error_code?: string | null
+          event_type?: string | null
+          metadata_summary?: Json
+          processed_at?: string | null
+          received_at?: string
+          revenuecat_event_id: string
+          status?: string
+        }
+        Update: {
+          app_user_id?: string | null
+          error_code?: string | null
+          event_type?: string | null
+          metadata_summary?: Json
+          processed_at?: string | null
+          received_at?: string
+          revenuecat_event_id?: string
+          status?: string
+        }
+        Relationships: []
+      }
       schedule_share_grants: {
         Row: {
           created_at: string
@@ -3007,6 +3210,59 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stripe_event_ticket_checkout_intents: {
+        Row: {
+          checkout_session_id: string
+          created_at: string
+          event_id: string
+          expected_amount: number
+          expected_currency: string
+          metadata: Json
+          settled_at: string | null
+          status: string
+          stripe_event_id: string | null
+          updated_at: string
+          user_id: string
+          verified_at: string | null
+        }
+        Insert: {
+          checkout_session_id: string
+          created_at?: string
+          event_id: string
+          expected_amount: number
+          expected_currency: string
+          metadata?: Json
+          settled_at?: string | null
+          status?: string
+          stripe_event_id?: string | null
+          updated_at?: string
+          user_id: string
+          verified_at?: string | null
+        }
+        Update: {
+          checkout_session_id?: string
+          created_at?: string
+          event_id?: string
+          expected_amount?: number
+          expected_currency?: string
+          metadata?: Json
+          settled_at?: string | null
+          status?: string
+          stripe_event_id?: string | null
+          updated_at?: string
+          user_id?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_event_ticket_checkout_intents_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -3698,11 +3954,11 @@ export type Database = {
       }
       video_sessions: {
         Row: {
+          daily_room_expires_at: string | null
           daily_room_name: string | null
+          daily_room_provider_verify_reason: string | null
           daily_room_url: string | null
           daily_room_verified_at: string | null
-          daily_room_expires_at: string | null
-          daily_room_provider_verify_reason: string | null
           date_extra_seconds: number
           date_started_at: string | null
           duration_seconds: number | null
@@ -3723,6 +3979,10 @@ export type Database = {
           participant_2_joined_at: string | null
           participant_2_liked: boolean | null
           phase: string
+          prepare_entry_actor_id: string | null
+          prepare_entry_attempt_id: string | null
+          prepare_entry_expires_at: string | null
+          prepare_entry_started_at: string | null
           queued_expires_at: string | null
           ready_gate_expires_at: string | null
           ready_gate_status: string
@@ -3739,11 +3999,11 @@ export type Database = {
           vibe_questions: Json | null
         }
         Insert: {
+          daily_room_expires_at?: string | null
           daily_room_name?: string | null
+          daily_room_provider_verify_reason?: string | null
           daily_room_url?: string | null
           daily_room_verified_at?: string | null
-          daily_room_expires_at?: string | null
-          daily_room_provider_verify_reason?: string | null
           date_extra_seconds?: number
           date_started_at?: string | null
           duration_seconds?: number | null
@@ -3764,6 +4024,10 @@ export type Database = {
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
           phase?: string
+          prepare_entry_actor_id?: string | null
+          prepare_entry_attempt_id?: string | null
+          prepare_entry_expires_at?: string | null
+          prepare_entry_started_at?: string | null
           queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
@@ -3780,11 +4044,11 @@ export type Database = {
           vibe_questions?: Json | null
         }
         Update: {
+          daily_room_expires_at?: string | null
           daily_room_name?: string | null
+          daily_room_provider_verify_reason?: string | null
           daily_room_url?: string | null
           daily_room_verified_at?: string | null
-          daily_room_expires_at?: string | null
-          daily_room_provider_verify_reason?: string | null
           date_extra_seconds?: number
           date_started_at?: string | null
           duration_seconds?: number | null
@@ -3805,6 +4069,10 @@ export type Database = {
           participant_2_joined_at?: string | null
           participant_2_liked?: boolean | null
           phase?: string
+          prepare_entry_actor_id?: string | null
+          prepare_entry_attempt_id?: string | null
+          prepare_entry_expires_at?: string | null
+          prepare_entry_started_at?: string | null
           queued_expires_at?: string | null
           ready_gate_expires_at?: string | null
           ready_gate_status?: string
@@ -4375,26 +4643,244 @@ export type Database = {
         Args: { p_user_id: string; p_video_id: string; p_video_status?: string }
         Returns: Json
       }
-      admin_cancel_event: { Args: { p_event_id: string }; Returns: Json }
+      admin_adjust_user_credits: {
+        Args: {
+          p_adjustments: Json
+          p_idempotency_key?: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      admin_archive_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_archive_event_series: {
+        Args: {
+          p_idempotency_key?: string
+          p_parent_event_id: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_bulk_archive_events: {
+        Args: {
+          p_event_ids: string[]
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_cancel_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_create_event: {
+        Args: { p_idempotency_key?: string; p_payload: Json }
+        Returns: Json
+      }
       admin_create_event_payment_exception: {
         Args: {
           p_checkout_session_id?: string
           p_event_id: string
           p_exception_status?: string
           p_exception_type: string
+          p_idempotency_key?: string
           p_notes?: string
           p_profile_id: string
           p_support_ticket_id?: string
         }
         Returns: Json
       }
-      admin_delete_event: { Args: { p_event_id: string }; Returns: Json }
+      admin_delete_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_delete_notifications: {
+        Args: {
+          p_filters?: Json
+          p_idempotency_key?: string
+          p_ids?: string[]
+          p_scope: string
+        }
+        Returns: Json
+      }
+      admin_end_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_extend_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_minutes: number
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_generate_recurring_events: {
+        Args: {
+          p_count: number
+          p_idempotency_key?: string
+          p_parent_event_id: string
+        }
+        Returns: Json
+      }
+      admin_get_admin_permissions: { Args: never; Returns: Json }
       admin_get_event_confirmed_gender_counts: {
         Args: { p_event_id: string }
         Returns: Json
       }
+      admin_get_event_metrics: { Args: { p_event_id: string }; Returns: Json }
+      admin_get_incident_signals: { Args: { p_now?: string }; Returns: Json }
+      admin_get_notification_counts: { Args: never; Returns: Json }
+      admin_get_overview_metrics: { Args: { p_now?: string }; Returns: Json }
+      admin_get_provider_health: { Args: { p_now?: string }; Returns: Json }
+      admin_get_push_delivery_metrics: {
+        Args: { p_window_end: string; p_window_start: string }
+        Returns: Json
+      }
+      admin_get_rebuild_status: { Args: never; Returns: Json }
+      admin_get_system_health: { Args: { p_now?: string }; Returns: Json }
+      admin_go_live_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_has_permission: { Args: { p_permission: string }; Returns: Json }
+      admin_idempotency_begin: {
+        Args: {
+          p_admin_id: string
+          p_idempotency_key: string
+          p_operation: string
+          p_request: Json
+        }
+        Returns: Json
+      }
+      admin_idempotency_complete: {
+        Args: {
+          p_admin_id: string
+          p_idempotency_key: string
+          p_operation: string
+          p_response: Json
+        }
+        Returns: Json
+      }
+      admin_json_error: {
+        Args: { p_details?: Json; p_error: string; p_message?: string }
+        Returns: Json
+      }
+      admin_json_success: { Args: { p_data?: Json }; Returns: Json }
+      admin_jsonb_int_array: { Args: { p_value: Json }; Returns: number[] }
+      admin_jsonb_text_array: { Args: { p_value: Json }; Returns: string[] }
+      admin_list_notifications: {
+        Args: { p_filters?: Json; p_limit?: number; p_offset?: number }
+        Returns: Json
+      }
+      admin_mark_notifications_read: {
+        Args: {
+          p_filters?: Json
+          p_idempotency_key?: string
+          p_ids?: string[]
+          p_scope: string
+        }
+        Returns: Json
+      }
+      admin_moderate_user: {
+        Args: {
+          p_action: string
+          p_idempotency_key?: string
+          p_message?: string
+          p_reason: string
+          p_suspension_expires_at?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       admin_remove_event_registration: {
         Args: { p_event_id: string; p_profile_id: string }
+        Returns: Json
+      }
+      admin_resolve_report: {
+        Args: {
+          p_action: string
+          p_idempotency_key?: string
+          p_message?: string
+          p_reason: string
+          p_report_id: string
+          p_suspension_expires_at?: string
+        }
+        Returns: Json
+      }
+      admin_review_photo_verification: {
+        Args: {
+          p_action: string
+          p_idempotency_key?: string
+          p_rejection_reason?: string
+          p_verification_id: string
+        }
+        Returns: Json
+      }
+      admin_search_admin_audit_logs: {
+        Args: {
+          p_action_type?: string
+          p_actor_id?: string
+          p_from?: string
+          p_limit?: number
+          p_offset?: number
+          p_target_id?: string
+          p_target_type?: string
+          p_to?: string
+        }
+        Returns: Json
+      }
+      admin_search_users: {
+        Args: {
+          p_filters?: Json
+          p_limit?: number
+          p_offset?: number
+          p_search?: string
+          p_sort?: string
+        }
+        Returns: Json
+      }
+      admin_send_event_reminder: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_set_premium_status: {
+        Args: {
+          p_action: string
+          p_idempotency_key?: string
+          p_premium_until?: string
+          p_reason?: string
+          p_subscription_tier?: string
+          p_user_id: string
+        }
         Returns: Json
       }
       admin_transition_event_payment_exception: {
@@ -4403,11 +4889,36 @@ export type Database = {
           p_exception_status?: string
           p_exception_type?: string
           p_external_refund_reference?: string
+          p_idempotency_key?: string
           p_notes?: string
           p_refund_handled_externally?: boolean
           p_resolution?: string
           p_support_ticket_id?: string
         }
+        Returns: Json
+      }
+      admin_unarchive_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_update_event: {
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_payload: Json
+        }
+        Returns: Json
+      }
+      admin_user_has_permission: {
+        Args: { p_permission: string; p_user_id: string }
+        Returns: boolean
+      }
+      advance_video_session_vibe_question: {
+        Args: { p_session_id: string }
         Returns: Json
       }
       apply_account_deletion_media_hold: {
@@ -4567,6 +5078,15 @@ export type Database = {
         Returns: Json
       }
       complete_onboarding: { Args: { p_user_id: string }; Returns: Json }
+      confirm_vde_prepared_202605031300_base: {
+        Args: {
+          p_entry_attempt_id?: string
+          p_room_name: string
+          p_room_url: string
+          p_session_id: string
+        }
+        Returns: Json
+      }
       confirm_video_date_entry_prepared: {
         Args: {
           p_entry_attempt_id?: string
@@ -4648,6 +5168,10 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
+      drain_match_queue_20260502083000_active_base: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       enqueue_media_delete: {
         Args: { p_asset_id: string; p_job_type?: string }
         Returns: Json
@@ -4705,6 +5229,21 @@ export type Database = {
         }
         Returns: string
       }
+      event_lobby_video_session_blocks_new_match: {
+        Args: {
+          p_date_started_at: string
+          p_ended_at: string
+          p_handshake_started_at: string
+          p_phase: string
+          p_ready_gate_status: string
+          p_state: string
+        }
+        Returns: boolean
+      }
+      expire_due_joined_video_date_handshakes_bounded: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       expire_stale_match_calls: { Args: never; Returns: number }
       expire_stale_video_date_partial_joins_bounded: {
         Args: { p_limit?: number }
@@ -4724,7 +5263,19 @@ export type Database = {
         Args: { p_limit?: number }
         Returns: number
       }
+      expire_stale_video_sessions_bounded_202605031300_base: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
+      expire_stale_vsessions_bounded_202605060900_base: {
+        Args: { p_limit?: number }
+        Returns: number
+      }
       expire_vd_phases_base_20260501133000: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      expire_vd_phases_base_20260502143000: {
         Args: { p_limit?: number }
         Returns: Json
       }
@@ -4737,11 +5288,24 @@ export type Database = {
         Args: { p_final_data?: Json; p_user_id: string }
         Returns: Json
       }
+      finalize_video_date_handshake_deadline: {
+        Args: {
+          p_actor?: string
+          p_reason?: string
+          p_session_id: string
+          p_source?: string
+        }
+        Returns: Json
+      }
       find_mystery_match: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
       find_mystery_match_20260501180000_active_base: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
+      }
+      find_mystery_match_20260502083000_active_base: {
         Args: { p_event_id: string; p_user_id: string }
         Returns: Json
       }
@@ -4755,6 +5319,10 @@ export type Database = {
       }
       get_active_media_session: {
         Args: { p_media_type: string; p_user_id: string }
+        Returns: Json
+      }
+      get_active_session_context: {
+        Args: { p_event_id?: string }
         Returns: Json
       }
       get_chat_partner_presence: {
@@ -4902,10 +5470,6 @@ export type Database = {
         }[]
       }
       get_onboarding_draft: { Args: { p_user_id: string }; Returns: Json }
-      advance_video_session_vibe_question: {
-        Args: { p_session_id: string }
-        Returns: Json
-      }
       get_or_seed_video_session_vibe_questions: {
         Args: { p_questions: Json; p_session_id: string }
         Returns: Json
@@ -5029,6 +5593,42 @@ export type Database = {
         }
         Returns: Json
       }
+      handle_swipe_20260502083000_ready_queue_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260503090000_encounter_guard_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260505220000_queued_browse_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
+      handle_swipe_20260506090000_stale_room_base: {
+        Args: {
+          p_actor_id: string
+          p_event_id: string
+          p_swipe_type: string
+          p_target_id: string
+        }
+        Returns: Json
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -5060,6 +5660,23 @@ export type Database = {
         Returns: Json
       }
       leave_matching_queue: { Args: { p_event_id: string }; Returns: Json }
+      lock_event_lobby_scheduled_active_state: {
+        Args: { p_event_id: string; p_now?: string }
+        Returns: {
+          event_status: string
+          is_active: boolean
+          reason: string
+        }[]
+      }
+      log_admin_action: {
+        Args: {
+          p_action_type: string
+          p_details?: Json
+          p_target_id?: string
+          p_target_type: string
+        }
+        Returns: string
+      }
       mark_chat_match_participant_deletion_pending: {
         Args: { p_match_id: string; p_pending_at?: string; p_user_id: string }
         Returns: Json
@@ -5163,11 +5780,27 @@ export type Database = {
         Returns: boolean
       }
       promote_purgeable_assets: { Args: { p_limit?: number }; Returns: number }
+      promote_ready_gate_202605030900_base: {
+        Args: { p_event_id: string; p_uid: string }
+        Returns: Json
+      }
+      promote_ready_gate_20260505220000_queued_browse_base: {
+        Args: { p_event_id: string; p_uid: string }
+        Returns: Json
+      }
       promote_ready_gate_if_eligible: {
         Args: { p_event_id: string; p_uid: string }
         Returns: Json
       }
       promote_ready_gate_if_eligible_20260501180000_active_base: {
+        Args: { p_event_id: string; p_uid: string }
+        Returns: Json
+      }
+      promote_ready_gate_if_eligible_20260502083000_ready_queue_base: {
+        Args: { p_event_id: string; p_uid: string }
+        Returns: Json
+      }
+      promote_ready_gate_if_eligible_20260505223000_lock_order_base: {
         Args: { p_event_id: string; p_uid: string }
         Returns: Json
       }
@@ -5211,6 +5844,26 @@ export type Database = {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
       }
+      ready_gate_transition_20260505140000_pre_ready_room_metadata_ba: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      ready_gate_transition_20260505154500_preserve_after_ready_room_: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      ready_gate_transition_20260505203000_registration_desync_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      ready_gate_transition_20260505214500_result_status_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      recompute_profile_subscription_entitlement: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       record_event_loop_observability: {
         Args: {
           p_actor_id: string
@@ -5228,9 +5881,40 @@ export type Database = {
         Args: { p_error?: string; p_session_id: string; p_success: boolean }
         Returns: Json
       }
+      record_public_account_deletion_request: {
+        Args: { p_email_hash: string; p_ip_hash: string }
+        Returns: Json
+      }
+      record_vd_launch_latency_202605061020_base: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
       record_video_date_client_stuck_observability: {
         Args: {
           p_event_name: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      record_video_date_launch_latency_checkpoint: {
+        Args: {
+          p_checkpoint: string
+          p_latency_ms?: number
+          p_payload?: Json
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      record_video_date_launch_latency_checkpoint_20260505214500_rpc_: {
+        Args: {
+          p_checkpoint: string
           p_latency_ms?: number
           p_payload?: Json
           p_session_id: string
@@ -5354,6 +6038,10 @@ export type Database = {
         Args: { p_event_id: string; p_reason?: string }
         Returns: Json
       }
+      terminalize_stale_pre_date_ready_gate_blockers: {
+        Args: { p_limit?: number; p_reason?: string }
+        Returns: number
+      }
       unblock_user: { Args: { p_blocked_id: string }; Returns: Json }
       update_media_session_status: {
         Args: {
@@ -5394,6 +6082,17 @@ export type Database = {
         }
         Returns: Json
       }
+      verify_event_ticket_checkout_intent: {
+        Args: {
+          p_amount_total: number
+          p_checkout_session_id: string
+          p_currency: string
+          p_event_id: string
+          p_profile_id: string
+          p_stripe_event_id?: string
+        }
+        Returns: Json
+      }
       video_date_client_stuck_safe_bool: {
         Args: { p_value: string }
         Returns: boolean
@@ -5405,6 +6104,49 @@ export type Database = {
       video_date_client_stuck_safe_text: {
         Args: { p_max_len?: number; p_value: string }
         Returns: string
+      }
+      video_date_launch_latency_safe_bool: {
+        Args: { p_value: string }
+        Returns: boolean
+      }
+      video_date_launch_latency_safe_int: {
+        Args: { p_max?: number; p_min?: number; p_value: string }
+        Returns: number
+      }
+      video_date_launch_latency_safe_text: {
+        Args: { p_max_len?: number; p_value: string }
+        Returns: string
+      }
+      video_date_pair_has_terminal_encounter: {
+        Args: {
+          p_event_id: string
+          p_exclude_session_id?: string
+          p_user_a: string
+          p_user_b: string
+        }
+        Returns: boolean
+      }
+      video_date_session_has_encounter_exposure: {
+        Args: {
+          p_date_started_at: string
+          p_participant_1_joined_at: string
+          p_participant_2_joined_at: string
+          p_phase: string
+          p_state: string
+        }
+        Returns: boolean
+      }
+      video_date_session_is_post_date_survey_eligible: {
+        Args: {
+          p_date_started_at: string
+          p_ended_at: string
+          p_ended_reason: string
+          p_participant_1_joined_at: string
+          p_participant_2_joined_at: string
+          p_phase: string
+          p_state: string
+        }
+        Returns: boolean
       }
       video_date_transition: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
@@ -5433,6 +6175,40 @@ export type Database = {
       video_date_transition_20260501200000_event_inactive_base: {
         Args: { p_action: string; p_reason?: string; p_session_id: string }
         Returns: Json
+      }
+      video_date_transition_20260502143000_handshake_deadline_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260503110000_survey_continuity_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260503130000_prepare_lease_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_date_transition_20260505153000_prepare_payload_base: {
+        Args: { p_action: string; p_reason?: string; p_session_id: string }
+        Returns: Json
+      }
+      video_session_blocks_global_active_conflict: {
+        Args: {
+          p_date_started_at: string
+          p_ended_at: string
+          p_event_id: string
+          p_handshake_started_at: string
+          p_participant_1_joined_at: string
+          p_participant_2_joined_at: string
+          p_phase: string
+          p_prepare_entry_expires_at: string
+          p_queued_expires_at: string
+          p_ready_gate_expires_at: string
+          p_ready_gate_status: string
+          p_snooze_expires_at: string
+          p_state: string
+        }
+        Returns: boolean
       }
       viewer_shares_event_with_profile: {
         Args: { p_other_profile_id: string }
