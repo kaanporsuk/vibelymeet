@@ -1,20 +1,16 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Ban,
   AlertTriangle,
   Key,
   Shield,
   ShieldOff,
-  Clock,
-  X,
   Send,
   History,
   CheckCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -248,29 +244,6 @@ const UserModerationActions = ({
     },
   });
 
-  // Reset password (sends reset email via Supabase)
-  const resetPassword = useMutation({
-    mutationFn: async () => {
-      // Get user email from profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('verified_email')
-        .eq('id', userId)
-        .single();
-
-      if (!profile?.verified_email) {
-        throw new Error('User has no verified email');
-      }
-
-      // Note: This requires the user's email. In a real scenario, 
-      // you'd use Supabase Admin API via edge function
-      toast.info('Password reset functionality requires Supabase Admin API');
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || 'Failed to reset password');
-    },
-  });
-
   const moderationPending = suspendUser.isPending || liftSuspension.isPending || sendWarning.isPending;
   const suspensionDurationLabel = suspendDuration === "permanent" ? "permanent" : `${suspendDuration} day${suspendDuration === "1" ? "" : "s"}`;
 
@@ -444,16 +417,15 @@ const UserModerationActions = ({
                   <h3 className="font-semibold text-foreground">Reset Password</h3>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  Send a password reset email to the user's registered email address.
+                  Unavailable — requires backend Admin API support.
                 </p>
                 <Button
                   variant="outline"
-                  onClick={() => resetPassword.mutate()}
-                  disabled={resetPassword.isPending}
+                  disabled
                   className="w-full gap-2"
                 >
                   <Key className="w-4 h-4" />
-                  Send Password Reset Email
+                  Unavailable — requires backend Admin API support
                 </Button>
               </div>
             </TabsContent>

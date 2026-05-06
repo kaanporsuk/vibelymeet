@@ -18,7 +18,6 @@ import {
   MessageSquareWarning,
   UserX,
   Camera,
-  Frown,
   type LucideIcon,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -311,7 +310,12 @@ const AdminReportsPanel = () => {
         actionTaken: `${actionType}: ${notes || "No notes"}`,
       });
     } catch (error) {
-      toast.error("Failed to complete report action");
+      toast.error("Report action was not completed", {
+        description:
+          actionType === "dismiss"
+            ? "The report status update failed."
+            : "A required moderation write failed, so the report was not marked complete. Review the user and report state before retrying.",
+      });
       throw error;
     }
   };
@@ -331,9 +335,9 @@ const AdminReportsPanel = () => {
     actionType === "suspend" ? "Suspend User" : actionType === "warn" ? "Issue Warning" : "Dismiss Report";
   const reportActionDescription = selectedReport
     ? actionType === "suspend"
-      ? `This will suspend ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, create a suspension record, and mark this report as action taken.\n\nReason: ${actionNotes.trim()}`
+      ? `This will suspend ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, create a suspension record, and mark this report as action taken only after the suspension writes succeed.\n\nReason: ${actionNotes.trim()}`
       : actionType === "warn"
-        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"} and mark this report as action taken.\n\nMessage: ${actionNotes.trim()}`
+        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"} and mark this report as action taken only after the warning write succeeds.\n\nMessage: ${actionNotes.trim()}`
         : `This will mark the report as dismissed.${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
     : "";
 

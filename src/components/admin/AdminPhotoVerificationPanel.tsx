@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -80,6 +81,8 @@ const AdminPhotoVerificationPanel = () => {
   const [rejectReason, setRejectReason] = useState(REJECTION_REASONS[0]);
   const [rejectCustomReason, setRejectCustomReason] = useState("");
   const [resolvedUrls, setResolvedUrls] = useState<Record<string, ResolvedVerificationUrls>>({});
+  const [approvalTarget, setApprovalTarget] = useState<PhotoVerificationRow | null>(null);
+  const [rejectConfirmation, setRejectConfirmation] = useState<{ id: string; userId: string; reason: string } | null>(null);
 
   const { data: verifications = [], isLoading } = useQuery({
     queryKey: ["admin-photo-verifications", activeTab],
@@ -266,6 +269,7 @@ const AdminPhotoVerificationPanel = () => {
     },
     onSuccess: () => {
       toast.success("User verified successfully");
+      setApprovalTarget(null);
       queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
       queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
     },
@@ -292,6 +296,7 @@ const AdminPhotoVerificationPanel = () => {
     onSuccess: () => {
       toast.success("Verification rejected");
       setRejectModal(null);
+      setRejectConfirmation(null);
       queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
       queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
     },
@@ -488,7 +493,7 @@ const AdminPhotoVerificationPanel = () => {
                     <Button
                       variant="default"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => approveMutation.mutate(v)}
+                      onClick={() => setApprovalTarget(v)}
                       disabled={approveMutation.isPending}
                     >
                       {approveMutation.isPending ? (
@@ -542,8 +547,12 @@ const AdminPhotoVerificationPanel = () => {
                 className="flex-1"
                 onClick={() => {
                   if (!rejectModal) return;
-                  const reason = rejectReason === "Other" ? rejectCustomReason || "Other" : rejectReason;
-                  rejectMutation.mutate({ id: rejectModal.id, reason });
+                  const reason = rejectReason === "Other" ? rejectCustomReason.trim() : rejectReason;
+                  if (!reason) {
+                    toast.error("Add a rejection reason before final confirmation.");
+                    return;
+                  }
+                  setRejectConfirmation({ id: rejectModal.id, userId: rejectModal.userId, reason });
                 }}
                 disabled={rejectMutation.isPending}
               >
@@ -554,6 +563,33 @@ const AdminPhotoVerificationPanel = () => {
           </div>
         </DialogContent>
       </Dialog>
+      <AdminConfirmDialog
+        open={!!approvalTarget}
+        title="Approve photo verification?"
+        description={`This immediately marks the verification approved and updates the user's verification state for user ${approvalTarget?.user_id ?? ""}. This production change can affect trust badges and user visibility.`}
+        confirmLabel="Approve Verification"
+        variant="default"
+        isPending={approveMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open) setApprovalTarget(null);
+        }}
+        onConfirm={() => approvalTarget ? approveMutation.mutateAsync(approvalTarget) : undefined}
+      />
+      <AdminConfirmDialog
+        open={!!rejectConfirmation}
+        title="Reject photo verification?"
+        description={`This immediately rejects the verification and records the reason: "${rejectConfirmation?.reason ?? ""}". The user can lose or fail to receive verification status.`}
+        confirmLabel="Reject Verification"
+        isPending={rejectMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open) setRejectConfirmation(null);
+        }}
+        onConfirm={() =>
+          rejectConfirmation
+            ? rejectMutation.mutateAsync({ id: rejectConfirmation.id, reason: rejectConfirmation.reason })
+            : undefined
+        }
+      />
     </motion.div>
   );
 };

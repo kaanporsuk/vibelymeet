@@ -82,7 +82,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   } | null>(null);
 
   // Fetch notifications
-  const { data: notifications, isLoading, refetch } = useQuery({
+  const { data: notifications, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-notifications'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -255,7 +255,8 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
 
   const unreadCount = notifications?.filter((n) => !n.read).length || 0;
   const hasFilters = activeFilters.size > 0 || showUnreadOnly;
-  const destructivePending = deleteNotification.isPending || bulkDelete.isPending || clearAll.isPending;
+  const destructivePending =
+    markAllAsRead.isPending || deleteNotification.isPending || bulkDelete.isPending || clearAll.isPending;
 
   if (!isOpen) return null;
 
@@ -287,7 +288,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
             <div>
               <h2 className="text-lg font-semibold text-foreground">Notification Center</h2>
               <p className="text-xs text-muted-foreground">
-                {unreadCount} unread • {notifications?.length || 0} total
+                {unreadCount} unread in latest 100 loaded • {notifications?.length || 0} loaded
               </p>
             </div>
           </div>
@@ -410,7 +411,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
                     const ids = Array.from(selectedIds);
                     setConfirmation({
                       title: `Delete ${ids.length} selected notification${ids.length === 1 ? "" : "s"}?`,
-                      description: "This permanently removes the selected admin notification rows. It does not affect user-facing notifications.",
+                      description: "This permanently removes the selected loaded admin notification rows. It does not affect user-facing notifications.",
                       confirmLabel: "Delete Selected",
                       onConfirm: () => bulkDelete.mutateAsync(ids),
                     });
@@ -444,8 +445,15 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
           <Button
             variant="outline"
             size="sm"
-            onClick={() => markAllAsRead.mutate()}
-            disabled={markAllAsRead.isPending || unreadCount === 0}
+            onClick={() => {
+              setConfirmation({
+                title: "Mark all unread admin notifications as read?",
+                description: "This updates every unread admin_notifications row, including older rows that are not loaded in the latest 100. It does not affect user-facing notifications.",
+                confirmLabel: "Mark All Read",
+                onConfirm: () => markAllAsRead.mutateAsync(),
+              });
+            }}
+            disabled={markAllAsRead.isPending || !notifications?.length}
             className="flex-1 gap-2"
           >
             <CheckCheck className="w-4 h-4" />
@@ -456,9 +464,9 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
             size="sm"
             onClick={() => {
               setConfirmation({
-                title: "Clear all admin notifications?",
-                description: `This permanently deletes all ${notifications?.length || 0} admin notification rows currently loaded in the notification center.`,
-                confirmLabel: "Clear All",
+                title: "Delete every admin notification row?",
+                description: "This permanently deletes all admin_notifications rows, including older rows that are not loaded in the latest 100. It does not affect user-facing notifications.",
+                confirmLabel: "Delete All Rows",
                 onConfirm: () => clearAll.mutateAsync(),
               });
             }}
@@ -466,7 +474,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
             className="gap-2 text-destructive hover:text-destructive"
           >
             <Trash2 className="w-4 h-4" />
-            Clear All
+            Delete All
           </Button>
         </div>
 
@@ -477,6 +485,14 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
               Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="h-20 bg-secondary/50 rounded-xl animate-pulse" />
               ))
+            ) : isError ? (
+              <div className="text-center py-12">
+                <BellOff className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-destructive">Could not load admin notifications.</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  This is a fetch failure, not proof that no notifications exist.
+                </p>
+              </div>
             ) : !filteredNotifications.length ? (
               <div className="text-center py-12">
                 <BellOff className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
@@ -562,7 +578,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
                                 onClick={() => {
                                   setConfirmation({
                                     title: "Delete this admin notification?",
-                                    description: `"${notification.title}" will be permanently removed from the admin notification center.`,
+                                    description: `"${notification.title}" will permanently delete one admin_notifications row. It does not affect user-facing notifications.`,
                                     confirmLabel: "Delete Notification",
                                     onConfirm: () => deleteNotification.mutateAsync(notification.id),
                                   });
@@ -596,10 +612,10 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
         <div className="p-3 border-t border-border bg-secondary/30">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
-              Showing {filteredNotifications.length} of {notifications?.length || 0}
+              Showing {filteredNotifications.length} of {notifications?.length || 0} latest 100 loaded
             </span>
             <span>
-              {unreadCount} unread
+              {unreadCount} unread in latest 100 loaded
             </span>
           </div>
         </div>

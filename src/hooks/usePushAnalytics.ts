@@ -47,6 +47,8 @@ export type PushAnalyticsBestTime = {
 
 export type PushAnalyticsResult = {
   range: PushAnalyticsRange;
+  telemetrySource: "push_notification_events_admin";
+  telemetryRowCount: number;
   byDay: PushAnalyticsDay[];
   kpis: PushAnalyticsKpis;
   performance: PushAnalyticsBreakdownItem[];
@@ -81,7 +83,7 @@ export function usePushAnalytics(range: PushAnalyticsRange) {
       const dayBuckets = eachDayOfInterval({ start, end: new Date() });
 
       const { data: events, error } = await supabase
-        .from("push_notification_events")
+        .from("push_notification_events_admin")
         .select(
           "id, campaign_id, platform, status, created_at, sent_at, delivered_at, opened_at, clicked_at",
         )
@@ -211,6 +213,8 @@ export function usePushAnalytics(range: PushAnalyticsRange) {
 
       return {
         range,
+        telemetrySource: "push_notification_events_admin",
+        telemetryRowCount: rows.length,
         byDay,
         kpis,
         performance,

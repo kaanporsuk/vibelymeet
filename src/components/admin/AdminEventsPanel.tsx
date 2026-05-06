@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Edit, Trash2, Calendar, Users, Clock, Eye, MoreHorizontal,
-  UserCheck, Upload, Archive, RotateCcw, Globe, MapPin, Flag, RefreshCw, CheckSquare, Square,
+  UserCheck, Upload, Archive, RotateCcw, RefreshCw, CheckSquare, Square,
   Ban,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import AdminEventControls from "./AdminEventControls";
 import BatchEventImportModal from "./BatchEventImportModal";
 import { notifyAttendeesOfEventCancellation } from "@/lib/adminEventCancellationNotify";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,14 @@ type AdminEventRow = {
   occurrence_number?: number | null;
   recurrence_type?: "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly" | null;
 };
+
+type PendingEventPanelAction =
+  | { kind: "generate-more"; event: AdminEventRow; count: number }
+  | { kind: "archive"; event: AdminEventRow }
+  | { kind: "unarchive"; event: AdminEventRow }
+  | { kind: "archive-series"; event: AdminEventRow; childCount: number }
+  | { kind: "bulk-archive"; count: number }
+  | null;
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -119,6 +128,9 @@ const AdminEventsPanel = () => {
   const [showArchived, setShowArchived] = useState(false);
   const [groupBySeries, setGroupBySeries] = useState(false);
   const [lifecycleNowMs, setLifecycleNowMs] = useState(() => Date.now());
+  const [pendingEventAction, setPendingEventAction] = useState<PendingEventPanelAction>(null);
+  const [isBulkArchiving, setIsBulkArchiving] = useState(false);
+  const [isGeneratingOccurrences, setIsGeneratingOccurrences] = useState(false);
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -259,25 +271,98 @@ const AdminEventsPanel = () => {
   // Bulk archive
   const bulkArchive = async () => {
     if (selectedIds.size === 0) return;
-    const { error } = await supabase.from('events').update({
-      archived_at: new Date().toISOString(),
-      archived_by: user?.id,
-    }).in('id', [...selectedIds]);
-    if (error) {
-      toast.error('Failed to archive selected events', { description: error.message });
-      return;
+    setIsBulkArchiving(true);
+    try {
+      const { error } = await supabase.from('events').update({
+        archived_at: new Date().toISOString(),
+        archived_by: user?.id,
+      }).in('id', [...selectedIds]);
+      if (error) {
+        toast.error('Failed to archive selected events', { description: error.message });
+        throw error;
+      }
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      const count = selectedIds.size;
+      setSelectedIds(new Set());
+      toast.success(`${count} events archived`);
+    } finally {
+      setIsBulkArchiving(false);
     }
-    queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-    setSelectedIds(new Set());
-    toast.success(`${selectedIds.size} events archived`);
   };
 
   // Generate more
   const generateMore = async (parentId: string, count: number) => {
-    const { data, error } = await supabase.rpc('generate_recurring_events', { p_parent_id: parentId, p_count: count });
-    if (error) { toast.error('Failed to generate occurrences'); return; }
-    queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-    toast.success(`Generated ${data} new occurrences ✨`);
+    setIsGeneratingOccurrences(true);
+    try {
+      const { data, error } = await supabase.rpc('generate_recurring_events', { p_parent_id: parentId, p_count: count });
+      if (error) {
+        toast.error('Failed to generate occurrences');
+        throw error;
+      }
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      toast.success(`Generated ${data} new occurrences ✨`);
+    } finally {
+      setIsGeneratingOccurrences(false);
+    }
+  };
+
+  const getPendingActionCopy = () => {
+    switch (pendingEventAction?.kind) {
+      case "generate-more":
+        return {
+          title: `Generate ${pendingEventAction.count} more occurrences?`,
+          description: `This calls generate_recurring_events for "${pendingEventAction.event.title}" and creates new event rows immediately. It does not notify users.`,
+          confirmLabel: "Generate Occurrences",
+          variant: "default" as const,
+        };
+      case "archive":
+        return {
+          title: `Archive "${pendingEventAction.event.title}"?`,
+          description: "This immediately writes archived_at and archived_by on this event. It hides the event from normal admin/user views but preserves event data and can be reversed.",
+          confirmLabel: "Archive Event",
+          variant: "destructive" as const,
+        };
+      case "unarchive":
+        return {
+          title: `Unarchive "${pendingEventAction.event.title}"?`,
+          description: "This clears archived_at and archived_by. The event can become visible again if its lifecycle, status, and other visibility rules allow it.",
+          confirmLabel: "Unarchive Event",
+          variant: "default" as const,
+        };
+      case "archive-series":
+        return {
+          title: `Archive recurring series "${pendingEventAction.event.title}"?`,
+          description: `This immediately archives the parent event and ${pendingEventAction.childCount} loaded occurrence${pendingEventAction.childCount === 1 ? "" : "s"}. Data is preserved, but the series is hidden from normal user-facing event lists.`,
+          confirmLabel: "Archive Series",
+          variant: "destructive" as const,
+        };
+      case "bulk-archive":
+        return {
+          title: `Archive ${pendingEventAction.count} selected event${pendingEventAction.count === 1 ? "" : "s"}?`,
+          description: "This immediately writes archived_at and archived_by on the selected loaded events. Data is preserved, but the events are hidden from normal user-facing event lists.",
+          confirmLabel: "Archive Selected",
+          variant: "destructive" as const,
+        };
+      default:
+        return { title: "", description: "", confirmLabel: "Confirm", variant: "destructive" as const };
+    }
+  };
+
+  const confirmPendingEventAction = async () => {
+    if (!pendingEventAction) return;
+    if (pendingEventAction.kind === "generate-more") {
+      return generateMore(pendingEventAction.event.id, pendingEventAction.count);
+    }
+    if (pendingEventAction.kind === "archive") {
+      return archiveEvent.mutateAsync({ id: pendingEventAction.event.id });
+    }
+    if (pendingEventAction.kind === "unarchive") {
+      return archiveEvent.mutateAsync({ id: pendingEventAction.event.id, unarchive: true });
+    }
+    if (pendingEventAction.kind === "archive-series") {
+      return archiveSeries.mutateAsync(pendingEventAction.event.id);
+    }
+    return bulkArchive();
   };
 
   const toggleSelect = (id: string) => {
@@ -453,7 +538,7 @@ const AdminEventsPanel = () => {
                 {isParent && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => generateMore(event.id, 4)} className="gap-2">
+                    <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "generate-more", event, count: 4 })} className="gap-2">
                       <RefreshCw className="w-4 h-4" />Generate 4 more
                     </DropdownMenuItem>
                   </>
@@ -463,7 +548,7 @@ const AdminEventsPanel = () => {
 
                 {event.archived_at ? (
                   <>
-                    <DropdownMenuItem onClick={() => archiveEvent.mutate({ id: event.id, unarchive: true })} className="gap-2">
+                    <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "unarchive", event })} className="gap-2">
                       <RotateCcw className="w-4 h-4" />Unarchive
                     </DropdownMenuItem>
                     <DropdownMenuItem
@@ -489,19 +574,17 @@ const AdminEventsPanel = () => {
                 ) : (
                   <>
                     {isParent && (
-                      <DropdownMenuItem onClick={() => {
-                        if (confirm('Archive the entire series? Parent + all future occurrences will be hidden from users.')) {
-                          archiveSeries.mutate(event.id);
-                        }
-                      }} className="gap-2 text-orange-400 focus:text-orange-400">
+                      <DropdownMenuItem
+                        onClick={() => setPendingEventAction({ kind: "archive-series", event, childCount: children.length })}
+                        className="gap-2 text-orange-400 focus:text-orange-400"
+                      >
                         <Archive className="w-4 h-4" />Archive Series
                       </DropdownMenuItem>
                     )}
-                    <DropdownMenuItem onClick={() => {
-                      if (confirm('Archive this event? It will be hidden from users but all data will be preserved.')) {
-                        archiveEvent.mutate({ id: event.id });
-                      }
-                    }} className="gap-2 text-muted-foreground">
+                    <DropdownMenuItem
+                      onClick={() => setPendingEventAction({ kind: "archive", event })}
+                      className="gap-2 text-muted-foreground"
+                    >
                       <Archive className="w-4 h-4" />Archive
                     </DropdownMenuItem>
 
@@ -538,6 +621,10 @@ const AdminEventsPanel = () => {
       </>
     );
   };
+
+  const pendingActionCopy = getPendingActionCopy();
+  const isPanelActionPending =
+    archiveEvent.isPending || archiveSeries.isPending || isBulkArchiving || isGeneratingOccurrences;
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -613,7 +700,12 @@ const AdminEventsPanel = () => {
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30">
           <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
-          <Button size="sm" variant="outline" onClick={bulkArchive} className="gap-1 h-7 text-xs">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setPendingEventAction({ kind: "bulk-archive", count: selectedIds.size })}
+            className="gap-1 h-7 text-xs"
+          >
             <Archive className="w-3 h-3" />Archive All
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} className="h-7 text-xs text-muted-foreground">
@@ -669,6 +761,18 @@ const AdminEventsPanel = () => {
       </div>
 
       {/* Modals */}
+      <AdminConfirmDialog
+        open={!!pendingEventAction}
+        title={pendingActionCopy.title}
+        description={pendingActionCopy.description}
+        confirmLabel={pendingActionCopy.confirmLabel}
+        variant={pendingActionCopy.variant}
+        isPending={isPanelActionPending}
+        onOpenChange={(open) => {
+          if (!open) setPendingEventAction(null);
+        }}
+        onConfirm={confirmPendingEventAction}
+      />
       <AnimatePresence>
         {(showCreateModal || editingEvent) && (
           <AdminEventFormModal event={editingEvent} onClose={() => { setShowCreateModal(false); setEditingEvent(null); }} />

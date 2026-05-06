@@ -440,7 +440,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 <div className="glass-card p-4 rounded-xl text-center">
                   <Calendar className="w-5 h-5 text-orange-400 mx-auto mb-1" />
                   <p className="text-2xl font-bold text-foreground">{profile.events_attended || 0}</p>
-                  <p className="text-xs text-muted-foreground">Events</p>
+                  <p className="text-xs text-muted-foreground">Event registrations</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Not confirmed attendance</p>
                 </div>
               </div>
 
