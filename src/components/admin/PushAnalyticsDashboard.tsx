@@ -25,6 +25,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Loader2,
+  Info,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +66,28 @@ const PushAnalyticsDashboard = () => {
 
   const { data, isLoading, error } = usePushAnalytics(dateRange);
 
+  const renderHeader = () => (
+    <div className="flex items-center justify-between">
+      <div>
+        <h3 className="text-lg font-semibold text-foreground">Push Notification Analytics</h3>
+        <p className="text-sm text-muted-foreground">
+          Admin telemetry view only; provider sends may exist outside these rows.
+        </p>
+      </div>
+      <Select value={dateRange} onValueChange={(v: PushAnalyticsRange) => setDateRange(v)}>
+        <SelectTrigger className="w-32 bg-secondary/50">
+          <Calendar className="w-4 h-4 mr-2" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="7d">Last 7 days</SelectItem>
+          <SelectItem value="14d">Last 14 days</SelectItem>
+          <SelectItem value="30d">Last 30 days</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -75,13 +98,39 @@ const PushAnalyticsDashboard = () => {
 
   if (error || !data) {
     return (
-      <div className="text-center py-20 text-muted-foreground">
-        Failed to load analytics. Please try again.
+      <div className="space-y-6">
+        {renderHeader()}
+        <Card className="bg-card border-border">
+          <CardContent className="p-6 text-center text-muted-foreground">
+            Unable to read push analytics from the admin telemetry view.
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
-  const { byDay, kpis, performance, deviceDistribution, bestTimes } = data;
+  const { byDay, kpis, performance, deviceDistribution, bestTimes, telemetryRowCount } = data;
+
+  if (telemetryRowCount === 0) {
+    return (
+      <div className="space-y-6">
+        {renderHeader()}
+        <Card className="bg-card border-border">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3 text-muted-foreground">
+              <Info className="w-5 h-5 mt-0.5 text-primary" />
+              <div>
+                <p className="font-medium text-foreground">No telemetry available in this range.</p>
+                <p className="text-sm mt-1">
+                  No telemetry available in this range; this does not prove no notifications were sent.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // Compare to previous period (simple: just show trend arrow based on last day vs first)
   const getTrend = (metricKey: "sent" | "delivered" | "opened" | "clicked") => {
@@ -100,23 +149,7 @@ const PushAnalyticsDashboard = () => {
   return (
     <div className="space-y-6">
       {/* Header with Date Filter */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-foreground">Push Notification Analytics</h3>
-          <p className="text-sm text-muted-foreground">Track delivery, engagement, and conversion rates</p>
-        </div>
-        <Select value={dateRange} onValueChange={(v: PushAnalyticsRange) => setDateRange(v)}>
-          <SelectTrigger className="w-32 bg-secondary/50">
-            <Calendar className="w-4 h-4 mr-2" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7d">Last 7 days</SelectItem>
-            <SelectItem value="14d">Last 14 days</SelectItem>
-            <SelectItem value="30d">Last 30 days</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {renderHeader()}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

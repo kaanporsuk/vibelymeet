@@ -3,22 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
-  Filter,
   ChevronDown,
   ChevronUp,
-  User,
-  Mail,
   MapPin,
   Calendar,
   Heart,
   Eye,
-  X,
   ArrowUpDown,
-  Ruler,
-  Sparkles,
   ShieldCheck,
   ShieldX,
-  Download,
   Crown,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -95,7 +88,7 @@ const AdminUsersPanel = () => {
   const [refreshedAvatars, setRefreshedAvatars] = useState<Record<string, string>>({});
 
   // Fetch all users
-  const { data: users, isLoading } = useQuery({
+  const { data: users, isLoading, isError: usersError } = useQuery({
     queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, sortField, sortDirection],
     queryFn: async () => {
       const serverSortField = sortField === 'events_attended' ? 'created_at' : sortField;
@@ -156,10 +149,11 @@ const AdminUsersPanel = () => {
       const profileRows = data || [];
       const eventCounts: Record<string, number> = {};
       if (profileRows.length > 0) {
-        const { data: registrationRows } = await supabase
+        const { data: registrationRows, error: registrationError } = await supabase
           .from('event_registrations')
           .select('profile_id')
           .in('profile_id', profileRows.map((row) => row.id));
+        if (registrationError) throw registrationError;
         registrationRows?.forEach((row) => {
           eventCounts[row.profile_id] = (eventCounts[row.profile_id] ?? 0) + 1;
         });
@@ -197,10 +191,10 @@ const AdminUsersPanel = () => {
   }, [users]);
 
   // Fetch vibes for all users
-  const { data: userVibes } = useQuery({
+  const { data: userVibes, isError: userVibesError } = useQuery({
     queryKey: ['admin-user-vibes'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profile_vibes')
         .select(`
           profile_id,
@@ -209,6 +203,7 @@ const AdminUsersPanel = () => {
             emoji
           )
         `);
+      if (error) throw error;
       
       // Group by profile_id
       const grouped: Record<string, { label: string; emoji: string }[]> = {};
@@ -305,9 +300,14 @@ const AdminUsersPanel = () => {
             </Select>
           </div>
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              {users?.length || 0} users found
-            </p>
+            <div>
+              <p className="text-sm text-muted-foreground">
+                {users?.length || 0} users found
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Event registration counts are derived from registration rows for the loaded users; they are not confirmed attendance.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -363,7 +363,7 @@ const AdminUsersPanel = () => {
                     onClick={() => handleSort('events_attended')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
-                    Events
+                    Event registrations
                     {getSortIcon('events_attended')}
                   </button>
                 </TableHead>
@@ -388,6 +388,12 @@ const AdminUsersPanel = () => {
                     </TableCell>
                   </TableRow>
                 ))
+              ) : usersError ? (
+                <TableRow className="border-border/50">
+                  <TableCell colSpan={10} className="text-center py-8 text-destructive">
+                    Could not load users or derived event registration counts.
+                  </TableCell>
+                </TableRow>
               ) : users?.length === 0 ? (
                 <TableRow className="border-border/50">
                   <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
@@ -478,7 +484,9 @@ const AdminUsersPanel = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[120px]">
-                        {vibesForUser.slice(0, 2).map((vibe, i) => (
+                        {userVibesError ? (
+                          <span className="text-xs text-muted-foreground">Vibes unavailable</span>
+                        ) : vibesForUser.slice(0, 2).map((vibe, i) => (
                           <span key={i} className="text-xs">
                             {vibe.emoji}
                           </span>

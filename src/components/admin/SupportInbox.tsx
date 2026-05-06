@@ -28,6 +28,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { STATUS_CONFIG, PRIORITY_CONFIG, type SupportStatus, type SupportPriority } from "@/lib/supportStatus";
 import { SUPPORT_CATEGORIES, type PrimaryType } from "@/lib/supportCategories";
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 type TicketRow = {
   id: string;
@@ -135,6 +136,7 @@ export default function SupportInbox() {
   const [exceptionNotesDraft, setExceptionNotesDraft] = useState("");
   const [exceptionResolutionDraft, setExceptionResolutionDraft] = useState("");
   const [externalRefundReferenceDraft, setExternalRefundReferenceDraft] = useState("");
+  const [pendingExceptionAction, setPendingExceptionAction] = useState<"create" | "transition" | null>(null);
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ["admin-support-tickets"],
@@ -407,6 +409,23 @@ export default function SupportInbox() {
     if (list.length === 0) return t.status === "submitted";
     const last = list[0];
     return last?.sender_type === "user";
+  };
+
+  const exceptionConfirmCopy = pendingExceptionAction === "create"
+    ? {
+        title: "Open payment exception case?",
+        description: `This immediately creates an event_payment_exceptions case for ticket ${selected?.reference_id ?? ""}. It changes support state for this user/event, but it does not process a refund or contact the payment provider.`,
+        confirmLabel: "Open Case",
+      }
+    : {
+        title: "Save payment exception transition?",
+        description: `This immediately updates the linked payment exception to ${exceptionTypeDraft} / ${exceptionStatusDraft}. If marked refund_handled_externally, this records an external refund reference only; it does not process a refund in-app.`,
+        confirmLabel: "Save Transition",
+      };
+
+  const confirmExceptionAction = async () => {
+    if (pendingExceptionAction === "create") return createExceptionMutation.mutateAsync();
+    if (pendingExceptionAction === "transition") return transitionExceptionMutation.mutateAsync();
   };
 
   return (
@@ -778,7 +797,7 @@ export default function SupportInbox() {
                 {!linkedException ? (
                   <Button
                     size="sm"
-                    onClick={() => createExceptionMutation.mutate()}
+                    onClick={() => setPendingExceptionAction("create")}
                     disabled={!selected.event_id || createExceptionMutation.isPending}
                   >
                     {createExceptionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
@@ -787,7 +806,7 @@ export default function SupportInbox() {
                 ) : (
                   <Button
                     size="sm"
-                    onClick={() => transitionExceptionMutation.mutate()}
+                    onClick={() => setPendingExceptionAction("transition")}
                     disabled={transitionExceptionMutation.isPending}
                   >
                     {transitionExceptionMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
@@ -803,6 +822,18 @@ export default function SupportInbox() {
       {profileUserId ? (
         <AdminUserDetailDrawer userId={profileUserId} onClose={() => setProfileUserId(null)} />
       ) : null}
+      <AdminConfirmDialog
+        open={!!pendingExceptionAction}
+        title={exceptionConfirmCopy.title}
+        description={exceptionConfirmCopy.description}
+        confirmLabel={exceptionConfirmCopy.confirmLabel}
+        variant="default"
+        isPending={createExceptionMutation.isPending || transitionExceptionMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open) setPendingExceptionAction(null);
+        }}
+        onConfirm={confirmExceptionAction}
+      />
     </div>
   );
 }

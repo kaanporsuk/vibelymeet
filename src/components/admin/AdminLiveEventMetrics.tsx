@@ -7,8 +7,6 @@ import {
   Activity,
   TrendingUp,
   Heart,
-  X,
-  Sparkles,
   HandMetal,
   MessageSquare,
   AlertTriangle,
@@ -41,6 +39,7 @@ interface MetricCardProps {
   label: string;
   value: string | number;
   color: string;
+  description?: string;
   warning?: boolean;
 }
 
@@ -235,7 +234,7 @@ const VideoDateOpsTile = ({
   </div>
 );
 
-const MetricCard = ({ icon: Icon, label, value, color, warning }: MetricCardProps) => (
+const MetricCard = ({ icon: Icon, label, value, color, description, warning }: MetricCardProps) => (
   <div className="glass-card p-4 rounded-2xl relative">
     {warning && (
       <div className="absolute top-2 right-2">
@@ -249,6 +248,7 @@ const MetricCard = ({ icon: Icon, label, value, color, warning }: MetricCardProp
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
     <p className="text-2xl font-bold text-foreground">{value}</p>
+    {description && <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{description}</p>}
   </div>
 );
 
@@ -356,11 +356,10 @@ const AdminLiveEventMetrics = () => {
         .select("*", { count: "exact", head: true })
         .eq("event_id", eventId);
 
-      // Reports for this event (from sessions in this event)
+      // Platform report telemetry is global in this P1 pass; true event-scoped reports are deferred.
       const sessionIds = allSessions.map((s) => s.id);
       let reportsCount = 0;
       if (sessionIds.length > 0) {
-        // Reports filed during event timeframe
         const { count } = await supabase
           .from("user_reports")
           .select("*", { count: "exact", head: true });
@@ -756,9 +755,10 @@ const AdminLiveEventMetrics = () => {
             <MetricCard icon={Users} label="Total Attendees" value={metrics.totalAttendees} color="bg-teal-500/20 text-teal-400" />
             <MetricCard
               icon={AlertTriangle}
-              label="Reports"
+              label="Platform Reports"
               value={metrics.reportsCount}
               color="bg-red-500/20 text-red-400"
+              description="Global/platform count; not scoped to this event."
               warning={metrics.reportsCount > 0}
             />
           </div>

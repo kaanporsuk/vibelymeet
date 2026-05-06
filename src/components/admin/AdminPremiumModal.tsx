@@ -11,19 +11,10 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { format, addWeeks, addMonths, addYears } from "date-fns";
 import { toast } from "sonner";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 interface AdminPremiumModalProps {
   userId: string;
@@ -35,6 +26,7 @@ interface AdminPremiumModalProps {
 }
 
 type Duration = "1week" | "1month" | "3months" | "1year" | "custom";
+type PremiumAction = "grant" | "extend" | "revoke";
 
 type PremiumHistoryEntry = {
   id: string;
@@ -81,7 +73,7 @@ const AdminPremiumModal = ({
   const [customDate, setCustomDate] = useState("");
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PremiumAction | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [grantTier, setGrantTier] = useState<"premium" | "vip">("premium");
 
@@ -119,10 +111,28 @@ const AdminPremiumModal = ({
     return calcDate(baseDate, duration);
   };
 
+  const invalidatePremiumQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
+      queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] }),
+      queryClient.invalidateQueries({ queryKey: ["premium-history", userId] }),
+    ]);
+  };
+
+  const handlePremiumHistoryFailure = async (action: string, error: unknown) => {
+    console.error("Premium history insert failed after profile update", error);
+    await invalidatePremiumQueries();
+    toast.warning(`Premium ${action}, but history/audit recording failed`, {
+      description: "Profile state changed, but premium_history did not record it. Verify Premium History before taking another premium action.",
+    });
+    onClose();
+  };
+
   const handleGrant = async () => {
     setIsSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
       const targetDate = getTargetDate(new Date());
 
       const { error: updateErr } = await supabase
@@ -131,23 +141,26 @@ const AdminPremiumModal = ({
           is_premium: true,
           subscription_tier: grantTier,
           premium_until: targetDate.toISOString(),
-          premium_granted_by: user!.id,
+          premium_granted_by: user.id,
           premium_granted_at: new Date().toISOString(),
         })
         .eq("id", userId);
       if (updateErr) throw updateErr;
 
-      await supabase.from("premium_history").insert({
+      const { error: historyError } = await supabase.from("premium_history").insert({
         user_id: userId,
-        admin_id: user!.id,
+        admin_id: user.id,
         action: "granted",
         premium_until: targetDate.toISOString(),
         reason: reason || null,
       });
+      if (historyError) {
+        await handlePremiumHistoryFailure("granted", historyError);
+        return;
+      }
 
       toast.success(`Premium granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
+      await invalidatePremiumQueries();
       onClose();
     } catch (e: unknown) {
       toast.error(premiumErrorMessage(e, "Failed to grant premium"));
@@ -160,6 +173,7 @@ const AdminPremiumModal = ({
     setIsSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
       const base = currentPremiumUntil ? new Date(currentPremiumUntil) : new Date();
       let targetDate: Date;
       if (duration === "custom" && customDate) {
@@ -175,17 +189,20 @@ const AdminPremiumModal = ({
         .eq("id", userId);
       if (updateErr) throw updateErr;
 
-      await supabase.from("premium_history").insert({
+      const { error: historyError } = await supabase.from("premium_history").insert({
         user_id: userId,
-        admin_id: user!.id,
+        admin_id: user.id,
         action: "extended",
         premium_until: targetDate.toISOString(),
         reason: reason || null,
       });
+      if (historyError) {
+        await handlePremiumHistoryFailure("extended", historyError);
+        return;
+      }
 
       toast.success(`Premium extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
+      await invalidatePremiumQueries();
       onClose();
     } catch (e: unknown) {
       toast.error(premiumErrorMessage(e, "Failed to extend premium"));
@@ -198,6 +215,7 @@ const AdminPremiumModal = ({
     setIsSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
 
       const { error: updateErr } = await supabase
         .from("profiles")
@@ -209,24 +227,60 @@ const AdminPremiumModal = ({
         .eq("id", userId);
       if (updateErr) throw updateErr;
 
-      await supabase.from("premium_history").insert({
+      const { error: historyError } = await supabase.from("premium_history").insert({
         user_id: userId,
-        admin_id: user!.id,
+        admin_id: user.id,
         action: "revoked",
         premium_until: null,
         reason: reason || null,
       });
+      if (historyError) {
+        await handlePremiumHistoryFailure("revoked", historyError);
+        return;
+      }
 
       toast.success(`Premium revoked for ${userName}`);
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
-      setShowRevokeConfirm(false);
+      await invalidatePremiumQueries();
       onClose();
     } catch (e: unknown) {
       toast.error(premiumErrorMessage(e, "Failed to revoke premium"));
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const premiumActionCopy = (() => {
+    if (pendingAction === "grant") {
+      return {
+        title: `Grant premium to ${userName}?`,
+        description: "This immediately updates the user's profile premium state and then writes a premium_history row. These writes are not atomic in this P1 frontend pass; if history recording fails, the UI will warn you instead of claiming a fully audited grant.",
+        confirmLabel: "Grant Premium",
+        variant: "default" as const,
+      };
+    }
+    if (pendingAction === "extend") {
+      return {
+        title: `Extend premium for ${userName}?`,
+        description: "This immediately updates premium_until on the user's profile and then writes a premium_history row. These writes are not atomic in this P1 frontend pass; if history recording fails, the UI will warn you instead of claiming a fully audited extension.",
+        confirmLabel: "Extend Premium",
+        variant: "default" as const,
+      };
+    }
+    if (pendingAction === "revoke") {
+      return {
+        title: `Revoke premium for ${userName}?`,
+        description: "This immediately removes premium access from the user's profile and then writes a premium_history row. These writes are not atomic in this P1 frontend pass; if history recording fails, the UI will warn you instead of claiming a fully audited revocation.",
+        confirmLabel: "Revoke Premium",
+        variant: "destructive" as const,
+      };
+    }
+    return { title: "", description: "", confirmLabel: "Confirm", variant: "destructive" as const };
+  })();
+
+  const confirmPremiumAction = async () => {
+    if (pendingAction === "grant") return handleGrant();
+    if (pendingAction === "extend") return handleExtend();
+    if (pendingAction === "revoke") return handleRevoke();
   };
 
   const actionBadgeColor: Record<string, string> = {
@@ -284,6 +338,10 @@ const AdminPremiumModal = ({
             <Badge variant="outline" className="text-muted-foreground">Free Account</Badge>
           </div>
         )}
+
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+          Premium profile updates and premium_history writes happen in separate steps in this frontend pass; backend atomicity is deferred.
+        </div>
 
         {/* Tier (new grants only) */}
         {!currentIsPremium && (
@@ -370,7 +428,7 @@ const AdminPremiumModal = ({
               <Button
                 variant="gradient"
                 className="w-full"
-                onClick={handleExtend}
+                onClick={() => setPendingAction("extend")}
                 disabled={isSubmitting || (duration === "custom" && !customDate)}
               >
                 Extend Premium
@@ -379,7 +437,7 @@ const AdminPremiumModal = ({
                 variant="destructive"
                 size="sm"
                 className="w-full"
-                onClick={() => setShowRevokeConfirm(true)}
+                onClick={() => setPendingAction("revoke")}
                 disabled={isSubmitting}
               >
                 Revoke Premium
@@ -389,7 +447,7 @@ const AdminPremiumModal = ({
             <Button
               variant="gradient"
               className="w-full"
-              onClick={handleGrant}
+              onClick={() => setPendingAction("grant")}
               disabled={isSubmitting || (duration === "custom" && !customDate)}
             >
               Grant Premium
@@ -426,23 +484,18 @@ const AdminPremiumModal = ({
         </Collapsible>
       </motion.div>
 
-      {/* Revoke Confirmation */}
-      <AlertDialog open={showRevokeConfirm} onOpenChange={setShowRevokeConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revoke Premium?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure? This will immediately remove premium access for {userName}.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRevoke} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Revoke
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AdminConfirmDialog
+        open={!!pendingAction}
+        title={premiumActionCopy.title}
+        description={premiumActionCopy.description}
+        confirmLabel={premiumActionCopy.confirmLabel}
+        variant={premiumActionCopy.variant}
+        isPending={isSubmitting}
+        onOpenChange={(open) => {
+          if (!open) setPendingAction(null);
+        }}
+        onConfirm={confirmPremiumAction}
+      />
     </>
   );
 };

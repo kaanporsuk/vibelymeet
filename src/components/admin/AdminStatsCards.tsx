@@ -6,9 +6,7 @@ import {
   MessageSquare,
   Calendar,
   TrendingUp,
-  Activity,
   UserCheck,
-  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -83,6 +81,8 @@ const AdminStatsCards = () => {
     },
   });
 
+  const matchesPerUser = usersCount && matchesCount ? (matchesCount / usersCount).toFixed(2) : '0.00';
+
   const stats = [
     {
       label: 'Total Users',
@@ -106,11 +106,12 @@ const AdminStatsCards = () => {
       change: 'All time',
     },
     {
-      label: 'Active Events',
+      label: 'Total Events',
       value: eventsCount?.toLocaleString() || '0',
       icon: Calendar,
       color: 'from-orange-500 to-amber-600',
-      change: 'Scheduled',
+      change: 'All rows',
+      description: 'All event rows, including draft/cancelled/archived/ended.',
     },
     {
       label: 'Verified Users',
@@ -120,11 +121,12 @@ const AdminStatsCards = () => {
       change: `${usersCount ? Math.round((verifiedCount || 0) / usersCount * 100) : 0}% of total`,
     },
     {
-      label: 'Match Rate',
-      value: usersCount && matchesCount ? `${Math.round(matchesCount / usersCount * 100)}%` : '0%',
+      label: 'Matches/User',
+      value: matchesPerUser,
       icon: TrendingUp,
       color: 'from-violet-500 to-purple-600',
-      change: 'Per user avg',
+      change: 'All-time avg',
+      description: 'All-time matches divided by total users.',
     },
   ];
 
@@ -151,6 +153,9 @@ const AdminStatsCards = () => {
             <div>
               <p className="text-3xl font-bold text-foreground">{stat.value}</p>
               <p className="text-sm text-muted-foreground">{stat.label}</p>
+              {stat.description && (
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">{stat.description}</p>
+              )}
             </div>
           </motion.div>
         );

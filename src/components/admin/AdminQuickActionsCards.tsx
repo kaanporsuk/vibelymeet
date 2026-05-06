@@ -5,10 +5,10 @@ import {
   UserPlus,
   CalendarClock,
   ChevronRight,
-  ExternalLink,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { format, isFuture, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 interface AdminQuickActionsCardsProps {
   onNavigateToReports: () => void;
@@ -47,18 +47,34 @@ const AdminQuickActionsCards = ({
     },
   });
 
-  // Fetch upcoming events (next 3)
+  // Fetch actionable upcoming events (next 3)
   const { data: upcomingEvents = [] } = useQuery({
     queryKey: ['admin-upcoming-events'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, title, event_date, current_attendees, max_attendees')
+        .select('id, title, event_date, duration_minutes, status, ended_at, archived_at, current_attendees, max_attendees')
         .gte('event_date', new Date().toISOString())
+        .is('archived_at', null)
         .order('event_date', { ascending: true })
-        .limit(3);
+        .limit(25);
       if (error) throw error;
-      return data || [];
+      const terminalRawStatuses = new Set(['draft', 'cancelled', 'completed', 'ended']);
+      const nowMs = Date.now();
+      return (data || [])
+        .filter((event) => {
+          const rawStatus = (event.status || '').toLowerCase();
+          if (terminalRawStatuses.has(rawStatus)) return false;
+          if (event.archived_at || event.ended_at) return false;
+          return resolveEventLifecycle({
+            status: event.status,
+            event_date: event.event_date,
+            duration_minutes: event.duration_minutes,
+            ended_at: event.ended_at,
+            nowMs,
+          }).lifecycle === 'upcoming';
+        })
+        .slice(0, 3);
     },
   });
 
@@ -85,11 +101,11 @@ const AdminQuickActionsCards = ({
     },
     {
       id: 'events',
-      title: 'Upcoming Events',
+      title: 'Actionable Upcoming Events',
       value: upcomingEvents.length,
       subtitle: upcomingEvents.length > 0 
         ? `Next: ${upcomingEvents[0]?.title?.substring(0, 20)}...` 
-        : 'No upcoming events',
+        : 'No actionable upcoming events',
       icon: CalendarClock,
       gradient: 'from-violet-500 to-purple-600',
       urgent: false,
@@ -142,7 +158,7 @@ const AdminQuickActionsCards = ({
       {/* Upcoming Events List */}
       {upcomingEvents.length > 0 && (
         <div className="glass-card p-4 rounded-2xl">
-          <h4 className="text-sm font-medium text-foreground mb-3">Next Events</h4>
+          <h4 className="text-sm font-medium text-foreground mb-3">Next actionable events</h4>
           <div className="space-y-2">
             {upcomingEvents.map((event) => (
               <motion.div
@@ -168,7 +184,7 @@ const AdminQuickActionsCards = ({
                   <p className="text-sm text-foreground">
                     {event.current_attendees || 0}/{event.max_attendees || 50}
                   </p>
-                  <p className="text-xs text-muted-foreground">Attendees</p>
+                  <p className="text-xs text-muted-foreground">Registered seats</p>
                 </div>
               </motion.div>
             ))}
