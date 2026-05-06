@@ -82,6 +82,7 @@ export async function prepareVideoDateEntry(
     outcome: 'success' | 'failure',
     reasonCode?: string | null,
     durationMs?: number | null,
+    extra?: Record<string, string | number | boolean | null | undefined>,
   ) => {
     const context = recordReadyGateToDateLatencyCheckpoint({
       sessionId,
@@ -104,6 +105,7 @@ export async function prepareVideoDateEntry(
         reasonCode,
         durationMs,
         attemptCount,
+        extra,
       }),
     );
   };
@@ -191,16 +193,50 @@ export async function prepareVideoDateEntry(
     const providerVerifySkipped = result.data.provider_verify_skipped === true;
     const providerVerifyCheckpoint = providerVerifySkipped ? 'provider_verify_skipped' : 'provider_verify_success';
     const traceId = result.data.video_date_trace_id ?? result.data.entry_attempt_id ?? videoDateTraceId;
-    trackLatencyCheckpoint('prepare_entry_success', 'prepare_date_entry_success', 'success', null, tokenDurationMs);
+    const prepareTimingExtra = {
+      provider_verify_reason: result.data.provider_verify_reason ?? null,
+      provider_verify_skipped: providerVerifySkipped,
+      auth_ms: result.data.timings?.auth_ms ?? null,
+      prepare_rpc_ms: result.data.timings?.prepare_rpc_ms ?? null,
+      room_create_or_verify_ms: result.data.timings?.room_create_or_verify_ms ?? null,
+      token_ms: result.data.timings?.token_ms ?? null,
+      confirm_prepare_ms: result.data.timings?.confirm_prepare_ms ?? null,
+      edge_cold_start_ms: result.data.timings?.edge_cold_start_ms ?? null,
+      edge_process_uptime_ms: result.data.timings?.edge_process_uptime_ms ?? null,
+      edge_total_ms: result.data.timings?.total_ms ?? null,
+    };
+    trackLatencyCheckpoint(
+      'prepare_entry_success',
+      'prepare_date_entry_success',
+      'success',
+      null,
+      tokenDurationMs,
+      prepareTimingExtra,
+    );
     trackLatencyCheckpoint(
       providerVerifyCheckpoint,
       providerVerifySkipped ? 'provider_verify_skipped' : 'provider_verify_success',
       'success',
       result.data.provider_verify_reason ?? null,
       providerVerifyDurationMs,
+      prepareTimingExtra,
     );
-    trackLatencyCheckpoint('enter_handshake_success', 'prepare_date_entry_success', 'success', null, tokenDurationMs);
-    trackLatencyCheckpoint('daily_token_success', 'daily_token_success', 'success', null, tokenDurationMs);
+    trackLatencyCheckpoint(
+      'enter_handshake_success',
+      'prepare_date_entry_success',
+      'success',
+      null,
+      tokenDurationMs,
+      prepareTimingExtra,
+    );
+    trackLatencyCheckpoint(
+      'daily_token_success',
+      'daily_token_success',
+      'success',
+      null,
+      tokenDurationMs,
+      prepareTimingExtra,
+    );
     const tokenCreatedContext = recordReadyGateToDateLatencyCheckpoint({
       sessionId,
       platform: 'native',
@@ -222,6 +258,7 @@ export async function prepareVideoDateEntry(
         outcome: 'success',
         durationMs: tokenDurationMs,
         attemptCount,
+        extra: prepareTimingExtra,
       }),
     );
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_TOKEN_CREATED, {

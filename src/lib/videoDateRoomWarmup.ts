@@ -26,7 +26,7 @@ type EnsureVideoDateRoomWarmupOptions = {
 };
 
 export function videoDateRoomWarmupAfterReadyEnabled(): boolean {
-  return String(import.meta.env.VITE_VIDEO_DATE_ROOM_WARMUP_AFTER_READY ?? "false").toLowerCase() === "true";
+  return String(import.meta.env.VITE_VIDEO_DATE_ROOM_WARMUP_AFTER_READY ?? "true").toLowerCase() === "true";
 }
 
 export async function ensureVideoDateRoomWarmup(

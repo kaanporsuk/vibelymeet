@@ -280,6 +280,9 @@ with launch_latency_checkpoint_defs as (
      or oid = to_regprocedure(
        'public.record_video_date_launch_latency_checkpoint_20260505214500_rpc_short_circuit_base(uuid,text,jsonb,integer)'
      )
+     or oid = to_regprocedure(
+       'public.record_video_date_launch_latency_checkpoint_20260506101000_prepare_timing_base(uuid,text,jsonb,integer)'
+     )
 )
 select
   'launch_latency_checkpoint_primary_fields_allowlisted' as check_name,
@@ -287,6 +290,13 @@ select
   and coalesce(def, '') like '%ready_tap_to_first_remote_frame_ms%'
   and coalesce(def, '') like '%date_route_bootstrap_ms%'
   and coalesce(def, '') like '%daily_join_to_remote_seen_ms%'
+  and coalesce(def, '') like '%auth_ms%'
+  and coalesce(def, '') like '%prepare_rpc_ms%'
+  and coalesce(def, '') like '%room_create_or_verify_ms%'
+  and coalesce(def, '') like '%token_ms%'
+  and coalesce(def, '') like '%confirm_prepare_ms%'
+  and coalesce(def, '') like '%edge_total_ms%'
+  and coalesce(def, '') like '%provider_verify_reason%'
   and coalesce(def, '') like '%permission_check_skipped%'
   and coalesce(def, '') like '%ready_actor_order%'
   and coalesce(def, '') like '%both_ready_observed_via_rpc_short_circuit%'
