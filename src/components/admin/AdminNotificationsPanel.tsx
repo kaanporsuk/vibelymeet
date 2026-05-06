@@ -35,6 +35,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 const notificationIcons: Record<string, React.ComponentType<{ className?: string }>> = {
   new_user: User,
@@ -73,6 +74,12 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => void | Promise<unknown>;
+  } | null>(null);
 
   // Fetch notifications
   const { data: notifications, isLoading, refetch } = useQuery({
@@ -248,6 +255,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
 
   const unreadCount = notifications?.filter((n) => !n.read).length || 0;
   const hasFilters = activeFilters.size > 0 || showUnreadOnly;
+  const destructivePending = deleteNotification.isPending || bulkDelete.isPending || clearAll.isPending;
 
   if (!isOpen) return null;
 
@@ -398,7 +406,15 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => bulkDelete.mutate(Array.from(selectedIds))}
+                  onClick={() => {
+                    const ids = Array.from(selectedIds);
+                    setConfirmation({
+                      title: `Delete ${ids.length} selected notification${ids.length === 1 ? "" : "s"}?`,
+                      description: "This permanently removes the selected admin notification rows. It does not affect user-facing notifications.",
+                      confirmLabel: "Delete Selected",
+                      onConfirm: () => bulkDelete.mutateAsync(ids),
+                    });
+                  }}
                   disabled={bulkDelete.isPending}
                   className="gap-1 text-destructive hover:text-destructive"
                 >
@@ -438,7 +454,14 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
           <Button
             variant="outline"
             size="sm"
-            onClick={() => clearAll.mutate()}
+            onClick={() => {
+              setConfirmation({
+                title: "Clear all admin notifications?",
+                description: `This permanently deletes all ${notifications?.length || 0} admin notification rows currently loaded in the notification center.`,
+                confirmLabel: "Clear All",
+                onConfirm: () => clearAll.mutateAsync(),
+              });
+            }}
             disabled={clearAll.isPending || !notifications?.length}
             className="gap-2 text-destructive hover:text-destructive"
           >
@@ -536,7 +559,14 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => deleteNotification.mutate(notification.id)}
+                                onClick={() => {
+                                  setConfirmation({
+                                    title: "Delete this admin notification?",
+                                    description: `"${notification.title}" will be permanently removed from the admin notification center.`,
+                                    confirmLabel: "Delete Notification",
+                                    onConfirm: () => deleteNotification.mutateAsync(notification.id),
+                                  });
+                                }}
                                 className="h-6 w-6 text-muted-foreground hover:text-destructive"
                                 title="Delete"
                               >
@@ -573,6 +603,17 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
             </span>
           </div>
         </div>
+        <AdminConfirmDialog
+          open={!!confirmation}
+          title={confirmation?.title ?? ""}
+          description={confirmation?.description ?? ""}
+          confirmLabel={confirmation?.confirmLabel ?? "Confirm"}
+          isPending={destructivePending}
+          onOpenChange={(open) => {
+            if (!open) setConfirmation(null);
+          }}
+          onConfirm={() => confirmation?.onConfirm()}
+        />
       </motion.div>
     </>
   );

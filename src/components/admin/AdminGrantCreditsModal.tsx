@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 interface AdminGrantCreditsModalProps {
   userId: string;
@@ -23,7 +24,20 @@ const AdminGrantCreditsModal = ({
   const [extendedVibe, setExtendedVibe] = useState(0);
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const { user } = useUserProfile();
+
+  const grantSummary = `${extraTime > 0 ? `${extraTime} Extra Time` : ""}${
+    extraTime > 0 && extendedVibe > 0 ? " + " : ""
+  }${extendedVibe > 0 ? `${extendedVibe} Extended Vibe` : ""}`;
+
+  const openGrantConfirmation = () => {
+    if (extraTime === 0 && extendedVibe === 0) {
+      toast.error("Select at least one credit type");
+      return;
+    }
+    setConfirmOpen(true);
+  };
 
   const handleGrant = async () => {
     if (extraTime === 0 && extendedVibe === 0) {
@@ -34,29 +48,31 @@ const AdminGrantCreditsModal = ({
     setIsSubmitting(true);
 
     try {
-      const { data: existing } = await supabase
+      const { data: existing, error: fetchError } = await supabase
         .from("user_credits")
         .select("extra_time_credits, extended_vibe_credits")
         .eq("user_id", userId)
         .maybeSingle();
+      if (fetchError) throw fetchError;
 
       const prevExtra = existing?.extra_time_credits || 0;
       const prevExtended = existing?.extended_vibe_credits || 0;
 
-      await supabase
+      const { error: creditError } = await supabase
         .from("user_credits")
         .upsert({
           user_id: userId,
           extra_time_credits: prevExtra + extraTime,
           extended_vibe_credits: prevExtended + extendedVibe,
         }, { onConflict: 'user_id' });
+      if (creditError) throw creditError;
 
       const adjustments = [];
       if (extraTime > 0) adjustments.push({ credit_type: "extra_time", previous_value: prevExtra, new_value: prevExtra + extraTime });
       if (extendedVibe > 0) adjustments.push({ credit_type: "extended_vibe", previous_value: prevExtended, new_value: prevExtended + extendedVibe });
 
       if (user?.id && adjustments.length > 0) {
-        await supabase.from("credit_adjustments").insert(
+        const { error: adjustmentError } = await supabase.from("credit_adjustments").insert(
           adjustments.map((a) => ({
             admin_id: user.id,
             user_id: userId,
@@ -66,6 +82,7 @@ const AdminGrantCreditsModal = ({
             adjustment_reason: reason || null,
           }))
         );
+        if (adjustmentError) throw adjustmentError;
       }
 
       toast.success(
@@ -169,12 +186,22 @@ const AdminGrantCreditsModal = ({
               <Button
                 variant="gradient"
                 className="w-full"
-                onClick={handleGrant}
+                onClick={openGrantConfirmation}
                 disabled={isSubmitting || (extraTime === 0 && extendedVibe === 0)}
               >
                 {isSubmitting ? "Granting..." : "Grant Credits"}
               </Button>
             </div>
+            <AdminConfirmDialog
+              open={confirmOpen}
+              title={`Grant credits to ${userName}?`}
+              description={`This will immediately add ${grantSummary} to ${userName}'s credit balance and write a credit adjustment record.${reason.trim() ? `\n\nReason: ${reason.trim()}` : ""}`}
+              confirmLabel="Grant Credits"
+              variant="default"
+              isPending={isSubmitting}
+              onOpenChange={setConfirmOpen}
+              onConfirm={handleGrant}
+            />
           </motion.div>
         </>
       )}

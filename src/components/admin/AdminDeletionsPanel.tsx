@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
-import { Loader2, Trash2, CheckCircle, XCircle, Clock } from "lucide-react";
+import { Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 type DeletionRequest = {
   id: string;
@@ -27,6 +28,7 @@ type DeletionProfile = {
 
 const AdminDeletionsPanel = () => {
   const queryClient = useQueryClient();
+  const [requestToComplete, setRequestToComplete] = useState<DeletionRequest | null>(null);
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ["admin-deletion-requests"],
@@ -58,7 +60,7 @@ const AdminDeletionsPanel = () => {
 
   const profileMap = new Map(profiles.map((p) => [p.id, p]));
 
-  const processNow = useMutation({
+  const markCompleted = useMutation({
     mutationFn: async (requestId: string) => {
       const request = requests.find((r) => r.id === requestId);
       if (!request) throw new Error("Request not found");
@@ -76,7 +78,7 @@ const AdminDeletionsPanel = () => {
       toast.success("Deletion request marked as completed");
     },
     onError: () => {
-      toast.error("Failed to process deletion");
+      toast.error("Failed to mark deletion request completed");
     },
   });
 
@@ -129,12 +131,12 @@ const AdminDeletionsPanel = () => {
           <Button
             size="sm"
             variant="destructive"
-            onClick={() => processNow.mutate(request.id)}
-            disabled={processNow.isPending}
+            onClick={() => setRequestToComplete(request)}
+            disabled={markCompleted.isPending}
             className="gap-1"
           >
-            {processNow.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-            Process Now
+            {markCompleted.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+            Mark Completed
           </Button>
         )}
       </div>
@@ -198,6 +200,19 @@ const AdminDeletionsPanel = () => {
           )}
         </TabsContent>
       </Tabs>
+      <AdminConfirmDialog
+        open={!!requestToComplete}
+        title="Mark deletion request completed?"
+        description={`This does not delete the Supabase auth user or profile.\n\nIt only marks this request row as completed. Existing database triggers may release account-deletion media holds for ${profileMap.get(requestToComplete?.user_id || "")?.name || "this user"}.`}
+        confirmLabel="Mark Completed"
+        isPending={markCompleted.isPending}
+        onOpenChange={(open) => {
+          if (!open) setRequestToComplete(null);
+        }}
+        onConfirm={() => {
+          if (requestToComplete) return markCompleted.mutateAsync(requestToComplete.id);
+        }}
+      />
     </div>
   );
 };

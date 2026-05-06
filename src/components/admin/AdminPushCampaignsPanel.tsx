@@ -1,23 +1,17 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
   Send,
   Users,
-  Filter,
   Plus,
   Trash2,
   Edit,
-  Play,
-  Pause,
   Clock,
   CheckCircle,
   XCircle,
   Target,
-  MapPin,
-  Sparkles,
-  Calendar,
   Activity,
   TrendingUp,
   ChevronDown,
@@ -32,14 +26,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Card,
   CardContent,
@@ -55,10 +41,10 @@ import { format } from "date-fns";
 import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
 import LiveNotificationMonitor from "./LiveNotificationMonitor";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 interface Campaign {
   id: string;
-  name: string;
   title: string;
   body: string;
   status: 'draft' | 'scheduled' | 'sent' | 'paused';
@@ -66,14 +52,10 @@ interface Campaign {
   scheduledAt?: string;
   sentAt?: string;
   createdAt: string;
-  stats?: {
-    sent: number;
-    delivered: number;
-    opened: number;
-  };
 }
 
 interface TargetSegment {
+  // Legacy-only keys are kept so stored target_segment values can be flagged, not edited or applied.
   activityLevel?: 'all' | 'active' | 'inactive' | 'dormant';
   inactiveDays?: number;
   gender?: string[];
@@ -85,19 +67,76 @@ interface TargetSegment {
   dropResponseStatus?: 'all' | 'responded' | 'unresponded';
 }
 
-type VibeTagRow = {
-  id: string;
-  label: string;
-  emoji?: string | null;
+type CampaignStats = {
+  total: number;
+  queued: number;
+  sent: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  failed: number;
 };
+
+type PushEventRow = {
+  campaign_id: string | null;
+  status: string | null;
+};
+
+const DEFAULT_TARGET_SEGMENT: TargetSegment = {
+  gender: [],
+  ageRange: [18, 50],
+  isVerified: undefined,
+};
+
+const UNSUPPORTED_TARGETING_LABELS: Record<string, string> = {
+  activityLevel: "activity",
+  inactiveDays: "inactive days",
+  hasMatches: "match count",
+  locations: "locations",
+  vibes: "vibes",
+  dropResponseStatus: "drop response",
+};
+
+function parseTargetSegment(raw: string | null): TargetSegment {
+  if (!raw || raw === "all") return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed as TargetSegment : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeSupportedSegment(segment: TargetSegment): TargetSegment {
+  return {
+    gender: Array.isArray(segment.gender) ? segment.gender : [],
+    ageRange: Array.isArray(segment.ageRange) && segment.ageRange.length === 2
+      ? [segment.ageRange[0], segment.ageRange[1]]
+      : [18, 50],
+    isVerified: segment.isVerified === true ? true : undefined,
+  };
+}
+
+function unsupportedTargetingLabels(segment: TargetSegment): string[] {
+  const labels: string[] = [];
+  if ("activityLevel" in segment) labels.push(UNSUPPORTED_TARGETING_LABELS.activityLevel);
+  if ("inactiveDays" in segment) labels.push(UNSUPPORTED_TARGETING_LABELS.inactiveDays);
+  if ("hasMatches" in segment) labels.push(UNSUPPORTED_TARGETING_LABELS.hasMatches);
+  if ("locations" in segment) labels.push(UNSUPPORTED_TARGETING_LABELS.locations);
+  if ("vibes" in segment) labels.push(UNSUPPORTED_TARGETING_LABELS.vibes);
+  if ("dropResponseStatus" in segment) labels.push(UNSUPPORTED_TARGETING_LABELS.dropResponseStatus);
+  return labels;
+}
 
 const AdminPushCampaignsPanel = () => {
   const queryClient = useQueryClient();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+  const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
   
   // Fetch campaigns from database
-  const { data: campaigns = [], isLoading: campaignsLoading } = useQuery({
+  const { data: campaigns = [] } = useQuery({
     queryKey: ['push-campaigns'],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -110,89 +149,58 @@ const AdminPushCampaignsPanel = () => {
       // Transform to our Campaign interface
       return (data || []).map(c => ({
         id: c.id,
-        name: c.title,
         title: c.title,
         body: c.body,
         status: c.status as Campaign['status'],
-        targetSegment: (c.target_segment ? JSON.parse(c.target_segment as string) : {}) as TargetSegment,
+        targetSegment: parseTargetSegment(c.target_segment),
         scheduledAt: c.scheduled_at || undefined,
         sentAt: c.sent_at || undefined,
         createdAt: c.created_at,
-        stats: c.sent_at ? { sent: 0, delivered: 0, opened: 0 } : undefined,
       }));
+    },
+  });
+
+  const { data: pushEventRows = [] } = useQuery({
+    queryKey: ['push-campaign-event-stats'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('push_notification_events_admin')
+        .select('campaign_id, status');
+      if (error) throw error;
+      return (data || []) as PushEventRow[];
     },
   });
   
   // Create form state
   const [formData, setFormData] = useState({
-    name: '',
     title: '',
     body: '',
-    scheduleType: 'now' as 'now' | 'scheduled',
-    scheduledAt: '',
   });
   
-  const [segment, setSegment] = useState<TargetSegment>({
-    activityLevel: 'all',
-    inactiveDays: 3,
-    gender: [],
-    ageRange: [18, 50],
-    hasMatches: undefined,
-    isVerified: undefined,
-    locations: [],
-    vibes: [],
-    dropResponseStatus: 'all',
-  });
+  const [segment, setSegment] = useState<TargetSegment>(DEFAULT_TARGET_SEGMENT);
 
   // Load editing campaign data into form
   useEffect(() => {
     if (editingCampaign) {
       setFormData({
-        name: editingCampaign.name,
         title: editingCampaign.title,
         body: editingCampaign.body,
-        scheduleType: editingCampaign.scheduledAt ? 'scheduled' : 'now',
-        scheduledAt: editingCampaign.scheduledAt || '',
       });
-      setSegment(editingCampaign.targetSegment || {
-        activityLevel: 'all',
-        inactiveDays: 3,
-        gender: [],
-        ageRange: [18, 50],
-        hasMatches: undefined,
-        isVerified: undefined,
-        locations: [],
-        vibes: [],
-        dropResponseStatus: 'all',
-      });
+      setSegment(normalizeSupportedSegment(editingCampaign.targetSegment || DEFAULT_TARGET_SEGMENT));
       setShowCreateForm(true);
     }
   }, [editingCampaign]);
 
   const [expandedSections, setExpandedSections] = useState({
-    activity: true,
-    demographics: false,
-    engagement: false,
-    vibes: false,
-  });
-
-  // Fetch vibe tags
-  const { data: vibeTags = [] } = useQuery({
-    queryKey: ['vibe-tags'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('vibe_tags')
-        .select('*')
-        .order('category');
-      return (data || []) as VibeTagRow[];
-    },
+    demographics: true,
+    engagement: true,
   });
 
   // Get estimated reach
   const { data: estimatedReach = 0 } = useQuery({
     queryKey: ['campaign-reach', segment],
     queryFn: async () => {
-      // In production, this would query the database with filters
+      // Keep the reach preview aligned with the only targeting filters currently applied.
       let query = supabase.from('profiles').select('id', { count: 'exact', head: true });
       
       if (segment.gender?.length) {
@@ -211,8 +219,86 @@ const AdminPushCampaignsPanel = () => {
     enabled: showCreateForm || !!editingCampaign,
   });
 
-  const handleCreateCampaign = async () => {
-    if (!formData.name || !formData.title || !formData.body) {
+  const campaignStats = useMemo(() => {
+    const statsByCampaign = new Map<string, CampaignStats>();
+    const emptyStats = (): CampaignStats => ({
+      total: 0,
+      queued: 0,
+      sent: 0,
+      delivered: 0,
+      opened: 0,
+      clicked: 0,
+      failed: 0,
+    });
+
+    for (const row of pushEventRows) {
+      if (!row.campaign_id) continue;
+      const stats = statsByCampaign.get(row.campaign_id) ?? emptyStats();
+      stats.total += 1;
+      switch (row.status) {
+        case "queued":
+          stats.queued += 1;
+          break;
+        case "sent":
+          stats.sent += 1;
+          break;
+        case "delivered":
+          stats.sent += 1;
+          stats.delivered += 1;
+          break;
+        case "opened":
+          stats.sent += 1;
+          stats.delivered += 1;
+          stats.opened += 1;
+          break;
+        case "clicked":
+          stats.sent += 1;
+          stats.delivered += 1;
+          stats.opened += 1;
+          stats.clicked += 1;
+          break;
+        case "failed":
+        case "bounced":
+          stats.failed += 1;
+          break;
+      }
+      statsByCampaign.set(row.campaign_id, stats);
+    }
+
+    return statsByCampaign;
+  }, [pushEventRows]);
+
+  const aggregateStats = useMemo(() => {
+    const totals: CampaignStats = {
+      total: 0,
+      queued: 0,
+      sent: 0,
+      delivered: 0,
+      opened: 0,
+      clicked: 0,
+      failed: 0,
+    };
+    for (const stats of campaignStats.values()) {
+      totals.total += stats.total;
+      totals.queued += stats.queued;
+      totals.sent += stats.sent;
+      totals.delivered += stats.delivered;
+      totals.opened += stats.opened;
+      totals.clicked += stats.clicked;
+      totals.failed += stats.failed;
+    }
+    return totals;
+  }, [campaignStats]);
+
+  const resetCampaignForm = () => {
+    setShowCreateForm(false);
+    setEditingCampaign(null);
+    setFormData({ title: '', body: '' });
+    setSegment(DEFAULT_TARGET_SEGMENT);
+  };
+
+  const handleSaveCampaign = async () => {
+    if (!formData.title || !formData.body) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -222,15 +308,12 @@ const AdminPushCampaignsPanel = () => {
       if (!user) throw new Error('Not authenticated');
 
       const isEditing = !!editingCampaign;
+      const supportedSegment = normalizeSupportedSegment(segment);
       
       const campaignData = {
         title: formData.title,
         body: formData.body,
-        target_segment: JSON.stringify(segment),
-        status: formData.scheduleType === 'now' ? 'sent' : 'scheduled',
-        scheduled_at: formData.scheduleType === 'scheduled' ? formData.scheduledAt : null,
-        sent_at: formData.scheduleType === 'now' ? new Date().toISOString() : null,
-        created_by: user.id,
+        target_segment: JSON.stringify(supportedSegment),
       };
 
       if (isEditing) {
@@ -241,85 +324,34 @@ const AdminPushCampaignsPanel = () => {
           .eq('id', editingCampaign.id);
         
         if (error) throw error;
-        toast.success('Campaign updated successfully!');
+        toast.success('Campaign updated successfully.');
       } else {
         // Create new campaign
-        const { data: newCampaign, error } = await supabase
+        const { error } = await supabase
           .from('push_campaigns')
-          .insert(campaignData)
-          .select()
-          .single();
+          .insert({
+            ...campaignData,
+            status: 'draft',
+            scheduled_at: null,
+            sent_at: null,
+            created_by: user.id,
+          });
         
         if (error) throw error;
-        
-        // If sending now, also send the notifications to users
-        if (formData.scheduleType === 'now' && newCampaign) {
-          await sendNotificationsToUsers(newCampaign.id, formData.title, formData.body, segment);
-        }
-        
-        toast.success(formData.scheduleType === 'now' ? 'Campaign sent successfully!' : 'Campaign scheduled successfully!');
+        toast.success('Campaign draft saved. Delivery is disabled until the backend dispatcher is implemented.');
       }
 
       // Refresh campaigns list
       queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
-      
-      setShowCreateForm(false);
-      setEditingCampaign(null);
-      setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
-      setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
+      resetCampaignForm();
     } catch (error) {
       console.error('Campaign error:', error);
       toast.error('Failed to save campaign');
     }
   };
 
-  // Send notifications to matching users
-  const sendNotificationsToUsers = async (
-    campaignId: string,
-    title: string,
-    body: string,
-    segment: TargetSegment
-  ) => {
-    try {
-      // Build query based on segment
-      let query = supabase.from('profiles').select('id');
-      
-      if (segment.gender?.length) {
-        query = query.in('gender', segment.gender);
-      }
-      if (segment.isVerified !== undefined) {
-        query = query.eq('photo_verified', segment.isVerified);
-      }
-      if (segment.ageRange) {
-        query = query.gte('age', segment.ageRange[0]).lte('age', segment.ageRange[1]);
-      }
-      
-      const { data: users } = await query;
-      
-      if (!users?.length) return;
-      
-      // Create notification events for tracking
-      const events = users.map(u => ({
-        campaign_id: campaignId,
-        user_id: u.id,
-        platform: 'web' as const,
-        status: 'queued' as const,
-      }));
-      
-      // Insert events in batches
-      const batchSize = 100;
-      for (let i = 0; i < events.length; i += batchSize) {
-        const batch = events.slice(i, i + batchSize);
-        await supabase.from('push_notification_events').insert(batch);
-      }
-      
-      console.log(`Queued ${users.length} notification events for campaign ${campaignId}`);
-    } catch (error) {
-      console.error('Error sending notifications:', error);
-    }
-  };
-
   const handleDeleteCampaign = async (id: string) => {
+    setIsDeletingCampaign(true);
     try {
       const { error } = await supabase
         .from('push_campaigns')
@@ -333,6 +365,9 @@ const AdminPushCampaignsPanel = () => {
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Failed to delete campaign');
+      throw error;
+    } finally {
+      setIsDeletingCampaign(false);
     }
   };
 
@@ -386,11 +421,8 @@ const AdminPushCampaignsPanel = () => {
 
   const handleSelectTemplate = (template: CampaignTemplate) => {
     setFormData({
-      name: template.name,
       title: template.title,
       body: template.body,
-      scheduleType: 'now',
-      scheduledAt: '',
     });
     setShowCreateForm(true);
   };
@@ -406,7 +438,7 @@ const AdminPushCampaignsPanel = () => {
         <div>
           <h2 className="text-2xl font-bold text-foreground">Push Campaigns</h2>
           <p className="text-sm text-muted-foreground">
-            Send targeted notifications to user segments
+            Draft campaign copy and supported targeting. Delivery is disabled until a backend dispatcher exists.
           </p>
         </div>
         <Button
@@ -446,10 +478,10 @@ const AdminPushCampaignsPanel = () => {
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 text-muted-foreground mb-1">
                   <Send className="w-4 h-4" />
-                  <span className="text-xs">Total Sent</span>
+                  <span className="text-xs">Notification Events</span>
                 </div>
                 <p className="text-2xl font-bold text-foreground">
-                  {campaigns.reduce((sum, c) => sum + (c.stats?.sent || 0), 0).toLocaleString()}
+                  {aggregateStats.total.toLocaleString()}
                 </p>
               </CardContent>
             </Card>
@@ -460,7 +492,7 @@ const AdminPushCampaignsPanel = () => {
                   <span className="text-xs">Delivered</span>
                 </div>
                 <p className="text-2xl font-bold text-accent">
-                  {campaigns.reduce((sum, c) => sum + (c.stats?.delivered || 0), 0).toLocaleString()}
+                  {aggregateStats.delivered.toLocaleString()}
                 </p>
               </CardContent>
             </Card>
@@ -468,19 +500,23 @@ const AdminPushCampaignsPanel = () => {
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 text-muted-foreground mb-1">
                   <TrendingUp className="w-4 h-4" />
-                  <span className="text-xs">Avg Open Rate</span>
+                  <span className="text-xs">Open Rate</span>
                 </div>
-                <p className="text-2xl font-bold text-primary">35.8%</p>
+                <p className="text-2xl font-bold text-primary">
+                  {aggregateStats.delivered > 0
+                    ? `${Math.round((aggregateStats.opened / aggregateStats.delivered) * 100)}%`
+                    : "—"}
+                </p>
               </CardContent>
             </Card>
             <Card className="bg-card border-border">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 text-muted-foreground mb-1">
                   <Clock className="w-4 h-4" />
-                  <span className="text-xs">Scheduled</span>
+                  <span className="text-xs">Drafts</span>
                 </div>
                 <p className="text-2xl font-bold text-muted-foreground">
-                  {campaigns.filter(c => c.status === 'scheduled').length}
+                  {campaigns.filter(c => c.status === 'draft').length}
                 </p>
               </CardContent>
             </Card>
@@ -488,98 +524,111 @@ const AdminPushCampaignsPanel = () => {
 
           {/* Campaign List */}
           <div className="space-y-4">
-            {campaigns.map((campaign) => (
-              <motion.div
-                key={campaign.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="glass-card rounded-2xl p-4 space-y-3"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-foreground">{campaign.name}</h3>
-                      <Badge
-                        className={
-                          campaign.status === 'sent'
-                            ? 'bg-green-500/10 text-green-400 border-green-500/30'
-                            : campaign.status === 'scheduled'
-                            ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
-                            : campaign.status === 'paused'
-                            ? 'bg-orange-500/10 text-orange-400 border-orange-500/30'
-                            : 'bg-gray-500/10 text-gray-400 border-gray-500/30'
-                        }
-                      >
-                        {campaign.status}
-                      </Badge>
+            {campaigns.map((campaign) => {
+              const unsupportedLabels = unsupportedTargetingLabels(campaign.targetSegment);
+              const stats = campaignStats.get(campaign.id);
+              const openRate = stats && stats.delivered > 0
+                ? `${Math.round((stats.opened / stats.delivered) * 100)}%`
+                : "—";
+              const supportedSegment = normalizeSupportedSegment(campaign.targetSegment);
+
+              return (
+                <motion.div
+                  key={campaign.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="glass-card rounded-2xl p-4 space-y-3"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-foreground">{campaign.title}</h3>
+                        <Badge
+                          className={
+                            campaign.status === 'sent'
+                              ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                              : campaign.status === 'scheduled'
+                              ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+                              : campaign.status === 'paused'
+                              ? 'bg-orange-500/10 text-orange-400 border-orange-500/30'
+                              : 'bg-gray-500/10 text-gray-400 border-gray-500/30'
+                          }
+                        >
+                          {campaign.status}
+                        </Badge>
+                        {unsupportedLabels.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 text-amber-500"
+                            title={`Stored but not applied: ${unsupportedLabels.join(", ")}`}
+                          >
+                            Unsupported targeting stored
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2">{campaign.body}</p>
                     </div>
-                    <p className="text-sm font-medium text-foreground">{campaign.title}</p>
-                    <p className="text-xs text-muted-foreground line-clamp-2">{campaign.body}</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {campaign.status === 'scheduled' && (
-                      <Button variant="ghost" size="icon" onClick={() => toast.success('Campaign paused')}>
-                        <Pause className="w-4 h-4" />
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => setEditingCampaign(campaign)}>
+                        <Edit className="w-4 h-4" />
                       </Button>
+                      <Button variant="ghost" size="icon" onClick={() => setCampaignToDelete(campaign)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    {supportedSegment.gender?.length ? (
+                      <Badge variant="outline" className="gap-1">
+                        <Users className="w-3 h-3" />
+                        {supportedSegment.gender.join(", ")}
+                      </Badge>
+                    ) : null}
+                    {supportedSegment.isVerified && (
+                      <Badge variant="outline" className="gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        Verified only
+                      </Badge>
                     )}
-                    <Button variant="ghost" size="icon" onClick={() => setEditingCampaign(campaign)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDeleteCampaign(campaign.id)}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
+                    {supportedSegment.ageRange && (supportedSegment.ageRange[0] !== 18 || supportedSegment.ageRange[1] !== 50) && (
+                      <Badge variant="outline" className="gap-1">
+                        <Target className="w-3 h-3" />
+                        Ages {supportedSegment.ageRange[0]}-{supportedSegment.ageRange[1]}
+                      </Badge>
+                    )}
                   </div>
-                </div>
 
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {campaign.targetSegment.activityLevel && campaign.targetSegment.activityLevel !== 'all' && (
-                    <Badge variant="outline" className="gap-1">
-                      <Activity className="w-3 h-3" />
-                      {campaign.targetSegment.activityLevel}
-                      {campaign.targetSegment.inactiveDays && ` (${campaign.targetSegment.inactiveDays}+ days)`}
-                    </Badge>
+                  {stats && stats.total > 0 && (
+                    <div className="flex flex-wrap gap-4 pt-2 border-t border-border/50 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Queued:</span>{' '}
+                        <span className="font-medium text-foreground">{stats.queued.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Sent:</span>{' '}
+                        <span className="font-medium text-foreground">{stats.sent.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Delivered:</span>{' '}
+                        <span className="font-medium text-accent">{stats.delivered.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Opened:</span>{' '}
+                        <span className="font-medium text-primary">{stats.opened.toLocaleString()} ({openRate})</span>
+                      </div>
+                    </div>
                   )}
-                  {campaign.targetSegment.isVerified && (
-                    <Badge variant="outline" className="gap-1">
-                      <CheckCircle className="w-3 h-3" />
-                      Verified only
-                    </Badge>
+
+                  {campaign.scheduledAt && (
+                    <div className="text-xs text-amber-500">
+                      <Clock className="w-3 h-3 inline mr-1" />
+                      Legacy scheduled timestamp stored for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}; no dispatcher was found in this frontend-only pass.
+                    </div>
                   )}
-                  {campaign.targetSegment.vibes?.length ? (
-                    <Badge variant="outline" className="gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      {campaign.targetSegment.vibes.join(', ')}
-                    </Badge>
-                  ) : null}
-                </div>
-
-                {campaign.stats && (
-                  <div className="flex gap-4 pt-2 border-t border-border/50 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Sent:</span>{' '}
-                      <span className="font-medium text-foreground">{campaign.stats.sent.toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Delivered:</span>{' '}
-                      <span className="font-medium text-accent">{campaign.stats.delivered.toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Opened:</span>{' '}
-                      <span className="font-medium text-primary">
-                        {campaign.stats.opened.toLocaleString()} ({Math.round((campaign.stats.opened / campaign.stats.delivered) * 100)}%)
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {campaign.scheduledAt && (
-                  <div className="text-xs text-muted-foreground">
-                    <Clock className="w-3 h-3 inline mr-1" />
-                    Scheduled for {format(new Date(campaign.scheduledAt), 'MMM d, yyyy h:mm a')}
-                  </div>
-                )}
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
         </TabsContent>
 
@@ -613,15 +662,10 @@ const AdminPushCampaignsPanel = () => {
                     {editingCampaign ? 'Edit Push Campaign' : 'Create Push Campaign'}
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Target specific user segments with personalized notifications
+                    New campaigns save as drafts. Sending and scheduling require a backend dispatcher.
                   </p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => {
-                  setShowCreateForm(false);
-                  setEditingCampaign(null);
-                  setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
-                  setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
-                }}>
+                <Button variant="ghost" size="icon" onClick={resetCampaignForm}>
                   <XCircle className="w-5 h-5" />
                 </Button>
               </div>
@@ -640,15 +684,6 @@ const AdminPushCampaignsPanel = () => {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Campaign Name</Label>
-                      <Input
-                        value={formData.name}
-                        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="e.g., Re-engagement - 3 Day Inactive"
-                        className="bg-secondary/50"
-                      />
-                    </div>
-                    <div className="space-y-2">
                       <Label>Notification Title</Label>
                       <Input
                         value={formData.title}
@@ -666,33 +701,8 @@ const AdminPushCampaignsPanel = () => {
                         className="bg-secondary/50 min-h-[80px]"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Schedule</Label>
-                        <Select
-                          value={formData.scheduleType}
-                          onValueChange={(v: 'now' | 'scheduled') => setFormData(prev => ({ ...prev, scheduleType: v }))}
-                        >
-                          <SelectTrigger className="bg-secondary/50">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="now">Send Now</SelectItem>
-                            <SelectItem value="scheduled">Schedule</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {formData.scheduleType === 'scheduled' && (
-                        <div className="space-y-2">
-                          <Label>Send At</Label>
-                          <Input
-                            type="datetime-local"
-                            value={formData.scheduledAt}
-                            onChange={(e) => setFormData(prev => ({ ...prev, scheduledAt: e.target.value }))}
-                            className="bg-secondary/50"
-                          />
-                        </div>
-                      )}
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                      Delivery is disabled in this frontend-only pass. Campaigns are saved as drafts and do not queue push notification events.
                     </div>
                   </CardContent>
                 </Card>
@@ -705,65 +715,11 @@ const AdminPushCampaignsPanel = () => {
                       Target Audience
                     </CardTitle>
                     <CardDescription>
-                      Estimated reach: <span className="text-foreground font-medium">{estimatedReach.toLocaleString()} users</span>
+                      Estimated reach: <span className="text-foreground font-medium">{estimatedReach.toLocaleString()} users</span>.
+                      This preview uses gender, verified status, and age only.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {/* Activity Level */}
-                    <SegmentSection title="Activity Level" icon={Activity} sectionKey="activity">
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label>User Activity</Label>
-                          <Select
-                            value={segment.activityLevel}
-                            onValueChange={(v) => setSegment(prev => ({ ...prev, activityLevel: v as TargetSegment['activityLevel'] }))}
-                          >
-                            <SelectTrigger className="bg-secondary/50">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Users</SelectItem>
-                              <SelectItem value="active">Active (last 7 days)</SelectItem>
-                              <SelectItem value="inactive">Inactive (3+ days)</SelectItem>
-                              <SelectItem value="dormant">Dormant (30+ days)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        {segment.activityLevel === 'inactive' && (
-                          <div className="space-y-2">
-                            <Label>Inactive for at least (days)</Label>
-                            <div className="flex items-center gap-4">
-                              <Slider
-                                value={[segment.inactiveDays || 3]}
-                                onValueChange={([v]) => setSegment(prev => ({ ...prev, inactiveDays: v }))}
-                                min={1}
-                                max={30}
-                                step={1}
-                                className="flex-1"
-                              />
-                              <span className="text-foreground font-medium w-8">{segment.inactiveDays}</span>
-                            </div>
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          <Label>Daily Drop Response</Label>
-                          <Select
-                            value={segment.dropResponseStatus}
-                            onValueChange={(v) => setSegment(prev => ({ ...prev, dropResponseStatus: v as TargetSegment['dropResponseStatus'] }))}
-                          >
-                            <SelectTrigger className="bg-secondary/50">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All</SelectItem>
-                              <SelectItem value="responded">Responded to drops</SelectItem>
-                              <SelectItem value="unresponded">Haven't responded (3+ days)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                    </SegmentSection>
-
                     {/* Demographics */}
                     <SegmentSection title="Demographics" icon={Users} sectionKey="demographics">
                       <div className="space-y-4">
@@ -811,36 +767,6 @@ const AdminPushCampaignsPanel = () => {
                             onCheckedChange={(checked) => setSegment(prev => ({ ...prev, isVerified: checked ? true : undefined }))}
                           />
                         </div>
-                        <div className="flex items-center justify-between">
-                          <Label>Has Matches</Label>
-                          <Switch
-                            checked={segment.hasMatches === true}
-                            onCheckedChange={(checked) => setSegment(prev => ({ ...prev, hasMatches: checked ? true : undefined }))}
-                          />
-                        </div>
-                      </div>
-                    </SegmentSection>
-
-                    {/* Vibes */}
-                    <SegmentSection title="Vibes & Interests" icon={Sparkles} sectionKey="vibes">
-                      <div className="flex flex-wrap gap-2">
-                        {vibeTags.map((tag) => (
-                          <Button
-                            key={tag.id}
-                            type="button"
-                            size="sm"
-                            variant={segment.vibes?.includes(tag.label) ? 'default' : 'outline'}
-                            onClick={() => setSegment(prev => ({
-                              ...prev,
-                              vibes: prev.vibes?.includes(tag.label)
-                                ? prev.vibes.filter(v => v !== tag.label)
-                                : [...(prev.vibes || []), tag.label]
-                            }))}
-                            className="gap-1"
-                          >
-                            {tag.emoji} {tag.label}
-                          </Button>
-                        ))}
                       </div>
                     </SegmentSection>
                   </CardContent>
@@ -853,20 +779,15 @@ const AdminPushCampaignsPanel = () => {
               <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
                 <div className="text-sm text-muted-foreground">
                   <Target className="w-4 h-4 inline mr-1" />
-                  Targeting <span className="text-foreground font-medium">{estimatedReach.toLocaleString()}</span> users
+                  Draft reach preview: <span className="text-foreground font-medium">{estimatedReach.toLocaleString()}</span> users
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => {
-                    setShowCreateForm(false);
-                    setEditingCampaign(null);
-                    setFormData({ name: '', title: '', body: '', scheduleType: 'now', scheduledAt: '' });
-                    setSegment({ activityLevel: 'all', inactiveDays: 3, gender: [], ageRange: [18, 50], hasMatches: undefined, isVerified: undefined, locations: [], vibes: [], dropResponseStatus: 'all' });
-                  }}>
+                  <Button variant="outline" onClick={resetCampaignForm}>
                     Cancel
                   </Button>
-                  <Button onClick={handleCreateCampaign} className="gap-2">
-                    <Send className="w-4 h-4" />
-                    {editingCampaign ? 'Update Campaign' : (formData.scheduleType === 'now' ? 'Send Now' : 'Schedule')}
+                  <Button onClick={handleSaveCampaign} className="gap-2">
+                    <FileText className="w-4 h-4" />
+                    {editingCampaign ? 'Update Campaign' : 'Save Draft'}
                   </Button>
                 </div>
               </div>
@@ -874,6 +795,19 @@ const AdminPushCampaignsPanel = () => {
           </motion.div>
         )}
       </AnimatePresence>
+      <AdminConfirmDialog
+        open={!!campaignToDelete}
+        title="Delete push campaign?"
+        description={`This permanently deletes the campaign row "${campaignToDelete?.title || "selected campaign"}". It does not cancel or undo any notification events already created by older flows.`}
+        confirmLabel="Delete Campaign"
+        isPending={isDeletingCampaign}
+        onOpenChange={(open) => {
+          if (!open) setCampaignToDelete(null);
+        }}
+        onConfirm={() => {
+          if (campaignToDelete) return handleDeleteCampaign(campaignToDelete.id);
+        }}
+      />
     </motion.div>
   );
 };

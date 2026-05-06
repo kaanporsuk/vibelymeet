@@ -40,6 +40,7 @@ import { useUserProfile } from "@/contexts/AuthContext";
 import { useAdminActivityLog } from "@/hooks/useAdminActivityLog";
 import { format } from "date-fns";
 import { toast } from "sonner";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 interface UserModerationActionsProps {
   userId: string;
@@ -66,6 +67,12 @@ const UserModerationActions = ({
   // Warning form state
   const [warningReason, setWarningReason] = useState("");
   const [warningMessage, setWarningMessage] = useState("");
+  const [confirmation, setConfirmation] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => void | Promise<unknown>;
+  } | null>(null);
 
   // Fetch current suspension status
   const { data: currentSuspension } = useQuery({
@@ -264,6 +271,9 @@ const UserModerationActions = ({
     },
   });
 
+  const moderationPending = suspendUser.isPending || liftSuspension.isPending || sendWarning.isPending;
+  const suspensionDurationLabel = suspendDuration === "permanent" ? "permanent" : `${suspendDuration} day${suspendDuration === "1" ? "" : "s"}`;
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -288,7 +298,14 @@ const UserModerationActions = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => liftSuspension.mutate()}
+                onClick={() => {
+                  setConfirmation({
+                    title: `Lift suspension for ${userName}?`,
+                    description: "This immediately restores account access by lifting the active suspension and clearing the profile suspension reason.",
+                    confirmLabel: "Lift Suspension",
+                    onConfirm: () => liftSuspension.mutateAsync(),
+                  });
+                }}
                 disabled={liftSuspension.isPending}
                 className="gap-2"
               >
@@ -351,7 +368,14 @@ const UserModerationActions = ({
                     </div>
                     <Button
                       variant="destructive"
-                      onClick={() => suspendUser.mutate()}
+                      onClick={() => {
+                        setConfirmation({
+                          title: `Suspend ${userName}?`,
+                          description: `This will immediately restrict this user's account access.\n\nDuration: ${suspensionDurationLabel}\nReason: ${suspendReason.trim()}`,
+                          confirmLabel: "Suspend User",
+                          onConfirm: () => suspendUser.mutateAsync(),
+                        });
+                      }}
                       disabled={!suspendReason.trim() || suspendUser.isPending}
                       className="w-full gap-2"
                     >
@@ -396,7 +420,14 @@ const UserModerationActions = ({
                     />
                   </div>
                   <Button
-                    onClick={() => sendWarning.mutate()}
+                    onClick={() => {
+                      setConfirmation({
+                        title: `Send warning to ${userName}?`,
+                        description: `This creates a user-visible warning record.\n\nReason: ${warningReason.replace("_", " ")}\nMessage: ${warningMessage.trim()}`,
+                        confirmLabel: "Send Warning",
+                        onConfirm: () => sendWarning.mutateAsync(),
+                      });
+                    }}
                     disabled={!warningReason || !warningMessage.trim() || sendWarning.isPending}
                     className="w-full gap-2 bg-yellow-500 hover:bg-yellow-600"
                   >
@@ -516,6 +547,17 @@ const UserModerationActions = ({
             Close
           </Button>
         </DialogFooter>
+        <AdminConfirmDialog
+          open={!!confirmation}
+          title={confirmation?.title ?? ""}
+          description={confirmation?.description ?? ""}
+          confirmLabel={confirmation?.confirmLabel ?? "Confirm"}
+          isPending={moderationPending}
+          onOpenChange={(open) => {
+            if (!open) setConfirmation(null);
+          }}
+          onConfirm={() => confirmation?.onConfirm()}
+        />
       </DialogContent>
     </Dialog>
   );
