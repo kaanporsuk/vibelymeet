@@ -130,9 +130,10 @@ test("overview metrics and event analytics labels match query semantics", () => 
   assert.match(adminStats, /Matches\/User/);
   assert.match(adminStats, /matches_per_user/);
 
-  assert.match(adminLiveEventMetrics, /Platform Reports/);
-  assert.match(adminLiveEventMetrics, /Global\/platform count; not scoped to this event/);
-  assert.match(adminLiveEventMetrics, /global until a true event-scoped report source exists/);
+  assert.match(adminLiveEventMetrics, /Participant Reports/);
+  assert.match(adminLiveEventMetrics, /Participant reports near this event window; not direct event-report provenance/);
+  assert.match(adminLiveEventMetrics, /admin_get_event_metrics/);
+  assert.doesNotMatch(adminLiveEventMetrics, /\.from\("user_reports"\)/);
 });
 
 test("quick actions show only actionable upcoming events", () => {
@@ -158,13 +159,19 @@ test("push analytics uses the backend admin telemetry RPC and honest states", ()
 });
 
 test("users panel labels registration-derived counts honestly", () => {
-  assert.match(adminUsers, /Event registration counts are derived from registration rows for the loaded users; they are not confirmed attendance/);
+  assert.match(adminUsers, /admin_search_users/);
+  assert.match(adminUsers, /Event registration counts are derived server-side from registration rows; they are not confirmed attendance/);
   assert.match(adminUsers, /Event registrations/);
+  assert.doesNotMatch(adminUsers, /events_attended/);
   assert.match(adminUsers, /Could not load users or derived event registration counts/);
   assert.match(adminUsers, /Vibes unavailable/);
+  assert.doesNotMatch(adminUsers, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(adminUsers, /\.from\(['"]event_registrations['"]\)/);
+  assert.doesNotMatch(adminUsers, /\.from\(['"]profile_vibes['"]\)/);
 
   assert.match(adminUserDetail, /Event registrations/);
   assert.match(adminUserDetail, /Not confirmed attendance/);
+  assert.doesNotMatch(adminUserDetail, /events_attended/);
 });
 
 test("notifications copy is scoped to the latest 100 and broad actions say so", () => {

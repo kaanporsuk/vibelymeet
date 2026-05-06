@@ -33,6 +33,7 @@ const AdminFeedbackPanel = lazy(() => import("@/components/admin/AdminFeedbackPa
 const SupportInbox = lazy(() => import("@/components/admin/SupportInbox"));
 const AdminDailyDropCard = lazy(() => import("@/components/admin/AdminDailyDropCard"));
 const AdminTierConfigPanel = lazy(() => import("@/components/admin/AdminTierConfigPanel"));
+const AdminOperationsCenter = lazy(() => import("@/components/admin/AdminOperationsCenter"));
 const AdminGhostBootstrapPanel = lazy(() =>
   import("@/components/admin/AdminGhostBootstrapPanel").then((mod) => ({
     default: mod.AdminGhostBootstrapPanel,
@@ -40,7 +41,7 @@ const AdminGhostBootstrapPanel = lazy(() =>
 );
 const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMediaLifecyclePanel"));
 
-type ActivePanel = 'overview' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 const AdminPanelFallback = () => (
   <div className="min-h-[320px] rounded-xl border border-border/50 bg-card/30 animate-pulse" />
@@ -130,6 +131,7 @@ const AdminDashboard = () => {
               <div>
                 <h1 className="text-2xl font-bold font-display text-foreground">
                   {activePanel === 'overview' && 'Dashboard Overview'}
+                  {activePanel === 'operations' && 'Operations Center'}
                   {activePanel === 'users' && 'User Management'}
                   {activePanel === 'events' && 'Event Management'}
                   {activePanel === 'reports' && 'User Reports'}
@@ -149,6 +151,7 @@ const AdminDashboard = () => {
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   {activePanel === 'overview' && 'Real-time platform analytics'}
+                  {activePanel === 'operations' && 'Production health, provider reconciliation, incidents, audit, and rebuild state'}
                   {activePanel === 'users' && 'Manage all user profiles and activity'}
                   {activePanel === 'events' && 'Create and manage events'}
                   {activePanel === 'reports' && 'Review and act on user reports'}
@@ -218,6 +221,7 @@ const AdminDashboard = () => {
               </motion.div>
             )}
 
+            {activePanel === 'operations' && <AdminOperationsCenter />}
             {activePanel === 'users' && <AdminUsersPanel />}
             {activePanel === 'events' && <AdminEventsPanel />}
             {activePanel === 'reports' && <AdminReportsPanel />}

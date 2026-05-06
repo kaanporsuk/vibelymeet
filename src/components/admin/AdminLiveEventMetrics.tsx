@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 import {
   Select,
   SelectContent,
@@ -71,6 +72,19 @@ interface EventPaymentExceptionItem {
   exception_status: string;
   created_at: string;
   updated_at: string;
+}
+
+interface AdminEventMetricsPayload extends AdminRpcPayload {
+  event_id?: string;
+  video_sessions?: number;
+  completed_video_sessions?: number;
+  registrations?: number;
+  confirmed_registrations?: number;
+  waitlisted_registrations?: number;
+  confirmed_attendance?: number;
+  persistent_matches?: number;
+  participant_reports_near_event_window?: number;
+  report_scope?: string;
 }
 
 type VideoDateOpsStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
@@ -277,11 +291,16 @@ const AdminLiveEventMetrics = () => {
     queryFn: async () => {
       if (!eventId) return null;
 
+      const eventMetrics = await callAdminRpc<AdminEventMetricsPayload>("admin_get_event_metrics", {
+        p_event_id: eventId,
+      });
+
       // Registrations with queue status
-      const { data: regs } = await supabase
+      const { data: regs, error: regsError } = await supabase
         .from("event_registrations")
         .select("profile_id, queue_status, profiles(gender)")
         .eq("event_id", eventId);
+      if (regsError) throw regsError;
 
       const registrations = regs || [];
       const activeUsers = registrations.filter(
@@ -312,10 +331,11 @@ const AdminLiveEventMetrics = () => {
       });
 
       // Video sessions
-      const { data: sessions } = await supabase
+      const { data: sessions, error: sessionsError } = await supabase
         .from("video_sessions")
         .select("id, duration_seconds, participant_1_liked, participant_2_liked, ended_at")
         .eq("event_id", eventId);
+      if (sessionsError) throw sessionsError;
 
       const allSessions = sessions || [];
       const completedSessions = allSessions.filter((s) => s.ended_at);
@@ -350,22 +370,6 @@ const AdminLiveEventMetrics = () => {
             )
           : 0;
 
-      // Persistent matches from this event
-      const { count: persistentMatches } = await supabase
-        .from("matches")
-        .select("*", { count: "exact", head: true })
-        .eq("event_id", eventId);
-
-      // Platform report telemetry is global until a true event-scoped report source exists.
-      const sessionIds = allSessions.map((s) => s.id);
-      let reportsCount = 0;
-      if (sessionIds.length > 0) {
-        const { count } = await supabase
-          .from("user_reports")
-          .select("*", { count: "exact", head: true });
-        reportsCount = count || 0;
-      }
-
       return {
         activeUsers,
         browsing,
@@ -373,14 +377,19 @@ const AdminLiveEventMetrics = () => {
         inDates,
         inSurvey,
         inQueue,
-        totalDates,
         matchRate,
         extensionRate,
         avgDuration,
         genderCount,
-        persistentMatches: persistentMatches || 0,
-        reportsCount,
-        totalAttendees: registrations.length,
+        persistentMatches: Number(eventMetrics.persistent_matches ?? 0),
+        reportsCount: Number(eventMetrics.participant_reports_near_event_window ?? 0),
+        reportScope: eventMetrics.report_scope ?? "participant_reports_near_event_window",
+        totalDates: Number(eventMetrics.video_sessions ?? totalDates),
+        completedDates: Number(eventMetrics.completed_video_sessions ?? completedSessions.length),
+        totalRegistrations: Number(eventMetrics.registrations ?? registrations.length),
+        confirmedRegistrations: Number(eventMetrics.confirmed_registrations ?? 0),
+        waitlistedRegistrations: Number(eventMetrics.waitlisted_registrations ?? 0),
+        confirmedAttendance: Number(eventMetrics.confirmed_attendance ?? 0),
       };
     },
     enabled: !!eventId,
@@ -752,13 +761,19 @@ const AdminLiveEventMetrics = () => {
             <MetricCard icon={Clock} label="Extension Rate" value={`${metrics.extensionRate}%`} color="bg-blue-500/20 text-blue-400" />
             <MetricCard icon={Clock} label="Avg Duration" value={`${metrics.avgDuration}s`} color="bg-indigo-500/20 text-indigo-400" />
             <MetricCard icon={Heart} label="Persistent Matches" value={metrics.persistentMatches} color="bg-rose-500/20 text-rose-400" />
-            <MetricCard icon={Users} label="Total Attendees" value={metrics.totalAttendees} color="bg-teal-500/20 text-teal-400" />
+            <MetricCard
+              icon={Users}
+              label="Registrations"
+              value={metrics.totalRegistrations}
+              color="bg-teal-500/20 text-teal-400"
+              description={`${metrics.confirmedRegistrations} confirmed, ${metrics.waitlistedRegistrations} waitlisted; ${metrics.confirmedAttendance} attendance markers.`}
+            />
             <MetricCard
               icon={AlertTriangle}
-              label="Platform Reports"
+              label="Participant Reports"
               value={metrics.reportsCount}
               color="bg-red-500/20 text-red-400"
-              description="Global/platform count; not scoped to this event."
+              description="Participant reports near this event window; not direct event-report provenance."
               warning={metrics.reportsCount > 0}
             />
           </div>
