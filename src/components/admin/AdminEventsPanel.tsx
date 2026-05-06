@@ -28,6 +28,7 @@ import AdminEventAttendeesModal from "./AdminEventAttendeesModal";
 import AdminEventControls from "./AdminEventControls";
 import BatchEventImportModal from "./BatchEventImportModal";
 import { notifyAttendeesOfEventCancellation } from "@/lib/adminEventCancellationNotify";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -59,15 +60,12 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 const getComputedStatus = (event: AdminEventRow): string => {
-  if (event.status === 'cancelled') return 'cancelled';
-  if (event.status === 'ended' || event.ended_at) return 'ended';
-  if (event.status === 'draft') return 'draft';
-  const now = new Date();
-  const start = new Date(event.event_date);
-  const end = new Date(start.getTime() + (event.duration_minutes || 60) * 60000);
-  if (now >= start && now < end) return 'live';
-  if (now >= end) return 'ended';
-  return 'upcoming';
+  return resolveEventLifecycle({
+    status: event.status,
+    event_date: event.event_date,
+    duration_minutes: event.duration_minutes,
+    ended_at: event.ended_at,
+  }).lifecycle;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -139,35 +137,7 @@ const AdminEventsPanel = () => {
       const { data, error } = await query;
       if (error) throw error;
 
-      const rows = (data || []) as AdminEventRow[];
-
-      // Auto-update stale statuses
-      const staleIds = rows
-        .filter(e => {
-          const end = new Date(new Date(e.event_date).getTime() + (e.duration_minutes || 60) * 60000);
-          return new Date() > end && !['ended', 'completed', 'cancelled'].includes(e.status || '');
-        })
-        .map(e => e.id);
-
-      if (staleIds.length > 0) {
-        await supabase.from('events').update({ status: 'ended', ended_at: new Date().toISOString() }).in('id', staleIds);
-      }
-
-      // Auto-live events that have started but are still 'upcoming'
-      const liveIds = rows
-        .filter(e => {
-          const now2 = new Date();
-          const start = new Date(e.event_date);
-          const end = new Date(start.getTime() + (e.duration_minutes || 60) * 60000);
-          return now2 >= start && now2 < end && e.status === 'upcoming';
-        })
-        .map(e => e.id);
-
-      if (liveIds.length > 0) {
-        await supabase.from('events').update({ status: 'live' }).in('id', liveIds);
-      }
-
-      return rows;
+      return (data || []) as AdminEventRow[];
     },
   });
 
@@ -276,6 +246,7 @@ const AdminEventsPanel = () => {
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
       toast.success('Entire series archived');
     },
+    onError: () => toast.error('Failed to archive series'),
   });
 
   // Bulk archive
@@ -285,11 +256,13 @@ const AdminEventsPanel = () => {
       archived_at: new Date().toISOString(),
       archived_by: user?.id,
     }).in('id', [...selectedIds]);
-    if (!error) {
-      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      setSelectedIds(new Set());
-      toast.success(`${selectedIds.size} events archived`);
+    if (error) {
+      toast.error('Failed to archive selected events', { description: error.message });
+      return;
     }
+    queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+    setSelectedIds(new Set());
+    toast.success(`${selectedIds.size} events archived`);
   };
 
   // Generate more
@@ -319,11 +292,12 @@ const AdminEventsPanel = () => {
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];
     const isExpanded = expandedParents.has(event.id);
+    const rawStatus = event.status?.toLowerCase() || '';
     const canCancel =
       !event.archived_at &&
-      event.status !== 'cancelled' &&
-      event.status !== 'ended' &&
-      event.status !== 'completed';
+      !event.ended_at &&
+      computed !== 'ended' &&
+      !['cancelled', 'draft', 'completed'].includes(rawStatus);
 
     return (
       <>
@@ -365,7 +339,11 @@ const AdminEventsPanel = () => {
                 )}
                 <AdminEventControls
                   eventId={event.id} eventTitle={event.title}
-                  eventStatus={event.status} durationMinutes={event.duration_minutes}
+                  rawStatus={event.status}
+                  computedStatus={computed}
+                  endedAt={event.ended_at}
+                  archivedAt={event.archived_at}
+                  durationMinutes={event.duration_minutes}
                 />
               </div>
             </div>

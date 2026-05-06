@@ -64,7 +64,7 @@ interface ValidatedEvent extends ParsedEvent {
   _selected: boolean;
 }
 
-const VALID_STATUSES = ["draft", "scheduled", "upcoming", "live"];
+const VALID_STATUSES = ["draft", "upcoming", "live"];
 
 type RawImportEvent = Record<string, unknown>;
 
@@ -105,7 +105,7 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
     cover_image: "",
     location_name: "Digital Lobby",
     is_location_specific: false,
-    status: "scheduled",
+    status: "upcoming",
     visibility: "all",
     tags: ["Speed Dating", "Young Professionals"],
     vibe_tags: ["Adventurous", "Ambitious"],
@@ -123,7 +123,7 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
     cover_image: "",
     location_name: "Virtual Cafe",
     is_location_specific: false,
-    status: "scheduled",
+    status: "upcoming",
     visibility: "all",
     tags: ["Brunch", "Casual"],
     vibe_tags: ["Foodie", "Creative"],
@@ -149,7 +149,7 @@ function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
   const maxAttendees = Math.trunc(numberValue(ev.max_attendees));
   if (maxAttendees <= 0) errors.push("Attendees must be > 0");
 
-  const status = stringValue(ev.status).trim().toLowerCase() || "scheduled";
+  const status = stringValue(ev.status).trim().toLowerCase() || "upcoming";
   if (!VALID_STATUSES.includes(status)) errors.push(`Status must be: ${VALID_STATUSES.join(", ")}`);
 
   const tags = stringArrayValue(ev.tags);
@@ -294,7 +294,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         cover_image: ev.cover_image || "",
         location_name: ev.location_name || null,
         is_location_specific: ev.is_location_specific || false,
-        status: ev.status || "scheduled",
+        status: ev.status || "upcoming",
         visibility: ev.visibility || "all",
         tags: ev.tags || [],
         vibes: ev.vibe_tags || [],

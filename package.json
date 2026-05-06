@@ -27,6 +27,7 @@
     "test:browser-diagnostics": "tsx scripts/browser-diagnostics.test.ts",
     "test:request-reduction-contract": "tsx scripts/request-reduction-contract.test.ts",
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
+    "test:admin-events-p0": "tsx shared/admin/adminEventsP0ReadSafety.test.ts",
     "test:hardening-contracts": "bash scripts/run_hardening_contract_tests.sh",
     "test:event-lobby-regression": "bash scripts/run_event_lobby_regression.sh",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",
