@@ -116,7 +116,12 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(eventForm, /callAdminRpc\("admin_create_event"/);
   assert.match(eventForm, /callAdminRpc\("admin_update_event"/);
   assert.match(batchImport, /callAdminRpc\("admin_create_event"/);
+  assert.match(batchImport, /successfulIndexes/);
+  assert.match(batchImport, /failedRows/);
+  assert.match(batchImport, /Confirmed successful rows were deselected to prevent duplicate retries/);
+  assert.doesNotMatch(batchImport, /Promise\.all\(\s*rows\.map/);
   assert.match(notifications, /callAdminRpc\("admin_list_notifications"/);
+  assert.match(notifications, /callAdminRpc\("admin_get_notification_counts"/);
   assert.match(notifications, /callAdminRpc\("admin_mark_notifications_read"/);
   assert.match(notifications, /callAdminRpc\("admin_delete_notifications"/);
   assert.match(verification, /callAdminRpc\("admin_review_photo_verification"/);

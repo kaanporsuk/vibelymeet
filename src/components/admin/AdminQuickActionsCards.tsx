@@ -51,20 +51,22 @@ const AdminQuickActionsCards = ({
   const { data: upcomingEvents = [] } = useQuery({
     queryKey: ['admin-upcoming-events'],
     queryFn: async () => {
+      const terminalRawStatuses = ['draft', 'cancelled', 'completed', 'ended'];
       const { data, error } = await supabase
         .from('events')
         .select('id, title, event_date, duration_minutes, status, ended_at, archived_at, current_attendees, max_attendees')
         .gte('event_date', new Date().toISOString())
         .is('archived_at', null)
+        .not('status', 'in', `(${terminalRawStatuses.join(',')})`)
         .order('event_date', { ascending: true })
-        .limit(25);
+        .limit(50);
       if (error) throw error;
-      const terminalRawStatuses = new Set(['draft', 'cancelled', 'completed', 'ended']);
+      const terminalStatusSet = new Set(terminalRawStatuses);
       const nowMs = Date.now();
       return (data || [])
         .filter((event) => {
           const rawStatus = (event.status || '').toLowerCase();
-          if (terminalRawStatuses.has(rawStatus)) return false;
+          if (terminalStatusSet.has(rawStatus)) return false;
           if (event.archived_at || event.ended_at) return false;
           return resolveEventLifecycle({
             status: event.status,

@@ -47,6 +47,7 @@ import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'event_registrations';
 type SortDirection = 'asc' | 'desc';
 type GenderBucket = 'all' | 'man' | 'woman' | 'non-binary' | 'other';
+const USERS_PAGE_SIZE = 50;
 
 type AdminUserVibe = {
   label: string;
@@ -125,11 +126,12 @@ const AdminUsersPanel = () => {
   const [lookingForFilter, setLookingForFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [pageIndex, setPageIndex] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   // Fetch users through the backend admin aggregate so counts and filters are server-owned.
   const { data: usersPayload, isLoading, isError: usersError } = useQuery({
-    queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, sortField, sortDirection],
+    queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, sortField, sortDirection, pageIndex],
     queryFn: async () => {
       const filters: Record<string, unknown> = {};
       if (genderFilter !== 'all') filters.gender_bucket = genderFilter;
@@ -148,14 +150,19 @@ const AdminUsersPanel = () => {
         p_search: searchQuery.trim() || null,
         p_filters: filters,
         p_sort: getServerSort(sortField, sortDirection),
-        p_limit: 200,
-        p_offset: 0,
+        p_limit: USERS_PAGE_SIZE,
+        p_offset: pageIndex * USERS_PAGE_SIZE,
       });
     },
   });
 
   const users = useMemo(() => usersPayload?.rows ?? [], [usersPayload?.rows]);
   const totalCount = Number(usersPayload?.total_count ?? users.length);
+  const totalPages = Math.max(1, Math.ceil(totalCount / USERS_PAGE_SIZE));
+  const firstVisibleUser = totalCount === 0 ? 0 : pageIndex * USERS_PAGE_SIZE + 1;
+  const lastVisibleUser = Math.min(totalCount, pageIndex * USERS_PAGE_SIZE + users.length);
+  const canGoPrevious = pageIndex > 0;
+  const canGoNext = pageIndex + 1 < totalPages;
 
   const refreshedAvatars = useMemo(() => {
     const resolved: Record<string, string> = {};
@@ -176,6 +183,7 @@ const AdminUsersPanel = () => {
       setSortField(field);
       setSortDirection('desc');
     }
+    setPageIndex(0);
   };
 
   const getSortIcon = (field: SortField) => {
@@ -200,13 +208,19 @@ const AdminUsersPanel = () => {
               <Input
                 placeholder="Search by name or location..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setPageIndex(0);
+                }}
                 className="pl-11 bg-secondary/50"
               />
             </div>
             <Select
               value={genderFilter}
-              onValueChange={(value) => setGenderFilter(value as GenderBucket)}
+              onValueChange={(value) => {
+                setGenderFilter(value as GenderBucket);
+                setPageIndex(0);
+              }}
             >
               <SelectTrigger className="w-full md:w-[150px] bg-secondary/50">
                 <SelectValue placeholder="Gender" />
@@ -219,7 +233,13 @@ const AdminUsersPanel = () => {
                 <SelectItem value="other">Other</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={verificationFilter} onValueChange={setVerificationFilter}>
+            <Select
+              value={verificationFilter}
+              onValueChange={(value) => {
+                setVerificationFilter(value);
+                setPageIndex(0);
+              }}
+            >
               <SelectTrigger className="w-full md:w-[150px] bg-secondary/50">
                 <SelectValue placeholder="Verification" />
               </SelectTrigger>
@@ -230,7 +250,13 @@ const AdminUsersPanel = () => {
                 <SelectItem value="suspended">Suspended</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={lookingForFilter} onValueChange={setLookingForFilter}>
+            <Select
+              value={lookingForFilter}
+              onValueChange={(value) => {
+                setLookingForFilter(value);
+                setPageIndex(0);
+              }}
+            >
               <SelectTrigger className="w-full md:w-[150px] bg-secondary/50">
                 <SelectValue placeholder="Looking For" />
               </SelectTrigger>
@@ -248,11 +274,31 @@ const AdminUsersPanel = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-muted-foreground">
-                Showing {users.length} of {totalCount} users
+                Showing {firstVisibleUser}-{lastVisibleUser} of {totalCount} users
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Event registration counts are derived server-side from registration rows; they are not confirmed attendance.
+                Page {pageIndex + 1} of {totalPages}. Event registration counts are derived server-side from registration rows; they are not confirmed attendance.
               </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!canGoPrevious || isLoading}
+                onClick={() => setPageIndex((page) => Math.max(0, page - 1))}
+              >
+                Previous
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!canGoNext || isLoading}
+                onClick={() => setPageIndex((page) => page + 1)}
+              >
+                Next
+              </Button>
             </div>
           </div>
         </div>
