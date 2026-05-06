@@ -343,10 +343,13 @@ function chooseWebVideoDevice(
 }
 
 function videoOnlyCameraSwitchConstraints(
+  captureProfile: VideoDateMediaCaptureProfile,
   desiredFacing: VideoDateCameraFacingMode | null,
   deviceId?: string | null,
 ): MediaStreamConstraints {
-  const video: MediaTrackConstraints = {};
+  const constraints = videoDateWebMediaStreamConstraints(captureProfile);
+  const video: MediaTrackConstraints =
+    constraints.video && typeof constraints.video === "object" ? { ...constraints.video } : {};
   if (deviceId) {
     video.deviceId = { exact: deviceId };
   } else if (desiredFacing) {
@@ -1458,7 +1461,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       };
       try {
         stream = await navigator.mediaDevices.getUserMedia(
-          videoOnlyCameraSwitchConstraints(desiredFacing, expectedDeviceId)
+          videoOnlyCameraSwitchConstraints(captureProfileRef.current, desiredFacing, expectedDeviceId)
         );
         videoTrack = stream.getVideoTracks()[0] ?? null;
         if (!videoTrack) return null;
