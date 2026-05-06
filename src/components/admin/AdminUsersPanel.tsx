@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -33,7 +33,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import {
   getRelationshipIntentAliases,
@@ -43,10 +42,47 @@ import {
 import AdminUserDetailDrawer from "./AdminUserDetailDrawer";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
-type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'events_attended';
+type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'event_registrations';
 type SortDirection = 'asc' | 'desc';
 type GenderBucket = 'all' | 'man' | 'woman' | 'non-binary' | 'other';
+
+type AdminUserVibe = {
+  label: string;
+  emoji: string | null;
+};
+
+type AdminUserRow = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  gender: string | null;
+  birth_date: string | null;
+  location: string | null;
+  height_cm: number | null;
+  looking_for: string | null;
+  relationship_intent: string | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+  email_verified: boolean | null;
+  photo_verified: boolean | null;
+  is_premium: boolean | null;
+  is_suspended: boolean | null;
+  created_at: string;
+  updated_at: string | null;
+  total_matches: number | null;
+  event_registrations: number;
+  confirmed_attendance?: number;
+  vibes?: AdminUserVibe[];
+};
+
+type AdminSearchUsersPayload = AdminRpcPayload & {
+  rows?: AdminUserRow[];
+  total_count?: number;
+  registration_semantics?: string;
+  filter_semantics?: string;
+};
 
 const MAN_GENDER_VALUES = ['man', 'male'] as const;
 const WOMAN_GENDER_VALUES = ['woman', 'female'] as const;
@@ -77,6 +113,11 @@ const getGenderBadgeClassName = (gender?: string | null): string => {
   return 'bg-slate-500/10 text-slate-300 border-slate-500/30';
 };
 
+const getServerSort = (field: SortField, direction: SortDirection): string => {
+  if (field === 'event_registrations') return `registrations_${direction}`;
+  return `${field}_${direction}`;
+};
+
 const AdminUsersPanel = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [genderFilter, setGenderFilter] = useState<GenderBucket>("all");
@@ -85,100 +126,38 @@ const AdminUsersPanel = () => {
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [refreshedAvatars, setRefreshedAvatars] = useState<Record<string, string>>({});
 
-  // Fetch all users
-  const { data: users, isLoading, isError: usersError } = useQuery({
+  // Fetch users through the backend admin aggregate so counts and filters are server-owned.
+  const { data: usersPayload, isLoading, isError: usersError } = useQuery({
     queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, sortField, sortDirection],
     queryFn: async () => {
-      const serverSortField = sortField === 'events_attended' ? 'created_at' : sortField;
-      let query = supabase
-        .from('profiles')
-        .select(`
-          id,
-          name,
-          age,
-          gender,
-          birth_date,
-          location,
-          height_cm,
-          looking_for,
-          relationship_intent,
-          avatar_url,
-          photos,
-          
-          email_verified,
-          photo_verified,
-          is_premium,
-          is_suspended,
-          created_at,
-          updated_at,
-          total_matches
-        `)
-        .order(serverSortField, { ascending: sortDirection === 'asc' });
-
-      if (genderFilter === 'man') {
-        query = query.in('gender', [...MAN_GENDER_VALUES]);
-      } else if (genderFilter === 'woman') {
-        query = query.in('gender', [...WOMAN_GENDER_VALUES]);
-      } else if (genderFilter === 'non-binary') {
-        query = query.in('gender', [...NON_BINARY_GENDER_VALUES]);
-      }
-
+      const filters: Record<string, unknown> = {};
+      if (genderFilter !== 'all') filters.gender_bucket = genderFilter;
       if (verificationFilter === 'verified') {
-        query = query.eq('photo_verified', true);
+        filters.photo_verified = true;
       } else if (verificationFilter === 'unverified') {
-        query = query.eq('photo_verified', false);
+        filters.photo_verified = false;
       } else if (verificationFilter === 'suspended') {
-        query = query.eq('is_suspended', true);
+        filters.is_suspended = true;
       }
-
       if (lookingForFilter !== 'all') {
-        const aliases = getRelationshipIntentAliases(lookingForFilter as RelationshipIntentId);
-        const relOr = aliases.map((a) => `relationship_intent.eq.${a}`).join(',');
-        const lfOr = aliases.map((a) => `looking_for.eq.${a}`).join(',');
-        query = query.or(`${relOr},${lfOr}`);
+        filters.relationship_intents = getRelationshipIntentAliases(lookingForFilter as RelationshipIntentId);
       }
 
-      if (searchQuery) {
-        query = query.or(`name.ilike.%${searchQuery}%,location.ilike.%${searchQuery}%`);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      const profileRows = data || [];
-      const eventCounts: Record<string, number> = {};
-      if (profileRows.length > 0) {
-        const { data: registrationRows, error: registrationError } = await supabase
-          .from('event_registrations')
-          .select('profile_id')
-          .in('profile_id', profileRows.map((row) => row.id));
-        if (registrationError) throw registrationError;
-        registrationRows?.forEach((row) => {
-          eventCounts[row.profile_id] = (eventCounts[row.profile_id] ?? 0) + 1;
-        });
-      }
-      const rows = profileRows.map((row) => ({
-        ...row,
-        events_attended: eventCounts[row.id] ?? 0,
-      }));
-      if (sortField === 'events_attended') {
-        rows.sort((a, b) => {
-          const delta = (a.events_attended ?? 0) - (b.events_attended ?? 0);
-          return sortDirection === 'asc' ? delta : -delta;
-        });
-      }
-      if (genderFilter === 'other') {
-        // Keep this bucket local to avoid stacking multiple PostgREST `or(...)` clauses.
-        return rows.filter((row) => getGenderBucket(row.gender) === 'other');
-      }
-      return rows;
+      return callAdminRpc<AdminSearchUsersPayload>("admin_search_users", {
+        p_search: searchQuery.trim() || null,
+        p_filters: filters,
+        p_sort: getServerSort(sortField, sortDirection),
+        p_limit: 200,
+        p_offset: 0,
+      });
     },
   });
 
-  // Resolve avatar URLs via CDN helper (no async refresh needed)
-  useEffect(() => {
-    if (!users?.length) return;
+  const users = useMemo(() => usersPayload?.rows ?? [], [usersPayload?.rows]);
+  const totalCount = Number(usersPayload?.total_count ?? users.length);
+
+  const refreshedAvatars = useMemo(() => {
     const resolved: Record<string, string> = {};
     for (const user of users) {
       const raw = resolvePrimaryProfilePhotoPath({
@@ -187,41 +166,8 @@ const AdminUsersPanel = () => {
       });
       if (raw) resolved[user.id] = avatarPreset(raw);
     }
-    setRefreshedAvatars(resolved);
+    return resolved;
   }, [users]);
-
-  // Fetch vibes for all users
-  const { data: userVibes, isError: userVibesError } = useQuery({
-    queryKey: ['admin-user-vibes'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profile_vibes')
-        .select(`
-          profile_id,
-          vibe_tags (
-            label,
-            emoji
-          )
-        `);
-      if (error) throw error;
-      
-      // Group by profile_id
-      const grouped: Record<string, { label: string; emoji: string }[]> = {};
-      data?.forEach((item) => {
-        if (!grouped[item.profile_id]) {
-          grouped[item.profile_id] = [];
-        }
-        if (item.vibe_tags) {
-          const raw = item.vibe_tags as { label: string; emoji: string } | { label: string; emoji: string }[] | null;
-          const tag = Array.isArray(raw) ? raw[0] : raw;
-          if (tag?.label) {
-            grouped[item.profile_id].push({ label: tag.label, emoji: tag.emoji ?? '' });
-          }
-        }
-      });
-      return grouped;
-    },
-  });
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -302,10 +248,10 @@ const AdminUsersPanel = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-muted-foreground">
-                {users?.length || 0} users found
+                Showing {users.length} of {totalCount} users
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Event registration counts are derived from registration rows for the loaded users; they are not confirmed attendance.
+                Event registration counts are derived server-side from registration rows; they are not confirmed attendance.
               </p>
             </div>
           </div>
@@ -360,11 +306,11 @@ const AdminUsersPanel = () => {
                 </TableHead>
                 <TableHead>
                   <button
-                    onClick={() => handleSort('events_attended')}
+                    onClick={() => handleSort('event_registrations')}
                     className="flex items-center gap-2 hover:text-foreground transition-colors"
                   >
                     Event registrations
-                    {getSortIcon('events_attended')}
+                    {getSortIcon('event_registrations')}
                   </button>
                 </TableHead>
                 <TableHead>
@@ -383,30 +329,31 @@ const AdminUsersPanel = () => {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i} className="border-border/50">
-                    <TableCell colSpan={10}>
+                    <TableCell colSpan={11}>
                       <div className="h-12 bg-secondary/50 rounded animate-pulse" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : usersError ? (
                 <TableRow className="border-border/50">
-                  <TableCell colSpan={10} className="text-center py-8 text-destructive">
+                  <TableCell colSpan={11} className="text-center py-8 text-destructive">
                     Could not load users or derived event registration counts.
                   </TableCell>
                 </TableRow>
-              ) : users?.length === 0 ? (
+              ) : users.length === 0 ? (
                 <TableRow className="border-border/50">
-                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                     No users found
                   </TableCell>
                 </TableRow>
               ) : (
-                users?.map((user) => {
+                users.map((user) => {
                   const relationshipIntent = user.relationship_intent || user.looking_for;
                   const relationshipDisplay = relationshipIntent
                     ? getRelationshipIntentDisplaySafe(relationshipIntent)
                     : null;
-                  const vibesForUser = userVibes?.[user.id] ?? [];
+                  const vibesUnavailable = !Array.isArray(user.vibes);
+                  const vibesForUser = Array.isArray(user.vibes) ? user.vibes : [];
 
                   return (
                   <TableRow
@@ -484,7 +431,7 @@ const AdminUsersPanel = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1 max-w-[120px]">
-                        {userVibesError ? (
+                        {vibesUnavailable ? (
                           <span className="text-xs text-muted-foreground">Vibes unavailable</span>
                         ) : vibesForUser.slice(0, 2).map((vibe, i) => (
                           <span key={i} className="text-xs">
@@ -507,7 +454,7 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-orange-400" />
-                        <span>{user.events_attended || 0}</span>
+                        <span>{user.event_registrations || 0}</span>
                       </div>
                     </TableCell>
                     <TableCell>
