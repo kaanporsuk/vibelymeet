@@ -146,6 +146,8 @@ BEGIN
       ('admin_get_revenue_intelligence'),
       ('admin_get_entitlement_reconciliation'),
       ('admin_create_data_export_job'),
+      ('admin_list_data_export_jobs'),
+      ('admin_get_data_export_job'),
       ('admin_get_cost_capacity_metrics'),
       ('admin_get_quality_scorecard'),
       ('admin_get_store_operations_metrics')
@@ -179,8 +181,38 @@ BEGIN
     RAISE EXCEPTION 'admin_create_data_export_job is executable by anon';
   END IF;
 
+  IF has_function_privilege('anon', 'public.admin_list_data_export_jobs(integer,integer,jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'admin_list_data_export_jobs is executable by anon';
+  END IF;
+
+  IF has_function_privilege('anon', 'public.admin_get_data_export_job(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'admin_get_data_export_job is executable by anon';
+  END IF;
+
   IF NOT has_function_privilege('anon', 'public.record_growth_attribution_event(text,text,text,jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'record_growth_attribution_event is not executable by anon';
+  END IF;
+END $$;
+
+DO $$
+DECLARE
+  v_constraint text;
+BEGIN
+  SELECT pg_get_constraintdef(c.oid)
+  INTO v_constraint
+  FROM pg_constraint c
+  WHERE c.conname = 'data_export_jobs_scope_type_check'
+    AND c.conrelid = 'public.data_export_jobs'::regclass;
+
+  IF v_constraint IS NULL
+    OR v_constraint NOT LIKE '%events%'
+    OR v_constraint NOT LIKE '%revenue%'
+    OR v_constraint NOT LIKE '%messages%'
+    OR v_constraint NOT LIKE '%notifications%'
+    OR v_constraint NOT LIKE '%operations%'
+    OR v_constraint NOT LIKE '%intelligence%'
+    OR v_constraint NOT LIKE '%compliance%' THEN
+    RAISE EXCEPTION 'data_export_jobs scope constraint does not include expanded P4 export scopes';
   END IF;
 END $$;
 
