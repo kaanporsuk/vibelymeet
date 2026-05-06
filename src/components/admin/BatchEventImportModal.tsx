@@ -300,20 +300,55 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         vibes: ev.vibe_tags || [],
       }));
 
-      await Promise.all(
-        rows.map((row) =>
-          callAdminRpc("admin_create_event", {
+      const successfulIndexes: number[] = [];
+      const failedRows: Array<{ rowNumber: number; title: string; message: string }> = [];
+
+      for (const [index, row] of rows.entries()) {
+        try {
+          await callAdminRpc("admin_create_event", {
             p_payload: row,
             p_idempotency_key: createAdminIdempotencyKey("admin_create_event"),
-          })
-        )
-      );
+          });
+          successfulIndexes.push(toImport[index]._index);
+        } catch (err: unknown) {
+          failedRows.push({
+            rowNumber: toImport[index]._index + 1,
+            title: row.title,
+            message: err instanceof Error ? err.message : "Unknown import failure",
+          });
+        }
+      }
+
+      if (successfulIndexes.length > 0) {
+        queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+      }
+
+      if (failedRows.length > 0) {
+        const successfulSet = new Set(successfulIndexes);
+        setEvents((current) =>
+          current.map((event) =>
+            successfulSet.has(event._index)
+              ? { ...event, _selected: false }
+              : event
+          )
+        );
+        const failedSummary = failedRows
+          .slice(0, 3)
+          .map((row) => `row ${row.rowNumber} (${row.title}): ${row.message}`)
+          .join("; ");
+        toast.error(
+          `${successfulIndexes.length} of ${toImport.length} selected events were imported. ${failedRows.length} failed.`,
+          {
+            description: `${failedSummary}${failedRows.length > 3 ? "; more rows failed" : ""}. Confirmed successful rows were deselected to prevent duplicate retries.`,
+          }
+        );
+        return;
+      }
 
       const skipped = events.length - toImport.length;
       toast.success(
         `${toImport.length} of ${events.length} events imported successfully.${skipped > 0 ? ` ${skipped} skipped.` : ""}`
       );
-      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       onClose();
     } catch (err: unknown) {
       toast.error("Import failed", {

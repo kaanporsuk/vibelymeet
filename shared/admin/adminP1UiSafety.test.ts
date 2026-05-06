@@ -140,9 +140,11 @@ test("quick actions show only actionable upcoming events", () => {
   assert.match(adminQuickActions, /resolveEventLifecycle/);
   assert.match(adminQuickActions, /status, ended_at, archived_at/);
   assert.match(adminQuickActions, /\.is\('archived_at', null\)/);
+  assert.match(adminQuickActions, /\.not\('status', 'in', `\(\$\{terminalRawStatuses\.join\(','\)\}\)`\)/);
   assert.match(adminQuickActions, /terminalRawStatuses/);
   assert.match(adminQuickActions, /event\.archived_at \|\| event\.ended_at/);
   assert.match(adminQuickActions, /\.lifecycle === 'upcoming'/);
+  assert.match(adminQuickActions, /\.slice\(0, 3\)/);
   assert.match(adminQuickActions, /Actionable Upcoming Events/);
   assert.match(adminQuickActions, /Registered seats/);
 });
@@ -160,6 +162,10 @@ test("push analytics uses the backend admin telemetry RPC and honest states", ()
 
 test("users panel labels registration-derived counts honestly", () => {
   assert.match(adminUsers, /admin_search_users/);
+  assert.match(adminUsers, /USERS_PAGE_SIZE = 50/);
+  assert.match(adminUsers, /p_offset: pageIndex \* USERS_PAGE_SIZE/);
+  assert.match(adminUsers, /Previous/);
+  assert.match(adminUsers, /Next/);
   assert.match(adminUsers, /Event registration counts are derived server-side from registration rows; they are not confirmed attendance/);
   assert.match(adminUsers, /Event registrations/);
   assert.doesNotMatch(adminUsers, /events_attended/);
@@ -175,6 +181,7 @@ test("users panel labels registration-derived counts honestly", () => {
 });
 
 test("notifications copy is scoped to the latest 100 and broad actions say so", () => {
+  assert.match(adminNotifications, /admin_get_notification_counts/);
   assert.match(adminNotifications, /latest 100 loaded/);
   assert.match(adminNotifications, /including older rows that are not loaded in the latest 100/);
   assert.match(adminNotifications, /one admin_notifications row/);

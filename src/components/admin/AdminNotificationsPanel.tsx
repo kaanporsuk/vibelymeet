@@ -95,15 +95,18 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   const { data: notificationPayload, isLoading, isError, refetch } = useQuery({
     queryKey: ['admin-notifications'],
     queryFn: async () => {
-      const data = await callAdminRpc("admin_list_notifications", {
-        p_limit: 100,
-        p_offset: 0,
-        p_filters: {},
-      });
+      const [data, counts] = await Promise.all([
+        callAdminRpc("admin_list_notifications", {
+          p_limit: 100,
+          p_offset: 0,
+          p_filters: {},
+        }),
+        callAdminRpc("admin_get_notification_counts", {}),
+      ]);
       return {
         rows: (data.rows || []) as AdminNotificationRow[],
-        totalCount: Number(data.total_count || 0),
-        unreadCount: Number(data.unread_count || 0),
+        totalCount: Number(counts.total_count ?? data.total_count ?? 0),
+        unreadCount: Number(counts.unread_count ?? 0),
       };
     },
     refetchInterval: 30000,
