@@ -55,6 +55,7 @@ import { toast } from "sonner";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -100,6 +101,7 @@ const AdminReportsPanel = () => {
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [selectedReport, setSelectedReport] = useState<UserReportRow | null>(null);
   const [showActionDialog, setShowActionDialog] = useState(false);
+  const [showActionConfirm, setShowActionConfirm] = useState(false);
   const [actionNotes, setActionNotes] = useState("");
   const [actionType, setActionType] = useState<ReportActionType>("dismiss");
 
@@ -166,13 +168,14 @@ const AdminReportsPanel = () => {
       actionTaken: string;
     }) => {
       const { data: session } = await supabase.auth.getSession();
+      if (!session.session?.user.id) throw new Error("Not authenticated");
       const { error } = await supabase
         .from("user_reports")
         .update({
           status,
           action_taken: actionTaken,
           reviewed_at: new Date().toISOString(),
-          reviewed_by: session.session?.user.id,
+          reviewed_by: session.session.user.id,
         })
         .eq("id", reportId);
       if (error) throw error;
@@ -193,20 +196,48 @@ const AdminReportsPanel = () => {
   const suspendUser = useMutation({
     mutationFn: async (userId: string) => {
       const { data: session } = await supabase.auth.getSession();
+      const adminId = session.session?.user.id;
+      if (!adminId) throw new Error("Not authenticated");
 
       // Update profile
-      await supabase
+      const { error: profileError } = await supabase
         .from("profiles")
         .update({ is_suspended: true, suspension_reason: actionNotes || "Multiple reports" })
         .eq("id", userId);
+      if (profileError) throw profileError;
 
       // Create suspension record
-      await supabase.from("user_suspensions").insert({
+      const { error: suspensionError } = await supabase.from("user_suspensions").insert({
         user_id: userId,
-        suspended_by: session.session?.user.id,
+        suspended_by: adminId,
         reason: actionNotes || "Multiple reports",
         status: "active",
       });
+      if (suspensionError) throw suspensionError;
+    },
+  });
+
+  const issueWarning = useMutation({
+    mutationFn: async ({
+      userId,
+      reason,
+      message,
+    }: {
+      userId: string;
+      reason: ReportReasonId;
+      message: string;
+    }) => {
+      const { data: session } = await supabase.auth.getSession();
+      const adminId = session.session?.user.id;
+      if (!adminId) throw new Error("Not authenticated");
+
+      const { error } = await supabase.from("user_warnings").insert({
+        user_id: userId,
+        issued_by: adminId,
+        reason,
+        message,
+      });
+      if (error) throw error;
     },
   });
 
@@ -255,17 +286,56 @@ const AdminReportsPanel = () => {
 
   const handleTakeAction = async () => {
     if (!selectedReport) return;
+    const notes = actionNotes.trim();
 
-    if (actionType === "suspend") {
-      await suspendUser.mutateAsync(selectedReport.reported_id);
+    if ((actionType === "warn" || actionType === "suspend") && !notes) {
+      toast.error(actionType === "warn" ? "Add a warning message before issuing a warning" : "Add suspension notes before suspending the user");
+      return;
     }
 
-    await updateReport.mutateAsync({
-      reportId: selectedReport.id,
-      status: actionType === "dismiss" ? "dismissed" : "action_taken",
-      actionTaken: `${actionType}: ${actionNotes}`,
-    });
+    try {
+      if (actionType === "suspend") {
+        await suspendUser.mutateAsync(selectedReport.reported_id);
+      }
+      if (actionType === "warn") {
+        await issueWarning.mutateAsync({
+          userId: selectedReport.reported_id,
+          reason: selectedReport.reason,
+          message: notes,
+        });
+      }
+
+      await updateReport.mutateAsync({
+        reportId: selectedReport.id,
+        status: actionType === "dismiss" ? "dismissed" : "action_taken",
+        actionTaken: `${actionType}: ${notes || "No notes"}`,
+      });
+    } catch (error) {
+      toast.error("Failed to complete report action");
+      throw error;
+    }
   };
+
+  const requestReportActionConfirmation = () => {
+    if (!selectedReport) return;
+    const notes = actionNotes.trim();
+    if ((actionType === "warn" || actionType === "suspend") && !notes) {
+      toast.error(actionType === "warn" ? "Add a warning message before issuing a warning" : "Add suspension notes before suspending the user");
+      return;
+    }
+    setShowActionConfirm(true);
+  };
+
+  const reportActionPending = updateReport.isPending || suspendUser.isPending || issueWarning.isPending;
+  const reportActionLabel =
+    actionType === "suspend" ? "Suspend User" : actionType === "warn" ? "Issue Warning" : "Dismiss Report";
+  const reportActionDescription = selectedReport
+    ? actionType === "suspend"
+      ? `This will suspend ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, create a suspension record, and mark this report as action taken.\n\nReason: ${actionNotes.trim()}`
+      : actionType === "warn"
+        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"} and mark this report as action taken.\n\nMessage: ${actionNotes.trim()}`
+        : `This will mark the report as dismissed.${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
+    : "";
 
   // Filter by search query
   const filteredReports = reports?.filter((report) => {
@@ -491,15 +561,15 @@ const AdminReportsPanel = () => {
               Cancel
             </Button>
             <Button
-              onClick={handleTakeAction}
-              disabled={updateReport.isPending || suspendUser.isPending}
+              onClick={requestReportActionConfirmation}
+              disabled={reportActionPending}
               className={
                 actionType === "suspend"
                   ? "bg-destructive hover:bg-destructive/90"
                   : "bg-primary"
               }
             >
-              {updateReport.isPending || suspendUser.isPending ? (
+              {reportActionPending ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : actionType === "suspend" ? (
                 <>
@@ -521,6 +591,16 @@ const AdminReportsPanel = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AdminConfirmDialog
+        open={showActionConfirm}
+        title={`${reportActionLabel}?`}
+        description={reportActionDescription}
+        confirmLabel={reportActionLabel}
+        variant={actionType === "suspend" ? "destructive" : "default"}
+        isPending={reportActionPending}
+        onOpenChange={setShowActionConfirm}
+        onConfirm={handleTakeAction}
+      />
     </motion.div>
   );
 };

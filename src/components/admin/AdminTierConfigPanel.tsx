@@ -23,6 +23,7 @@ import {
   type TierConfigOverride,
   type TierId,
 } from "@shared/tiers";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 const SECTIONS: { title: string; category: CapabilityMeta["category"] }[] = [
   { title: "Feature gates", category: "boolean" },
@@ -208,6 +209,13 @@ function CapabilityCell({
 const AdminTierConfigPanel = () => {
   const qc = useQueryClient();
   const [auditOpen, setAuditOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    variant?: "default" | "destructive";
+    onConfirm: () => void | Promise<unknown>;
+  } | null>(null);
 
   const { data: overrides = [], isLoading } = useQuery({
     queryKey: ["tier-config-overrides"],
@@ -300,6 +308,31 @@ const AdminTierConfigPanel = () => {
 
   const pending = setMutation.isPending || resetMutation.isPending;
 
+  const formatConfigValue = (value: unknown) => {
+    if (value === null || value === undefined) return "unlimited";
+    if (Array.isArray(value)) return value.length ? value.join(", ") : "empty list";
+    return String(value);
+  };
+
+  const requestSetOverride = (tierId: TierId, meta: CapabilityMeta, value: unknown) => {
+    setConfirmation({
+      title: `Override ${getTierDefinition(tierId).label} ${meta.label}?`,
+      description: `This applies immediately to entitlement resolution for the ${getTierDefinition(tierId).label} tier.\n\nCapability: ${meta.label}\nNew value: ${formatConfigValue(value)}`,
+      confirmLabel: "Save Override",
+      variant: "default",
+      onConfirm: () => setMutation.mutateAsync({ tierId, meta, value }),
+    });
+  };
+
+  const requestResetOverride = (tierId: TierId, meta: CapabilityMeta) => {
+    setConfirmation({
+      title: `Reset ${getTierDefinition(tierId).label} ${meta.label}?`,
+      description: `This removes the live override and immediately falls back to the code default for the ${getTierDefinition(tierId).label} tier.\n\nCapability: ${meta.label}`,
+      confirmLabel: "Reset Override",
+      onConfirm: () => resetMutation.mutateAsync({ tierId, meta }),
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground gap-2">
@@ -359,8 +392,8 @@ const AdminTierConfigPanel = () => {
                               isCustom={isCustom}
                               rawValue={raw}
                               isPending={pending}
-                              onSet={(value) => setMutation.mutate({ tierId, meta, value })}
-                              onReset={() => resetMutation.mutate({ tierId, meta })}
+                              onSet={(value) => requestSetOverride(tierId, meta, value)}
+                              onReset={() => requestResetOverride(tierId, meta)}
                             />
                           </td>
                         );
@@ -397,6 +430,18 @@ const AdminTierConfigPanel = () => {
           )}
         </CollapsibleContent>
       </Collapsible>
+      <AdminConfirmDialog
+        open={!!confirmation}
+        title={confirmation?.title ?? ""}
+        description={confirmation?.description ?? ""}
+        confirmLabel={confirmation?.confirmLabel ?? "Confirm"}
+        variant={confirmation?.variant ?? "destructive"}
+        isPending={pending}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        onConfirm={() => confirmation?.onConfirm()}
+      />
     </motion.div>
   );
 };

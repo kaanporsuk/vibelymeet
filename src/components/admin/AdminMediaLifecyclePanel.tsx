@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import AdminConfirmDialog from "./AdminConfirmDialog";
 
 type OwnedFamily = "vibe_video" | "profile_photo" | "event_cover";
 type ChatMode = "retain_until_eligible" | "soft_delete" | "immediate";
@@ -457,6 +458,13 @@ export default function AdminMediaLifecyclePanel() {
   const [chatMode, setChatMode] = useState<ChatMode>("retain_until_eligible");
   const [chatEligibleDays, setChatEligibleDays] = useState("0");
   const [chatWorkerEnabled, setChatWorkerEnabled] = useState(true);
+  const [confirmation, setConfirmation] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    variant?: "default" | "destructive";
+    onConfirm: () => void | Promise<unknown>;
+  } | null>(null);
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["admin-media-lifecycle-controls"],
@@ -549,6 +557,12 @@ export default function AdminMediaLifecyclePanel() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not requeue stale jobs"),
   });
+
+  const mediaMutationPending =
+    saveFamilyMutation.isPending ||
+    saveChatMutation.isPending ||
+    retryFailedMutation.isPending ||
+    requeueStaleMutation.isPending;
 
   const assetStatusRows = useMemo(() => data?.readiness.asset_status_counts ?? [], [data]);
   const jobStatusRows = useMemo(() => data?.readiness.job_status_counts ?? [], [data]);
@@ -663,15 +677,39 @@ export default function AdminMediaLifecyclePanel() {
       {/* ── Failed jobs (only shown when present) ───────────────────────────── */}
       <FailedJobsSection
         jobs={failedJobs}
-        onRetryAll={() => retryFailedMutation.mutate(undefined)}
-        onRetryFamily={(family) => retryFailedMutation.mutate(family)}
+        onRetryAll={() => {
+          setConfirmation({
+            title: "Retry all failed media delete jobs?",
+            description: "This requeues up to 50 failed or abandoned media delete jobs for another worker attempt.",
+            confirmLabel: "Retry All",
+            variant: "default",
+            onConfirm: () => retryFailedMutation.mutateAsync(undefined),
+          });
+        }}
+        onRetryFamily={(family) => {
+          setConfirmation({
+            title: `Retry failed ${family} jobs?`,
+            description: `This requeues up to 50 failed or abandoned media delete jobs for the ${family} family.`,
+            confirmLabel: "Retry Family",
+            variant: "default",
+            onConfirm: () => retryFailedMutation.mutateAsync(family),
+          });
+        }}
         isPending={retryFailedMutation.isPending}
       />
 
       {/* ── Stale claimed jobs (only shown when present) ─────────────────────── */}
       <StaleClaimedSection
         jobs={staleJobs}
-        onRequeue={() => requeueStaleMutation.mutate()}
+        onRequeue={() => {
+          setConfirmation({
+            title: "Requeue all stale claimed jobs?",
+            description: "This moves media delete jobs stuck in claimed state for more than 30 minutes back to the queue.",
+            confirmLabel: "Requeue Stale",
+            variant: "default",
+            onConfirm: () => requeueStaleMutation.mutateAsync(),
+          });
+        }}
         isPending={requeueStaleMutation.isPending}
       />
 
@@ -804,7 +842,16 @@ export default function AdminMediaLifecyclePanel() {
                   </div>
                   <Button
                     className="gap-2"
-                    onClick={() => saveFamilyMutation.mutate({ mediaFamily, draft: familyDrafts[mediaFamily] })}
+                    onClick={() => {
+                      const draft = familyDrafts[mediaFamily];
+                      setConfirmation({
+                        title: `Save ${FAMILY_LABELS[mediaFamily]} retention settings?`,
+                        description: `This updates live media retention settings for ${FAMILY_LABELS[mediaFamily]}.\n\nRetention days: ${draft.retentionDays || "unlimited"}\nWorker: ${draft.workerEnabled ? "enabled" : "paused"}`,
+                        confirmLabel: "Save Setting",
+                        variant: "default",
+                        onConfirm: () => saveFamilyMutation.mutateAsync({ mediaFamily, draft }),
+                      });
+                    }}
                     disabled={saveFamilyMutation.isPending}
                   >
                     {saveFamilyMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -858,7 +905,19 @@ export default function AdminMediaLifecyclePanel() {
               <span className="text-sm text-foreground">Worker</span>
               <Switch checked={chatWorkerEnabled} onCheckedChange={setChatWorkerEnabled} />
             </div>
-            <Button className="gap-2" onClick={() => saveChatMutation.mutate()} disabled={saveChatMutation.isPending}>
+            <Button
+              className="gap-2"
+              onClick={() => {
+                setConfirmation({
+                  title: "Save chat media policy?",
+                  description: `This updates the shared live policy for chat images, videos, thumbnails, and voice messages.\n\nRetention mode: ${chatMode}\nEligible days: ${chatMode === "immediate" ? "not used" : chatEligibleDays || "unlimited"}\nWorker: ${chatWorkerEnabled ? "enabled" : "paused"}`,
+                  confirmLabel: "Save Chat Policy",
+                  variant: "default",
+                  onConfirm: () => saveChatMutation.mutateAsync(),
+                });
+              }}
+              disabled={saveChatMutation.isPending}
+            >
               {saveChatMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Save chat policy
             </Button>
@@ -869,6 +928,18 @@ export default function AdminMediaLifecyclePanel() {
           </div>
         </CardContent>
       </Card>
+      <AdminConfirmDialog
+        open={!!confirmation}
+        title={confirmation?.title ?? ""}
+        description={confirmation?.description ?? ""}
+        confirmLabel={confirmation?.confirmLabel ?? "Confirm"}
+        variant={confirmation?.variant ?? "destructive"}
+        isPending={mediaMutationPending}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+        onConfirm={() => confirmation?.onConfirm()}
+      />
     </div>
   );
 }
