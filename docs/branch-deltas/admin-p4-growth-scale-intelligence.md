@@ -23,6 +23,8 @@ This slice preserves P0-P3 invariants:
   - wired in `apps/mobile/lib/analytics.ts`
 - Extended report resolution UI to attach policy category context to the P4/P2 report RPC path:
   - `src/components/admin/AdminReportsPanel.tsx`
+- Reworked `/kaan` Data Export so governed queued exports are the default path and legacy browser CSV/printable HTML is explicitly demoted:
+  - `src/components/admin/AdminExportPanel.tsx`
 - Added Edge Function wrappers:
   - `supabase/functions/record-growth-attribution`
   - `supabase/functions/admin-data-export`
@@ -39,6 +41,7 @@ This slice preserves P0-P3 invariants:
 - `20260506132000_admin_p4_trust_support_compliance.sql`
 - `20260506133000_admin_p4_experiments_growth.sql`
 - `20260506134000_admin_p4_revenue_store_cost_quality.sql`
+- `20260507100000_admin_governed_export_queue_read_model.sql`
 
 ### Validation
 
@@ -81,7 +84,7 @@ supabase db push --linked --dry-run
 supabase db lint --linked
 ```
 
-Cloud migration/function deployment is a separate reviewed release step.
+Cloud migration/function deployment is a separate reviewed release step. The `20260507100000` export read-model migration is pending locally until a reviewed cloud DB push.
 
 ## Deferred P4/P5 Work
 

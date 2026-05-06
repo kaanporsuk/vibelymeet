@@ -12,6 +12,7 @@ const p4Migrations = [
   "supabase/migrations/20260506132000_admin_p4_trust_support_compliance.sql",
   "supabase/migrations/20260506133000_admin_p4_experiments_growth.sql",
   "supabase/migrations/20260506134000_admin_p4_revenue_store_cost_quality.sql",
+  "supabase/migrations/20260507100000_admin_governed_export_queue_read_model.sql",
 ].map(read).join("\n");
 
 const validation = read("supabase/validation/admin_p4_growth_scale_intelligence.sql");
@@ -31,7 +32,7 @@ const branchDelta = read("docs/branch-deltas/admin-p4-growth-scale-intelligence.
 
 function fnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
-  const start = p4Migrations.indexOf(marker);
+  const start = p4Migrations.lastIndexOf(marker);
   assert.notEqual(start, -1, `Missing function ${fnName}`);
   const next = p4Migrations.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
   const revoke = p4Migrations.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
@@ -52,6 +53,8 @@ const adminReadRpcs = [
   "admin_get_support_timeline",
   "admin_get_revenue_intelligence",
   "admin_get_entitlement_reconciliation",
+  "admin_list_data_export_jobs",
+  "admin_get_data_export_job",
   "admin_get_cost_capacity_metrics",
   "admin_get_quality_scorecard",
   "admin_get_store_operations_metrics",
@@ -173,14 +176,51 @@ test("P4 compliance export queue requires reason, permission, audit, and expiry"
   assert.match(exportJob, /A reason is required for governed exports/);
   assert.match(exportJob, /User export scope requires user_id/);
   assert.match(exportJob, /User export scope user_id is invalid/);
+  assert.match(exportJob, /requires special_category PII classification/);
+  assert.match(exportJob, /requires sensitive PII classification or higher/);
+  assert.match(exportJob, /requires pseudonymous PII classification or higher/);
+  for (const scope of [
+    "events",
+    "revenue",
+    "messages",
+    "notifications",
+    "operations",
+    "intelligence",
+    "compliance",
+  ]) {
+    assert.match(exportJob, new RegExp(`'${scope}'`), `missing governed export scope ${scope}`);
+  }
   assert.match(exportJob, /data_subject_requests/);
   assert.match(exportJob, /data_export_jobs/);
   assert.match(exportJob, /log_admin_action/);
   assert.match(exportJob, /expires_in_days/);
   assert.match(exportJob, /File generation\/storage delivery remains a controlled worker step/);
   assert.match(p4Migrations, /REVOKE ALL ON FUNCTION public\.admin_create_data_export_job\(text, jsonb, text, text\) FROM PUBLIC/);
-  assert.match(exportPanel, /Legacy browser export/);
-  assert.match(exportPanel, /not the P4 governed DSAR\/export queue/);
+  assert.match(p4Migrations, /REVOKE ALL ON FUNCTION public\.admin_list_data_export_jobs\(integer, integer, jsonb\) FROM PUBLIC/);
+  assert.match(p4Migrations, /REVOKE ALL ON FUNCTION public\.admin_get_data_export_job\(uuid\) FROM PUBLIC/);
+  assert.match(exportPanel, /supabase\.functions\.invoke\("admin-data-export"/);
+  assert.match(exportPanel, /admin_list_data_export_jobs/);
+  assert.match(exportPanel, /admin_has_permission/);
+  assert.match(exportPanel, /compliance\.manage/);
+  assert.match(exportPanel, /Governed export queue is the default/);
+  assert.match(exportPanel, /Legacy Quick Local Export/);
+  assert.match(exportPanel, /not compliance-grade/);
+  assert.match(exportPanel, /not the compliance export-of-record/);
+  assert.match(exportPanel, /CSV_FORMULA_PREFIXES/);
+  assert.match(exportPanel, /trimStart\(\)/);
+  assert.match(exportPanel, /fetchAllPages/);
+  assert.match(exportPanel, /isPiiAllowedForScope/);
+  assert.match(exportPanel, /Minimum for this scope/);
+  assert.match(exportPanel, /T00:00:00\.000Z/);
+  assert.match(exportPanel, /T23:59:59\.999Z/);
+  assert.match(exportPanel, /hasInvalidDateRange/);
+  assert.match(exportPanel, /will not fall back to all-time data/);
+  assert.match(exportPanel, /Event Registration Count/);
+  assert.match(exportPanel, /Printable HTML \/ Save as PDF/);
+  assert.match(dashboard, /Queue audited exports or run legacy CSV\/printable HTML/);
+  assert.doesNotMatch(exportPanel, /Events Attended/);
+  assert.doesNotMatch(exportPanel, /Event Attendance/);
+  assert.doesNotMatch(dashboard, /Download platform data as CSV\/PDF/);
 });
 
 test("P4 /kaan Intelligence panel is wired through admin RPCs only", () => {
