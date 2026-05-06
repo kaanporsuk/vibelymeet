@@ -203,6 +203,10 @@ const videoDateValidationSql = readFileSync(
   join(process.cwd(), "supabase/validation/video_date_end_to_end_hardening.sql"),
   "utf8",
 );
+const launchLatencyBaselineSql = readFileSync(
+  join(process.cwd(), "supabase/validation/video_date_launch_latency_baseline.sql"),
+  "utf8",
+);
 const readyGateOverlay = readFileSync(
   join(process.cwd(), "src/components/lobby/ReadyGateOverlay.tsx"),
   "utf8",
@@ -1444,6 +1448,9 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(webVideoCallHook, /waitForLocalCameraSwitchCommit/);
   assert.match(webVideoCallHook, /setInputDevicesAsync/);
   assert.match(webVideoCallHook, /videoSource: false/);
+  assert.match(webVideoCallHook, /function videoOnlyCameraSwitchConstraints\(\s*captureProfile: VideoDateMediaCaptureProfile/);
+  assert.match(webVideoCallHook, /videoDateWebMediaStreamConstraints\(captureProfile\)/);
+  assert.match(webVideoCallHook, /videoOnlyCameraSwitchConstraints\(captureProfileRef\.current, desiredFacing, expectedDeviceId\)/);
   assert.match(webVideoCallHook, /CAMERA_SWITCH_HINT_RESEND_DELAY_MS/);
   assert.match(webVideoCallHook, /publishRefreshApplied/);
   assert.match(webVideoCallHook, /requireFreshFrame/);
@@ -2523,6 +2530,19 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(nativeAnalytics, /recordOperationalLaunchLatencyCheckpoint/);
   assert.doesNotMatch(webAnalytics, /setTimeout\(emit, 0\)/);
   assert.doesNotMatch(nativeAnalytics, /setTimeout\(emit, 0\)/);
+  for (const prepareEntrySource of [webPrepareEntry, nativePrepareEntry]) {
+    assert.equal(prepareEntrySource.match(/\bprepareBackendTimingExtra\b/g)?.length, 2);
+    assert.match(prepareEntrySource, /const providerVerifyExtra = \{[\s\S]*provider_verify_reason/);
+    assert.match(prepareEntrySource, /const prepareEntrySuccessExtra = result\.cached \? providerVerifyExtra : prepareBackendTimingExtra/);
+    assert.match(prepareEntrySource, /['"]prepare_entry_success['"][\s\S]*prepareEntrySuccessExtra/);
+    assert.doesNotMatch(prepareEntrySource, /trackLatencyCheckpoint\(\s*providerVerifyCheckpoint[\s\S]*?prepareBackendTimingExtra/);
+    assert.doesNotMatch(prepareEntrySource, /['"]enter_handshake_success['"][\s\S]{0,250}prepareBackendTimingExtra/);
+    assert.doesNotMatch(prepareEntrySource, /['"]daily_token_success['"][\s\S]{0,250}prepareBackendTimingExtra/);
+    assert.doesNotMatch(prepareEntrySource, /checkpoint: ['"]token_created['"][\s\S]*?extra: prepareBackendTimingExtra/);
+  }
+  assert.match(launchLatencyBaselineSql, /backend_timing_rows AS \(/);
+  assert.match(launchLatencyBaselineSql, /WHERE checkpoint = 'prepare_entry_success'/);
+  assert.match(launchLatencyBaselineSql, /FROM backend_timing_rows GROUP BY platform/);
   assert.match(webAnalytics, /operational reliability telemetry/);
   assert.match(nativeAnalytics, /operational reliability telemetry/);
   assert.match(webVideoDatePage, /date_guard_registration_status_failed/);

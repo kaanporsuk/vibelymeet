@@ -60,6 +60,13 @@ headline AS (
   FROM launch_rows
   WHERE checkpoint = 'first_remote_frame'
     AND both_ready_to_first_remote_frame_ms IS NOT NULL
+),
+backend_timing_rows AS (
+  -- Backend prepare-entry slices are emitted on prepare_entry_success. Filtering
+  -- here also keeps older multi-checkpoint payloads from duplicating samples.
+  SELECT *
+  FROM launch_rows
+  WHERE checkpoint = 'prepare_entry_success'
 )
 
 -- Headline: both_ready_observed -> first_remote_frame, sliced.
@@ -81,9 +88,10 @@ GROUP BY platform, ready_actor_order, cached_prepare_entry, provider_verify_skip
 
 UNION ALL
 
--- Per-segment percentiles. We aggregate from launch_rows (any checkpoint that
--- carries the segment duration) so each segment is sampled wherever it's
--- emitted. NULLs are filtered by percentile_cont automatically.
+-- Per-segment percentiles. Most segments aggregate from launch_rows (any
+-- checkpoint that carries the segment duration). Backend prepare-entry slices
+-- aggregate from backend_timing_rows so each prepare contributes once.
+-- NULLs are filtered by percentile_cont automatically.
 SELECT metric, platform, 'all' AS ready_actor_order, 'all' AS cached_prepare_entry,
        'all' AS provider_verify_skipped, 'all' AS permission_handoff_used,
        sample_count, p50_ms, p95_ms, p99_ms, min_ms, max_ms
@@ -127,7 +135,7 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY auth_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY auth_ms)::int,
          MIN(auth_ms), MAX(auth_ms)
-  FROM launch_rows GROUP BY platform
+  FROM backend_timing_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_backend_prepare_rpc',                 COALESCE(platform, 'unknown'),
          COUNT(prepare_rpc_ms),
@@ -135,7 +143,7 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY prepare_rpc_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY prepare_rpc_ms)::int,
          MIN(prepare_rpc_ms), MAX(prepare_rpc_ms)
-  FROM launch_rows GROUP BY platform
+  FROM backend_timing_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_backend_room_create_or_verify',       COALESCE(platform, 'unknown'),
          COUNT(room_create_or_verify_ms),
@@ -143,7 +151,7 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY room_create_or_verify_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY room_create_or_verify_ms)::int,
          MIN(room_create_or_verify_ms), MAX(room_create_or_verify_ms)
-  FROM launch_rows GROUP BY platform
+  FROM backend_timing_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_backend_token_create',                COALESCE(platform, 'unknown'),
          COUNT(token_ms),
@@ -151,7 +159,7 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY token_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY token_ms)::int,
          MIN(token_ms), MAX(token_ms)
-  FROM launch_rows GROUP BY platform
+  FROM backend_timing_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_backend_confirm_prepare',             COALESCE(platform, 'unknown'),
          COUNT(confirm_prepare_ms),
@@ -159,7 +167,7 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY confirm_prepare_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY confirm_prepare_ms)::int,
          MIN(confirm_prepare_ms), MAX(confirm_prepare_ms)
-  FROM launch_rows GROUP BY platform
+  FROM backend_timing_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_backend_edge_total',                  COALESCE(platform, 'unknown'),
          COUNT(edge_total_ms),
@@ -167,7 +175,7 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY edge_total_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY edge_total_ms)::int,
          MIN(edge_total_ms), MAX(edge_total_ms)
-  FROM launch_rows GROUP BY platform
+  FROM backend_timing_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_permission_check',                    COALESCE(platform, 'unknown'),
          COUNT(permission_check_ms),
