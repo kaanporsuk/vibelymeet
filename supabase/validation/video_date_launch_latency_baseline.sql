@@ -38,6 +38,13 @@ launch_rows AS (
     NULLIF(e.detail->>'room_warmup_ms','')::int                        AS room_warmup_ms,
     NULLIF(e.detail->>'prepare_entry_ms','')::int                      AS prepare_entry_ms,
     NULLIF(e.detail->>'provider_verify_ms','')::int                    AS provider_verify_ms,
+    NULLIF(e.detail->>'auth_ms','')::int                               AS auth_ms,
+    NULLIF(e.detail->>'prepare_rpc_ms','')::int                        AS prepare_rpc_ms,
+    NULLIF(e.detail->>'room_create_or_verify_ms','')::int              AS room_create_or_verify_ms,
+    NULLIF(e.detail->>'token_ms','')::int                              AS token_ms,
+    NULLIF(e.detail->>'confirm_prepare_ms','')::int                    AS confirm_prepare_ms,
+    NULLIF(e.detail->>'edge_total_ms','')::int                         AS edge_total_ms,
+    (e.detail->>'provider_verify_reason')                              AS provider_verify_reason,
     NULLIF(e.detail->>'permission_check_ms','')::int                   AS permission_check_ms,
     NULLIF(e.detail->>'daily_token_ms','')::int                        AS daily_token_ms,
     NULLIF(e.detail->>'ready_tap_to_both_ready_ms','')::int            AS ready_tap_to_both_ready_ms
@@ -112,6 +119,54 @@ FROM (
          percentile_cont(0.95) WITHIN GROUP (ORDER BY provider_verify_ms)::int,
          percentile_cont(0.99) WITHIN GROUP (ORDER BY provider_verify_ms)::int,
          MIN(provider_verify_ms), MAX(provider_verify_ms)
+  FROM launch_rows GROUP BY platform
+  UNION ALL
+  SELECT 'segment_backend_auth',                        COALESCE(platform, 'unknown'),
+         COUNT(auth_ms),
+         percentile_cont(0.50) WITHIN GROUP (ORDER BY auth_ms)::int,
+         percentile_cont(0.95) WITHIN GROUP (ORDER BY auth_ms)::int,
+         percentile_cont(0.99) WITHIN GROUP (ORDER BY auth_ms)::int,
+         MIN(auth_ms), MAX(auth_ms)
+  FROM launch_rows GROUP BY platform
+  UNION ALL
+  SELECT 'segment_backend_prepare_rpc',                 COALESCE(platform, 'unknown'),
+         COUNT(prepare_rpc_ms),
+         percentile_cont(0.50) WITHIN GROUP (ORDER BY prepare_rpc_ms)::int,
+         percentile_cont(0.95) WITHIN GROUP (ORDER BY prepare_rpc_ms)::int,
+         percentile_cont(0.99) WITHIN GROUP (ORDER BY prepare_rpc_ms)::int,
+         MIN(prepare_rpc_ms), MAX(prepare_rpc_ms)
+  FROM launch_rows GROUP BY platform
+  UNION ALL
+  SELECT 'segment_backend_room_create_or_verify',       COALESCE(platform, 'unknown'),
+         COUNT(room_create_or_verify_ms),
+         percentile_cont(0.50) WITHIN GROUP (ORDER BY room_create_or_verify_ms)::int,
+         percentile_cont(0.95) WITHIN GROUP (ORDER BY room_create_or_verify_ms)::int,
+         percentile_cont(0.99) WITHIN GROUP (ORDER BY room_create_or_verify_ms)::int,
+         MIN(room_create_or_verify_ms), MAX(room_create_or_verify_ms)
+  FROM launch_rows GROUP BY platform
+  UNION ALL
+  SELECT 'segment_backend_token_create',                COALESCE(platform, 'unknown'),
+         COUNT(token_ms),
+         percentile_cont(0.50) WITHIN GROUP (ORDER BY token_ms)::int,
+         percentile_cont(0.95) WITHIN GROUP (ORDER BY token_ms)::int,
+         percentile_cont(0.99) WITHIN GROUP (ORDER BY token_ms)::int,
+         MIN(token_ms), MAX(token_ms)
+  FROM launch_rows GROUP BY platform
+  UNION ALL
+  SELECT 'segment_backend_confirm_prepare',             COALESCE(platform, 'unknown'),
+         COUNT(confirm_prepare_ms),
+         percentile_cont(0.50) WITHIN GROUP (ORDER BY confirm_prepare_ms)::int,
+         percentile_cont(0.95) WITHIN GROUP (ORDER BY confirm_prepare_ms)::int,
+         percentile_cont(0.99) WITHIN GROUP (ORDER BY confirm_prepare_ms)::int,
+         MIN(confirm_prepare_ms), MAX(confirm_prepare_ms)
+  FROM launch_rows GROUP BY platform
+  UNION ALL
+  SELECT 'segment_backend_edge_total',                  COALESCE(platform, 'unknown'),
+         COUNT(edge_total_ms),
+         percentile_cont(0.50) WITHIN GROUP (ORDER BY edge_total_ms)::int,
+         percentile_cont(0.95) WITHIN GROUP (ORDER BY edge_total_ms)::int,
+         percentile_cont(0.99) WITHIN GROUP (ORDER BY edge_total_ms)::int,
+         MIN(edge_total_ms), MAX(edge_total_ms)
   FROM launch_rows GROUP BY platform
   UNION ALL
   SELECT 'segment_permission_check',                    COALESCE(platform, 'unknown'),

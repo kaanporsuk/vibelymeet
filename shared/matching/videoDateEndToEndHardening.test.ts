@@ -147,6 +147,10 @@ const launchLatencyPermissionPrewarmSkipCheckpointMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260505234000_video_date_permission_prewarm_skip_checkpoint.sql"),
   "utf8",
 );
+const launchLatencyPrepareTimingSlicesMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260506101000_video_date_launch_latency_prepare_timing_slices.sql"),
+  "utf8",
+);
 const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
   "utf8",
@@ -2469,6 +2473,20 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(launchLatencyCheckpointObservabilityMigration, /'cached_prepare_entry'/);
   assert.match(launchLatencyCheckpointObservabilityMigration, /'provider_verify_skipped'/);
   assert.match(launchLatencyCheckpointObservabilityMigration, /'permission_handoff_used'/);
+  assert.match(launchLatencyPrepareTimingSlicesMigration, /record_video_date_launch_latency_checkpoint_20260506101000_prepare_timing_base/);
+  for (const field of [
+    "auth_ms",
+    "prepare_rpc_ms",
+    "room_create_or_verify_ms",
+    "token_ms",
+    "confirm_prepare_ms",
+    "edge_total_ms",
+    "provider_verify_reason",
+  ]) {
+    assert.match(launchLatencyCheckpointObservability, new RegExp(`"${field}"`));
+    assert.match(launchLatencyPrepareTimingSlicesMigration, new RegExp(`'${field}'`));
+    assert.match(videoDateValidationSql, new RegExp(field));
+  }
   assert.match(launchLatencyCheckpointObservabilityMigration, /v_ready_actor_order/);
   assert.match(launchLatencyCheckpointObservabilityMigration, /TO authenticated/);
   assert.match(launchLatencyCheckpointObservabilityMigration, /video_date_launch_latency_checkpoint/);
@@ -2532,13 +2550,17 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(webDailyPrewarm, /VITE_VIDEO_DATE_DAILY_JOIN_PREWARM/);
   assert.match(nativeDailyPrewarm, /EXPO_PUBLIC_VIDEO_DATE_DAILY_PREWARM/);
   assert.match(nativeDailyPrewarm, /EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM/);
-  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_JOIN_PREWARM=false/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_ROOM_WARMUP_AFTER_READY=true/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_PREWARM=true/);
+  assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_JOIN_PREWARM=true/);
   assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN=false/);
   assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED=false/);
   assert.match(webEnvExample, /VITE_VIDEO_DATE_DAILY_DEVICE_PREFERENCE_COOKIES=false/);
   assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_JOIN_PREWARM=false/);
   assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_SOLO_PREJOIN=false/);
   assert.match(nativeEnvExample, /EXPO_PUBLIC_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED=false/);
+  assert.match(webDailyPrewarm, /WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 250/);
+  assert.match(nativeDailyPrewarm, /NATIVE_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 250/);
   for (const source of [webDailyPrewarm, nativeDailyPrewarm]) {
     assert.match(source, /45_000/);
     assert.match(source, /daily_prewarm_started/);

@@ -214,6 +214,13 @@ test("launch latency checkpoint observability preserves safe first-frame dimensi
     both_ready_to_first_remote_frame_ms: 700,
     cached_prepare_entry: true,
     provider_verify_skipped: true,
+    provider_verify_reason: "fresh_room_proof",
+    auth_ms: 21,
+    prepare_rpc_ms: 84,
+    room_create_or_verify_ms: 0,
+    token_ms: 147,
+    confirm_prepare_ms: 93,
+    edge_total_ms: 421,
     token: "must_not_survive",
   };
 
@@ -228,6 +235,13 @@ test("launch latency checkpoint observability preserves safe first-frame dimensi
     both_ready_to_first_remote_frame_ms: 700,
     cached_prepare_entry: true,
     provider_verify_skipped: true,
+    provider_verify_reason: "fresh_room_proof",
+    auth_ms: 21,
+    prepare_rpc_ms: 84,
+    room_create_or_verify_ms: 0,
+    token_ms: 147,
+    confirm_prepare_ms: 93,
+    edge_total_ms: 421,
   });
 
   let capturedArgs: Record<string, unknown> | null = null;

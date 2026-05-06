@@ -13,7 +13,7 @@ import {
 
 const WEB_DAILY_PREWARM_TTL_MS = 45_000;
 const WEB_DAILY_PREWARM_PREAUTH_NAV_WAIT_MS = 250;
-const WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 750;
+const WEB_DAILY_PREWARM_JOIN_NAV_WAIT_MS = 250;
 
 type WebDailyPrewarmStatus =
   | "starting"
@@ -84,7 +84,7 @@ function publicEntry(entry: WebDailyPrewarmEntry): WebDailyPrewarmPublicEntry {
 }
 
 function prewarmEnabled(): boolean {
-  return String(import.meta.env.VITE_VIDEO_DATE_DAILY_PREWARM ?? "false").toLowerCase() === "true";
+  return String(import.meta.env.VITE_VIDEO_DATE_DAILY_PREWARM ?? "true").toLowerCase() === "true";
 }
 
 function joinPrewarmEnabled(joinSource: WebDailyPrewarmJoinSource): boolean {
@@ -92,7 +92,8 @@ function joinPrewarmEnabled(joinSource: WebDailyPrewarmJoinSource): boolean {
   const flagName = joinSource === "solo_prejoin"
     ? "VITE_VIDEO_DATE_DAILY_SOLO_PREJOIN"
     : "VITE_VIDEO_DATE_DAILY_JOIN_PREWARM";
-  return String(import.meta.env[flagName] ?? "false").toLowerCase() === "true";
+  const defaultValue = joinSource === "solo_prejoin" ? "false" : "true";
+  return String(import.meta.env[flagName] ?? defaultValue).toLowerCase() === "true";
 }
 
 function keyFor(sessionId: string, userId: string): string {
