@@ -32,6 +32,7 @@ const adminMediaLifecycle = read("src/components/admin/AdminMediaLifecyclePanel.
 const adminDeletions = read("src/components/admin/AdminDeletionsPanel.tsx");
 const adminPushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
+const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -162,7 +163,9 @@ test("quick actions show only actionable upcoming events", () => {
   assert.match(adminQuickActions, /Registered seats/);
   assert.doesNotMatch(adminQuickActions, /resolveEventLifecycle/);
   assert.doesNotMatch(adminQuickActions, /\.from\(['"]events['"]\)/);
+  assert.doesNotMatch(adminQuickActions, /\.not\(['"]status['"]/);
   assert.doesNotMatch(adminQuickActions, /admin-upcoming-events/);
+  assert.match(adminOverviewDashboardMigration, /lower\(COALESCE\(status, 'upcoming'\)\) NOT IN \('draft', 'cancelled', 'completed', 'ended'\)/);
 });
 
 test("overview charts and Daily Drop read from the backend overview surface", () => {
