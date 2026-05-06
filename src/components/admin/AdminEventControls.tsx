@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { StopCircle, Clock, Plus, Bell } from "lucide-react";
+import { StopCircle, Plus, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,14 +10,20 @@ import { sendNotification } from "@/lib/notifications";
 interface AdminEventControlsProps {
   eventId: string;
   eventTitle: string;
-  eventStatus: string | null;
+  rawStatus: string | null;
+  computedStatus: string;
+  endedAt?: string | null;
+  archivedAt?: string | null;
   durationMinutes: number | null;
 }
 
 const AdminEventControls = ({
   eventId,
   eventTitle,
-  eventStatus,
+  rawStatus,
+  computedStatus,
+  endedAt,
+  archivedAt,
   durationMinutes,
 }: AdminEventControlsProps) => {
   const queryClient = useQueryClient();
@@ -126,11 +132,14 @@ const AdminEventControls = ({
     onError: () => toast.error("Failed to extend event"),
   });
 
-  const isLive = eventStatus === "live" || eventStatus === "upcoming";
-  const isEnded =
-    eventStatus === "ended" ||
-    eventStatus === "completed" ||
-    eventStatus === "cancelled";
+  const normalizedRawStatus = rawStatus?.toLowerCase() || "";
+  const normalizedComputedStatus = computedStatus.toLowerCase();
+  const isArchived = Boolean(archivedAt);
+  const isDraft = normalizedRawStatus === "draft";
+  const isCancelled = normalizedRawStatus === "cancelled";
+  const isCompleted = normalizedRawStatus === "completed";
+  const isComputedEnded = normalizedComputedStatus === "ended";
+  const showGoLive = normalizedComputedStatus === "live" && normalizedRawStatus !== "live";
   const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
 
   const handleGoLive = async () => {
@@ -174,7 +183,7 @@ const AdminEventControls = ({
     }
   };
 
-  if (isEnded) return null;
+  if (isArchived || isDraft || isCancelled || isCompleted || endedAt) return null;
 
   return (
     <motion.div
@@ -199,13 +208,13 @@ const AdminEventControls = ({
         </div>
       ) : (
         <>
-          {eventStatus === "upcoming" && (
+          {showGoLive && (
             <Button
               size="sm"
               variant="default"
               className="gap-1.5"
               onClick={handleGoLive}
-              title="Sets the event live and notifies confirmed attendees only. Waitlisted users do not get a live push."
+              title="Sets the event live during its scheduled window and notifies confirmed attendees only. Waitlisted users do not get a live push."
             >
               Go Live
             </Button>
@@ -239,17 +248,19 @@ const AdminEventControls = ({
             <Plus className="w-3.5 h-3.5" />
             +30 min
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={handleSendReminder}
-            disabled={isSendingReminder || !!reminderCooldown}
-            title="Notifies confirmed attendees with lobby access copy and waitlisted users with status-only copy."
-          >
-            <Bell className="w-3.5 h-3.5" />
-            {reminderCooldown ? "Sent" : "Reminder (confirmed + waitlist)"}
-          </Button>
+          {!isComputedEnded && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleSendReminder}
+              disabled={isSendingReminder || !!reminderCooldown}
+              title="Notifies confirmed attendees with lobby access copy and waitlisted users with status-only copy."
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {reminderCooldown ? "Sent" : "Reminder (confirmed + waitlist)"}
+            </Button>
+          )}
         </>
       )}
     </motion.div>

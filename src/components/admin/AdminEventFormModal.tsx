@@ -170,6 +170,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const isEditing = !!event;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const formId = `admin-event-form-${event?.id ?? "new"}`;
 
   const [openSections, setOpenSections] = useState({
     dateTime: true,
@@ -525,7 +526,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
 
       {/* Form */}
       <div className="flex-1 overflow-auto">
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto p-4 space-y-4 pb-32">
+        <form id={formId} onSubmit={handleSubmit} className="max-w-4xl mx-auto p-4 space-y-4 pb-32">
 
           {/* Basic Info */}
           <div className="rounded-xl border border-border p-4 space-y-4 bg-card">
@@ -966,7 +967,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       <div className="shrink-0 border-t border-border bg-card">
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => saveEvent.mutate()} disabled={saveEvent.isPending || isGenerating}
+          <Button type="submit" form={formId} disabled={saveEvent.isPending || isGenerating}
             className="bg-gradient-primary text-primary-foreground gap-2">
             {(saveEvent.isPending || isGenerating) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
             {isEditing ? 'Update Event' : 'Create Event'}
