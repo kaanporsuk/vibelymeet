@@ -151,6 +151,10 @@ const launchLatencyPrepareTimingSlicesMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260506101000_video_date_launch_latency_prepare_timing_slices.sql"),
   "utf8",
 );
+const launchLatencyPrepareTimingBaseNamePolishMigration = readFileSync(
+  join(process.cwd(), "supabase/migrations/20260506102000_video_date_prepare_timing_base_name_polish.sql"),
+  "utf8",
+);
 const handshakeJoinStartMigration = readFileSync(
   join(process.cwd(), "supabase/migrations/20260501170000_video_date_handshake_starts_after_daily_join.sql"),
   "utf8",
@@ -2474,6 +2478,8 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   assert.match(launchLatencyCheckpointObservabilityMigration, /'provider_verify_skipped'/);
   assert.match(launchLatencyCheckpointObservabilityMigration, /'permission_handoff_used'/);
   assert.match(launchLatencyPrepareTimingSlicesMigration, /record_video_date_launch_latency_checkpoint_20260506101000_prepare_timing_base/);
+  assert.match(launchLatencyPrepareTimingBaseNamePolishMigration, /record_vd_launch_latency_202605061020_base/);
+  assert.match(videoDateValidationSql, /record_vd_launch_latency_202605061020_base/);
   for (const field of [
     "auth_ms",
     "prepare_rpc_ms",
@@ -2485,6 +2491,7 @@ test("launch latency checkpoints are durable, allowlisted, and admin-visible", (
   ]) {
     assert.match(launchLatencyCheckpointObservability, new RegExp(`"${field}"`));
     assert.match(launchLatencyPrepareTimingSlicesMigration, new RegExp(`'${field}'`));
+    assert.match(launchLatencyPrepareTimingBaseNamePolishMigration, new RegExp(`'${field}'`));
     assert.match(videoDateValidationSql, new RegExp(field));
   }
   assert.match(launchLatencyCheckpointObservabilityMigration, /v_ready_actor_order/);
