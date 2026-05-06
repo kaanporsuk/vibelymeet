@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { sanitizeProductIntelligenceProperties } from "../analytics/productIntelligence";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -286,7 +287,29 @@ test("shared analytics taxonomy and wrappers block PII/freeform payloads", () =>
   assert.match(taxonomy, /sdk_status/);
   assert.match(taxonomy, /client_health_status/);
   assert.match(taxonomy, /sync_result_code/);
+  assert.match(taxonomy, /reason_code/);
+  assert.match(taxonomy, /latency_bucket/);
+  assert.match(taxonomy, /"state"/);
   assert.doesNotMatch(taxonomy, /event_title/);
+
+  const diagnostics = sanitizeProductIntelligenceProperties(
+    {
+      state: "incomplete",
+      reason_code: "resolver_exception",
+      latency_bucket: "5_15s",
+      email: "admin@example.com",
+      freeform_note: "contains free text",
+    },
+    { platform: "web" },
+  );
+
+  assert.deepEqual(diagnostics, {
+    platform: "web",
+    state: "incomplete",
+    reason_code: "resolver_exception",
+    latency_bucket: "5_15s",
+  });
+
   assert.match(webAnalytics, /sanitizeProductIntelligenceProperties\(properties, \{ platform: "web" \}\)/);
   assert.match(nativeAnalytics, /sanitizeProductIntelligenceProperties\(props, \{ platform: 'native' \}\)/);
   assert.doesNotMatch(webAnalytics, /posthog\?\.capture\(eventName, properties\)/);
