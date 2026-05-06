@@ -21,10 +21,11 @@ import {
   Archive,
   GitBranch,
   Server,
+  Brain,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'operations' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -40,6 +41,7 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
   const menuItems = [
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
     { id: 'operations' as const, label: 'Operations', icon: Server },
+    { id: 'intelligence' as const, label: 'Intelligence', icon: Brain },
     { id: 'users' as const, label: 'Users', icon: Users },
     { id: 'events' as const, label: 'Events', icon: Calendar },
     { id: 'tier-config' as const, label: 'Tier Config', icon: Layers },

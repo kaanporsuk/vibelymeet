@@ -506,7 +506,7 @@ const AdminEventsPanel = () => {
                           'Existing registrations stay in the database (this is not delete). Use attendee tools or permanent delete if you need accounts or rows removed.',
                           'Cancel is different from Archive (organizational hide), End (normal completion), and Delete (erase event data).',
                           '',
-                          'After cancel, we automatically send a push to each confirmed attendee and each waitlisted user (explicit targeting; separate copy per group).',
+                          'After cancel, the backend reports whether notification queueing happened. In the current P2 contract, cancellation notifications may be recorded as not queued until a dispatcher is connected.',
                         ].join('\n');
                         if (confirm(message)) {
                           cancelEvent.mutate({ eventId: event.id, title });

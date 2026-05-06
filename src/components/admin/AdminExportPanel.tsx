@@ -517,6 +517,11 @@ const AdminExportPanel = () => {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700">
+        Legacy browser export. These downloads are not the P4 governed DSAR/export queue: they do not create expiring private files,
+        require a case reason, or write an export-job audit row. Use only for scoped admin review until the governed export flow is wired.
+      </div>
+
       {/* Filters */}
       <div className="glass-card p-4 rounded-2xl space-y-4">
         <h3 className="text-sm font-semibold text-foreground">Export Settings</h3>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -29,9 +29,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { resolvePhotoUrl } from "@/lib/photoUtils";
-import { sendNotification } from "@/lib/notifications";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
 type AdminAttendeesEvent = {
   id: string;
@@ -73,18 +74,19 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   const [showPending, setShowPending] = useState(true);
   const [showAttended, setShowAttended] = useState(true);
   const [showNoShow, setShowNoShow] = useState(true);
-  const [notifyAllBody, setNotifyAllBody] = useState("");
-  const [isSendingNotifyAll, setIsSendingNotifyAll] = useState(false);
-  const [lastNotifyAllAt, setLastNotifyAllAt] = useState<number | null>(null);
-  const [cooldownBump, setCooldownBump] = useState(0);
+  const [isRequestingReminder, setIsRequestingReminder] = useState(false);
+  const [lastReminderRequestAt, setLastReminderRequestAt] = useState<number | null>(null);
+  const [reminderCooldownBump, setReminderCooldownBump] = useState(0);
+  const [confirmReminderOpen, setConfirmReminderOpen] = useState(false);
+  const [registrationToRemove, setRegistrationToRemove] = useState<{ profileId: string; name: string } | null>(null);
 
   useEffect(() => {
-    if (lastNotifyAllAt == null) return;
-    const elapsed = Date.now() - lastNotifyAllAt;
+    if (lastReminderRequestAt == null) return;
+    const elapsed = Date.now() - lastReminderRequestAt;
     if (elapsed >= NOTIFY_ALL_COOLDOWN_MS) return;
-    const t = setTimeout(() => setCooldownBump((x) => x + 1), NOTIFY_ALL_COOLDOWN_MS - elapsed);
+    const t = setTimeout(() => setReminderCooldownBump((x) => x + 1), NOTIFY_ALL_COOLDOWN_MS - elapsed);
     return () => clearTimeout(t);
-  }, [lastNotifyAllAt, cooldownBump]);
+  }, [lastReminderRequestAt, reminderCooldownBump]);
 
   // Fetch event registrations with profile data
   const { data: registrations, isLoading } = useQuery({
@@ -206,51 +208,34 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
     );
   };
 
-  const notifyCooldownActive =
-    lastNotifyAllAt != null && Date.now() - lastNotifyAllAt < NOTIFY_ALL_COOLDOWN_MS;
+  const reminderCooldownActive =
+    lastReminderRequestAt != null && Date.now() - lastReminderRequestAt < NOTIFY_ALL_COOLDOWN_MS;
 
-  const sendNotifyAllRegistrants = useCallback(async () => {
-    const body = notifyAllBody.trim();
-    if (!body) {
-      toast.error("Enter a notification message");
+  const requestEventReminder = async () => {
+    if (reminderCooldownActive) {
+      toast.message("Please wait 5 minutes between event reminder requests.");
       return;
     }
-    if (notifyCooldownActive) {
-      toast.message("Please wait 5 minutes between broadcasts to all attendees.");
-      return;
-    }
-    setIsSendingNotifyAll(true);
+    setIsRequestingReminder(true);
     try {
-      const { data: allRegs, error } = await supabase
-        .from("event_registrations")
-        .select("profile_id, admission_status")
-        .eq("event_id", event.id)
-        .in("admission_status", ["confirmed", "waitlisted"]);
-      if (error) throw error;
-      const eventTitle = (event.title as string) || "Your event";
-      const waitlistedBody = `${eventTitle} starts soon. You’re still on the waitlist, so keep an eye on the event page for status updates.`;
-      for (const row of allRegs ?? []) {
-        const user_id = row.profile_id;
-        if (!user_id) continue;
-        const admissionStatus = row.admission_status;
-        await sendNotification({
-          user_id,
-          category: "event_reminder",
-          title: eventTitle,
-          body: admissionStatus === "waitlisted" ? waitlistedBody : body,
-          data: { event_id: event.id, admission_status: admissionStatus },
-        });
-      }
-      setLastNotifyAllAt(Date.now());
-      toast.success(
-        `Notification sent to ${(allRegs ?? []).length} user${(allRegs ?? []).length === 1 ? "" : "s"} (confirmed custom + waitlist-safe copy)`
-      );
-    } catch {
-      toast.error("Failed to send notifications");
+      const payload = await callAdminRpc("admin_send_event_reminder", {
+        p_event_id: event.id,
+        p_reason: "Reminder requested from /kaan attendees modal",
+        p_idempotency_key: createAdminIdempotencyKey("admin_send_event_reminder"),
+      });
+      setLastReminderRequestAt(Date.now());
+      toast.success("Reminder request recorded", {
+        description: payload.notifications_not_queued
+          ? "No user notifications were queued because the backend dispatcher is not connected for this reminder."
+          : undefined,
+      });
+    } catch (error) {
+      toast.error("Failed to record reminder request");
+      throw error;
     } finally {
-      setIsSendingNotifyAll(false);
+      setIsRequestingReminder(false);
     }
-  }, [notifyAllBody, notifyCooldownActive, event.id, event.title]);
+  };
 
   const exportAttendees = () => {
     if (!registrations?.length) return;
@@ -344,23 +329,32 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
         </div>
       </div>
 
-      {/* Broadcast push to all registrants */}
+      {/* Backend-owned event reminder request */}
       <div className="shrink-0 border-b border-border/50 bg-card">
         <div className="max-w-5xl mx-auto px-4 py-3 space-y-2">
-          <label htmlFor="admin-notify-all-body" className="text-xs font-medium text-muted-foreground">
-            Broadcast push — confirmed + waitlist only, status-safe routing
-          </label>
-          <Input
-            id="admin-notify-all-body"
-            placeholder="Your event starts in 15 minutes!"
-            value={notifyAllBody}
-            onChange={(e) => setNotifyAllBody(e.target.value)}
-            className="bg-secondary/50"
-          />
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">
+                Event reminder request
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Uses the backend admin reminder contract. The request is audited; no browser-side notification loop runs from this panel.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmReminderOpen(true)}
+              disabled={isRequestingReminder || reminderCooldownActive}
+              className="gap-1 self-start md:self-auto"
+            >
+              <Bell className="w-4 h-4" />
+              {isRequestingReminder ? "Recording..." : "Record Reminder Request"}
+            </Button>
+          </div>
           <p className="text-[11px] text-muted-foreground">
-            Does not target removed/canceled registration rows. Waitlisted recipients land on the event page, not the lobby.
-            Same delivery path as row reminders. Custom text goes to confirmed recipients; waitlisted recipients get standard status-safe copy.
-            5-minute cooldown between sends.
+            Current backend behavior may return “notifications not queued” until a dispatcher is connected. Use this as an audited operational request, not provider-delivery proof.
+            5-minute cooldown between requests.
           </p>
         </div>
       </div>
@@ -442,16 +436,6 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
               >
                 <XCircle className="w-4 h-4" />
                 Mark No Show
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void sendNotifyAllRegistrants()}
-                disabled={isSendingNotifyAll || notifyCooldownActive}
-                className="gap-1"
-              >
-                <Bell className="w-4 h-4" />
-                {isSendingNotifyAll ? "Sending…" : "Notify"}
               </Button>
               <Button
                 size="sm"
@@ -600,28 +584,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                                 toast.error("Missing attendee profile");
                                 return;
                               }
-                              if (
-                                !window.confirm(
-                                  `Remove ${profile?.name ?? "this user"} from this event? This frees a confirmed seat and may promote the waitlist.`
-                                )
-                              ) {
-                                return;
-                              }
-                              removeRegistration.mutate(reg.profile_id);
+                              setRegistrationToRemove({
+                                profileId: reg.profile_id,
+                                name: profile?.name ?? "this user",
+                              });
                             }}
                             disabled={removeRegistration.isPending}
                             className="gap-2 text-destructive focus:text-destructive"
                           >
                             <UserMinus className="w-4 h-4" />
                             Remove registration
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => void sendNotifyAllRegistrants()}
-                            disabled={isSendingNotifyAll || notifyCooldownActive}
-                            className="gap-2"
-                          >
-                            <Bell className="w-4 h-4" />
-                            Notify confirmed + waitlist
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -651,6 +623,30 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
           </Button>
         </div>
       </div>
+      <AdminConfirmDialog
+        open={confirmReminderOpen}
+        title={`Record reminder request for "${event.title}"?`}
+        description="This calls admin_send_event_reminder. The backend validates admin access, records an audit log, and returns whether notification queueing happened. It does not run a browser-side loop and it does not prove provider delivery."
+        confirmLabel="Record Request"
+        variant="default"
+        isPending={isRequestingReminder}
+        onOpenChange={setConfirmReminderOpen}
+        onConfirm={requestEventReminder}
+      />
+      <AdminConfirmDialog
+        open={!!registrationToRemove}
+        title={`Remove ${registrationToRemove?.name ?? "this user"} from this event?`}
+        description="This calls admin_remove_event_registration. It removes the registration row, frees a confirmed seat when applicable, and may promote the waitlist according to backend rules."
+        confirmLabel="Remove Registration"
+        variant="destructive"
+        isPending={removeRegistration.isPending}
+        onOpenChange={(open) => {
+          if (!open) setRegistrationToRemove(null);
+        }}
+        onConfirm={() => {
+          if (registrationToRemove) return removeRegistration.mutateAsync(registrationToRemove.profileId);
+        }}
+      />
     </motion.div>
   );
 };

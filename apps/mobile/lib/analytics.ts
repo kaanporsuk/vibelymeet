@@ -5,6 +5,7 @@
 
 import PostHog from 'posthog-react-native';
 import { emitVideoDateLaunchLatencyCheckpointObservability } from '@clientShared/observability/videoDateLaunchLatencyCheckpointObservability';
+import { sanitizeProductIntelligenceProperties } from '@clientShared/analytics/productIntelligence';
 import { supabase } from '@/lib/supabase';
 
 let client: PostHog | null = null;
@@ -30,12 +31,7 @@ function recordOperationalLaunchLatencyCheckpoint(
 }
 
 function sanitize(props?: Record<string, string | number | boolean | null | undefined>): CleanProps | undefined {
-  if (!props) return undefined;
-  const clean: CleanProps = {};
-  for (const [k, v] of Object.entries(props)) {
-    if (v !== null && v !== undefined) clean[k] = v;
-  }
-  return Object.keys(clean).length > 0 ? clean : undefined;
+  return sanitizeProductIntelligenceProperties(props, { platform: 'native' });
 }
 
 export function setPostHogClient(instance: PostHog | null) {
@@ -95,5 +91,5 @@ export function setUserProperties(properties: Record<string, string | number | b
 
 export function screen(screenName: string, properties?: Record<string, string | number | boolean | null>) {
   if (!analyticsConsentGranted) return;
-  client?.capture('$screen', { $screen_name: screenName, ...sanitize(properties) });
+  client?.capture('$screen', sanitize({ ...properties, $screen_name: screenName }));
 }

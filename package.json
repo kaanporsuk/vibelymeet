@@ -31,6 +31,7 @@
     "test:admin-p1-ui-safety": "tsx shared/admin/adminP1UiSafety.test.ts",
     "test:admin-p2-backend-contracts": "tsx shared/admin/adminP2BackendContracts.test.ts",
     "test:admin-p3-operations": "tsx shared/admin/adminP3OperationsContracts.test.ts",
+    "test:admin-p4-intelligence": "tsx shared/admin/adminP4IntelligenceContracts.test.ts",
     "test:admin-route-access": "tsx shared/admin/adminRouteAccess.test.ts",
     "test:hardening-contracts": "bash scripts/run_hardening_contract_tests.sh",
     "test:event-lobby-regression": "bash scripts/run_event_lobby_regression.sh",

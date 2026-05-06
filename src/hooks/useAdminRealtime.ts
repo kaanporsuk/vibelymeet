@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY } from "@/hooks/useAdminOverviewDashboard";
 
 interface UseAdminRealtimeOptions {
   enabled?: boolean;
@@ -9,34 +10,28 @@ interface UseAdminRealtimeOptions {
 export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {}) => {
   const queryClient = useQueryClient();
 
-  const invalidateAllStats = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-users-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-matches-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-messages-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-events-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-verified-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-today-users"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-unread-notifications"] });
+  const invalidateOverview = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
   }, [queryClient]);
+
+  const invalidateAllStats = useCallback(() => {
+    invalidateOverview();
+    queryClient.invalidateQueries({ queryKey: ["admin-unread-notifications"] });
+  }, [invalidateOverview, queryClient]);
 
   const invalidateUsers = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-users-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-today-users"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-verified-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-user-growth"] });
-  }, [queryClient]);
+    invalidateOverview();
+  }, [invalidateOverview, queryClient]);
 
   const invalidateMatches = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-matches-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-match-trends"] });
-  }, [queryClient]);
+    invalidateOverview();
+  }, [invalidateOverview]);
 
   const invalidateEvents = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-events"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-events-count"] });
-    queryClient.invalidateQueries({ queryKey: ["admin-event-attendance"] });
-  }, [queryClient]);
+    invalidateOverview();
+  }, [invalidateOverview, queryClient]);
 
   const invalidateNotifications = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-unread-notifications"] });
@@ -45,7 +40,8 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
 
   const invalidateReports = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
-  }, [queryClient]);
+    invalidateOverview();
+  }, [invalidateOverview, queryClient]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -56,10 +52,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "profiles" },
-        () => {
-          console.log("Profile change detected");
-          invalidateUsers();
-        }
+        invalidateUsers
       )
       .subscribe();
 
@@ -69,10 +62,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "matches" },
-        () => {
-          console.log("Match change detected");
-          invalidateMatches();
-        }
+        invalidateMatches
       )
       .subscribe();
 
@@ -82,10 +72,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "events" },
-        () => {
-          console.log("Event change detected");
-          invalidateEvents();
-        }
+        invalidateEvents
       )
       .subscribe();
 
@@ -95,10 +82,17 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "event_registrations" },
-        () => {
-          console.log("Registration change detected");
-          invalidateEvents();
-        }
+        invalidateEvents
+      )
+      .subscribe();
+
+    // Subscribe to daily drops for Overview status freshness
+    const dailyDropsChannel = supabase
+      .channel("admin-daily-drops-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "daily_drops" },
+        invalidateOverview
       )
       .subscribe();
 
@@ -108,10 +102,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "admin_notifications" },
-        () => {
-          console.log("Notification change detected");
-          invalidateNotifications();
-        }
+        invalidateNotifications
       )
       .subscribe();
 
@@ -122,7 +113,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
         "postgres_changes",
         { event: "*", schema: "public", table: "user_reports" },
         () => {
-          console.log("Report change detected");
           invalidateReports();
           invalidateNotifications();
         }
@@ -135,10 +125,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
-        () => {
-          console.log("New message detected");
-          queryClient.invalidateQueries({ queryKey: ["admin-messages-count"] });
-        }
+        invalidateOverview
       )
       .subscribe();
 
@@ -147,12 +134,14 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       supabase.removeChannel(matchesChannel);
       supabase.removeChannel(eventsChannel);
       supabase.removeChannel(registrationsChannel);
+      supabase.removeChannel(dailyDropsChannel);
       supabase.removeChannel(notificationsChannel);
       supabase.removeChannel(reportsChannel);
       supabase.removeChannel(messagesChannel);
     };
   }, [
     enabled,
+    invalidateOverview,
     invalidateUsers,
     invalidateMatches,
     invalidateEvents,

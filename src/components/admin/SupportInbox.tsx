@@ -301,7 +301,8 @@ export default function SupportInbox() {
       const updates: Partial<TicketRow> = {};
       if (selected.status === "submitted") updates.status = "in_review";
       if (Object.keys(updates).length) {
-        await supabase.from("support_tickets").update(updates).eq("id", selected.id);
+        const { error: updateErr } = await supabase.from("support_tickets").update(updates).eq("id", selected.id);
+        if (updateErr) throw updateErr;
       }
       let warningPayload: { notification_warning?: string | null; email_warning?: string | null } | null = null;
       try {

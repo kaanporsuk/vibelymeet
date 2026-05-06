@@ -34,6 +34,7 @@ const SupportInbox = lazy(() => import("@/components/admin/SupportInbox"));
 const AdminDailyDropCard = lazy(() => import("@/components/admin/AdminDailyDropCard"));
 const AdminTierConfigPanel = lazy(() => import("@/components/admin/AdminTierConfigPanel"));
 const AdminOperationsCenter = lazy(() => import("@/components/admin/AdminOperationsCenter"));
+const AdminP4IntelligencePanel = lazy(() => import("@/components/admin/AdminP4IntelligencePanel"));
 const AdminGhostBootstrapPanel = lazy(() =>
   import("@/components/admin/AdminGhostBootstrapPanel").then((mod) => ({
     default: mod.AdminGhostBootstrapPanel,
@@ -41,7 +42,7 @@ const AdminGhostBootstrapPanel = lazy(() =>
 );
 const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMediaLifecyclePanel"));
 
-type ActivePanel = 'overview' | 'operations' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 const AdminPanelFallback = () => (
   <div className="min-h-[320px] rounded-xl border border-border/50 bg-card/30 animate-pulse" />
@@ -132,6 +133,7 @@ const AdminDashboard = () => {
                 <h1 className="text-2xl font-bold font-display text-foreground">
                   {activePanel === 'overview' && 'Dashboard Overview'}
                   {activePanel === 'operations' && 'Operations Center'}
+                  {activePanel === 'intelligence' && 'Growth-Scale Intelligence'}
                   {activePanel === 'users' && 'User Management'}
                   {activePanel === 'events' && 'Event Management'}
                   {activePanel === 'reports' && 'User Reports'}
@@ -152,6 +154,7 @@ const AdminDashboard = () => {
                 <p className="text-sm text-muted-foreground">
                   {activePanel === 'overview' && 'Real-time platform analytics'}
                   {activePanel === 'operations' && 'Production health, provider reconciliation, incidents, audit, and rebuild state'}
+                  {activePanel === 'intelligence' && 'Product, marketplace, trust, revenue, cost, and native/store decision signals'}
                   {activePanel === 'users' && 'Manage all user profiles and activity'}
                   {activePanel === 'events' && 'Create and manage events'}
                   {activePanel === 'reports' && 'Review and act on user reports'}
@@ -222,6 +225,7 @@ const AdminDashboard = () => {
             )}
 
             {activePanel === 'operations' && <AdminOperationsCenter />}
+            {activePanel === 'intelligence' && <AdminP4IntelligencePanel />}
             {activePanel === 'users' && <AdminUsersPanel />}
             {activePanel === 'events' && <AdminEventsPanel />}
             {activePanel === 'reports' && <AdminReportsPanel />}

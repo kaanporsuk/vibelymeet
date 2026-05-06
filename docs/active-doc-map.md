@@ -62,6 +62,7 @@ Use `docs/native-external-setup-checklist.md` for provider/store depth and `docs
 | **Post-stream provider/native deep audit and tidy** | `docs/audits/post-stream-provider-native-readiness-audit-2026-05-01.md` |
 | **Screenshot-led native visual parity capture plan** | `docs/qa/screenshot-led-native-visual-parity-capture-plan.md`; branch delta `docs/branch-deltas/fix-screenshot-led-native-visual-parity.md`; regression assertion `shared/matching/screenshotLedNativeVisualParity.test.ts` |
 | **Recent hardening deep audit and cleanup (historical partial pass)** | `docs/audits/recent-hardening-deep-audit-2026-05-01.md`; branch delta `docs/branch-deltas/chore-deep-audit-recent-hardening.md` |
+| **Admin P4 growth-scale intelligence** | `docs/p4/metrics-dictionary.md`, `docs/p4/analytics-instrumentation-map.md`, `docs/p4/native-store-operations-playbook.md`, `docs/p4/bi-governance.md`; branch delta `docs/branch-deltas/admin-p4-growth-scale-intelligence.md`; regression assertion `shared/admin/adminP4IntelligenceContracts.test.ts` |
 
 ---
 
