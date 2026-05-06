@@ -12,7 +12,11 @@ const adminGrantCredits = read("src/components/admin/AdminGrantCreditsModal.tsx"
 const userModeration = read("src/components/admin/UserModerationActions.tsx");
 const adminReports = read("src/components/admin/AdminReportsPanel.tsx");
 const adminStats = read("src/components/admin/AdminStatsCards.tsx");
+const adminAnalytics = read("src/components/admin/AdminAnalyticsCharts.tsx");
 const adminQuickActions = read("src/components/admin/AdminQuickActionsCards.tsx");
+const adminDailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
+const adminRealtime = read("src/hooks/useAdminRealtime.ts");
+const adminOverviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
 const usePushAnalytics = read("src/hooks/usePushAnalytics.ts");
 const pushAnalyticsDashboard = read("src/components/admin/PushAnalyticsDashboard.tsx");
 const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
@@ -75,6 +79,8 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(adminEventControls, /updates events\.duration_minutes/);
   assert.match(adminEventControls, /admin_send_event_reminder/);
   assert.match(adminEventControls, /reports whether a notification dispatcher queued user sends/);
+  assert.match(adminEvents, /cancellation notifications may be recorded as not queued until a dispatcher is connected/);
+  assert.doesNotMatch(adminEvents, /automatically send a push to each confirmed attendee/);
   assert.match(adminEvents, /Generate \$?\{pendingEventAction\.count\} more occurrences\?/);
   assert.match(adminEvents, /Archive recurring series/);
   assert.match(adminEvents, /Archive Selected/);
@@ -85,6 +91,8 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(supportInbox, /Open payment exception case\?/);
   assert.match(supportInbox, /Save payment exception transition\?/);
   assert.match(supportInbox, /does not process a refund in-app/);
+  assert.match(supportInbox, /error: updateErr/);
+  assert.match(supportInbox, /if \(updateErr\) throw updateErr/);
   assert.match(adminPremium, /admin_set_premium_status/);
   assert.match(adminPremium, /Profile premium state, premium_history, and admin_activity_logs commit together or fail together/);
 
@@ -93,6 +101,8 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(adminMediaLifecycle, /Retry all failed media delete jobs\?/);
   assert.match(adminMediaLifecycle, /Requeue all stale claimed jobs\?/);
   assert.match(adminMediaLifecycle, /Save chat media policy\?/);
+  assert.match(adminDailyDrop, /Generate today's drops\?/);
+  assert.match(adminDailyDrop, /can create production daily-drop pairs and notify users/);
   assert.match(adminDeletions, /Mark deletion request completed\?/);
   assert.match(adminPushCampaigns, /Delete push campaign\?/);
 
@@ -108,7 +118,7 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
 });
 
 test("report actions use backend transaction instead of client side-effect orchestration", () => {
-  assert.match(adminReports, /callAdminRpc\("admin_resolve_report"/);
+  assert.match(adminReports, /callAdminRpc\("admin_resolve_report(_with_policy)?"/);
   assert.match(adminReports, /p_action: rpcAction/);
   assert.match(adminReports, /p_idempotency_key: createAdminIdempotencyKey\("admin_resolve_report"\)/);
   assert.match(adminReports, /The required moderation side effect and report closure run in one backend transaction/);
@@ -123,6 +133,14 @@ test("report actions use backend transaction instead of client side-effect orche
 });
 
 test("overview metrics and event analytics labels match query semantics", () => {
+  assert.match(adminOverviewHook, /admin_get_overview_dashboard/);
+  assert.match(adminStats, /useAdminOverviewDashboard/);
+  assert.match(adminStats, /Unable to load Overview metrics/);
+  assert.match(adminStats, /not showing fallback zeroes/);
+  assert.match(adminStats, /Last updated/);
+  assert.match(adminStats, /formatAdminCount/);
+  assert.doesNotMatch(adminStats, /Number\(metrics\?\./);
+  assert.doesNotMatch(adminStats, /\|\| '0'/);
   assert.doesNotMatch(adminStats, /Active Events/);
   assert.match(adminStats, /Total Events/);
   assert.match(adminStats, /All event rows, including draft\/cancelled\/archived\/ended/);
@@ -137,16 +155,43 @@ test("overview metrics and event analytics labels match query semantics", () => 
 });
 
 test("quick actions show only actionable upcoming events", () => {
-  assert.match(adminQuickActions, /resolveEventLifecycle/);
-  assert.match(adminQuickActions, /status, ended_at, archived_at/);
-  assert.match(adminQuickActions, /\.is\('archived_at', null\)/);
-  assert.match(adminQuickActions, /\.not\('status', 'in', `\(\$\{terminalRawStatuses\.join\(','\)\}\)`\)/);
-  assert.match(adminQuickActions, /terminalRawStatuses/);
-  assert.match(adminQuickActions, /event\.archived_at \|\| event\.ended_at/);
-  assert.match(adminQuickActions, /\.lifecycle === 'upcoming'/);
-  assert.match(adminQuickActions, /\.slice\(0, 3\)/);
+  assert.match(adminQuickActions, /useAdminOverviewDashboard/);
+  assert.match(adminQuickActions, /Unable to load Quick Actions/);
+  assert.match(adminQuickActions, /Counts are hidden until the backend overview read succeeds/);
   assert.match(adminQuickActions, /Actionable Upcoming Events/);
   assert.match(adminQuickActions, /Registered seats/);
+  assert.doesNotMatch(adminQuickActions, /resolveEventLifecycle/);
+  assert.doesNotMatch(adminQuickActions, /\.from\(['"]events['"]\)/);
+  assert.doesNotMatch(adminQuickActions, /admin-upcoming-events/);
+});
+
+test("overview charts and Daily Drop read from the backend overview surface", () => {
+  assert.match(adminAnalytics, /useAdminOverviewDashboard/);
+  assert.match(adminAnalytics, /Unable to load Overview charts/);
+  assert.match(adminAnalytics, /Latest Event Rows \(Capacity Fill\)/);
+  assert.match(adminAnalytics, /including archived\/ended rows when present/);
+  assert.match(adminAnalytics, /look like test\/smoke data/);
+  assert.doesNotMatch(adminAnalytics, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(adminAnalytics, /\.from\(['"]events['"]\)/);
+  assert.doesNotMatch(adminAnalytics, /\.from\(['"]matches['"]\)/);
+  assert.doesNotMatch(adminAnalytics, /admin-user-growth/);
+  assert.doesNotMatch(adminAnalytics, /admin-event-attendance/);
+
+  assert.match(adminDailyDrop, /useAdminOverviewDashboard/);
+  assert.match(adminDailyDrop, /Unable to load Daily Drop status/);
+  assert.match(adminDailyDrop, /Last generated \(UTC\)/);
+  assert.match(adminDailyDrop, /Daily Drop status unavailable/);
+  assert.doesNotMatch(adminDailyDrop, /\.from\(['"]daily_drops['"]\)/);
+  assert.doesNotMatch(adminDailyDrop, /admin-daily-drops-today/);
+});
+
+test("overview realtime invalidates the active backend query key", () => {
+  assert.match(adminRealtime, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
+  assert.match(adminRealtime, /admin-daily-drops-realtime/);
+  assert.match(adminRealtime, /invalidateOverview/);
+  assert.doesNotMatch(adminRealtime, /admin-users-count/);
+  assert.doesNotMatch(adminRealtime, /admin-matches-count/);
+  assert.doesNotMatch(adminRealtime, /admin-event-attendance/);
 });
 
 test("push analytics uses the backend admin telemetry RPC and honest states", () => {

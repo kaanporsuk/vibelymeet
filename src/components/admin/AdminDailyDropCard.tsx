@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Droplet, Loader2 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, Droplet, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -14,37 +13,25 @@ import {
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import {
+  formatAdminUtcDateTime,
+  useAdminOverviewDashboard,
+} from '@/hooks/useAdminOverviewDashboard';
 
 export default function AdminDailyDropCard() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [overrideOpen, setOverrideOpen] = useState(false);
-  const today = new Date().toISOString().split('T')[0];
+  const {
+    data: overview,
+    error,
+    isError,
+    isLoading,
+    refetch,
+  } = useAdminOverviewDashboard();
 
-  const { data: todayCount = 0, refetch } = useQuery({
-    queryKey: ['admin-daily-drops-today'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('daily_drops')
-        .select('id', { count: 'exact', head: true })
-        .eq('drop_date', today);
-      return count || 0;
-    },
-    refetchInterval: 30000,
-  });
-
-  const { data: lastGenerated } = useQuery({
-    queryKey: ['admin-daily-drops-last'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('daily_drops')
-        .select('starts_at')
-        .order('starts_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data?.starts_at ?? null;
-    },
-  });
+  const dailyDrop = overview?.daily_drop ?? null;
+  const todayCount = dailyDrop?.today_pairs;
+  const hasReliableStatus = typeof todayCount === 'number';
 
   const runGenerate = async (force: boolean) => {
     setIsGenerating(true);
@@ -61,7 +48,7 @@ export default function AdminDailyDropCard() {
       } else {
         toast.info(data?.reason || data?.error || 'No drops generated');
       }
-      refetch();
+      void refetch();
     } catch (err) {
       toast.error('Failed to generate drops');
       console.error(err);
@@ -72,11 +59,7 @@ export default function AdminDailyDropCard() {
   };
 
   const onGenerateClick = () => {
-    if (todayCount > 0) {
-      setOverrideOpen(true);
-      return;
-    }
-    void runGenerate(false);
+    setOverrideOpen(true);
   };
 
   return (
@@ -98,36 +81,61 @@ export default function AdminDailyDropCard() {
         <code className="text-[10px]">20260323140000_daily_drop_hardening.sql</code>.
       </p>
 
+      {isError && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Unable to load Daily Drop status</p>
+            <p>{error?.message || "Backend overview read failed."}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="p-3 rounded-xl bg-secondary/30">
-          <p className="text-muted-foreground text-xs">Today</p>
-          <p className="text-lg font-bold text-foreground">{todayCount} pairs</p>
+          <p className="text-muted-foreground text-xs">
+            Today{dailyDrop?.today_date_utc ? ` (${dailyDrop.today_date_utc} UTC)` : ''}
+          </p>
+          <p className="text-lg font-bold text-foreground">
+            {isLoading ? 'Loading' : hasReliableStatus ? `${todayCount} pairs` : 'Unavailable'}
+          </p>
         </div>
         <div className="p-3 rounded-xl bg-secondary/30">
-          <p className="text-muted-foreground text-xs">Last generated</p>
+          <p className="text-muted-foreground text-xs">Last generated (UTC)</p>
           <p className="text-sm font-medium text-foreground">
-            {lastGenerated ? format(new Date(lastGenerated), 'MMM d, h:mm a') : 'Never'}
+            {isLoading ? 'Loading' : formatAdminUtcDateTime(dailyDrop?.last_generated_at)}
           </p>
         </div>
       </div>
 
-      <Button variant="gradient" className="w-full gap-2" disabled={isGenerating} onClick={onGenerateClick}>
+      <Button
+        variant="gradient"
+        className="w-full gap-2"
+        disabled={isGenerating || !hasReliableStatus}
+        onClick={onGenerateClick}
+      >
         {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Droplet className="w-4 h-4" />}
-        {todayCount > 0 ? "Generate again (override)" : "Generate today's drops"}
+        {!hasReliableStatus ? "Daily Drop status unavailable" : todayCount > 0 ? "Generate again (override)" : "Generate today's drops"}
       </Button>
 
       <AlertDialog open={overrideOpen} onOpenChange={setOverrideOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Regenerate today&apos;s drops?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {(todayCount ?? 0) > 0 ? "Regenerate today's drops?" : "Generate today's drops?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {todayCount} pair(s) already exist for today. Continuing will delete all of today&apos;s daily drops and run
-              pairing again (admin only).
+              {(todayCount ?? 0) > 0
+                ? `${todayCount} pair(s) already exist for today. Continuing will delete all of today's daily drops and run pairing again.`
+                : "This calls generate-daily-drops and can create production daily-drop pairs and notify users."}
+              {" "}This is an immediate admin-only production action.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void runGenerate(true)}>Delete today &amp; regenerate</AlertDialogAction>
+            <AlertDialogAction onClick={() => void runGenerate((todayCount ?? 0) > 0)}>
+              {(todayCount ?? 0) > 0 ? "Delete today & regenerate" : "Generate Drops"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

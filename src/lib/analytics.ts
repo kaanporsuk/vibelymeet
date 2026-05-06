@@ -1,6 +1,7 @@
 import { hasAnalyticsConsent } from "@/lib/consent";
 import { supabase } from "@/integrations/supabase/client";
 import { emitVideoDateLaunchLatencyCheckpointObservability } from "@clientShared/observability/videoDateLaunchLatencyCheckpointObservability";
+import { sanitizeProductIntelligenceProperties } from "@clientShared/analytics/productIntelligence";
 
 type AnalyticsProperties = Record<string, unknown>;
 type PostHogClient = typeof import("posthog-js").default;
@@ -175,7 +176,7 @@ async function getAnalyticsForCapture(): Promise<PostHogClient | null> {
 // Identify user (call on login)
 export const identifyUser = (userId: string, properties?: AnalyticsProperties) => {
   void getAnalyticsForCapture().then((posthog) => {
-    posthog?.identify(userId, properties);
+    posthog?.identify(userId, sanitizeProductIntelligenceProperties(properties, { platform: "web" }));
   });
 };
 
@@ -191,14 +192,17 @@ export const resetAnalytics = () => {
 export const trackEvent = (eventName: string, properties?: AnalyticsProperties) => {
   if (shouldSkipDuplicateEvent(eventName, properties)) return;
   recordOperationalLaunchLatencyCheckpoint(eventName, properties);
+  const safeProperties = sanitizeProductIntelligenceProperties(properties, { platform: "web" });
   void getAnalyticsForCapture().then((posthog) => {
-    posthog?.capture(eventName, properties);
+    posthog?.capture(eventName, safeProperties);
   });
 };
 
 // Set user properties (non-event, just profile updates)
 export const setUserProperties = (properties: AnalyticsProperties) => {
+  const safeProperties = sanitizeProductIntelligenceProperties(properties, { platform: "web" });
+  if (!safeProperties) return;
   void getAnalyticsForCapture().then((posthog) => {
-    posthog?.people.set(properties);
+    posthog?.people.set(safeProperties);
   });
 };

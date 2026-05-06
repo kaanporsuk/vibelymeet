@@ -10,6 +10,29 @@ const app = read("src/App.tsx");
 const protectedRoute = read("src/components/ProtectedRoute.tsx");
 const adminLogin = read("src/pages/admin/AdminLogin.tsx");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
+const adminSidebar = read("src/components/admin/AdminSidebar.tsx");
+
+const adminPanels = [
+  { id: "overview", component: "AdminQuickActionsCards" },
+  { id: "operations", component: "AdminOperationsCenter" },
+  { id: "intelligence", component: "AdminP4IntelligencePanel" },
+  { id: "users", component: "AdminUsersPanel" },
+  { id: "events", component: "AdminEventsPanel" },
+  { id: "reports", component: "AdminReportsPanel" },
+  { id: "export", component: "AdminExportPanel" },
+  { id: "event-analytics", component: "AdminLiveEventMetrics" },
+  { id: "video-date-timeline", component: "AdminVideoDateTimelinePanel" },
+  { id: "activity-log", component: "AdminActivityLog" },
+  { id: "engagement", component: "AdminEngagementAnalytics" },
+  { id: "campaigns", component: "AdminPushCampaignsPanel" },
+  { id: "photo-verification", component: "AdminPhotoVerificationPanel" },
+  { id: "deletions", component: "AdminDeletionsPanel" },
+  { id: "feedback", component: "AdminFeedbackPanel" },
+  { id: "support", component: "SupportInbox" },
+  { id: "tier-config", component: "AdminTierConfigPanel" },
+  { id: "ghost-bootstrap", component: "AdminGhostBootstrapPanel" },
+  { id: "media-lifecycle", component: "AdminMediaLifecyclePanel" },
+];
 
 test("/kaan routes are wired to admin login and server-verified dashboard protection", () => {
   assert.match(app, /<Route path="\/kaan" element=\{<AdminLogin \/>\} \/>/);
@@ -52,4 +75,13 @@ test("admin login clears session-check loading even when verification rejects", 
 test("push campaigns dashboard copy is honest about draft-only delivery", () => {
   assert.match(adminDashboard, /Draft campaign copy and supported targeting until backend delivery is available/);
   assert.doesNotMatch(adminDashboard, /Send targeted notifications to user segments/);
+});
+
+test("every /kaan dashboard sidebar tab has a title and render branch", () => {
+  for (const panel of adminPanels) {
+    assert.match(adminDashboard, new RegExp(`'${panel.id}'`), `${panel.id} must be in ActivePanel/dashboard`);
+    assert.match(adminSidebar, new RegExp(`id: '${panel.id}' as const`), `${panel.id} must be in the sidebar`);
+    assert.match(adminDashboard, new RegExp(`activePanel === '${panel.id}' &&`), `${panel.id} must have title/copy coverage`);
+    assert.match(adminDashboard, new RegExp(panel.component), `${panel.id} must render ${panel.component}`);
+  }
 });

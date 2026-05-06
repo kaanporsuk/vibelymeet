@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -6,9 +5,11 @@ import {
   CalendarClock,
   ChevronRight,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { format, parseISO } from "date-fns";
-import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+import { Button } from "@/components/ui/button";
+import {
+  formatAdminUtcDateTime,
+  useAdminOverviewDashboard,
+} from "@/hooks/useAdminOverviewDashboard";
 
 interface AdminQuickActionsCardsProps {
   onNavigateToReports: () => void;
@@ -21,64 +22,68 @@ const AdminQuickActionsCards = ({
   onNavigateToUsers,
   onNavigateToEvents,
 }: AdminQuickActionsCardsProps) => {
-  // Fetch pending reports count
-  const { data: pendingReportsCount = 0 } = useQuery({
-    queryKey: ['admin-pending-reports'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('user_reports')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending');
-      return count || 0;
-    },
-  });
+  const {
+    data: overview,
+    error,
+    isError,
+    isLoading,
+    refetch,
+  } = useAdminOverviewDashboard();
 
-  // Fetch new users today
-  const { data: newUsersToday = 0 } = useQuery({
-    queryKey: ['admin-new-users-today'],
-    queryFn: async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const { count } = await supabase
-        .from('profiles')
-        .select('id', { count: 'exact', head: true })
-        .gte('created_at', today.toISOString());
-      return count || 0;
-    },
-  });
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-foreground">Quick Actions</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4" aria-label="Loading Quick Actions">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="glass-card p-6 rounded-2xl animate-pulse">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 rounded-xl bg-secondary" />
+                <div className="w-5 h-5 rounded bg-secondary" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-8 w-12 rounded bg-secondary" />
+                <div className="h-4 w-36 rounded bg-secondary" />
+                <div className="h-3 w-28 rounded bg-secondary" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  // Fetch actionable upcoming events (next 3)
-  const { data: upcomingEvents = [] } = useQuery({
-    queryKey: ['admin-upcoming-events'],
-    queryFn: async () => {
-      const terminalRawStatuses = ['draft', 'cancelled', 'completed', 'ended'];
-      const { data, error } = await supabase
-        .from('events')
-        .select('id, title, event_date, duration_minutes, status, ended_at, archived_at, current_attendees, max_attendees')
-        .gte('event_date', new Date().toISOString())
-        .is('archived_at', null)
-        .not('status', 'in', `(${terminalRawStatuses.join(',')})`)
-        .order('event_date', { ascending: true })
-        .limit(50);
-      if (error) throw error;
-      const terminalStatusSet = new Set(terminalRawStatuses);
-      const nowMs = Date.now();
-      return (data || [])
-        .filter((event) => {
-          const rawStatus = (event.status || '').toLowerCase();
-          if (terminalStatusSet.has(rawStatus)) return false;
-          if (event.archived_at || event.ended_at) return false;
-          return resolveEventLifecycle({
-            status: event.status,
-            event_date: event.event_date,
-            duration_minutes: event.duration_minutes,
-            ended_at: event.ended_at,
-            nowMs,
-          }).lifecycle === 'upcoming';
-        })
-        .slice(0, 3);
-    },
-  });
+  if (isError || !overview?.quick_actions) {
+    return (
+      <div className="space-y-4">
+        <h3 className="text-lg font-semibold text-foreground">Quick Actions</h3>
+        <div className="glass-card p-6 rounded-2xl border-destructive/40">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-destructive/15 text-destructive flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-foreground">Unable to load Quick Actions</h4>
+                <p className="text-sm text-muted-foreground">
+                  Counts are hidden until the backend overview read succeeds.
+                </p>
+                {error?.message && <p className="text-xs text-muted-foreground mt-1">{error.message}</p>}
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const pendingReportsCount = overview.quick_actions.pending_reports_count;
+  const newUsersToday = overview.quick_actions.new_users_today_count;
+  const actionableUpcoming = overview.quick_actions.actionable_upcoming_events;
+  const upcomingEvents = actionableUpcoming.rows || [];
 
   const actionCards = [
     {
@@ -104,8 +109,8 @@ const AdminQuickActionsCards = ({
     {
       id: 'events',
       title: 'Actionable Upcoming Events',
-      value: upcomingEvents.length,
-      subtitle: upcomingEvents.length > 0 
+      value: actionableUpcoming.count,
+      subtitle: upcomingEvents.length > 0
         ? `Next: ${upcomingEvents[0]?.title?.substring(0, 20)}...` 
         : 'No actionable upcoming events',
       icon: CalendarClock,
@@ -178,7 +183,7 @@ const AdminQuickActionsCards = ({
                       {event.title}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {format(parseISO(event.event_date), 'MMM d, h:mm a')}
+                      {formatAdminUtcDateTime(event.event_date)}
                     </p>
                   </div>
                 </div>

@@ -60,6 +60,7 @@ import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
 type ReportActionType = "dismiss" | "warn" | "suspend";
+type PolicyCategory = "harassment" | "fake" | "inappropriate" | "spam" | "safety" | "underage" | "no_show" | "payment" | "other";
 
 type UserReportRow = {
   id: string;
@@ -93,6 +94,20 @@ const reasonLabels: Record<ReportReasonId, string> = Object.fromEntries(
   REPORT_REASONS.map((r) => [r.id, r.label])
 ) as Record<ReportReasonId, string>;
 
+const policyCategories: Array<{ id: PolicyCategory; label: string }> = [
+  { id: "harassment", label: "Harassment" },
+  { id: "fake", label: "Fake profile" },
+  { id: "inappropriate", label: "Inappropriate content" },
+  { id: "spam", label: "Spam or scam" },
+  { id: "safety", label: "Safety concern" },
+  { id: "underage", label: "Underage concern" },
+  { id: "no_show", label: "No-show pattern" },
+  { id: "payment", label: "Payment or refund issue" },
+  { id: "other", label: "Other" },
+];
+
+const policyLabel = (id: PolicyCategory) => policyCategories.find((category) => category.id === id)?.label || "Other";
+
 const AdminReportsPanel = () => {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -104,6 +119,25 @@ const AdminReportsPanel = () => {
   const [showActionConfirm, setShowActionConfirm] = useState(false);
   const [actionNotes, setActionNotes] = useState("");
   const [actionType, setActionType] = useState<ReportActionType>("dismiss");
+  const [policyCategory, setPolicyCategory] = useState<PolicyCategory>("other");
+
+  const openReportActionDialog = (report: UserReportRow) => {
+    setSelectedReport(report);
+    setActionType("dismiss");
+    setActionNotes("");
+    setShowActionConfirm(false);
+    setPolicyCategory(policyCategories.some((category) => category.id === report.reason) ? (report.reason as PolicyCategory) : "other");
+    setShowActionDialog(true);
+  };
+
+  const closeReportActionDialog = () => {
+    setShowActionDialog(false);
+    setShowActionConfirm(false);
+    setSelectedReport(null);
+    setActionNotes("");
+    setActionType("dismiss");
+    setPolicyCategory("other");
+  };
 
   // Fetch all reports
   const { data: reports, isLoading } = useQuery({
@@ -161,28 +195,30 @@ const AdminReportsPanel = () => {
       report,
       action,
       notes,
+      policyCategory,
     }: {
       report: UserReportRow;
       action: ReportActionType;
       notes: string;
+      policyCategory: PolicyCategory;
     }) => {
       const rpcAction =
         action === "warn" ? "issue_warning" : action === "suspend" ? "suspend_user" : "dismiss";
-      return callAdminRpc("admin_resolve_report", {
+      return callAdminRpc("admin_resolve_report_with_policy", {
         p_report_id: report.id,
         p_action: rpcAction,
         p_reason: notes || reasonLabels[report.reason] || report.reason,
         p_message: notes || null,
         p_suspension_expires_at: null,
         p_idempotency_key: createAdminIdempotencyKey("admin_resolve_report"),
+        p_policy_category: policyCategory,
+        p_recommendation_id: null,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
       toast.success("Report action completed");
-      setShowActionDialog(false);
-      setSelectedReport(null);
-      setActionNotes("");
+      closeReportActionDialog();
     },
     onError: () => {
       toast.error("Report action was not completed", {
@@ -248,6 +284,7 @@ const AdminReportsPanel = () => {
         report: selectedReport,
         action: actionType,
         notes,
+        policyCategory,
       });
     } catch (error) {
       toast.error("Report action was not completed", {
@@ -275,10 +312,10 @@ const AdminReportsPanel = () => {
     actionType === "suspend" ? "Suspend User" : actionType === "warn" ? "Issue Warning" : "Dismiss Report";
   const reportActionDescription = selectedReport
     ? actionType === "suspend"
-      ? `This will suspend ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, create a suspension record, and mark this report as action taken only after the suspension writes succeed.\n\nReason: ${actionNotes.trim()}`
+      ? `This will suspend ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, create a suspension record, attach policy category "${policyLabel(policyCategory)}", and mark this report as action taken only after the suspension writes succeed.\n\nReason: ${actionNotes.trim()}`
       : actionType === "warn"
-        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"} and mark this report as action taken in the same backend transaction.\n\nMessage: ${actionNotes.trim()}`
-        : `This will mark the report as dismissed through admin_resolve_report.${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
+        ? `This will create a user-visible warning for ${profiles?.[selectedReport.reported_id]?.name || "the reported user"}, attach policy category "${policyLabel(policyCategory)}", and mark this report as action taken in the same backend transaction.\n\nMessage: ${actionNotes.trim()}`
+        : `This will mark the report as dismissed through admin_resolve_report with policy category "${policyLabel(policyCategory)}".${actionNotes.trim() ? `\n\nNotes: ${actionNotes.trim()}` : ""}`
     : "";
 
   // Filter by search query
@@ -423,10 +460,7 @@ const AdminReportsPanel = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            setSelectedReport(report);
-                            setShowActionDialog(true);
-                          }}
+                          onClick={() => openReportActionDialog(report)}
                           className="gap-2"
                           disabled={report.status !== "pending"}
                         >
@@ -444,7 +478,16 @@ const AdminReportsPanel = () => {
       </div>
 
       {/* Action Dialog */}
-      <Dialog open={showActionDialog} onOpenChange={setShowActionDialog}>
+      <Dialog
+        open={showActionDialog}
+        onOpenChange={(open) => {
+          if (open) {
+            setShowActionDialog(true);
+          } else {
+            closeReportActionDialog();
+          }
+        }}
+      >
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle>Review Report</DialogTitle>
@@ -487,6 +530,25 @@ const AdminReportsPanel = () => {
                 </Select>
               </div>
 
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Policy category</label>
+                <Select value={policyCategory} onValueChange={(v) => setPolicyCategory(v as PolicyCategory)}>
+                  <SelectTrigger className="bg-secondary/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {policyCategories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  P4 attaches policy context for triage and audit. It does not automate enforcement.
+                </p>
+              </div>
+
               {/* Notes */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Notes</label>
@@ -501,7 +563,7 @@ const AdminReportsPanel = () => {
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowActionDialog(false)}>
+            <Button variant="outline" onClick={closeReportActionDialog}>
               Cancel
             </Button>
             <Button

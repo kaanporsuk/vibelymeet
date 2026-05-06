@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   AreaChart,
@@ -16,114 +15,63 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { format, subDays, eachDayOfInterval, startOfDay } from "date-fns";
-import { supabase } from "@/integrations/supabase/client";
-import { Users, Heart, Calendar, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AlertTriangle, Users, Heart, Calendar, TrendingUp } from "lucide-react";
+import { useAdminOverviewDashboard } from "@/hooks/useAdminOverviewDashboard";
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', '#22d3ee', '#f472b6', '#a78bfa'];
 
 const AdminAnalyticsCharts = () => {
-  // Generate last 30 days
-  const last30Days = eachDayOfInterval({
-    start: subDays(new Date(), 29),
-    end: new Date(),
-  });
+  const {
+    data: overview,
+    error,
+    isError,
+    isLoading,
+    refetch,
+  } = useAdminOverviewDashboard();
 
-  // Fetch user growth data
-  const { data: userGrowthData } = useQuery({
-    queryKey: ['admin-user-growth'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('created_at')
-        .gte('created_at', subDays(new Date(), 30).toISOString())
-        .order('created_at', { ascending: true });
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6" aria-label="Loading Overview charts">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="glass-card p-6 rounded-2xl animate-pulse">
+            <div className="h-5 w-44 rounded bg-secondary mb-4" />
+            <div className="h-64 rounded bg-secondary/70" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
-      // Group by day
-      const grouped = last30Days.map((day) => {
-        const dayStart = startOfDay(day);
-        const count = data?.filter(
-          (u) => startOfDay(new Date(u.created_at)).getTime() === dayStart.getTime()
-        ).length || 0;
-        return {
-          date: format(day, 'MMM d'),
-          users: count,
-        };
-      });
+  if (isError || !overview?.charts) {
+    return (
+      <div className="glass-card p-6 rounded-2xl border-destructive/40">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-destructive/15 text-destructive flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground">Unable to load Overview charts</h3>
+              <p className="text-sm text-muted-foreground">
+                Chart data is hidden until the backend overview read succeeds.
+              </p>
+              {error?.message && <p className="text-xs text-muted-foreground mt-1">{error.message}</p>}
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
-      // Calculate cumulative
-      let total = 0;
-      return grouped.map((item) => {
-        total += item.users;
-        return { ...item, cumulative: total };
-      });
-    },
-  });
-
-  // Fetch match trends data
-  const { data: matchTrendsData } = useQuery({
-    queryKey: ['admin-match-trends'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('matches')
-        .select('matched_at')
-        .gte('matched_at', subDays(new Date(), 30).toISOString())
-        .order('matched_at', { ascending: true });
-
-      const grouped = last30Days.map((day) => {
-        const dayStart = startOfDay(day);
-        const count = data?.filter(
-          (m) => startOfDay(new Date(m.matched_at)).getTime() === dayStart.getTime()
-        ).length || 0;
-        return {
-          date: format(day, 'MMM d'),
-          matches: count,
-        };
-      });
-
-      return grouped;
-    },
-  });
-
-  // Fetch event attendance data
-  const { data: eventAttendanceData } = useQuery({
-    queryKey: ['admin-event-attendance'],
-    queryFn: async () => {
-      const { data: events } = await supabase
-        .from('events')
-        .select('id, title, current_attendees, max_attendees, event_date')
-        .order('event_date', { ascending: false })
-        .limit(10);
-
-      return events?.map((e) => ({
-        name: e.title.length > 15 ? e.title.slice(0, 15) + '...' : e.title,
-        attendees: e.current_attendees || 0,
-        capacity: e.max_attendees || 50,
-        fillRate: Math.round(((e.current_attendees || 0) / (e.max_attendees || 50)) * 100),
-      })) || [];
-    },
-  });
-
-  // Fetch gender distribution
-  const { data: genderData } = useQuery({
-    queryKey: ['admin-gender-distribution'],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('gender');
-
-      const counts: Record<string, number> = {};
-      data?.forEach((p) => {
-        const gender = p.gender || 'Unknown';
-        counts[gender] = (counts[gender] || 0) + 1;
-      });
-
-      return Object.entries(counts).map(([name, value]) => ({
-        name: name.charAt(0).toUpperCase() + name.slice(1).replace('_', ' '),
-        value,
-      }));
-    },
-  });
+  const userGrowthData = overview.charts.user_growth_30d;
+  const matchTrendsData = overview.charts.match_trends_30d;
+  const latestEventRows = overview.charts.latest_event_fill_rows;
+  const genderData = overview.charts.gender_distribution;
+  const possibleTestEventRows = overview.data_hygiene?.possible_test_event_rows ?? 0;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -135,11 +83,11 @@ const AdminAnalyticsCharts = () => {
       >
         <div className="flex items-center gap-2 mb-4">
           <Users className="w-5 h-5 text-primary" />
-          <h3 className="text-lg font-semibold text-foreground">User Growth (30 Days)</h3>
+          <h3 className="text-lg font-semibold text-foreground">User Growth (30 Days UTC)</h3>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={userGrowthData || []}>
+            <AreaChart data={userGrowthData}>
               <defs>
                 <linearGradient id="colorUsers" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
@@ -190,11 +138,11 @@ const AdminAnalyticsCharts = () => {
       >
         <div className="flex items-center gap-2 mb-4">
           <Heart className="w-5 h-5 text-pink-400" />
-          <h3 className="text-lg font-semibold text-foreground">Match Trends (30 Days)</h3>
+          <h3 className="text-lg font-semibold text-foreground">Match Trends (30 Days UTC)</h3>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={matchTrendsData || []}>
+            <LineChart data={matchTrendsData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
               <XAxis
                 dataKey="date"
@@ -230,7 +178,7 @@ const AdminAnalyticsCharts = () => {
         </div>
       </motion.div>
 
-      {/* Event Attendance Chart */}
+      {/* Latest Event Rows Chart */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -239,11 +187,21 @@ const AdminAnalyticsCharts = () => {
       >
         <div className="flex items-center gap-2 mb-4">
           <Calendar className="w-5 h-5 text-orange-400" />
-          <h3 className="text-lg font-semibold text-foreground">Event Attendance</h3>
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Latest Event Rows (Capacity Fill)</h3>
+            <p className="text-xs text-muted-foreground">
+              Latest 10 event rows, including archived/ended rows when present.
+            </p>
+          </div>
         </div>
+        {possibleTestEventRows > 0 && (
+          <p className="mb-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            {possibleTestEventRows} event row(s) look like test/smoke data. Review explicitly in the Events panel before taking action.
+          </p>
+        )}
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={eventAttendanceData || []} layout="vertical">
+            <BarChart data={latestEventRows} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
               <XAxis
                 type="number"
@@ -295,7 +253,7 @@ const AdminAnalyticsCharts = () => {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={genderData || []}
+                data={genderData}
                 cx="50%"
                 cy="50%"
                 innerRadius={60}
@@ -303,7 +261,7 @@ const AdminAnalyticsCharts = () => {
                 paddingAngle={5}
                 dataKey="value"
               >
-                {genderData?.map((_, index) => (
+                {genderData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
@@ -319,7 +277,7 @@ const AdminAnalyticsCharts = () => {
           </ResponsiveContainer>
         </div>
         <div className="flex flex-wrap justify-center gap-4 mt-2">
-          {genderData?.map((entry, index) => (
+          {genderData.map((entry, index) => (
             <div key={entry.name} className="flex items-center gap-2">
               <div
                 className="w-3 h-3 rounded-full"

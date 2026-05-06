@@ -163,3 +163,13 @@ verify_jwt = true
 
 [functions.admin-video-date-ops]
 verify_jwt = true
+
+# P4 unauthenticated invite/referral click capture. Stores opaque token hashes
+# only through a constrained RPC; user attribution is claimed after sign-in.
+[functions.record-growth-attribution]
+verify_jwt = false
+
+# P4 governed admin export queue. Gateway JWT stays on and the RPC performs
+# compliance permission, reason, scope, PII classification, audit, and expiry checks.
+[functions.admin-data-export]
+verify_jwt = true

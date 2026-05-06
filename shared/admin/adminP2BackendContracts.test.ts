@@ -7,6 +7,7 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260506103000_admin_p2_backend_authoritative_hardening.sql");
+const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const grantCredits = read("src/components/admin/AdminGrantCreditsModal.tsx");
@@ -15,12 +16,17 @@ const reports = read("src/components/admin/AdminReportsPanel.tsx");
 const moderation = read("src/components/admin/UserModerationActions.tsx");
 const eventControls = read("src/components/admin/AdminEventControls.tsx");
 const events = read("src/components/admin/AdminEventsPanel.tsx");
+const eventAttendees = read("src/components/admin/AdminEventAttendeesModal.tsx");
 const eventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const batchImport = read("src/components/admin/BatchEventImportModal.tsx");
 const notifications = read("src/components/admin/AdminNotificationsPanel.tsx");
 const verification = read("src/components/admin/AdminPhotoVerificationPanel.tsx");
 const support = read("src/components/admin/SupportInbox.tsx");
 const stats = read("src/components/admin/AdminStatsCards.tsx");
+const overviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
+const analyticsCharts = read("src/components/admin/AdminAnalyticsCharts.tsx");
+const quickActions = read("src/components/admin/AdminQuickActionsCards.tsx");
+const dailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
 const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const eventAnalytics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const pushAnalytics = read("src/hooks/usePushAnalytics.ts");
@@ -35,6 +41,15 @@ function fnSection(fnName: string): string {
   const candidates = [next, grantBlock].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : migration.length;
   return migration.slice(start, end);
+}
+
+function overviewFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = overviewMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = overviewMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const end = next === -1 ? overviewMigration.length : next;
+  return overviewMigration.slice(start, end);
 }
 
 const mutationRpcs = [
@@ -104,12 +119,19 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(adminRpc, /payload\.success === false \|\| payload\.ok === false/);
   assert.match(grantCredits, /callAdminRpc\("admin_adjust_user_credits"/);
   assert.match(premium, /callAdminRpc\("admin_set_premium_status"/);
-  assert.match(reports, /callAdminRpc\("admin_resolve_report"/);
+  assert.match(reports, /callAdminRpc\("admin_resolve_report(_with_policy)?"/);
   assert.match(moderation, /callAdminRpc\("admin_moderate_user"/);
   assert.match(eventControls, /callAdminRpc\("admin_end_event"/);
   assert.match(eventControls, /callAdminRpc\("admin_extend_event"/);
   assert.match(eventControls, /callAdminRpc\("admin_go_live_event"/);
   assert.match(eventControls, /callAdminRpc\("admin_send_event_reminder"/);
+  assert.match(eventAttendees, /callAdminRpc\("admin_send_event_reminder"/);
+  assert.match(eventAttendees, /AdminConfirmDialog/);
+  assert.match(eventAttendees, /no browser-side notification loop runs from this panel/);
+  assert.match(eventAttendees, /Remove Registration/);
+  assert.doesNotMatch(eventAttendees, /window\.confirm/);
+  assert.doesNotMatch(eventAttendees, /sendNotification/);
+  assert.doesNotMatch(eventAttendees, /send-notification/);
   assert.match(events, /callAdminRpc\("admin_archive_event_series"/);
   assert.match(events, /callAdminRpc\("admin_bulk_archive_events"/);
   assert.match(events, /callAdminRpc\("admin_generate_recurring_events"/);
@@ -127,7 +149,8 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(verification, /callAdminRpc\("admin_review_photo_verification"/);
   assert.match(support, /callAdminRpc\("admin_create_event_payment_exception"/);
   assert.match(support, /callAdminRpc\("admin_transition_event_payment_exception"/);
-  assert.match(stats, /callAdminRpc\("admin_get_overview_metrics"/);
+  assert.match(overviewHook, /callAdminRpc<AdminOverviewDashboardPayload>\("admin_get_overview_dashboard"/);
+  assert.match(stats, /useAdminOverviewDashboard/);
   assert.match(adminUsers, /callAdminRpc<AdminSearchUsersPayload>\("admin_search_users"/);
   assert.match(eventAnalytics, /callAdminRpc<AdminEventMetricsPayload>\("admin_get_event_metrics"/);
   assert.match(pushAnalytics, /callAdminRpc\("admin_get_push_delivery_metrics"/);
@@ -174,6 +197,15 @@ test("verification Edge Function is a thin admin RPC wrapper", () => {
 
 test("authoritative read surfaces are backend RPC based", () => {
   assert.match(fnSection("admin_get_overview_metrics"), /'reporting_timezone', 'UTC'/);
+  assert.match(overviewFnSection("admin_get_overview_dashboard"), /SECURITY DEFINER/);
+  assert.match(overviewFnSection("admin_get_overview_dashboard"), /SET search_path = public, pg_catalog/);
+  assert.match(overviewFnSection("admin_get_overview_dashboard"), /auth\.uid\(\)/);
+  assert.match(overviewFnSection("admin_get_overview_dashboard"), /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(overviewFnSection("admin_get_overview_dashboard"), /generate_series\(v_window_start, v_today_start, interval '1 day'\)/);
+  assert.match(overviewMigration, /REVOKE ALL ON FUNCTION public\.admin_get_overview_dashboard\(timestamptz\) FROM PUBLIC/);
+  assert.match(overviewMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_overview_dashboard\(timestamptz\) TO authenticated/);
+  assert.match(overviewMigration, /'20260506135000'/);
+  assert.match(overviewMigration, /Admin Overview dashboard read model/);
   assert.match(fnSection("admin_search_users"), /count\(\*\)::integer AS total_count/);
   assert.match(fnSection("admin_get_event_metrics"), /participant_reports_near_event_window/);
   assert.match(fnSection("admin_get_push_delivery_metrics"), /app_notification_log/);
@@ -183,4 +215,10 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.doesNotMatch(adminUsers, /\.from\(['"]profile_vibes['"]\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("user_reports"\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("matches"\)[\s\S]{0,160}\.select\("\*", \{ count: "exact", head: true \}\)/);
+  assert.doesNotMatch(analyticsCharts, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(analyticsCharts, /\.from\(['"]events['"]\)/);
+  assert.doesNotMatch(analyticsCharts, /\.from\(['"]matches['"]\)/);
+  assert.doesNotMatch(quickActions, /\.from\(['"]user_reports['"]\)/);
+  assert.doesNotMatch(quickActions, /\.from\(['"]events['"]\)/);
+  assert.doesNotMatch(dailyDrop, /\.from\(['"]daily_drops['"]\)/);
 });
