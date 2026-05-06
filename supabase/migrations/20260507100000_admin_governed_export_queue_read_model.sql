@@ -1,6 +1,6 @@
 -- Admin governed export queue read model and expanded export scopes.
 --
--- Migration class: schema + RPC.
+-- Migration class: schema+policy (RPC/read-model governance).
 -- Intent: make /kaan Data Export default to governed queued/audited export
 -- metadata, while keeping file generation as a deferred worker step.
 
@@ -414,7 +414,7 @@ INSERT INTO public.migration_classifications (
 VALUES (
   '20260507100000',
   'Admin governed export queue read model',
-  'schema+rpc',
+  'schema+policy',
   'Expands governed export metadata scopes and adds read-only export-job list/detail RPCs. No export files are generated and no provider systems are mutated.',
   false
 )
