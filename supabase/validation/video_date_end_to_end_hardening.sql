@@ -283,6 +283,9 @@ with launch_latency_checkpoint_defs as (
      or oid = to_regprocedure(
        'public.record_video_date_launch_latency_checkpoint_20260506101000_prepare_timing_base(uuid,text,jsonb,integer)'
      )
+     or oid = to_regprocedure(
+       'public.record_vd_launch_latency_202605061020_base(uuid,text,jsonb,integer)'
+     )
 )
 select
   'launch_latency_checkpoint_primary_fields_allowlisted' as check_name,
