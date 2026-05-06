@@ -29,6 +29,7 @@
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
     "test:admin-events-p0": "tsx shared/admin/adminEventsP0ReadSafety.test.ts",
     "test:admin-p1-ui-safety": "tsx shared/admin/adminP1UiSafety.test.ts",
+    "test:admin-route-access": "tsx shared/admin/adminRouteAccess.test.ts",
     "test:hardening-contracts": "bash scripts/run_hardening_contract_tests.sh",
     "test:event-lobby-regression": "bash scripts/run_event_lobby_regression.sh",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",

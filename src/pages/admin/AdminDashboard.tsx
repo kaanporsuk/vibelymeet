@@ -128,43 +128,43 @@ const AdminDashboard = () => {
                 <Menu className="w-5 h-5 text-foreground" />
               </button>
               <div>
-              <h1 className="text-2xl font-bold font-display text-foreground">
-                {activePanel === 'overview' && 'Dashboard Overview'}
-                {activePanel === 'users' && 'User Management'}
-                {activePanel === 'events' && 'Event Management'}
-                {activePanel === 'reports' && 'User Reports'}
-                {activePanel === 'export' && 'Data Export'}
-                {activePanel === 'event-analytics' && 'Event Analytics'}
-                {activePanel === 'video-date-timeline' && 'Video Date Timeline'}
-                {activePanel === 'activity-log' && 'Activity Log'}
-                {activePanel === 'engagement' && 'Engagement Analytics'}
-                {activePanel === 'campaigns' && 'Push Campaigns'}
-                {activePanel === 'photo-verification' && 'Photo Verification'}
-                {activePanel === 'media-lifecycle' && 'Media Lifecycle'}
-                {activePanel === 'deletions' && 'Account Deletions'}
-                {activePanel === 'feedback' && 'Legacy feedback'}
-                {activePanel === 'support' && 'Support inbox'}
-                {activePanel === 'tier-config' && 'Tier configuration'}
-                {activePanel === 'ghost-bootstrap' && 'Ghost Bootstrap Accounts'}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {activePanel === 'overview' && 'Real-time platform analytics'}
-                {activePanel === 'users' && 'Manage all user profiles and activity'}
-                {activePanel === 'events' && 'Create and manage events'}
-                {activePanel === 'reports' && 'Review and act on user reports'}
-                {activePanel === 'export' && 'Download platform data as CSV/PDF'}
-                {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
-                {activePanel === 'video-date-timeline' && 'Inspect a session timeline by video session UUID'}
-                {activePanel === 'activity-log' && 'Track all admin moderation actions'}
-                {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
-                {activePanel === 'campaigns' && 'Send targeted notifications to user segments'}
-                {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
-                {activePanel === 'media-lifecycle' && 'Retention policy controls, worker readiness, and guarded cron rollout planning'}
-                {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
-                {activePanel === 'feedback' && 'Legacy Help & Feedback submissions'}
-                {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
-                {activePanel === 'tier-config' && 'Live overrides for subscription tier capabilities (merged with code defaults)'}
-              </p>
+                <h1 className="text-2xl font-bold font-display text-foreground">
+                  {activePanel === 'overview' && 'Dashboard Overview'}
+                  {activePanel === 'users' && 'User Management'}
+                  {activePanel === 'events' && 'Event Management'}
+                  {activePanel === 'reports' && 'User Reports'}
+                  {activePanel === 'export' && 'Data Export'}
+                  {activePanel === 'event-analytics' && 'Event Analytics'}
+                  {activePanel === 'video-date-timeline' && 'Video Date Timeline'}
+                  {activePanel === 'activity-log' && 'Activity Log'}
+                  {activePanel === 'engagement' && 'Engagement Analytics'}
+                  {activePanel === 'campaigns' && 'Push Campaigns'}
+                  {activePanel === 'photo-verification' && 'Photo Verification'}
+                  {activePanel === 'media-lifecycle' && 'Media Lifecycle'}
+                  {activePanel === 'deletions' && 'Account Deletions'}
+                  {activePanel === 'feedback' && 'Legacy feedback'}
+                  {activePanel === 'support' && 'Support inbox'}
+                  {activePanel === 'tier-config' && 'Tier configuration'}
+                  {activePanel === 'ghost-bootstrap' && 'Ghost Bootstrap Accounts'}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {activePanel === 'overview' && 'Real-time platform analytics'}
+                  {activePanel === 'users' && 'Manage all user profiles and activity'}
+                  {activePanel === 'events' && 'Create and manage events'}
+                  {activePanel === 'reports' && 'Review and act on user reports'}
+                  {activePanel === 'export' && 'Download platform data as CSV/PDF'}
+                  {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
+                  {activePanel === 'video-date-timeline' && 'Inspect a session timeline by video session UUID'}
+                  {activePanel === 'activity-log' && 'Track all admin moderation actions'}
+                  {activePanel === 'engagement' && 'Notification delivery, daily drops, and user activity'}
+                  {activePanel === 'campaigns' && 'Draft campaign copy and supported targeting until backend delivery is available'}
+                  {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
+                  {activePanel === 'media-lifecycle' && 'Retention policy controls, worker readiness, and guarded cron rollout planning'}
+                  {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
+                  {activePanel === 'feedback' && 'Legacy Help & Feedback submissions'}
+                  {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
+                  {activePanel === 'tier-config' && 'Live overrides for subscription tier capabilities (merged with code defaults)'}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
