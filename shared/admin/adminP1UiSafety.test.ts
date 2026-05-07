@@ -303,8 +303,9 @@ test("overview realtime invalidates the active backend query key", () => {
   assert.match(adminRealtime, /admin-daily-drops-realtime/);
   assert.match(adminRealtime, /admin-daily-drop-generation-runs-realtime/);
   assert.match(adminRealtime, /table: "daily_drop_generation_runs"/);
-  assert.match(adminRealtime, /admin-engagement-push-telemetry-realtime/);
   assert.match(adminRealtime, /admin-engagement-notification-log-realtime/);
+  assert.match(adminRealtime, /Realtime authorizes against the base table RLS/);
+  assert.doesNotMatch(adminRealtime, /table: "push_notification_events"/);
   assert.match(adminRealtime, /invalidateOverview/);
   assert.match(adminRealtime, /invalidateEngagement/);
   assert.match(adminRealtime, /setTimeout/);

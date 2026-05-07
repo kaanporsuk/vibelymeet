@@ -138,14 +138,8 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       )
       .subscribe();
 
-    const engagementPushTelemetryChannel = supabase
-      .channel("admin-engagement-push-telemetry-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "push_notification_events" },
-        invalidateEngagement
-      )
-      .subscribe();
+    // Provider push telemetry is read through the redacted admin view/RPC and refreshed by polling.
+    // Realtime authorizes against the base table RLS, which intentionally hides other users' rows.
 
     const engagementNotificationLogChannel = supabase
       .channel("admin-engagement-notification-log-realtime")
@@ -239,7 +233,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       supabase.removeChannel(registrationsChannel);
       supabase.removeChannel(dailyDropsChannel);
       supabase.removeChannel(dailyDropRunsChannel);
-      supabase.removeChannel(engagementPushTelemetryChannel);
       supabase.removeChannel(engagementNotificationLogChannel);
       supabase.removeChannel(notificationsChannel);
       supabase.removeChannel(reportsChannel);

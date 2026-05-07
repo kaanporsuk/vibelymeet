@@ -22,6 +22,9 @@ const adminUsersLifecycleMigration = read("supabase/migrations/20260507143000_ad
 const pushTelemetryViewRedactionMigration = read("supabase/migrations/20260507154000_push_notification_events_admin_null_preserving_redaction.sql");
 const eventAnalyticsReadModelsMigration = read("supabase/migrations/20260507163000_admin_event_analytics_backend_read_models.sql");
 const photoVerificationHardeningMigration = read("supabase/migrations/20260507170000_photo_verification_admin_hardening.sql");
+const photoVerificationSupersededFollowupMigration = read(
+  "supabase/migrations/20260508100000_photo_verification_superseded_preservation_followup.sql",
+);
 const supportInboxMigration = read("supabase/migrations/20260507180000_admin_support_inbox_governed.sql");
 const supportInboxLiveDriftGuardMigration = read(
   "supabase/migrations/20260508093000_admin_support_inbox_live_drift_guard.sql",
@@ -1076,9 +1079,9 @@ test("admin panel list/detail read model RPCs are security definer, admin checke
   assert.match(reviewCommentFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text\) TO authenticated/);
 });
 
-test("photo verification hardening constrains user submissions and pending uniqueness", () => {
+test("photo verification hardening constrains user submissions and preserves duplicate pending rows", () => {
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_status_check/);
-  assert.match(photoVerificationHardeningMigration, /CHECK \(status IN \('pending', 'approved', 'rejected'\)\)/);
+  assert.match(photoVerificationHardeningMigration, /CHECK \(status IN \('pending', 'approved', 'rejected', 'superseded'\)\)/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_selfie_url_not_blank/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_profile_photo_url_not_blank/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_client_confidence_score_range/);
@@ -1089,11 +1092,15 @@ test("photo verification hardening constrains user submissions and pending uniqu
   assert.match(photoVerificationHardeningMigration, /rejection_reason IS NULL/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_final_review_metadata_present/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_rejected_reason_not_blank/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_superseded_reason_present/);
   assert.match(photoVerificationHardeningMigration, /WITH ranked_pending AS/);
   assert.match(photoVerificationHardeningMigration, /row_number\(\) OVER \(/);
   assert.match(photoVerificationHardeningMigration, /PARTITION BY user_id/);
   assert.match(photoVerificationHardeningMigration, /ORDER BY created_at DESC, id DESC/);
-  assert.match(photoVerificationHardeningMigration, /DELETE FROM public\.photo_verifications pv/);
+  assert.match(photoVerificationHardeningMigration, /UPDATE public\.photo_verifications pv/);
+  assert.match(photoVerificationHardeningMigration, /SET status = 'superseded'/);
+  assert.match(photoVerificationHardeningMigration, /Superseded by newer pending photo verification during migration\./);
+  assert.doesNotMatch(photoVerificationHardeningMigration, /DELETE FROM public\.photo_verifications pv/);
   assert.ok(
     photoVerificationHardeningMigration.indexOf("WITH ranked_pending AS") <
       photoVerificationHardeningMigration.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_verifications_one_pending_per_user"),
@@ -1108,6 +1115,21 @@ test("photo verification hardening constrains user submissions and pending uniqu
   assert.match(photoVerificationHardeningMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.photo_verifications/);
   assert.match(photoVerificationHardeningMigration, /INSERT INTO public\.migration_classifications/);
   assert.match(photoVerificationHardeningMigration, /'20260507170000'/);
+});
+
+test("photo verification superseded follow-up is cloud-safe and non-destructive", () => {
+  assert.match(photoVerificationSupersededFollowupMigration, /DROP CONSTRAINT IF EXISTS photo_verifications_status_check/);
+  assert.match(photoVerificationSupersededFollowupMigration, /CHECK \(status IN \('pending', 'approved', 'rejected', 'superseded'\)\)/);
+  assert.match(photoVerificationSupersededFollowupMigration, /ADD CONSTRAINT photo_verifications_superseded_reason_present/);
+  assert.match(photoVerificationSupersededFollowupMigration, /UPDATE public\.photo_verifications pv/);
+  assert.match(photoVerificationSupersededFollowupMigration, /SET status = 'superseded'/);
+  assert.match(photoVerificationSupersededFollowupMigration, /Superseded by newer pending photo verification during migration\./);
+  assert.doesNotMatch(photoVerificationSupersededFollowupMigration, /DELETE FROM public\.photo_verifications pv/);
+  assert.match(photoVerificationSupersededFollowupMigration, /CREATE OR REPLACE FUNCTION public\.admin_list_photo_verifications/);
+  assert.match(photoVerificationSupersededFollowupMigration, /IF v_status NOT IN \('pending', 'approved', 'rejected', 'superseded'\) THEN/);
+  assert.match(photoVerificationSupersededFollowupMigration, /WHERE migration_version = '20260507170000'/);
+  assert.match(photoVerificationSupersededFollowupMigration, /'20260508100000'/);
+  assert.match(photoVerificationSupersededFollowupMigration, /No rows are deleted/);
 });
 
 test("latest photo verification admin list read model exposes reviewed_at and sorts reviewed rows by review time", () => {
