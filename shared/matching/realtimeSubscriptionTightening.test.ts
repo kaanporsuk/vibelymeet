@@ -108,6 +108,15 @@ test("web fallback refetch and polling paths remain present", () => {
   assert.match(webActiveSession, /setInterval\(/);
 });
 
+test("web match queue keeps survey drain quiet while preserving lobby drain toasts", () => {
+  assert.match(webMatchQueue, /sourceSurface\s*=\s*"event_lobby"/);
+  assert.match(webMatchQueue, /suppressDrainReasonToasts\s*=\s*false/);
+  assert.match(webMatchQueue, /!suppressDrainReasonToasts/);
+  assert.match(webMatchQueue, /id:\s*`match-queue-drain:\$\{key\}`/);
+  assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /sourceSurface:\s*"post_date_survey"/);
+  assert.match(read("src/components/video-date/PostDateSurvey.tsx"), /suppressDrainReasonToasts:\s*true/);
+});
+
 test("duplicate navigation and terminal latches remain session-scoped in web Ready Gate surfaces", () => {
   assert.match(webReadyGateOverlay, /dateNavigationStartedRef/);
   assert.match(webReadyGateOverlay, /duplicateNavSuppressionKeysRef/);

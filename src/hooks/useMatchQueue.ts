@@ -16,10 +16,14 @@ import {
   EventLobbyObservabilityEvents,
 } from "@clientShared/observability/eventLobbyObservability";
 
+type MatchQueueSourceSurface = "event_lobby" | "post_date_survey";
+
 interface UseMatchQueueOptions {
   eventId: string | undefined;
   currentStatus: string;
   enabled?: boolean;
+  sourceSurface?: MatchQueueSourceSurface;
+  suppressDrainReasonToasts?: boolean;
   /**
    * When true, post-date survey (`/date/:id`) may poll `drain_match_queue` while local status is `in_survey`
    * (fallback if `video_sessions` realtime lags). Lobby callers should omit this.
@@ -35,6 +39,8 @@ export const useMatchQueue = ({
   eventId,
   currentStatus,
   enabled = true,
+  sourceSurface = "event_lobby",
+  suppressDrainReasonToasts = false,
   enableSurveyPhaseDrain,
   onVideoSessionReady,
   onQueuedSessionExpired,
@@ -121,7 +127,7 @@ export const useMatchQueue = ({
       trackEvent(EventLobbyObservabilityEvents.QUEUE_DRAIN_ATTEMPTED, {
         platform: "web",
         event_id: eventId,
-        source_surface: "event_lobby",
+        source_surface: sourceSurface,
         source_action: "use_match_queue",
         queue_status: currentStatus,
       });
@@ -138,6 +144,7 @@ export const useMatchQueue = ({
             result,
             sourceAction: "use_match_queue",
           }),
+          source_surface: sourceSurface,
           queue_status: currentStatus,
         });
         const reason =
@@ -149,6 +156,7 @@ export const useMatchQueue = ({
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_FOUND, {
             platform: "web",
             event_id: eventId,
+            source_surface: sourceSurface,
             session_id: sessionId,
           });
           notifyReadyOnce(sessionId, result.partner_id);
@@ -160,6 +168,7 @@ export const useMatchQueue = ({
             {
               platform: "web",
               event_id: eventId,
+              source_surface: sourceSurface,
               reason,
             },
           );
@@ -167,15 +176,16 @@ export const useMatchQueue = ({
           trackEvent(LobbyPostDateEvents.VIDEO_DATE_QUEUE_DRAIN_NOT_FOUND, {
             platform: "web",
             event_id: eventId,
+            source_surface: sourceSurface,
           });
         }
 
         const copy = result?.found ? null : getMatchQueueDrainReasonCopy(reason);
-        if (copy) {
+        if (copy && !suppressDrainReasonToasts) {
           const key = `${user.id}:${eventId}:${copy.reason}`;
           if (!drainReasonNotifiedKeysRef.current.has(key)) {
             drainReasonNotifiedKeysRef.current.add(key);
-            toast.info(copy.message, { duration: 3800 });
+            toast.info(copy.message, { id: `match-queue-drain:${key}`, duration: 3800 });
           }
         }
       } catch (err) {
@@ -187,6 +197,7 @@ export const useMatchQueue = ({
             error: err,
             sourceAction: "use_match_queue",
           }),
+          source_surface: sourceSurface,
           queue_status: currentStatus,
         });
       } finally {
@@ -196,7 +207,17 @@ export const useMatchQueue = ({
 
     drainQueue();
     refreshQueueCount();
-  }, [enabled, eventId, user?.id, currentStatus, enableSurveyPhaseDrain, refreshQueueCount, notifyReadyOnce]);
+  }, [
+    enabled,
+    eventId,
+    user?.id,
+    currentStatus,
+    enableSurveyPhaseDrain,
+    sourceSurface,
+    suppressDrainReasonToasts,
+    refreshQueueCount,
+    notifyReadyOnce,
+  ]);
 
   useEffect(() => {
     if (!enabled || !eventId || !user?.id) return;
