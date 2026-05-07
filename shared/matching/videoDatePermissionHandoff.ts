@@ -1,4 +1,5 @@
 import type { LobbyPostDatePlatform } from "../analytics/lobbyToPostDateJourney";
+import type { VideoDateWebMediaCaptureProfile } from "./videoDateMediaContract";
 
 export const VIDEO_DATE_PERMISSION_HANDOFF_TTL_MS = 45_000;
 
@@ -10,6 +11,7 @@ export type VideoDatePermissionHandoffState = {
   expiresAtMs: number;
   cameraGranted: true;
   microphoneGranted: true;
+  captureProfile: VideoDateWebMediaCaptureProfile | null;
   source: string;
 };
 
@@ -35,6 +37,7 @@ export function setVideoDatePermissionHandoff(params: {
   userId: string;
   platform: LobbyPostDatePlatform;
   source: string;
+  captureProfile?: VideoDateWebMediaCaptureProfile | null;
   nowMs?: number;
   ttlMs?: number;
 }): VideoDatePermissionHandoffState {
@@ -48,6 +51,7 @@ export function setVideoDatePermissionHandoff(params: {
     expiresAtMs: nowMs + (params.ttlMs ?? VIDEO_DATE_PERMISSION_HANDOFF_TTL_MS),
     cameraGranted: true,
     microphoneGranted: true,
+    captureProfile: params.captureProfile ?? null,
     source: params.source,
   };
   permissionHandoffs.set(permissionHandoffKey(params.sessionId, params.userId), entry);

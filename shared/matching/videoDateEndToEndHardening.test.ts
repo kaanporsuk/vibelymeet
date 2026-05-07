@@ -1451,6 +1451,9 @@ test("native video date capture uses supported Daily defaults while web keeps ex
     videoDateMediaContract,
     /VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS[\s\S]*width:[\s\S]*height:[\s\S]*aspectRatio/s,
   );
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_PORTRAIT_MEDIUM_VIDEO_CONSTRAINTS[\s\S]*aspectRatio/s);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_PORTRAIT_COMPATIBLE_VIDEO_CONSTRAINTS[\s\S]*aspectRatio/s);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER[\s\S]*portrait_medium[\s\S]*portrait_compatible[\s\S]*fallback/s);
   const nativeIdealConstraints =
     videoDateMediaContract.match(/VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS[\s\S]*?\};/)?.[0] ?? "";
   const nativeFallbackConstraints =
@@ -1469,8 +1472,23 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webDailyCallObjectConfig, /type DailyAdvancedConfigWithVideoDateKnobs/);
   assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff\?: boolean/);
   assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff:\s*true/);
+  assert.match(webDailyCallObjectConfig, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webDailyCallObjectConfig, /appAcquiredMedia\?\.videoTrack/);
   assert.match(webDailyCallObjectConfig, /useDevicePreferenceCookies/);
   assert.match(webDailyCallObjectConfig, /avoidEval:\s*true/);
+  assert.match(webVideoCallHook, /for \(const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER\)/);
+  assert.match(webVideoCallHook, /getUserMedia\(videoDateWebMediaStreamConstraints\(profile\)\)/);
+  assert.match(webVideoCallHook, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webVideoCallHook, /permission_handoff_media_acquired/);
+  assert.match(webVideoCallHook, /prewarmAppAcquiredMedia/);
+  assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("daily_room_failed_after_media_preflight"\)/);
+  assert.match(webVideoCallHook, /VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC/);
+  assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webDailyPrewarm, /appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia \| null/);
+  assert.match(readyGateOverlay, /permissionPrewarmMediaRef/);
+  assert.match(readyGateOverlay, /appAcquiredMedia: prewarmMedia/);
+  assert.match(readyGateOverlay, /captureProfile: permissionPrewarmMediaRef\.current\?\.captureProfile/);
+  assert.match(webVideoCallHook, /permissionHandoff\.captureProfile \?\? "ideal"/);
   assert.match(nativeVideoDateRoute, /diagnostic_scope: 'sender_capture'/);
   assert.match(nativeVideoDateRoute, /diagnostic_scope: 'receiver_layout'/);
   assert.match(nativeVideoDateRoute, /receiver_object_fit: VIDEO_DATE_REMOTE_OBJECT_FIT/);
@@ -1491,7 +1509,7 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(webVideoCallHook, /waitForLocalCameraSwitchCommit/);
   assert.match(webVideoCallHook, /setInputDevicesAsync/);
   assert.match(webVideoCallHook, /videoSource: false/);
-  assert.match(webVideoCallHook, /function videoOnlyCameraSwitchConstraints\(\s*captureProfile: VideoDateMediaCaptureProfile/);
+  assert.match(webVideoCallHook, /function videoOnlyCameraSwitchConstraints\(\s*captureProfile: VideoDateWebMediaCaptureProfile/);
   assert.match(webVideoCallHook, /videoDateWebMediaStreamConstraints\(captureProfile\)/);
   assert.match(webVideoCallHook, /videoOnlyCameraSwitchConstraints\(captureProfileRef\.current, desiredFacing, expectedDeviceId\)/);
   assert.doesNotMatch(webVideoCallHook, /CAMERA_SWITCH_HINT_RESEND_DELAY_MS/);
@@ -2711,7 +2729,10 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
     assert.match(source, /captureProfile !== params\.captureProfile/);
     assert.match(source, /roomUrl !== params\.roomUrl/);
   }
-  assert.match(webDailyPrewarm, /DailyIframe\.createCallObject\(dailyVideoDateCallObjectOptions\(captureProfile\)\)/);
+  assert.match(webDailyPrewarm, /DailyIframe\.createCallObject\(/);
+  assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia\(captureProfile/);
+  assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptions\(captureProfile\)/);
+  assert.match(webDailyPrewarm, /firstLiveTrack\(appAcquiredMedia\.stream\.getVideoTracks\(\)\)/);
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);
@@ -2724,7 +2745,7 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(readyGateOverlay, /enumerateDevices/);
   assert.match(readyGateOverlay, /permission_prewarm_silent_no_permissions_api/);
   assert.match(readyGateOverlay, /waitForMediaStreamWithTimeout/);
-  assert.match(readyGateOverlay, /stopMediaStreamTracks\(stream\)/);
+  assert.match(readyGateOverlay, /stopMediaStreamTracks\(stream(?:\.stream)?\)/);
   assert.match(readyGateOverlay, /preAuthWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /joinWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /prepareVideoDateSoloEntry/);

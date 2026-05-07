@@ -64,6 +64,8 @@ const supabaseConfig = read("supabase/config.toml");
 const webVideoCall = read("src/hooks/useVideoCall.ts");
 const webMatchCall = read("src/hooks/useMatchCall.tsx");
 const webDailyCallObjectConfig = read("src/lib/dailyCallObjectConfig.ts");
+const webDailyPrewarm = read("src/lib/videoDateDailyPrewarm.ts");
+const webReadyGateOverlay = read("src/components/lobby/ReadyGateOverlay.tsx");
 const webVideoDatePage = read("src/pages/VideoDate.tsx");
 const videoDateMediaContract = read("shared/matching/videoDateMediaContract.ts");
 const webPrepareEntry = read("src/lib/videoDatePrepareEntry.ts");
@@ -202,17 +204,32 @@ test("web Daily call objects use the CSP-friendly avoidEval path", () => {
 
 test("Video Date media contract preserves full remote frame on web and native", () => {
   assert.match(videoDateMediaContract, /VIDEO_DATE_REMOTE_OBJECT_FIT = "contain"/);
-  assert.match(videoDateMediaContract, /VIDEO_DATE_SELF_VIEW_OBJECT_FIT = "cover"/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_SELF_VIEW_OBJECT_FIT = "contain"/);
   assert.match(videoDateMediaContract, /VIDEO_DATE_CAPTURE_ASPECT_RATIO = 9 \/ 16/);
   assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_PORTRAIT_MEDIUM_VIDEO_CONSTRAINTS/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_PORTRAIT_COMPATIBLE_VIDEO_CONSTRAINTS/);
+  assert.match(videoDateMediaContract, /VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER/);
   assert.match(videoDateMediaContract, /VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS/);
   assert.match(webDailyCallObjectConfig, /dailyVideoDateCallObjectOptions/);
+  assert.match(webDailyCallObjectConfig, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webDailyCallObjectConfig, /appAcquiredMedia\?\.videoTrack/);
   assert.match(webDailyCallObjectConfig, /inputSettings:[\s\S]*video:[\s\S]*settings:\s*videoConstraints/);
   assert.match(webDailyCallObjectConfig, /experimentalChromeVideoMuteLightOff:\s*true/);
   assert.doesNotMatch(webDailyCallObjectConfig, /userMediaVideoConstraints/);
   assert.match(webVideoCall, /dailyVideoDateCallObjectOptions\(captureProfileForCall\)/);
-  assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("ideal"\)\)/);
-  assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\("fallback"\)\)/);
+  assert.match(webVideoCall, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webVideoCall, /for \(const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER\)/);
+  assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\(profile\)\)/);
+  assert.match(webVideoCall, /permission_handoff_media_acquired/);
+  assert.match(webVideoCall, /prewarmAppAcquiredMedia/);
+  assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
+  assert.match(webDailyPrewarm, /appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia \| null/);
+  assert.match(webReadyGateOverlay, /permissionPrewarmMediaRef/);
+  assert.match(webReadyGateOverlay, /appAcquiredMedia: prewarmMedia/);
+  assert.match(webReadyGateOverlay, /captureProfile: permissionPrewarmMediaRef\.current\?\.captureProfile/);
+  assert.match(webVideoCall, /permissionHandoff\.captureProfile \?\? "ideal"/);
+  assert.match(webVideoCall, /VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC/);
   assert.doesNotMatch(webVideoCall, /getUserMedia\(\{\s*audio:\s*true,\s*video:\s*true\s*\}\)/);
   const nativeIdealConstraints =
     videoDateMediaContract.match(/VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS[\s\S]*?\};/)?.[0] ?? "";

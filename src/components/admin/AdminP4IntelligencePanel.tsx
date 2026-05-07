@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -14,12 +14,38 @@ import {
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
+import {
+  asArray,
+  asRecord,
+  createDefaultP4Window,
+  filterEntitlementDriftRows,
+  isValidP4Window,
+  normalizeAuthenticityRows,
+  normalizeEntitlementRows,
+  normalizeEventLiquidityRows,
+  normalizeQualityBudgetRows,
+  normalizeStoreChecklistRows,
+  normalizeStoreReleaseRows,
+  normalizeStoreReviewRows,
+  normalizeTrustRows,
+  splitEventLiquidityRows,
+  type P4AuthenticityRow,
+  type P4EntitlementRow,
+  type P4EventLiquidityRow,
+  type P4QualityBudgetRow,
+  type P4StoreChecklistRow,
+  type P4StoreReleaseRow,
+  type P4StoreReviewRow,
+  type P4TrustTriageRow,
+  type P4Window,
+} from "@clientShared/admin/p4IntelligenceAdapters";
 
 type AdminMetricPayload = AdminRpcPayload & Record<string, unknown>;
 
@@ -71,10 +97,10 @@ type MetricCard = {
   icon?: LucideIcon;
 };
 
-const asRecord = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-
-const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+type FactItem = {
+  label: string;
+  value: unknown;
+};
 
 const formatMetric = (value: unknown): string => {
   if (typeof value === "number" && Number.isFinite(value)) return value.toLocaleString();
@@ -89,7 +115,15 @@ const percent = (value: unknown): string => {
 };
 
 const scoreBadge = (score: unknown) => {
-  const numeric = typeof score === "number" ? score : 0;
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return (
+      <Badge variant="outline" className="border-border/70 text-muted-foreground">
+        Score unavailable
+      </Badge>
+    );
+  }
+
+  const numeric = score;
   const className =
     numeric >= 75
       ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
@@ -99,36 +133,110 @@ const scoreBadge = (score: unknown) => {
   return <Badge className={className}>{numeric}/100</Badge>;
 };
 
-const signalKey = (row: Record<string, unknown>, fallback: string): string => {
-  const key = row.id || row.user_id || row.event_id || row.target_id || row.name || row.title;
-  return typeof key === "string" && key.trim() ? key : fallback;
+const formatCodeLabel = (value: unknown): string => {
+  if (typeof value !== "string" || !value.trim()) return "Unavailable";
+  return value
+    .replace(/[_-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
-const p4MetricRequests = (): P4MetricRequest[] => [
+const formatTimestamp = (value: unknown): string => {
+  if (typeof value !== "string" || !value.trim()) return "Unavailable";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+};
+
+const formatTarget = (comparison: unknown, target: unknown, unit: unknown): string => {
+  const operator = comparison === "gte" ? ">=" : comparison === "lte" ? "<=" : formatMetric(comparison);
+  const targetText = formatMetric(target);
+  const unitText = typeof unit === "string" && unit.trim() ? unit : "";
+  return `${operator} ${targetText}${unitText ? ` ${unitText}` : ""}`;
+};
+
+const statusBadge = (value: unknown) => {
+  const text = formatCodeLabel(value);
+  const normalized = typeof value === "string" ? value.toLowerCase() : "";
+  const className =
+    normalized.includes("healthy") || normalized.includes("approved") || normalized.includes("ready") || normalized.includes("within")
+      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+      : normalized.includes("missing") || normalized.includes("over") || normalized.includes("rejected") || normalized.includes("blocked") || normalized.includes("drift")
+        ? "bg-red-500/15 text-red-300 border-red-500/30"
+        : "bg-amber-500/15 text-amber-300 border-amber-500/30";
+  return <Badge className={className}>{text}</Badge>;
+};
+
+const FactGrid = ({ items }: { items: FactItem[] }) => (
+  <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2 xl:grid-cols-4">
+    {items.map((item) => (
+      <div key={item.label} className="flex justify-between gap-3">
+        <span>{item.label}</span>
+        <span className="text-right text-foreground">{formatMetric(item.value)}</span>
+      </div>
+    ))}
+  </div>
+);
+
+const toUtcDatetimeLocalValue = (iso: string): string => {
+  const date = new Date(iso);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 16) : "";
+};
+
+const fromUtcDatetimeLocalValue = (value: string, fallbackIso: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return fallbackIso;
+  const normalized = trimmed.split(":").length >= 3 ? `${trimmed}Z` : `${trimmed}:00.000Z`;
+  const date = new Date(normalized);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : fallbackIso;
+};
+
+const windowArgs = (window: P4Window) => ({
+  p_window_start: window.start,
+  p_window_end: window.end,
+});
+
+const p4MetricRequests = (window: P4Window): P4MetricRequest[] => [
   {
     key: "product",
     rpc: "admin_get_product_intelligence_metrics",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_product_intelligence_metrics", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_product_intelligence_metrics", {
+      ...windowArgs(window),
+      p_filters: {},
+    }),
   },
   {
     key: "retention",
     rpc: "admin_get_retention_activation_metrics",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_retention_activation_metrics", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_retention_activation_metrics", {
+      ...windowArgs(window),
+      p_filters: {},
+    }),
   },
   {
     key: "eventLiquidity",
     rpc: "admin_get_event_liquidity_metrics",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_event_liquidity_metrics", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_event_liquidity_metrics", {
+      p_event_id: null,
+      ...windowArgs(window),
+    }),
   },
   {
     key: "matchQuality",
     rpc: "admin_get_match_quality_metrics",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_match_quality_metrics", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_match_quality_metrics", {
+      ...windowArgs(window),
+      p_filters: {},
+    }),
   },
   {
     key: "revenue",
     rpc: "admin_get_revenue_intelligence",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_revenue_intelligence", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_revenue_intelligence", {
+      ...windowArgs(window),
+      p_filters: {},
+    }),
   },
   {
     key: "entitlements",
@@ -142,6 +250,7 @@ const p4MetricRequests = (): P4MetricRequest[] => [
     key: "trust",
     rpc: "admin_get_trust_triage_queue",
     promise: callAdminRpc<AdminMetricPayload>("admin_get_trust_triage_queue", {
+      p_filters: { window_start: window.start, window_end: window.end },
       p_limit: 25,
       p_offset: 0,
     }),
@@ -149,12 +258,14 @@ const p4MetricRequests = (): P4MetricRequest[] => [
   {
     key: "authenticity",
     rpc: "admin_get_authenticity_operations",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_authenticity_operations", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_authenticity_operations", {
+      p_filters: { window_start: window.start, window_end: window.end },
+    }),
   },
   {
     key: "cost",
     rpc: "admin_get_cost_capacity_metrics",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_cost_capacity_metrics", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_cost_capacity_metrics", windowArgs(window)),
   },
   {
     key: "quality",
@@ -164,12 +275,12 @@ const p4MetricRequests = (): P4MetricRequest[] => [
   {
     key: "store",
     rpc: "admin_get_store_operations_metrics",
-    promise: callAdminRpc<AdminMetricPayload>("admin_get_store_operations_metrics", {}),
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_store_operations_metrics", windowArgs(window)),
   },
 ];
 
 const MetricGrid = ({ cards }: { cards: MetricCard[] }) => (
-  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
     {cards.map((card) => {
       const Icon = card.icon || BarChart3;
       return (
@@ -183,16 +294,14 @@ const MetricGrid = ({ cards }: { cards: MetricCard[] }) => (
               <Icon className="h-5 w-5 text-primary" />
             </div>
           </CardHeader>
-          {card.helper ? (
-            <CardContent className="pt-0 text-xs text-muted-foreground">{card.helper}</CardContent>
-          ) : null}
+          {card.helper ? <CardContent className="pt-0 text-xs text-muted-foreground">{card.helper}</CardContent> : null}
         </Card>
       );
     })}
   </div>
 );
 
-const SignalList = ({
+const EventRows = ({
   title,
   description,
   rows,
@@ -200,7 +309,7 @@ const SignalList = ({
 }: {
   title: string;
   description: string;
-  rows: Record<string, unknown>[];
+  rows: P4EventLiquidityRow[];
   empty: string;
 }) => (
   <Card className="rounded-lg">
@@ -212,29 +321,36 @@ const SignalList = ({
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">{empty}</p>
       ) : (
-        rows.slice(0, 8).map((row, index) => (
-          <div key={`${title}-${signalKey(row, String(index))}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-medium text-foreground">
-                {String(row.name || row.title || row.event_title || row.user_id || row.event_id || "Signal")}
+        rows.map((row, index) => (
+          <div key={row.eventId || `${row.title}-${index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="font-medium text-foreground">{row.title}</div>
+                <div className="font-mono text-xs text-muted-foreground">{row.eventId || "Unavailable"}</div>
               </div>
-              {row.score !== undefined || row.risk_score !== undefined || row.liquidity_score !== undefined ? (
-                scoreBadge(row.score ?? row.risk_score ?? row.liquidity_score)
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {row.recommendation ? statusBadge(row.recommendation) : null}
+                {scoreBadge(row.score)}
+              </div>
             </div>
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-muted-foreground">
-              {Object.entries(row)
-                .filter(([key]) => !["name", "title", "signals", "factors"].includes(key))
-                .slice(0, 6)
-                .map(([key, value]) => (
-                  <div key={key} className="flex justify-between gap-3">
-                    <span>{key.replace(/_/g, " ")}</span>
-                    <span className="text-right text-foreground">
-                      {typeof value === "object" && value !== null ? JSON.stringify(value) : formatMetric(value)}
-                    </span>
-                  </div>
-                ))}
-            </div>
+            <FactGrid
+              items={[
+                { label: "Event date", value: formatTimestamp(row.eventDate) },
+                { label: "Market", value: row.market },
+                { label: "Status", value: row.rawStatus },
+                { label: "Confidence", value: row.confidence },
+                { label: "Registrations / capacity", value: `${formatMetric(row.registrations)} / ${formatMetric(row.capacity)}` },
+                { label: "Confirmed", value: row.confirmed },
+                { label: "Lobby participants", value: row.lobbyParticipants },
+                { label: "Gender balance", value: `${formatMetric(row.men)} / ${formatMetric(row.women)} / ${formatMetric(row.otherGender)}` },
+                { label: "Photo verified", value: row.photoVerified },
+                { label: "Premium", value: row.premium },
+                { label: "Completed sessions", value: row.completedSessions },
+                { label: "Matches", value: row.matches },
+                { label: "Positive swipes", value: row.positiveSwipes },
+                { label: "Participant reports", value: row.participantReports },
+              ]}
+            />
           </div>
         ))
       )}
@@ -242,11 +358,317 @@ const SignalList = ({
   </Card>
 );
 
+const EventLiquiditySection = ({
+  activeRows,
+  archivedRows,
+  semantics,
+}: {
+  activeRows: P4EventLiquidityRow[];
+  archivedRows: P4EventLiquidityRow[];
+  semantics: string;
+}) => (
+  <div className="space-y-4">
+    <EventRows
+      title="Event Liquidity"
+      description={semantics}
+      rows={activeRows}
+      empty="No active event liquidity rows were returned for this window."
+    />
+    <EventRows
+      title="Archived Event Liquidity"
+      description="Archived rows are separated so stale event screenshots do not dilute active planning signals."
+      rows={archivedRows}
+      empty="No archived event liquidity rows were returned."
+    />
+  </div>
+);
+
+const EntitlementReconciliationSection = ({
+  rows,
+  semantics,
+}: {
+  rows: P4EntitlementRow[];
+  semantics: string;
+}) => (
+  <Card className="rounded-lg">
+    <CardHeader>
+      <CardTitle className="text-lg">Entitlement Reconciliation</CardTitle>
+      <CardDescription>{`${semantics} Profiles with matching subscription/admin-grant state are hidden from this queue.`}</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No entitlement drift found.</p>
+      ) : (
+        rows.map((row, index) => (
+          <div key={row.userId || `entitlement-${index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="font-medium text-foreground">{row.name || row.userId}</div>
+                <div className="font-mono text-xs text-muted-foreground">{row.userId}</div>
+              </div>
+              {statusBadge("drift")}
+            </div>
+            <FactGrid
+              items={[
+                { label: "Profile is premium", value: row.profileIsPremium },
+                { label: "Should be premium", value: row.entitlementShouldBePremium },
+                { label: "Active subscription", value: row.hasActiveSubscription },
+                { label: "Active admin grant", value: row.hasActiveAdminGrant },
+                { label: "Premium until", value: formatTimestamp(row.premiumUntil) },
+                { label: "Subscription tier", value: row.subscriptionTier },
+                { label: "Subscription evidence", value: row.subscriptions.length },
+              ]}
+            />
+          </div>
+        ))
+      )}
+    </CardContent>
+  </Card>
+);
+
+const TrustTriageSection = ({
+  rows,
+  automationPolicy,
+}: {
+  rows: P4TrustTriageRow[];
+  automationPolicy: string;
+}) => (
+  <Card className="rounded-lg">
+    <CardHeader>
+      <CardTitle className="text-lg">Risk-Ranked Moderation Queue</CardTitle>
+      <CardDescription>{automationPolicy}</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No users currently need triage under the deterministic P4 score.</p>
+      ) : (
+        rows.map((row, index) => (
+          <div key={row.userId || `trust-${index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="font-medium text-foreground">{row.name || row.userId}</div>
+                <div className="font-mono text-xs text-muted-foreground">{row.userId}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {row.recommendedAction ? statusBadge(row.recommendedAction) : null}
+                {scoreBadge(row.riskScore)}
+              </div>
+            </div>
+            <FactGrid
+              items={[
+                { label: "Confidence", value: row.confidence },
+                { label: "Pending reports", value: row.pendingReports },
+                { label: "Total reports", value: row.totalReports },
+                { label: "Blocks received", value: row.blocksReceived },
+                { label: "Warnings", value: row.warnings },
+                { label: "Active suspensions", value: row.activeSuspensions },
+                { label: "Verification attempts", value: row.verificationAttempts },
+                { label: "Possible no-shows", value: row.possibleNoShows },
+              ]}
+            />
+          </div>
+        ))
+      )}
+    </CardContent>
+  </Card>
+);
+
+const AuthenticityOperationsSection = ({
+  metrics,
+  rows,
+  automationPolicy,
+}: {
+  metrics: AdminMetricPayload;
+  rows: P4AuthenticityRow[];
+  automationPolicy: string;
+}) => (
+  <div className="space-y-4">
+    <MetricGrid
+      cards={[
+        { label: "Pending Verifications", value: metrics.pending_verifications, helper: "Awaiting human review.", icon: Target },
+        { label: "Rejected Verifications", value: metrics.rejected_verifications, helper: "Recovery queue evidence.", icon: ShieldAlert },
+        { label: "Expired Verified Profiles", value: metrics.expired_verified_profiles, helper: "Verified profiles past expiry.", icon: AlertTriangle },
+        { label: "Repeated Failed Attempts", value: metrics.users_with_repeated_failed_attempts_7d, helper: "Seven-day repeated failure signal.", icon: Brain },
+      ]}
+    />
+    <Card className="rounded-lg">
+      <CardHeader>
+        <CardTitle className="text-lg">Authenticity Operations</CardTitle>
+        <CardDescription>{automationPolicy}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No authenticity queue rows were returned.</p>
+        ) : (
+          rows.map((row, index) => (
+            <div key={row.verificationId || `${row.userId}-${index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-medium text-foreground">{row.verificationId || "Verification"}</div>
+                  <div className="font-mono text-xs text-muted-foreground">{row.userId || "Unavailable"}</div>
+                </div>
+                {row.status ? statusBadge(row.status) : null}
+              </div>
+              <FactGrid
+                items={[
+                  { label: "Created", value: formatTimestamp(row.createdAt) },
+                  { label: "Expires", value: formatTimestamp(row.expiresAt) },
+                  { label: "Client confidence", value: row.clientConfidenceScore },
+                  { label: "Client match result", value: row.clientMatchResult },
+                ]}
+              />
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
+  </div>
+);
+
+const QualityBudgetsSection = ({
+  rows,
+  semantics,
+}: {
+  rows: P4QualityBudgetRow[];
+  semantics: string;
+}) => (
+  <Card className="rounded-lg">
+    <CardHeader>
+      <CardTitle className="text-lg">Quality Budgets</CardTitle>
+      <CardDescription>{semantics}</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No quality budget definitions were returned.</p>
+      ) : (
+        rows.map((row, index) => (
+          <div key={row.budgetKey || `quality-${index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="font-medium text-foreground">{row.label || row.budgetKey}</div>
+                <div className="font-mono text-xs text-muted-foreground">{row.budgetKey}</div>
+              </div>
+              {row.status ? statusBadge(row.status) : null}
+            </div>
+            <FactGrid
+              items={[
+                { label: "Domain", value: row.domain },
+                { label: "Target", value: formatTarget(row.comparison, row.targetValue, row.unit) },
+                { label: "Latest observed", value: row.latestObservedValue === null ? "Missing" : `${formatMetric(row.latestObservedValue)} ${row.unit || ""}`.trim() },
+                { label: "Release", value: row.latestReleaseVersion },
+                { label: "Observed at", value: formatTimestamp(row.latestObservedAt) },
+              ]}
+            />
+          </div>
+        ))
+      )}
+    </CardContent>
+  </Card>
+);
+
+const StoreOperationsSection = ({
+  checklists,
+  releases,
+  reviews,
+  semantics,
+}: {
+  checklists: P4StoreChecklistRow[];
+  releases: P4StoreReleaseRow[];
+  reviews: P4StoreReviewRow[];
+  semantics: string;
+}) => {
+  const hasRows = checklists.length > 0 || releases.length > 0 || reviews.length > 0;
+
+  return (
+    <Card className="rounded-lg">
+      <CardHeader>
+        <CardTitle className="text-lg">Store Operations Evidence</CardTitle>
+        <CardDescription>{semantics}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {!hasRows ? <p className="text-sm text-muted-foreground">No store operations rows were returned.</p> : null}
+
+        {checklists.length > 0 ? (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">Metadata Checklists</h3>
+            {checklists.map((row, index) => (
+              <div key={`${row.platform || "platform"}-${row.checklistKey || index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="font-medium text-foreground">{formatCodeLabel(row.checklistKey)}</div>
+                  {row.status ? statusBadge(row.status) : null}
+                </div>
+                <FactGrid
+                  items={[
+                    { label: "Platform", value: row.platform },
+                    { label: "Updated", value: formatTimestamp(row.updatedAt) },
+                  ]}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {releases.length > 0 ? (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">Native Release Runs</h3>
+            {releases.map((row, index) => (
+              <div key={`${row.platform || "platform"}-${row.releaseVersion || "release"}-${row.buildNumber || row.createdAt || index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground">{row.releaseVersion || "Release"}</div>
+                    <div className="font-mono text-xs text-muted-foreground">{row.buildNumber || "No build number"}</div>
+                  </div>
+                  {row.status ? statusBadge(row.status) : null}
+                </div>
+                <FactGrid
+                  items={[
+                    { label: "Platform", value: row.platform },
+                    { label: "Channel", value: row.channel },
+                    { label: "Created", value: formatTimestamp(row.createdAt) },
+                    { label: "Started", value: formatTimestamp(row.startedAt) },
+                    { label: "Completed", value: formatTimestamp(row.completedAt) },
+                  ]}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {reviews.length > 0 ? (
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-foreground">Store Review Events</h3>
+            {reviews.map((row, index) => (
+              <div key={row.reviewId || `${row.platform || "platform"}-${row.observedAt || index}`} className="rounded-md border border-border/60 bg-secondary/20 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="font-medium text-foreground">{row.category ? formatCodeLabel(row.category) : row.reviewId || "Review"}</div>
+                  {row.actionStatus ? statusBadge(row.actionStatus) : null}
+                </div>
+                <FactGrid
+                  items={[
+                    { label: "Platform", value: row.platform },
+                    { label: "Release", value: row.releaseVersion },
+                    { label: "Rating", value: row.rating },
+                    { label: "Sentiment", value: row.sentiment },
+                    { label: "Observed", value: formatTimestamp(row.observedAt) },
+                  ]}
+                />
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+};
+
 const AdminP4IntelligencePanel = () => {
+  const [p4Window, setP4Window] = useState<P4Window>(() => createDefaultP4Window());
+  const windowValid = isValidP4Window(p4Window);
+
   const intelligenceQuery = useQuery({
-    queryKey: ["admin-p4-intelligence"],
+    queryKey: ["admin-p4-intelligence", p4Window.start, p4Window.end],
     queryFn: async (): Promise<P4Payload> => {
-      const requests = p4MetricRequests();
+      const requests = p4MetricRequests(p4Window);
       const results = await Promise.allSettled(requests.map(({ promise }) => promise));
 
       return requests.reduce<P4Payload>(
@@ -265,17 +687,26 @@ const AdminP4IntelligencePanel = () => {
         { failures: [] },
       );
     },
-    refetchInterval: 120000,
+    enabled: windowValid,
+    refetchInterval: 120_000,
   });
 
   const data = intelligenceQuery.data;
-  const intelligenceFailures = data?.failures ?? [];
   const productMetrics = asRecord(data?.product?.metrics);
   const retentionMetrics = asRecord(data?.retention?.metrics);
   const revenueMetrics = asRecord(data?.revenue?.metrics);
   const derivedUsage = asRecord(data?.cost?.derived_usage);
   const unitEconomics = asRecord(data?.cost?.unit_economics);
   const matchFactors = asRecord(data?.matchQuality?.factors);
+  const authenticityMetrics = asRecord(data?.authenticity?.metrics);
+  const eventLiquidity = splitEventLiquidityRows(normalizeEventLiquidityRows(data?.eventLiquidity?.rows));
+  const entitlementRows = normalizeEntitlementRows(data?.entitlements?.rows);
+  const trustRows = normalizeTrustRows(data?.trust?.rows);
+  const authenticityRows = normalizeAuthenticityRows(data?.authenticity?.queue);
+  const qualityRows = normalizeQualityBudgetRows(data?.quality?.rows);
+  const storeChecklistRows = normalizeStoreChecklistRows(data?.store?.metadata_checklists);
+  const storeReleaseRows = normalizeStoreReleaseRows(data?.store?.release_runs);
+  const storeReviewRows = normalizeStoreReviewRows(data?.store?.review_events);
   const reportBlockSignals =
     typeof matchFactors.reports === "number" && typeof matchFactors.blocks === "number"
       ? matchFactors.reports + matchFactors.blocks
@@ -295,7 +726,7 @@ const AdminP4IntelligencePanel = () => {
     return (
       <div className="space-y-4">
         <div className="h-28 rounded-xl bg-secondary/40 animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
             <div key={index} className="h-36 rounded-xl bg-secondary/40 animate-pulse" />
           ))}
@@ -316,19 +747,8 @@ const AdminP4IntelligencePanel = () => {
     );
   }
 
-  const eventRows = asArray<Record<string, unknown>>(data?.eventLiquidity?.rows);
-  const trustRows = asArray<Record<string, unknown>>(data?.trust?.rows);
-  const authenticityRows = asArray<Record<string, unknown>>(data?.authenticity?.queue);
-  const entitlementRows = asArray<Record<string, unknown>>(data?.entitlements?.rows);
-  const qualityRows = asArray<Record<string, unknown>>(data?.quality?.rows);
-  const storeChecklistRows = asArray<Record<string, unknown>>(data?.store?.metadata_checklists);
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6"
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-2">
@@ -340,22 +760,58 @@ const AdminP4IntelligencePanel = () => {
             <p className="text-sm text-muted-foreground">
               Backend-defined P4 decision signals. Scores are advisory, explainable, and never change ranking, moderation, revenue, or compliance state by themselves.
             </p>
+            <p className="text-xs text-muted-foreground">
+              Window: {formatTimestamp(p4Window.start)} to {formatTimestamp(p4Window.end)}. Current-state queues remain labeled as queues.
+            </p>
           </div>
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => intelligenceQuery.refetch()}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span>Start (UTC)</span>
+              <Input
+                type="datetime-local"
+                value={toUtcDatetimeLocalValue(p4Window.start)}
+                onChange={(event) =>
+                  setP4Window((current) => ({
+                    ...current,
+                    start: fromUtcDatetimeLocalValue(event.target.value, current.start),
+                  }))
+                }
+              />
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span>End (UTC)</span>
+              <Input
+                type="datetime-local"
+                value={toUtcDatetimeLocalValue(p4Window.end)}
+                onChange={(event) =>
+                  setP4Window((current) => ({
+                    ...current,
+                    end: fromUtcDatetimeLocalValue(event.target.value, current.end),
+                  }))
+                }
+              />
+            </label>
+            <Button variant="outline" size="sm" className="gap-2" disabled={!windowValid} onClick={() => void intelligenceQuery.refetch()}>
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
+        {!windowValid && (
+          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            Start (UTC) must be before End (UTC).
+          </div>
+        )}
       </section>
 
-      {intelligenceFailures.length > 0 && (
+      {asArray<P4Failure>(data?.failures).length > 0 && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>P4 intelligence data is partially unavailable</AlertTitle>
           <AlertDescription>
             <div>Successful RPC sections are still shown below.</div>
             <div className="mt-2 space-y-1 text-xs">
-              {intelligenceFailures.map((failure) => (
+              {asArray<P4Failure>(data?.failures).map((failure) => (
                 <div key={failure.rpc}>
                   <span className="font-medium">{failure.rpc}</span>: {failure.message}
                 </div>
@@ -388,11 +844,10 @@ const AdminP4IntelligencePanel = () => {
         </TabsContent>
 
         <TabsContent value="events" className="space-y-4">
-          <SignalList
-            title="Event Liquidity"
-            description={String(data?.eventLiquidity?.score_semantics || "Deterministic planning score from existing backend truth.")}
-            rows={eventRows}
-            empty="No event liquidity rows were returned for this window."
+          <EventLiquiditySection
+            activeRows={eventLiquidity.activeRows}
+            archivedRows={eventLiquidity.archivedRows}
+            semantics={String(data?.eventLiquidity?.score_semantics || "Deterministic planning score from existing backend truth.")}
           />
         </TabsContent>
 
@@ -423,26 +878,21 @@ const AdminP4IntelligencePanel = () => {
               { label: "Paid Event Registrations", value: revenueMetrics.paid_event_registrations, helper: "Windowed paid registration evidence.", icon: Target },
             ]}
           />
-          <SignalList
-            title="Entitlement Reconciliation"
-            description={String(data?.entitlements?.semantics || "Backend entitlement drift evidence.")}
-            rows={entitlementRows}
-            empty="No entitlement rows were returned."
+          <EntitlementReconciliationSection
+            semantics={String(data?.entitlements?.semantics || "Backend entitlement drift evidence.")}
+            rows={filterEntitlementDriftRows(entitlementRows)}
           />
         </TabsContent>
 
         <TabsContent value="trust" className="space-y-4">
-          <SignalList
-            title="Risk-Ranked Moderation Queue"
-            description={String(data?.trust?.automation_policy || "Human-reviewed trust triage only.")}
+          <TrustTriageSection
             rows={trustRows}
-            empty="No users currently need triage under the deterministic P4 score."
+            automationPolicy={String(data?.trust?.automation_policy || "Human-reviewed trust triage only.")}
           />
-          <SignalList
-            title="Authenticity Operations"
-            description="Verification funnel and media/authenticity recovery queues."
+          <AuthenticityOperationsSection
+            metrics={authenticityMetrics}
             rows={authenticityRows}
-            empty="No authenticity queue rows were returned."
+            automationPolicy={String(data?.authenticity?.automation_policy || "Authenticity signals prioritize human review and recovery.")}
           />
         </TabsContent>
 
@@ -455,17 +905,15 @@ const AdminP4IntelligencePanel = () => {
               { label: "Crash-Free Target", value: percent(0.99), helper: "Budget definition, not live provider proof.", icon: CheckCircle2 },
             ]}
           />
-          <SignalList
-            title="Quality Budgets"
-            description={String(data?.quality?.semantics || "Missing observations are not passes.")}
+          <QualityBudgetsSection
+            semantics={String(data?.quality?.semantics || "Missing observations are not passes.")}
             rows={qualityRows}
-            empty="No quality budget definitions were returned."
           />
-          <SignalList
-            title="Store Operations Evidence"
-            description={String(data?.store?.semantics || "Manual evidence ledger for native release operations.")}
-            rows={storeChecklistRows}
-            empty="No store metadata checklist rows were returned."
+          <StoreOperationsSection
+            semantics={String(data?.store?.semantics || "Manual evidence ledger for native release operations.")}
+            checklists={storeChecklistRows}
+            releases={storeReleaseRows}
+            reviews={storeReviewRows}
           />
         </TabsContent>
       </Tabs>

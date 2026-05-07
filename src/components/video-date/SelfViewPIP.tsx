@@ -3,6 +3,7 @@ import { MicOff, SwitchCamera, VideoOff } from "lucide-react";
 import { RefObject, useRef, useEffect, useState } from "react";
 import { trackEvent } from "@/lib/analytics";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
+import { VIDEO_DATE_SELF_VIEW_OBJECT_FIT } from "@clientShared/matching/videoDateMediaContract";
 
 interface SelfViewPIPProps {
   stream: MediaStream | null;
@@ -95,7 +96,7 @@ export const SelfViewPIP = ({
       dragElastic={0.05}
       dragMomentum={false}
       whileDrag={{ scale: 1.05 }}
-      className="absolute right-4 top-[6.75rem] w-[112px] h-[154px] rounded-[1.35rem] overflow-hidden z-40 cursor-grab active:cursor-grabbing bg-black sm:w-[124px] sm:h-[170px] md:right-5 md:top-[7.125rem]"
+      className="absolute right-4 top-[6.75rem] aspect-[9/16] w-[96px] rounded-[1.35rem] overflow-hidden z-40 cursor-grab active:cursor-grabbing bg-black sm:w-[104px] md:right-5 md:top-[7.125rem] md:w-[112px]"
       style={{
         boxShadow:
           "0 20px 54px rgba(0,0,0,0.5), 0 0 0 1.5px hsl(var(--primary) / 0.48), inset 0 1px 0 rgba(255,255,255,0.12)",
@@ -107,15 +108,15 @@ export const SelfViewPIP = ({
           <span className="text-[10px] text-muted-foreground">Camera off</span>
         </div>
       ) : (
-        // Self-view PIP is a small draggable portrait tile, so this local preview intentionally crops.
-        // The remote Vibe Video Date surface must use contain instead.
+        // Self-view must preserve the sender's full frame; face crops feel especially harsh on mobile Safari.
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className="w-full h-full object-cover"
+          className="w-full h-full bg-black object-contain"
           style={{
+            objectFit: VIDEO_DATE_SELF_VIEW_OBJECT_FIT,
             transform: "scaleX(-1)",
             filter: `blur(${blurAmount}px)`,
             transition: "filter 10s linear",
@@ -143,11 +144,11 @@ export const SelfViewPIP = ({
             void onFlipCamera();
           }}
           disabled={isFlippingCamera}
-          className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full border border-white/[0.12] bg-black/[0.45] text-white shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-xl transition-colors hover:bg-black/60 disabled:opacity-60"
+          className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full border border-white/[0.12] bg-black/[0.45] text-white shadow-[0_8px_20px_rgba(0,0,0,0.28)] backdrop-blur-xl transition-colors hover:bg-black/60 disabled:opacity-60"
           aria-label="Switch camera"
           title="Switch camera"
         >
-          <SwitchCamera className={`h-4 w-4 ${isFlippingCamera ? "animate-pulse" : ""}`} aria-hidden />
+          <SwitchCamera className={`h-3.5 w-3.5 ${isFlippingCamera ? "animate-pulse" : ""}`} aria-hidden />
         </motion.button>
       ) : null}
 
@@ -156,9 +157,9 @@ export const SelfViewPIP = ({
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          className="absolute top-2 left-2 w-8 h-8 rounded-full bg-destructive/95 flex items-center justify-center shadow-[0_8px_20px_hsl(var(--destructive)/0.32)]"
+          className="absolute top-1.5 left-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-destructive/95 shadow-[0_8px_20px_hsl(var(--destructive)/0.32)]"
         >
-          <MicOff className="w-4 h-4 text-destructive-foreground" />
+          <MicOff className="h-3.5 w-3.5 text-destructive-foreground" />
         </motion.div>
       )}
 

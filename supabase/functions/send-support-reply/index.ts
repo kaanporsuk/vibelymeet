@@ -37,7 +37,7 @@ function sanitizeErrorMessage(reason: unknown): string {
   return String(reason instanceof Error ? reason.message : reason || "Unknown error")
     .replace(/https?:\/\/\S+/g, "[url]")
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[id]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]")
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[token]")
     .replace(/\b(?:Bearer|Token)\s+[A-Za-z0-9._~+/=-]+/gi, "[token]")
     .replace(/\s+/g, " ")
@@ -184,7 +184,7 @@ serve(async (req) => {
 
       if (!notifyRes.ok) {
         const txt = await notifyRes.text();
-        console.error("send-notification failed:", notifyRes.status, txt);
+        console.error("send-notification failed:", notifyRes.status, sanitizeErrorMessage(txt));
         notificationWarning = "Reply saved but push notification could not be delivered.";
       }
     } catch (notifyError) {
@@ -228,7 +228,7 @@ serve(async (req) => {
 
           if (!emailRes.ok) {
             const body = await emailRes.text();
-            console.error("Resend email non-OK response for support reply:", emailRes.status, body);
+            console.error("Resend email non-OK response for support reply:", emailRes.status, sanitizeErrorMessage(body));
             emailWarning = "Reply saved but email notification could not be sent.";
           }
         } catch (emailError) {

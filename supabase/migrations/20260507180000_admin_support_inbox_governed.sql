@@ -33,6 +33,29 @@ CREATE TRIGGER support_ticket_replies_status_sync
   FOR EACH ROW
   EXECUTE FUNCTION public.support_ticket_reply_status_sync();
 
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.support_tickets;
+EXCEPTION
+  WHEN duplicate_object OR undefined_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.support_ticket_replies;
+EXCEPTION
+  WHEN duplicate_object OR undefined_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.support_ticket_events;
+EXCEPTION
+  WHEN duplicate_object OR undefined_object THEN NULL;
+END $$;
+
+GRANT SELECT ON public.support_ticket_events TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.admin_get_support_inbox(
   p_status text DEFAULT 'all',
   p_primary_type text DEFAULT 'all',
@@ -614,15 +637,17 @@ BEGIN
     RETURN public.admin_idempotency_complete(v_admin_id, 'admin_create_support_reply', p_idempotency_key, v_response);
   END IF;
 
+  IF v_ticket.status = 'resolved' THEN
+    v_response := public.admin_json_error('INVALID_TRANSITION', 'Reopen the support ticket before sending another reply.');
+    RETURN public.admin_idempotency_complete(v_admin_id, 'admin_create_support_reply', p_idempotency_key, v_response);
+  END IF;
+
   INSERT INTO public.support_ticket_replies (ticket_id, sender_type, sender_id, message)
   VALUES (p_ticket_id, 'admin', v_admin_id, v_message)
   RETURNING * INTO v_reply;
 
   UPDATE public.support_tickets
-  SET status = CASE
-        WHEN status = 'resolved' THEN status
-        ELSE 'waiting_on_user'
-      END,
+  SET status = 'waiting_on_user',
       updated_at = now()
   WHERE id = p_ticket_id
   RETURNING * INTO v_after;

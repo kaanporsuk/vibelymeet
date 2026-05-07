@@ -176,7 +176,7 @@ const EXCEPTION_STATUS_OPTIONS: { value: ExceptionStatus; label: string }[] = [
   { value: "closed_no_action", label: "Closed no action" },
 ];
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REFUND_EXCEPTION_TYPES = new Set<ExceptionType>(["refund_requested", "refund_handled_externally"]);
 
 function formatRelativeTime(value: string | null | undefined) {

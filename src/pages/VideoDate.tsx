@@ -293,6 +293,36 @@ function videoDateDebug(message: string, data?: Record<string, unknown>) {
   console.log(`[VideoDate] ${message}`, data ?? {});
 }
 
+function summarizeWebVideoDateRuntime() {
+  if (typeof navigator === "undefined") {
+    return {
+      browser_family: "unknown",
+      is_ios: false,
+      is_mobile_safari: false,
+      is_safari: false,
+    };
+  }
+  const ua = navigator.userAgent ?? "";
+  const vendor = navigator.vendor ?? "";
+  const isIOS = /\b(iPhone|iPad|iPod)\b/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR)/i.test(ua);
+  const browserFamily = /CriOS|Chrome|Chromium/i.test(ua)
+    ? "chrome"
+    : /FxiOS|Firefox/i.test(ua)
+      ? "firefox"
+      : /Edg/i.test(ua)
+        ? "edge"
+        : isSafari || /Apple/i.test(vendor)
+          ? "safari"
+          : "unknown";
+  return {
+    browser_family: browserFamily,
+    is_ios: isIOS,
+    is_mobile_safari: isIOS && isSafari,
+    is_safari: isSafari,
+  };
+}
+
 function videoSessionIndicatesTerminalEnd(
   row: { ended_at?: string | null; state?: string | null; phase?: string | null } | null
 ): boolean {
@@ -355,6 +385,7 @@ const VideoDate = () => {
   });
 
   const remoteContainerRef = useRef<HTMLDivElement>(null);
+  const remoteBackdropVideoRef = useRef<HTMLVideoElement>(null);
   const phaseRef = useRef<CallPhase>("handshake");
   const timeLeftRef = useRef<number | null>(null);
   const countdownCompletionKeyRef = useRef<string | null>(null);
@@ -721,9 +752,46 @@ const VideoDate = () => {
     },
   });
 
+  const syncRemoteBackdropVideo = useCallback(
+    (source: string) => {
+      const backdropEl = remoteBackdropVideoRef.current;
+      const remoteEl = remoteVideoRef.current;
+      if (!backdropEl) return;
+      const nextStream = remoteEl?.srcObject ?? null;
+      if (backdropEl.srcObject !== nextStream) {
+        backdropEl.srcObject = nextStream;
+        vdbg("remote_date_backdrop_video_synced", {
+          sessionId: id ?? null,
+          eventId: eventId ?? null,
+          source,
+          hasStream: Boolean(nextStream),
+        });
+      }
+      if (nextStream && backdropEl.paused) {
+        const playPromise = backdropEl.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          void playPromise.catch(() => undefined);
+        }
+      }
+    },
+    [eventId, id, remoteVideoRef],
+  );
+
+  useEffect(() => {
+    if (!isConnected || showFeedback) {
+      if (remoteBackdropVideoRef.current?.srcObject) {
+        remoteBackdropVideoRef.current.srcObject = null;
+      }
+      return;
+    }
+    syncRemoteBackdropVideo("connected_effect");
+    const intervalId = window.setInterval(() => syncRemoteBackdropVideo("connected_interval"), 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [isConnected, showFeedback, syncRemoteBackdropVideo]);
+
   const logRemoteVideoLayout = useCallback(
     (source: "loadedmetadata" | "playing" | "resize") => {
-      if (!import.meta.env.DEV) return;
+      syncRemoteBackdropVideo(source);
       const videoEl = remoteVideoRef.current;
       const containerEl = remoteContainerRef.current;
       if (!videoEl || !containerEl) return;
@@ -750,6 +818,36 @@ const VideoDate = () => {
 
       if (lastRemoteLayoutDiagnosticKeyRef.current === diagnosticKey) return;
       lastRemoteLayoutDiagnosticKeyRef.current = diagnosticKey;
+
+      const diagnosticPayload = {
+        platform: "web",
+        session_id: id ?? null,
+        event_id: eventId ?? null,
+        source_surface: "video_date_route",
+        source_action: source,
+        diagnostic_scope: "receiver_layout",
+        phase,
+        capture_profile: captureProfile,
+        video_intrinsic_width: videoEl.videoWidth,
+        video_intrinsic_height: videoEl.videoHeight,
+        video_intrinsic_aspect_ratio: videoDateAspectRatio(videoEl.videoWidth, videoEl.videoHeight),
+        rendered_rect_width: Math.round(videoRect.width),
+        rendered_rect_height: Math.round(videoRect.height),
+        rendered_rect_aspect_ratio: videoDateAspectRatio(videoRect.width, videoRect.height),
+        container_rect_width: Math.round(containerRect.width),
+        container_rect_height: Math.round(containerRect.height),
+        container_rect_aspect_ratio: videoDateAspectRatio(containerRect.width, containerRect.height),
+        receiver_object_fit: computed.objectFit,
+        receiver_object_position: computed.objectPosition,
+        receiver_transform: computed.transform,
+        track_width: trackSettings?.width ?? null,
+        track_height: trackSettings?.height ?? null,
+        track_aspect_ratio: videoDateAspectRatio(trackSettings?.width, trackSettings?.height),
+        track_frame_rate: trackSettings?.frameRate ?? null,
+        track_facing_mode: trackSettings?.facingMode ?? null,
+        video_track_id: videoTrack?.id ?? null,
+        ...summarizeWebVideoDateRuntime(),
+      };
 
       vdbg("remote_date_video_layout", {
         source,
@@ -780,9 +878,11 @@ const VideoDate = () => {
         trackSettings,
         trackAspectRatio: videoDateAspectRatio(trackSettings?.width, trackSettings?.height),
         videoTrackId: videoTrack?.id ?? null,
+        browser: summarizeWebVideoDateRuntime(),
       });
+      trackEvent(LobbyPostDateEvents.VIDEO_DATE_RECEIVER_LAYOUT_DIAGNOSTIC, diagnosticPayload);
     },
-    [captureProfile, eventId, id, phase, remoteVideoRef]
+    [captureProfile, eventId, id, phase, remoteVideoRef, syncRemoteBackdropVideo]
   );
 
   useEffect(() => {
@@ -3438,6 +3538,19 @@ const VideoDate = () => {
       {/* ─── Remote Video with Progressive Blur ─── */}
       <div className={REMOTE_DATE_VIDEO_CONTAINER_CLASS} ref={remoteContainerRef}>
         <video
+          ref={remoteBackdropVideoRef}
+          aria-hidden="true"
+          tabIndex={-1}
+          autoPlay
+          playsInline
+          muted
+          className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl saturate-[0.72]"
+          style={{
+            backgroundColor: "#000",
+            filter: `blur(${Math.max(18, blurAmount + 14)}px)`,
+          }}
+        />
+        <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
@@ -3448,6 +3561,8 @@ const VideoDate = () => {
           style={{
             width: "100%",
             height: "100%",
+            position: "relative",
+            zIndex: 1,
             backgroundColor: "#000",
             objectFit: VIDEO_DATE_REMOTE_OBJECT_FIT,
             objectPosition: VIDEO_DATE_REMOTE_OBJECT_POSITION,
