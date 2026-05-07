@@ -17,6 +17,10 @@ const adminEventScopeFollowupMigration = readFileSync(
   join(root, "supabase/migrations/20260507152000_admin_event_scope_legacy_location_specific_fix.sql"),
   "utf8"
 );
+const adminEventNonLocalScopeFollowupMigration = readFileSync(
+  join(root, "supabase/migrations/20260507210000_admin_event_non_local_scope_force_legacy_flag.sql"),
+  "utf8"
+);
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -145,13 +149,21 @@ test("admin events hardening migration owns reads, attendance writes, validation
 
 test("admin event updates clear legacy location-specific state when scope moves non-local", () => {
   assert.match(adminEventForm, /is_location_specific:\s*scope === ['"]local['"]/);
-  assert.match(adminEventScopeFollowupMigration, /CREATE OR REPLACE FUNCTION public\.admin_update_event/);
-  assert.match(adminEventScopeFollowupMigration, /v_effective := to_jsonb\(v_before\) \|\| p_payload/);
   assert.match(adminEventScopeFollowupMigration, /jsonb_set\(v_effective, '\{is_location_specific\}', 'false'::jsonb, true\)/);
-  assert.match(adminEventScopeFollowupMigration, /admin_validate_event_payload\(v_effective, false\)/);
-  assert.match(adminEventScopeFollowupMigration, /WHEN p_payload \? 'scope' AND COALESCE\(NULLIF\(lower\(p_payload ->> 'scope'\), ''\), 'global'\) <> 'local' THEN false/);
-  assert.match(adminEventScopeFollowupMigration, /REVOKE ALL ON FUNCTION public\.admin_update_event\(uuid, jsonb, text\) FROM PUBLIC, anon, authenticated/);
-  assert.match(adminEventScopeFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_update_event\(uuid, jsonb, text\) TO authenticated/);
+
+  assert.match(adminEventNonLocalScopeFollowupMigration, /CREATE OR REPLACE FUNCTION public\.admin_update_event/);
+  assert.match(adminEventNonLocalScopeFollowupMigration, /v_effective := to_jsonb\(v_before\) \|\| p_payload/);
+  assert.match(adminEventNonLocalScopeFollowupMigration, /jsonb_set\(v_effective, '\{is_location_specific\}', 'false'::jsonb, true\)/);
+  assert.match(adminEventNonLocalScopeFollowupMigration, /admin_validate_event_payload\(v_effective, false\)/);
+  assert.doesNotMatch(adminEventNonLocalScopeFollowupMigration, /AND NOT \(p_payload \? 'is_location_specific'\)/);
+  assert.match(adminEventNonLocalScopeFollowupMigration, /WHEN p_payload \? 'scope' AND COALESCE\(NULLIF\(lower\(p_payload ->> 'scope'\), ''\), 'global'\) <> 'local' THEN false/);
+  assert.ok(
+    adminEventNonLocalScopeFollowupMigration.indexOf("WHEN p_payload ? 'scope' AND COALESCE(NULLIF(lower(p_payload ->> 'scope'), ''), 'global') <> 'local' THEN false") <
+      adminEventNonLocalScopeFollowupMigration.indexOf("WHEN p_payload ? 'is_location_specific'"),
+    "non-local scope must override stale full-object is_location_specific=true payloads",
+  );
+  assert.match(adminEventNonLocalScopeFollowupMigration, /REVOKE ALL ON FUNCTION public\.admin_update_event\(uuid, jsonb, text\) FROM PUBLIC, anon, authenticated/);
+  assert.match(adminEventNonLocalScopeFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_update_event\(uuid, jsonb, text\) TO authenticated/);
 });
 
 test("admin event form footer submits through validation path", () => {

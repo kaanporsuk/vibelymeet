@@ -100,6 +100,23 @@
     },
     "extra": {
       "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "OneSignalNotificationServiceExtension",
+                  "bundleIdentifier": "com.vibelymeet.vibely.OneSignalNotificationServiceExtension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.vibelymeet.vibely.onesignal"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
         "projectId": "5c6f619c-3eea-4cbc-82f8-52b3875e0bf9"
       },
       "router": {}

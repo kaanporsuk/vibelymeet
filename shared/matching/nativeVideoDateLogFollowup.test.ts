@@ -67,6 +67,11 @@ test("OneSignal app group is explicit in source config and native preflight", ()
 
   assert.match(appBase, /"com\.apple\.security\.application-groups"/);
   assert.match(appBase, /"group\.com\.vibelymeet\.vibely\.onesignal"/);
+  assert.match(appBase, /"appExtensions"/);
+  assert.match(appBase, /"targetName": "OneSignalNotificationServiceExtension"/);
+  assert.match(appBase, /"bundleIdentifier": "com\.vibelymeet\.vibely\.OneSignalNotificationServiceExtension"/);
+  assert.match(read("apps/mobile/app.config.js"), /withDedupedOneSignalEasExtension/);
+  assert.match(read("apps/mobile/plugins/withDedupedOneSignalEasExtension.js"), /seenOneSignalBundles/);
   assert.match(preflight, /"expo", "config", "--json"/);
   assert.match(preflight, /Production OneSignal plugin mode expected production/);
   assert.match(preflight, /exactly one OneSignal extension/);
