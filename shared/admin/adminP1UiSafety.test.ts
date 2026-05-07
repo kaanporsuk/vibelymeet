@@ -3,6 +3,7 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveReportSearchQuery } from "../../src/components/admin/adminReportSearch";
+import { resolveSupabaseFunctionErrorMessage } from "../supabaseFunctionInvokeErrors";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -167,7 +168,8 @@ test("report actions use backend transaction instead of client side-effect orche
 
 test("reports list distinguishes fetch failures from true empty results", () => {
   assert.match(adminReports, /isError/);
-  assert.match(adminReports, /reportsUnavailable = isError && \(!reports \|\| reports\.length === 0\)/);
+  assert.match(adminReports, /reportsUnavailable = isError/);
+  assert.doesNotMatch(adminReports, /reportsUnavailable = isError &&/);
   assert.match(adminReports, /Reports unavailable/);
   assert.match(adminReports, /This is a fetch failure, not proof that no reports exist/);
   assert.match(adminReports, /No reports found/);
@@ -185,10 +187,13 @@ test("reports search maps visible reason labels while preserving client-side lab
 
 test("reports reason-label search normalization covers visible label terms", () => {
   assert.equal(resolveReportSearchQuery("Fake profile / catfish"), "fake");
+  assert.equal(resolveReportSearchQuery("fake catfish"), "fake");
   assert.equal(resolveReportSearchQuery("catfish"), "fake");
   assert.equal(resolveReportSearchQuery("profile"), "fake");
   assert.equal(resolveReportSearchQuery("Harassment or bullying"), "harassment");
+  assert.equal(resolveReportSearchQuery("harassment bullying"), "harassment");
   assert.equal(resolveReportSearchQuery("bullying"), "harassment");
+  assert.equal(resolveReportSearchQuery("sexual content"), "inappropriate");
   assert.equal(resolveReportSearchQuery("scam"), "spam");
   assert.equal(resolveReportSearchQuery("content"), "inappropriate");
   assert.equal(resolveReportSearchQuery("concern"), "concern");
@@ -307,6 +312,7 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(supportInbox, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
   assert.match(supportInbox, /callAdminRpc\("admin_update_support_ticket"/);
   assert.match(supportInbox, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
+  assert.match(supportInbox, /resolveSupabaseFunctionErrorMessage/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_tickets["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_ticket_replies["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']event_payment_exceptions["']\)/);
@@ -317,6 +323,28 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(adminRealtime, /admin-support-events-realtime/);
   assert.match(adminRealtime, /\["admin-support-tickets"\]/);
   assert.match(adminRealtime, /\["admin-support-thread"\]/);
+});
+
+test("Support Inbox function errors preserve human server messages", async () => {
+  const response = new Response(
+    JSON.stringify({
+      error: "INVALID_TRANSITION",
+      message: "Reopen the support ticket before sending another reply.",
+    }),
+    { status: 409 },
+  );
+
+  const message = await resolveSupabaseFunctionErrorMessage(
+    {
+      name: "FunctionsHttpError",
+      message: "Edge Function returned a non-2xx status code",
+      context: response,
+    },
+    null,
+    "Failed to send reply",
+  );
+
+  assert.equal(message, "Reopen the support ticket before sending another reply. (HTTP 409)");
 });
 
 test("push analytics uses the backend admin telemetry RPC and honest states", () => {

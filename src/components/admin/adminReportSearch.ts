@@ -16,6 +16,11 @@ const reportReasonSearchIndex = REPORT_REASONS.map((reason) => ({
   labelSearch: normalizeReportSearchText(reason.label),
 }));
 
+const significantSearchWords = (value: string) =>
+  value
+    .split(" ")
+    .filter((word) => word && !REPORT_REASON_SEARCH_STOP_WORDS.has(word));
+
 export const resolveReportSearchQuery = (query: string) => {
   const normalized = normalizeReportSearchText(query);
   if (!normalized) return "";
@@ -28,7 +33,14 @@ export const resolveReportSearchQuery = (query: string) => {
   const words = normalized.split(" ");
   if (words.length > 1) {
     const labelPhraseMatch = reportReasonSearchIndex.find((reason) => reason.labelSearch.includes(normalized));
-    return labelPhraseMatch?.id ?? query;
+    if (labelPhraseMatch) return labelPhraseMatch.id;
+
+    const queryWords = significantSearchWords(normalized);
+    const wordMatches = reportReasonSearchIndex.filter((reason) => {
+      const labelWords = new Set(reason.labelSearch.split(" "));
+      return queryWords.length > 0 && queryWords.every((word) => labelWords.has(word));
+    });
+    return wordMatches.length === 1 ? wordMatches[0].id : query;
   }
 
   const [word] = words;

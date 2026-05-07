@@ -53,6 +53,7 @@ function statusForRpcError(error: string | undefined) {
       return 403;
     case "NOT_FOUND":
       return 404;
+    case "INVALID_TRANSITION":
     case "CONFLICT":
       return 409;
     case "VALIDATION_ERROR":

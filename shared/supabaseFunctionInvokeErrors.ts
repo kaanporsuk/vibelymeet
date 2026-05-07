@@ -22,17 +22,20 @@ export function isNetworkInvokeError(invokeError: FunctionInvokeErrorShape): boo
 }
 
 /**
- * Prefer JSON `error` from response body (`data`), then parse Edge Function response from `error.context`.
+ * Prefer human JSON `message` / `error` from response body (`data`), then parse Edge Function response from `error.context`.
  */
 export async function resolveSupabaseFunctionErrorMessage(
   invokeError: unknown,
   data: unknown,
   networkFallback: string,
 ): Promise<string> {
-  const payloadError =
-    typeof data === "object" && data !== null && typeof (data as { error?: unknown }).error === "string"
-      ? (data as { error: string }).error
+  const payload =
+    typeof data === "object" && data !== null
+      ? (data as { error?: unknown; message?: unknown })
       : null;
+  const payloadMessage = typeof payload?.message === "string" ? payload.message : null;
+  const payloadError = typeof payload?.error === "string" ? payload.error : null;
+  if (payloadMessage) return payloadMessage;
   if (payloadError) return payloadError;
   if (!invokeError) return networkFallback;
 
@@ -53,8 +56,8 @@ export async function resolveSupabaseFunctionErrorMessage(
         if (text) {
           try {
             const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
-            if (typeof parsed.error === "string") serverMessage = parsed.error;
-            else if (typeof parsed.message === "string") serverMessage = parsed.message;
+            if (typeof parsed.message === "string") serverMessage = parsed.message;
+            else if (typeof parsed.error === "string") serverMessage = parsed.error;
           } catch {
             serverMessage = text;
           }

@@ -38,6 +38,7 @@ import {
   sanitizeAdminRpcErrorMessage,
   type AdminRpcPayload,
 } from "@/lib/adminRpc";
+import { resolveSupabaseFunctionErrorMessage } from "@/lib/supabaseFunctionInvokeErrors";
 
 type TicketRow = {
   id: string;
@@ -355,7 +356,9 @@ export default function SupportInbox() {
         },
       });
 
-      if (error) throw new Error(error.message || "Failed to send reply");
+      if (error) {
+        throw new Error(await resolveSupabaseFunctionErrorMessage(error, data, "Failed to send reply"));
+      }
       if (!data?.success) throw new Error(data?.message || data?.error || "Failed to send reply");
       return data;
     },

@@ -201,7 +201,7 @@ const AdminReportsPanel = () => {
     }
     return profileMap;
   }, [reports]);
-  const reportsUnavailable = isError && (!reports || reports.length === 0);
+  const reportsUnavailable = isError;
 
   const resolveReport = useMutation({
     mutationFn: async ({

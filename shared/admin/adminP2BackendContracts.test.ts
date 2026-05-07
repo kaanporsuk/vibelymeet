@@ -516,6 +516,7 @@ test("send-support-reply saves through the governed admin reply RPC before notif
   assert.match(sendSupportReplyFunction, /notification_warning/);
   assert.match(sendSupportReplyFunction, /email_warning/);
   assert.match(sendSupportReplyFunction, /sanitizeErrorMessage/);
+  assert.match(sendSupportReplyFunction, /case "INVALID_TRANSITION":[\s\S]{0,80}return 409/);
   assert.doesNotMatch(sendSupportReplyFunction, /jsonResponse\(\{ error: String\(e\) \}/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_ticket_replies["']\)[\s\S]{0,300}\.insert\(/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_tickets["']\)[\s\S]{0,300}\.update\(/);
