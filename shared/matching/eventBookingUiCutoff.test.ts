@@ -14,10 +14,14 @@ test("web event details gates booking-management entry points behind self-cancel
   const manageBookingModal = readProjectFile("src/components/events/ManageBookingModal.tsx");
 
   assert.match(eventDetails, /const canSelfCancelRegistration = bookingEditability\.canSelfCancel/);
-  assert.match(eventDetails, /onTicketClick=\{canSelfCancelRegistration \? \(\) => setShowManageBooking\(true\) : undefined\}/);
+  assert.match(
+    eventDetails,
+    /const canViewTicket =[\s\S]*canSelfCancelRegistration \|\| \(isConfirmed && eventLifecycle\.isLive && !eventClosedForBookingCopy\)/,
+  );
+  assert.match(eventDetails, /canViewTicket[\s\S]*\? \(\) => setShowTicket\(true\)/);
   assert.match(eventDetails, /isOpen=\{showManageBooking && canSelfCancelRegistration\}/);
   assert.match(eventDetails, /isOpen=\{showCancelModal && canSelfCancelRegistration\}/);
-  assert.match(eventDetails, /showTicket && canSelfCancelRegistration/);
+  assert.match(eventDetails, /showTicket && canViewTicket/);
   assert.match(eventDetails, /canCancel=\{canSelfCancelRegistration\}/);
   assert.match(eventDetails, /Booking changes are closed for this event/);
 

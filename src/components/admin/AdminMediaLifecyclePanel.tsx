@@ -578,17 +578,19 @@ export default function AdminMediaLifecyclePanel() {
 
   useEffect(() => {
     if (!data) return;
-    const nextDrafts = { ...familyDrafts };
-    for (const row of data.settings.owned_media) {
-      const family = row.media_family as OwnedFamily;
-      if (family in nextDrafts && !familyDirty[family]) {
-        nextDrafts[family] = {
-          retentionDays: row.retention_days === null ? "" : String(row.retention_days),
-          workerEnabled: row.worker_enabled,
-        };
+    setFamilyDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      for (const row of data.settings.owned_media) {
+        const family = row.media_family as OwnedFamily;
+        if (family in nextDrafts && !familyDirty[family]) {
+          nextDrafts[family] = {
+            retentionDays: row.retention_days === null ? "" : String(row.retention_days),
+            workerEnabled: row.worker_enabled,
+          };
+        }
       }
-    }
-    setFamilyDrafts(nextDrafts);
+      return nextDrafts;
+    });
     if (!chatDirty) {
       if (data.settings.chat_policy.retention_mode && data.settings.chat_policy.retention_mode !== "mixed") {
         setChatMode(data.settings.chat_policy.retention_mode);
@@ -596,7 +598,6 @@ export default function AdminMediaLifecyclePanel() {
       setChatEligibleDays(data.settings.chat_policy.eligible_days === null ? "" : String(data.settings.chat_policy.eligible_days));
       setChatWorkerEnabled(data.settings.chat_policy.worker_enabled ?? true);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, familyDirty, chatDirty]);
 
   const saveFamilyMutation = useMutation({

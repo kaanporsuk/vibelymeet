@@ -9,6 +9,9 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read("supabase/migrations/20260506103000_admin_p2_backend_authoritative_hardening.sql");
 const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const overviewOperationalTruthMigration = read("supabase/migrations/20260507211000_admin_overview_operational_truth.sql");
+const adminPostPublishGrantsAndCancelCutoffMigration = read(
+  "supabase/migrations/20260508094500_admin_post_publish_grants_and_live_cancel_cutoff.sql",
+);
 const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dashboard_badge_counts.sql");
 const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
 const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
@@ -947,6 +950,10 @@ test("Daily Drop generation exposes operational run truth and admin audit", () =
   assert.match(overviewOperationalTruthMigration, /admin_id uuid REFERENCES auth\.users\(id\) ON DELETE SET NULL/);
   assert.match(overviewOperationalTruthMigration, /ALTER TABLE public\.daily_drop_generation_runs ENABLE ROW LEVEL SECURITY/);
   assert.match(overviewOperationalTruthMigration, /GRANT SELECT ON public\.daily_drop_generation_runs TO authenticated/);
+  assert.match(
+    adminPostPublishGrantsAndCancelCutoffMigration,
+    /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.daily_drop_generation_runs TO service_role/,
+  );
   assert.match(overviewOperationalTruthMigration, /admins_select_daily_drop_generation_runs/);
   assert.match(overviewOperationalTruthMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.daily_drop_generation_runs/);
   assert.match(overviewOperationalTruthMigration, /WHEN duplicate_object OR undefined_object THEN NULL/);

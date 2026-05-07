@@ -28,6 +28,25 @@ test("self-cancel is allowed only before the scheduled start", () => {
 });
 
 test("live and computed-ended events are closed for self-cancel", () => {
+  const liveBeforeScheduledStart = resolveEventBookingEditability({
+    status: "live",
+    event_date: start,
+    duration_minutes: 30,
+    nowMs: oneMinuteBefore,
+  });
+  assert.equal(liveBeforeScheduledStart.canSelfCancel, false);
+  assert.equal(liveBeforeScheduledStart.closedReason, "started");
+
+  const archivedLive = resolveEventBookingEditability({
+    status: "live",
+    event_date: start,
+    duration_minutes: 30,
+    archived_at: "2026-05-08T17:30:00.000Z",
+    nowMs: oneMinuteBefore,
+  });
+  assert.equal(archivedLive.canSelfCancel, false);
+  assert.equal(archivedLive.closedReason, "archived");
+
   const live = resolveEventBookingEditability({
     status: "live",
     event_date: start,

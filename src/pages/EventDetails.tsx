@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  ArrowLeft, 
-  Calendar, 
-  Clock, 
-  Sparkles, 
+import {
+  ArrowLeft,
+  Calendar,
+  Clock,
+  Sparkles,
   Share2,
   Loader2,
   MapPin,
@@ -54,10 +54,10 @@ const EventDetails = () => {
   const { user } = useUserProfile();
   const { registerForEvent, unregisterFromEvent } = useRegisterForEvent();
   const { canAccessPremiumEvents, canAccessVipEvents } = useEntitlements();
-  
+
   // Enable realtime updates
   useRealtimeEvents();
-  
+
   // Fetch real event data
   const { data: event, isLoading: eventLoading, error: eventError } = useEventDetails(id);
   const { data: attendeePreview, isLoading: attendeePreviewLoading } = useEventAttendeePreview(id);
@@ -65,7 +65,7 @@ const EventDetails = () => {
   const isConfirmed = regSnapshot?.isConfirmed ?? false;
   const isWaitlisted = regSnapshot?.isWaitlisted ?? false;
   const hasEventAdmission = isConfirmed || isWaitlisted;
-  
+
   // Event vibes hook for pre-event interest expressions
   const eventVibes = useEventVibes(id || "");
 
@@ -99,7 +99,7 @@ const EventDetails = () => {
       return data;
     },
   });
-  
+
   // UI state
   const [scrollY, setScrollY] = useState(0);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -208,6 +208,8 @@ const EventDetails = () => {
   const bookingChangesClosed = !canSelfCancelRegistration;
   const confirmedAdmissionLooksClosed =
     eventClosedForBookingCopy || (bookingChangesClosed && !eventLifecycle.isLive);
+  const canViewTicket =
+    canSelfCancelRegistration || (isConfirmed && eventLifecycle.isLive && !eventClosedForBookingCopy);
   const isCancelled = event.status === "cancelled";
   const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isCancelled;
 
@@ -584,11 +586,17 @@ const EventDetails = () => {
               ) : preview ? (
                 <GuestListRoster
                   revealed={rosterRevealed}
-                    obscuredRemaining={preview.obscured_remaining}
-                    visibleCohortCount={preview.visible_cohort_count}
-                    visibleOtherCount={preview.visible_other_count}
-                    onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
-                    onTicketClick={canSelfCancelRegistration ? () => setShowManageBooking(true) : undefined}
+                  obscuredRemaining={preview.obscured_remaining}
+                  visibleCohortCount={preview.visible_cohort_count}
+                  visibleOtherCount={preview.visible_other_count}
+                  onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
+                  onTicketClick={
+                    canSelfCancelRegistration
+                      ? () => setShowManageBooking(true)
+                      : canViewTicket
+                        ? () => setShowTicket(true)
+                        : undefined
+                  }
                 />
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-6">
@@ -603,10 +611,10 @@ const EventDetails = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-                <GuestListTeaser
-                  viewerAdmission={isWaitlisted ? "waitlisted" : "none"}
-                  visibleOtherCount={headlineVisibleOtherCount}
-                />
+              <GuestListTeaser
+                viewerAdmission={isWaitlisted ? "waitlisted" : "none"}
+                visibleOtherCount={headlineVisibleOtherCount}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -641,11 +649,11 @@ const EventDetails = () => {
 
       {/* Sticky Bottom Bar - Only show when not registered */}
       {!hasEventAdmission && !isCancelled && (
-            <PricingBar
-              price={userPrice}
-              capacityStatus={capacityInfo.status}
-              spotsLeft={capacityInfo.spotsLeft}
-              onPurchase={() => void handlePurchasePress()}
+        <PricingBar
+          price={userPrice}
+          capacityStatus={capacityInfo.status}
+          spotsLeft={capacityInfo.spotsLeft}
+          onPurchase={() => void handlePurchasePress()}
           isPurchasing={freeRegisterBusy}
           soldOut={soldOut}
           eventEnded={eventEnded}
@@ -691,6 +699,10 @@ const EventDetails = () => {
             {canSelfCancelRegistration ? (
               <Button variant="outline" onClick={() => setShowManageBooking(true)}>
                 Manage Booking
+              </Button>
+            ) : canViewTicket ? (
+              <Button variant="outline" onClick={() => setShowTicket(true)}>
+                View Ticket
               </Button>
             ) : null}
           </div>
@@ -791,7 +803,7 @@ const EventDetails = () => {
 
       {/* Ticket Stub */}
       <AnimatePresence>
-        {showTicket && canSelfCancelRegistration && (
+        {showTicket && canViewTicket && (
           <TicketStub
             eventTitle={event.title}
             eventDate={formatDate(event.eventDate)}
