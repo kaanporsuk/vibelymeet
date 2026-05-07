@@ -341,6 +341,25 @@ assert(
     !nativeDate.includes("camera_switch_hint:${hint.switchId}"),
   `${nativeDatePath}: native Video Date must commit a live camera switch before sending shared render hints`
 );
+const nativeFreshnessWatchStart = nativeDate.indexOf("const scheduleNativeCameraSwitchFreshnessWatch");
+const nativeFreshnessWatchEnd = nativeDate.indexOf("useEffect(() => {", nativeFreshnessWatchStart);
+const nativeFreshnessWatch =
+  nativeFreshnessWatchStart > 0 && nativeFreshnessWatchEnd > nativeFreshnessWatchStart
+    ? nativeDate.slice(nativeFreshnessWatchStart, nativeFreshnessWatchEnd)
+    : "";
+const unsupportedFreshnessBlock =
+  nativeFreshnessWatch.match(/if \(!freshness\.supported\) \{[\s\S]*?\n[^\S\r\n]{8}\}/)?.[0] ??
+  "";
+assert(
+  unsupportedFreshnessBlock.includes("native_camera_switch_render_watch_unverified") &&
+    !/\breturn;/.test(unsupportedFreshnessBlock) &&
+    /if \(elapsedMs >= NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS\)[\s\S]*scheduleNativeRemoteRenderRemount/.test(
+      nativeFreshnessWatch
+    ) &&
+    nativeFreshnessWatch.indexOf("nativeCameraSwitchFreshnessTimerRef.current = setTimeout") >
+      nativeFreshnessWatch.indexOf("native_camera_switch_render_watch_unverified"),
+  `${nativeDatePath}: native camera-switch freshness watch must keep polling unverified stats until timeout recovery`
+);
 // Guard against reintroducing the destructive remount-on-hint pattern. The
 // native receiver must NOT remount <DailyMediaView /> in direct response to
 // a camera-switch hint; that tears down the decoder pipeline and forces

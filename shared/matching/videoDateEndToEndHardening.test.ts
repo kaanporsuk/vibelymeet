@@ -1497,6 +1497,25 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(nativeVideoDateRoute, /native_camera_switch_render_watch_timed_out/);
   assert.match(nativeVideoDateRoute, /camera_switch_hint_received/);
   assert.match(nativeVideoDateRoute, /camera_switch_watch_active/);
+
+  const nativeFreshnessWatchStart = nativeVideoDateRoute.indexOf("const scheduleNativeCameraSwitchFreshnessWatch");
+  const nativeFreshnessWatchEnd = nativeVideoDateRoute.indexOf("useEffect(() => {", nativeFreshnessWatchStart);
+  assert.ok(nativeFreshnessWatchStart > 0);
+  assert.ok(nativeFreshnessWatchEnd > nativeFreshnessWatchStart);
+  const nativeFreshnessWatch = nativeVideoDateRoute.slice(nativeFreshnessWatchStart, nativeFreshnessWatchEnd);
+  const unsupportedFreshnessBlock =
+    nativeFreshnessWatch.match(/if \(!freshness\.supported\) \{[\s\S]*?\n[^\S\r\n]{8}\}/)?.[0] ??
+    "";
+  assert.match(unsupportedFreshnessBlock, /native_camera_switch_render_watch_unverified/);
+  assert.doesNotMatch(unsupportedFreshnessBlock, /\breturn;/);
+  assert.match(
+    nativeFreshnessWatch,
+    /if \(elapsedMs >= NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS\)[\s\S]*scheduleNativeRemoteRenderRemount/,
+  );
+  assert.ok(
+    nativeFreshnessWatch.indexOf("nativeCameraSwitchFreshnessTimerRef.current = setTimeout") >
+      nativeFreshnessWatch.indexOf("native_camera_switch_render_watch_unverified"),
+  );
 });
 
 test("camera switch render hints round-trip core commit metadata and tolerate legacy fields", () => {
