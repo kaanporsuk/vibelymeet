@@ -18,7 +18,9 @@ const adminDailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
 const adminRealtime = read("src/hooks/useAdminRealtime.ts");
 const adminOverviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
 const usePushAnalytics = read("src/hooks/usePushAnalytics.ts");
+const usePushNotificationEvents = read("src/hooks/usePushNotificationEvents.ts");
 const pushAnalyticsDashboard = read("src/components/admin/PushAnalyticsDashboard.tsx");
+const liveNotificationMonitor = read("src/components/admin/LiveNotificationMonitor.tsx");
 const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const adminUserDetail = read("src/components/admin/AdminUserDetailDrawer.tsx");
 const adminProfilePreview = read("src/components/admin/AdminProfilePreview.tsx");
@@ -169,6 +171,14 @@ test("overview metrics and event analytics labels match query semantics", () => 
   assert.match(adminLiveEventMetrics, /Participant Reports/);
   assert.match(adminLiveEventMetrics, /Participant reports near this event window; not direct event-report provenance/);
   assert.match(adminLiveEventMetrics, /admin_get_event_metrics/);
+  assert.match(adminLiveEventMetrics, /computed: \{selectedEventPhase\.label\}/);
+  assert.match(adminLiveEventMetrics, /Queue drain health/);
+  assert.match(adminLiveEventMetrics, /deduped first-frame samples/);
+  assert.match(adminLiveEventMetrics, /Backend lifecycle read model unavailable/);
+  assert.match(adminLiveEventMetrics, /session: \{session\.session_id \? "linked" : "-"\}/);
+  assert.match(adminLiveEventMetrics, /profile_ref: \{item\.profile_id \? "present" : "-"\}/);
+  assert.doesNotMatch(adminLiveEventMetrics, /exception_id: \{item\.id\}/);
+  assert.doesNotMatch(adminLiveEventMetrics, /checkout_session_id: \{item\.checkout_session_id/);
   assert.doesNotMatch(adminLiveEventMetrics, /\.from\("user_reports"\)/);
 });
 
@@ -215,14 +225,56 @@ test("overview realtime invalidates the active backend query key", () => {
 });
 
 test("push analytics uses the backend admin telemetry RPC and honest states", () => {
-  assert.match(usePushAnalytics, /callAdminRpc\("admin_get_push_delivery_metrics"/);
+  assert.match(usePushAnalytics, /callAdminRpc<PushDeliveryMetricsPayload>\("admin_get_push_delivery_metrics"/);
   assert.match(usePushAnalytics, /telemetrySource: "admin_get_push_delivery_metrics"/);
+  assert.match(usePushAnalytics, /windowLabel/);
+  assert.match(usePushAnalytics, /pushTelemetry/);
+  assert.match(usePushAnalytics, /appNotificationLog/);
+  assert.match(usePushAnalytics, /function toCount\(value: unknown\)/);
+  assert.match(usePushAnalytics, /Number\.isFinite/);
+  assert.match(usePushAnalytics, /const end = new Date\(\)/);
+  assert.match(usePushAnalytics, /const start = subDays\(end, days\)/);
   assert.doesNotMatch(usePushAnalytics, /\.from\("push_notification_events_admin"\)/);
   assert.doesNotMatch(usePushAnalytics, /\.from\("push_notification_events"\)/);
 
   assert.match(pushAnalyticsDashboard, /Unable to read push analytics from the backend admin metrics RPC/);
   assert.match(pushAnalyticsDashboard, /No telemetry available in this range; this does not prove no notifications were sent/);
   assert.match(pushAnalyticsDashboard, /provider sends may exist outside these rows/);
+  assert.match(pushAnalyticsDashboard, /Selected-Window Summary/);
+  assert.match(pushAnalyticsDashboard, /Provider\/Admin Telemetry/);
+  assert.match(pushAnalyticsDashboard, /Transactional App Log/);
+  assert.match(pushAnalyticsDashboard, /This RPC does not return per-day, device, campaign, or best-time breakdowns yet/);
+  assert.doesNotMatch(pushAnalyticsDashboard, /LineChart|AreaChart|PieChart|BarChart/);
+  assert.doesNotMatch(pushAnalyticsDashboard, /Delivery & Opens Trend/);
+  assert.doesNotMatch(pushAnalyticsDashboard, /Device Distribution/);
+  assert.doesNotMatch(pushAnalyticsDashboard, /Best Performing Send Times/);
+});
+
+test("live push monitor is labeled as admin telemetry rather than full delivery proof", () => {
+  assert.match(liveNotificationMonitor, /Admin Telemetry Monitor/);
+  assert.match(liveNotificationMonitor, /Latest admin telemetry events/);
+  assert.match(liveNotificationMonitor, /This is not proof of every transactional push send/);
+  assert.match(liveNotificationMonitor, /Auto Refresh/);
+  assert.match(liveNotificationMonitor, /No telemetry rows yet/);
+  assert.match(liveNotificationMonitor, /Provider\/Webhook Telemetry Endpoints/);
+  assert.match(liveNotificationMonitor, /const hasProviderIdentifier = \(value: string \| null\) => Boolean\(value && value !== "\[REDACTED\]"\)/);
+  assert.match(liveNotificationMonitor, /telemetry rows/);
+  assert.match(usePushNotificationEvents, /admin_get_push_campaigns_read_model/);
+  assert.match(usePushNotificationEvents, /userIds\.length > 0/);
+  assert.match(usePushNotificationEvents, /campaignIds\.length > 0/);
+  assert.match(usePushNotificationEvents, /Poll the redacted admin telemetry view/);
+  assert.match(usePushNotificationEvents, /isNotificationPlatform/);
+  assert.match(usePushNotificationEvents, /calculateNotificationStats/);
+  assert.match(usePushNotificationEvents, /window\.setInterval/);
+  assert.match(usePushNotificationEvents, /window\.clearInterval/);
+  assert.match(usePushNotificationEvents, /void fetchEvents\(\)/);
+  assert.doesNotMatch(usePushNotificationEvents, /useQueryClient/);
+  assert.doesNotMatch(usePushNotificationEvents, /\.from\("push_campaigns"\)/);
+  assert.doesNotMatch(usePushNotificationEvents, /\.channel\(/);
+  assert.doesNotMatch(usePushNotificationEvents, /postgres_changes/);
+  assert.doesNotMatch(usePushNotificationEvents, /table: "push_notification_events"/);
+  assert.doesNotMatch(usePushNotificationEvents, /payload\.new/);
+  assert.doesNotMatch(usePushNotificationEvents, /Push notification event update/);
 });
 
 test("users panel labels registration-derived counts honestly", () => {
@@ -368,6 +420,11 @@ test("push campaigns are draft-only and do not enqueue browser notification even
   assert.match(adminPushCampaigns, /Delivery is disabled until a backend dispatcher exists/);
   assert.match(adminPushCampaigns, /Save Draft/);
   assert.match(adminPushCampaigns, /Update Campaign/);
+  assert.match(adminPushCampaigns, /isSavingCampaign/);
+  assert.match(adminPushCampaigns, /formData\.title\.trim\(\)/);
+  assert.match(adminPushCampaigns, /formData\.body\.trim\(\)/);
+  assert.match(adminPushCampaigns, /No campaign drafts yet/);
+  assert.match(adminPushCampaigns, /Loading campaign drafts/);
   assert.match(adminPushCampaigns, /disabled=\{!isDraft\}/);
   assert.match(adminPushCampaigns, /Only draft campaigns can be edited/);
   assert.match(adminPushCampaigns, /Only draft campaigns can be deleted/);
@@ -387,6 +444,15 @@ test("push campaign delete warning matches cascaded notification analytics behav
 
 test("push campaign targeting UI exposes only supported filters and flags legacy unsupported filters", () => {
   assert.match(adminPushCampaigns, /normalizeSupportedSegment/);
+  assert.match(adminPushCampaigns, /normalizeGenderValue/);
+  assert.match(adminPushCampaigns, /clampAgeValue/);
+  assert.match(adminPushCampaigns, /Number\.isFinite/);
+  assert.match(adminPushCampaigns, /DEFAULT_AGE_RANGE: \[number, number\] = \[18, 99\]/);
+  assert.match(adminPushCampaigns, /GENDER_TARGET_OPTIONS/);
+  assert.match(adminPushCampaigns, /\{ label: "Man", value: "man" \}/);
+  assert.match(adminPushCampaigns, /\{ label: "Woman", value: "woman" \}/);
+  assert.match(adminPushCampaigns, /\{ label: "Non-binary", value: "non-binary" \}/);
+  assert.match(adminPushCampaigns, /max=\{99\}/);
   assert.match(adminPushCampaigns, /Unsupported targeting stored/);
   assert.match(adminPushCampaigns, /This preview uses gender, verified status, and age only/);
 

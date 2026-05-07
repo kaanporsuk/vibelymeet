@@ -11,8 +11,10 @@ const overviewMigration = read("supabase/migrations/20260506135000_admin_overvie
 const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dashboard_badge_counts.sql");
 const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
 const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
+const eventLifecycleFeedMigration = read("supabase/migrations/20260507113000_admin_event_lifecycle_feed.sql");
 const reviewCommentFollowupMigration = read("supabase/migrations/20260507123000_admin_review_comment_followup.sql");
 const adminUsersLifecycleMigration = read("supabase/migrations/20260507143000_admin_users_lifecycle_read_models.sql");
+const pushTelemetryViewRedactionMigration = read("supabase/migrations/20260507154000_push_notification_events_admin_null_preserving_redaction.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
@@ -93,6 +95,17 @@ function readModelSweepFnSection(fnName: string): string {
   const candidates = [next, revoke].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : readModelSweepMigration.length;
   return readModelSweepMigration.slice(start, end);
+}
+
+function eventLifecycleFeedFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = eventLifecycleFeedMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = eventLifecycleFeedMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = eventLifecycleFeedMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : eventLifecycleFeedMigration.length;
+  return eventLifecycleFeedMigration.slice(start, end);
 }
 
 function reviewCommentFollowupFnSection(fnName: string): string {
@@ -242,7 +255,8 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(stats, /useAdminOverviewDashboard/);
   assert.match(adminUsers, /callAdminRpc<AdminSearchUsersPayload>\("admin_search_users"/);
   assert.match(eventAnalytics, /callAdminRpc<AdminEventMetricsPayload>\("admin_get_event_metrics"/);
-  assert.match(pushAnalytics, /callAdminRpc\("admin_get_push_delivery_metrics"/);
+  assert.match(eventAnalytics, /callAdminRpc<AdminEventLifecycleFeedPayload>\("admin_get_event_lifecycle_feed"/);
+  assert.match(pushAnalytics, /callAdminRpc<PushDeliveryMetricsPayload>\("admin_get_push_delivery_metrics"/);
 });
 
 test("admin RPC helper preserves Supabase client binding", () => {
@@ -311,11 +325,37 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(fnSection("admin_get_event_metrics"), /participant_reports_near_event_window/);
   assert.match(fnSection("admin_get_push_delivery_metrics"), /app_notification_log/);
   assert.match(fnSection("admin_get_push_delivery_metrics"), /push_telemetry/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /SECURITY DEFINER/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /SET search_path = public, pg_catalog/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /auth\.uid\(\)/);
+  assert.match(
+    eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"),
+    /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/,
+  );
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.event_reminder_queue/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.notification_log/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.waitlist_promotion_notify_queue/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.stripe_event_ticket_settlements/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.event_swipes/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.video_sessions/);
+  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.admin_activity_logs/);
+  assert.doesNotMatch(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /'user_id'/);
+  assert.match(eventLifecycleFeedMigration, /REVOKE ALL ON FUNCTION public\.admin_get_event_lifecycle_feed\(uuid\) FROM PUBLIC/);
+  assert.match(eventLifecycleFeedMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_event_lifecycle_feed\(uuid\) TO authenticated/);
+  assert.match(eventLifecycleFeedMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(eventLifecycleFeedMigration, /'20260507113000'/);
+  assert.match(eventLifecycleFeedMigration, /'schema-only'/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]event_registrations['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]profile_vibes['"]\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("user_reports"\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("matches"\)[\s\S]{0,160}\.select\("\*", \{ count: "exact", head: true \}\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("event_reminder_queue"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("notification_log"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("waitlist_promotion_notify_queue"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("stripe_event_ticket_settlements"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("event_swipes"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("admin_activity_logs"\)/);
   assert.doesNotMatch(analyticsCharts, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(analyticsCharts, /\.from\(['"]events['"]\)/);
   assert.doesNotMatch(analyticsCharts, /\.from\(['"]matches['"]\)/);
@@ -497,6 +537,25 @@ test("push campaign draft write RPCs are governed, idempotent, audited, and draf
   assert.match(reviewCommentFollowupFnSection("admin_upsert_push_campaign_draft"), /jsonb_object_keys\(v_segment\)/);
   assert.match(reviewCommentFollowupFnSection("admin_upsert_push_campaign_draft"), /keys\.key NOT IN \('gender', 'isVerified', 'ageRange'\)/);
   assert.match(reviewCommentFollowupFnSection("admin_delete_push_campaign_draft"), /DELETE FROM public\.push_campaigns/);
+});
+
+test("push telemetry admin view preserves nullness while redacting sensitive identifiers", () => {
+  assert.match(pushTelemetryViewRedactionMigration, /DROP VIEW IF EXISTS public\.push_notification_events_admin/);
+  assert.match(pushTelemetryViewRedactionMigration, /CREATE VIEW public\.push_notification_events_admin/);
+  assert.match(pushTelemetryViewRedactionMigration, /base table RLS/);
+  assert.match(pushTelemetryViewRedactionMigration, /WITH \(security_barrier = true\)/);
+  assert.doesNotMatch(pushTelemetryViewRedactionMigration, /security_invoker = true/);
+  assert.match(pushTelemetryViewRedactionMigration, /CASE WHEN fcm_message_id IS NULL THEN NULL ELSE '\[REDACTED\]'::text END AS fcm_message_id/);
+  assert.match(pushTelemetryViewRedactionMigration, /CASE WHEN apns_message_id IS NULL THEN NULL ELSE '\[REDACTED\]'::text END AS apns_message_id/);
+  assert.match(pushTelemetryViewRedactionMigration, /CASE WHEN device_token IS NULL THEN NULL ELSE '\[REDACTED\]'::text END AS device_token/);
+  assert.match(pushTelemetryViewRedactionMigration, /FROM public\.push_notification_events/);
+  assert.match(pushTelemetryViewRedactionMigration, /WHERE public\.has_role\(auth\.uid\(\), 'admin'::public\.app_role\)/);
+  assert.match(pushTelemetryViewRedactionMigration, /REVOKE ALL ON public\.push_notification_events_admin FROM PUBLIC/);
+  assert.match(pushTelemetryViewRedactionMigration, /GRANT SELECT ON public\.push_notification_events_admin TO authenticated/);
+  assert.match(pushTelemetryViewRedactionMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(pushTelemetryViewRedactionMigration, /'20260507154000'/);
+  assert.match(pushTelemetryViewRedactionMigration, /'schema-only'/);
+  assert.match(pushTelemetryViewRedactionMigration, /destructive_requires_signoff = EXCLUDED\.destructive_requires_signoff/);
 });
 
 test("named residual admin panels use backend read models instead of browser table reads", () => {

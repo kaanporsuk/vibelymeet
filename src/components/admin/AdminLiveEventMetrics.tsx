@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
 import {
   Select,
   SelectContent,
@@ -57,7 +57,6 @@ interface LifecycleFeedItem {
   result: string;
   event_id?: string | null;
   session_id?: string | null;
-  user_id?: string | null;
   admission_status?: string | null;
   queue_id?: string | null;
   error_reason?: string | null;
@@ -72,6 +71,12 @@ interface EventPaymentExceptionItem {
   exception_status: string;
   created_at: string;
   updated_at: string;
+}
+
+interface AdminEventLifecycleFeedPayload extends AdminRpcPayload {
+  event_id?: string;
+  sources?: LifecycleSourceStatus[];
+  items?: LifecycleFeedItem[];
 }
 
 interface AdminEventMetricsPayload extends AdminRpcPayload {
@@ -93,6 +98,7 @@ type VideoDateOpsStatus = "healthy" | "warning" | "critical" | "unknown" | "exte
 
 type VideoDateOpsLatencySummary = {
   sample_count: number;
+  raw_sample_count?: number;
   p50_ms: number | null;
   p95_ms: number | null;
   max_ms: number | null;
@@ -122,6 +128,7 @@ interface VideoDateOpsWindow {
   since: string;
   ready_tap_to_first_remote_frame_latency: {
     sample_count: number;
+    raw_sample_count?: number;
     p50_ms: number | null;
     p95_ms: number | null;
     max_ms: number | null;
@@ -180,9 +187,15 @@ interface VideoDateOpsWindow {
   };
   queue_drain_failures: {
     attempts: number;
+    successes: number;
+    no_ops: number;
+    blocked: number;
     failures: number;
     failure_rate: number | null;
+    non_success_rate: number | null;
     top_failure_reasons: Array<{ reason: string; count: number }>;
+    top_no_op_reasons: Array<{ reason: string; count: number }>;
+    top_blocked_reasons: Array<{ reason: string; count: number }>;
     status: VideoDateOpsStatus;
     source_error?: string;
     truncated?: boolean;
@@ -197,11 +210,43 @@ interface VideoDateOpsWindow {
   };
 }
 
-const asRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+type AdminEventSelectorItem = {
+  id: string;
+  title: string;
+  event_date: string | null;
+  duration_minutes: number | null;
+  status: string | null;
+  ended_at?: string | null;
+  archived_at?: string | null;
+};
 
-const asString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim() ? value : null;
+const computeEventPhase = (event: AdminEventSelectorItem | null | undefined) => {
+  if (!event) return { label: "unknown", tone: "unknown" as const, endIso: null as string | null };
+
+  const status = (event.status || "unknown").toLowerCase();
+  const startMs = new Date(event.event_date ?? "").getTime();
+  const durationMinutes =
+    typeof event.duration_minutes === "number" && Number.isFinite(event.duration_minutes)
+      ? event.duration_minutes
+      : 60;
+  const endMs = Number.isFinite(startMs) ? startMs + durationMinutes * 60_000 : Number.NaN;
+  const endIso = Number.isFinite(endMs) ? new Date(endMs).toISOString() : null;
+
+  if (event.archived_at) return { label: "archived", tone: "ended" as const, endIso };
+  if (status === "cancelled") return { label: "cancelled", tone: "ended" as const, endIso };
+  if (event.ended_at || status === "ended" || status === "completed") {
+    return { label: "ended", tone: "ended" as const, endIso };
+  }
+  if (status === "draft") return { label: "draft", tone: "unknown" as const, endIso };
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    return { label: status, tone: "unknown" as const, endIso };
+  }
+
+  const nowMs = Date.now();
+  if (nowMs < startMs) return { label: "upcoming", tone: "upcoming" as const, endIso };
+  if (nowMs <= endMs) return { label: "live by time", tone: "live" as const, endIso };
+  return { label: "ended by time", tone: "ended" as const, endIso };
+};
 
 const formatRate = (value: number | null | undefined): string =>
   typeof value === "number" && Number.isFinite(value)
@@ -213,6 +258,9 @@ const formatMs = (value: number | null | undefined): string => {
   if (value >= 1000) return `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}s`;
   return `${Math.round(value)}ms`;
 };
+
+const formatReasonCounts = (reasons: Array<{ reason: string; count: number }>): string =>
+  reasons.map((reason) => `${reason.reason} ${reason.count}`).join(", ");
 
 const statusBadgeClass = (status: VideoDateOpsStatus): string => {
   switch (status) {
@@ -277,15 +325,17 @@ const AdminLiveEventMetrics = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("events")
-        .select("id, title, event_date, duration_minutes, status")
+        .select("id, title, event_date, duration_minutes, status, ended_at, archived_at")
         .order("event_date", { ascending: false })
         .limit(50);
       if (error) throw error;
-      return data || [];
+      return (data || []) as AdminEventSelectorItem[];
     },
   });
 
   const eventId = selectedEventId || events[0]?.id || "";
+  const selectedEvent = events.find((event) => event.id === eventId) ?? events[0] ?? null;
+  const selectedEventPhase = computeEventPhase(selectedEvent);
 
   // Live metrics — poll every 10s
   const { data: metrics } = useQuery({
@@ -483,222 +533,19 @@ const AdminLiveEventMetrics = () => {
       ].filter((d) => d.value > 0)
     : [];
 
-  const { data: lifecycleFeed } = useQuery({
+  const { data: lifecycleFeed, error: lifecycleFeedError } = useQuery({
     queryKey: ["admin-event-lifecycle-feed", eventId],
     queryFn: async () => {
       if (!eventId) return null;
 
-      const sources: LifecycleSourceStatus[] = [];
-      const items: LifecycleFeedItem[] = [];
+      const payload = await callAdminRpc<AdminEventLifecycleFeedPayload>("admin_get_event_lifecycle_feed", {
+        p_event_id: eventId,
+      });
 
-      const markSource = (
-        source: string,
-        status: "ok" | "unavailable",
-        detail: string,
-      ) => {
-        sources.push({ source, status, detail });
+      return {
+        sources: Array.isArray(payload.sources) ? payload.sources : [],
+        items: Array.isArray(payload.items) ? payload.items : [],
       };
-
-      const { data: reminderQueue, error: reminderQueueError } = await supabase
-        .from("event_reminder_queue")
-        .select("id, profile_id, event_id, reminder_type, sent_at, created_at")
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false })
-        .limit(30);
-
-      if (reminderQueueError) {
-        markSource("reminder_queue", "unavailable", reminderQueueError.message);
-      } else {
-        const rows = reminderQueue || [];
-        const sentCount = rows.filter((r) => !!r.sent_at).length;
-        const pendingCount = rows.length - sentCount;
-        markSource("reminder_queue", "ok", `${sentCount} sent / ${pendingCount} pending`);
-        rows.forEach((r) => {
-          items.push({
-            timestamp: r.created_at,
-            source: "reminder_queue",
-            category: r.reminder_type,
-            result: r.sent_at ? "sent" : "pending",
-            event_id: r.event_id,
-            user_id: r.profile_id,
-            queue_id: r.id,
-          });
-        });
-      }
-
-      const { data: reminderSendLog, error: reminderSendLogError } = await supabase
-        .from("notification_log")
-        .select("id, user_id, category, delivered, suppressed_reason, created_at, data")
-        .eq("data->>event_id", eventId)
-        .in("category", [
-          "event_reminder",
-          "event_reminder_30m",
-          "event_reminder_5m",
-          "event_waitlist_promoted",
-          "event_cancelled",
-          "event_live",
-        ])
-        .order("created_at", { ascending: false })
-        .limit(40);
-
-      if (reminderSendLogError) {
-        markSource("notification_log", "unavailable", reminderSendLogError.message);
-      } else {
-        const rows = reminderSendLog || [];
-        markSource("notification_log", "ok", `${rows.length} recent records`);
-        rows.forEach((r) => {
-          const dataObj = asRecord(r.data);
-          items.push({
-            timestamp: r.created_at || new Date(0).toISOString(),
-            source: "notification_log",
-            category: r.category,
-            result: r.delivered ? "delivered" : "suppressed",
-            event_id: asString(dataObj?.event_id) ?? eventId,
-            session_id: asString(dataObj?.session_id) ?? asString(dataObj?.video_session_id),
-            user_id: r.user_id,
-            admission_status: asString(dataObj?.admission_status),
-            queue_id: asString(dataObj?.queue_id),
-            error_reason: r.delivered ? null : r.suppressed_reason,
-          });
-        });
-      }
-
-      const { data: waitlistQueue, error: waitlistQueueError } = await supabase
-        .from("waitlist_promotion_notify_queue")
-        .select("id, user_id, event_id, processed_at, created_at")
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false })
-        .limit(30);
-
-      if (waitlistQueueError) {
-        markSource("waitlist_promotion_queue", "unavailable", waitlistQueueError.message);
-      } else {
-        const rows = waitlistQueue || [];
-        const doneCount = rows.filter((r) => !!r.processed_at).length;
-        markSource("waitlist_promotion_queue", "ok", `${doneCount}/${rows.length} processed`);
-        rows.forEach((r) => {
-          items.push({
-            timestamp: r.created_at,
-            source: "waitlist_promotion_queue",
-            category: "event_waitlist_promoted",
-            result: r.processed_at ? "processed" : "pending",
-            event_id: r.event_id,
-            user_id: r.user_id,
-            admission_status: "promoted",
-            queue_id: r.id,
-          });
-        });
-      }
-
-      const { data: settlements, error: settlementsError } = await supabase
-        .from("stripe_event_ticket_settlements")
-        .select("checkout_session_id, profile_id, event_id, outcome, result, created_at")
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false })
-        .limit(30);
-
-      if (settlementsError) {
-        markSource("ticket_settlements", "unavailable", settlementsError.message);
-      } else {
-        const rows = settlements || [];
-        markSource("ticket_settlements", "ok", `${rows.length} recent settlements`);
-        rows.forEach((r) => {
-          const resultObj = asRecord(r.result);
-          items.push({
-            timestamp: r.created_at,
-            source: "ticket_settlements",
-            category: "stripe_event_ticket_settlement",
-            result: r.outcome,
-            event_id: r.event_id,
-            user_id: r.profile_id,
-            admission_status: asString(resultObj?.admission_status),
-            queue_id: r.checkout_session_id,
-          });
-        });
-      }
-
-      const { data: swipes, error: swipesError } = await supabase
-        .from("event_swipes")
-        .select("id, event_id, actor_id, target_id, swipe_type, created_at")
-        .eq("event_id", eventId)
-        .order("created_at", { ascending: false })
-        .limit(40);
-
-      if (swipesError) {
-        markSource("event_swipes", "unavailable", swipesError.message);
-      } else {
-        const rows = swipes || [];
-        markSource("event_swipes", "ok", `${rows.length} recent swipes`);
-        rows.forEach((r) => {
-          items.push({
-            timestamp: r.created_at,
-            source: "event_swipes",
-            category: "swipe_action",
-            result: r.swipe_type,
-            event_id: r.event_id,
-            user_id: r.actor_id,
-            queue_id: r.id,
-          });
-        });
-      }
-
-      const { data: sessions, error: sessionsError } = await supabase
-        .from("video_sessions")
-        .select("id, event_id, participant_1_id, participant_2_id, state, ended_reason, started_at, ended_at, state_updated_at")
-        .eq("event_id", eventId)
-        .order("state_updated_at", { ascending: false })
-        .limit(30);
-
-      if (sessionsError) {
-        markSource("video_sessions", "unavailable", sessionsError.message);
-      } else {
-        const rows = sessions || [];
-        markSource("video_sessions", "ok", `${rows.length} recent session records`);
-        rows.forEach((r) => {
-          const timestamp = r.state_updated_at || r.ended_at || r.started_at;
-          items.push({
-            timestamp,
-            source: "video_sessions",
-            category: "video_date_state",
-            result: r.ended_reason ? `${r.state}:${r.ended_reason}` : r.state,
-            event_id: r.event_id,
-            session_id: r.id,
-            user_id: r.participant_1_id,
-          });
-        });
-      }
-
-      const { data: adminActions, error: adminActionsError } = await supabase
-        .from("admin_activity_logs")
-        .select("id, admin_id, action_type, target_type, target_id, created_at")
-        .eq("target_type", "event")
-        .eq("target_id", eventId)
-        .order("created_at", { ascending: false })
-        .limit(30);
-
-      if (adminActionsError) {
-        markSource("admin_activity_logs", "unavailable", adminActionsError.message);
-      } else {
-        const rows = adminActions || [];
-        markSource("admin_activity_logs", "ok", `${rows.length} recent admin actions`);
-        rows.forEach((r) => {
-          items.push({
-            timestamp: r.created_at,
-            source: "admin_activity_logs",
-            category: r.target_type,
-            result: r.action_type,
-            event_id: r.target_id,
-            user_id: r.admin_id,
-            queue_id: r.id,
-          });
-        });
-      }
-
-      const sortedItems = items
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        .slice(0, 40);
-
-      return { sources, items: sortedItems };
     },
     enabled: !!eventId,
     refetchInterval: 15000,
@@ -734,7 +581,7 @@ const AdminLiveEventMetrics = () => {
     >
       {/* Event Selector */}
       <div className="glass-card p-4 rounded-2xl">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <span className="text-sm font-medium text-foreground">Select Event:</span>
           <Select value={eventId} onValueChange={setSelectedEventId}>
             <SelectTrigger className="w-full max-w-sm bg-secondary/50">
@@ -748,6 +595,29 @@ const AdminLiveEventMetrics = () => {
               ))}
             </SelectContent>
           </Select>
+          {selectedEvent && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <Badge className="bg-secondary text-muted-foreground border-white/10">
+                DB status: {selectedEvent.status || "unknown"}
+              </Badge>
+              <Badge
+                className={
+                  selectedEventPhase.tone === "live"
+                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                    : selectedEventPhase.tone === "upcoming"
+                      ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+                      : selectedEventPhase.tone === "ended"
+                        ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                        : "bg-secondary text-muted-foreground border-white/10"
+                }
+              >
+                computed: {selectedEventPhase.label}
+              </Badge>
+              {selectedEventPhase.endIso && (
+                <span>window end {new Date(selectedEventPhase.endIso).toLocaleString()}</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -839,6 +709,17 @@ const AdminLiveEventMetrics = () => {
                     survey.truncated,
                     drain.truncated,
                   ].some(Boolean);
+                  const rawFirstFrameCount = readyTapToFrame.raw_sample_count ?? readyTapToFrame.sample_count;
+                  const firstFrameSampleText =
+                    rawFirstFrameCount > readyTapToFrame.sample_count
+                      ? `${readyTapToFrame.sample_count} deduped first-frame samples (${rawFirstFrameCount} raw)`
+                      : `${readyTapToFrame.sample_count} first-frame samples`;
+                  const drainSuccesses = drain.successes ?? Math.max(0, drain.attempts - drain.failures);
+                  const drainNoOps = drain.no_ops ?? 0;
+                  const drainBlocked = drain.blocked ?? 0;
+                  const drainFailureReasons = formatReasonCounts(drain.top_failure_reasons ?? []);
+                  const drainNoOpReasons = formatReasonCounts(drain.top_no_op_reasons ?? []);
+                  const drainBlockedReasons = formatReasonCounts(drain.top_blocked_reasons ?? []);
 
                   return (
                     <div key={window.id} className="rounded-xl border border-white/10 bg-secondary/10 p-4 space-y-3">
@@ -862,7 +743,7 @@ const AdminLiveEventMetrics = () => {
                           value={`${formatMs(readyTapToFrame.p95_ms)} p95`}
                           detail={
                             readyTapToFrame.source_error ||
-                            `${readyTapToFrame.sample_count} first-frame samples, ${formatMs(readyTapToFrame.p50_ms)} p50`
+                            `${firstFrameSampleText}, ${formatMs(readyTapToFrame.p50_ms)} p50`
                           }
                           status={readyTapToFrame.status}
                         />
@@ -894,16 +775,14 @@ const AdminLiveEventMetrics = () => {
                           status={survey.status}
                         />
                         <VideoDateOpsTile
-                          label="Queue drain failures"
+                          label="Queue drain health"
                           value={formatRate(drain.failure_rate)}
                           detail={
                             drain.source_error ||
-                            `${drain.failures}/${drain.attempts} attempts failed${
-                              drain.top_failure_reasons.length
-                                ? `; top: ${drain.top_failure_reasons
-                                    .map((reason) => `${reason.reason} ${reason.count}`)
-                                    .join(", ")}`
-                                : ""
+                            `${drainSuccesses} success, ${drainNoOps} no-op, ${drainBlocked} blocked, ${drain.failures}/${drain.attempts} true failures${
+                              drainFailureReasons ? `; failures: ${drainFailureReasons}` : ""
+                            }${drainNoOpReasons ? `; no-op: ${drainNoOpReasons}` : ""}${
+                              drainBlockedReasons ? `; blocked: ${drainBlockedReasons}` : ""
                             }`
                           }
                           status={drain.status}
@@ -964,7 +843,7 @@ const AdminLiveEventMetrics = () => {
                                 <div className="font-medium text-foreground">
                                   {formatMs(session.latency_ms)} / {session.platform} / prewarm {session.daily_prewarm}
                                 </div>
-                                <div className="font-mono text-[10px] break-all">{session.session_id || "-"}</div>
+                                <div>session: {session.session_id ? "linked" : "-"}</div>
                                 <div>
                                   {(session.timeline_rows ?? []).slice(-4).map((row) => row.reason_code ?? row.operation).join(" -> ") ||
                                     session.timeline_error ||
@@ -989,18 +868,18 @@ const AdminLiveEventMetrics = () => {
                 <PieChart className="w-4 h-4 text-primary" />
                 Gender Ratio
               </h3>
-              <div className="h-[200px]">
+              <div className="h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <RechartsPie>
                     <Pie
                       data={genderData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
+                      innerRadius={52}
+                      outerRadius={82}
                       dataKey="value"
                       nameKey="name"
-                      label={({ name, value }) => `${name}: ${value}`}
+                      isAnimationActive={false}
                     >
                       {genderData.map((_, i) => (
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
@@ -1014,20 +893,43 @@ const AdminLiveEventMetrics = () => {
                         color: "#f9fafb",
                       }}
                     />
-                    <Legend />
                   </RechartsPie>
                 </ResponsiveContainer>
+              </div>
+              <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                {genderData.map((entry, index) => (
+                  <div key={entry.name} className="flex items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 rounded-sm"
+                      style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                    />
+                    <span>{entry.name}</span>
+                    <span className="font-medium text-foreground">{entry.value}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
 
           {/* Event Lifecycle Ops Feed */}
+          {lifecycleFeedError && (
+            <div className="glass-card p-6 rounded-2xl space-y-2">
+              <h3 className="font-semibold text-foreground">Event Lifecycle Ops Feed</h3>
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+                Backend lifecycle read model unavailable.
+                <span className="mt-1 block text-xs">
+                  {sanitizeAdminRpcErrorMessage(lifecycleFeedError)}
+                </span>
+              </div>
+            </div>
+          )}
+
           {lifecycleFeed && (
             <div className="glass-card p-6 rounded-2xl space-y-4">
               <div>
                 <h3 className="font-semibold text-foreground">Event Lifecycle Ops Feed</h3>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Event-scoped queue/log visibility. Sources marked unavailable are not currently queryable in this admin session.
+                  Backend event-scoped queue/log visibility. Sources marked unavailable could not be read by the admin read model.
                 </p>
               </div>
 
@@ -1056,11 +958,9 @@ const AdminLiveEventMetrics = () => {
                       <span className="text-[11px] text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span>
                     </div>
                     <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
-                      <span>event_id: {item.event_id || "-"}</span>
-                      <span>session_id: {item.session_id || "-"}</span>
-                      <span>user_id: {item.user_id || "-"}</span>
+                      <span>session: {item.session_id ? "linked" : "-"}</span>
                       <span>admission_status: {item.admission_status || "-"}</span>
-                      <span>queue_id: {item.queue_id || "-"}</span>
+                      <span>queue_ref: {item.queue_id ? "present" : "-"}</span>
                       <span>error_reason: {item.error_reason || "-"}</span>
                     </div>
                   </div>
@@ -1101,10 +1001,10 @@ const AdminLiveEventMetrics = () => {
                     <span className="text-[11px] text-muted-foreground">{new Date(item.updated_at).toLocaleString()}</span>
                   </div>
                   <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
-                    <span>exception_id: {item.id}</span>
-                    <span>profile_id: {item.profile_id}</span>
-                    <span>support_ticket_id: {item.support_ticket_id || "-"}</span>
-                    <span>checkout_session_id: {item.checkout_session_id || "-"}</span>
+                    <span>exception_ref: {item.id ? "present" : "-"}</span>
+                    <span>profile_ref: {item.profile_id ? "present" : "-"}</span>
+                    <span>support_ticket: {item.support_ticket_id ? "linked" : "-"}</span>
+                    <span>checkout_session: {item.checkout_session_id ? "linked" : "-"}</span>
                   </div>
                 </div>
               )) : (
