@@ -95,7 +95,30 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
     };
   }, [query, userId]);
 
-  return <EntitlementsContext.Provider value={value}>{children}</EntitlementsContext.Provider>;
+  const showEntitlementsError = !!userId && query.isError;
+
+  return (
+    <EntitlementsContext.Provider value={value}>
+      {children}
+      {showEntitlementsError ? (
+        <div
+          role="alert"
+          className="fixed inset-x-4 bottom-4 z-[1000] mx-auto flex max-w-xl items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-background/95 px-4 py-3 text-sm text-foreground shadow-lg backdrop-blur"
+        >
+          <span>Tier benefits could not be verified. Premium gates are using safe defaults.</span>
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-border px-3 py-1 text-xs font-medium hover:bg-secondary"
+            onClick={() => {
+              void query.refetch();
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+    </EntitlementsContext.Provider>
+  );
 }
 
 export function useEntitlementsContext(): EntitlementsContextValue {

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -95,7 +96,29 @@ export function EntitlementsProvider({ children }: { children: React.ReactNode }
     };
   }, [query, userId]);
 
-  return <EntitlementsContext.Provider value={value}>{children}</EntitlementsContext.Provider>;
+  const showEntitlementsError = !!userId && query.isError;
+
+  return (
+    <EntitlementsContext.Provider value={value}>
+      {children}
+      {showEntitlementsError ? (
+        <View accessibilityRole="alert" style={styles.entitlementErrorBanner}>
+          <Text style={styles.entitlementErrorText}>
+            Tier benefits could not be verified. Premium gates are using safe defaults.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void query.refetch();
+            }}
+            style={styles.entitlementErrorButton}
+          >
+            <Text style={styles.entitlementErrorButtonText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </EntitlementsContext.Provider>
+  );
 }
 
 export function useEntitlementsContext(): EntitlementsContextValue {
@@ -103,3 +126,40 @@ export function useEntitlementsContext(): EntitlementsContextValue {
   if (!context) throw new Error('useEntitlements must be used within EntitlementsProvider');
   return context;
 }
+
+const styles = StyleSheet.create({
+  entitlementErrorBanner: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 24,
+    zIndex: 1000,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.55)',
+    backgroundColor: 'rgba(18, 18, 24, 0.96)',
+  },
+  entitlementErrorText: {
+    flex: 1,
+    color: '#f8fafc',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  entitlementErrorButton: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  entitlementErrorButtonText: {
+    color: '#f8fafc',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+});

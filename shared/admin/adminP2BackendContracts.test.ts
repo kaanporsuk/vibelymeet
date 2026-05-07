@@ -26,6 +26,12 @@ const tierConfigConcurrencyRepairMigration = read(
 const tierConfigSwipeIdempotencyRepairMigration = read(
   "supabase/migrations/20260507194000_tier_config_swipe_idempotency_repair.sql",
 );
+const tierConfigSwipeLimitRetryRecheckMigration = read(
+  "supabase/migrations/20260507195000_tier_config_swipe_limit_retry_recheck.sql",
+);
+const tierConfigOverrideAuditLockdownMigration = read(
+  "supabase/migrations/20260507200000_tier_config_override_audit_lockdown.sql",
+);
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const accountDeletionsValidation = read("supabase/validation/admin_account_deletions_backend_authoritative.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
@@ -221,6 +227,20 @@ function tierConfigSwipeIdempotencyRepairFnSection(fnName: string): string {
   const candidates = [revoke, classification].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : tierConfigSwipeIdempotencyRepairMigration.length;
   return tierConfigSwipeIdempotencyRepairMigration.slice(start, end);
+}
+
+function tierConfigSwipeLimitRetryRecheckFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = tierConfigSwipeLimitRetryRecheckMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing swipe limit retry recheck function ${fnName}`);
+  const revoke = tierConfigSwipeLimitRetryRecheckMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = tierConfigSwipeLimitRetryRecheckMigration.indexOf(
+    "\nINSERT INTO public.migration_classifications",
+    start + marker.length,
+  );
+  const candidates = [revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : tierConfigSwipeLimitRetryRecheckMigration.length;
+  return tierConfigSwipeLimitRetryRecheckMigration.slice(start, end);
 }
 
 const mutationRpcs = [
@@ -485,6 +505,13 @@ test("tier config authority migration validates overrides and enforces backend e
   assert.match(tierConfigConcurrencyRepairMigration, /'20260507193000'/);
   assert.match(tierConfigSwipeIdempotencyRepairMigration, /INSERT INTO public\.migration_classifications/);
   assert.match(tierConfigSwipeIdempotencyRepairMigration, /'20260507194000'/);
+  assert.match(tierConfigSwipeLimitRetryRecheckMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(tierConfigSwipeLimitRetryRecheckMigration, /'20260507195000'/);
+  assert.match(tierConfigOverrideAuditLockdownMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(tierConfigOverrideAuditLockdownMigration, /'20260507200000'/);
+  assert.match(tierConfigOverrideAuditLockdownMigration, /DROP POLICY IF EXISTS "Admins can manage tier config"/);
+  assert.match(tierConfigOverrideAuditLockdownMigration, /CREATE POLICY "Service role can manage tier config overrides"/);
+  assert.match(tierConfigOverrideAuditLockdownMigration, /auth\.role\(\) = 'service_role'/);
   assert.match(tierConfigAuthorityMigration, /tier_config_overrides_capability_key_check/);
   assert.match(tierConfigAuthorityMigration, /tier_config_overrides_value_check/);
   assert.match(tierConfigAuthorityMigration, /tier_config_override_value_is_valid/);
@@ -525,6 +552,10 @@ test("tier config authority migration validates overrides and enforces backend e
     /FROM public\.event_swipes es[\s\S]*RETURN public\.handle_swipe_20260507190000_tier_authority_base[\s\S]*v_daily_limit :=/,
   );
   assert.match(tierConfigSwipeIdempotencyRepairFnSection("handle_swipe"), /pg_advisory_xact_lock/);
+  assert.match(
+    tierConfigSwipeLimitRetryRecheckFnSection("handle_swipe"),
+    /pg_advisory_xact_lock\(hashtext\(p_actor_id::text\), hashtext\('dailySwipeLimit'\)\);[\s\S]*FROM public\.event_swipes es[\s\S]*RETURN public\.handle_swipe_20260507190000_tier_authority_base[\s\S]*SELECT count\(\*\)::integer/,
+  );
   assert.match(tierConfigAuthorityFnSection("date_suggestion_apply_v2"), /canSuggestDate/);
   assert.match(tierConfigAuthorityFnSection("enforce_user_schedule_tier_capability"), /canUseVibeSchedule/);
   assert.match(tierConfigAuthorityMigration, /public\.get_user_tier_capabilities\(auth\.uid\(\)\)->>'canSeeLikedYou'/);
@@ -537,9 +568,14 @@ test("tier config authority migration validates overrides and enforces backend e
   assert.match(dateSuggestionActionsFunction, /truthyFlag/);
   for (const source of [webEntitlementsContext, mobileEntitlementsContext]) {
     assert.match(source, /get_user_tier_capabilities/);
+    assert.match(source, /showEntitlementsError/);
+    assert.match(source, /Premium gates are using safe defaults/);
+    assert.match(source, /query\.refetch/);
     assert.doesNotMatch(source, /from\(["']profiles["']\)/);
     assert.doesNotMatch(source, /from\(["']tier_config_overrides["']\)/);
   }
+  assert.match(webEntitlementsContext, /role="alert"/);
+  assert.match(mobileEntitlementsContext, /accessibilityRole="alert"/);
 });
 
 test("covered admin UI no longer performs known multi-step browser writes", () => {
