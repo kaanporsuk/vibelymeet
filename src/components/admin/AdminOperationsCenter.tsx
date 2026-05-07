@@ -104,6 +104,27 @@ type AuditPayload = AdminRpcPayload & {
   offset?: number;
 };
 
+type OperationsRpcName =
+  | "admin_get_system_health"
+  | "admin_get_provider_health"
+  | "admin_get_rebuild_status"
+  | "admin_get_incident_signals"
+  | "admin_get_admin_permissions";
+
+type OperationsFailure = {
+  rpc: OperationsRpcName;
+  message: string;
+};
+
+type OperationsData = {
+  system?: SystemHealthPayload;
+  providers?: ProviderHealthPayload;
+  rebuild?: RebuildStatusPayload;
+  incidents?: IncidentSignalsPayload;
+  permissions?: PermissionsPayload;
+  failures: OperationsFailure[];
+};
+
 const statusClasses: Record<string, string> = {
   healthy: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
   degraded: "bg-amber-500/15 text-amber-300 border-amber-500/30",
@@ -153,14 +174,38 @@ const factRows = (value: Record<string, unknown> | undefined) =>
     </div>
   ));
 
+const sanitizeOperationError = (reason: unknown): string => {
+  const raw = reason instanceof Error ? reason.message : String(reason || "Unknown error");
+  return raw
+    .replace(/https?:\/\/\S+/g, "[url]")
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
+    .slice(0, 220);
+};
+
+const fulfilledValue = <T,>(result: PromiseSettledResult<T>): T | undefined =>
+  result.status === "fulfilled" ? result.value : undefined;
+
+const failureFor = (rpc: OperationsRpcName, result: PromiseSettledResult<unknown>): OperationsFailure | null =>
+  result.status === "rejected" ? { rpc, message: sanitizeOperationError(result.reason) } : null;
+
+const unavailableSection = (label: string, rpc: OperationsRpcName, failures: OperationsFailure[]) => {
+  const failure = failures.find((item) => item.rpc === rpc);
+  return (
+    <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+      <div className="font-medium">{label} unavailable</div>
+      <div className="mt-1 text-xs">{failure ? `${rpc}: ${failure.message}` : rpc}</div>
+    </div>
+  );
+};
+
 const AdminOperationsCenter = () => {
   const [auditAction, setAuditAction] = useState("");
   const [auditTargetType, setAuditTargetType] = useState("");
 
-  const opsQuery = useQuery({
+  const opsQuery = useQuery<OperationsData>({
     queryKey: ["admin-operations-center"],
     queryFn: async () => {
-      const [system, providers, rebuild, incidents, permissions] = await Promise.all([
+      const [system, providers, rebuild, incidents, permissions] = await Promise.allSettled([
         callAdminRpc<SystemHealthPayload>("admin_get_system_health", {}),
         callAdminRpc<ProviderHealthPayload>("admin_get_provider_health", {}),
         callAdminRpc<RebuildStatusPayload>("admin_get_rebuild_status", {}),
@@ -168,7 +213,20 @@ const AdminOperationsCenter = () => {
         callAdminRpc<PermissionsPayload>("admin_get_admin_permissions", {}),
       ]);
 
-      return { system, providers, rebuild, incidents, permissions };
+      return {
+        system: fulfilledValue(system),
+        providers: fulfilledValue(providers),
+        rebuild: fulfilledValue(rebuild),
+        incidents: fulfilledValue(incidents),
+        permissions: fulfilledValue(permissions),
+        failures: [
+          failureFor("admin_get_system_health", system),
+          failureFor("admin_get_provider_health", providers),
+          failureFor("admin_get_rebuild_status", rebuild),
+          failureFor("admin_get_incident_signals", incidents),
+          failureFor("admin_get_admin_permissions", permissions),
+        ].filter((failure): failure is OperationsFailure => Boolean(failure)),
+      };
     },
     refetchInterval: 60000,
   });
@@ -190,17 +248,25 @@ const AdminOperationsCenter = () => {
 
   const overallStatus = useMemo(() => {
     const statuses = [
-      opsQuery.data?.system.overall_status,
-      opsQuery.data?.providers.overall_status,
-      opsQuery.data?.rebuild.status,
-      opsQuery.data?.incidents.status,
+      opsQuery.data?.system?.overall_status,
+      opsQuery.data?.providers?.overall_status,
+      opsQuery.data?.rebuild?.status,
+      opsQuery.data?.incidents?.status,
     ];
+    if (opsQuery.data?.failures.length) statuses.push("degraded");
+    if (opsQuery.data?.failures.length && statuses.every((status) => !status)) return "unavailable";
     return statuses.sort((a, b) => statusRank(b) - statusRank(a))[0] || "unknown";
   }, [opsQuery.data]);
 
-  const healthAreas = asArray<HealthArea>(opsQuery.data?.system.health_areas);
-  const providerChecks = asArray<ProviderCheck>(opsQuery.data?.providers.providers);
-  const incidentSignals = asArray<IncidentSignal>(opsQuery.data?.incidents.signals);
+  const operationFailures = opsQuery.data?.failures ?? [];
+  const system = opsQuery.data?.system;
+  const providers = opsQuery.data?.providers;
+  const rebuild = opsQuery.data?.rebuild;
+  const incidents = opsQuery.data?.incidents;
+  const permissions = opsQuery.data?.permissions;
+  const healthAreas = asArray<HealthArea>(system?.health_areas);
+  const providerChecks = asArray<ProviderCheck>(providers?.providers);
+  const incidentSignals = asArray<IncidentSignal>(incidents?.signals);
   const auditRows = asArray<AuditRow>(auditQuery.data?.rows);
 
   if (opsQuery.isLoading) {
@@ -216,20 +282,27 @@ const AdminOperationsCenter = () => {
     );
   }
 
-  if (opsQuery.isError) {
-    return (
-      <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-sm text-destructive">
-        Unable to read operations health from the backend admin RPCs. This is a read failure, not proof that production is healthy.
-      </div>
-    );
-  }
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
+      {operationFailures.length > 0 && (
+        <section className="rounded-xl border border-destructive/30 bg-destructive/10 p-5 text-sm text-destructive">
+          <div className="font-medium">
+            Operations data is partially unavailable. Successful RPC sections are still shown below.
+          </div>
+          <div className="mt-2 space-y-1 text-xs">
+            {operationFailures.map((failure) => (
+              <div key={failure.rpc}>
+                <span className="font-medium">{failure.rpc}</span>: {failure.message}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-2">
@@ -244,7 +317,7 @@ const AdminOperationsCenter = () => {
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="border-border text-muted-foreground">
-              {opsQuery.data?.system.reporting_timezone || "UTC"}
+              {system?.reporting_timezone || "UTC"}
             </Badge>
             <Button
               variant="outline"
@@ -263,21 +336,27 @@ const AdminOperationsCenter = () => {
       </section>
 
       <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {healthAreas.map((area) => (
-          <div key={area.id} className="rounded-xl border border-border bg-card p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium text-foreground">{area.label}</div>
-                <div className="mt-2 text-2xl font-semibold text-foreground">
-                  {formatCount(area.primary_count)}
+        {system ? (
+          healthAreas.map((area) => (
+            <div key={area.id} className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">{area.label}</div>
+                  <div className="mt-2 text-2xl font-semibold text-foreground">
+                    {formatCount(area.primary_count)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{area.primary_label}</div>
                 </div>
-                <div className="text-xs text-muted-foreground">{area.primary_label}</div>
+                {statusBadge(area.status)}
               </div>
-              {statusBadge(area.status)}
+              <div className="mt-4 space-y-1.5">{factRows(area.details)}</div>
             </div>
-            <div className="mt-4 space-y-1.5">{factRows(area.details)}</div>
+          ))
+        ) : (
+          <div className="md:col-span-2 xl:col-span-3">
+            {unavailableSection("System health", "admin_get_system_health", operationFailures)}
           </div>
-        ))}
+        )}
       </section>
 
       <section className="rounded-xl border border-border bg-card p-4">
@@ -286,37 +365,41 @@ const AdminOperationsCenter = () => {
             <ShieldCheck className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">Provider Reconciliation</h3>
           </div>
-          {statusBadge(opsQuery.data?.providers.overall_status)}
+          {statusBadge(providers?.overall_status)}
         </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {providerChecks.map((provider) => {
-            const Icon = providerIcons[provider.id] || Server;
-            return (
-              <div key={provider.id} className="rounded-lg border border-border/70 bg-secondary/20 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Icon className="h-4 w-4 text-primary" />
-                    <span className="font-medium text-foreground">{provider.label}</span>
+        {providers ? (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {providerChecks.map((provider) => {
+              const Icon = providerIcons[provider.id] || Server;
+              return (
+                <div key={provider.id} className="rounded-lg border border-border/70 bg-secondary/20 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-primary" />
+                      <span className="font-medium text-foreground">{provider.label}</span>
+                    </div>
+                    {statusBadge(provider.status)}
                   </div>
-                  {statusBadge(provider.status)}
-                </div>
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium text-muted-foreground">App Truth</div>
-                    {factRows(provider.app_truth)}
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">App Truth</div>
+                      {factRows(provider.app_truth)}
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">Provider Truth</div>
+                      {factRows(provider.provider_truth)}
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <div className="text-xs font-medium text-muted-foreground">Provider Truth</div>
-                    {factRows(provider.provider_truth)}
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    Drift count: <span className="font-medium text-foreground">{formatCount(provider.drift_count)}</span>
                   </div>
                 </div>
-                <div className="mt-3 text-xs text-muted-foreground">
-                  Drift count: <span className="font-medium text-foreground">{formatCount(provider.drift_count)}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          unavailableSection("Provider reconciliation", "admin_get_provider_health", operationFailures)
+        )}
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -326,9 +409,11 @@ const AdminOperationsCenter = () => {
               <AlertTriangle className="h-5 w-5 text-primary" />
               <h3 className="text-lg font-semibold text-foreground">Incident Signals</h3>
             </div>
-            {statusBadge(opsQuery.data?.incidents.status)}
+            {statusBadge(incidents?.status)}
           </div>
-          {incidentSignals.length === 0 ? (
+          {!incidents ? (
+            unavailableSection("Incident signals", "admin_get_incident_signals", operationFailures)
+          ) : incidentSignals.length === 0 ? (
             <div className="rounded-lg border border-border/70 bg-secondary/20 p-4 text-sm text-muted-foreground">
               No incident signals are currently visible from app-layer telemetry.
             </div>
@@ -363,30 +448,36 @@ const AdminOperationsCenter = () => {
               <Database className="h-5 w-5 text-primary" />
               <h3 className="text-lg font-semibold text-foreground">Rebuild Governance</h3>
             </div>
-            {statusBadge(opsQuery.data?.rebuild.status)}
+            {statusBadge(rebuild?.status)}
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-              <div className="text-xs text-muted-foreground">Migrations</div>
-              <div className="text-xl font-semibold text-foreground">{formatCount(opsQuery.data?.rebuild.migration_count)}</div>
-            </div>
-            <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-              <div className="text-xs text-muted-foreground">Unclassified</div>
-              <div className="text-xl font-semibold text-foreground">{formatCount(opsQuery.data?.rebuild.unclassified_migrations)}</div>
-            </div>
-            <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-              <div className="text-xs text-muted-foreground">Classified</div>
-              <div className="text-xl font-semibold text-foreground">{formatCount(opsQuery.data?.rebuild.classified_migrations)}</div>
-            </div>
-            <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-              <div className="text-xs text-muted-foreground">Rehearsals</div>
-              <div className="text-xl font-semibold text-foreground">{formatCount(opsQuery.data?.rebuild.rebuild_rehearsal_count)}</div>
-            </div>
-          </div>
-          <div className="mt-4 space-y-2 text-xs text-muted-foreground">
-            <div>Latest migration: <span className="text-foreground">{opsQuery.data?.rebuild.latest_migration || "unknown"}</span></div>
-            <div>Expected functions: {asArray<string>(opsQuery.data?.rebuild.expected_functions).join(", ") || "unknown"}</div>
-          </div>
+          {rebuild ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                  <div className="text-xs text-muted-foreground">Migrations</div>
+                  <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.migration_count)}</div>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                  <div className="text-xs text-muted-foreground">Unclassified</div>
+                  <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.unclassified_migrations)}</div>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                  <div className="text-xs text-muted-foreground">Classified</div>
+                  <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.classified_migrations)}</div>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                  <div className="text-xs text-muted-foreground">Rehearsals</div>
+                  <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.rebuild_rehearsal_count)}</div>
+                </div>
+              </div>
+              <div className="mt-4 space-y-2 text-xs text-muted-foreground">
+                <div>Latest migration: <span className="text-foreground">{rebuild.latest_migration || "unknown"}</span></div>
+                <div>Expected functions: {asArray<string>(rebuild.expected_functions).join(", ") || "unknown"}</div>
+              </div>
+            </>
+          ) : (
+            unavailableSection("Rebuild governance", "admin_get_rebuild_status", operationFailures)
+          )}
         </div>
       </section>
 
@@ -469,20 +560,26 @@ const AdminOperationsCenter = () => {
           <h3 className="text-lg font-semibold text-foreground">Admin Permissions</h3>
         </div>
         <div className="flex flex-wrap gap-2">
-          {asArray<string>(opsQuery.data?.permissions.roles).map((role) => (
+          {asArray<string>(permissions?.roles).map((role) => (
             <Badge key={role} variant="outline" className="border-border">
               role: {role}
             </Badge>
           ))}
-          {asArray<string>(opsQuery.data?.permissions.permissions).slice(0, 12).map((permission) => (
+          {asArray<string>(permissions?.permissions).slice(0, 12).map((permission) => (
             <Badge key={permission} className="bg-secondary text-secondary-foreground border-border">
               {permission}
             </Badge>
           ))}
         </div>
-        <div className="mt-3 text-xs text-muted-foreground">
-          {opsQuery.data?.permissions.permission_model}
-        </div>
+        {permissions ? (
+          <div className="mt-3 text-xs text-muted-foreground">
+            {permissions.permission_model}
+          </div>
+        ) : (
+          <div className="mt-3">
+            {unavailableSection("Admin permissions", "admin_get_admin_permissions", operationFailures)}
+          </div>
+        )}
       </section>
     </motion.div>
   );

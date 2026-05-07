@@ -8,8 +8,11 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260506103000_admin_p2_backend_authoritative_hardening.sql");
 const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
+const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dashboard_badge_counts.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
+const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
+const staleBundleNotice = read("src/components/admin/AdminStaleBundleNotice.tsx");
 const grantCredits = read("src/components/admin/AdminGrantCreditsModal.tsx");
 const premium = read("src/components/admin/AdminPremiumModal.tsx");
 const reports = read("src/components/admin/AdminReportsPanel.tsx");
@@ -50,6 +53,15 @@ function overviewFnSection(fnName: string): string {
   const next = overviewMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
   const end = next === -1 ? overviewMigration.length : next;
   return overviewMigration.slice(start, end);
+}
+
+function badgeCountsFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = badgeCountsMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = badgeCountsMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const end = next === -1 ? badgeCountsMigration.length : next;
+  return badgeCountsMigration.slice(start, end);
 }
 
 const mutationRpcs = [
@@ -227,4 +239,32 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.doesNotMatch(quickActions, /\.from\(['"]user_reports['"]\)/);
   assert.doesNotMatch(quickActions, /\.from\(['"]events['"]\)/);
   assert.doesNotMatch(dailyDrop, /\.from\(['"]daily_drops['"]\)/);
+});
+
+test("dashboard badge counts are backend RPC based and avoid direct HEAD counts", () => {
+  const badgeCounts = badgeCountsFnSection("admin_get_dashboard_badge_counts");
+  assert.match(badgeCounts, /SECURITY DEFINER/);
+  assert.match(badgeCounts, /SET search_path = public, pg_catalog/);
+  assert.match(badgeCounts, /auth\.uid\(\)/);
+  assert.match(badgeCounts, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(badgeCounts, /public\.admin_notifications/);
+  assert.match(badgeCounts, /public\.support_tickets/);
+  assert.match(badgeCounts, /public\.feedback/);
+  assert.match(badgeCountsMigration, /REVOKE ALL ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) FROM PUBLIC/);
+  assert.match(badgeCountsMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) TO authenticated/);
+  assert.match(adminDashboard, /callAdminRpc<AdminDashboardBadgeCountsPayload>\("admin_get_dashboard_badge_counts"/);
+  assert.doesNotMatch(adminDashboard, /\.from\(['"]admin_notifications['"]\)/);
+  assert.doesNotMatch(adminDashboard, /\.from\(['"]support_tickets['"]\)/);
+  assert.doesNotMatch(adminDashboard, /\.from\(['"]feedback['"]\)/);
+  assert.doesNotMatch(adminDashboard, /head:\s*true/);
+  assert.doesNotMatch(adminDashboard, /admin_get_notification_counts/);
+  assert.doesNotMatch(adminDashboard, /admin_get_system_health/);
+});
+
+test("admin dashboard surfaces stale hashed bundles before more admin work", () => {
+  assert.match(adminDashboard, /AdminStaleBundleNotice/);
+  assert.match(staleBundleNotice, /ENTRY_MODULE_PATTERN/);
+  assert.match(staleBundleNotice, /vibely_bundle_check/);
+  assert.match(staleBundleNotice, /cache: "no-store"/);
+  assert.match(staleBundleNotice, /window\.location\.reload\(\)/);
 });

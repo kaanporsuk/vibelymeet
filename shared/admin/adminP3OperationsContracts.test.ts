@@ -108,6 +108,18 @@ test("P3 Operations Center calls backend read RPCs and exposes incident/audit/re
   assert.match(operationsCenter, /Admin Permissions/);
 });
 
+test("P3 Operations Center renders partial data when a backend read RPC fails", () => {
+  assert.match(operationsCenter, /Promise\.allSettled/);
+  assert.doesNotMatch(operationsCenter, /Promise\.all\(/);
+  assert.match(operationsCenter, /type OperationsFailure/);
+  assert.match(operationsCenter, /Successful RPC sections are still shown below/);
+  assert.match(operationsCenter, /failureFor\("admin_get_system_health"/);
+  assert.match(operationsCenter, /failureFor\("admin_get_provider_health"/);
+  assert.match(operationsCenter, /failureFor\("admin_get_rebuild_status"/);
+  assert.match(operationsCenter, /failureFor\("admin_get_incident_signals"/);
+  assert.match(operationsCenter, /failureFor\("admin_get_admin_permissions"/);
+});
+
 test("P3 Operations Center has no direct writes or browser-side provider calls", () => {
   assert.doesNotMatch(operationsCenter, /\.from\([^)]*\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/);
   assert.doesNotMatch(operationsCenter, /\bfetch\(/);

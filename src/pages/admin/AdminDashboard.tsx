@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
+import AdminStaleBundleNotice from "@/components/admin/AdminStaleBundleNotice";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
@@ -45,15 +46,10 @@ const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMedi
 
 type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
-type AdminNotificationCountsPayload = AdminRpcPayload & {
-  unread_count?: number;
-};
-
-type AdminSystemHealthPayload = AdminRpcPayload & {
-  health_areas?: {
-    id?: string;
-    details?: Record<string, unknown> | null;
-  }[];
+type AdminDashboardBadgeCountsPayload = AdminRpcPayload & {
+  unread_notifications?: number;
+  open_support_tickets?: number;
+  new_feedback?: number;
 };
 
 const AdminPanelFallback = () => (
@@ -69,40 +65,15 @@ const AdminDashboard = () => {
   // Enable real-time updates
   useAdminRealtime({ enabled: true });
 
-  // Fetch unread notifications count
-  const { data: unreadCountData } = useQuery({
-    queryKey: ['admin-unread-notifications'],
-    queryFn: async () => {
-      const payload = await callAdminRpc<AdminNotificationCountsPayload>("admin_get_notification_counts", {});
-      return Number(payload.unread_count ?? 0);
-    },
+  const { data: badgeCounts } = useQuery({
+    queryKey: ['admin-dashboard-badge-counts'],
+    queryFn: async () =>
+      callAdminRpc<AdminDashboardBadgeCountsPayload>("admin_get_dashboard_badge_counts", {}),
     refetchInterval: 30000,
   });
-  const unreadCount = unreadCountData ?? 0;
-
-  // Fetch new feedback count
-  const { data: feedbackCount = 0 } = useQuery({
-    queryKey: ['admin-new-feedback-count'],
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('feedback')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'new');
-      return count || 0;
-    },
-    refetchInterval: 60000,
-  });
-
-  const { data: supportCount = 0 } = useQuery({
-    queryKey: ['admin-support-open-count'],
-    queryFn: async () => {
-      const payload = await callAdminRpc<AdminSystemHealthPayload>("admin_get_system_health", {});
-      const moderationArea = payload.health_areas?.find((area) => area.id === "moderation");
-      const openSupportTickets = Number(moderationArea?.details?.open_support_tickets ?? 0);
-      return Number.isFinite(openSupportTickets) ? openSupportTickets : 0;
-    },
-    refetchInterval: 30000,
-  });
+  const unreadCount = Number(badgeCounts?.unread_notifications ?? 0);
+  const feedbackCount = Number(badgeCounts?.new_feedback ?? 0);
+  const supportCount = Number(badgeCounts?.open_support_tickets ?? 0);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -205,6 +176,7 @@ const AdminDashboard = () => {
             </div>
           </div>
         </header>
+        <AdminStaleBundleNotice />
 
         {/* Content */}
         <main className="p-6">

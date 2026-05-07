@@ -16,7 +16,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
 
   const invalidateAllStats = useCallback(() => {
     invalidateOverview();
-    queryClient.invalidateQueries({ queryKey: ["admin-unread-notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
   }, [invalidateOverview, queryClient]);
 
   const invalidateUsers = useCallback(() => {
@@ -34,8 +34,12 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
   }, [invalidateOverview, queryClient]);
 
   const invalidateNotifications = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-unread-notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
     queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
+  }, [queryClient]);
+
+  const invalidateBadges = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
   }, [queryClient]);
 
   const invalidateReports = useCallback(() => {
@@ -119,6 +123,24 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       )
       .subscribe();
 
+    const supportTicketsChannel = supabase
+      .channel("admin-support-tickets-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_tickets" },
+        invalidateBadges
+      )
+      .subscribe();
+
+    const feedbackChannel = supabase
+      .channel("admin-feedback-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "feedback" },
+        invalidateBadges
+      )
+      .subscribe();
+
     // Subscribe to messages for real-time message count
     const messagesChannel = supabase
       .channel("admin-messages-realtime")
@@ -137,6 +159,8 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       supabase.removeChannel(dailyDropsChannel);
       supabase.removeChannel(notificationsChannel);
       supabase.removeChannel(reportsChannel);
+      supabase.removeChannel(supportTicketsChannel);
+      supabase.removeChannel(feedbackChannel);
       supabase.removeChannel(messagesChannel);
     };
   }, [
@@ -147,6 +171,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     invalidateEvents,
     invalidateNotifications,
     invalidateReports,
+    invalidateBadges,
     queryClient,
   ]);
 
