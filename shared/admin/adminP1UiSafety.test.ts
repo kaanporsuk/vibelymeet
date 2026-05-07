@@ -21,6 +21,7 @@ const usePushAnalytics = read("src/hooks/usePushAnalytics.ts");
 const pushAnalyticsDashboard = read("src/components/admin/PushAnalyticsDashboard.tsx");
 const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const adminUserDetail = read("src/components/admin/AdminUserDetailDrawer.tsx");
+const adminProfilePreview = read("src/components/admin/AdminProfilePreview.tsx");
 const adminLiveEventMetrics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const adminEvents = read("src/components/admin/AdminEventsPanel.tsx");
 const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
@@ -232,6 +233,12 @@ test("users panel labels registration-derived counts honestly", () => {
   assert.match(adminUsers, /Next/);
   assert.match(adminUsers, /Event registration counts are derived server-side from registration rows; they are not confirmed attendance/);
   assert.match(adminUsers, /Event registrations/);
+  assert.match(adminUsers, /LifecycleFilter/);
+  assert.match(adminUsers, /All Lifecycle/);
+  assert.match(adminUsers, /Bootstrap fresh/);
+  assert.match(adminUsers, /filters\.lifecycle_status = lifecycleFilter/);
+  assert.match(adminUsers, /age_is_placeholder/);
+  assert.match(adminUsers, /Pending/);
   assert.doesNotMatch(adminUsers, /events_attended/);
   assert.match(adminUsers, /Could not load users or derived event registration counts/);
   assert.match(adminUsers, /Vibes unavailable/);
@@ -281,6 +288,9 @@ test("named admin residual panels use backend read-model RPCs instead of browser
   assert.match(adminPushCampaigns, /admin_upsert_push_campaign_draft/);
   assert.match(adminPushCampaigns, /admin_delete_push_campaign_draft/);
   assert.match(adminUserDetail, /admin_get_user_detail_read_model/);
+  assert.match(adminUserDetail, /profile=\{profile\}/);
+  assert.match(adminUserDetail, /moderation=\{moderation\}/);
+  assert.match(adminUserDetail, /history=\{premiumHistory\}/);
   assert.match(adminMatchMessages, /admin_get_user_match_threads/);
   assert.match(adminMatchMessages, /admin_get_match_thread_messages/);
 
@@ -294,7 +304,34 @@ test("named admin residual panels use backend read-model RPCs instead of browser
   assert.doesNotMatch(adminPushCampaigns, /\.update\(/);
   assert.doesNotMatch(adminPushCampaigns, /\.delete\(/);
   assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);
+  assert.doesNotMatch(adminProfilePreview, /\.from\(['"]/);
+  assert.doesNotMatch(userModeration, /\.from\(['"]/);
+  assert.doesNotMatch(adminPremium, /\.from\(['"]/);
   assert.doesNotMatch(adminMatchMessages, /\.from\(['"]/);
+});
+
+test("Users workflow nested tools consume backend read-model data instead of direct table reads", () => {
+  const usersWorkflowSources = [
+    adminUsers,
+    adminUserDetail,
+    adminProfilePreview,
+    userModeration,
+    adminPremium,
+  ].join("\n");
+
+  for (const table of [
+    "profiles",
+    "profile_vibes",
+    "user_suspensions",
+    "user_warnings",
+    "premium_history",
+  ]) {
+    assert.doesNotMatch(usersWorkflowSources, new RegExp(`\\.from\\(['"]${table}['"]\\)`));
+  }
+
+  assert.match(adminProfilePreview, /profile: AdminPreviewProfile \| null/);
+  assert.match(userModeration, /moderation\?: AdminModerationReadModel \| null/);
+  assert.match(adminPremium, /history\?: PremiumHistoryEntry\[\]/);
 });
 
 test("password reset is visibly unavailable instead of toast-only fake action", () => {
@@ -307,9 +344,21 @@ test("premium operations use backend transaction RPC", () => {
   assert.match(adminPremium, /callAdminRpc\("admin_set_premium_status"/);
   assert.match(adminPremium, /p_idempotency_key: createAdminIdempotencyKey\("admin_set_premium_status"\)/);
   assert.match(adminPremium, /profile state, premium_history, and admin audit logging are transactional/);
+  assert.match(adminPremium, /history = \[\]/);
+  assert.match(adminPremium, /const closeModal = \(\) =>/);
+  assert.match(adminPremium, /setPendingAction\(null\)/);
   assert.doesNotMatch(adminPremium, /\.from\("profiles"\)\.update/);
   assert.doesNotMatch(adminPremium, /\.from\("premium_history"\)\.insert/);
+  assert.doesNotMatch(adminPremium, /\.from\(['"]premium_history['"]\)/);
+  assert.doesNotMatch(adminPremium, /\.from\(['"]profiles['"]\)/);
   assert.match(adminPremium, /AdminConfirmDialog/);
+});
+
+test("Users nested admin dialogs reset confirmation state on close", () => {
+  assert.match(userModeration, /const handleDialogOpenChange = \(open: boolean\) =>/);
+  assert.match(userModeration, /setConfirmation\(null\)/);
+  assert.match(adminPremium, /const closeModal = \(\) =>/);
+  assert.match(adminPremium, /setPendingAction\(null\)/);
 });
 
 test("push campaigns are draft-only and do not enqueue browser notification events", () => {

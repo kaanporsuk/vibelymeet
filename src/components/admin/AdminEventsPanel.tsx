@@ -19,7 +19,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminEventFormModal from "./AdminEventFormModal";
@@ -53,6 +52,11 @@ type AdminEventRow = {
   parent_event_id?: string | null;
   occurrence_number?: number | null;
   recurrence_type?: "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly" | null;
+};
+
+type AdminEventsPayload = {
+  events?: AdminEventRow[];
+  total_count?: number;
 };
 
 type PendingEventPanelAction =
@@ -143,18 +147,16 @@ const AdminEventsPanel = () => {
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['admin-events', searchQuery, showArchived],
     queryFn: async () => {
-      let query = supabase
-        .from('events')
-        .select('*')
-        .order('event_date', { ascending: false });
+      const payload = await callAdminRpc<AdminEventsPayload>("admin_list_events", {
+        p_filters: {
+          search: searchQuery.trim() || null,
+          show_archived: showArchived,
+        },
+        p_limit: 1000,
+        p_offset: 0,
+      });
 
-      if (!showArchived) query = query.is('archived_at', null);
-      if (searchQuery) query = query.ilike('title', `%${searchQuery}%`);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      return (data || []) as AdminEventRow[];
+      return payload.events ?? [];
     },
   });
 
@@ -191,6 +193,30 @@ const AdminEventsPanel = () => {
 
   const getChildrenOf = (parentId: string) =>
     filteredEvents.filter(e => e.parent_event_id === parentId);
+
+  const visibleEventIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const event of groupedEvents) {
+      ids.push(event.id);
+      if (groupBySeries && event.is_recurring && expandedParents.has(event.id)) {
+        ids.push(...filteredEvents.filter(child => child.parent_event_id === event.id).map(child => child.id));
+      }
+    }
+    return ids;
+  }, [expandedParents, filteredEvents, groupBySeries, groupedEvents]);
+
+  const allVisibleSelected =
+    visibleEventIds.length > 0 && visibleEventIds.every(id => selectedIds.has(id));
+
+  useEffect(() => {
+    setSelectedIds(prev => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(visibleEventIds);
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      if (next.size === prev.size && [...prev].every(id => next.has(id))) return prev;
+      return next;
+    });
+  }, [visibleEventIds]);
 
   // Archive mutation
   const archiveEvent = useMutation({
@@ -260,18 +286,18 @@ const AdminEventsPanel = () => {
 
   // Bulk archive
   const bulkArchive = async () => {
-    if (selectedIds.size === 0) return;
+    const eventIds = [...selectedIds];
+    if (eventIds.length === 0) return;
     setIsBulkArchiving(true);
     try {
       await callAdminRpc("admin_bulk_archive_events", {
-        p_event_ids: [...selectedIds],
+        p_event_ids: eventIds,
         p_reason: "Bulk archived from /kaan dashboard",
         p_idempotency_key: createAdminIdempotencyKey("admin_bulk_archive_events"),
       });
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
-      const count = selectedIds.size;
       setSelectedIds(new Set());
-      toast.success(`${count} events archived`);
+      toast.success(`${eventIds.length} events archived`);
     } finally {
       setIsBulkArchiving(false);
     }
@@ -362,8 +388,8 @@ const AdminEventsPanel = () => {
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredEvents.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filteredEvents.map(e => e.id)));
+    if (allVisibleSelected) setSelectedIds(new Set());
+    else setSelectedIds(new Set(visibleEventIds));
   };
 
   const renderEventRow = (event: AdminEventRow, isChild = false): ReactNode => {
@@ -692,7 +718,7 @@ const AdminEventsPanel = () => {
             onClick={() => setPendingEventAction({ kind: "bulk-archive", count: selectedIds.size })}
             className="gap-1 h-7 text-xs"
           >
-            <Archive className="w-3 h-3" />Archive All
+            <Archive className="w-3 h-3" />Archive Selected
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())} className="h-7 text-xs text-muted-foreground">
             Clear
@@ -708,7 +734,7 @@ const AdminEventsPanel = () => {
               <TableRow className="border-border/50 hover:bg-transparent">
                 <TableHead className="w-10">
                   <button type="button" onClick={toggleSelectAll}>
-                    {selectedIds.size === filteredEvents.length && filteredEvents.length > 0
+                    {allVisibleSelected
                       ? <CheckSquare className="w-4 h-4 text-primary" />
                       : <Square className="w-4 h-4 text-muted-foreground" />}
                   </button>

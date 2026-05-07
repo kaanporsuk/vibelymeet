@@ -10,109 +10,68 @@ import {
   Video,
   Play,
   Loader2,
-  User,
   Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { VibeTag } from "@/components/VibeTag";
 import { LifestyleDetails } from "@/components/LifestyleDetails";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
 
-import { getImageUrl, fullScreenUrl } from "@/utils/imageUrl";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { fullScreenUrl } from "@/utils/imageUrl";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
-
-interface AdminProfilePreviewProps {
-  userId: string;
-  isOpen: boolean;
-  onClose: () => void;
-}
 
 interface AdminVibeTag {
   label: string | null;
   emoji: string | null;
-  category: string | null;
+  category?: string | null;
 }
 
-function isAdminVibeTag(value: unknown): value is AdminVibeTag {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "label" in value &&
-    "emoji" in value &&
-    "category" in value
-  );
+type AdminPreviewPrompt = {
+  prompt?: string | null;
+  question?: string | null;
+  answer?: string | null;
+};
+
+interface AdminPreviewProfile {
+  id: string;
+  updated_at: string | null;
+  name: string | null;
+  age: number | null;
+  gender: string | null;
+  job: string | null;
+  location: string | null;
+  about_me: string | null;
+  looking_for: string | null;
+  relationship_intent: string | null;
+  photos: string[] | null;
+  avatar_url: string | null;
+  bunny_video_uid: string | null;
+  bunny_video_status: string | null;
+  vibe_caption: string | null;
+  lifestyle?: unknown;
+  prompts?: unknown;
+  photo_verified: boolean | null;
+  height_cm: number | null;
+  age_is_placeholder?: boolean | null;
 }
 
-const ADMIN_PROFILE_PREVIEW_SELECT = `
-  id,
-  updated_at,
-  name,
-  age,
-  gender,
-  job,
-  location,
-  about_me,
-  looking_for,
-  relationship_intent,
-  photos,
-  avatar_url,
-  bunny_video_uid,
-  bunny_video_status,
-  vibe_caption,
-  lifestyle,
-  prompts,
-  photo_verified,
-  height_cm
-`;
+interface AdminProfilePreviewProps {
+  profile: AdminPreviewProfile | null;
+  vibes: AdminVibeTag[];
+  isOpen: boolean;
+  onClose: () => void;
+}
 
-const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewProps) => {
+const normalizePrompts = (value: unknown): AdminPreviewPrompt[] => (
+  Array.isArray(value)
+    ? value.filter((prompt): prompt is AdminPreviewPrompt => typeof prompt === "object" && prompt !== null)
+    : []
+);
+
+const AdminProfilePreview = ({ profile, vibes, isOpen, onClose }: AdminProfilePreviewProps) => {
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
-
-  // Fetch user profile
-  const { data: profile, isLoading } = useQuery({
-    queryKey: ["admin-profile-preview", userId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select(ADMIN_PROFILE_PREVIEW_SELECT)
-        .eq("id", userId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: isOpen && !!userId,
-  });
-
-  // Fetch user vibes
-  const { data: vibes } = useQuery({
-    queryKey: ["admin-profile-vibes", userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("profile_vibes")
-        .select(`
-          vibe_tags (
-            label,
-            emoji,
-            category
-          )
-        `)
-        .eq("profile_id", userId);
-      return (data ?? []).flatMap((v) => {
-        const tags = v.vibe_tags;
-        if (Array.isArray(tags)) {
-          return tags.filter(isAdminVibeTag);
-        }
-        return isAdminVibeTag(tags) ? [tags] : [];
-      });
-    },
-    enabled: isOpen && !!userId,
-  });
 
   // Resolve photos via CDN helper (no async refresh needed)
   useEffect(() => {
@@ -122,6 +81,10 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
     }
     setRefreshedPhotos(profile.photos.map((url: string) => fullScreenUrl(url)));
   }, [profile?.photos]);
+
+  useEffect(() => {
+    setShowVideoPlayer(false);
+  }, [isOpen, profile?.id]);
 
   const vibeVideo = useMemo(
     () =>
@@ -144,7 +107,12 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
       ? profile.photos
       : [];
   const lifestyle = profile?.lifestyle as Record<string, string> | null;
-  const prompts = profile?.prompts as Array<{ prompt: string; answer: string }> | null;
+  const prompts = normalizePrompts(profile?.prompts);
+  const profileAgeLabel = profile?.age_is_placeholder ? "Pending age" : profile?.age ?? "N/A";
+  const handleClose = () => {
+    setShowVideoPlayer(false);
+    onClose();
+  };
 
   return (
     <motion.div
@@ -160,7 +128,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
             <h2 className="text-xl font-bold font-display text-foreground">Profile Preview</h2>
             <p className="text-sm text-muted-foreground">How {profile?.name || "User"} sees their profile</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={handleClose}>
             <X className="w-5 h-5" />
           </Button>
         </div>
@@ -169,20 +137,14 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
       {/* Content - Scrollable */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-2xl mx-auto p-4 pb-24">
-          {isLoading ? (
-            <div className="space-y-4">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-40 bg-secondary/50 rounded-xl animate-pulse" />
-              ))}
-            </div>
-          ) : profile ? (
+          {profile ? (
             <div className="space-y-4">
               {/* Hero Photo */}
               {photos[0] && (
                 <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl">
                   <img
                     src={photos[0]}
-                    alt={profile.name}
+                    alt={profile.name || "Profile photo"}
                     className="w-full h-full object-cover"
                   />
                   {profile.photo_verified && (
@@ -197,7 +159,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
                   {/* Name and info */}
                   <div className="absolute bottom-4 left-4 right-4">
                     <h3 className="text-2xl font-bold text-foreground">
-                      {profile.name}, {profile.age}
+                      {profile.name || "Unnamed user"}, {profileAgeLabel}
                     </h3>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {profile.job && (
@@ -312,16 +274,19 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
               )}
 
               {/* Prompts */}
-              {prompts && prompts.length > 0 && prompts.some((p) => p.answer) && (
+              {prompts.length > 0 && prompts.some((p) => p.answer) && (
                 <div className="space-y-3">
                   {prompts
-                    .filter((p) => p.answer && p.prompt)
-                    .map((prompt, i) => (
-                      <div key={i} className="glass-card p-4 rounded-xl">
-                        <p className="text-sm font-medium text-primary mb-1">{prompt.prompt}</p>
-                        <p className="text-foreground">{prompt.answer}</p>
-                      </div>
-                    ))}
+                    .filter((p) => p.answer && (p.prompt || p.question))
+                    .map((prompt, i) => {
+                      const label = prompt.prompt || prompt.question;
+                      return (
+                        <div key={i} className="glass-card p-4 rounded-xl">
+                          <p className="text-sm font-medium text-primary mb-1">{label}</p>
+                          <p className="text-foreground">{prompt.answer}</p>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
 
@@ -358,7 +323,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
               </div>
             </div>
           ) : (
-            <div className="text-center text-muted-foreground py-12">Profile not found</div>
+            <div className="text-center text-muted-foreground py-12">Profile preview unavailable</div>
           )}
         </div>
       </div>
@@ -366,7 +331,7 @@ const AdminProfilePreview = ({ userId, isOpen, onClose }: AdminProfilePreviewPro
       {/* Footer - Fixed */}
       <div className="shrink-0 border-t border-border bg-card">
         <div className="max-w-2xl mx-auto px-4 py-4 flex justify-end">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={handleClose}>
             Close
           </Button>
         </div>

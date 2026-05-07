@@ -31,7 +31,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
-import UserModerationActions from "./UserModerationActions";
+import UserModerationActions, { type AdminModerationReadModel } from "./UserModerationActions";
 import AdminProfilePreview from "./AdminProfilePreview";
 import AdminMatchMessagesDrawer from "./AdminMatchMessagesDrawer";
 import AdminPhotoLightbox from "./AdminPhotoLightbox";
@@ -96,6 +96,8 @@ type AdminUserProfileRow = {
   about_me: string | null;
   looking_for: string | null;
   relationship_intent: string | null;
+  lifestyle?: unknown;
+  prompts?: unknown;
   photos: string[] | null;
   avatar_url: string | null;
   bunny_video_uid: string | null;
@@ -111,8 +113,31 @@ type AdminUserProfileRow = {
   total_conversations: number | null;
   created_at: string;
   updated_at: string;
+  onboarding_complete: boolean | null;
+  onboarding_stage: string | null;
+  last_seen_at: string | null;
+  is_bootstrap_fresh: boolean;
+  has_activity: boolean;
+  lifecycle_status: string | null;
+  age_is_placeholder: boolean;
   event_registrations: number | null;
   event_registrations_unavailable: boolean;
+};
+
+type PremiumHistoryEntry = {
+  id: string;
+  action: string;
+  premium_until: string | null;
+  reason: string | null;
+  created_at: string;
+  admin_id: string | null;
+  adminName: string;
+};
+
+type AdminCreditsReadModel = {
+  extra_time_credits: number;
+  extended_vibe_credits: number;
+  updated_at: string | null;
 };
 
 type UserDetailReadModelPayload = AdminRpcPayload & {
@@ -120,11 +145,48 @@ type UserDetailReadModelPayload = AdminRpcPayload & {
   vibes?: UserVibeRow[];
   matches?: AdminMatchRow[];
   daily_drops?: AdminDailyDropRow[];
+  moderation?: AdminModerationReadModel | null;
+  premium_history?: PremiumHistoryEntry[];
+  credits?: AdminCreditsReadModel | null;
 };
 
 const EMPTY_VIBES: UserVibeRow[] = [];
 const EMPTY_MATCHES: AdminMatchRow[] = [];
 const EMPTY_DAILY_DROPS: AdminDailyDropRow[] = [];
+const EMPTY_PREMIUM_HISTORY: PremiumHistoryEntry[] = [];
+const DEFAULT_CREDITS: AdminCreditsReadModel = {
+  extra_time_credits: 0,
+  extended_vibe_credits: 0,
+  updated_at: null,
+};
+
+const getLifecycleBadgeMeta = (status?: string | null) => {
+  if (status === "complete") {
+    return { label: "Complete", className: "bg-green-500/20 text-green-400 border-green-500/30" };
+  }
+  if (status === "bootstrap_fresh") {
+    return { label: "Bootstrap fresh", className: "bg-amber-500/20 text-amber-300 border-amber-500/30" };
+  }
+  if (status === "incomplete_active") {
+    return { label: "Incomplete active", className: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30" };
+  }
+  if (status === "suspended") {
+    return { label: "Suspended", className: "bg-destructive/20 text-destructive border-destructive/30" };
+  }
+  return { label: "Incomplete", className: "bg-slate-500/20 text-slate-300 border-slate-500/30" };
+};
+
+const getProfileGenderLabel = (profile: AdminUserProfileRow): string => {
+  const value = profile.gender?.trim().toLowerCase();
+  if (!profile.onboarding_complete && (profile.is_bootstrap_fresh || !value || value === "prefer_not_to_say" || value === "prefer not to say")) {
+    return "Pending gender";
+  }
+  return profile.gender || "N/A";
+};
+
+const formatNullableDateTime = (value?: string | null): string => (
+  value ? format(new Date(value), "MMM d, yyyy HH:mm") : "N/A"
+);
 
 const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) => {
   const [showModeration, setShowModeration] = useState(false);
@@ -133,7 +195,6 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [showGrantCredits, setShowGrantCredits] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [refreshedPhotos, setRefreshedPhotos] = useState<string[]>([]);
-  const [isRefreshingPhotos, setIsRefreshingPhotos] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
@@ -150,6 +211,11 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const vibes = userDetail?.vibes ?? EMPTY_VIBES;
   const matches = userDetail?.matches ?? EMPTY_MATCHES;
   const dailyDrops = userDetail?.daily_drops ?? EMPTY_DAILY_DROPS;
+  const moderation = userDetail?.moderation ?? null;
+  const premiumHistory = userDetail?.premium_history ?? EMPTY_PREMIUM_HISTORY;
+  const credits = userDetail?.credits ?? DEFAULT_CREDITS;
+  const lifecycleMeta = getLifecycleBadgeMeta(profile?.lifecycle_status);
+  const profileAgeLabel = profile?.age_is_placeholder ? "Pending age" : profile?.age ?? "N/A";
 
   const matchProfiles = useMemo(() => {
     const profileMap: Record<string, AdminEmbeddedProfileRow> = {};
@@ -176,7 +242,6 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
       return;
     }
     setRefreshedPhotos(profile.photos.map((url: string) => fullScreenUrl(url)));
-    setIsRefreshingPhotos(false);
   }, [profile?.photos]);
 
   const vibeVideo = useMemo(
@@ -305,8 +370,11 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 </Avatar>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-2xl font-bold text-foreground">{profile.name}</h3>
-                    <span className="text-lg text-muted-foreground">{profile.age}</span>
+                    <h3 className="text-2xl font-bold text-foreground">{profile.name || "Unnamed user"}</h3>
+                    <span className="text-lg text-muted-foreground">{profileAgeLabel}</span>
+                    <Badge className={lifecycleMeta.className}>
+                      {lifecycleMeta.label}
+                    </Badge>
                     {profile.is_premium && (
                       <Badge className="bg-primary/20 text-primary border-primary/30">
                         <Crown className="w-3 h-3 mr-1" />
@@ -333,7 +401,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                   <div className="flex flex-wrap gap-2">
                     <Badge variant="outline" className="gap-1">
                       <User className="w-3 h-3" />
-                      {profile.gender}
+                      {getProfileGenderLabel(profile)}
                     </Badge>
                     {profile.location && (
                       <Badge variant="outline" className="gap-1">
@@ -453,7 +521,25 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                       <div>
                         <p className="text-muted-foreground">Last Updated</p>
                         <p className="text-foreground">
-                          {format(new Date(profile.updated_at), 'MMM d, yyyy HH:mm')}
+                          {formatNullableDateTime(profile.updated_at)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Onboarding</p>
+                        <p className="text-foreground">
+                          {profile.onboarding_stage || lifecycleMeta.label}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Last Seen</p>
+                        <p className="text-foreground">
+                          {formatNullableDateTime(profile.last_seen_at)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Credits</p>
+                        <p className="text-foreground">
+                          {credits.extra_time_credits} extra / {credits.extended_vibe_credits} vibe
                         </p>
                       </div>
                       <div>
@@ -473,43 +559,35 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 </TabsContent>
 
                 <TabsContent value="photos" className="mt-4">
-                  {isRefreshingPhotos ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                      <span className="ml-2 text-muted-foreground">Loading photos...</span>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2">
-                      {displayPhotos.map((photo: string, i: number) => (
-                        <motion.div 
-                          key={i} 
-                          className="aspect-square rounded-xl overflow-hidden bg-secondary/50 cursor-pointer relative group"
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => openLightbox(i)}
-                        >
-                          <img
-                            src={photo}
-                            alt={`Photo ${i + 1}`}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              // If image fails to load, try refreshing the URL
-                              const target = e.target as HTMLImageElement;
-                              target.src = '/placeholder.svg';
-                            }}
-                          />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                            <ZoomIn className="w-6 h-6 text-white" />
-                          </div>
-                        </motion.div>
-                      ))}
-                      {displayPhotos.length === 0 && (
-                        <div className="col-span-3 text-center py-8 text-muted-foreground">
-                          No photos uploaded
+                  <div className="grid grid-cols-3 gap-2">
+                    {displayPhotos.map((photo: string, i: number) => (
+                      <motion.div
+                        key={i}
+                        className="aspect-square rounded-xl overflow-hidden bg-secondary/50 cursor-pointer relative group"
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => openLightbox(i)}
+                      >
+                        <img
+                          src={photo}
+                          alt={`Photo ${i + 1}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = '/placeholder.svg';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                          <ZoomIn className="w-6 h-6 text-white" />
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </motion.div>
+                    ))}
+                    {displayPhotos.length === 0 && (
+                      <div className="col-span-3 text-center py-8 text-muted-foreground">
+                        No photos uploaded
+                      </div>
+                    )}
+                  </div>
                   {vibeVideo && vibeVideo.state !== "none" && (
                     <div className="mt-4">
                       <h4 className="font-semibold text-foreground mb-2 flex items-center gap-2">
@@ -665,6 +743,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         <UserModerationActions
           userId={userId}
           userName={profile.name || 'User'}
+          moderation={moderation}
           isOpen={showModeration}
           onClose={() => setShowModeration(false)}
         />
@@ -672,7 +751,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
 
       {/* Profile Preview Modal */}
       <AdminProfilePreview
-        userId={userId}
+        profile={profile}
+        vibes={vibes}
         isOpen={showProfilePreview}
         onClose={() => setShowProfilePreview(false)}
       />
@@ -712,6 +792,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
           userName={profile.name || 'User'}
           currentIsPremium={profile.is_premium || false}
           currentPremiumUntil={profile.premium_until || null}
+          history={premiumHistory}
           isOpen={showPremiumModal}
           onClose={() => setShowPremiumModal(false)}
         />

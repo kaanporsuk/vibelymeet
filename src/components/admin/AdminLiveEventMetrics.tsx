@@ -82,6 +82,8 @@ interface AdminEventMetricsPayload extends AdminRpcPayload {
   confirmed_registrations?: number;
   waitlisted_registrations?: number;
   confirmed_attendance?: number;
+  attendance_marked_count?: number;
+  no_show_count?: number;
   persistent_matches?: number;
   participant_reports_near_event_window?: number;
   report_scope?: string;
@@ -390,6 +392,8 @@ const AdminLiveEventMetrics = () => {
         confirmedRegistrations: Number(eventMetrics.confirmed_registrations ?? 0),
         waitlistedRegistrations: Number(eventMetrics.waitlisted_registrations ?? 0),
         confirmedAttendance: Number(eventMetrics.confirmed_attendance ?? 0),
+        attendanceMarkedCount: Number(eventMetrics.attendance_marked_count ?? 0),
+        noShowCount: Number(eventMetrics.no_show_count ?? 0),
       };
     },
     enabled: !!eventId,
@@ -766,7 +770,7 @@ const AdminLiveEventMetrics = () => {
               label="Registrations"
               value={metrics.totalRegistrations}
               color="bg-teal-500/20 text-teal-400"
-              description={`${metrics.confirmedRegistrations} confirmed, ${metrics.waitlistedRegistrations} waitlisted; ${metrics.confirmedAttendance} attendance markers.`}
+              description={`${metrics.confirmedRegistrations} confirmed, ${metrics.waitlistedRegistrations} waitlisted; ${metrics.confirmedAttendance} attended, ${metrics.attendanceMarkedCount} reviewed, ${metrics.noShowCount} no-show.`}
             />
             <MetricCard
               icon={AlertTriangle}
