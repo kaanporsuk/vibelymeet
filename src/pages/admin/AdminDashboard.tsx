@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
 const AdminUsersPanel = lazy(() => import("@/components/admin/AdminUsersPanel"));
 const AdminEventsPanel = lazy(() => import("@/components/admin/AdminEventsPanel"));
@@ -44,6 +45,17 @@ const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMedi
 
 type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
+type AdminNotificationCountsPayload = AdminRpcPayload & {
+  unread_count?: number;
+};
+
+type AdminSystemHealthPayload = AdminRpcPayload & {
+  health_areas?: {
+    id?: string;
+    details?: Record<string, unknown> | null;
+  }[];
+};
+
 const AdminPanelFallback = () => (
   <div className="min-h-[320px] rounded-xl border border-border/50 bg-card/30 animate-pulse" />
 );
@@ -61,11 +73,8 @@ const AdminDashboard = () => {
   const { data: unreadCountData } = useQuery({
     queryKey: ['admin-unread-notifications'],
     queryFn: async () => {
-      const { count } = await supabase
-        .from('admin_notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('read', false);
-      return count || 0;
+      const payload = await callAdminRpc<AdminNotificationCountsPayload>("admin_get_notification_counts", {});
+      return Number(payload.unread_count ?? 0);
     },
     refetchInterval: 30000,
   });
@@ -87,13 +96,10 @@ const AdminDashboard = () => {
   const { data: supportCount = 0 } = useQuery({
     queryKey: ['admin-support-open-count'],
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from('support_tickets')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['submitted', 'in_review']);
-
-      if (error) throw error;
-      return count ?? 0;
+      const payload = await callAdminRpc<AdminSystemHealthPayload>("admin_get_system_health", {});
+      const moderationArea = payload.health_areas?.find((area) => area.id === "moderation");
+      const openSupportTickets = Number(moderationArea?.details?.open_support_tickets ?? 0);
+      return Number.isFinite(openSupportTickets) ? openSupportTickets : 0;
     },
     refetchInterval: 30000,
   });
