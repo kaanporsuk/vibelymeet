@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import AdminReportsSummary from "@/components/admin/AdminReportsSummary";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -48,14 +48,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/reportReasons";
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -70,6 +69,8 @@ type UserReportRow = {
   details: string | null;
   status: string;
   created_at: string;
+  reporter_profile?: ReportProfileRow | null;
+  reported_profile?: ReportProfileRow | null;
 };
 
 type ReportProfileRow = {
@@ -78,6 +79,15 @@ type ReportProfileRow = {
   avatar_url: string | null;
   photos: string[] | null;
   avatarUrl: string;
+};
+
+type ReportsReadModelPayload = AdminRpcPayload & {
+  reports?: Array<
+    Omit<UserReportRow, "reporter_profile" | "reported_profile"> & {
+      reporter_profile?: Omit<ReportProfileRow, "avatarUrl"> | null;
+      reported_profile?: Omit<ReportProfileRow, "avatarUrl"> | null;
+    }
+  >;
 };
 
 const reasonIcons: Record<ReportReasonId, LucideIcon> = {
@@ -143,52 +153,49 @@ const AdminReportsPanel = () => {
   const { data: reports, isLoading } = useQuery({
     queryKey: ["admin-reports", statusFilter, sortField, sortDirection],
     queryFn: async () => {
-      let query = supabase
-        .from("user_reports")
-        .select("*")
-        .order(sortField, { ascending: sortDirection === "asc" });
-
-      if (statusFilter !== "all") {
-        query = query.eq("status", statusFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data || []) as UserReportRow[];
-    },
-  });
-
-  // Fetch profiles for reporters and reported users
-  const { data: profiles } = useQuery({
-    queryKey: ["admin-report-profiles", reports],
-    queryFn: async () => {
-      if (!reports?.length) return {};
-
-      const userIds = new Set<string>();
-      reports.forEach((r) => {
-        userIds.add(r.reporter_id);
-        userIds.add(r.reported_id);
+      const payload = await callAdminRpc<ReportsReadModelPayload>("admin_get_reports_read_model", {
+        p_status: statusFilter,
+        p_sort_field: sortField,
+        p_sort_direction: sortDirection,
+        p_limit: 200,
       });
 
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, name, avatar_url, photos")
-        .in("id", Array.from(userIds));
-
-      const profileMap: Record<string, ReportProfileRow> = {};
-      for (const p of data || []) {
-        const resolvedAvatar = avatarPreset(
-          resolvePrimaryProfilePhotoPath({
-            photos: p.photos,
-            avatar_url: p.avatar_url,
-          }),
-        );
-        profileMap[p.id] = { ...p, avatarUrl: resolvedAvatar };
-      }
-      return profileMap;
+      return (payload.reports ?? []).map((report) => ({
+        ...report,
+        reporter_profile: report.reporter_profile
+          ? {
+              ...report.reporter_profile,
+              avatarUrl: avatarPreset(
+                resolvePrimaryProfilePhotoPath({
+                  photos: report.reporter_profile.photos,
+                  avatar_url: report.reporter_profile.avatar_url,
+                }),
+              ),
+            }
+          : null,
+        reported_profile: report.reported_profile
+          ? {
+              ...report.reported_profile,
+              avatarUrl: avatarPreset(
+                resolvePrimaryProfilePhotoPath({
+                  photos: report.reported_profile.photos,
+                  avatar_url: report.reported_profile.avatar_url,
+                }),
+              ),
+            }
+          : null,
+      })) as UserReportRow[];
     },
-    enabled: !!reports?.length,
   });
+
+  const profiles = useMemo(() => {
+    const profileMap: Record<string, ReportProfileRow> = {};
+    for (const report of reports ?? []) {
+      if (report.reporter_profile?.id) profileMap[report.reporter_profile.id] = report.reporter_profile;
+      if (report.reported_profile?.id) profileMap[report.reported_profile.id] = report.reported_profile;
+    }
+    return profileMap;
+  }, [reports]);
 
   const resolveReport = useMutation({
     mutationFn: async ({

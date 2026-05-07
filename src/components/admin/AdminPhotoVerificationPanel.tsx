@@ -53,6 +53,7 @@ type PhotoVerificationRow = {
   client_confidence_score: number | null;
   client_match_result: boolean | null;
   rejection_reason: string | null;
+  profile?: VerificationProfileRow | null;
 };
 
 type VerificationProfileRow = {
@@ -66,6 +67,10 @@ type PhotoVerificationCountsPayload = AdminRpcPayload & {
   pending?: number;
   approved_today?: number;
   rejected_today?: number;
+};
+
+type PhotoVerificationListPayload = AdminRpcPayload & {
+  rows?: PhotoVerificationRow[];
 };
 
 const REJECTION_REASONS = [
@@ -100,40 +105,18 @@ const AdminPhotoVerificationPanel = () => {
     queryKey: ["admin-photo-verifications", activeTab],
     queryFn: async () => {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      let query = supabase
-        .from("photo_verifications")
-        .select("*")
-        .eq("status", activeTab)
-        .order("created_at", { ascending: activeTab === "pending" });
-
-      if (activeTab !== "pending") {
-        query = query.gte("reviewed_at", thirtyDaysAgo);
-      }
-
-      const { data, error } = await query.limit(50);
-      if (error) throw error;
-      return (data || []) as PhotoVerificationRow[];
+      const payload = await callAdminRpc<PhotoVerificationListPayload>("admin_list_photo_verifications", {
+        p_status: activeTab,
+        p_reviewed_since: activeTab === "pending" ? null : thirtyDaysAgo,
+        p_limit: 50,
+      });
+      return payload.rows ?? [];
     },
-  });
-
-  // Fetch profile names for display
-  const userIds = verifications.map((v) => v.user_id);
-  const { data: profiles = [] } = useQuery({
-    queryKey: ["admin-verification-profiles", userIds.join(",")],
-    queryFn: async () => {
-      if (userIds.length === 0) return [];
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, name, age, avatar_url")
-        .in("id", userIds);
-      return (data || []) as VerificationProfileRow[];
-    },
-    enabled: userIds.length > 0,
   });
 
   const profileMap = useMemo(
-    () => Object.fromEntries(profiles.map((p) => [p.id, p])),
-    [profiles]
+    () => Object.fromEntries(verifications.flatMap((v) => (v.profile?.id ? [[v.profile.id, v.profile]] : []))),
+    [verifications]
   );
 
   // Selfie: server-side signed URL (service role) after admin JWT check — avoids client Storage/RLS edge cases.
