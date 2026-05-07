@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  isLikelyStaleBundleError,
   recordBrowserEvent,
   sanitizeBrowserDiagnosticPayload,
   sanitizeDiagnosticText,
@@ -59,5 +60,18 @@ const manyKeys = sanitizeBrowserDiagnosticPayload(
 assert.ok(Object.keys(manyKeys).length <= 30);
 
 assert.equal(recordBrowserEvent("not.allowed.event", { ok: true }), false);
+
+assert.equal(
+  isLikelyStaleBundleError(new TypeError("Failed to fetch dynamically imported module: https://www.vibelymeet.com/assets/EventLobby-Ro3so-7k.js")),
+  true,
+);
+assert.equal(
+  isLikelyStaleBundleError(
+    'Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html".',
+  ),
+  true,
+);
+assert.equal(isLikelyStaleBundleError(Object.assign(new Error("Loading chunk EventLobby failed."), { name: "ChunkLoadError" })), true);
+assert.equal(isLikelyStaleBundleError(new Error("ordinary component render failure")), false);
 
 console.log("browser diagnostics sanitization tests passed");

@@ -120,6 +120,8 @@ function normalizeCampaignStats(stats?: Partial<CampaignStats>): CampaignStats {
   };
 }
 
+const EMPTY_CAMPAIGNS: Campaign[] = [];
+
 const UNSUPPORTED_TARGETING_LABELS: Record<string, string> = {
   activityLevel: "activity",
   inactiveDays: "inactive days",
@@ -174,23 +176,24 @@ const AdminPushCampaignsPanel = () => {
 
       return {
         campaigns: (payload.campaigns ?? []).map((c) => ({
-        id: c.id,
-        title: c.title,
-        body: c.body,
-        status: c.status as Campaign['status'],
-        targetSegment: parseTargetSegment(c.target_segment),
-        scheduledAt: c.scheduled_at || undefined,
-        sentAt: c.sent_at || undefined,
-        createdAt: c.created_at,
-        stats: normalizeCampaignStats(c.stats),
-      })),
+          id: c.id,
+          title: c.title,
+          body: c.body,
+          status: c.status as Campaign['status'],
+          targetSegment: parseTargetSegment(c.target_segment),
+          scheduledAt: c.scheduled_at || undefined,
+          sentAt: c.sent_at || undefined,
+          createdAt: c.created_at,
+          stats: normalizeCampaignStats(c.stats),
+        })),
         aggregateStats: normalizeCampaignStats(payload.aggregate_stats),
       };
     },
   });
 
-  const campaigns = campaignsReadModel?.campaigns ?? [];
+  const campaigns = campaignsReadModel?.campaigns ?? EMPTY_CAMPAIGNS;
   const aggregateStats = campaignsReadModel?.aggregateStats ?? emptyCampaignStats();
+  const aggregateStatLabel = (value: number) => campaignsReadError ? "—" : value.toLocaleString();
   
   // Create form state
   const [formData, setFormData] = useState({
@@ -253,6 +256,11 @@ const AdminPushCampaignsPanel = () => {
       return;
     }
 
+    if (editingCampaign && editingCampaign.status !== 'draft') {
+      toast.error('Only draft campaigns can be edited');
+      return;
+    }
+
     try {
       const isEditing = !!editingCampaign;
       const supportedSegment = normalizeSupportedSegment(segment);
@@ -281,6 +289,12 @@ const AdminPushCampaignsPanel = () => {
   };
 
   const handleDeleteCampaign = async (id: string) => {
+    const campaign = campaigns.find((candidate) => candidate.id === id);
+    if (campaign?.status !== 'draft') {
+      toast.error('Only draft campaigns can be deleted');
+      return;
+    }
+
     setIsDeletingCampaign(true);
     try {
       await callAdminRpc("admin_delete_push_campaign_draft", {
@@ -415,7 +429,7 @@ const AdminPushCampaignsPanel = () => {
                   <span className="text-xs">Notification Events</span>
                 </div>
                 <p className="text-2xl font-bold text-foreground">
-                  {aggregateStats.total.toLocaleString()}
+                  {aggregateStatLabel(aggregateStats.total)}
                 </p>
               </CardContent>
             </Card>
@@ -426,7 +440,7 @@ const AdminPushCampaignsPanel = () => {
                   <span className="text-xs">Delivered</span>
                 </div>
                 <p className="text-2xl font-bold text-accent">
-                  {aggregateStats.delivered.toLocaleString()}
+                  {aggregateStatLabel(aggregateStats.delivered)}
                 </p>
               </CardContent>
             </Card>
@@ -437,7 +451,9 @@ const AdminPushCampaignsPanel = () => {
                   <span className="text-xs">Open Rate</span>
                 </div>
                 <p className="text-2xl font-bold text-primary">
-                  {aggregateStats.delivered > 0
+                  {campaignsReadError
+                    ? "—"
+                    : aggregateStats.delivered > 0
                     ? `${Math.round((aggregateStats.opened / aggregateStats.delivered) * 100)}%`
                     : "—"}
                 </p>
@@ -450,7 +466,7 @@ const AdminPushCampaignsPanel = () => {
                   <span className="text-xs">Drafts</span>
                 </div>
                 <p className="text-2xl font-bold text-muted-foreground">
-                  {campaigns.filter(c => c.status === 'draft').length}
+                  {campaignsReadError ? "—" : campaigns.filter(c => c.status === 'draft').length}
                 </p>
               </CardContent>
             </Card>
@@ -465,6 +481,7 @@ const AdminPushCampaignsPanel = () => {
                 ? `${Math.round((stats.opened / stats.delivered) * 100)}%`
                 : "—";
               const supportedSegment = normalizeSupportedSegment(campaign.targetSegment);
+              const isDraft = campaign.status === "draft";
 
               return (
                 <motion.div
@@ -503,10 +520,22 @@ const AdminPushCampaignsPanel = () => {
                       <p className="text-xs text-muted-foreground line-clamp-2">{campaign.body}</p>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => setEditingCampaign(campaign)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingCampaign(campaign)}
+                        disabled={!isDraft}
+                        title={isDraft ? "Edit draft campaign" : "Only draft campaigns can be edited"}
+                      >
                         <Edit className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setCampaignToDelete(campaign)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setCampaignToDelete(campaign)}
+                        disabled={!isDraft}
+                        title={isDraft ? "Delete draft campaign" : "Only draft campaigns can be deleted"}
+                      >
                         <Trash2 className="w-4 h-4 text-destructive" />
                       </Button>
                     </div>

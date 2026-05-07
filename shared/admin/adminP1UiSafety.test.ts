@@ -32,6 +32,7 @@ const adminTierConfig = read("src/components/admin/AdminTierConfigPanel.tsx");
 const adminMediaLifecycle = read("src/components/admin/AdminMediaLifecyclePanel.tsx");
 const adminDeletions = read("src/components/admin/AdminDeletionsPanel.tsx");
 const adminPushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
+const adminMatchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 
@@ -273,6 +274,29 @@ test("admin component and dashboard sources avoid browser-side HEAD count reads"
   assert.doesNotMatch(adminComponentAndPageSources, /head:\s*true/);
 });
 
+test("named admin residual panels use backend read-model RPCs instead of browser table reads", () => {
+  assert.match(adminPhotoVerification, /admin_list_photo_verifications/);
+  assert.match(adminReports, /admin_get_reports_read_model/);
+  assert.match(adminPushCampaigns, /admin_get_push_campaigns_read_model/);
+  assert.match(adminPushCampaigns, /admin_upsert_push_campaign_draft/);
+  assert.match(adminPushCampaigns, /admin_delete_push_campaign_draft/);
+  assert.match(adminUserDetail, /admin_get_user_detail_read_model/);
+  assert.match(adminMatchMessages, /admin_get_user_match_threads/);
+  assert.match(adminMatchMessages, /admin_get_match_thread_messages/);
+
+  assert.doesNotMatch(adminPhotoVerification, /\.from\(['"]photo_verifications['"]\)/);
+  assert.doesNotMatch(adminPhotoVerification, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(adminReports, /\.from\(['"]user_reports['"]\)/);
+  assert.doesNotMatch(adminReports, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(adminPushCampaigns, /\.from\(['"]push_campaigns['"]\)/);
+  assert.doesNotMatch(adminPushCampaigns, /\.from\(['"]push_notification_events(?:_admin)?['"]\)/);
+  assert.doesNotMatch(adminPushCampaigns, /\.insert\(/);
+  assert.doesNotMatch(adminPushCampaigns, /\.update\(/);
+  assert.doesNotMatch(adminPushCampaigns, /\.delete\(/);
+  assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);
+  assert.doesNotMatch(adminMatchMessages, /\.from\(['"]/);
+});
+
 test("password reset is visibly unavailable instead of toast-only fake action", () => {
   assert.doesNotMatch(userModeration, /const resetPassword = useMutation/);
   assert.doesNotMatch(userModeration, /resetPassword\.mutate/);
@@ -295,6 +319,9 @@ test("push campaigns are draft-only and do not enqueue browser notification even
   assert.match(adminPushCampaigns, /Delivery is disabled until a backend dispatcher exists/);
   assert.match(adminPushCampaigns, /Save Draft/);
   assert.match(adminPushCampaigns, /Update Campaign/);
+  assert.match(adminPushCampaigns, /disabled=\{!isDraft\}/);
+  assert.match(adminPushCampaigns, /Only draft campaigns can be edited/);
+  assert.match(adminPushCampaigns, /Only draft campaigns can be deleted/);
   assert.doesNotMatch(adminPushCampaigns, /Update Draft/);
 
   assert.doesNotMatch(adminPushCampaigns, />Send Now</);

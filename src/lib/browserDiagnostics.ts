@@ -14,6 +14,7 @@ const MAX_ARRAY_ITEMS = 20;
 const MAX_OBJECT_KEYS = 30;
 const MAX_PAYLOAD_CHARS = 8_000;
 const SLOW_EXCHANGE_MS = 10_000;
+const STALE_BUNDLE_RELOAD_KEY_PREFIX = "vibely.stale_bundle_reload.v1:";
 
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -29,6 +30,15 @@ const REDACTED_KEY_RE =
 const CONTENT_KEY_RE =
   /(^|_)(body|message|preview|content|text|name|email|phone|title|caption|about_me|tagline)(_|$)/i;
 const URL_KEY_RE = /(url|uri|href|path|route|pathname|src|link|deep_link|current_url)/i;
+const ENTRY_MODULE_RE = /^\/assets\/index-[^/]+\.js$/;
+const STALE_BUNDLE_ERROR_PATTERNS = [
+  /Failed to fetch dynamically imported module/i,
+  /Importing a module script failed/i,
+  /ChunkLoadError/i,
+  /Loading chunk [\w-]+ failed/i,
+  /Expected a JavaScript(?:-or-Wasm)? module script[\s\S]*MIME type(?: of)? ["']?text\/html/i,
+  /Failed to load module script[\s\S]*text\/html/i,
+];
 
 export const BROWSER_DIAGNOSTIC_EVENTS = [
   "browser.route_view",
@@ -41,6 +51,7 @@ export const BROWSER_DIAGNOSTIC_EVENTS = [
   "browser.user_action",
   "browser.api_exchange",
   "browser.react_error_boundary",
+  "browser.stale_bundle_recovery",
 ] as const;
 
 type BrowserDiagnosticEventName = (typeof BROWSER_DIAGNOSTIC_EVENTS)[number];
@@ -49,6 +60,7 @@ const ALLOWED_EVENTS = new Set<string>(BROWSER_DIAGNOSTIC_EVENTS);
 
 let initialized = false;
 let fetchPatched = false;
+let staleBundleReloadScheduled = false;
 
 function safeImportEnvFlag(name: string): boolean {
   const env = import.meta.env as Record<string, unknown> | undefined;
@@ -168,6 +180,161 @@ function sanitizeErrorForSentry(error: unknown): Error {
     return clean;
   }
   return new Error(sanitizeDiagnosticText(error, 1_000) ?? "Non-error thrown");
+}
+
+function appendErrorSearchText(parts: string[], value: unknown, depth: number): void {
+  if (value === null || value === undefined || depth < 0) return;
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    parts.push(String(value));
+    return;
+  }
+
+  if (value instanceof Error) {
+    parts.push(value.name, value.message);
+    if (value.stack) parts.push(value.stack);
+    appendErrorSearchText(parts, (value as Error & { cause?: unknown }).cause, depth - 1);
+    return;
+  }
+
+  if (typeof value !== "object") return;
+
+  for (const key of ["name", "message", "stack", "reason", "payload", "cause"]) {
+    try {
+      const child = (value as Record<string, unknown>)[key];
+      appendErrorSearchText(parts, child, depth - 1);
+    } catch {
+      /* diagnostic inspection must never affect app behavior */
+    }
+  }
+}
+
+function staleBundleErrorSearchText(error: unknown): string {
+  const parts: string[] = [];
+  appendErrorSearchText(parts, error, 3);
+  return parts.join(" ");
+}
+
+export function isLikelyStaleBundleError(error: unknown): boolean {
+  const text = staleBundleErrorSearchText(error);
+  if (!text) return false;
+  return STALE_BUNDLE_ERROR_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function sessionStorageOrNull(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function getCurrentEntryModulePath(): string | null {
+  if (typeof document === "undefined" || typeof window === "undefined") return null;
+
+  const scripts = Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'));
+  for (const script of scripts) {
+    try {
+      const pathname = new URL(script.src, window.location.origin).pathname;
+      if (ENTRY_MODULE_RE.test(pathname)) return pathname;
+    } catch {
+      if (ENTRY_MODULE_RE.test(script.src)) return script.src;
+    }
+  }
+  return null;
+}
+
+function staleBundleReloadKey(entryModulePath: string | null): string {
+  return `${STALE_BUNDLE_RELOAD_KEY_PREFIX}${entryModulePath ?? "unknown-entry"}`;
+}
+
+export function hasStaleBundleReloadAlreadyAttempted(entryModulePath = getCurrentEntryModulePath()): boolean {
+  const storage = sessionStorageOrNull();
+  if (!storage) return false;
+
+  try {
+    return storage.getItem(staleBundleReloadKey(entryModulePath)) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function markStaleBundleReloadAttempted(entryModulePath: string | null): void {
+  const storage = sessionStorageOrNull();
+  if (!storage) return;
+
+  try {
+    storage.setItem(staleBundleReloadKey(entryModulePath), "true");
+  } catch {
+    /* storage failures should not block the recovery reload */
+  }
+}
+
+export type StaleBundleRecoverySource =
+  | "vite_preload_error"
+  | "window_error"
+  | "unhandled_rejection"
+  | "react_error_boundary";
+
+export type StaleBundleRecoveryResult = {
+  isStaleBundleError: boolean;
+  reloadAlreadyAttempted: boolean;
+  reloadScheduled: boolean;
+  entryModulePath: string | null;
+};
+
+export function recoverFromStaleBundleError(
+  error: unknown,
+  source: StaleBundleRecoverySource,
+  payload: BrowserDiagnosticPayload = {},
+): StaleBundleRecoveryResult {
+  const isStaleBundleError = isLikelyStaleBundleError(error);
+  const entryModulePath = getCurrentEntryModulePath();
+
+  if (!isStaleBundleError) {
+    return {
+      isStaleBundleError: false,
+      reloadAlreadyAttempted: false,
+      reloadScheduled: false,
+      entryModulePath,
+    };
+  }
+
+  if (staleBundleReloadScheduled) {
+    return {
+      isStaleBundleError: true,
+      reloadAlreadyAttempted: false,
+      reloadScheduled: true,
+      entryModulePath,
+    };
+  }
+
+  const reloadAlreadyAttempted = hasStaleBundleReloadAlreadyAttempted(entryModulePath);
+  const reloadScheduled = !reloadAlreadyAttempted && typeof window !== "undefined";
+
+  recordBrowserEvent("browser.stale_bundle_recovery", {
+    source,
+    action: reloadScheduled ? "reload" : "show_error",
+    entry_module_path: entryModulePath,
+    reload_already_attempted: reloadAlreadyAttempted,
+    ...payload,
+  });
+
+  if (reloadScheduled) {
+    staleBundleReloadScheduled = true;
+    markStaleBundleReloadAttempted(entryModulePath);
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 75);
+  }
+
+  return {
+    isStaleBundleError: true,
+    reloadAlreadyAttempted,
+    reloadScheduled,
+    entryModulePath,
+  };
 }
 
 export function sanitizeBrowserDiagnosticPayload(payload: BrowserDiagnosticPayload = {}): Record<string, DiagnosticValue> {
@@ -377,15 +544,34 @@ export function initializeBrowserDiagnostics(): void {
   if (initialized || typeof window === "undefined") return;
   initialized = true;
 
+  window.addEventListener("vite:preloadError", (event) => {
+    const recovery = recoverFromStaleBundleError(
+      (event as Event & { payload?: unknown }).payload,
+      "vite_preload_error",
+    );
+    if (recovery.reloadScheduled) event.preventDefault();
+  });
+
   window.addEventListener("error", (event) => {
-    recordBrowserError("browser.runtime_error", event.error ?? event.message, {
+    const payload = {
       filename: event.filename,
       lineno: event.lineno,
       colno: event.colno,
-    });
+    };
+    const recovery = recoverFromStaleBundleError(event.error ?? event.message, "window_error", payload);
+    if (recovery.reloadScheduled) {
+      event.preventDefault();
+      return;
+    }
+    recordBrowserError("browser.runtime_error", event.error ?? event.message, payload);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
+    const recovery = recoverFromStaleBundleError(event.reason ?? "unhandled rejection", "unhandled_rejection");
+    if (recovery.reloadScheduled) {
+      event.preventDefault();
+      return;
+    }
     recordBrowserError("browser.unhandled_rejection", event.reason ?? "unhandled rejection");
   });
 

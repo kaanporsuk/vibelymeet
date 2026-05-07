@@ -10,6 +10,8 @@ const migration = read("supabase/migrations/20260506103000_admin_p2_backend_auth
 const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dashboard_badge_counts.sql");
 const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
+const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
+const reviewCommentFollowupMigration = read("supabase/migrations/20260507123000_admin_review_comment_followup.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
@@ -80,6 +82,28 @@ function countReadModelFnSection(fnName: string): string {
   return countReadModelsMigration.slice(start, end);
 }
 
+function readModelSweepFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = readModelSweepMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = readModelSweepMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = readModelSweepMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : readModelSweepMigration.length;
+  return readModelSweepMigration.slice(start, end);
+}
+
+function reviewCommentFollowupFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = reviewCommentFollowupMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = reviewCommentFollowupMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = reviewCommentFollowupMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : reviewCommentFollowupMigration.length;
+  return reviewCommentFollowupMigration.slice(start, end);
+}
+
 const mutationRpcs = [
   "admin_adjust_user_credits",
   "admin_set_premium_status",
@@ -111,6 +135,20 @@ const panelCountReadRpcs = [
   "admin_estimate_push_campaign_reach",
   "admin_get_user_detail_counts",
   "admin_get_match_message_counts",
+];
+
+const panelReadModelRpcs = [
+  "admin_list_photo_verifications",
+  "admin_get_reports_read_model",
+  "admin_get_push_campaigns_read_model",
+  "admin_get_user_detail_read_model",
+  "admin_get_user_match_threads",
+  "admin_get_match_thread_messages",
+];
+
+const pushCampaignDraftMutationRpcs = [
+  "admin_upsert_push_campaign_draft",
+  "admin_delete_push_campaign_draft",
 ];
 
 test("P2 migration adds shared backend admin primitives", () => {
@@ -270,17 +308,20 @@ test("authoritative read surfaces are backend RPC based", () => {
 });
 
 test("dashboard badge counts are backend RPC based and avoid direct HEAD counts", () => {
-  const badgeCounts = badgeCountsFnSection("admin_get_dashboard_badge_counts");
+  assert.match(badgeCountsFnSection("admin_get_dashboard_badge_counts"), /public\.support_tickets/);
+
+  const badgeCounts = reviewCommentFollowupFnSection("admin_get_dashboard_badge_counts");
   assert.match(badgeCounts, /SECURITY DEFINER/);
   assert.match(badgeCounts, /SET search_path = public, pg_catalog/);
   assert.match(badgeCounts, /auth\.uid\(\)/);
   assert.match(badgeCounts, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
   assert.match(badgeCounts, /public\.admin_notifications/);
   assert.match(badgeCounts, /public\.support_tickets/);
-  assert.match(badgeCounts, /status IN \('submitted', 'in_review', 'waiting_on_user'\)/);
+  assert.match(badgeCounts, /status IN \('submitted', 'in_review'\)/);
+  assert.doesNotMatch(badgeCounts, /waiting_on_user/);
   assert.match(badgeCounts, /public\.feedback/);
-  assert.match(badgeCountsMigration, /REVOKE ALL ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) FROM PUBLIC/);
-  assert.match(badgeCountsMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) TO authenticated/);
+  assert.match(reviewCommentFollowupMigration, /REVOKE ALL ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) FROM PUBLIC/);
+  assert.match(reviewCommentFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) TO authenticated/);
   assert.match(adminDashboard, /callAdminRpc<AdminDashboardBadgeCountsPayload>\("admin_get_dashboard_badge_counts"/);
   assert.doesNotMatch(adminDashboard, /\.from\(['"]admin_notifications['"]\)/);
   assert.doesNotMatch(adminDashboard, /\.from\(['"]support_tickets['"]\)/);
@@ -316,6 +357,95 @@ test("admin panel count read RPCs are security definer, admin checked, ACL pinne
   assert.match(countReadModelFnSection("admin_get_match_message_counts"), /LEFT JOIN public\.messages/);
 });
 
+test("admin panel list/detail read model RPCs are security definer, admin checked, ACL pinned, and read-only", () => {
+  const writeStatement = /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s/im;
+
+  for (const fn of panelReadModelRpcs) {
+    const source = readModelSweepFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/, `${fn} must verify admin role`);
+    assert.match(source, /public\.admin_json_success/, `${fn} must return the admin JSON envelope`);
+    assert.match(readModelSweepMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(readModelSweepMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+    assert.doesNotMatch(source, writeStatement, `${fn} must stay read-only`);
+  }
+
+  assert.match(readModelSweepFnSection("admin_list_photo_verifications"), /public\.photo_verifications/);
+  assert.match(readModelSweepFnSection("admin_list_photo_verifications"), /public\.profiles/);
+  assert.match(readModelSweepFnSection("admin_get_reports_read_model"), /public\.user_reports/);
+  assert.match(readModelSweepFnSection("admin_get_reports_read_model"), /reporter_profile/);
+  assert.match(readModelSweepFnSection("admin_get_reports_read_model"), /reported_profile/);
+  assert.match(readModelSweepFnSection("admin_get_push_campaigns_read_model"), /public\.push_campaigns/);
+  assert.match(readModelSweepFnSection("admin_get_push_campaigns_read_model"), /public\.push_notification_events/);
+  assert.match(readModelSweepFnSection("admin_get_user_detail_read_model"), /public\.event_registrations/);
+  assert.match(readModelSweepFnSection("admin_get_user_detail_read_model"), /public\.profile_vibes/);
+  assert.match(readModelSweepFnSection("admin_get_user_detail_read_model"), /public\.daily_drops/);
+  assert.match(readModelSweepFnSection("admin_get_user_match_threads"), /LEFT JOIN public\.messages/);
+  assert.match(readModelSweepFnSection("admin_get_match_thread_messages"), /WHERE msg\.match_id = p_match_id/);
+
+  const reportsFollowup = reviewCommentFollowupFnSection("admin_get_reports_read_model");
+  assert.match(reviewCommentFollowupMigration, /DROP FUNCTION IF EXISTS public\.admin_get_reports_read_model\(text, text, text, integer\)/);
+  assert.match(reportsFollowup, /SECURITY DEFINER/);
+  assert.match(reportsFollowup, /SET search_path = public, pg_catalog/);
+  assert.match(reportsFollowup, /p_search text DEFAULT NULL/);
+  assert.match(reportsFollowup, /v_search text := NULLIF/);
+  assert.match(reportsFollowup, /position\(v_search in lower\(COALESCE\(reporter\.name/);
+  assert.match(reportsFollowup, /position\(v_search in lower\(COALESCE\(reported\.name/);
+  assert.match(reviewCommentFollowupMigration, /REVOKE ALL ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text\) FROM PUBLIC/);
+  assert.match(reviewCommentFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text\) TO authenticated/);
+});
+
+test("push campaign draft write RPCs are governed, idempotent, audited, and draft-only", () => {
+  for (const fn of pushCampaignDraftMutationRpcs) {
+    const source = readModelSweepFnSection(fn);
+    const followupSource = reviewCommentFollowupFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/, `${fn} must verify admin role`);
+    assert.match(source, /public\.push_campaigns/, `${fn} must mutate push_campaigns server-side`);
+    assert.match(source, /admin_idempotency_begin/, `${fn} must start the idempotency ledger`);
+    assert.match(source, /admin_idempotency_complete/, `${fn} must complete the idempotency ledger`);
+    assert.match(source, /log_admin_action/, `${fn} must write admin_activity_logs`);
+    assert.match(source, /v_existing_status <> 'draft'/, `${fn} must reject non-draft mutation`);
+    assert.match(readModelSweepMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(readModelSweepMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+    assert.match(followupSource, /v_response := public\.admin_json_error\('NOT_FOUND'[\s\S]*admin_idempotency_complete/, `${fn} must complete idempotency for not-found validation errors`);
+    assert.match(followupSource, /v_response := public\.admin_json_error\('INVALID_TRANSITION'[\s\S]*admin_idempotency_complete/, `${fn} must complete idempotency for non-draft validation errors`);
+    assert.match(reviewCommentFollowupMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} follow-up must be revoked from PUBLIC`);
+    assert.match(reviewCommentFollowupMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} follow-up must be granted to authenticated`);
+  }
+
+  assert.match(reviewCommentFollowupFnSection("admin_upsert_push_campaign_draft"), /jsonb_object_keys\(v_segment\)/);
+  assert.match(reviewCommentFollowupFnSection("admin_upsert_push_campaign_draft"), /keys\.key NOT IN \('gender', 'isVerified', 'ageRange'\)/);
+  assert.match(reviewCommentFollowupFnSection("admin_delete_push_campaign_draft"), /DELETE FROM public\.push_campaigns/);
+});
+
+test("named residual admin panels use backend read models instead of browser table reads", () => {
+  assert.match(verification, /callAdminRpc<PhotoVerificationListPayload>\("admin_list_photo_verifications"/);
+  assert.match(reports, /callAdminRpc<ReportsReadModelPayload>\("admin_get_reports_read_model"/);
+  assert.match(reports, /p_search: normalizedSearchQuery \|\| null/);
+  assert.match(pushCampaigns, /callAdminRpc<PushCampaignsReadModelPayload>\("admin_get_push_campaigns_read_model"/);
+  assert.match(pushCampaigns, /callAdminRpc\("admin_upsert_push_campaign_draft"/);
+  assert.match(pushCampaigns, /callAdminRpc\("admin_delete_push_campaign_draft"/);
+  assert.match(adminUserDetail, /callAdminRpc<UserDetailReadModelPayload>\("admin_get_user_detail_read_model"/);
+  assert.match(matchMessages, /callAdminRpc<MatchThreadsPayload>\("admin_get_user_match_threads"/);
+  assert.match(matchMessages, /callAdminRpc<MatchThreadMessagesPayload>\("admin_get_match_thread_messages"/);
+
+  assert.doesNotMatch(verification, /\.from\(['"]photo_verifications['"]\)/);
+  assert.doesNotMatch(verification, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(reports, /\.from\(['"]user_reports['"]\)/);
+  assert.doesNotMatch(reports, /\.from\(['"]profiles['"]\)/);
+  assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_campaigns['"]\)/);
+  assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_notification_events(?:_admin)?['"]\)/);
+  assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);
+  assert.doesNotMatch(matchMessages, /\.from\(['"]/);
+  assert.doesNotMatch(adminUserDetail, /admin_get_user_detail_counts/);
+  assert.doesNotMatch(matchMessages, /admin_get_match_message_counts/);
+});
+
 test("remaining admin panel count surfaces call backend RPCs instead of HEAD counts", () => {
   const countSurfaceSources = [
     verification,
@@ -328,9 +458,9 @@ test("remaining admin panel count surfaces call backend RPCs instead of HEAD cou
   assert.match(verification, /callAdminRpc<PhotoVerificationCountsPayload>\("admin_get_photo_verification_counts"/);
   assert.match(reportsSummary, /callAdminRpc<ReportsSummaryCountsPayload>\("admin_get_reports_summary_counts"/);
   assert.match(pushCampaigns, /callAdminRpc<PushCampaignReachPayload>\("admin_estimate_push_campaign_reach"/);
-  assert.match(adminUserDetail, /callAdminRpc<UserDetailCountsPayload>\("admin_get_user_detail_counts"/);
-  assert.match(matchMessages, /callAdminRpc<MatchMessageCountsPayload>\("admin_get_match_message_counts"/);
-  assert.match(matchMessages, /p_match_ids: matchIds/);
+  assert.match(adminUserDetail, /event_registrations_unavailable/);
+  assert.match(matchMessages, /message_count/);
+  assert.match(matchMessages, /Messages unavailable/);
   assert.doesNotMatch(countSurfaceSources, /head:\s*true/);
   assert.doesNotMatch(matchMessages, /for\s*\(const match of matches\)[\s\S]{0,260}\.from\(["']messages["']\)/);
 });

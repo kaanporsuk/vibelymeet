@@ -30,7 +30,6 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import UserModerationActions from "./UserModerationActions";
 import AdminProfilePreview from "./AdminProfilePreview";
@@ -57,6 +56,13 @@ type UserVibeRow = {
   category?: string | null;
 };
 
+type AdminEmbeddedProfileRow = {
+  id: string | null;
+  name: string | null;
+  avatar_url: string | null;
+  photos: string[] | null;
+};
+
 type AdminDailyDropRow = {
   id: string;
   user_a_id: string;
@@ -64,6 +70,7 @@ type AdminDailyDropRow = {
   status: string;
   drop_date: string;
   created_at: string;
+  partner_profile?: AdminEmbeddedProfileRow | null;
 };
 
 type AdminMatchRow = {
@@ -71,48 +78,58 @@ type AdminMatchRow = {
   matched_at: string;
   profile_id_1: string;
   profile_id_2: string;
+  other_profile?: AdminEmbeddedProfileRow | null;
 };
 
-type UserDetailCountsPayload = AdminRpcPayload & {
-  event_registrations?: number;
+type AdminUserProfileRow = {
+  id: string;
+  name: string | null;
+  age: number | null;
+  gender: string | null;
+  birth_date: string | null;
+  interested_in: string[] | null;
+  tagline: string | null;
+  height_cm: number | null;
+  location: string | null;
+  job: string | null;
+  company: string | null;
+  about_me: string | null;
+  looking_for: string | null;
+  relationship_intent: string | null;
+  photos: string[] | null;
+  avatar_url: string | null;
+  bunny_video_uid: string | null;
+  bunny_video_status: string | null;
+  vibe_caption: string | null;
+  lifestyle: unknown;
+  prompts: unknown;
+  photo_verified: boolean | null;
+  phone_number: string | null;
+  phone_verified: boolean | null;
+  email_verified: boolean | null;
+  verified_email: string | null;
+  is_premium: boolean | null;
+  premium_until: string | null;
+  is_suspended: boolean | null;
+  suspension_reason: string | null;
+  total_matches: number | null;
+  total_conversations: number | null;
+  created_at: string;
+  updated_at: string;
+  event_registrations: number | null;
+  event_registrations_unavailable: boolean;
 };
 
-const ADMIN_PROFILE_DETAIL_SELECT = `
-  id,
-  name,
-  age,
-  gender,
-  birth_date,
-  interested_in,
-  tagline,
-  height_cm,
-  location,
-  job,
-  company,
-  about_me,
-  looking_for,
-  relationship_intent,
-  photos,
-  avatar_url,
-  bunny_video_uid,
-  bunny_video_status,
-  vibe_caption,
-  lifestyle,
-  prompts,
-  photo_verified,
-  phone_number,
-  phone_verified,
-  email_verified,
-  verified_email,
-  is_premium,
-  premium_until,
-  is_suspended,
-  suspension_reason,
-  total_matches,
-  total_conversations,
-  created_at,
-  updated_at
-`;
+type UserDetailReadModelPayload = AdminRpcPayload & {
+  profile?: AdminUserProfileRow | null;
+  vibes?: UserVibeRow[];
+  matches?: AdminMatchRow[];
+  daily_drops?: AdminDailyDropRow[];
+};
+
+const EMPTY_VIBES: UserVibeRow[] = [];
+const EMPTY_MATCHES: AdminMatchRow[] = [];
+const EMPTY_DAILY_DROPS: AdminDailyDropRow[] = [];
 
 const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) => {
   const [showModeration, setShowModeration] = useState(false);
@@ -125,147 +142,37 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
-  // Fetch user profile
-  const { data: profile, isLoading } = useQuery({
+  const { data: userDetail, isLoading, isError } = useQuery({
     queryKey: ['admin-user-detail', userId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(ADMIN_PROFILE_DETAIL_SELECT)
-        .eq('id', userId)
-        .single();
-      if (error) throw error;
-
-      try {
-        const counts = await callAdminRpc<UserDetailCountsPayload>("admin_get_user_detail_counts", {
-          p_user_id: userId,
-        });
-        return {
-          ...data,
-          event_registrations: Number(counts.event_registrations ?? 0),
-          event_registrations_unavailable: false,
-        };
-      } catch {
-        return {
-          ...data,
-          event_registrations: null,
-          event_registrations_unavailable: true,
-        };
-      }
-    },
-  });
-
-  // Fetch user vibes
-  const { data: vibes } = useQuery({
-    queryKey: ['admin-user-vibes', userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('profile_vibes')
-        .select(`
-          vibe_tags (
-            label,
-            emoji,
-            category
-          )
-        `)
-        .eq('profile_id', userId);
-      const rows = (data || []) as unknown as Array<{
-        vibe_tags: UserVibeRow | UserVibeRow[] | null;
-      }>;
-      return rows.flatMap((v) =>
-        Array.isArray(v.vibe_tags) ? v.vibe_tags : v.vibe_tags ? [v.vibe_tags] : []
-      );
-    },
-  });
-
-  // Fetch user matches
-  const { data: matches } = useQuery({
-    queryKey: ['admin-user-matches', userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('matches')
-        .select(`
-          id,
-          matched_at,
-          profile_id_1,
-          profile_id_2
-        `)
-        .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-        .order('matched_at', { ascending: false })
-        .limit(20);
-      return (data || []) as AdminMatchRow[];
-    },
-  });
-
-  // Fetch match profiles
-  const { data: matchProfiles } = useQuery({
-    queryKey: ['admin-match-profiles', matches],
-    queryFn: async () => {
-      if (!matches?.length) return {};
-      
-      const otherUserIds = matches.map(m => 
-        m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1
-      );
-      
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, photos')
-        .in('id', otherUserIds);
-      
-      const profileMap: Record<string, { name: string; avatar_url: string | null; photos: string[] | null }> = {};
-      data?.forEach(p => {
-        profileMap[p.id] = p;
+      return callAdminRpc<UserDetailReadModelPayload>("admin_get_user_detail_read_model", {
+        p_user_id: userId,
       });
-      return profileMap;
-    },
-    enabled: !!matches?.length,
-  });
-
-  // Fetch daily drops (likes/passes)
-  const { data: dailyDrops } = useQuery({
-    queryKey: ['admin-user-drops', userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('daily_drops')
-        .select('id, user_a_id, user_b_id, status, drop_date, created_at')
-        .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      return (data || []) as AdminDailyDropRow[];
     },
   });
 
-  // Fetch partner profiles for drops
-  const { data: dropProfiles } = useQuery({
-    queryKey: ['admin-drop-profiles', dailyDrops],
-    queryFn: async () => {
-      if (!dailyDrops?.length) return {};
-      
-      const partnerIds = dailyDrops.map(d => d.user_a_id === userId ? d.user_b_id : d.user_a_id);
-      
-      const { data } = await supabase
-        .from('profiles')
-        .select('id, name, avatar_url, photos')
-        .in('id', partnerIds);
-      
-      const profileMap: Record<string, { name: string; avatar_url: string | null; photos: string[] | null }> = {};
-      data?.forEach(p => {
-        profileMap[p.id] = p;
-      });
-      return profileMap;
-    },
-    enabled: !!dailyDrops?.length,
-  });
+  const profile = userDetail?.profile ?? null;
+  const vibes = userDetail?.vibes ?? EMPTY_VIBES;
+  const matches = userDetail?.matches ?? EMPTY_MATCHES;
+  const dailyDrops = userDetail?.daily_drops ?? EMPTY_DAILY_DROPS;
 
-  // Fetch auth user email
-  const { data: authUser } = useQuery({
-    queryKey: ['admin-user-auth', userId],
-    queryFn: async () => {
-      // Get from verified_email field in profiles
-      return profile?.verified_email;
-    },
-    enabled: !!profile,
-  });
+  const matchProfiles = useMemo(() => {
+    const profileMap: Record<string, AdminEmbeddedProfileRow> = {};
+    for (const match of matches) {
+      const otherId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
+      if (match.other_profile) profileMap[otherId] = match.other_profile;
+    }
+    return profileMap;
+  }, [matches, userId]);
+
+  const dropProfiles = useMemo(() => {
+    const profileMap: Record<string, AdminEmbeddedProfileRow> = {};
+    for (const drop of dailyDrops) {
+      const partnerId = drop.user_a_id === userId ? drop.user_b_id : drop.user_a_id;
+      if (drop.partner_profile) profileMap[partnerId] = drop.partner_profile;
+    }
+    return profileMap;
+  }, [dailyDrops, userId]);
 
   // Resolve photos via CDN helper (no async refresh needed)
   useEffect(() => {
@@ -376,6 +283,13 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="h-20 bg-secondary/50 rounded-xl animate-pulse" />
               ))}
+            </div>
+          ) : isError ? (
+            <div className="p-6 text-center space-y-2">
+              <p className="font-medium text-destructive">User detail unavailable</p>
+              <p className="text-sm text-muted-foreground">
+                Backend admin read failed; this does not prove the user is missing.
+              </p>
             </div>
           ) : profile ? (
             <div className="p-6 space-y-6">
