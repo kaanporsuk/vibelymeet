@@ -34,9 +34,9 @@ test("ghost bootstrap RPC uses strict age and last_seen_at-aware confidence sema
   assert.match(strictConfidenceMigration, /min_activity_threshold int DEFAULT 0/);
   assert.match(strictConfidenceMigration, /ROUND\(\(EXTRACT\(EPOCH FROM now\(\) - p\.created_at\) \/ 3600\)::numeric, 2\) as account_age_hours/);
   assert.match(strictConfidenceMigration, /au\.deleted_at IS NULL/);
-  assert.match(strictConfidenceMigration, /au2\.deleted_at IS NULL/);
-  assert.match(strictConfidenceMigration, /HAVING COUNT\(\*\) > 0/);
-  assert.match(strictConfidenceMigration, /left\(trim\(ac\.phone\), 2\) \|\| ' \*\*\*\* ' \|\| right\(trim\(ac\.phone\), 2\)/);
+  assert.match(collisionMaskFollowupMigration, /au2\.deleted_at IS NULL/);
+  assert.match(collisionMaskFollowupMigration, /HAVING COUNT\(\*\) > 0/);
+  assert.match(collisionMaskFollowupMigration, /left\(trim\(ac\.phone\), 2\) \|\| ' \*\*\*\* ' \|\| right\(trim\(ac\.phone\), 2\)/);
   assert.match(strictConfidenceMigration, /ac\.days_since_creation >= v_days_old_threshold/);
   assert.doesNotMatch(strictConfidenceMigration, /days_old_threshold\s*-\s*[23]/);
   assert.match(

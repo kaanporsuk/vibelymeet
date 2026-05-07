@@ -155,20 +155,16 @@ BEGIN
       INNER JOIN auth.users au2 ON p2.id = au2.id
       WHERE au2.email = ac.email
         AND au2.email IS NOT NULL
-        AND au2.deleted_at IS NULL
         AND NULLIF(trim(au2.email), '') IS NOT NULL
         AND p2.id <> ac.profile_id
-      HAVING COUNT(*) > 0
       UNION ALL
       SELECT 'phone_collision' as collision_type, COUNT(*) as collision_count
       FROM public.profiles p2
       INNER JOIN auth.users au2 ON p2.id = au2.id
       WHERE au2.phone = ac.phone
         AND au2.phone IS NOT NULL
-        AND au2.deleted_at IS NULL
         AND NULLIF(trim(au2.phone), '') IS NOT NULL
         AND p2.id <> ac.profile_id
-      HAVING COUNT(*) > 0
     ) collisions ON true
     GROUP BY ac.profile_id
   )
@@ -182,8 +178,8 @@ BEGIN
       ELSE 'unknown'
     END as email_masked,
     CASE
-      WHEN ac.phone IS NOT NULL AND char_length(trim(ac.phone)) > 4
-      THEN left(trim(ac.phone), 2) || ' **** ' || right(trim(ac.phone), 2)
+      WHEN ac.phone IS NOT NULL AND char_length(COALESCE(ac.phone, '')) > 4
+      THEN left(ac.phone, LEAST(4, GREATEST(char_length(ac.phone) - 2, 2))) || ' **** ' || right(ac.phone, 2)
       ELSE 'unknown'
     END as phone_masked,
     ac.onboarding_complete,
