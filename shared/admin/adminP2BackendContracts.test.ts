@@ -13,9 +13,21 @@ const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_
 const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
 const eventLifecycleFeedMigration = read("supabase/migrations/20260507113000_admin_event_lifecycle_feed.sql");
 const reviewCommentFollowupMigration = read("supabase/migrations/20260507123000_admin_review_comment_followup.sql");
+const accountDeletionsMigration = read("supabase/migrations/20260507140000_admin_account_deletions_backend_authoritative.sql");
 const adminUsersLifecycleMigration = read("supabase/migrations/20260507143000_admin_users_lifecycle_read_models.sql");
 const pushTelemetryViewRedactionMigration = read("supabase/migrations/20260507154000_push_notification_events_admin_null_preserving_redaction.sql");
+const eventAnalyticsReadModelsMigration = read("supabase/migrations/20260507163000_admin_event_analytics_backend_read_models.sql");
+const photoVerificationHardeningMigration = read("supabase/migrations/20260507170000_photo_verification_admin_hardening.sql");
+const supportInboxMigration = read("supabase/migrations/20260507180000_admin_support_inbox_governed.sql");
+const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
+const tierConfigConcurrencyRepairMigration = read(
+  "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
+);
+const tierConfigSwipeIdempotencyRepairMigration = read(
+  "supabase/migrations/20260507194000_tier_config_swipe_idempotency_repair.sql",
+);
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
+const accountDeletionsValidation = read("supabase/validation/admin_account_deletions_backend_authoritative.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
 const staleBundleNotice = read("src/components/admin/AdminStaleBundleNotice.tsx");
@@ -34,6 +46,7 @@ const reportsSummary = read("src/components/admin/AdminReportsSummary.tsx");
 const pushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
 const matchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
 const adminUserDetail = read("src/components/admin/AdminUserDetailDrawer.tsx");
+const adminDeletions = read("src/components/admin/AdminDeletionsPanel.tsx");
 const adminProfilePreview = read("src/components/admin/AdminProfilePreview.tsx");
 const support = read("src/components/admin/SupportInbox.tsx");
 const stats = read("src/components/admin/AdminStatsCards.tsx");
@@ -45,6 +58,11 @@ const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const eventAnalytics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const pushAnalytics = read("src/hooks/usePushAnalytics.ts");
 const verificationFunction = read("supabase/functions/admin-review-verification/index.ts");
+const sendSupportReplyFunction = read("supabase/functions/send-support-reply/index.ts");
+const createEventCheckoutFunction = read("supabase/functions/create-event-checkout/index.ts");
+const dateSuggestionActionsFunction = read("supabase/functions/date-suggestion-actions/index.ts");
+const webEntitlementsContext = read("src/contexts/EntitlementsContext.tsx");
+const mobileEntitlementsContext = read("apps/mobile/context/EntitlementsContext.tsx");
 
 function fnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
@@ -97,15 +115,26 @@ function readModelSweepFnSection(fnName: string): string {
   return readModelSweepMigration.slice(start, end);
 }
 
-function eventLifecycleFeedFnSection(fnName: string): string {
+function photoVerificationHardeningFnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
-  const start = eventLifecycleFeedMigration.indexOf(marker);
+  const start = photoVerificationHardeningMigration.indexOf(marker);
   assert.notEqual(start, -1, `Missing function ${fnName}`);
-  const next = eventLifecycleFeedMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
-  const revoke = eventLifecycleFeedMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const next = photoVerificationHardeningMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = photoVerificationHardeningMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
   const candidates = [next, revoke].filter((i) => i !== -1);
-  const end = candidates.length ? Math.min(...candidates) : eventLifecycleFeedMigration.length;
-  return eventLifecycleFeedMigration.slice(start, end);
+  const end = candidates.length ? Math.min(...candidates) : photoVerificationHardeningMigration.length;
+  return photoVerificationHardeningMigration.slice(start, end);
+}
+
+function eventAnalyticsReadModelsFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = eventAnalyticsReadModelsMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = eventAnalyticsReadModelsMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = eventAnalyticsReadModelsMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : eventAnalyticsReadModelsMigration.length;
+  return eventAnalyticsReadModelsMigration.slice(start, end);
 }
 
 function reviewCommentFollowupFnSection(fnName: string): string {
@@ -128,6 +157,70 @@ function adminUsersLifecycleFnSection(fnName: string): string {
   const candidates = [next, revoke].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : adminUsersLifecycleMigration.length;
   return adminUsersLifecycleMigration.slice(start, end);
+}
+
+function accountDeletionsFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = accountDeletionsMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = accountDeletionsMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = accountDeletionsMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : accountDeletionsMigration.length;
+  return accountDeletionsMigration.slice(start, end);
+}
+
+function supportInboxFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = supportInboxMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = supportInboxMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = supportInboxMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = supportInboxMigration.indexOf("\nINSERT INTO public.migration_classifications", start + marker.length);
+  const candidates = [next, revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : supportInboxMigration.length;
+  return supportInboxMigration.slice(start, end);
+}
+
+function tierConfigAuthorityFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = tierConfigAuthorityMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = tierConfigAuthorityMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = tierConfigAuthorityMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = tierConfigAuthorityMigration.indexOf("\nINSERT INTO public.migration_classifications", start + marker.length);
+  const candidates = [next, revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : tierConfigAuthorityMigration.length;
+  return tierConfigAuthorityMigration.slice(start, end);
+}
+
+function tierConfigConcurrencyRepairFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = tierConfigConcurrencyRepairMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing concurrency repair function ${fnName}`);
+  const next = tierConfigConcurrencyRepairMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = tierConfigConcurrencyRepairMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = tierConfigConcurrencyRepairMigration.indexOf(
+    "\nINSERT INTO public.migration_classifications",
+    start + marker.length,
+  );
+  const candidates = [next, revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : tierConfigConcurrencyRepairMigration.length;
+  return tierConfigConcurrencyRepairMigration.slice(start, end);
+}
+
+function tierConfigSwipeIdempotencyRepairFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = tierConfigSwipeIdempotencyRepairMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing swipe idempotency repair function ${fnName}`);
+  const revoke = tierConfigSwipeIdempotencyRepairMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = tierConfigSwipeIdempotencyRepairMigration.indexOf(
+    "\nINSERT INTO public.migration_classifications",
+    start + marker.length,
+  );
+  const candidates = [revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : tierConfigSwipeIdempotencyRepairMigration.length;
+  return tierConfigSwipeIdempotencyRepairMigration.slice(start, end);
 }
 
 const mutationRpcs = [
@@ -199,11 +292,55 @@ test("P2 admin RPCs are security definer, admin checked, audited, and ACL pinned
     assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
     assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
     assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
-    assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/, `${fn} must verify admin role`);
+    assert.match(
+      source,
+      /public\.(has_role\(v_admin_id, 'admin'::public\.app_role\)|admin_user_has_permission\(v_admin_id, '[^']+'\))/,
+      `${fn} must verify an admin role or scoped admin permission`,
+    );
     assert.match(source, /log_admin_action/, `${fn} must write admin_activity_logs`);
     assert.match(migration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
     assert.match(migration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
   }
+});
+
+test("account deletion admin RPCs are guarded, audited, and ACL pinned", () => {
+  const listSource = accountDeletionsFnSection("admin_list_account_deletions");
+  const completeSource = accountDeletionsFnSection("admin_mark_account_deletion_completed");
+
+  for (const [fn, source] of [
+    ["admin_list_account_deletions", listSource],
+    ["admin_mark_account_deletion_completed", completeSource],
+  ] as const) {
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/, `${fn} must verify admin role`);
+    assert.match(accountDeletionsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(accountDeletionsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale explicit anon/authenticated grants before regrant`);
+    assert.match(accountDeletionsMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+  }
+
+  assert.match(listSource, /public\.account_deletion_requests/);
+  assert.match(listSource, /LEFT JOIN public\.profiles/);
+  assert.match(listSource, /can_mark_completed/);
+  assert.match(listSource, /v_other_count/);
+  assert.match(listSource, /'other', v_other_count/);
+
+  assert.match(completeSource, /admin_idempotency_begin/);
+  assert.match(completeSource, /admin_idempotency_complete/);
+  assert.match(completeSource, /log_admin_action/);
+  assert.match(completeSource, /v_before\.status/);
+  assert.match(completeSource, /scheduled_deletion_at > now\(\)/);
+  assert.match(completeSource, /completed_at = now\(\)/);
+  assert.match(completeSource, /cancelled_at = NULL/);
+  assert.match(completeSource, /auth_user_deleted', false/);
+  assert.match(completeSource, /profile_deleted', false/);
+  assert.match(accountDeletionsMigration, /DROP POLICY IF EXISTS "Admins can view all deletion requests"/);
+  assert.match(accountDeletionsMigration, /DROP POLICY IF EXISTS "Admins can update deletion requests"/);
+  assert.match(accountDeletionsValidation, /admin_account_deletions_rpcs_acl_and_security_definer/);
+  assert.match(accountDeletionsValidation, /account_deletion_requests_rls_enabled/);
+  assert.match(accountDeletionsValidation, /account_deletion_completion_requires_pending_due_and_checkpoint_invariants/);
+  assert.match(accountDeletionsValidation, /account_deletion_list_reports_hidden_statuses/);
 });
 
 test("retry-prone P2 mutations use idempotency ledger", () => {
@@ -249,13 +386,24 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(notifications, /callAdminRpc\("admin_mark_notifications_read"/);
   assert.match(notifications, /callAdminRpc\("admin_delete_notifications"/);
   assert.match(verification, /callAdminRpc\("admin_review_photo_verification"/);
+  assert.match(adminDeletions, /callAdminRpc<AccountDeletionListPayload>\("admin_list_account_deletions"/);
+  assert.match(adminDeletions, /callAdminRpc\("admin_mark_account_deletion_completed"/);
+  assert.match(adminDeletions, /createAdminIdempotencyKey\("admin_mark_account_deletion_completed"\)/);
+  assert.match(support, /callAdminRpc<SupportInboxPayload>\("admin_get_support_inbox"/);
+  assert.match(support, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
+  assert.match(support, /callAdminRpc\("admin_update_support_ticket"/);
+  assert.match(support, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
   assert.match(support, /callAdminRpc\("admin_create_event_payment_exception"/);
   assert.match(support, /callAdminRpc\("admin_transition_event_payment_exception"/);
   assert.match(overviewHook, /callAdminRpc<AdminOverviewDashboardPayload>\("admin_get_overview_dashboard"/);
   assert.match(stats, /useAdminOverviewDashboard/);
   assert.match(adminUsers, /callAdminRpc<AdminSearchUsersPayload>\("admin_search_users"/);
-  assert.match(eventAnalytics, /callAdminRpc<AdminEventMetricsPayload>\("admin_get_event_metrics"/);
+  assert.match(eventAnalytics, /callAdminRpc<AdminEventAnalyticsOptionsPayload>\("admin_list_event_analytics_options"/);
+  assert.match(eventAnalytics, /callAdminRpc<AdminEventLiveAnalyticsPayload>\("admin_get_event_live_analytics"/);
+  assert.match(eventAnalytics, /callAdminRpc<AdminEventPostAnalyticsPayload>\("admin_get_event_post_analytics"/);
   assert.match(eventAnalytics, /callAdminRpc<AdminEventLifecycleFeedPayload>\("admin_get_event_lifecycle_feed"/);
+  assert.doesNotMatch(eventAnalytics, /callAdminRpc<AdminEventMetricsPayload>\("admin_get_event_metrics"/);
+  assert.doesNotMatch(eventAnalytics, /supabase\s*\.\s*from\(/);
   assert.match(pushAnalytics, /callAdminRpc<PushDeliveryMetricsPayload>\("admin_get_push_delivery_metrics"/);
 });
 
@@ -267,6 +415,131 @@ test("admin RPC helper preserves Supabase client binding", () => {
   assert.match(adminRpc, /\[url\]/);
   assert.match(adminRpc, /\[email\]/);
   assert.match(adminRpc, /\[token\]/);
+});
+
+test("Support Inbox admin RPCs are governed, audited, ACL pinned, and lifecycle-aware", () => {
+  const writeStatement = /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s/im;
+
+  for (const fn of ["admin_get_support_inbox", "admin_get_support_ticket_thread"]) {
+    const source = supportInboxFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.admin_user_has_permission\(v_admin_id, 'support\.manage'\)/, `${fn} must require support.manage`);
+    assert.match(source, /public\.admin_json_success/, `${fn} must return the admin JSON envelope`);
+    assert.doesNotMatch(source, writeStatement, `${fn} must stay read-only`);
+    assert.doesNotMatch(source, /SELECT\s+\*/, `${fn} must avoid wide table projection`);
+    assert.doesNotMatch(source, /to_jsonb\(/, `${fn} must avoid implicit row JSON projection`);
+    assert.match(supportInboxMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale grants`);
+    assert.match(supportInboxMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+  }
+
+  for (const fn of ["admin_update_support_ticket", "admin_create_support_reply"]) {
+    const source = supportInboxFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.admin_user_has_permission\(v_admin_id, 'support\.manage'\)/, `${fn} must require support.manage`);
+    assert.match(source, /admin_idempotency_begin/, `${fn} must start the idempotency ledger`);
+    assert.match(source, /admin_idempotency_complete/, `${fn} must complete the idempotency ledger`);
+    assert.match(source, /log_admin_action/, `${fn} must write admin_activity_logs`);
+    assert.match(source, /public\.support_ticket_events/, `${fn} must leave a support event trail`);
+    assert.match(supportInboxMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale grants`);
+    assert.match(supportInboxMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+  }
+
+  assert.match(supportInboxFnSection("admin_create_support_reply"), /ELSE 'waiting_on_user'/);
+  assert.match(supportInboxFnSection("admin_update_support_ticket"), /p_set_event_id/);
+  assert.match(supportInboxFnSection("admin_update_support_ticket"), /p_set_checkout_session_id/);
+
+  const triggerSource = supportInboxFnSection("support_ticket_reply_status_sync");
+  assert.match(triggerSource, /SECURITY DEFINER/);
+  assert.match(triggerSource, /SET search_path = public, pg_catalog/);
+  assert.match(triggerSource, /NEW\.sender_type = 'user'/);
+  assert.match(triggerSource, /WHEN status = 'resolved' THEN status/);
+  assert.match(triggerSource, /ELSE 'in_review'/);
+  assert.match(supportInboxMigration, /CREATE TRIGGER support_ticket_replies_status_sync[\s\S]*AFTER INSERT ON public\.support_ticket_replies/);
+  assert.match(supportInboxMigration, /'20260507180000'/);
+  assert.match(supportInboxMigration, /No support tickets are seeded or backfilled/);
+});
+
+test("send-support-reply saves through the governed admin reply RPC before notification side effects", () => {
+  const saveIndex = sendSupportReplyFunction.indexOf('userClient.rpc("admin_create_support_reply"');
+  const notificationIndex = sendSupportReplyFunction.indexOf("/functions/v1/send-notification");
+
+  assert.ok(saveIndex > -1, "send-support-reply must call admin_create_support_reply");
+  assert.ok(notificationIndex > saveIndex, "reply save must happen before notification delivery");
+  assert.match(sendSupportReplyFunction, /idempotent_replay/);
+  assert.match(sendSupportReplyFunction, /notification_warning/);
+  assert.match(sendSupportReplyFunction, /email_warning/);
+  assert.match(sendSupportReplyFunction, /sanitizeErrorMessage/);
+  assert.doesNotMatch(sendSupportReplyFunction, /jsonResponse\(\{ error: String\(e\) \}/);
+  assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_ticket_replies["']\)[\s\S]{0,300}\.insert\(/);
+  assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_tickets["']\)[\s\S]{0,300}\.update\(/);
+});
+
+test("tier config authority migration validates overrides and enforces backend entitlements", () => {
+  assert.match(tierConfigAuthorityMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(tierConfigAuthorityMigration, /'20260507190000'/);
+  assert.match(tierConfigConcurrencyRepairMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(tierConfigConcurrencyRepairMigration, /'20260507193000'/);
+  assert.match(tierConfigSwipeIdempotencyRepairMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(tierConfigSwipeIdempotencyRepairMigration, /'20260507194000'/);
+  assert.match(tierConfigAuthorityMigration, /tier_config_overrides_capability_key_check/);
+  assert.match(tierConfigAuthorityMigration, /tier_config_overrides_value_check/);
+  assert.match(tierConfigAuthorityMigration, /tier_config_override_value_is_valid/);
+  assert.match(tierConfigAuthorityMigration, /2147483647/);
+  assert.match(tierConfigAuthorityMigration, /DELETE FROM public\.tier_config_overrides[\s\S]*capability_key NOT IN/);
+  assert.match(tierConfigAuthorityMigration, /DELETE FROM public\.tier_config_overrides[\s\S]*tier_config_override_value_is_valid\(capability_key, value\)/);
+  assert.match(tierConfigAuthorityMigration, /v_access_value jsonb/);
+  assert.match(tierConfigAuthorityMigration, /COALESCE\(\([\s\S]*SELECT jsonb_agg\(tier[\s\S]*'\[\]'::jsonb\)/);
+
+  const getUserCaps = tierConfigAuthorityFnSection("get_user_tier_capabilities");
+  assert.match(getUserCaps, /SECURITY DEFINER/);
+  assert.match(getUserCaps, /auth\.role\(\) IS DISTINCT FROM 'service_role'/);
+  assert.match(getUserCaps, /v_uid IS DISTINCT FROM p_user_id/);
+  assert.match(getUserCaps, /public\.has_role\(v_uid, 'admin'::public\.app_role\)/);
+
+  for (const fn of ["set_tier_config_override", "reset_tier_config_override"]) {
+    const source = tierConfigAuthorityFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /public\.has_role\(v_admin, 'admin'::public\.app_role\)/, `${fn} must require admin role`);
+    assert.match(source, /public\.tier_config_audit/, `${fn} must audit override changes`);
+    assert.match(tierConfigAuthorityMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(tierConfigAuthorityMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+  }
+
+  assert.match(tierConfigAuthorityFnSection("set_tier_config_override"), /assert_tier_config_override_valid/);
+  assert.match(tierConfigAuthorityFnSection("get_visible_events"), /_user_can_access_event_visibility_unchecked/);
+  assert.match(tierConfigAuthorityFnSection("register_for_event"), /monthlyEventJoins/);
+  assert.match(tierConfigConcurrencyRepairFnSection("register_for_event"), /pg_advisory_xact_lock/);
+  assert.match(tierConfigAuthorityFnSection("settle_event_ticket_checkout"), /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
+  assert.match(tierConfigConcurrencyRepairFnSection("settle_event_ticket_checkout"), /pg_advisory_xact_lock/);
+  assert.match(tierConfigConcurrencyRepairFnSection("replenish_monthly_credits"), /GET DIAGNOSTICS[\s\S]*ROW_COUNT/);
+  assert.match(tierConfigAuthorityFnSection("handle_swipe"), /dailySwipeLimit/);
+  assert.match(tierConfigAuthorityFnSection("handle_swipe"), /maxActiveConversations/);
+  assert.match(tierConfigConcurrencyRepairFnSection("handle_swipe"), /pg_advisory_xact_lock/);
+  assert.match(
+    tierConfigSwipeIdempotencyRepairFnSection("handle_swipe"),
+    /FROM public\.event_swipes es[\s\S]*RETURN public\.handle_swipe_20260507190000_tier_authority_base[\s\S]*v_daily_limit :=/,
+  );
+  assert.match(tierConfigSwipeIdempotencyRepairFnSection("handle_swipe"), /pg_advisory_xact_lock/);
+  assert.match(tierConfigAuthorityFnSection("date_suggestion_apply_v2"), /canSuggestDate/);
+  assert.match(tierConfigAuthorityFnSection("enforce_user_schedule_tier_capability"), /canUseVibeSchedule/);
+  assert.match(tierConfigAuthorityMigration, /public\.get_user_tier_capabilities\(auth\.uid\(\)\)->>'canSeeLikedYou'/);
+  assert.match(createEventCheckoutFunction, /get_user_tier_capabilities/);
+  assert.match(createEventCheckoutFunction, /MONTHLY_EVENT_JOIN_LIMIT_REACHED/);
+  assert.match(dateSuggestionActionsFunction, /date_suggestion_apply_v2/);
+  assert.match(dateSuggestionActionsFunction, /get_user_tier_capabilities/);
+  assert.match(dateSuggestionActionsFunction, /canSuggestDate/);
+  assert.match(dateSuggestionActionsFunction, /canUseVibeSchedule/);
+  assert.match(dateSuggestionActionsFunction, /truthyFlag/);
+  for (const source of [webEntitlementsContext, mobileEntitlementsContext]) {
+    assert.match(source, /get_user_tier_capabilities/);
+    assert.doesNotMatch(source, /from\(["']profiles["']\)/);
+    assert.doesNotMatch(source, /from\(["']tier_config_overrides["']\)/);
+  }
 });
 
 test("covered admin UI no longer performs known multi-step browser writes", () => {
@@ -282,6 +555,7 @@ test("covered admin UI no longer performs known multi-step browser writes", () =
     batchImport,
     notifications,
     verification,
+    adminDeletions,
     support,
   ].join("\n");
 
@@ -293,6 +567,10 @@ test("covered admin UI no longer performs known multi-step browser writes", () =
     /from\(["']user_suspensions["']\)[\s\S]{0,300}\.(insert|update)\(/,
     /from\(["']photo_verifications["']\)[\s\S]{0,300}\.update\(/,
     /from\(["']admin_notifications["']\)[\s\S]{0,300}\.(update|delete)\(/,
+    /from\(["']account_deletion_requests["']\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/,
+    /from\(["']support_tickets["']\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/,
+    /from\(["']support_ticket_replies["']\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/,
+    /from\(["']event_payment_exceptions["']\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/,
     /from\(["']events["']\)[\s\S]{0,300}\.(insert|update|delete)\(/,
     /from\(["']event_registrations["']\)[\s\S]{0,300}\.update\(/,
     /rpc\(["']generate_recurring_events["']/,
@@ -325,30 +603,67 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(fnSection("admin_get_event_metrics"), /participant_reports_near_event_window/);
   assert.match(fnSection("admin_get_push_delivery_metrics"), /app_notification_log/);
   assert.match(fnSection("admin_get_push_delivery_metrics"), /push_telemetry/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /SECURITY DEFINER/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /SET search_path = public, pg_catalog/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /auth\.uid\(\)/);
-  assert.match(
-    eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"),
-    /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/,
-  );
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.event_reminder_queue/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.notification_log/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.waitlist_promotion_notify_queue/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.stripe_event_ticket_settlements/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.event_swipes/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.video_sessions/);
-  assert.match(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /public\.admin_activity_logs/);
-  assert.doesNotMatch(eventLifecycleFeedFnSection("admin_get_event_lifecycle_feed"), /'user_id'/);
-  assert.match(eventLifecycleFeedMigration, /REVOKE ALL ON FUNCTION public\.admin_get_event_lifecycle_feed\(uuid\) FROM PUBLIC/);
-  assert.match(eventLifecycleFeedMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_event_lifecycle_feed\(uuid\) TO authenticated/);
-  assert.match(eventLifecycleFeedMigration, /INSERT INTO public\.migration_classifications/);
+  for (const fn of [
+    "admin_list_event_analytics_options",
+    "admin_get_event_live_analytics",
+    "admin_get_event_post_analytics",
+    "admin_get_event_lifecycle_feed",
+  ]) {
+    const source = eventAnalyticsReadModelsFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.admin_user_has_permission\(v_admin_id, 'intelligence\.read'\)/, `${fn} must require intelligence.read`);
+    assert.match(source, /public\.admin_json_success/, `${fn} must return the admin JSON envelope`);
+    assert.doesNotMatch(source, /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s/im, `${fn} must stay read-only`);
+    assert.doesNotMatch(source, /SELECT\s+\*/, `${fn} must avoid wide table projection`);
+    assert.doesNotMatch(source, /to_jsonb\(/, `${fn} must avoid implicit row JSON projection`);
+    assert.match(eventAnalyticsReadModelsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(eventAnalyticsReadModelsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]+\\) FROM PUBLIC, anon, authenticated;`), `${fn} must clear stale explicit anon/authenticated grants before regrant`);
+    assert.match(eventAnalyticsReadModelsMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+  }
+
+  assert.match(eventAnalyticsReadModelsFnSection("admin_list_event_analytics_options"), /jsonb_build_object\(\s*'id', filtered\.id/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_list_event_analytics_options"), /'archived_at', filtered\.archived_at/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /public\.event_registrations/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /public\.video_sessions/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /public\.matches/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /public\.user_reports/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /er\.attended IS TRUE/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /'attendance_marked_count', v_attendance_marked/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /'no_show_count', v_no_show/);
+  assert.doesNotMatch(eventAnalyticsReadModelsFnSection("admin_get_event_live_analytics"), /attendance_marked IS TRUE OR er\.attended IS TRUE/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_post_analytics"), /public\.date_feedback/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_post_analytics"), /EXCEPTION WHEN others/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_post_analytics"), /'post_metrics', 'null'::jsonb/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_post_analytics"), /'post_metrics_status', 'unavailable'/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.event_reminder_queue/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.notification_log/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.waitlist_promotion_notify_queue/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.stripe_event_ticket_settlements/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.event_swipes/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.video_sessions/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.admin_activity_logs/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /public\.event_payment_exceptions/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /vs\.state::text/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /EXCEPTION WHEN others/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /'payment_exceptions', v_payment_exceptions/);
+  assert.match(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /'payment_exception_status_counts', v_payment_exception_status_counts/);
+  assert.doesNotMatch(eventAnalyticsReadModelsFnSection("admin_get_event_lifecycle_feed"), /'user_id'/);
   assert.match(eventLifecycleFeedMigration, /'20260507113000'/);
-  assert.match(eventLifecycleFeedMigration, /'schema-only'/);
+  assert.match(eventAnalyticsReadModelsMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(eventAnalyticsReadModelsMigration, /'20260507163000'/);
+  assert.match(eventAnalyticsReadModelsMigration, /'schema-only'/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]event_registrations['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]profile_vibes['"]\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("user_reports"\)/);
+  assert.doesNotMatch(eventAnalytics, /supabase\s*\.\s*from\(/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("events"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("event_registrations"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("video_sessions"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("date_feedback"\)/);
+  assert.doesNotMatch(eventAnalytics, /\.from\("event_payment_exceptions"\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("matches"\)[\s\S]{0,160}\.select\("\*", \{ count: "exact", head: true \}\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("event_reminder_queue"\)/);
   assert.doesNotMatch(eventAnalytics, /\.from\("notification_log"\)/);
@@ -513,6 +828,46 @@ test("admin panel list/detail read model RPCs are security definer, admin checke
   assert.match(reviewCommentFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_reports_read_model\(text, text, text, integer, text\) TO authenticated/);
 });
 
+test("photo verification hardening constrains user submissions and pending uniqueness", () => {
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_status_check/);
+  assert.match(photoVerificationHardeningMigration, /CHECK \(status IN \('pending', 'approved', 'rejected'\)\)/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_selfie_url_not_blank/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_profile_photo_url_not_blank/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_client_confidence_score_range/);
+  assert.match(photoVerificationHardeningMigration, /client_confidence_score BETWEEN 0 AND 100/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_pending_review_fields_null/);
+  assert.match(photoVerificationHardeningMigration, /reviewed_by IS NULL/);
+  assert.match(photoVerificationHardeningMigration, /reviewed_at IS NULL/);
+  assert.match(photoVerificationHardeningMigration, /rejection_reason IS NULL/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_final_review_metadata_present/);
+  assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_rejected_reason_not_blank/);
+  assert.match(photoVerificationHardeningMigration, /CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_verifications_one_pending_per_user/);
+  assert.match(photoVerificationHardeningMigration, /WHERE status = 'pending'/);
+  assert.match(photoVerificationHardeningMigration, /DROP POLICY IF EXISTS "Users can submit verifications"/);
+  assert.match(photoVerificationHardeningMigration, /CREATE POLICY "Users can submit pending verifications"/);
+  assert.match(photoVerificationHardeningMigration, /auth\.uid\(\) = user_id/);
+  assert.match(photoVerificationHardeningMigration, /AND status = 'pending'/);
+  assert.match(photoVerificationHardeningMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.photo_verifications/);
+  assert.match(photoVerificationHardeningMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(photoVerificationHardeningMigration, /'20260507170000'/);
+});
+
+test("latest photo verification admin list read model exposes reviewed_at and sorts reviewed rows by review time", () => {
+  const source = photoVerificationHardeningFnSection("admin_list_photo_verifications");
+
+  assert.match(source, /SECURITY DEFINER/);
+  assert.match(source, /SET search_path = public, pg_catalog/);
+  assert.match(source, /auth\.uid\(\)/);
+  assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(source, /pv\.reviewed_at/);
+  assert.match(source, /'reviewed_at', reviewed_at/);
+  assert.match(source, /CASE WHEN v_status = 'pending' THEN pv\.created_at END ASC NULLS LAST/);
+  assert.match(source, /CASE WHEN v_status <> 'pending' THEN pv\.reviewed_at END DESC NULLS LAST/);
+  assert.match(source, /OR pv\.reviewed_at >= p_reviewed_since/);
+  assert.match(photoVerificationHardeningMigration, /REVOKE ALL ON FUNCTION public\.admin_list_photo_verifications\(text, timestamptz, integer\) FROM PUBLIC, anon, authenticated/);
+  assert.match(photoVerificationHardeningMigration, /GRANT EXECUTE ON FUNCTION public\.admin_list_photo_verifications\(text, timestamptz, integer\) TO authenticated/);
+});
+
 test("push campaign draft write RPCs are governed, idempotent, audited, and draft-only", () => {
   for (const fn of pushCampaignDraftMutationRpcs) {
     const source = readModelSweepFnSection(fn);
@@ -569,8 +924,12 @@ test("named residual admin panels use backend read models instead of browser tab
   assert.match(adminUserDetail, /<AdminProfilePreview[\s\S]*profile=\{profile\}[\s\S]*vibes=\{vibes\}/);
   assert.match(adminUserDetail, /moderation=\{moderation\}/);
   assert.match(adminUserDetail, /history=\{premiumHistory\}/);
+  assert.match(adminDeletions, /callAdminRpc<AccountDeletionListPayload>\("admin_list_account_deletions"/);
+  assert.match(adminDeletions, /callAdminRpc\("admin_mark_account_deletion_completed"/);
   assert.match(matchMessages, /callAdminRpc<MatchThreadsPayload>\("admin_get_user_match_threads"/);
   assert.match(matchMessages, /callAdminRpc<MatchThreadMessagesPayload>\("admin_get_match_thread_messages"/);
+  assert.match(support, /callAdminRpc<SupportInboxPayload>\("admin_get_support_inbox"/);
+  assert.match(support, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
 
   assert.doesNotMatch(verification, /\.from\(['"]photo_verifications['"]\)/);
   assert.doesNotMatch(verification, /\.from\(['"]profiles['"]\)/);
@@ -578,11 +937,14 @@ test("named residual admin panels use backend read models instead of browser tab
   assert.doesNotMatch(reports, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_campaigns['"]\)/);
   assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_notification_events(?:_admin)?['"]\)/);
+  assert.doesNotMatch(adminDeletions, /\.from\(['"]account_deletion_requests['"]\)/);
+  assert.doesNotMatch(adminDeletions, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);
   assert.doesNotMatch(adminProfilePreview, /\.from\(['"]/);
   assert.doesNotMatch(moderation, /\.from\(['"]/);
   assert.doesNotMatch(premium, /\.from\(['"]/);
   assert.doesNotMatch(matchMessages, /\.from\(['"]/);
+  assert.doesNotMatch(support, /\.from\(['"]/);
   assert.doesNotMatch(adminUserDetail, /admin_get_user_detail_counts/);
   assert.doesNotMatch(matchMessages, /admin_get_match_message_counts/);
 });

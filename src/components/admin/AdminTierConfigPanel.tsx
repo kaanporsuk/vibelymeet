@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Loader2, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
+import { sanitizeAdminRpcErrorMessage } from "@/lib/adminRpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,10 +17,12 @@ import {
 } from "@/components/ui/collapsible";
 import {
   CAPABILITY_REGISTRY,
+  TIER_CONFIG_MAX_INTEGER,
   TIER_IDS,
   getAllTiersWithOverrides,
   getTierDefinition,
   type CapabilityMeta,
+  type FlatCapabilities,
   type TierConfigOverride,
   type TierId,
 } from "@shared/tiers";
@@ -32,6 +35,37 @@ const SECTIONS: { title: string; category: CapabilityMeta["category"] }[] = [
 ];
 
 const EVENT_TIER_OPTIONS = ["free", "premium", "vip"] as const;
+
+type AuditRow = {
+  id: string;
+  tier_id: string;
+  capability_key: string;
+  old_value: unknown;
+  new_value: unknown;
+  action: string;
+  admin_id: string | null;
+  created_at: string;
+};
+
+type TierCapabilitiesByTier = Record<TierId, FlatCapabilities>;
+
+function parseNonNegativeInteger(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > TIER_CONFIG_MAX_INTEGER || !Number.isInteger(n)) return null;
+  return n;
+}
+
+async function fetchTierCapabilities(tierId: TierId): Promise<FlatCapabilities> {
+  const { data, error } = await supabase.rpc("get_tier_capabilities", {
+    p_tier_id: tierId,
+  });
+  if (error) throw error;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Tier capabilities were not returned by the backend");
+  }
+  return data as unknown as FlatCapabilities;
+}
 
 function CapabilityCell({
   meta,
@@ -100,10 +134,17 @@ function CapabilityCell({
             className="h-9 w-20 bg-secondary/50 text-center"
             value={numDraft}
             disabled={isPending}
+            min={0}
+            max={TIER_CONFIG_MAX_INTEGER}
+            step={1}
             onChange={(e) => setNumDraft(e.target.value)}
             onBlur={() => {
-              const n = Number(numDraft);
-              if (Number.isNaN(n)) return;
+              const n = parseNonNegativeInteger(numDraft);
+              if (n === null) {
+                setNumDraft(String(rawValue ?? 0));
+                toast.error(`Enter a whole number from 0 to ${TIER_CONFIG_MAX_INTEGER}`);
+                return;
+              }
               onSet(n);
             }}
           />
@@ -147,10 +188,17 @@ function CapabilityCell({
               className="h-9 w-full bg-secondary/50 text-center"
               value={numDraft}
               disabled={isPending}
+              min={0}
+              max={TIER_CONFIG_MAX_INTEGER}
+              step={1}
               onChange={(e) => setNumDraft(e.target.value)}
               onBlur={() => {
-                const n = Number(numDraft);
-                if (Number.isNaN(n)) return;
+                const n = parseNonNegativeInteger(numDraft);
+                if (n === null) {
+                  setNumDraft(String(rawValue ?? 0));
+                  toast.error(`Use the Unlimited switch or enter a whole number from 0 to ${TIER_CONFIG_MAX_INTEGER}`);
+                  return;
+                }
                 onSet(n);
               }}
             />
@@ -182,7 +230,7 @@ function CapabilityCell({
               const next = new Set(selected);
               if (next.has(opt)) next.delete(opt);
               else next.add(opt);
-              onSet([...next]);
+              onSet(EVENT_TIER_OPTIONS.filter((tier) => next.has(tier)));
             }}
             className={`px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${
               selected.has(opt)
@@ -217,7 +265,7 @@ const AdminTierConfigPanel = () => {
     onConfirm: () => void | Promise<unknown>;
   } | null>(null);
 
-  const { data: overrides = [], isLoading } = useQuery({
+  const { data: overrides = [], isLoading, isError, error } = useQuery({
     queryKey: ["tier-config-overrides"],
     queryFn: async (): Promise<TierConfigOverride[]> => {
       const { data, error } = await supabase.from("tier_config_overrides").select("tier_id, capability_key, value");
@@ -226,16 +274,26 @@ const AdminTierConfigPanel = () => {
     },
   });
 
-  const { data: auditRows = [] } = useQuery({
+  const { data: auditRows = [], isError: auditIsError, error: auditError } = useQuery({
     queryKey: ["tier-config-audit"],
-    queryFn: async () => {
+    queryFn: async (): Promise<AuditRow[]> => {
       const { data, error } = await supabase
         .from("tier_config_audit")
         .select("id, tier_id, capability_key, old_value, new_value, action, admin_id, created_at")
         .order("created_at", { ascending: false })
         .limit(20);
       if (error) throw error;
-      return data ?? [];
+      return (data ?? []) as AuditRow[];
+    },
+  });
+
+  const tierCapabilitiesQuery = useQuery({
+    queryKey: ["tier-config-capabilities"],
+    queryFn: async (): Promise<TierCapabilitiesByTier> => {
+      const entries = await Promise.all(
+        TIER_IDS.map(async (tierId) => [tierId, await fetchTierCapabilities(tierId)] as const),
+      );
+      return Object.fromEntries(entries) as TierCapabilitiesByTier;
     },
   });
 
@@ -245,6 +303,7 @@ const AdminTierConfigPanel = () => {
       .on("postgres_changes", { event: "*", schema: "public", table: "tier_config_overrides" }, () => {
         void qc.invalidateQueries({ queryKey: ["tier-config-overrides"] });
         void qc.invalidateQueries({ queryKey: ["tier-config-audit"] });
+        void qc.invalidateQueries({ queryKey: ["tier-config-capabilities"] });
       })
       .subscribe();
     return () => {
@@ -252,7 +311,19 @@ const AdminTierConfigPanel = () => {
     };
   }, [qc]);
 
-  const merged = useMemo(() => getAllTiersWithOverrides(overrides), [overrides]);
+  const merged = useMemo(() => {
+    const localMerged = getAllTiersWithOverrides(overrides);
+    if (!tierCapabilitiesQuery.data) return localMerged;
+
+    const backendMerged = { ...localMerged };
+    for (const tierId of TIER_IDS) {
+      backendMerged[tierId] = {
+        ...localMerged[tierId],
+        capabilities: tierCapabilitiesQuery.data[tierId],
+      };
+    }
+    return backendMerged;
+  }, [overrides, tierCapabilitiesQuery.data]);
 
   const setMutation = useMutation({
     mutationFn: async ({ tierId, meta, value }: { tierId: TierId; meta: CapabilityMeta; value: unknown }) => {
@@ -273,11 +344,12 @@ const AdminTierConfigPanel = () => {
     },
     onError: (err, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["tier-config-overrides"], ctx.prev);
-      toast.error(err instanceof Error ? err.message : "Could not save override");
+      toast.error(sanitizeAdminRpcErrorMessage(err));
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["tier-config-overrides"] });
       void qc.invalidateQueries({ queryKey: ["tier-config-audit"] });
+      void qc.invalidateQueries({ queryKey: ["tier-config-capabilities"] });
     },
   });
 
@@ -298,11 +370,12 @@ const AdminTierConfigPanel = () => {
     },
     onError: (err, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["tier-config-overrides"], ctx.prev);
-      toast.error(err instanceof Error ? err.message : "Could not reset override");
+      toast.error(sanitizeAdminRpcErrorMessage(err));
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: ["tier-config-overrides"] });
       void qc.invalidateQueries({ queryKey: ["tier-config-audit"] });
+      void qc.invalidateQueries({ queryKey: ["tier-config-capabilities"] });
     },
   });
 
@@ -311,6 +384,7 @@ const AdminTierConfigPanel = () => {
   const formatConfigValue = (value: unknown) => {
     if (value === null || value === undefined) return "unlimited";
     if (Array.isArray(value)) return value.length ? value.join(", ") : "empty list";
+    if (typeof value === "object") return JSON.stringify(value);
     return String(value);
   };
 
@@ -333,11 +407,44 @@ const AdminTierConfigPanel = () => {
     });
   };
 
-  if (isLoading) {
+  if (isLoading || tierCapabilitiesQuery.isLoading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground gap-2">
         <Loader2 className="h-6 w-6 animate-spin" />
         Loading tier configuration…
+      </div>
+    );
+  }
+
+  if (isError || tierCapabilitiesQuery.isError) {
+    const loadError = isError ? error : tierCapabilitiesQuery.error;
+    return (
+      <div className="max-w-3xl rounded-lg border border-destructive/40 bg-destructive/10 p-5 text-sm text-foreground">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <div className="space-y-3">
+            <div>
+              <h2 className="font-semibold">Unable to load Tier Config</h2>
+              <p className="mt-1 text-muted-foreground">
+                Defaults are hidden because backend-resolved tier capabilities could not be verified.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {sanitizeAdminRpcErrorMessage(loadError)}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void qc.invalidateQueries({ queryKey: ["tier-config-overrides"] });
+                void qc.invalidateQueries({ queryKey: ["tier-config-capabilities"] });
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -349,6 +456,7 @@ const AdminTierConfigPanel = () => {
         <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
           Code defaults live in <code className="text-xs bg-secondary/80 px-1 rounded">supabase/functions/_shared/tiers.ts</code>.
           Overrides here apply immediately for all clients (merged with profile <code className="text-xs">subscription_tier</code>).
+          Backend reads use <code className="text-xs">get_user_tier_capabilities</code>.
         </p>
       </div>
 
@@ -413,18 +521,31 @@ const AdminTierConfigPanel = () => {
           Audit log (last 20)
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-2 rounded-xl border border-border/50 bg-secondary/20 p-4 space-y-2 max-h-64 overflow-y-auto">
-          {auditRows.length === 0 ? (
+          {auditIsError ? (
+            <div className="flex items-center gap-2 text-xs text-destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <span>{sanitizeAdminRpcErrorMessage(auditError)}</span>
+            </div>
+          ) : auditRows.length === 0 ? (
             <p className="text-xs text-muted-foreground">No audit entries yet.</p>
           ) : (
-            auditRows.map((row: { id: string; tier_id: string; capability_key: string; action: string; created_at: string }) => (
-              <div key={row.id} className="text-xs flex flex-wrap gap-x-2 gap-y-1 border-b border-border/30 pb-2 last:border-0">
-                <Badge variant="outline" className="text-[10px]">
-                  {row.action}
-                </Badge>
-                <span className="text-foreground font-medium">{row.tier_id}</span>
-                <span className="text-muted-foreground">·</span>
-                <span className="text-primary">{row.capability_key}</span>
-                <span className="text-muted-foreground ml-auto">{new Date(row.created_at).toLocaleString()}</span>
+            auditRows.map((row) => (
+              <div key={row.id} className="text-xs border-b border-border/30 pb-2 last:border-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Badge variant="outline" className="text-[10px]">
+                    {row.action}
+                  </Badge>
+                  <span className="text-foreground font-medium">{row.tier_id}</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-primary">{row.capability_key}</span>
+                  <span className="text-muted-foreground ml-auto">{new Date(row.created_at).toLocaleString()}</span>
+                </div>
+                <div className="mt-1 grid gap-1 text-muted-foreground sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <span className="truncate">actor: {row.admin_id ?? "unknown"}</span>
+                  <span className="truncate">
+                    {formatConfigValue(row.old_value)} -&gt; {formatConfigValue(row.new_value)}
+                  </span>
+                </div>
               </div>
             ))
           )}

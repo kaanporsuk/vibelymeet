@@ -118,28 +118,52 @@ Deno.serve(async (req) => {
       return jsonResponse(req, { success: false, error: 'Use free event registration for this event' }, { status: 409 })
     }
 
-    if (eventData.visibility === 'premium' || eventData.visibility === 'vip') {
-      const { data: userTier, error: tierErr } = await supabase
-        .rpc('get_user_tier', { p_user_id: user.id })
+    const { data: capabilityData, error: capabilityError } = await supabase
+      .rpc('get_user_tier_capabilities', { p_user_id: user.id })
 
-      if (tierErr) {
-        return jsonResponse(req, { success: false, error: 'Could not verify subscription tier' }, { status: 503 })
+    if (capabilityError) {
+      return jsonResponse(req, { success: false, error: 'Could not verify subscription capabilities' }, { status: 503 })
+    }
+
+    const capabilities = capabilityData && typeof capabilityData === 'object' && !Array.isArray(capabilityData)
+      ? capabilityData as Record<string, unknown>
+      : {}
+    const accessibleTiers = Array.isArray(capabilities.accessibleEventTiers)
+      ? capabilities.accessibleEventTiers.filter((tier): tier is string => typeof tier === 'string')
+      : ['free']
+    const eventVisibility = typeof eventData.visibility === 'string' && eventData.visibility.trim()
+      ? eventData.visibility
+      : 'all'
+
+    if (eventVisibility !== 'all' && !accessibleTiers.includes(eventVisibility)) {
+      const requiredLabel = eventVisibility === 'vip' ? 'VIP' : 'Premium'
+      return jsonResponse(req, {
+        success: false,
+        error: `This event requires a ${requiredLabel} subscription`,
+      }, { status: 403 })
+    }
+
+    const monthlyEventJoins = capabilities.monthlyEventJoins
+    if (typeof monthlyEventJoins === 'number' && Number.isFinite(monthlyEventJoins)) {
+      const now = new Date()
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
+      const { count, error: monthlyCountError } = await supabase
+        .from('event_registrations')
+        .select('id', { count: 'exact', head: true })
+        .eq('profile_id', user.id)
+        .gte('registered_at', monthStart)
+        .in('admission_status', ['confirmed', 'waitlisted'])
+
+      if (monthlyCountError) {
+        return jsonResponse(req, { success: false, error: 'Could not verify monthly event limit' }, { status: 503 })
       }
 
-      const effectiveTier = (userTier as string) || 'free'
-      const eventVisibility = eventData.visibility as string
-      const accessMap: Record<string, string[]> = {
-        free: ['free'],
-        premium: ['free', 'premium'],
-        vip: ['free', 'premium', 'vip'],
-      }
-      const accessibleTiers = accessMap[effectiveTier] || accessMap.free
-
-      if (!accessibleTiers.includes(eventVisibility)) {
-        const requiredLabel = eventVisibility === 'vip' ? 'VIP' : 'Premium'
+      if ((count ?? 0) >= monthlyEventJoins) {
         return jsonResponse(req, {
           success: false,
-          error: `This event requires a ${requiredLabel} subscription`,
+          error: 'Monthly event join limit reached',
+          code: 'MONTHLY_EVENT_JOIN_LIMIT_REACHED',
+          limit: monthlyEventJoins,
         }, { status: 403 })
       }
     }

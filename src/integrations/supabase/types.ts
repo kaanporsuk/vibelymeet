@@ -4701,6 +4701,14 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_create_support_reply: {
+        Args: {
+          p_idempotency_key?: string
+          p_message: string
+          p_ticket_id: string
+        }
+        Returns: Json
+      }
       admin_delete_event: {
         Args: {
           p_event_id: string
@@ -4748,7 +4756,19 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: Json
       }
+      admin_get_event_lifecycle_feed: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      admin_get_event_live_analytics: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       admin_get_event_metrics: { Args: { p_event_id: string }; Returns: Json }
+      admin_get_event_post_analytics: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       admin_get_incident_signals: { Args: { p_now?: string }; Returns: Json }
       admin_get_notification_counts: { Args: never; Returns: Json }
       admin_get_overview_metrics: { Args: { p_now?: string }; Returns: Json }
@@ -4759,6 +4779,20 @@ export type Database = {
       }
       admin_get_rebuild_status: { Args: never; Returns: Json }
       admin_get_system_health: { Args: { p_now?: string }; Returns: Json }
+      admin_get_support_inbox: {
+        Args: {
+          p_limit?: number
+          p_primary_type?: string
+          p_priority?: string
+          p_search?: string
+          p_status?: string
+        }
+        Returns: Json
+      }
+      admin_get_support_ticket_thread: {
+        Args: { p_ticket_id: string }
+        Returns: Json
+      }
       admin_go_live_event: {
         Args: {
           p_event_id: string
@@ -4793,12 +4827,32 @@ export type Database = {
       admin_json_success: { Args: { p_data?: Json }; Returns: Json }
       admin_jsonb_int_array: { Args: { p_value: Json }; Returns: number[] }
       admin_jsonb_text_array: { Args: { p_value: Json }; Returns: string[] }
+      admin_list_account_deletions: {
+        Args: { p_limit?: number; p_status?: string }
+        Returns: Json
+      }
+      admin_list_event_analytics_options: {
+        Args: { p_include_archived?: boolean; p_limit?: number }
+        Returns: Json
+      }
       admin_list_events: {
         Args: { p_filters?: Json; p_limit?: number; p_offset?: number }
         Returns: Json
       }
       admin_list_notifications: {
         Args: { p_filters?: Json; p_limit?: number; p_offset?: number }
+        Returns: Json
+      }
+      admin_list_photo_verifications: {
+        Args: { p_limit?: number; p_reviewed_since?: string; p_status: string }
+        Returns: Json
+      }
+      admin_mark_account_deletion_completed: {
+        Args: {
+          p_idempotency_key?: string
+          p_reason?: string
+          p_request_id: string
+        }
         Returns: Json
       }
       admin_mark_event_attendance: {
@@ -4932,6 +4986,21 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_update_support_ticket: {
+        Args: {
+          p_admin_notes?: string
+          p_checkout_session_id?: string
+          p_event_id?: string
+          p_idempotency_key?: string
+          p_priority?: string
+          p_set_admin_notes?: boolean
+          p_set_checkout_session_id?: boolean
+          p_set_event_id?: boolean
+          p_status?: string
+          p_ticket_id: string
+        }
+        Returns: Json
+      }
       admin_validate_event_payload: {
         Args: { p_is_create?: boolean; p_payload: Json }
         Returns: Json
@@ -4951,6 +5020,10 @@ export type Database = {
       apply_referral_attribution: {
         Args: { p_referrer_id: string }
         Returns: Json
+      }
+      assert_tier_config_override_valid: {
+        Args: { p_capability_key: string; p_value: Json }
+        Returns: undefined
       }
       attach_chat_media_asset_to_match: {
         Args: { p_asset_id: string; p_match_id: string }
@@ -5406,7 +5479,7 @@ export type Database = {
           name: string
           photo_verified: boolean
           photos: string[]
-          premium_badge: string
+          premium_badge: string | null
           primary_photo_path: string
           profile_id: string
           queue_status: string
@@ -5533,11 +5606,19 @@ export type Database = {
         Args: { p_match_id: string; p_subject_user_id: string }
         Returns: Json
       }
+      get_tier_capabilities: {
+        Args: { p_tier_id: string }
+        Returns: Json
+      }
       get_user_subscription_status: {
         Args: { p_user_id: string }
         Returns: string
       }
       get_user_tier: { Args: { p_user_id: string }; Returns: string }
+      get_user_tier_capabilities: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       get_video_date_session_timeline: {
         Args: { p_session_id: string }
         Returns: {
@@ -5976,6 +6057,10 @@ export type Database = {
         Args: { p_capability_key: string; p_tier_id: string }
         Returns: undefined
       }
+      resolve_tier_capability: {
+        Args: { p_capability_key: string; p_tier_id: string }
+        Returns: Json
+      }
       resolve_entry_state: { Args: never; Returns: Json }
       restore_chat_match_participant: {
         Args: { p_match_id: string; p_user_id: string }
@@ -6012,6 +6097,18 @@ export type Database = {
           p_profile_id: string
         }
         Returns: Json
+      }
+      tier_capability_default: {
+        Args: { p_capability_key: string; p_tier_id: string }
+        Returns: Json
+      }
+      tier_capability_type: {
+        Args: { p_capability_key: string }
+        Returns: string | null
+      }
+      tier_config_override_value_is_valid: {
+        Args: { p_capability_key: string; p_value: Json }
+        Returns: boolean
       }
       spend_video_date_credit_extension: {
         Args: {

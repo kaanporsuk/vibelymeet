@@ -64,23 +64,40 @@ interface LifecycleFeedItem {
 
 interface EventPaymentExceptionItem {
   id: string;
-  profile_id: string;
-  support_ticket_id: string | null;
-  checkout_session_id: string | null;
+  profile_ref: boolean;
+  support_ticket_ref: boolean;
+  checkout_session_ref: boolean;
   exception_type: string;
   exception_status: string;
   created_at: string;
   updated_at: string;
 }
 
+interface AdminEventAnalyticsOptionsPayload extends AdminRpcPayload {
+  events?: AdminEventSelectorItem[];
+  total_count?: number;
+}
+
 interface AdminEventLifecycleFeedPayload extends AdminRpcPayload {
   event_id?: string;
   sources?: LifecycleSourceStatus[];
   items?: LifecycleFeedItem[];
+  payment_exceptions?: EventPaymentExceptionItem[];
+  payment_exception_status_counts?: Record<string, number>;
 }
 
-interface AdminEventMetricsPayload extends AdminRpcPayload {
+interface AdminEventLiveAnalyticsPayload extends AdminRpcPayload {
   event_id?: string;
+  active_users?: number;
+  browsing?: number;
+  in_ready_gate?: number;
+  in_dates?: number;
+  in_survey?: number;
+  in_queue?: number;
+  match_rate?: number;
+  extension_rate?: number;
+  avg_duration_seconds?: number;
+  gender_count?: Record<string, number>;
   video_sessions?: number;
   completed_video_sessions?: number;
   registrations?: number;
@@ -92,6 +109,57 @@ interface AdminEventMetricsPayload extends AdminRpcPayload {
   persistent_matches?: number;
   participant_reports_near_event_window?: number;
   report_scope?: string;
+}
+
+interface AdminEventLiveMetrics {
+  activeUsers: number;
+  browsing: number;
+  inReadyGate: number;
+  inDates: number;
+  inSurvey: number;
+  inQueue: number;
+  matchRate: number;
+  extensionRate: number;
+  avgDuration: number;
+  genderCount: Record<string, number>;
+  persistentMatches: number;
+  reportsCount: number;
+  reportScope: string;
+  totalDates: number;
+  completedDates: number;
+  totalRegistrations: number;
+  confirmedRegistrations: number;
+  waitlistedRegistrations: number;
+  confirmedAttendance: number;
+  attendanceMarkedCount: number;
+  noShowCount: number;
+}
+
+interface AdminEventPostMetrics {
+  tagCounts: {
+    chemistry: number;
+    fun: number;
+    smart: number;
+    respectful: number;
+  };
+  flowCounts: {
+    natural: number;
+    effort: number;
+    one_sided: number;
+  };
+  totalFlow: number;
+  photoAccuracyRate: number;
+}
+
+interface AdminEventPostAnalyticsPayload extends AdminRpcPayload {
+  event_id?: string;
+  post_metrics_status?: "ok" | "empty" | "unavailable";
+  post_metrics?: {
+    tag_counts?: Partial<AdminEventPostMetrics["tagCounts"]>;
+    flow_counts?: Partial<AdminEventPostMetrics["flowCounts"]>;
+    total_flow?: number;
+    photo_accuracy_rate?: number;
+  } | null;
 }
 
 type VideoDateOpsStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
@@ -319,7 +387,7 @@ const MetricCard = ({ icon: Icon, label, value, color, description, warning }: M
 const AdminLiveEventMetrics = () => {
   const [selectedEventId, setSelectedEventId] = useState<string>("");
 
-  // Fetch all events for selector
+  // Fetch selector options through the backend read model.
   const {
     data: events = [],
     error: eventsError,
@@ -327,13 +395,11 @@ const AdminLiveEventMetrics = () => {
   } = useQuery({
     queryKey: ["admin-events-list"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("events")
-        .select("id, title, event_date, duration_minutes, status, ended_at, archived_at")
-        .order("event_date", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return (data || []) as AdminEventSelectorItem[];
+      const payload = await callAdminRpc<AdminEventAnalyticsOptionsPayload>("admin_list_event_analytics_options", {
+        p_limit: 50,
+        p_include_archived: true,
+      });
+      return Array.isArray(payload.events) ? payload.events : [];
     },
   });
 
@@ -354,108 +420,39 @@ const AdminLiveEventMetrics = () => {
     queryFn: async () => {
       if (!eventId) return null;
 
-      const eventMetrics = await callAdminRpc<AdminEventMetricsPayload>("admin_get_event_metrics", {
+      const payload = await callAdminRpc<AdminEventLiveAnalyticsPayload>("admin_get_event_live_analytics", {
         p_event_id: eventId,
       });
 
-      // Registrations with queue status
-      const { data: regs, error: regsError } = await supabase
-        .from("event_registrations")
-        .select("profile_id, queue_status, profiles(gender)")
-        .eq("event_id", eventId);
-      if (regsError) throw regsError;
-
-      const registrations = regs || [];
-      const activeUsers = registrations.filter(
-        (r) => r.queue_status && !["idle", "offline", "completed"].includes(r.queue_status)
-      ).length;
-      const browsing = registrations.filter(
-        (r) => r.queue_status === "browsing"
-      ).length;
-      const inReadyGate = registrations.filter(
-        (r) => r.queue_status === "in_ready_gate"
-      ).length;
-      const inDates = registrations.filter(
-        (r) => ["in_handshake", "in_date"].includes(r.queue_status || "")
-      ).length;
-      const inSurvey = registrations.filter(
-        (r) => r.queue_status === "in_survey"
-      ).length;
-      const inQueue = registrations.filter(
-        (r) => r.queue_status === "searching"
-      ).length;
-
-      // Gender ratio
-      const genderCount: Record<string, number> = { man: 0, woman: 0, "non-binary": 0 };
-      registrations.forEach((r) => {
-        const profile = r.profiles as { gender?: string } | null;
-        const g = profile?.gender;
-        if (g && genderCount[g] !== undefined) genderCount[g]++;
-      });
-
-      // Video sessions
-      const { data: sessions, error: sessionsError } = await supabase
-        .from("video_sessions")
-        .select("id, duration_seconds, participant_1_liked, participant_2_liked, ended_at")
-        .eq("event_id", eventId);
-      if (sessionsError) throw sessionsError;
-
-      const allSessions = sessions || [];
-      const completedSessions = allSessions.filter((s) => s.ended_at);
-      const totalDates = allSessions.length;
-
-      // Mutual vibes (both liked)
-      const mutualVibes = completedSessions.filter(
-        (s) => s.participant_1_liked && s.participant_2_liked
-      ).length;
-      const matchRate =
-        completedSessions.length > 0
-          ? Math.round((mutualVibes / completedSessions.length) * 100)
-          : 0;
-
-      // Extension rate (dates > 60s)
-      const extended = completedSessions.filter(
-        (s) => s.duration_seconds && s.duration_seconds > 60
-      ).length;
-      const extensionRate =
-        completedSessions.length > 0
-          ? Math.round((extended / completedSessions.length) * 100)
-          : 0;
-
-      // Avg duration
-      const avgDuration =
-        completedSessions.length > 0
-          ? Math.round(
-              completedSessions.reduce(
-                (sum, s) => sum + (s.duration_seconds || 0),
-                0
-              ) / completedSessions.length
-            )
-          : 0;
+      const genderCount = {
+        man: Number(payload.gender_count?.man ?? 0),
+        woman: Number(payload.gender_count?.woman ?? 0),
+        "non-binary": Number(payload.gender_count?.["non-binary"] ?? 0),
+      };
 
       return {
-        activeUsers,
-        browsing,
-        inReadyGate,
-        inDates,
-        inSurvey,
-        inQueue,
-        matchRate,
-        extensionRate,
-        avgDuration,
+        activeUsers: Number(payload.active_users ?? 0),
+        browsing: Number(payload.browsing ?? 0),
+        inReadyGate: Number(payload.in_ready_gate ?? 0),
+        inDates: Number(payload.in_dates ?? 0),
+        inSurvey: Number(payload.in_survey ?? 0),
+        inQueue: Number(payload.in_queue ?? 0),
+        matchRate: Number(payload.match_rate ?? 0),
+        extensionRate: Number(payload.extension_rate ?? 0),
+        avgDuration: Number(payload.avg_duration_seconds ?? 0),
         genderCount,
-        persistentMatches: Number(eventMetrics.persistent_matches ?? 0),
-        reportsCount: Number(eventMetrics.participant_reports_near_event_window ?? 0),
-        reportScope: eventMetrics.report_scope ?? "participant_reports_near_event_window",
-        totalDates: Number(eventMetrics.video_sessions ?? totalDates),
-        completedDates: Number(eventMetrics.completed_video_sessions ?? completedSessions.length),
-        totalRegistrations: Number(eventMetrics.registrations ?? registrations.length),
-        confirmedRegistrations: Number(eventMetrics.confirmed_registrations ?? 0),
-        waitlistedRegistrations: Number(eventMetrics.waitlisted_registrations ?? 0),
-        confirmedAttendance: Number(eventMetrics.confirmed_attendance ?? 0),
-        attendanceMarkedCount: Number(eventMetrics.attendance_marked_count ?? 0),
-        noShowCount: Number(eventMetrics.no_show_count ?? 0),
-      };
+        persistentMatches: Number(payload.persistent_matches ?? 0),
+        reportsCount: Number(payload.participant_reports_near_event_window ?? 0),
+        reportScope: payload.report_scope ?? "participant_reports_near_event_window",
+        totalDates: Number(payload.video_sessions ?? 0),
+        completedDates: Number(payload.completed_video_sessions ?? 0),
+        totalRegistrations: Number(payload.registrations ?? 0),
+        confirmedRegistrations: Number(payload.confirmed_registrations ?? 0),
+        waitlistedRegistrations: Number(payload.waitlisted_registrations ?? 0),
+        confirmedAttendance: Number(payload.confirmed_attendance ?? 0),
+        attendanceMarkedCount: Number(payload.attendance_marked_count ?? 0),
+        noShowCount: Number(payload.no_show_count ?? 0),
+      } satisfies AdminEventLiveMetrics;
     },
     enabled: !!eventId,
     refetchInterval: 10000,
@@ -467,42 +464,31 @@ const AdminLiveEventMetrics = () => {
     queryFn: async () => {
       if (!eventId) return null;
 
-      // Date feedback
-      const { data: sessions } = await supabase
-        .from("video_sessions")
-        .select("id")
-        .eq("event_id", eventId);
+      const payload = await callAdminRpc<AdminEventPostAnalyticsPayload>("admin_get_event_post_analytics", {
+        p_event_id: eventId,
+      });
 
-      if (!sessions?.length) return null;
-
-      const sessionIds = sessions.map((s) => s.id);
-
-      const { data: feedback } = await supabase
-        .from("date_feedback")
-        .select("tag_chemistry, tag_fun, tag_smart, tag_respectful, conversation_flow, photo_accurate")
-        .in("session_id", sessionIds);
-
-      if (!feedback?.length) return null;
+      if (!payload.post_metrics) return null;
 
       const tagCounts = {
-        chemistry: feedback.filter((f) => f.tag_chemistry).length,
-        fun: feedback.filter((f) => f.tag_fun).length,
-        smart: feedback.filter((f) => f.tag_smart).length,
-        respectful: feedback.filter((f) => f.tag_respectful).length,
+        chemistry: Number(payload.post_metrics.tag_counts?.chemistry ?? 0),
+        fun: Number(payload.post_metrics.tag_counts?.fun ?? 0),
+        smart: Number(payload.post_metrics.tag_counts?.smart ?? 0),
+        respectful: Number(payload.post_metrics.tag_counts?.respectful ?? 0),
       };
 
       const flowCounts = {
-        natural: feedback.filter((f) => f.conversation_flow === "natural").length,
-        effort: feedback.filter((f) => f.conversation_flow === "effort").length,
-        one_sided: feedback.filter((f) => f.conversation_flow === "one_sided").length,
+        natural: Number(payload.post_metrics.flow_counts?.natural ?? 0),
+        effort: Number(payload.post_metrics.flow_counts?.effort ?? 0),
+        one_sided: Number(payload.post_metrics.flow_counts?.one_sided ?? 0),
       };
-      const totalFlow = flowCounts.natural + flowCounts.effort + flowCounts.one_sided;
 
-      const photoYes = feedback.filter((f) => f.photo_accurate === "yes").length;
-      const photoTotal = feedback.filter((f) => f.photo_accurate).length;
-      const photoAccuracyRate = photoTotal > 0 ? Math.round((photoYes / photoTotal) * 100) : 0;
-
-      return { tagCounts, flowCounts, totalFlow, photoAccuracyRate };
+      return {
+        tagCounts,
+        flowCounts,
+        totalFlow: Number(payload.post_metrics.total_flow ?? 0),
+        photoAccuracyRate: Number(payload.post_metrics.photo_accuracy_rate ?? 0),
+      } satisfies AdminEventPostMetrics;
     },
     enabled: !!eventId,
   });
@@ -556,33 +542,19 @@ const AdminLiveEventMetrics = () => {
       return {
         sources: Array.isArray(payload.sources) ? payload.sources : [],
         items: Array.isArray(payload.items) ? payload.items : [],
+        paymentExceptions: Array.isArray(payload.payment_exceptions) ? payload.payment_exceptions : [],
+        paymentExceptionStatusCounts:
+          payload.payment_exception_status_counts && typeof payload.payment_exception_status_counts === "object"
+            ? payload.payment_exception_status_counts
+            : {},
       };
     },
     enabled: !!eventId,
     refetchInterval: 15000,
   });
 
-  const { data: paymentExceptions = [], error: paymentExceptionsError } = useQuery({
-    queryKey: ["admin-event-payment-exceptions", eventId],
-    queryFn: async () => {
-      if (!eventId) return [];
-      const { data, error } = await supabase
-        .from("event_payment_exceptions")
-        .select("id, profile_id, support_ticket_id, checkout_session_id, exception_type, exception_status, created_at, updated_at")
-        .eq("event_id", eventId)
-        .order("updated_at", { ascending: false })
-        .limit(30);
-      if (error) throw error;
-      return (data ?? []) as EventPaymentExceptionItem[];
-    },
-    enabled: !!eventId,
-    refetchInterval: 15000,
-  });
-
-  const paymentExceptionStatusCounts = paymentExceptions.reduce<Record<string, number>>((acc, row) => {
-    acc[row.exception_status] = (acc[row.exception_status] ?? 0) + 1;
-    return acc;
-  }, {});
+  const paymentExceptions = lifecycleFeed?.paymentExceptions ?? [];
+  const paymentExceptionStatusCounts = lifecycleFeed?.paymentExceptionStatusCounts ?? {};
 
   return (
     <motion.div
@@ -1026,15 +998,6 @@ const AdminLiveEventMetrics = () => {
               </p>
             </div>
 
-            {paymentExceptionsError && (
-              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
-                Payment exception cases are unavailable.
-                <span className="mt-1 block text-xs">
-                  {sanitizeAdminRpcErrorMessage(paymentExceptionsError)}
-                </span>
-              </div>
-            )}
-
             <div className="flex flex-wrap gap-2">
               <Badge className="bg-secondary text-foreground border-white/10">
                 total: {paymentExceptions.length}
@@ -1058,9 +1021,9 @@ const AdminLiveEventMetrics = () => {
                   </div>
                   <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-1 text-[11px] text-muted-foreground">
                     <span>exception_ref: {item.id ? "present" : "-"}</span>
-                    <span>profile_ref: {item.profile_id ? "present" : "-"}</span>
-                    <span>support_ticket: {item.support_ticket_id ? "linked" : "-"}</span>
-                    <span>checkout_session: {item.checkout_session_id ? "linked" : "-"}</span>
+                    <span>profile_ref: {item.profile_ref ? "present" : "-"}</span>
+                    <span>support_ticket: {item.support_ticket_ref ? "linked" : "-"}</span>
+                    <span>checkout_session: {item.checkout_session_ref ? "linked" : "-"}</span>
                   </div>
                 </div>
               )) : (

@@ -20,6 +20,20 @@ interface SimplePhotoVerificationProps {
 
 type Screen = "intro" | "camera" | "preview" | "uploading" | "submitted" | "error";
 
+type VerificationSubmitErrorOptions = {
+  markPending?: boolean;
+};
+
+class VerificationSubmitError extends Error {
+  markPending: boolean;
+
+  constructor(message: string, options: VerificationSubmitErrorOptions = {}) {
+    super(message);
+    this.name = "VerificationSubmitError";
+    this.markPending = options.markPending ?? false;
+  }
+}
+
 function browserErrorName(error: unknown): string {
   if (error instanceof Error) return error.name;
   if (
@@ -31,6 +45,21 @@ function browserErrorName(error: unknown): string {
     return error.name;
   }
   return "";
+}
+
+function isPostgrestCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
+}
+
+function firstProfilePhoto(raw: unknown): string {
+  if (!Array.isArray(raw)) return "";
+  const photo = raw.find((item) => typeof item === "string" && item.trim().length > 0);
+  return typeof photo === "string" ? photo.trim() : "";
 }
 
 export function SimplePhotoVerification({
@@ -137,11 +166,45 @@ export function SimplePhotoVerification({
     startCamera();
   };
 
+  const loadSubmissionPreflight = async () => {
+    const [{ data: profileData, error: profileError }, { data: pendingVerification, error: pendingError }] =
+      await Promise.all([
+        supabase
+          .from("profiles")
+          .select("photos")
+          .eq("id", userId)
+          .maybeSingle(),
+        supabase
+          .from("photo_verifications")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("status", "pending")
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+    if (profileError) throw profileError;
+    if (pendingError) throw pendingError;
+    if (pendingVerification) {
+      throw new VerificationSubmitError("Your verification is already under review.", {
+        markPending: true,
+      });
+    }
+
+    const profilePhoto = profilePhotoUrl?.trim() || firstProfilePhoto(profileData?.photos);
+    if (!profilePhoto) {
+      throw new VerificationSubmitError("Please add a profile photo before starting photo verification.");
+    }
+
+    return profilePhoto;
+  };
+
   const handleSubmit = async () => {
     if (!capturedImage?.startsWith("data:image/")) return;
     setScreen("uploading");
 
     try {
+      const profilePhoto = await loadSubmissionPreflight();
       const blob = await (await fetch(capturedImage)).blob();
       if (!blob.size) {
         throw new Error("Selfie data was empty. Please retake the photo.");
@@ -159,15 +222,6 @@ export function SimplePhotoVerification({
         throw uploadError;
       }
 
-      // Get user's first profile photo for comparison reference
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("photos")
-        .eq("id", userId)
-        .maybeSingle();
-
-      const profilePhoto = profilePhotoUrl || (profileData?.photos as string[])?.[0] || "";
-
       // Insert verification record for admin review (NOT auto-approving)
       const { error: insertError } = await supabase
         .from("photo_verifications")
@@ -180,6 +234,15 @@ export function SimplePhotoVerification({
 
       if (insertError) {
         console.error("Failed to insert verification record:", insertError);
+        const { error: cleanupError } = await supabase.storage.from("proof-selfies").remove([fileName]);
+        if (cleanupError) {
+          console.error("Failed to clean up unlinked verification selfie:", cleanupError);
+        }
+        if (isPostgrestCode(insertError, "23505")) {
+          throw new VerificationSubmitError("Your verification is already under review.", {
+            markPending: true,
+          });
+        }
         throw insertError;
       }
 
@@ -201,7 +264,13 @@ export function SimplePhotoVerification({
       }, 3000);
     } catch (err: unknown) {
       console.error("Verification upload failed:", err);
-      setCameraError("Failed to upload selfie. Please try again.");
+      if (err instanceof VerificationSubmitError && err.markPending) {
+        toast.info(err.message);
+        onSubmissionComplete();
+        onOpenChange(false);
+        return;
+      }
+      setCameraError(err instanceof VerificationSubmitError ? err.message : "Failed to upload selfie. Please try again.");
       setScreen("error");
     }
   };

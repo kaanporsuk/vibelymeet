@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Crown, Star } from "lucide-react";
-import { getUserBadge } from "@/hooks/useEntitlements";
+import { getUserBadge, useTierCapabilities } from "@/hooks/useEntitlements";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -97,7 +97,10 @@ export const ChatHeader = ({
   const { muteMatch, unmuteMatch, isMatchMuted, getMuteExpiry } = useMuteMatch();
 
   const isMuted = matchId ? isMatchMuted(matchId) : false;
-  const partnerTierBadge = getUserBadge(user.subscription_tier);
+  const partnerTierCapabilities = useTierCapabilities(user.subscription_tier);
+  const partnerTierBadge = partnerTierCapabilities.isError
+    ? null
+    : partnerTierCapabilities.data?.badgeType ?? getUserBadge(user.subscription_tier);
 
   const handleViewProfile = () => {
     setShowProfileDrawer(true);

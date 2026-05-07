@@ -27,6 +27,14 @@ const CATEGORY_BY_KIND: Record<string, string> = {
   cancelled: "date_suggestion_cancelled",
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function truthyFlag(value: unknown): boolean {
+  return ["true", "t", "1", "yes"].includes(String(value ?? "false").toLowerCase());
+}
+
 async function sendNotify(
   serviceClient: ReturnType<typeof createClient>,
   n: NotifyPayload,
@@ -84,7 +92,7 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const p_action = typeof body.action === "string" ? body.action : "";
-    const p_payload = body.payload && typeof body.payload === "object"
+    const p_payload = isRecord(body.payload)
       ? body.payload
       : {};
 
@@ -93,6 +101,67 @@ serve(async (req) => {
         JSON.stringify({ ok: false, error: "action_required" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
+    }
+
+    const requiresDateSuggestionCapability = [
+      "create_draft",
+      "update_draft",
+      "send_proposal",
+      "counter",
+    ].includes(p_action);
+    const revision = isRecord(p_payload.revision) ? p_payload.revision : {};
+    const shareRequested =
+      ["send_proposal", "counter"].includes(p_action) &&
+      truthyFlag(revision.schedule_share_enabled);
+
+    if (requiresDateSuggestionCapability || shareRequested) {
+      const { data: authData, error: authError } = await userClient.auth.getUser();
+      if (authError || !authData.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: capabilities, error: capabilityError } = await userClient.rpc(
+        "get_user_tier_capabilities",
+        { p_user_id: authData.user.id },
+      );
+
+      if (capabilityError) {
+        return new Response(
+          JSON.stringify({ ok: false, error: "entitlements_unavailable" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      const caps = capabilities && typeof capabilities === "object" && !Array.isArray(capabilities)
+        ? capabilities as Record<string, unknown>
+        : {};
+
+      if (requiresDateSuggestionCapability && caps.canSuggestDate !== true) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "tier_capability_disabled",
+            error_code: "tier_capability_disabled",
+            capability: "canSuggestDate",
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+
+      if (shareRequested && caps.canUseVibeSchedule !== true) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error: "tier_capability_disabled",
+            error_code: "tier_capability_disabled",
+            capability: "canUseVibeSchedule",
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     const { data: rpcResult, error: rpcError } = await userClient.rpc(

@@ -7,12 +7,59 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+type AdminCreateSupportReplyPayload = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  idempotent_replay?: boolean;
+  ticket_id?: string;
+  reply?: {
+    id?: string;
+  };
+};
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function sanitizeErrorMessage(reason: unknown): string {
+  return String(reason instanceof Error ? reason.message : reason || "Unknown error")
+    .replace(/https?:\/\/\S+/g, "[url]")
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[id]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[token]")
+    .replace(/\b(?:Bearer|Token)\s+[A-Za-z0-9._~+/=-]+/gi, "[token]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
+function statusForRpcError(error: string | undefined) {
+  switch (error) {
+    case "UNAUTHENTICATED":
+      return 401;
+    case "FORBIDDEN":
+      return 403;
+    case "NOT_FOUND":
+      return 404;
+    case "CONFLICT":
+      return 409;
+    case "VALIDATION_ERROR":
+      return 400;
+    default:
+      return 400;
+  }
 }
 
 serve(async (req) => {
@@ -23,10 +70,7 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -39,48 +83,74 @@ serve(async (req) => {
 
     const { data: userData, error: userErr } = await userClient.auth.getUser();
     if (userErr || !userData?.user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Unauthorized" }, 401);
     }
-
-    const callerId = userData.user.id;
 
     const service = createClient(supabaseUrl, serviceKey);
 
-    const { data: adminRow } = await service
-      .from("user_roles")
-      .select("id")
-      .eq("user_id", callerId)
-      .eq("role", "admin")
-      .maybeSingle();
+    const requestBody = await req.json().catch(() => ({}));
+    const ticketId = typeof requestBody.ticket_id === "string" ? requestBody.ticket_id : "";
+    const replyMessage = typeof requestBody.reply_message === "string" ? requestBody.reply_message.trim() : "";
+    const sendEmail = requestBody.send_email !== false;
+    const idempotencyKey = typeof requestBody.idempotency_key === "string" ? requestBody.idempotency_key : null;
 
-    if (!adminRow) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (!ticketId || !replyMessage) {
+      return jsonResponse({ error: "ticket_id and reply_message required" }, 400);
+    }
+
+    const { data: replyPayloadRaw, error: replyRpcError } = await userClient.rpc("admin_create_support_reply", {
+      p_ticket_id: ticketId,
+      p_message: replyMessage,
+      p_idempotency_key: idempotencyKey,
+    });
+
+    if (replyRpcError) {
+      return jsonResponse(
+        {
+          success: false,
+          error: "RPC_ERROR",
+          message: sanitizeErrorMessage(replyRpcError.message || "Failed to save support reply."),
+        },
+        400,
+      );
+    }
+
+    const replyPayload = replyPayloadRaw as AdminCreateSupportReplyPayload | null;
+    if (!replyPayload?.success) {
+      return jsonResponse(
+        {
+          success: false,
+          error: replyPayload?.error ?? "SAVE_FAILED",
+          message: sanitizeErrorMessage(replyPayload?.message ?? "Failed to save support reply."),
+        },
+        statusForRpcError(replyPayload?.error),
+      );
+    }
+
+    if (replyPayload.idempotent_replay) {
+      return jsonResponse({
+        success: true,
+        idempotent_replay: true,
+        ticket_id: replyPayload.ticket_id ?? ticketId,
+        reply_id: replyPayload.reply?.id ?? null,
+        notification_warning: null,
+        email_warning: null,
       });
     }
 
-    const { ticket_id, reply_message, send_email } = await req.json();
-    if (!ticket_id || typeof reply_message !== "string") {
-      return new Response(JSON.stringify({ error: "ticket_id and reply_message required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { data: ticket, error: tErr } = await service
+    const { data: ticket, error: ticketError } = await service
       .from("support_tickets")
       .select("id, reference_id, user_id, user_email")
-      .eq("id", ticket_id)
+      .eq("id", ticketId)
       .single();
 
-    if (tErr || !ticket) {
-      return new Response(JSON.stringify({ error: "ticket not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (ticketError || !ticket) {
+      return jsonResponse({
+        success: true,
+        ticket_id: ticketId,
+        reply_id: replyPayload.reply?.id ?? null,
+        notification_warning: "Reply saved but notification context could not be loaded.",
+        email_warning: sendEmail ? "Reply saved but email context could not be loaded." : null,
       });
     }
 
@@ -122,10 +192,10 @@ serve(async (req) => {
       notificationWarning = "Reply saved but push notification could not be delivered.";
     }
 
-    if (send_email && ticket.user_email) {
+    if (sendEmail && ticket.user_email) {
       const resendKey = Deno.env.get("RESEND_API_KEY");
       if (resendKey) {
-        const safeBody = escapeHtml(reply_message).replace(/\n/g, "<br/>");
+        const safeBody = escapeHtml(replyMessage).replace(/\n/g, "<br/>");
         try {
           const emailRes = await fetch("https://api.resend.com/emails", {
             method: "POST",
@@ -147,9 +217,9 @@ serve(async (req) => {
               ${safeBody}
             </div>
             <p>You can view the full conversation in the Vibely app under
-               Settings → Support & Feedback → Your Requests.</p>
+               Settings -> Support & Feedback -> Your Requests.</p>
             <p style="color: #888; font-size: 12px;">
-              Ref: ${escapeHtml(ticket.reference_id)} · vibelymeet.com
+              Ref: ${escapeHtml(ticket.reference_id)} - vibelymeet.com
             </p>
           </div>
         `,
@@ -165,25 +235,20 @@ serve(async (req) => {
           console.error("Resend email failed for support reply:", emailError);
           emailWarning = "Reply saved but email notification could not be sent.";
         }
+      } else {
+        emailWarning = "Reply saved but email notification is not configured.";
       }
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        notification_warning: notificationWarning,
-        email_warning: emailWarning,
-      }),
-      {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
-    );
+    return jsonResponse({
+      success: true,
+      ticket_id: ticketId,
+      reply_id: replyPayload.reply?.id ?? null,
+      notification_warning: notificationWarning,
+      email_warning: emailWarning,
+    });
   } catch (e) {
     console.error("send-support-reply:", e);
-    return new Response(JSON.stringify({ error: String(e) }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: "INTERNAL_ERROR", message: sanitizeErrorMessage(e) }, 500);
   }
 });

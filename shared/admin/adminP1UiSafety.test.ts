@@ -38,6 +38,9 @@ const adminPushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.ts
 const adminMatchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
+const proofSelfieUrl = read("src/lib/proofSelfieUrl.ts");
+const adminProofSelfieSign = read("supabase/functions/admin-proof-selfie-sign/index.ts");
+const simplePhotoVerification = read("src/components/verification/SimplePhotoVerification.tsx");
 
 function readTree(path: string): string[] {
   const dir = join(root, path);
@@ -111,8 +114,9 @@ test("high-risk admin UI mutations route through confirmation copy", () => {
   assert.match(supportInbox, /Open payment exception case\?/);
   assert.match(supportInbox, /Save payment exception transition\?/);
   assert.match(supportInbox, /does not process a refund in-app/);
-  assert.match(supportInbox, /error: updateErr/);
-  assert.match(supportInbox, /if \(updateErr\) throw updateErr/);
+  assert.match(supportInbox, /Refund-related exception cases require notes before submit/);
+  assert.match(supportInbox, /Save context/);
+  assert.match(supportInbox, /admin_update_support_ticket/);
   assert.match(adminPremium, /admin_set_premium_status/);
   assert.match(adminPremium, /Profile premium state, premium_history, and admin_activity_logs commit together or fail together/);
 
@@ -170,19 +174,29 @@ test("overview metrics and event analytics labels match query semantics", () => 
 
   assert.match(adminLiveEventMetrics, /Participant Reports/);
   assert.match(adminLiveEventMetrics, /Participant reports near this event window; not direct event-report provenance/);
-  assert.match(adminLiveEventMetrics, /admin_get_event_metrics/);
+  assert.match(adminLiveEventMetrics, /admin_list_event_analytics_options/);
+  assert.match(adminLiveEventMetrics, /admin_get_event_live_analytics/);
+  assert.match(adminLiveEventMetrics, /admin_get_event_post_analytics/);
+  assert.match(adminLiveEventMetrics, /admin_get_event_lifecycle_feed/);
   assert.match(adminLiveEventMetrics, /computed: \{selectedEventPhase\.label\}/);
   assert.match(adminLiveEventMetrics, /Queue drain health/);
   assert.match(adminLiveEventMetrics, /deduped first-frame samples/);
   assert.match(adminLiveEventMetrics, /Unable to load Event Analytics metrics for the selected event/);
   assert.match(adminLiveEventMetrics, /Unable to load the Event Analytics event selector/);
   assert.match(adminLiveEventMetrics, /Backend lifecycle read model unavailable/);
-  assert.match(adminLiveEventMetrics, /Payment exception cases are unavailable/);
+  assert.match(adminLiveEventMetrics, /payment_exceptions/);
   assert.match(adminLiveEventMetrics, /Post-event feedback metrics are unavailable/);
   assert.match(adminLiveEventMetrics, /session: \{session\.session_id \? "linked" : "-"\}/);
-  assert.match(adminLiveEventMetrics, /profile_ref: \{item\.profile_id \? "present" : "-"\}/);
+  assert.match(adminLiveEventMetrics, /profile_ref: \{item\.profile_ref \? "present" : "-"\}/);
   assert.doesNotMatch(adminLiveEventMetrics, /exception_id: \{item\.id\}/);
   assert.doesNotMatch(adminLiveEventMetrics, /checkout_session_id: \{item\.checkout_session_id/);
+  assert.doesNotMatch(adminLiveEventMetrics, /admin_get_event_metrics/);
+  assert.doesNotMatch(adminLiveEventMetrics, /supabase\s*\.\s*from\(/);
+  assert.doesNotMatch(adminLiveEventMetrics, /\.from\("events"\)/);
+  assert.doesNotMatch(adminLiveEventMetrics, /\.from\("event_registrations"\)/);
+  assert.doesNotMatch(adminLiveEventMetrics, /\.from\("video_sessions"\)/);
+  assert.doesNotMatch(adminLiveEventMetrics, /\.from\("date_feedback"\)/);
+  assert.doesNotMatch(adminLiveEventMetrics, /\.from\("event_payment_exceptions"\)/);
   assert.doesNotMatch(adminLiveEventMetrics, /\.from\("user_reports"\)/);
 });
 
@@ -226,6 +240,33 @@ test("overview realtime invalidates the active backend query key", () => {
   assert.doesNotMatch(adminRealtime, /admin-users-count/);
   assert.doesNotMatch(adminRealtime, /admin-matches-count/);
   assert.doesNotMatch(adminRealtime, /admin-event-attendance/);
+});
+
+test("photo verification realtime invalidates the admin list and stats query keys", () => {
+  assert.match(adminRealtime, /admin-photo-verifications-realtime/);
+  assert.match(adminRealtime, /table: "photo_verifications"/);
+  assert.match(adminRealtime, /\["admin-photo-verifications"\]/);
+  assert.match(adminRealtime, /\["admin-verification-stats"\]/);
+});
+
+test("Support Inbox has honest empty/error states and governed data access", () => {
+  assert.match(supportInbox, /Unable to load support inbox/);
+  assert.match(supportInbox, /No support tickets yet/);
+  assert.match(supportInbox, /No tickets match these filters/);
+  assert.match(supportInbox, /callAdminRpc<SupportInboxPayload>\("admin_get_support_inbox"/);
+  assert.match(supportInbox, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
+  assert.match(supportInbox, /callAdminRpc\("admin_update_support_ticket"/);
+  assert.match(supportInbox, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
+  assert.doesNotMatch(supportInbox, /\.from\(["']support_tickets["']\)/);
+  assert.doesNotMatch(supportInbox, /\.from\(["']support_ticket_replies["']\)/);
+  assert.doesNotMatch(supportInbox, /\.from\(["']event_payment_exceptions["']\)/);
+  assert.doesNotMatch(supportInbox, /\.from\(["']profiles["']\)/);
+
+  assert.match(adminRealtime, /admin-support-tickets-realtime/);
+  assert.match(adminRealtime, /admin-support-replies-realtime/);
+  assert.match(adminRealtime, /admin-support-events-realtime/);
+  assert.match(adminRealtime, /\["admin-support-tickets"\]/);
+  assert.match(adminRealtime, /\["admin-support-thread"\]/);
 });
 
 test("push analytics uses the backend admin telemetry RPC and honest states", () => {
@@ -318,10 +359,62 @@ test("notifications copy is scoped to the latest 100 and broad actions say so", 
   assert.match(adminNotifications, /Promise\.allSettled/);
 });
 
+test("tier config writes are confirmed, governed, and backend-authoritative", () => {
+  assert.match(adminTierConfig, /AdminConfirmDialog/);
+  assert.match(adminTierConfig, /set_tier_config_override/);
+  assert.match(adminTierConfig, /reset_tier_config_override/);
+  assert.match(adminTierConfig, /get_tier_capabilities/);
+  assert.match(adminTierConfig, /sanitizeAdminRpcErrorMessage/);
+  assert.match(adminTierConfig, /Backend reads use <code className="text-xs">get_user_tier_capabilities<\/code>/);
+  assert.match(adminTierConfig, /parseNonNegativeInteger/);
+  assert.match(adminTierConfig, /Unable to load Tier Config/);
+  assert.match(adminTierConfig, /auditIsError/);
+  assert.doesNotMatch(adminTierConfig, /\.from\(["']tier_config_overrides["']\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/);
+  assert.doesNotMatch(adminTierConfig, /\.from\(["']tier_config_audit["']\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/);
+});
+
 test("photo verification selfie signing is row-resilient and redacts unexpected failures", () => {
   assert.match(adminPhotoVerification, /Promise\.allSettled/);
   assert.match(adminPhotoVerification, /selfie resolution failed/);
   assert.match(adminPhotoVerification, /sanitizeAdminRpcErrorMessage/);
+  assert.match(adminPhotoVerification, /redactUrlForLog/);
+  assert.match(adminPhotoVerification, /attemptedUrlRedacted/);
+});
+
+test("photo verification selfie signer path resolver stays aligned with the shared proof-selfie helper", () => {
+  const shapes = [
+    "raw_object_key",
+    "bucket_prefixed_key",
+    "supabase_storage_proof_selfies",
+    "supabase_storage_public_missing_bucket",
+    "supabase_storage_other_bucket",
+    "absolute_non_supabase",
+    "unusable",
+  ];
+
+  for (const shape of shapes) {
+    assert.match(proofSelfieUrl, new RegExp(shape));
+    assert.match(adminProofSelfieSign, new RegExp(shape));
+  }
+
+  assert.match(proofSelfieUrl, /resolveProofSelfieObjectPathForSigning/);
+  assert.match(adminProofSelfieSign, /resolveProofSelfieObjectPathForSigning/);
+  assert.match(adminProofSelfieSign, /createSignedUrl\(objectPath, 3600\)/);
+  assert.match(adminProofSelfieSign, /proof_selfie_url/);
+  assert.match(adminPhotoVerification, /admin-proof-selfie-sign/);
+  assert.doesNotMatch(adminPhotoVerification, /resolvePhotoUrl\(v\.selfie_url/);
+});
+
+test("photo verification submission preflights pending rows and profile photo before selfie upload", () => {
+  assert.match(simplePhotoVerification, /loadSubmissionPreflight/);
+  assert.match(simplePhotoVerification, /\.from\("photo_verifications"\)[\s\S]*\.eq\("status", "pending"\)/);
+  assert.match(simplePhotoVerification, /Your verification is already under review/);
+  assert.match(simplePhotoVerification, /Please add a profile photo before starting photo verification/);
+  assert.match(simplePhotoVerification, /const profilePhoto = await loadSubmissionPreflight\(\);[\s\S]*const blob = await/);
+  assert.match(simplePhotoVerification, /profile_photo_url: profilePhoto/);
+  assert.match(simplePhotoVerification, /isPostgrestCode\(insertError, "23505"\)/);
+  assert.match(simplePhotoVerification, /\.from\("proof-selfies"\)\.remove\(\[fileName\]\)/);
+  assert.match(simplePhotoVerification, /markPending: true/);
 });
 
 test("admin badge mutations invalidate the centralized dashboard badge count", () => {
@@ -347,6 +440,8 @@ test("named admin residual panels use backend read-model RPCs instead of browser
   assert.match(adminUserDetail, /profile=\{profile\}/);
   assert.match(adminUserDetail, /moderation=\{moderation\}/);
   assert.match(adminUserDetail, /history=\{premiumHistory\}/);
+  assert.match(adminDeletions, /admin_list_account_deletions/);
+  assert.match(adminDeletions, /admin_mark_account_deletion_completed/);
   assert.match(adminMatchMessages, /admin_get_user_match_threads/);
   assert.match(adminMatchMessages, /admin_get_match_thread_messages/);
 
@@ -359,6 +454,8 @@ test("named admin residual panels use backend read-model RPCs instead of browser
   assert.doesNotMatch(adminPushCampaigns, /\.insert\(/);
   assert.doesNotMatch(adminPushCampaigns, /\.update\(/);
   assert.doesNotMatch(adminPushCampaigns, /\.delete\(/);
+  assert.doesNotMatch(adminDeletions, /\.from\(['"]account_deletion_requests['"]\)/);
+  assert.doesNotMatch(adminDeletions, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);
   assert.doesNotMatch(adminProfilePreview, /\.from\(['"]/);
   assert.doesNotMatch(userModeration, /\.from\(['"]/);
@@ -472,4 +569,11 @@ test("account deletion action copy is honest about completion-only behavior", ()
   assert.doesNotMatch(adminDeletions, /process deletion/i);
   assert.match(adminDeletions, /Mark Completed/);
   assert.match(adminDeletions, /This does not delete the Supabase auth user or profile/);
+  assert.match(adminDeletions, /verified completion checkpoint/);
+  assert.match(adminDeletions, /Eligible after scheduled date/);
+  assert.match(adminDeletions, /Missing scheduled date/);
+  assert.match(adminDeletions, /Unable to load account deletion requests/);
+  assert.match(adminDeletions, /unsupported statuses and are hidden from/);
+  assert.match(adminDeletions, />Recovered</);
+  assert.doesNotMatch(adminDeletions, />Cancelled</);
 });
