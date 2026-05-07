@@ -1734,6 +1734,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         releaseAppAcquiredMedia("permission_handoff_media_restart");
         let handoffCaptureProfile: VideoDateWebMediaCaptureProfile = permissionHandoff.captureProfile ?? "ideal";
         let handoffStream: MediaStream | null = null;
+        let handoffMediaAcquired = false;
         try {
           for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
             try {
@@ -1766,6 +1767,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               acquiredAtMs: Date.now(),
               consumedByDaily: false,
             };
+            handoffMediaAcquired = true;
             handoffStream = null;
             trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
               platform: "web",
@@ -1796,45 +1798,53 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         } finally {
           stopMediaStreamTracks(handoffStream);
         }
-        captureProfileRef.current = handoffCaptureProfile;
-        setCaptureProfile(handoffCaptureProfile);
-        setHasPermission(true);
-        setMediaPermissionError(null);
-        const durationMs = Math.max(0, Date.now() - permissionStartedAt);
-        const successContext = recordReadyGateToDateLatencyCheckpoint({
-          sessionId,
-          platform: "web",
-          eventId: eventId ?? null,
-          sourceSurface: "video_date_daily",
-          checkpoint: "permission_check_success",
-          permissionHandoffUsed: true,
-        });
-        trackEvent(
-          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-          buildReadyGateToDateLatencyPayload({
-            context: successContext,
+        if (handoffMediaAcquired) {
+          captureProfileRef.current = handoffCaptureProfile;
+          setCaptureProfile(handoffCaptureProfile);
+          setHasPermission(true);
+          setMediaPermissionError(null);
+          const durationMs = Math.max(0, Date.now() - permissionStartedAt);
+          const successContext = recordReadyGateToDateLatencyCheckpoint({
+            sessionId,
+            platform: "web",
+            eventId: eventId ?? null,
+            sourceSurface: "video_date_daily",
             checkpoint: "permission_check_success",
-            sourceAction: "permission_handoff",
-            outcome: "success",
-            durationMs,
-          }),
-        );
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId ?? null,
-          source_surface: "video_date_daily",
-          source_action: "permission_handoff",
-          duration_ms: durationMs,
-          latency_bucket: bucketVideoDateLatencyMs(durationMs),
-        });
-        vdbg("daily_media_permission_handoff_used", {
+            permissionHandoffUsed: true,
+          });
+          trackEvent(
+            LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+            buildReadyGateToDateLatencyPayload({
+              context: successContext,
+              checkpoint: "permission_check_success",
+              sourceAction: "permission_handoff",
+              outcome: "success",
+              durationMs,
+            }),
+          );
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId ?? null,
+            source_surface: "video_date_daily",
+            source_action: "permission_handoff",
+            duration_ms: durationMs,
+            latency_bucket: bucketVideoDateLatencyMs(durationMs),
+          });
+          vdbg("daily_media_permission_handoff_used", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId,
+            handoffSource: permissionHandoff.source,
+          });
+          return true;
+        }
+        vdbg("daily_media_permission_handoff_fallback_to_preflight", {
           sessionId,
           eventId: eventId ?? null,
           userId,
           handoffSource: permissionHandoff.source,
         });
-        return true;
       }
 
       try {

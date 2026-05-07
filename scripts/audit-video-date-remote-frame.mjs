@@ -157,6 +157,7 @@ assert(
     webVideoCall.includes("appAcquiredMediaRef") &&
     webVideoCall.includes("consumedByDaily = true") &&
     webVideoCall.includes("permission_handoff_media_acquired") &&
+    webVideoCall.includes("daily_media_permission_handoff_fallback_to_preflight") &&
     webVideoCall.includes("prewarmAppAcquiredMedia") &&
     webVideoCall.includes('releaseAppAcquiredMedia("daily_room_failed_after_media_preflight")'),
   `${webVideoCallPath}: Video Date must create its Daily call object through helpers, prefer app-acquired capture, and release preflight media on room failure`
@@ -165,10 +166,17 @@ assert(
   webDailyPrewarm.includes("dailyVideoDateCallObjectOptionsWithAppAcquiredMedia") &&
     webDailyPrewarm.includes("appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia | null") &&
     readyGateOverlay.includes("permissionPrewarmMediaRef") &&
+    readyGateOverlay.includes("WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000") &&
+    readyGateOverlay.includes("permission_prewarm_media_ttl_expired") &&
+    readyGateOverlay.includes("ready_gate_session_changed") &&
     readyGateOverlay.includes("appAcquiredMedia: prewarmMedia") &&
     readyGateOverlay.includes("captureProfile: permissionPrewarmMediaRef.current?.captureProfile") &&
     webVideoCall.includes('permissionHandoff.captureProfile ?? "ideal"'),
   `${webDailyPrewarmPath}/${readyGateOverlayPath}: Ready Gate Daily prewarm must transfer app-acquired media instead of reopening capture through Daily`
+);
+assert(
+  /finally\s*\{[\s\S]*stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/.test(webDailyPrewarm),
+  `${webDailyPrewarmPath}: abandoned prewarm cleanup must stop app-acquired media even when Daily destroy/leave throws`
 );
 assert(
   webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK") &&

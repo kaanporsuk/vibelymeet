@@ -33,6 +33,7 @@ const tierConfigOverrideAuditLockdownMigration = read(
   "supabase/migrations/20260507200000_tier_config_override_audit_lockdown.sql",
 );
 const engagementAnalyticsMigration = read("supabase/migrations/20260507201000_admin_engagement_analytics_read_model.sql");
+const engagementAnalyticsIndexesMigration = read("supabase/migrations/20260507204000_admin_engagement_analytics_read_model_indexes.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const accountDeletionsValidation = read("supabase/validation/admin_account_deletions_backend_authoritative.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
@@ -517,6 +518,9 @@ test("send-support-reply saves through the governed admin reply RPC before notif
   assert.match(sendSupportReplyFunction, /email_warning/);
   assert.match(sendSupportReplyFunction, /sanitizeErrorMessage/);
   assert.match(sendSupportReplyFunction, /case "INVALID_TRANSITION":[\s\S]{0,80}return 409/);
+  assert.match(sendSupportReplyFunction, /send-notification error for support reply:", sanitizeErrorMessage\(notifyError\)/);
+  assert.match(sendSupportReplyFunction, /Resend email failed for support reply:", sanitizeErrorMessage\(emailError\)/);
+  assert.match(sendSupportReplyFunction, /send-support-reply:", sanitizeErrorMessage\(e\)/);
   assert.doesNotMatch(sendSupportReplyFunction, /jsonResponse\(\{ error: String\(e\) \}/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_ticket_replies["']\)[\s\S]{0,300}\.insert\(/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_tickets["']\)[\s\S]{0,300}\.update\(/);
@@ -751,10 +755,19 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(engagementAnalyticsMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_engagement_analytics\(timestamptz, timestamptz\) TO authenticated/);
   assert.match(engagementAnalyticsMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.daily_drops/);
   assert.match(engagementAnalyticsMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.notification_log/);
-  assert.match(engagementAnalyticsMigration, /WHEN duplicate_object THEN NULL/);
+  assert.match(engagementAnalyticsMigration, /WHEN duplicate_object OR undefined_object THEN NULL/);
   assert.match(engagementAnalyticsMigration, /INSERT INTO public\.migration_classifications/);
   assert.match(engagementAnalyticsMigration, /'20260507201000'/);
   assert.match(engagementAnalyticsMigration, /'schema-only'/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_daily_drops_starts_at[\s\S]*ON public\.daily_drops \(starts_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_daily_drops_status_starts_at[\s\S]*ON public\.daily_drops \(status, starts_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_messages_created_at[\s\S]*ON public\.messages \(created_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_matches_matched_at[\s\S]*ON public\.matches \(matched_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_event_registrations_registered_at[\s\S]*ON public\.event_registrations \(registered_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_notification_log_created_category[\s\S]*ON public\.notification_log \(created_at, category\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /'20260507204000'/);
+  assert.match(engagementAnalyticsIndexesMigration, /'schema-only'/);
+  assert.doesNotMatch(engagementAnalyticsIndexesMigration, /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s+(?!INTO public\.migration_classifications\b)/im);
   assert.match(adminEngagementHook, /callAdminRpc<AdminEngagementAnalyticsPayload>\("admin_get_engagement_analytics"/);
   assert.match(adminEngagementHook, /queryKey: \[\.\.\.ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY, days\]/);
   assert.match(adminEngagementHook, /queryFn: \(\) => \{\s*const window = getUtcWindow\(days\)/);

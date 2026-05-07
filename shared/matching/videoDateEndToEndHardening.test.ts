@@ -1480,12 +1480,16 @@ test("native video date capture uses supported Daily defaults while web keeps ex
   assert.match(webVideoCallHook, /getUserMedia\(videoDateWebMediaStreamConstraints\(profile\)\)/);
   assert.match(webVideoCallHook, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webVideoCallHook, /permission_handoff_media_acquired/);
+  assert.match(webVideoCallHook, /daily_media_permission_handoff_fallback_to_preflight/);
   assert.match(webVideoCallHook, /prewarmAppAcquiredMedia/);
   assert.match(webVideoCallHook, /releaseAppAcquiredMedia\("daily_room_failed_after_media_preflight"\)/);
   assert.match(webVideoCallHook, /VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia \| null/);
   assert.match(readyGateOverlay, /permissionPrewarmMediaRef/);
+  assert.match(readyGateOverlay, /WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000/);
+  assert.match(readyGateOverlay, /permission_prewarm_media_ttl_expired/);
+  assert.match(readyGateOverlay, /ready_gate_session_changed/);
   assert.match(readyGateOverlay, /appAcquiredMedia: prewarmMedia/);
   assert.match(readyGateOverlay, /captureProfile: permissionPrewarmMediaRef\.current\?\.captureProfile/);
   assert.match(webVideoCallHook, /permissionHandoff\.captureProfile \?\? "ideal"/);
@@ -2733,6 +2737,7 @@ test("Daily prewarm is platform-owned, flag-gated, consumable once, and instrume
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia\(captureProfile/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptions\(captureProfile\)/);
   assert.match(webDailyPrewarm, /firstLiveTrack\(appAcquiredMedia\.stream\.getVideoTracks\(\)\)/);
+  assert.match(webDailyPrewarm, /finally\s*\{[\s\S]*stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/);
   assert.match(nativeDailyPrewarm, /createVideoDateDailyCallObject\(captureProfile\)/);
   assert.match(readyGateOverlay, /startWebVideoDateDailyPrewarm/);
   assert.match(readyGateOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success"/);

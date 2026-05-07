@@ -46,6 +46,10 @@ function formatCount(value: number | null | undefined): string {
   return Number(value ?? 0).toLocaleString();
 }
 
+function formatRate(value: number | null | undefined, hasDenominator: boolean): string {
+  return hasDenominator ? `${Number(value ?? 0)}%` : "N/A";
+}
+
 type MetricCardProps = {
   delay?: number;
   icon: ReactNode;
@@ -163,7 +167,7 @@ const AdminEngagementAnalytics = () => {
         <MetricCard
           icon={<Send className="w-6 h-6" />}
           title="Push Delivery Rate"
-          value={`${provider.delivery_rate}%`}
+          value={formatRate(provider.delivery_rate, provider.sent_rows > 0)}
           gradient="bg-gradient-to-br from-primary to-accent"
           badges={
             <>
@@ -181,7 +185,7 @@ const AdminEngagementAnalytics = () => {
           delay={0.1}
           icon={<Eye className="w-6 h-6" />}
           title="Push Open Rate"
-          value={`${provider.open_rate}%`}
+          value={formatRate(provider.open_rate, provider.delivered_rows > 0)}
           gradient="bg-gradient-to-br from-cyan-500 to-blue-500"
           badges={
             <>
@@ -199,7 +203,7 @@ const AdminEngagementAnalytics = () => {
           delay={0.2}
           icon={<Droplet className="w-6 h-6" />}
           title="Drop Engagement Rate"
-          value={`${dailyDrop.engagement_rate}%`}
+          value={formatRate(dailyDrop.engagement_rate, hasDailyDropRows)}
           gradient="bg-gradient-to-br from-pink-500 to-rose-500"
           badges={
             <>
@@ -207,7 +211,7 @@ const AdminEngagementAnalytics = () => {
                 {formatCount(dailyDrop.engaged_rows)} engaged
               </Badge>
               <Badge variant="secondary" className="text-xs">
-                {dailyDrop.opener_rate}% opener rate
+                {formatRate(dailyDrop.opener_rate, hasDailyDropRows)} opener rate
               </Badge>
             </>
           }

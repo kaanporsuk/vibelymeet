@@ -222,10 +222,14 @@ test("Video Date media contract preserves full remote frame on web and native", 
   assert.match(webVideoCall, /for \(const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER\)/);
   assert.match(webVideoCall, /getUserMedia\(videoDateWebMediaStreamConstraints\(profile\)\)/);
   assert.match(webVideoCall, /permission_handoff_media_acquired/);
+  assert.match(webVideoCall, /daily_media_permission_handoff_fallback_to_preflight/);
   assert.match(webVideoCall, /prewarmAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /dailyVideoDateCallObjectOptionsWithAppAcquiredMedia/);
   assert.match(webDailyPrewarm, /appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia \| null/);
   assert.match(webReadyGateOverlay, /permissionPrewarmMediaRef/);
+  assert.match(webReadyGateOverlay, /WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000/);
+  assert.match(webReadyGateOverlay, /permission_prewarm_media_ttl_expired/);
+  assert.match(webReadyGateOverlay, /ready_gate_session_changed/);
   assert.match(webReadyGateOverlay, /appAcquiredMedia: prewarmMedia/);
   assert.match(webReadyGateOverlay, /captureProfile: permissionPrewarmMediaRef\.current\?\.captureProfile/);
   assert.match(webVideoCall, /permissionHandoff\.captureProfile \?\? "ideal"/);

@@ -407,14 +407,14 @@ DO $$
 BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.daily_drops;
 EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_object OR undefined_object THEN NULL;
 END $$;
 
 DO $$
 BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE public.notification_log;
 EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_object OR undefined_object THEN NULL;
 END $$;
 
 INSERT INTO public.migration_classifications (

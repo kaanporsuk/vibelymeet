@@ -189,7 +189,7 @@ serve(async (req) => {
         notificationWarning = "Reply saved but push notification could not be delivered.";
       }
     } catch (notifyError) {
-      console.error("send-notification error for support reply:", notifyError);
+      console.error("send-notification error for support reply:", sanitizeErrorMessage(notifyError));
       notificationWarning = "Reply saved but push notification could not be delivered.";
     }
 
@@ -233,7 +233,7 @@ serve(async (req) => {
             emailWarning = "Reply saved but email notification could not be sent.";
           }
         } catch (emailError) {
-          console.error("Resend email failed for support reply:", emailError);
+          console.error("Resend email failed for support reply:", sanitizeErrorMessage(emailError));
           emailWarning = "Reply saved but email notification could not be sent.";
         }
       } else {
@@ -249,7 +249,7 @@ serve(async (req) => {
       email_warning: emailWarning,
     });
   } catch (e) {
-    console.error("send-support-reply:", e);
+    console.error("send-support-reply:", sanitizeErrorMessage(e));
     return jsonResponse({ error: "INTERNAL_ERROR", message: sanitizeErrorMessage(e) }, 500);
   }
 });

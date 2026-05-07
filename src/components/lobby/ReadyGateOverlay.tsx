@@ -79,6 +79,7 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100;
+const WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
@@ -268,6 +269,7 @@ const ReadyGateOverlay = ({
   const prepareEntryHandoffStartedRef = useRef(false);
   const permissionPrewarmStartedRef = useRef(false);
   const permissionPrewarmMediaRef = useRef<ReadyGatePermissionPrewarmMedia | null>(null);
+  const permissionPrewarmMediaReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const permissionPrewarmSkipLoggedRef = useRef(false);
   const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
@@ -300,8 +302,15 @@ const ReadyGateOverlay = ({
     [eventId, sessionId],
   );
 
+  const clearPermissionPrewarmMediaReleaseTimer = useCallback(() => {
+    if (!permissionPrewarmMediaReleaseTimerRef.current) return;
+    clearTimeout(permissionPrewarmMediaReleaseTimerRef.current);
+    permissionPrewarmMediaReleaseTimerRef.current = null;
+  }, []);
+
   const releasePermissionPrewarmMedia = useCallback((reason: string) => {
     const media = permissionPrewarmMediaRef.current;
+    clearPermissionPrewarmMediaReleaseTimer();
     if (!media) return;
     permissionPrewarmMediaRef.current = null;
     stopMediaStreamTracks(media.stream);
@@ -313,7 +322,7 @@ const ReadyGateOverlay = ({
       reason,
       ageMs: Math.max(0, Date.now() - media.acquiredAtMs),
     });
-  }, [eventId, sessionId]);
+  }, [clearPermissionPrewarmMediaReleaseTimer, eventId, sessionId]);
 
   useLayoutEffect(() => {
     activeReadyGateKeyRef.current = activeReadyGateKey;
@@ -517,14 +526,20 @@ const ReadyGateOverlay = ({
   // aspect negotiation.
   const runPermissionPrewarm = useCallback(
     async (source: "ready_gate_open" | "ready_tap"): Promise<void> => {
-      if (permissionPrewarmStartedRef.current) return;
+      if (permissionPrewarmStartedRef.current) {
+        if (source !== "ready_tap" || permissionPrewarmMediaRef.current) return;
+        permissionPrewarmStartedRef.current = false;
+      }
       if (closedRef.current || dateNavigationStartedRef.current) return;
       const userId = user?.id;
       if (!userId) return;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
       const readyGateKey = activeReadyGateKey;
 
-      if (getVideoDatePermissionHandoff(sessionId, userId)) {
+      if (
+        getVideoDatePermissionHandoff(sessionId, userId) &&
+        (source !== "ready_tap" || permissionPrewarmMediaRef.current)
+      ) {
         permissionPrewarmStartedRef.current = true;
         return;
       }
@@ -640,6 +655,10 @@ const ReadyGateOverlay = ({
         }
         permissionPrewarmMediaRef.current = media;
         media = null;
+        clearPermissionPrewarmMediaReleaseTimer();
+        permissionPrewarmMediaReleaseTimerRef.current = setTimeout(() => {
+          releasePermissionPrewarmMedia("permission_prewarm_media_ttl_expired");
+        }, WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS);
 
         setVideoDatePermissionHandoff({
           sessionId,
@@ -725,7 +744,14 @@ const ReadyGateOverlay = ({
         });
       }
     },
-    [activeReadyGateKey, eventId, releasePermissionPrewarmMedia, sessionId, user?.id],
+    [
+      activeReadyGateKey,
+      clearPermissionPrewarmMediaReleaseTimer,
+      eventId,
+      releasePermissionPrewarmMedia,
+      sessionId,
+      user?.id,
+    ],
   );
 
   const canStartDailyPrewarmAfterWarmup = useCallback(
@@ -806,6 +832,7 @@ const ReadyGateOverlay = ({
           prewarm.entry.appAcquiredMedia?.stream === prewarmMedia.stream
         ) {
           permissionPrewarmMediaRef.current = null;
+          clearPermissionPrewarmMediaReleaseTimer();
         }
         vdbg("ready_gate_daily_prewarm_after_room_warmup", {
           sessionId,
@@ -853,7 +880,14 @@ const ReadyGateOverlay = ({
         }
       })();
     },
-    [activeReadyGateKey, canStartDailyPrewarmAfterWarmup, eventId, sessionId, user?.id],
+    [
+      activeReadyGateKey,
+      canStartDailyPrewarmAfterWarmup,
+      clearPermissionPrewarmMediaReleaseTimer,
+      eventId,
+      sessionId,
+      user?.id,
+    ],
   );
 
   const handleBothReady = useCallback((
@@ -1566,6 +1600,7 @@ const ReadyGateOverlay = ({
   }, [iAmReady]);
 
   useEffect(() => {
+    releasePermissionPrewarmMedia("ready_gate_session_changed");
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
@@ -1633,7 +1668,7 @@ const ReadyGateOverlay = ({
       });
     }
     preloadVideoDateRoute("ready_gate_open");
-  }, [sessionId, eventId, preloadVideoDateRoute]);
+  }, [sessionId, eventId, preloadVideoDateRoute, releasePermissionPrewarmMedia]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
@@ -1655,6 +1690,10 @@ const ReadyGateOverlay = ({
       const media = permissionPrewarmMediaRef.current;
       if (media) {
         permissionPrewarmMediaRef.current = null;
+        if (permissionPrewarmMediaReleaseTimerRef.current) {
+          clearTimeout(permissionPrewarmMediaReleaseTimerRef.current);
+          permissionPrewarmMediaReleaseTimerRef.current = null;
+        }
         stopMediaStreamTracks(media.stream);
         vdbg("ready_gate_permission_prewarm_media_released", {
           sessionId: latestContext.sessionId,

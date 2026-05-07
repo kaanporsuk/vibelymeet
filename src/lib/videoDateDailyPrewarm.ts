@@ -198,7 +198,6 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
         await entry.call.leave().catch(() => undefined);
       }
       entry.call.destroy();
-      stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
     } catch (error) {
       Sentry.addBreadcrumb({
         category: "video-date",
@@ -206,6 +205,8 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
         message: "web_daily_prewarm_destroy_failed",
         data: { sessionId: entry.sessionId, reason, error: error instanceof Error ? error.message : String(error) },
       });
+    } finally {
+      stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
     }
   };
   void cleanup();

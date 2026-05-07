@@ -381,6 +381,9 @@ test("engagement analytics uses one backend read model and honest states", () =>
   assert.match(useAdminEngagementAnalytics, /refetchInterval: 30_000/);
   assert.match(adminEngagement, /Push Delivery & Opens \(30 Days UTC\)/);
   assert.match(adminEngagement, /Notification Performance by Category/);
+  assert.match(adminEngagement, /formatRate\(provider\.delivery_rate, provider\.sent_rows > 0\)/);
+  assert.match(adminEngagement, /formatRate\(provider\.open_rate, provider\.delivered_rows > 0\)/);
+  assert.match(adminEngagement, /formatRate\(dailyDrop\.engagement_rate, hasDailyDropRows\)/);
   assert.match(adminEngagement, /No provider telemetry in this UTC window/);
   assert.match(adminEngagement, /No Daily Drop rows in this UTC window/);
   assert.match(adminEngagement, /Metrics are hidden until the backend engagement read model succeeds/);
