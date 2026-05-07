@@ -116,16 +116,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
 
       const { data, error } = await query;
       if (error) throw error;
-      
+
       // Filter by search if needed
       let filtered = ((data || []) as unknown as EventRegistrationWithProfile[]);
       if (searchQuery) {
         const lowerSearch = searchQuery.toLowerCase();
-        filtered = filtered.filter(reg => 
+        filtered = filtered.filter(reg =>
           reg.profiles?.name?.toLowerCase().includes(lowerSearch)
         );
       }
-      
+
       return filtered;
     },
   });
@@ -236,7 +236,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
 
   const exportAttendees = () => {
     if (!registrations?.length) return;
-    
+
     const csvContent = [
       ['Name', 'Age', 'Gender', 'Registered', 'Admission', 'Attendance'].join(','),
       ...registrations.map(reg => {
@@ -254,7 +254,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
         ].join(',');
       })
     ].join('\n');
-    
+
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -405,7 +405,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
                 No Show
               </Button>
             </div>
-            
+
             <Button
               size="sm"
               variant="outline"
@@ -417,7 +417,7 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
             </Button>
           </div>
         </div>
-        
+
         {/* Bulk Actions */}
         {selectedAttendees.length > 0 && (
           <div className="max-w-5xl mx-auto px-4 pb-3">

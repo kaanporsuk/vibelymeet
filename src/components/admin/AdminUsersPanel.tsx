@@ -239,8 +239,8 @@ const AdminUsersPanel = () => {
 
   const getSortIcon = (field: SortField) => {
     if (sortField !== field) return <ArrowUpDown className="w-4 h-4 text-muted-foreground" />;
-    return sortDirection === 'asc' ? 
-      <ChevronUp className="w-4 h-4 text-primary" /> : 
+    return sortDirection === 'asc' ?
+      <ChevronUp className="w-4 h-4 text-primary" /> :
       <ChevronDown className="w-4 h-4 text-primary" />;
   };
 
@@ -525,8 +525,8 @@ const AdminUsersPanel = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge 
-                        variant="outline" 
+                      <Badge
+                        variant="outline"
                         className={getUserGenderBadgeClassName(user)}
                       >
                         {getUserGenderBadgeLabel(user)}

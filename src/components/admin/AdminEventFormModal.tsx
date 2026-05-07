@@ -854,7 +854,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
           <CollapsibleSection title="Location & Scope" icon={MapPin} isOpen={openSections.location}
             onToggle={() => toggleSection('location')}
             badge={scope === 'local' ? `📍 ${resolvedCity || 'Set city'} · ${radiusKm}km` : scope === 'regional' ? `🏳️ ${resolvedCountry || 'Regional'}` : '🌍 Global'}>
-            
+
             {/* Scope Selector */}
             <div className="grid grid-cols-3 gap-2">
               {([
