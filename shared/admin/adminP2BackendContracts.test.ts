@@ -172,6 +172,10 @@ test("admin RPC helper preserves Supabase client binding", () => {
   assert.doesNotMatch(adminRpc, /const\s+rpc\s*=\s*supabase\.rpc\b(?!\.bind)/);
   assert.doesNotMatch(adminRpc, /await\s+rpc\(/);
   assert.match(adminRpc, /supabase\.rpc\(|supabase\.rpc\.bind\(supabase\)/);
+  assert.match(adminRpc, /sanitizeAdminRpcErrorMessage/);
+  assert.match(adminRpc, /\[url\]/);
+  assert.match(adminRpc, /\[email\]/);
+  assert.match(adminRpc, /\[token\]/);
 });
 
 test("covered admin UI no longer performs known multi-step browser writes", () => {

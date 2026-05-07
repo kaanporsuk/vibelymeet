@@ -240,7 +240,7 @@ test("P4 /kaan Intelligence panel is wired through admin RPCs only", () => {
   assert.match(intelligencePanel, /event_registered_users/);
   assert.match(intelligencePanel, /d7_retained_users/);
   assert.match(intelligencePanel, /completed_sessions/);
-  assert.match(intelligencePanel, /data\?\.authenticity\.queue/);
+  assert.match(intelligencePanel, /data\?\.authenticity\?\.queue/);
   assert.match(intelligencePanel, /return "Unavailable"/);
   for (const stalePayloadKey of [
     "verified_signups",
@@ -258,6 +258,15 @@ test("P4 /kaan Intelligence panel is wired through admin RPCs only", () => {
   assert.doesNotMatch(intelligencePanel, /\.from\(["']/);
   assert.doesNotMatch(intelligencePanel, /\.(insert|update|upsert|delete)\(/);
   assert.doesNotMatch(intelligencePanel, /\bfetch\(/);
+});
+
+test("P4 /kaan Intelligence panel renders partial data when one read RPC fails", () => {
+  assert.match(intelligencePanel, /Promise\.allSettled/);
+  assert.doesNotMatch(intelligencePanel, /Promise\.all\(/);
+  assert.match(intelligencePanel, /type P4Failure/);
+  assert.match(intelligencePanel, /sanitizeAdminRpcErrorMessage/);
+  assert.match(intelligencePanel, /P4 intelligence data is partially unavailable/);
+  assert.match(intelligencePanel, /Successful RPC sections are still shown below/);
 });
 
 test("report moderation UI attaches P4 policy context without automated enforcement", () => {

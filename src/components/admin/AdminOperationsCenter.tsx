@@ -20,7 +20,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
 
 type OpsStatus = "healthy" | "degraded" | "incident" | "unknown" | "unavailable" | string;
 
@@ -174,19 +174,11 @@ const factRows = (value: Record<string, unknown> | undefined) =>
     </div>
   ));
 
-const sanitizeOperationError = (reason: unknown): string => {
-  const raw = reason instanceof Error ? reason.message : String(reason || "Unknown error");
-  return raw
-    .replace(/https?:\/\/\S+/g, "[url]")
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
-    .slice(0, 220);
-};
-
 const fulfilledValue = <T,>(result: PromiseSettledResult<T>): T | undefined =>
   result.status === "fulfilled" ? result.value : undefined;
 
 const failureFor = (rpc: OperationsRpcName, result: PromiseSettledResult<unknown>): OperationsFailure | null =>
-  result.status === "rejected" ? { rpc, message: sanitizeOperationError(result.reason) } : null;
+  result.status === "rejected" ? { rpc, message: sanitizeAdminRpcErrorMessage(result.reason) } : null;
 
 const unavailableSection = (label: string, rpc: OperationsRpcName, failures: OperationsFailure[]) => {
   const failure = failures.find((item) => item.rpc === rpc);

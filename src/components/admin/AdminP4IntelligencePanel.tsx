@@ -19,22 +19,49 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
 
 type AdminMetricPayload = AdminRpcPayload & Record<string, unknown>;
 
-type P4Payload = {
-  product: AdminMetricPayload;
-  retention: AdminMetricPayload;
-  eventLiquidity: AdminMetricPayload;
-  matchQuality: AdminMetricPayload;
-  revenue: AdminMetricPayload;
-  entitlements: AdminMetricPayload;
-  trust: AdminMetricPayload;
-  authenticity: AdminMetricPayload;
-  cost: AdminMetricPayload;
-  quality: AdminMetricPayload;
-  store: AdminMetricPayload;
+type P4PayloadKey =
+  | "product"
+  | "retention"
+  | "eventLiquidity"
+  | "matchQuality"
+  | "revenue"
+  | "entitlements"
+  | "trust"
+  | "authenticity"
+  | "cost"
+  | "quality"
+  | "store";
+
+type P4RpcName =
+  | "admin_get_product_intelligence_metrics"
+  | "admin_get_retention_activation_metrics"
+  | "admin_get_event_liquidity_metrics"
+  | "admin_get_match_quality_metrics"
+  | "admin_get_revenue_intelligence"
+  | "admin_get_entitlement_reconciliation"
+  | "admin_get_trust_triage_queue"
+  | "admin_get_authenticity_operations"
+  | "admin_get_cost_capacity_metrics"
+  | "admin_get_quality_scorecard"
+  | "admin_get_store_operations_metrics";
+
+type P4Failure = {
+  rpc: P4RpcName;
+  message: string;
+};
+
+type P4MetricRequest = {
+  key: P4PayloadKey;
+  rpc: P4RpcName;
+  promise: Promise<AdminMetricPayload>;
+};
+
+type P4Payload = Partial<Record<P4PayloadKey, AdminMetricPayload>> & {
+  failures: P4Failure[];
 };
 
 type MetricCard = {
@@ -76,6 +103,70 @@ const signalKey = (row: Record<string, unknown>, fallback: string): string => {
   const key = row.id || row.user_id || row.event_id || row.target_id || row.name || row.title;
   return typeof key === "string" && key.trim() ? key : fallback;
 };
+
+const p4MetricRequests = (): P4MetricRequest[] => [
+  {
+    key: "product",
+    rpc: "admin_get_product_intelligence_metrics",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_product_intelligence_metrics", {}),
+  },
+  {
+    key: "retention",
+    rpc: "admin_get_retention_activation_metrics",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_retention_activation_metrics", {}),
+  },
+  {
+    key: "eventLiquidity",
+    rpc: "admin_get_event_liquidity_metrics",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_event_liquidity_metrics", {}),
+  },
+  {
+    key: "matchQuality",
+    rpc: "admin_get_match_quality_metrics",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_match_quality_metrics", {}),
+  },
+  {
+    key: "revenue",
+    rpc: "admin_get_revenue_intelligence",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_revenue_intelligence", {}),
+  },
+  {
+    key: "entitlements",
+    rpc: "admin_get_entitlement_reconciliation",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_entitlement_reconciliation", {
+      p_limit: 25,
+      p_offset: 0,
+    }),
+  },
+  {
+    key: "trust",
+    rpc: "admin_get_trust_triage_queue",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_trust_triage_queue", {
+      p_limit: 25,
+      p_offset: 0,
+    }),
+  },
+  {
+    key: "authenticity",
+    rpc: "admin_get_authenticity_operations",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_authenticity_operations", {}),
+  },
+  {
+    key: "cost",
+    rpc: "admin_get_cost_capacity_metrics",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_cost_capacity_metrics", {}),
+  },
+  {
+    key: "quality",
+    rpc: "admin_get_quality_scorecard",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_quality_scorecard", {}),
+  },
+  {
+    key: "store",
+    rpc: "admin_get_store_operations_metrics",
+    promise: callAdminRpc<AdminMetricPayload>("admin_get_store_operations_metrics", {}),
+  },
+];
 
 const MetricGrid = ({ cards }: { cards: MetricCard[] }) => (
   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -155,44 +246,36 @@ const AdminP4IntelligencePanel = () => {
   const intelligenceQuery = useQuery({
     queryKey: ["admin-p4-intelligence"],
     queryFn: async (): Promise<P4Payload> => {
-      const [
-        product,
-        retention,
-        eventLiquidity,
-        matchQuality,
-        revenue,
-        entitlements,
-        trust,
-        authenticity,
-        cost,
-        quality,
-        store,
-      ] = await Promise.all([
-        callAdminRpc<AdminMetricPayload>("admin_get_product_intelligence_metrics", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_retention_activation_metrics", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_event_liquidity_metrics", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_match_quality_metrics", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_revenue_intelligence", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_entitlement_reconciliation", { p_limit: 25, p_offset: 0 }),
-        callAdminRpc<AdminMetricPayload>("admin_get_trust_triage_queue", { p_limit: 25, p_offset: 0 }),
-        callAdminRpc<AdminMetricPayload>("admin_get_authenticity_operations", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_cost_capacity_metrics", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_quality_scorecard", {}),
-        callAdminRpc<AdminMetricPayload>("admin_get_store_operations_metrics", {}),
-      ]);
+      const requests = p4MetricRequests();
+      const results = await Promise.allSettled(requests.map(({ promise }) => promise));
 
-      return { product, retention, eventLiquidity, matchQuality, revenue, entitlements, trust, authenticity, cost, quality, store };
+      return requests.reduce<P4Payload>(
+        (payload, request, index) => {
+          const result = results[index];
+          if (result.status === "fulfilled") {
+            payload[request.key] = result.value;
+          } else {
+            payload.failures.push({
+              rpc: request.rpc,
+              message: sanitizeAdminRpcErrorMessage(result.reason),
+            });
+          }
+          return payload;
+        },
+        { failures: [] },
+      );
     },
     refetchInterval: 120000,
   });
 
   const data = intelligenceQuery.data;
-  const productMetrics = asRecord(data?.product.metrics);
-  const retentionMetrics = asRecord(data?.retention.metrics);
-  const revenueMetrics = asRecord(data?.revenue.metrics);
-  const derivedUsage = asRecord(data?.cost.derived_usage);
-  const unitEconomics = asRecord(data?.cost.unit_economics);
-  const matchFactors = asRecord(data?.matchQuality.factors);
+  const intelligenceFailures = data?.failures ?? [];
+  const productMetrics = asRecord(data?.product?.metrics);
+  const retentionMetrics = asRecord(data?.retention?.metrics);
+  const revenueMetrics = asRecord(data?.revenue?.metrics);
+  const derivedUsage = asRecord(data?.cost?.derived_usage);
+  const unitEconomics = asRecord(data?.cost?.unit_economics);
+  const matchFactors = asRecord(data?.matchQuality?.factors);
   const reportBlockSignals =
     typeof matchFactors.reports === "number" && typeof matchFactors.blocks === "number"
       ? matchFactors.reports + matchFactors.blocks
@@ -233,12 +316,12 @@ const AdminP4IntelligencePanel = () => {
     );
   }
 
-  const eventRows = asArray<Record<string, unknown>>(data?.eventLiquidity.rows);
-  const trustRows = asArray<Record<string, unknown>>(data?.trust.rows);
-  const authenticityRows = asArray<Record<string, unknown>>(data?.authenticity.queue);
-  const entitlementRows = asArray<Record<string, unknown>>(data?.entitlements.rows);
-  const qualityRows = asArray<Record<string, unknown>>(data?.quality.rows);
-  const storeChecklistRows = asArray<Record<string, unknown>>(data?.store.metadata_checklists);
+  const eventRows = asArray<Record<string, unknown>>(data?.eventLiquidity?.rows);
+  const trustRows = asArray<Record<string, unknown>>(data?.trust?.rows);
+  const authenticityRows = asArray<Record<string, unknown>>(data?.authenticity?.queue);
+  const entitlementRows = asArray<Record<string, unknown>>(data?.entitlements?.rows);
+  const qualityRows = asArray<Record<string, unknown>>(data?.quality?.rows);
+  const storeChecklistRows = asArray<Record<string, unknown>>(data?.store?.metadata_checklists);
 
   return (
     <motion.div
@@ -265,6 +348,23 @@ const AdminP4IntelligencePanel = () => {
         </div>
       </section>
 
+      {intelligenceFailures.length > 0 && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>P4 intelligence data is partially unavailable</AlertTitle>
+          <AlertDescription>
+            <div>Successful RPC sections are still shown below.</div>
+            <div className="mt-2 space-y-1 text-xs">
+              {intelligenceFailures.map((failure) => (
+                <div key={failure.rpc}>
+                  <span className="font-medium">{failure.rpc}</span>: {failure.message}
+                </div>
+              ))}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Tabs defaultValue="product" className="space-y-4">
         <TabsList className="h-auto flex-wrap justify-start">
           <TabsTrigger value="product">Product</TabsTrigger>
@@ -290,7 +390,7 @@ const AdminP4IntelligencePanel = () => {
         <TabsContent value="events" className="space-y-4">
           <SignalList
             title="Event Liquidity"
-            description={String(data?.eventLiquidity.score_semantics || "Deterministic planning score from existing backend truth.")}
+            description={String(data?.eventLiquidity?.score_semantics || "Deterministic planning score from existing backend truth.")}
             rows={eventRows}
             empty="No event liquidity rows were returned for this window."
           />
@@ -299,7 +399,7 @@ const AdminP4IntelligencePanel = () => {
         <TabsContent value="matches" className="space-y-4">
           <MetricGrid
             cards={[
-              { label: "Match Quality Score", value: data?.matchQuality.quality_score, helper: `Confidence: ${formatMetric(data?.matchQuality.confidence)}`, icon: Sparkles },
+              { label: "Match Quality Score", value: data?.matchQuality?.quality_score, helper: `Confidence: ${formatMetric(data?.matchQuality?.confidence)}`, icon: Sparkles },
               { label: "Matches", value: matchFactors.matches, helper: "Backend match rows in the selected window.", icon: Target },
               { label: "Completed Sessions", value: matchFactors.completed_sessions, helper: "Video sessions with ended_at evidence.", icon: CheckCircle2 },
               { label: "Reports + Blocks", value: reportBlockSignals, helper: "Safety signals included in the advisory score.", icon: ShieldAlert },
@@ -325,7 +425,7 @@ const AdminP4IntelligencePanel = () => {
           />
           <SignalList
             title="Entitlement Reconciliation"
-            description={String(data?.entitlements.semantics || "Backend entitlement drift evidence.")}
+            description={String(data?.entitlements?.semantics || "Backend entitlement drift evidence.")}
             rows={entitlementRows}
             empty="No entitlement rows were returned."
           />
@@ -334,7 +434,7 @@ const AdminP4IntelligencePanel = () => {
         <TabsContent value="trust" className="space-y-4">
           <SignalList
             title="Risk-Ranked Moderation Queue"
-            description={String(data?.trust.automation_policy || "Human-reviewed trust triage only.")}
+            description={String(data?.trust?.automation_policy || "Human-reviewed trust triage only.")}
             rows={trustRows}
             empty="No users currently need triage under the deterministic P4 score."
           />
@@ -357,13 +457,13 @@ const AdminP4IntelligencePanel = () => {
           />
           <SignalList
             title="Quality Budgets"
-            description={String(data?.quality.semantics || "Missing observations are not passes.")}
+            description={String(data?.quality?.semantics || "Missing observations are not passes.")}
             rows={qualityRows}
             empty="No quality budget definitions were returned."
           />
           <SignalList
             title="Store Operations Evidence"
-            description={String(data?.store.semantics || "Manual evidence ledger for native release operations.")}
+            description={String(data?.store?.semantics || "Manual evidence ledger for native release operations.")}
             rows={storeChecklistRows}
             empty="No store metadata checklist rows were returned."
           />

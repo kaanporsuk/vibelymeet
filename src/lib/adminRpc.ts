@@ -26,6 +26,20 @@ export function adminRpcErrorMessage(payload: AdminRpcPayload | null | undefined
   return payload.message || payload.error || fallback;
 }
 
+export function sanitizeAdminRpcErrorMessage(reason: unknown): string {
+  const raw = reason instanceof Error ? reason.message : String(reason || "Unknown error");
+  return raw
+    .replace(/https?:\/\/\S+/g, "[url]")
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[id]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[token]")
+    .replace(/\b(?:Bearer|Token)\s+[A-Za-z0-9._~+/=-]+/gi, "[token]")
+    .replace(/\b(api[_-]?key|apikey|authorization|secret)\s*[:=]\s*[^,\s)]+/gi, "$1=[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 export async function callAdminRpc<T extends AdminRpcPayload = AdminRpcPayload>(
   fn: string,
   args: RpcArgs,

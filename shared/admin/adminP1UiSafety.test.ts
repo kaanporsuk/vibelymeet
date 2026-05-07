@@ -237,6 +237,7 @@ test("notifications copy is scoped to the latest 100 and broad actions say so", 
   assert.match(adminNotifications, /selected loaded admin notification rows/);
   assert.match(adminNotifications, /This is a fetch failure, not proof that no notifications exist/);
   assert.match(adminNotifications, /admin-dashboard-badge-counts/);
+  assert.match(adminNotifications, /Promise\.allSettled/);
 });
 
 test("admin badge mutations invalidate the centralized dashboard badge count", () => {
