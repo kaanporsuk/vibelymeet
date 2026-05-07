@@ -310,6 +310,7 @@ test("P4 revenue drift semantics include active admin grants and queue drift row
   assert.match(reconciliation, /all_profiles_count/);
   assert.match(reconciliation, /Queue contains drift=true rows only/);
   assert.match(intelligencePanel, /No entitlement drift found/);
+  assert.match(intelligencePanel, /Profiles differing from subscription\/admin-grant evidence/);
   assert.match(intelligencePanel, /Profiles with matching subscription\/admin-grant state are hidden from this queue/);
 });
 

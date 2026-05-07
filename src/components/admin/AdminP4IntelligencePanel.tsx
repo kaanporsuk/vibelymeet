@@ -874,7 +874,7 @@ const AdminP4IntelligencePanel = () => {
             cards={[
               { label: "Active Subscriptions", value: revenueMetrics.active_subscriptions, helper: "Stripe + RevenueCat active/trialing.", icon: DollarSign },
               { label: "Premium Profiles", value: revenueMetrics.premium_profiles, helper: "Current profile entitlement rows.", icon: DollarSign },
-              { label: "Entitlement Drift", value: revenueMetrics.entitlement_drift_users, helper: "Profiles differing from subscription evidence.", icon: AlertTriangle },
+              { label: "Entitlement Drift", value: revenueMetrics.entitlement_drift_users, helper: "Profiles differing from subscription/admin-grant evidence.", icon: AlertTriangle },
               { label: "Paid Event Registrations", value: revenueMetrics.paid_event_registrations, helper: "Windowed paid registration evidence.", icon: Target },
             ]}
           />
