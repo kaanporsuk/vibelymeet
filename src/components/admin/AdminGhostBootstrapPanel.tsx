@@ -59,6 +59,7 @@ type Ghost = {
   review_confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 };
 
+type Confidence = Ghost['review_confidence'];
 type FilterConfidence = 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
 export function AdminGhostBootstrapPanel() {
@@ -66,7 +67,7 @@ export function AdminGhostBootstrapPanel() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [daysThreshold, setDaysThreshold] = useState(7);
-  const [confidenceFilter, setConfidenceFilter] = useState<FilterConfidence>('HIGH');
+  const [confidenceFilter, setConfidenceFilter] = useState<FilterConfidence>('ALL');
   const [selectedGhost, setSelectedGhost] = useState<Ghost | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
@@ -102,6 +103,24 @@ export function AdminGhostBootstrapPanel() {
     if (confidenceFilter === 'ALL') return true;
     return g.review_confidence === confidenceFilter;
   });
+
+  const confidenceCounts = ghosts.reduce<Record<Confidence | 'ALL', number>>(
+    (counts, g) => {
+      counts.ALL += 1;
+      counts[g.review_confidence] += 1;
+      return counts;
+    },
+    { ALL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, NONE: 0 }
+  );
+
+  const confidenceCountItems: Array<{ value: Confidence; label: string }> = [
+    { value: 'HIGH', label: 'High' },
+    { value: 'MEDIUM', label: 'Medium' },
+    { value: 'LOW', label: 'Low' },
+  ];
+
+  const hasBackendCandidates = ghosts.length > 0;
+  const hasFilteredOutCandidates = !isLoading && !error && hasBackendCandidates && filteredGhosts.length === 0;
 
   const confidenceBadgeColor = (confidence: string) => {
     switch (confidence) {
@@ -166,15 +185,40 @@ export function AdminGhostBootstrapPanel() {
       </div>
 
       {/* Summary */}
-      <div className="text-sm text-muted-foreground">
-        Showing {filteredGhosts.length} of {ghosts.length} bootstrap ghost candidates
-        {confidenceFilter !== 'ALL' && ` (${confidenceFilter} confidence)`}
+      <div className="space-y-2">
+        <div className="text-sm text-muted-foreground">
+          Showing {filteredGhosts.length} of {ghosts.length} strict bootstrap ghost candidates
+          {confidenceFilter !== 'ALL' && ` (${confidenceFilter} confidence)`}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant={confidenceFilter === 'ALL' ? 'default' : 'secondary'} className="text-xs">
+            All {confidenceCounts.ALL}
+          </Badge>
+          {confidenceCountItems.map(item => (
+            <Badge
+              key={item.value}
+              variant={confidenceFilter === item.value ? 'default' : 'outline'}
+              className={cn('text-xs', confidenceBadgeColor(item.value))}
+            >
+              {item.label} {confidenceCounts[item.value]}
+            </Badge>
+          ))}
+          {confidenceCounts.NONE > 0 && (
+            <Badge variant="outline" className={cn('text-xs', confidenceBadgeColor('NONE'))}>
+              None {confidenceCounts.NONE}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {/* Error Display */}
       {error && (
-        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/25 text-destructive text-sm">
-          {error}
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/25 text-destructive text-sm">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-medium">Unable to load ghost bootstrap accounts.</p>
+            <p className="text-xs mt-1">{error}</p>
+          </div>
         </div>
       )}
 
@@ -186,10 +230,21 @@ export function AdminGhostBootstrapPanel() {
       )}
 
       {/* Empty State */}
-      {!isLoading && filteredGhosts.length === 0 && !error && (
+      {!isLoading && ghosts.length === 0 && !error && (
         <div className="text-center py-8 text-muted-foreground">
           <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-600" />
-          <p>No ghost bootstrap accounts found matching criteria.</p>
+          <p>No ghost bootstrap accounts found for the selected age threshold.</p>
+        </div>
+      )}
+
+      {/* Filtered Empty State */}
+      {hasFilteredOutCandidates && (
+        <div className="text-center py-8 text-muted-foreground">
+          <AlertCircle className="w-8 h-8 mx-auto mb-2 text-amber-600" />
+          <p>No {confidenceFilter.toLowerCase()} confidence candidates match this filter.</p>
+          <p className="text-xs mt-1">
+            {ghosts.length} total candidates are available across other confidence levels.
+          </p>
         </div>
       )}
 
