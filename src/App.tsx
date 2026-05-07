@@ -25,7 +25,13 @@ import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletion
 import { MatchCallProvider } from "@/hooks/useMatchCall";
 import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
 import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
-import { recordBrowserError, recordBrowserEvent } from "@/lib/browserDiagnostics";
+import {
+  hasStaleBundleReloadAlreadyAttempted,
+  isLikelyStaleBundleError,
+  recoverFromStaleBundleError,
+  recordBrowserError,
+  recordBrowserEvent,
+} from "@/lib/browserDiagnostics";
 import { initAnalytics, disableAnalytics, trackEvent } from "@/lib/analytics";
 import { lazyWithPreload } from "@/lib/lazyWithPreload";
 import { preloadRouteOnIdle, routeLoaders } from "@/lib/routePreload";
@@ -144,6 +150,7 @@ const RoutePrefetcher = () => {
         preloadRouteOnIdle("dashboard");
         preloadRouteOnIdle("events");
         preloadRouteOnIdle("matches");
+        preloadRouteOnIdle("eventLobby");
         return;
       }
       if (entryState.route_hint === "onboarding") {
@@ -177,21 +184,32 @@ const RouteFallback = () => (
 
 // queryClient is imported from @/lib/queryClient (singleton used by controller)
 
-const SentryFallback = ({ resetError }: { resetError: () => void }) => (
-  <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-    <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-6">
-      <AlertTriangle className="w-8 h-8 text-destructive" />
+const SentryFallback = ({ error, resetError }: { error: unknown; resetError: () => void }) => {
+  const staleBundleAfterReload =
+    isLikelyStaleBundleError(error) && hasStaleBundleReloadAlreadyAttempted();
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+      <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mb-6">
+        <AlertTriangle className="w-8 h-8 text-destructive" />
+      </div>
+      <h1 className="text-2xl font-display font-bold text-foreground mb-2">
+        {staleBundleAfterReload ? "New Version Available" : "Something went wrong"}
+      </h1>
+      <p className="text-muted-foreground mb-6 max-w-sm">
+        {staleBundleAfterReload
+          ? "Reload this tab to pick up the latest Vibely code, then enter the lobby again."
+          : "We've been notified and are looking into it. Try refreshing the page."}
+      </p>
+      <div className="flex gap-3">
+        <Button onClick={() => window.location.reload()}>
+          {staleBundleAfterReload ? "Reload App" : "Refresh Page"}
+        </Button>
+        <Button variant="outline" onClick={resetError}>Try Again</Button>
+      </div>
     </div>
-    <h1 className="text-2xl font-display font-bold text-foreground mb-2">Something went wrong</h1>
-    <p className="text-muted-foreground mb-6 max-w-sm">
-      We've been notified and are looking into it. Try refreshing the page.
-    </p>
-    <div className="flex gap-3">
-      <Button onClick={() => window.location.reload()}>Refresh Page</Button>
-      <Button variant="outline" onClick={resetError}>Try Again</Button>
-    </div>
-  </div>
-);
+  );
+};
 
 function AnalyticsConsentBanner({ consent }: { consent: AnalyticsConsentState }) {
   if (consent !== "unset") return null;
@@ -239,11 +257,19 @@ const App = () => {
             <Sonner position="top-center" theme="dark" richColors />
             <OfflineBanner />
             <Sentry.ErrorBoundary
-              fallback={({ resetError }) => <SentryFallback resetError={resetError} />}
+              fallback={({ error, resetError }) => <SentryFallback error={error} resetError={resetError} />}
               onError={(error) => {
                 console.error("Caught by Sentry ErrorBoundary:", error);
+                const staleBundleRecovery = recoverFromStaleBundleError(error, "react_error_boundary", {
+                  route: typeof window !== "undefined" ? window.location.pathname : null,
+                });
                 recordBrowserError("browser.react_error_boundary", error, {
                   route: typeof window !== "undefined" ? window.location.pathname : null,
+                  stale_bundle_recovery_action: staleBundleRecovery.isStaleBundleError
+                    ? staleBundleRecovery.reloadScheduled
+                      ? "reload"
+                      : "show_error"
+                    : "none",
                 });
                 const msg = error instanceof Error ? error.message : String(error);
                 Sentry.addBreadcrumb({
@@ -256,6 +282,8 @@ const App = () => {
                     is_date_route:
                       typeof window !== "undefined" &&
                       /^\/date\/[^/]+\/?$/.test(window.location.pathname),
+                    stale_bundle_error: staleBundleRecovery.isStaleBundleError,
+                    stale_bundle_reload_scheduled: staleBundleRecovery.reloadScheduled,
                   },
                 });
               }}

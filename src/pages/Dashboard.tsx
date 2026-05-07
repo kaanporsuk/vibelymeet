@@ -467,7 +467,14 @@ const Dashboard = () => {
   const formatEventDateTime = (d: Date) => format(d, "EEE, MMM d · h:mm a");
 
   function QuickActionsRail() {
-    type QA = { key: string; icon: ReactNode; label: string; className: string; onClick: () => void };
+    type QA = {
+      key: string;
+      icon: ReactNode;
+      label: string;
+      className: string;
+      onClick: () => void;
+      onPrefetch?: () => void;
+    };
     const actions: QA[] = [];
 
     if (isLiveEvent && isConfirmedForNextEvent && nextEvent) {
@@ -477,6 +484,7 @@ const Dashboard = () => {
         label: "Enter Lobby",
         className:
           "text-white border-transparent bg-gradient-to-r from-neon-violet to-neon-pink shadow-[0_0_20px_-4px_rgba(139,92,246,0.45)]",
+        onPrefetch: () => preloadRoute("eventLobby"),
         onClick: () => navigate(`/event/${nextEvent.id}/lobby`),
       });
     }
@@ -535,6 +543,8 @@ const Dashboard = () => {
           <button
             key={a.key}
             type="button"
+            onMouseEnter={a.onPrefetch}
+            onFocus={a.onPrefetch}
             onClick={a.onClick}
             className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium whitespace-nowrap transition-all hover:scale-[1.02] active:scale-95 ${a.className}`}
           >
@@ -758,6 +768,8 @@ const Dashboard = () => {
               <Button
                 variant="gradient"
                 className="w-full"
+                onMouseEnter={() => preloadRoute("eventLobby")}
+                onFocus={() => preloadRoute("eventLobby")}
                 onClick={() => {
                   recordUserAction("dashboard_enter_lobby_clicked", {
                     surface: "dashboard",

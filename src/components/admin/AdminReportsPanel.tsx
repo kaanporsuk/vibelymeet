@@ -130,6 +130,7 @@ const AdminReportsPanel = () => {
   const [actionNotes, setActionNotes] = useState("");
   const [actionType, setActionType] = useState<ReportActionType>("dismiss");
   const [policyCategory, setPolicyCategory] = useState<PolicyCategory>("other");
+  const normalizedSearchQuery = searchQuery.trim();
 
   const openReportActionDialog = (report: UserReportRow) => {
     setSelectedReport(report);
@@ -151,13 +152,14 @@ const AdminReportsPanel = () => {
 
   // Fetch all reports
   const { data: reports, isLoading } = useQuery({
-    queryKey: ["admin-reports", statusFilter, sortField, sortDirection],
+    queryKey: ["admin-reports", statusFilter, sortField, sortDirection, normalizedSearchQuery],
     queryFn: async () => {
       const payload = await callAdminRpc<ReportsReadModelPayload>("admin_get_reports_read_model", {
         p_status: statusFilter,
         p_sort_field: sortField,
         p_sort_direction: sortDirection,
         p_limit: 200,
+        p_search: normalizedSearchQuery || null,
       });
 
       return (payload.reports ?? []).map((report) => ({

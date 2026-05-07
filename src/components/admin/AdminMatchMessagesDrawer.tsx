@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
@@ -31,6 +30,8 @@ interface Match {
   matched_at: string;
   last_message_at: string | null;
   archived_at: string | null;
+  message_count?: number | null;
+  other_user?: MatchProfile | null;
 }
 
 interface Message {
@@ -51,11 +52,15 @@ interface MatchProfile {
   avatarUrl: string | null;
 }
 
-type MatchMessageCountsPayload = AdminRpcPayload & {
-  rows?: Array<{
-    match_id?: string;
-    message_count?: number;
+type MatchThreadsPayload = AdminRpcPayload & {
+  matches?: Array<Omit<Match, "other_user"> & {
+    other_user?: Omit<MatchProfile, "avatarUrl"> | null;
   }>;
+  total_matches?: number;
+};
+
+type MatchThreadMessagesPayload = AdminRpcPayload & {
+  messages?: Message[];
 };
 
 const AdminMatchMessagesDrawer = ({
@@ -67,86 +72,52 @@ const AdminMatchMessagesDrawer = ({
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [selectedOtherUser, setSelectedOtherUser] = useState<MatchProfile | null>(null);
 
-  // Fetch all matches for this user
-  const { data: matches, isLoading: matchesLoading } = useQuery({
-    queryKey: ["admin-user-all-matches", userId],
+  const { data: matchThreadData, isLoading: matchesLoading, isError: matchesError } = useQuery({
+    queryKey: ["admin-user-match-threads", userId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("matches")
-        .select("*")
-        .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-        .order("matched_at", { ascending: false });
-      if (error) throw error;
-      return data as Match[];
+      const payload = await callAdminRpc<MatchThreadsPayload>("admin_get_user_match_threads", {
+        p_user_id: userId,
+        p_limit: 200,
+      });
+
+      const matches = (payload.matches ?? []).map((match) => {
+        const otherUser = match.other_user
+          ? {
+              ...match.other_user,
+              avatarUrl: avatarPreset(match.other_user.avatar_url || match.other_user.photos?.[0] || null),
+            }
+          : null;
+
+        return {
+          ...match,
+          other_user: otherUser,
+        };
+      });
+
+      return {
+        matches,
+        totalMatches: Number(payload.total_matches ?? matches.length),
+      };
     },
     enabled: isOpen,
   });
 
-  // Fetch profiles for the other users in matches
-  const { data: matchProfiles } = useQuery({
-    queryKey: ["admin-match-all-profiles", matches],
-    queryFn: async () => {
-      if (!matches?.length) return {};
+  const matches = matchThreadData?.matches ?? [];
+  const totalMatches = matchThreadData?.totalMatches ?? matches.length;
 
-      const otherUserIds = matches.map((m) =>
-        m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1
-      );
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, name, avatar_url, photos, age, gender")
-        .in("id", otherUserIds);
-
-      const profileMap: Record<string, MatchProfile> = {};
-      
-      // Resolve avatar URLs via CDN helper
-      for (const p of (data ?? []) as Omit<MatchProfile, "avatarUrl">[]) {
-        let avatar = p.avatar_url;
-        if (!avatar && p.photos?.[0]) {
-          avatar = p.photos[0];
-        }
-        profileMap[p.id] = { ...p, avatarUrl: avatarPreset(avatar) };
-      }
-      return profileMap;
-    },
-    enabled: !!matches?.length,
-  });
-
-  // Fetch messages for selected match
-  const { data: messages, isLoading: messagesLoading } = useQuery({
-    queryKey: ["admin-match-messages", selectedMatchId],
+  const { data: messages, isLoading: messagesLoading, isError: messagesError } = useQuery({
+    queryKey: ["admin-match-thread-messages", userId, selectedMatchId],
     queryFn: async () => {
       if (!selectedMatchId) return [];
 
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("match_id", selectedMatchId)
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      return data as Message[];
-    },
-    enabled: !!selectedMatchId,
-  });
-
-  // Fetch message count per match
-  const { data: messageCounts, isError: messageCountsError, isLoading: messageCountsLoading } = useQuery({
-    queryKey: ["admin-match-message-counts", matches],
-    queryFn: async () => {
-      if (!matches?.length) return {};
-
-      const matchIds = matches.slice(0, 200).map((match) => match.id);
-      const payload = await callAdminRpc<MatchMessageCountsPayload>("admin_get_match_message_counts", {
-        p_match_ids: matchIds,
+      const payload = await callAdminRpc<MatchThreadMessagesPayload>("admin_get_match_thread_messages", {
+        p_user_id: userId,
+        p_match_id: selectedMatchId,
+        p_limit: 500,
       });
-      const counts: Record<string, number> = {};
-      for (const row of payload.rows ?? []) {
-        if (row.match_id) counts[row.match_id] = Number(row.message_count ?? 0);
-      }
-      return counts;
+      return payload.messages ?? [];
     },
-    enabled: !!matches?.length,
+    enabled: isOpen && !!selectedMatchId,
   });
 
   if (!isOpen) return null;
@@ -180,8 +151,10 @@ const AdminMatchMessagesDrawer = ({
               </h2>
               <p className="text-sm text-muted-foreground">
                 {selectedMatchId
-                  ? `${messages?.length || 0} messages`
-                  : `${matches?.length || 0} total matches`}
+                  ? messagesError
+                    ? "Messages unavailable"
+                    : `${messages?.length || 0} messages`
+                  : `${totalMatches} total matches`}
               </p>
             </div>
           </div>
@@ -201,24 +174,22 @@ const AdminMatchMessagesDrawer = ({
                 Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="h-20 bg-secondary/50 rounded-xl animate-pulse" />
                 ))
-              ) : matches?.length === 0 ? (
+              ) : matchesError ? (
+                <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                  Match data unavailable.
+                </div>
+              ) : matches.length === 0 ? (
                 <div className="text-center py-16">
                   <MessageSquare className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
                   <p className="text-lg font-medium text-foreground mb-2">No matches found</p>
                   <p className="text-sm text-muted-foreground">This user doesn't have any matches yet.</p>
                 </div>
               ) : (
-                matches?.map((match, index) => {
-                  const otherId =
-                    match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
-                  const otherUser = matchProfiles?.[otherId];
-                  const msgCount = messageCounts?.[match.id];
+                matches.map((match, index) => {
+                  const otherUser = match.other_user;
+                  const msgCount = match.message_count;
                   const msgCountLabel =
-                    messageCountsLoading
-                      ? "— messages"
-                      : messageCountsError || msgCount === undefined
-                        ? "Messages unavailable"
-                        : `${msgCount} messages`;
+                    typeof msgCount === "number" ? `${msgCount} messages` : "Messages unavailable";
 
                   return (
                     <motion.button
@@ -278,6 +249,10 @@ const AdminMatchMessagesDrawer = ({
                 <div className="flex items-center justify-center py-16">
                   <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
+              ) : messagesError ? (
+                <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+                  Messages unavailable.
+                </div>
               ) : messages?.length === 0 ? (
                 <div className="text-center py-16">
                   <MessageSquare className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
@@ -326,12 +301,16 @@ const AdminMatchMessagesDrawer = ({
         <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="text-sm text-muted-foreground">
             {selectedMatchId ? (
-              <>
-                <span className="text-foreground font-medium">{messages?.length || 0}</span> messages in this conversation
-              </>
+              messagesError ? (
+                <>Messages unavailable</>
+              ) : (
+                <>
+                  <span className="text-foreground font-medium">{messages?.length || 0}</span> messages in this conversation
+                </>
+              )
             ) : (
               <>
-                <span className="text-foreground font-medium">{matches?.length || 0}</span> total matches
+                <span className="text-foreground font-medium">{totalMatches}</span> total matches
               </>
             )}
           </div>

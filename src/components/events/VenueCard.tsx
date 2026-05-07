@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+import { preloadRoute } from "@/lib/routePreload";
 
 interface VenueCardProps {
   isVirtual: boolean;
@@ -97,6 +98,8 @@ const VenueCard = ({
     }
   };
 
+  const prefetchLobby = () => preloadRoute("eventLobby");
+
   if (isVirtual) {
     return (
       <motion.div
@@ -185,6 +188,8 @@ const VenueCard = ({
         {eventStatus === "live" && isRegistered ? (
           <Button 
             className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
+            onMouseEnter={prefetchLobby}
+            onFocus={prefetchLobby}
             onClick={handleEnterLobby}
           >
             <Play className="w-4 h-4 mr-2" />
