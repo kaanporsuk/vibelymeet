@@ -81,11 +81,11 @@ const UserModerationActions = ({
 }: UserModerationActionsProps) => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("actions");
-  
+
   // Suspend form state
   const [suspendReason, setSuspendReason] = useState("");
   const [suspendDuration, setSuspendDuration] = useState<string>("permanent");
-  
+
   // Warning form state
   const [warningReason, setWarningReason] = useState("");
   const [warningMessage, setWarningMessage] = useState("");
@@ -103,8 +103,8 @@ const UserModerationActions = ({
   // Suspend user mutation
   const suspendUser = useMutation({
     mutationFn: async () => {
-      const expiresAt = suspendDuration === 'permanent' 
-        ? null 
+      const expiresAt = suspendDuration === 'permanent'
+        ? null
         : new Date(Date.now() + parseInt(suspendDuration) * 24 * 60 * 60 * 1000).toISOString();
 
       await callAdminRpc("admin_moderate_user", {

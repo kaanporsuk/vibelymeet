@@ -286,8 +286,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         <div className="p-6 border-b border-border flex items-center justify-between">
           <h2 className="text-xl font-bold font-display text-foreground">User Profile</h2>
           <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowProfilePreview(true)}
               className="gap-2"
@@ -295,8 +295,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               <Eye className="w-4 h-4" />
               Preview
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowMatchMessages(true)}
               className="gap-2"
@@ -304,8 +304,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               <MessagesSquare className="w-4 h-4" />
               Messages
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowGrantCredits(true)}
               className="gap-2 text-primary border-primary/30 hover:bg-primary/10"
@@ -313,8 +313,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               <Sparkles className="w-4 h-4" />
               Credits
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowPremiumModal(true)}
               className="gap-2 text-accent border-accent/30 hover:bg-accent/10"
@@ -322,8 +322,8 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
               <Crown className="w-4 h-4" />
               Premium
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowModeration(true)}
               className="gap-2 text-yellow-500 border-yellow-500/30 hover:bg-yellow-500/10"
@@ -668,7 +668,7 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                               {format(new Date(drop.created_at), 'MMM d, yyyy')}
                             </p>
                           </div>
-                          <Badge 
+                          <Badge
                             variant="outline"
                             className={
                               drop.status === 'matched'
