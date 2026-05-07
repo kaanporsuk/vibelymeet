@@ -101,17 +101,12 @@ type AdminUserProfileRow = {
   bunny_video_uid: string | null;
   bunny_video_status: string | null;
   vibe_caption: string | null;
-  lifestyle: unknown;
-  prompts: unknown;
   photo_verified: boolean | null;
-  phone_number: string | null;
-  phone_verified: boolean | null;
   email_verified: boolean | null;
   verified_email: string | null;
   is_premium: boolean | null;
   premium_until: string | null;
   is_suspended: boolean | null;
-  suspension_reason: string | null;
   total_matches: number | null;
   total_conversations: number | null;
   created_at: string;

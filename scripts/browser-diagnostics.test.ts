@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  hasStaleBundleReloadAlreadyAttempted,
   isLikelyStaleBundleError,
   recordBrowserEvent,
   sanitizeBrowserDiagnosticPayload,
@@ -72,6 +73,20 @@ assert.equal(
   true,
 );
 assert.equal(isLikelyStaleBundleError(Object.assign(new Error("Loading chunk EventLobby failed."), { name: "ChunkLoadError" })), true);
+assert.equal(isLikelyStaleBundleError(new Error("Unable to preload CSS for /assets/index-B-MxQWnZ.css")), true);
 assert.equal(isLikelyStaleBundleError(new Error("ordinary component render failure")), false);
+
+const previousWindow = (globalThis as { window?: unknown }).window;
+(globalThis as { window?: unknown }).window = {
+  name: "vibely_stale_bundle_reload:%2Fassets%2Findex-Test.js",
+  sessionStorage: {
+    getItem() {
+      throw new Error("storage unavailable");
+    },
+  },
+};
+assert.equal(hasStaleBundleReloadAlreadyAttempted("/assets/index-Test.js"), true);
+assert.equal(hasStaleBundleReloadAlreadyAttempted("/assets/index-Other.js"), false);
+(globalThis as { window?: unknown }).window = previousWindow;
 
 console.log("browser diagnostics sanitization tests passed");

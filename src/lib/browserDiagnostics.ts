@@ -15,6 +15,7 @@ const MAX_OBJECT_KEYS = 30;
 const MAX_PAYLOAD_CHARS = 8_000;
 const SLOW_EXCHANGE_MS = 10_000;
 const STALE_BUNDLE_RELOAD_KEY_PREFIX = "vibely.stale_bundle_reload.v1:";
+const STALE_BUNDLE_WINDOW_NAME_PREFIX = "vibely_stale_bundle_reload:";
 
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -36,6 +37,7 @@ const STALE_BUNDLE_ERROR_PATTERNS = [
   /Importing a module script failed/i,
   /ChunkLoadError/i,
   /Loading chunk [\w-]+ failed/i,
+  /Unable to preload CSS for/i,
   /Expected a JavaScript(?:-or-Wasm)? module script[\s\S]*MIME type(?: of)? ["']?text\/html/i,
   /Failed to load module script[\s\S]*text\/html/i,
 ];
@@ -249,7 +251,27 @@ function staleBundleReloadKey(entryModulePath: string | null): string {
   return `${STALE_BUNDLE_RELOAD_KEY_PREFIX}${entryModulePath ?? "unknown-entry"}`;
 }
 
+function staleBundleWindowNameMarker(entryModulePath: string | null): string {
+  return `${STALE_BUNDLE_WINDOW_NAME_PREFIX}${encodeURIComponent(entryModulePath ?? "unknown-entry")}`;
+}
+
+function windowNameHasStaleBundleMarker(entryModulePath: string | null): boolean {
+  if (typeof window === "undefined") return false;
+  return window.name.split("|").includes(staleBundleWindowNameMarker(entryModulePath));
+}
+
+function markStaleBundleReloadInWindowName(entryModulePath: string | null): void {
+  if (typeof window === "undefined") return;
+  const marker = staleBundleWindowNameMarker(entryModulePath);
+  const parts = window.name ? window.name.split("|") : [];
+  if (parts.includes(marker)) return;
+  parts.push(marker);
+  window.name = parts.filter(Boolean).slice(-12).join("|");
+}
+
 export function hasStaleBundleReloadAlreadyAttempted(entryModulePath = getCurrentEntryModulePath()): boolean {
+  if (windowNameHasStaleBundleMarker(entryModulePath)) return true;
+
   const storage = sessionStorageOrNull();
   if (!storage) return false;
 
@@ -261,6 +283,8 @@ export function hasStaleBundleReloadAlreadyAttempted(entryModulePath = getCurren
 }
 
 function markStaleBundleReloadAttempted(entryModulePath: string | null): void {
+  markStaleBundleReloadInWindowName(entryModulePath);
+
   const storage = sessionStorageOrNull();
   if (!storage) return;
 
