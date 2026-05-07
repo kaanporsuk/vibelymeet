@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Crown, X, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { supabase } from "@/integrations/supabase/client";
 import { format, addWeeks, addMonths, addYears } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
@@ -22,6 +21,7 @@ interface AdminPremiumModalProps {
   userName: string;
   currentIsPremium: boolean;
   currentPremiumUntil: string | null;
+  history?: PremiumHistoryEntry[];
   isOpen: boolean;
   onClose: () => void;
 }
@@ -66,6 +66,7 @@ const AdminPremiumModal = ({
   userName,
   currentIsPremium,
   currentPremiumUntil,
+  history = [],
   isOpen,
   onClose,
 }: AdminPremiumModalProps) => {
@@ -78,32 +79,10 @@ const AdminPremiumModal = ({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [grantTier, setGrantTier] = useState<"premium" | "vip">("premium");
 
-  const { data: history } = useQuery({
-    queryKey: ["premium-history", userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("premium_history")
-        .select("id, action, premium_until, reason, created_at, admin_id")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (!data?.length) return [];
-      const adminIds = [...new Set(data.map((h) => h.admin_id).filter(Boolean))];
-      const adminMap: Record<string, string> = {};
-      if (adminIds.length) {
-        const { data: admins } = await supabase
-          .from("profiles")
-          .select("id, name")
-          .in("id", adminIds);
-        admins?.forEach((a) => { adminMap[a.id] = a.name; });
-      }
-      return data.map((h) => ({
-        ...h,
-        adminName: h.admin_id ? adminMap[h.admin_id] || "Admin" : "System",
-      }));
-    },
-    enabled: isOpen,
-  });
+  const closeModal = () => {
+    setPendingAction(null);
+    onClose();
+  };
 
   const getTargetDate = (baseDate: Date): Date => {
     if (duration === "custom") {
@@ -116,7 +95,6 @@ const AdminPremiumModal = ({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", userId] }),
-      queryClient.invalidateQueries({ queryKey: ["premium-history", userId] }),
     ]);
   };
 
@@ -136,7 +114,7 @@ const AdminPremiumModal = ({
 
       toast.success(`Premium granted to ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
       await invalidatePremiumQueries();
-      onClose();
+      closeModal();
     } catch (e: unknown) {
       toast.error(premiumErrorMessage(e, "Failed to grant premium"));
     } finally {
@@ -167,7 +145,7 @@ const AdminPremiumModal = ({
 
       toast.success(`Premium extended for ${userName} until ${format(targetDate, "MMM d, yyyy")}`);
       await invalidatePremiumQueries();
-      onClose();
+      closeModal();
     } catch (e: unknown) {
       toast.error(premiumErrorMessage(e, "Failed to extend premium"));
     } finally {
@@ -189,7 +167,7 @@ const AdminPremiumModal = ({
 
       toast.success(`Premium revoked for ${userName}`);
       await invalidatePremiumQueries();
-      onClose();
+      closeModal();
     } catch (e: unknown) {
       toast.error(premiumErrorMessage(e, "Failed to revoke premium"));
     } finally {
@@ -232,9 +210,13 @@ const AdminPremiumModal = ({
   };
 
   const actionBadgeColor: Record<string, string> = {
+    grant: "bg-green-500/20 text-green-400 border-green-500/30",
     granted: "bg-green-500/20 text-green-400 border-green-500/30",
+    extend: "bg-blue-500/20 text-blue-400 border-blue-500/30",
     extended: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    revoke: "bg-destructive/20 text-destructive border-destructive/30",
     revoked: "bg-destructive/20 text-destructive border-destructive/30",
+    expire: "bg-muted text-muted-foreground border-border",
     expired: "bg-muted text-muted-foreground border-border",
   };
 
@@ -247,7 +229,7 @@ const AdminPremiumModal = ({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
-        onClick={onClose}
+        onClick={closeModal}
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -266,7 +248,7 @@ const AdminPremiumModal = ({
               <p className="text-xs text-muted-foreground">{userName}</p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={closeModal}>
             <X className="w-5 h-5" />
           </Button>
         </div>
@@ -410,10 +392,10 @@ const AdminPremiumModal = ({
             Premium History
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 space-y-2">
-            {history?.length === 0 && (
+            {history.length === 0 && (
               <p className="text-xs text-muted-foreground">No history yet</p>
             )}
-            {(history as PremiumHistoryEntry[] | undefined)?.map((entry) => (
+            {history.map((entry) => (
               <div key={entry.id} className="flex items-start gap-2 text-xs p-2 rounded-lg bg-secondary/30">
                 <Badge variant="outline" className={`text-[10px] shrink-0 ${actionBadgeColor[entry.action] || ""}`}>
                   {entry.action}

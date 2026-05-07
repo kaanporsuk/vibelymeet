@@ -20,6 +20,7 @@ interface AdminEventControlsProps {
 type PendingEventControlAction =
   | { kind: "go-live" }
   | { kind: "end" }
+  | { kind: "finalize-end" }
   | { kind: "extend"; minutes: number }
   | { kind: "reminder" }
   | null;
@@ -38,6 +39,20 @@ const AdminEventControls = ({
   const [isSendingReminder, setIsSendingReminder] = useState(false);
   const [isGoingLive, setIsGoingLive] = useState(false);
 
+  const broadcastEventEnded = () => {
+    const channel = supabase.channel(`event-status-${eventId}`);
+    void channel
+      .send({
+        type: "broadcast",
+        event: "event_ended",
+        payload: { eventId },
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        void supabase.removeChannel(channel);
+      });
+  };
+
   const endEvent = useMutation({
     mutationFn: async () => {
       await callAdminRpc("admin_end_event", {
@@ -45,16 +60,9 @@ const AdminEventControls = ({
         p_reason: "Ended from /kaan dashboard",
         p_idempotency_key: createAdminIdempotencyKey("admin_end_event"),
       });
-
-      const channel = supabase.channel(`event-status-${eventId}`);
-      await channel.send({
-        type: "broadcast",
-        event: "event_ended",
-        payload: { eventId },
-      });
-      supabase.removeChannel(channel);
     },
     onSuccess: () => {
+      broadcastEventEnded();
       queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       queryClient.invalidateQueries({ queryKey: ["events"] });
       queryClient.invalidateQueries({ queryKey: ["visible-events"] });
@@ -88,6 +96,9 @@ const AdminEventControls = ({
   const isCancelled = normalizedRawStatus === "cancelled";
   const isCompleted = normalizedRawStatus === "completed";
   const isComputedEnded = normalizedComputedStatus === "ended";
+  const isUpcoming = normalizedComputedStatus === "upcoming";
+  const isLive = normalizedComputedStatus === "live";
+  const showFinalizeEnd = isComputedEnded && !endedAt;
   const showGoLive = normalizedComputedStatus === "live" && normalizedRawStatus !== "live";
   const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
 
@@ -154,6 +165,13 @@ const AdminEventControls = ({
             "This calls admin_end_event. The backend writes events.status = ended and ended_at, audits the action, then the client broadcasts the local event-ended signal.",
           confirmLabel: "End Event",
         };
+      case "finalize-end":
+        return {
+          title: `Finalize end for "${eventTitle}"?`,
+          description:
+            "This calls admin_end_event for a row whose computed window has already ended but has no ended_at timestamp yet. The backend writes the terminal lifecycle fields and audits the action.",
+          confirmLabel: "Finalize End",
+        };
       case "extend":
         return {
           title: `Extend "${eventTitle}" by ${pendingAction.minutes} minutes?`,
@@ -176,7 +194,7 @@ const AdminEventControls = ({
   const handleConfirmAction = async () => {
     if (!pendingAction) return;
     if (pendingAction.kind === "go-live") return handleGoLive();
-    if (pendingAction.kind === "end") return endEvent.mutateAsync();
+    if (pendingAction.kind === "end" || pendingAction.kind === "finalize-end") return endEvent.mutateAsync();
     if (pendingAction.kind === "extend") return extendEvent.mutateAsync(pendingAction.minutes);
     return handleSendReminder();
   };
@@ -203,37 +221,53 @@ const AdminEventControls = ({
             Go Live
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="destructive"
-          className="gap-1.5"
-          onClick={() => setPendingAction({ kind: "end" })}
-          disabled={endEvent.isPending}
-        >
-          <StopCircle className="w-3.5 h-3.5" />
-          End Event
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => setPendingAction({ kind: "extend", minutes: 15 })}
-          disabled={extendEvent.isPending}
-        >
-          <Plus className="w-3.5 h-3.5" />
-          +15 min
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => setPendingAction({ kind: "extend", minutes: 30 })}
-          disabled={extendEvent.isPending}
-        >
-          <Plus className="w-3.5 h-3.5" />
-          +30 min
-        </Button>
-        {!isComputedEnded && (
+        {showFinalizeEnd && (
+          <Button
+            size="sm"
+            variant="destructive"
+            className="gap-1.5"
+            onClick={() => setPendingAction({ kind: "finalize-end" })}
+            disabled={endEvent.isPending}
+          >
+            <StopCircle className="w-3.5 h-3.5" />
+            Finalize End
+          </Button>
+        )}
+        {isLive && (
+          <>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-1.5"
+              onClick={() => setPendingAction({ kind: "end" })}
+              disabled={endEvent.isPending}
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              End Event
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setPendingAction({ kind: "extend", minutes: 15 })}
+              disabled={extendEvent.isPending}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              +15 min
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setPendingAction({ kind: "extend", minutes: 30 })}
+              disabled={extendEvent.isPending}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              +30 min
+            </Button>
+          </>
+        )}
+        {(isLive || isUpcoming) && (
           <Button
             size="sm"
             variant="outline"

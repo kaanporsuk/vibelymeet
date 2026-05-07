@@ -247,9 +247,9 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
   const [generateCount, setGenerateCount] = useState(8);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const totalCapacity = (parseInt(maxMaleAttendees) || 0) +
-    (parseInt(maxFemaleAttendees) || 0) +
-    (parseInt(maxNonbinaryAttendees) || 0);
+  const totalCapacity = (parseInt(maxMaleAttendees, 10) || 0) +
+    (parseInt(maxFemaleAttendees, 10) || 0) +
+    (parseInt(maxNonbinaryAttendees, 10) || 0);
 
   /** Matches save payload: empty gender fields fall back to default max (50). */
   const effectiveMaxAttendees = totalCapacity > 0 ? totalCapacity : 50;
@@ -387,13 +387,13 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         cover_image: coverImage,
         language: language || null,
         event_date: eventDateTime.toISOString(),
-        duration_minutes: parseInt(duration),
+        duration_minutes: parseInt(duration, 10),
         max_attendees: totalCapacity || 50,
         tags: selectedTags,
         vibes: selectedVibes,
-        max_male_attendees: maxMaleAttendees ? parseInt(maxMaleAttendees) : null,
-        max_female_attendees: maxFemaleAttendees ? parseInt(maxFemaleAttendees) : null,
-        max_nonbinary_attendees: maxNonbinaryAttendees ? parseInt(maxNonbinaryAttendees) : null,
+        max_male_attendees: maxMaleAttendees ? parseInt(maxMaleAttendees, 10) : null,
+        max_female_attendees: maxFemaleAttendees ? parseInt(maxFemaleAttendees, 10) : null,
+        max_nonbinary_attendees: maxNonbinaryAttendees ? parseInt(maxNonbinaryAttendees, 10) : null,
         visibility, is_free: isFree,
         price_amount: isFree ? 0 : parseFloat(priceAmount),
         price_currency: priceCurrency,
@@ -406,7 +406,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         is_recurring: isRecurring,
         recurrence_type: isRecurring ? recurrenceType : null,
         recurrence_days: isRecurring && ['weekly', 'biweekly'].includes(recurrenceType) ? selectedDays : null,
-        recurrence_count: isRecurring && recurrenceEnd === 'after' ? parseInt(endsAfterCount) : null,
+        recurrence_count: isRecurring && recurrenceEnd === 'after' ? parseInt(endsAfterCount, 10) : null,
         recurrence_ends_at: isRecurring && recurrenceEnd === 'on_date' && endsOnDate ? new Date(endsOnDate).toISOString() : null,
       };
 
@@ -474,6 +474,82 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       toast.error('Please fill in all required fields');
       return;
     }
+
+    const durationMinutes = parseInt(duration, 10);
+    if (!Number.isFinite(durationMinutes) || durationMinutes < 15 || durationMinutes > 480) {
+      toast.error("Duration must be between 15 and 480 minutes");
+      return;
+    }
+
+    if (effectiveMaxAttendees < 1 || effectiveMaxAttendees > 10000) {
+      toast.error("Capacity must be between 1 and 10000 attendees");
+      return;
+    }
+
+    for (const [label, raw] of [
+      ["Male spots", maxMaleAttendees],
+      ["Female spots", maxFemaleAttendees],
+      ["Non-binary spots", maxNonbinaryAttendees],
+    ] as const) {
+      if (!raw.trim()) continue;
+      const cap = parseInt(raw, 10);
+      if (!Number.isFinite(cap) || cap < 0 || cap > 10000) {
+        toast.error(`${label} must be a number from 0 to 10000`);
+        return;
+      }
+    }
+
+    if (!isFree) {
+      const price = parseFloat(priceAmount);
+      if (!Number.isFinite(price) || price <= 0) {
+        toast.error("Paid events require a price greater than 0");
+        return;
+      }
+    }
+
+    if (scope === "regional" && !resolvedCountry.trim()) {
+      toast.error("Regional events require a country");
+      return;
+    }
+
+    if (scope === "local") {
+      const hasValidCoordinates =
+        resolvedLat != null &&
+        resolvedLng != null &&
+        Number.isFinite(resolvedLat) &&
+        Number.isFinite(resolvedLng) &&
+        resolvedLat >= -90 &&
+        resolvedLat <= 90 &&
+        resolvedLng >= -180 &&
+        resolvedLng <= 180;
+      if (!hasValidCoordinates || !resolvedCity.trim()) {
+        toast.error("Local events require a selected city with coordinates");
+        return;
+      }
+      if (!Number.isFinite(radiusKm) || radiusKm < 5 || radiusKm > 500) {
+        toast.error("Local event radius must be between 5 and 500 km");
+        return;
+      }
+    }
+
+    if (isRecurring) {
+      if (["weekly", "biweekly"].includes(recurrenceType) && selectedDays.length === 0) {
+        toast.error("Recurring weekly events require at least one day");
+        return;
+      }
+      if (recurrenceEnd === "after") {
+        const count = parseInt(endsAfterCount, 10);
+        if (!Number.isFinite(count) || count < 1 || count > 100) {
+          toast.error("Recurrence end count must be between 1 and 100");
+          return;
+        }
+      }
+      if (generateCount < 1 || generateCount > 52) {
+        toast.error("Generated occurrence count must be between 1 and 52");
+        return;
+      }
+    }
+
     if (genderCapWarnings.length > 0) {
       const ok = window.confirm(
         [
@@ -835,7 +911,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                   )}
                 </div>
 
-                {resolvedLat && resolvedCity && (
+                {resolvedLat != null && resolvedCity && (
                   <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
                     <MapPin className="w-4 h-4 text-primary shrink-0" />
                     <span className="text-sm text-foreground font-medium">{resolvedCity}, {resolvedCountry}</span>
@@ -857,7 +933,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
                     ))}
                     <div className="flex items-center gap-1">
                       <Input type="number" value={customRadius} min="5" max="500"
-                        onChange={(e) => { setCustomRadius(e.target.value); if (e.target.value) setRadiusKm(parseInt(e.target.value)); }}
+                        onChange={(e) => { setCustomRadius(e.target.value); if (e.target.value) setRadiusKm(parseInt(e.target.value, 10)); }}
                         placeholder="Custom" className="w-24 h-8 text-sm bg-secondary/50" />
                       <span className="text-sm text-muted-foreground">km</span>
                     </div>

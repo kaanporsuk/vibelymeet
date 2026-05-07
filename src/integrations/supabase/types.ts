@@ -4793,8 +4793,22 @@ export type Database = {
       admin_json_success: { Args: { p_data?: Json }; Returns: Json }
       admin_jsonb_int_array: { Args: { p_value: Json }; Returns: number[] }
       admin_jsonb_text_array: { Args: { p_value: Json }; Returns: string[] }
+      admin_list_events: {
+        Args: { p_filters?: Json; p_limit?: number; p_offset?: number }
+        Returns: Json
+      }
       admin_list_notifications: {
         Args: { p_filters?: Json; p_limit?: number; p_offset?: number }
+        Returns: Json
+      }
+      admin_mark_event_attendance: {
+        Args: {
+          p_attended: boolean
+          p_event_id: string
+          p_idempotency_key?: string
+          p_reason?: string
+          p_registration_ids: string[]
+        }
         Returns: Json
       }
       admin_mark_notifications_read: {
@@ -4818,7 +4832,12 @@ export type Database = {
         Returns: Json
       }
       admin_remove_event_registration: {
-        Args: { p_event_id: string; p_profile_id: string }
+        Args: {
+          p_event_id: string
+          p_idempotency_key?: string
+          p_profile_id: string
+          p_reason?: string
+        }
         Returns: Json
       }
       admin_resolve_report: {
@@ -4911,6 +4930,10 @@ export type Database = {
           p_idempotency_key?: string
           p_payload: Json
         }
+        Returns: Json
+      }
+      admin_validate_event_payload: {
+        Args: { p_is_create?: boolean; p_payload: Json }
         Returns: Json
       }
       admin_user_has_permission: {

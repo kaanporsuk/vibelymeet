@@ -12,7 +12,7 @@ const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dash
 const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
 const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
 const reviewCommentFollowupMigration = read("supabase/migrations/20260507123000_admin_review_comment_followup.sql");
-const userDetailProjectionMigration = read("supabase/migrations/20260507131000_admin_user_detail_read_model_projection.sql");
+const adminUsersLifecycleMigration = read("supabase/migrations/20260507143000_admin_users_lifecycle_read_models.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
@@ -32,6 +32,7 @@ const reportsSummary = read("src/components/admin/AdminReportsSummary.tsx");
 const pushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
 const matchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
 const adminUserDetail = read("src/components/admin/AdminUserDetailDrawer.tsx");
+const adminProfilePreview = read("src/components/admin/AdminProfilePreview.tsx");
 const support = read("src/components/admin/SupportInbox.tsx");
 const stats = read("src/components/admin/AdminStatsCards.tsx");
 const overviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
@@ -105,15 +106,15 @@ function reviewCommentFollowupFnSection(fnName: string): string {
   return reviewCommentFollowupMigration.slice(start, end);
 }
 
-function userDetailProjectionFnSection(fnName: string): string {
+function adminUsersLifecycleFnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
-  const start = userDetailProjectionMigration.indexOf(marker);
+  const start = adminUsersLifecycleMigration.indexOf(marker);
   assert.notEqual(start, -1, `Missing function ${fnName}`);
-  const next = userDetailProjectionMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
-  const revoke = userDetailProjectionMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const next = adminUsersLifecycleMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = adminUsersLifecycleMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
   const candidates = [next, revoke].filter((i) => i !== -1);
-  const end = candidates.length ? Math.min(...candidates) : userDetailProjectionMigration.length;
-  return userDetailProjectionMigration.slice(start, end);
+  const end = candidates.length ? Math.min(...candidates) : adminUsersLifecycleMigration.length;
+  return adminUsersLifecycleMigration.slice(start, end);
 }
 
 const mutationRpcs = [
@@ -212,6 +213,8 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(eventControls, /callAdminRpc\("admin_go_live_event"/);
   assert.match(eventControls, /callAdminRpc\("admin_send_event_reminder"/);
   assert.match(eventAttendees, /callAdminRpc\("admin_send_event_reminder"/);
+  assert.match(eventAttendees, /callAdminRpc\("admin_remove_event_registration"/);
+  assert.match(eventAttendees, /callAdminRpc<\{ affected_count\?: number \}>\("admin_mark_event_attendance"/);
   assert.match(eventAttendees, /AdminConfirmDialog/);
   assert.match(eventAttendees, /no browser-side notification loop runs from this panel/);
   assert.match(eventAttendees, /Remove Registration/);
@@ -259,6 +262,7 @@ test("covered admin UI no longer performs known multi-step browser writes", () =
     reports,
     moderation,
     eventControls,
+    eventAttendees,
     events,
     eventForm,
     batchImport,
@@ -276,6 +280,7 @@ test("covered admin UI no longer performs known multi-step browser writes", () =
     /from\(["']photo_verifications["']\)[\s\S]{0,300}\.update\(/,
     /from\(["']admin_notifications["']\)[\s\S]{0,300}\.(update|delete)\(/,
     /from\(["']events["']\)[\s\S]{0,300}\.(insert|update|delete)\(/,
+    /from\(["']event_registrations["']\)[\s\S]{0,300}\.update\(/,
     /rpc\(["']generate_recurring_events["']/,
   ];
 
@@ -317,6 +322,42 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.doesNotMatch(quickActions, /\.from\(['"]user_reports['"]\)/);
   assert.doesNotMatch(quickActions, /\.from\(['"]events['"]\)/);
   assert.doesNotMatch(dailyDrop, /\.from\(['"]daily_drops['"]\)/);
+});
+
+test("latest admin Users search read model exposes lifecycle fields and filters", () => {
+  const userSearch = adminUsersLifecycleFnSection("admin_search_users");
+
+  assert.match(userSearch, /SECURITY DEFINER/);
+  assert.match(userSearch, /SET search_path = public, pg_catalog/);
+  assert.match(userSearch, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(userSearch, /v_filters := CASE/);
+  assert.match(userSearch, /User filters must be a JSON object/);
+  assert.match(userSearch, /photo_verified filter must be boolean/);
+  assert.match(userSearch, /is_suspended filter must be boolean/);
+  assert.match(userSearch, /relationship_intents filter must be an array/);
+  assert.match(userSearch, /v_lifecycle_filter/);
+  assert.match(userSearch, /NOT IN \('all', 'complete', 'incomplete', 'bootstrap_fresh', 'suspended'\)/);
+  assert.match(userSearch, /v_filters ->> 'lifecycle_status'/);
+  assert.match(userSearch, /lifecycle_status IN \('bootstrap_fresh', 'incomplete', 'incomplete_active'\)/);
+  assert.match(userSearch, /COALESCE\(vibes\.vibe_count, 0\) = 0/);
+  assert.match(userSearch, /p\.lifestyle IS NULL OR p\.lifestyle = '\{\}'::jsonb/);
+  assert.match(userSearch, /p\.prompts IS NULL OR p\.prompts = '\[\]'::jsonb/);
+  assert.match(userSearch, /'onboarding_complete', page\.onboarding_complete/);
+  assert.match(userSearch, /'onboarding_stage', page\.onboarding_stage/);
+  assert.match(userSearch, /'last_seen_at', page\.last_seen_at/);
+  assert.match(userSearch, /'is_bootstrap_fresh', page\.is_bootstrap_fresh/);
+  assert.match(userSearch, /'has_activity', page\.has_activity/);
+  assert.match(userSearch, /'lifecycle_status', page\.lifecycle_status/);
+  assert.match(userSearch, /'age_is_placeholder', page\.age_is_placeholder/);
+  assert.match(userSearch, /count\(\*\) FILTER \(WHERE er\.attended IS TRUE\)::integer AS attended_count/);
+  assert.match(userSearch, /confirmed_attendance counts attended IS TRUE only/);
+  assert.doesNotMatch(userSearch, /attendance_marked IS TRUE OR er\.attended IS TRUE/);
+  assert.match(userSearch, /'filter_semantics'[\s\S]*complete, incomplete, bootstrap_fresh, and suspended/);
+  assert.doesNotMatch(userSearch, /SELECT\s+p\.\*/);
+  assert.doesNotMatch(userSearch, /to_jsonb\(p\)/);
+  assert.doesNotMatch(userSearch, /to_jsonb\(page\)/);
+  assert.match(adminUsersLifecycleMigration, /REVOKE ALL ON FUNCTION public\.admin_search_users\(text, jsonb, text, integer, integer\) FROM PUBLIC/);
+  assert.match(adminUsersLifecycleMigration, /GRANT EXECUTE ON FUNCTION public\.admin_search_users\(text, jsonb, text, integer, integer\) TO authenticated/);
 });
 
 test("dashboard badge counts are backend RPC based and avoid direct HEAD counts", () => {
@@ -397,7 +438,7 @@ test("admin panel list/detail read model RPCs are security definer, admin checke
   assert.match(readModelSweepFnSection("admin_get_user_match_threads"), /LEFT JOIN public\.messages/);
   assert.match(readModelSweepFnSection("admin_get_match_thread_messages"), /WHERE msg\.match_id = p_match_id/);
 
-  const userDetailProjection = userDetailProjectionFnSection("admin_get_user_detail_read_model");
+  const userDetailProjection = adminUsersLifecycleFnSection("admin_get_user_detail_read_model");
   assert.match(userDetailProjection, /SECURITY DEFINER/);
   assert.match(userDetailProjection, /SET search_path = public, pg_catalog/);
   assert.match(userDetailProjection, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
@@ -408,10 +449,17 @@ test("admin panel list/detail read model RPCs are security definer, admin checke
   assert.doesNotMatch(userDetailProjection, /referred_by/);
   assert.doesNotMatch(userDetailProjection, /phone_number/);
   assert.doesNotMatch(userDetailProjection, /phone_verified/);
-  assert.doesNotMatch(userDetailProjection, /lifestyle/);
-  assert.doesNotMatch(userDetailProjection, /prompts/);
-  assert.match(userDetailProjectionMigration, /REVOKE ALL ON FUNCTION public\.admin_get_user_detail_read_model\(uuid\) FROM PUBLIC/);
-  assert.match(userDetailProjectionMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_user_detail_read_model\(uuid\) TO authenticated/);
+  assert.match(userDetailProjection, /'lifestyle', p\.lifestyle/);
+  assert.match(userDetailProjection, /'prompts', p\.prompts/);
+  assert.match(userDetailProjection, /'moderation', v_moderation/);
+  assert.match(userDetailProjection, /'premium_history', v_premium_history/);
+  assert.match(userDetailProjection, /'credits', v_credits/);
+  assert.match(userDetailProjection, /public\.user_suspensions/);
+  assert.match(userDetailProjection, /public\.user_warnings/);
+  assert.match(userDetailProjection, /public\.premium_history/);
+  assert.match(userDetailProjection, /public\.user_credits/);
+  assert.match(adminUsersLifecycleMigration, /REVOKE ALL ON FUNCTION public\.admin_get_user_detail_read_model\(uuid\) FROM PUBLIC/);
+  assert.match(adminUsersLifecycleMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_user_detail_read_model\(uuid\) TO authenticated/);
 
   const reportsFollowup = reviewCommentFollowupFnSection("admin_get_reports_read_model");
   assert.match(reviewCommentFollowupMigration, /DROP FUNCTION IF EXISTS public\.admin_get_reports_read_model\(text, text, text, integer\)/);
@@ -459,6 +507,9 @@ test("named residual admin panels use backend read models instead of browser tab
   assert.match(pushCampaigns, /callAdminRpc\("admin_upsert_push_campaign_draft"/);
   assert.match(pushCampaigns, /callAdminRpc\("admin_delete_push_campaign_draft"/);
   assert.match(adminUserDetail, /callAdminRpc<UserDetailReadModelPayload>\("admin_get_user_detail_read_model"/);
+  assert.match(adminUserDetail, /<AdminProfilePreview[\s\S]*profile=\{profile\}[\s\S]*vibes=\{vibes\}/);
+  assert.match(adminUserDetail, /moderation=\{moderation\}/);
+  assert.match(adminUserDetail, /history=\{premiumHistory\}/);
   assert.match(matchMessages, /callAdminRpc<MatchThreadsPayload>\("admin_get_user_match_threads"/);
   assert.match(matchMessages, /callAdminRpc<MatchThreadMessagesPayload>\("admin_get_match_thread_messages"/);
 
@@ -469,6 +520,9 @@ test("named residual admin panels use backend read models instead of browser tab
   assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_campaigns['"]\)/);
   assert.doesNotMatch(pushCampaigns, /\.from\(['"]push_notification_events(?:_admin)?['"]\)/);
   assert.doesNotMatch(adminUserDetail, /\.from\(['"]/);
+  assert.doesNotMatch(adminProfilePreview, /\.from\(['"]/);
+  assert.doesNotMatch(moderation, /\.from\(['"]/);
+  assert.doesNotMatch(premium, /\.from\(['"]/);
   assert.doesNotMatch(matchMessages, /\.from\(['"]/);
   assert.doesNotMatch(adminUserDetail, /admin_get_user_detail_counts/);
   assert.doesNotMatch(matchMessages, /admin_get_match_message_counts/);

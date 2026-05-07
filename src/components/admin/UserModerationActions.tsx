@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
   AlertTriangle,
@@ -31,15 +31,43 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 
+export type AdminSuspensionRow = {
+  id: string;
+  user_id?: string | null;
+  suspended_by?: string | null;
+  reason: string | null;
+  suspended_at: string;
+  expires_at: string | null;
+  lifted_at: string | null;
+  lifted_by?: string | null;
+  status: string;
+};
+
+export type AdminWarningRow = {
+  id: string;
+  user_id?: string | null;
+  issued_by?: string | null;
+  reason: string;
+  message: string;
+  acknowledged_at: string | null;
+  created_at: string;
+};
+
+export type AdminModerationReadModel = {
+  current_suspension?: AdminSuspensionRow | null;
+  suspension_history?: AdminSuspensionRow[];
+  warning_history?: AdminWarningRow[];
+};
+
 interface UserModerationActionsProps {
   userId: string;
   userName: string;
+  moderation?: AdminModerationReadModel | null;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -47,6 +75,7 @@ interface UserModerationActionsProps {
 const UserModerationActions = ({
   userId,
   userName,
+  moderation,
   isOpen,
   onClose,
 }: UserModerationActionsProps) => {
@@ -67,45 +96,9 @@ const UserModerationActions = ({
     onConfirm: () => void | Promise<unknown>;
   } | null>(null);
 
-  // Fetch current suspension status
-  const { data: currentSuspension } = useQuery({
-    queryKey: ['user-suspension', userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('user_suspensions')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'active')
-        .single();
-      return data;
-    },
-  });
-
-  // Fetch suspension history
-  const { data: suspensionHistory } = useQuery({
-    queryKey: ['user-suspension-history', userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('user_suspensions')
-        .select('*')
-        .eq('user_id', userId)
-        .order('suspended_at', { ascending: false });
-      return data || [];
-    },
-  });
-
-  // Fetch warning history
-  const { data: warningHistory } = useQuery({
-    queryKey: ['user-warning-history', userId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('user_warnings')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-      return data || [];
-    },
-  });
+  const currentSuspension = moderation?.current_suspension ?? null;
+  const suspensionHistory = moderation?.suspension_history ?? [];
+  const warningHistory = moderation?.warning_history ?? [];
 
   // Suspend user mutation
   const suspendUser = useMutation({
@@ -124,16 +117,14 @@ const UserModerationActions = ({
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-suspension', userId] });
-      queryClient.invalidateQueries({ queryKey: ['user-suspension-history', userId] });
       queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success(`${userName} has been suspended`);
       setSuspendReason("");
       setSuspendDuration("permanent");
     },
-    onError: (error) => {
+    onError: () => {
       toast.error('Failed to suspend user');
-      console.error(error);
     },
   });
 
@@ -152,9 +143,8 @@ const UserModerationActions = ({
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-suspension', userId] });
-      queryClient.invalidateQueries({ queryKey: ['user-suspension-history', userId] });
       queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success(`Suspension lifted for ${userName}`);
     },
     onError: () => {
@@ -175,7 +165,8 @@ const UserModerationActions = ({
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-warning-history', userId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-user-detail', userId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
       toast.success(`Warning sent to ${userName}`);
       setWarningReason("");
       setWarningMessage("");
@@ -187,9 +178,15 @@ const UserModerationActions = ({
 
   const moderationPending = suspendUser.isPending || liftSuspension.isPending || sendWarning.isPending;
   const suspensionDurationLabel = suspendDuration === "permanent" ? "permanent" : `${suspendDuration} day${suspendDuration === "1" ? "" : "s"}`;
+  const handleDialogOpenChange = (open: boolean) => {
+    if (!open) {
+      setConfirmation(null);
+      onClose();
+    }
+  };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -456,7 +453,7 @@ const UserModerationActions = ({
         </Tabs>
 
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={() => handleDialogOpenChange(false)}>
             Close
           </Button>
         </DialogFooter>

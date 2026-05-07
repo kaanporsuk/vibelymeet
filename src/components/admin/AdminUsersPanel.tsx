@@ -47,6 +47,8 @@ import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 type SortField = 'name' | 'created_at' | 'age' | 'location' | 'total_matches' | 'event_registrations';
 type SortDirection = 'asc' | 'desc';
 type GenderBucket = 'all' | 'man' | 'woman' | 'non-binary' | 'other';
+type LifecycleFilter = 'all' | 'complete' | 'incomplete' | 'bootstrap_fresh' | 'suspended';
+type LifecycleStatus = 'complete' | 'incomplete' | 'incomplete_active' | 'bootstrap_fresh' | 'suspended';
 const USERS_PAGE_SIZE = 50;
 
 type AdminUserVibe = {
@@ -72,6 +74,13 @@ type AdminUserRow = {
   is_suspended: boolean | null;
   created_at: string;
   updated_at: string | null;
+  onboarding_complete: boolean | null;
+  onboarding_stage: string | null;
+  last_seen_at: string | null;
+  is_bootstrap_fresh: boolean;
+  has_activity: boolean;
+  lifecycle_status: LifecycleStatus | string | null;
+  age_is_placeholder: boolean;
   total_matches: number | null;
   event_registrations: number;
   confirmed_attendance?: number;
@@ -114,6 +123,44 @@ const getGenderBadgeClassName = (gender?: string | null): string => {
   return 'bg-slate-500/10 text-slate-300 border-slate-500/30';
 };
 
+const isBootstrapDefaultGender = (user: Pick<AdminUserRow, 'gender' | 'onboarding_complete' | 'is_bootstrap_fresh'>): boolean => {
+  const value = user.gender?.trim().toLowerCase();
+  return (
+    !user.onboarding_complete &&
+    (user.is_bootstrap_fresh || !value || value === 'prefer_not_to_say' || value === 'prefer not to say')
+  );
+};
+
+const getUserGenderBadgeLabel = (user: AdminUserRow): string => (
+  isBootstrapDefaultGender(user) ? 'Pending' : getGenderBadgeLabel(user.gender)
+);
+
+const getUserGenderBadgeClassName = (user: AdminUserRow): string => (
+  isBootstrapDefaultGender(user)
+    ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+    : getGenderBadgeClassName(user.gender)
+);
+
+const getLifecycleBadgeMeta = (status?: string | null) => {
+  if (status === 'complete') {
+    return { label: 'Complete', className: 'bg-green-500/10 text-green-400 border-green-500/30' };
+  }
+  if (status === 'bootstrap_fresh') {
+    return { label: 'Bootstrap fresh', className: 'bg-amber-500/10 text-amber-300 border-amber-500/30' };
+  }
+  if (status === 'incomplete_active') {
+    return { label: 'Incomplete active', className: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30' };
+  }
+  if (status === 'suspended') {
+    return { label: 'Suspended', className: 'bg-red-500/10 text-red-400 border-red-500/30' };
+  }
+  return { label: 'Incomplete', className: 'bg-slate-500/10 text-slate-300 border-slate-500/30' };
+};
+
+const getPendingAwareEmptyLabel = (user: AdminUserRow): string => (
+  user.lifecycle_status === 'bootstrap_fresh' || user.is_bootstrap_fresh ? 'Pending' : 'N/A'
+);
+
 const getServerSort = (field: SortField, direction: SortDirection): string => {
   if (field === 'event_registrations') return `registrations_${direction}`;
   return `${field}_${direction}`;
@@ -124,6 +171,7 @@ const AdminUsersPanel = () => {
   const [genderFilter, setGenderFilter] = useState<GenderBucket>("all");
   const [verificationFilter, setVerificationFilter] = useState<string>("all");
   const [lookingForFilter, setLookingForFilter] = useState<string>("all");
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [pageIndex, setPageIndex] = useState(0);
@@ -131,7 +179,7 @@ const AdminUsersPanel = () => {
 
   // Fetch users through the backend admin aggregate so counts and filters are server-owned.
   const { data: usersPayload, isLoading, isError: usersError } = useQuery({
-    queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, sortField, sortDirection, pageIndex],
+    queryKey: ['admin-users', searchQuery, genderFilter, verificationFilter, lookingForFilter, lifecycleFilter, sortField, sortDirection, pageIndex],
     queryFn: async () => {
       const filters: Record<string, unknown> = {};
       if (genderFilter !== 'all') filters.gender_bucket = genderFilter;
@@ -144,6 +192,9 @@ const AdminUsersPanel = () => {
       }
       if (lookingForFilter !== 'all') {
         filters.relationship_intents = getRelationshipIntentAliases(lookingForFilter as RelationshipIntentId);
+      }
+      if (lifecycleFilter !== 'all') {
+        filters.lifecycle_status = lifecycleFilter;
       }
 
       return callAdminRpc<AdminSearchUsersPayload>("admin_search_users", {
@@ -202,8 +253,8 @@ const AdminUsersPanel = () => {
       {/* Filters */}
       <div className="glass-card p-4 rounded-2xl">
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
+          <div className="flex flex-col md:flex-row md:flex-wrap gap-4">
+            <div className="flex-1 min-w-[240px] relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
                 placeholder="Search by name or location..."
@@ -268,6 +319,24 @@ const AdminUsersPanel = () => {
                 <SelectItem value="new-friends">New friends</SelectItem>
                 <SelectItem value="figuring-out">Figuring out</SelectItem>
                 <SelectItem value="rather-not">Rather not say</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={lifecycleFilter}
+              onValueChange={(value) => {
+                setLifecycleFilter(value as LifecycleFilter);
+                setPageIndex(0);
+              }}
+            >
+              <SelectTrigger className="w-full md:w-[170px] bg-secondary/50">
+                <SelectValue placeholder="Lifecycle" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Lifecycle</SelectItem>
+                <SelectItem value="complete">Complete</SelectItem>
+                <SelectItem value="incomplete">Incomplete</SelectItem>
+                <SelectItem value="bootstrap_fresh">Bootstrap fresh</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -400,6 +469,8 @@ const AdminUsersPanel = () => {
                     : null;
                   const vibesUnavailable = !Array.isArray(user.vibes);
                   const vibesForUser = Array.isArray(user.vibes) ? user.vibes : [];
+                  const lifecycle = getLifecycleBadgeMeta(user.lifecycle_status);
+                  const emptyProfileLabel = getPendingAwareEmptyLabel(user);
 
                   return (
                   <TableRow
@@ -427,7 +498,7 @@ const AdminUsersPanel = () => {
                         </Avatar>
                         <div>
                           <p className="font-medium text-foreground flex items-center gap-2">
-                            {user.name}
+                            {user.name || 'Unnamed user'}
                             {user.is_premium && (
                               <Crown className="w-4 h-4 text-primary shrink-0" />
                             )}
@@ -444,6 +515,9 @@ const AdminUsersPanel = () => {
                               </Badge>
                             )}
                           </p>
+                          <Badge variant="outline" className={`mt-1 text-xs ${lifecycle.className}`}>
+                            {lifecycle.label}
+                          </Badge>
                           <p className="text-xs text-muted-foreground truncate max-w-[150px]">
                             {user.id.slice(0, 8)}...
                           </p>
@@ -453,26 +527,32 @@ const AdminUsersPanel = () => {
                     <TableCell>
                       <Badge 
                         variant="outline" 
-                        className={getGenderBadgeClassName(user.gender)}
+                        className={getUserGenderBadgeClassName(user)}
                       >
-                        {getGenderBadgeLabel(user.gender)}
+                        {getUserGenderBadgeLabel(user)}
                       </Badge>
                     </TableCell>
-                    <TableCell>{user.age}</TableCell>
+                    <TableCell>
+                      {user.age_is_placeholder ? (
+                        <span className="text-sm text-muted-foreground">Pending</span>
+                      ) : (
+                        user.age ?? 'N/A'
+                      )}
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 text-sm">
                         <MapPin className="w-3 h-3 text-muted-foreground" />
-                        <span className="truncate max-w-[100px]">{user.location || 'N/A'}</span>
+                        <span className="truncate max-w-[100px]">{user.location || emptyProfileLabel}</span>
                       </div>
                     </TableCell>
                     <TableCell>
-                      {user.height_cm ? `${user.height_cm}cm` : 'N/A'}
+                      {user.height_cm ? `${user.height_cm}cm` : emptyProfileLabel}
                     </TableCell>
                     <TableCell>
                       <span className="truncate max-w-[80px] text-sm">
                         {relationshipDisplay
                           ? `${relationshipDisplay.emoji} ${relationshipDisplay.label}`
-                          : 'N/A'}
+                          : emptyProfileLabel}
                       </span>
                     </TableCell>
                     <TableCell>

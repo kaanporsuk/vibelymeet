@@ -51,6 +51,12 @@ interface ParsedEvent {
   cover_image?: string;
   location_name?: string;
   is_location_specific?: boolean;
+  scope?: "global" | "regional" | "local";
+  latitude?: number;
+  longitude?: number;
+  radius_km?: number;
+  city?: string;
+  country?: string;
   status?: string;
   visibility?: string;
   tags?: string[];
@@ -64,7 +70,9 @@ interface ValidatedEvent extends ParsedEvent {
   _selected: boolean;
 }
 
-const VALID_STATUSES = ["draft", "upcoming", "live"];
+const VALID_STATUSES = ["draft", "upcoming"];
+const VALID_VISIBILITIES = ["all", "premium", "vip"];
+const VALID_SCOPES = ["global", "regional", "local"];
 
 type RawImportEvent = Record<string, unknown>;
 
@@ -76,6 +84,36 @@ function stringValue(value: unknown): string {
 function numberValue(value: unknown): number {
   const parsed = Number.parseFloat(stringValue(value));
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function optionalNumberValue(value: unknown): number | undefined {
+  const raw = stringValue(value).trim();
+  if (!raw) return undefined;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function optionalIntegerValue(value: unknown): number | undefined {
+  const raw = stringValue(value).trim();
+  if (!raw) return undefined;
+  if (!/^-?\d+$/.test(raw)) return Number.NaN;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  const raw = stringValue(value).trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return fallback;
+}
+
+function hasInvalidBooleanValue(value: unknown): boolean {
+  if (typeof value === "boolean" || value == null) return false;
+  const raw = stringValue(value).trim().toLowerCase();
+  return raw !== "" && raw !== "true" && raw !== "false";
 }
 
 function stringArrayValue(value: unknown): string[] {
@@ -95,7 +133,7 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
   {
     title: "Friday Night Vibes",
     description: "Speed dating for young professionals",
-    event_date: "2026-02-21T20:00:00",
+    event_date: "2027-06-21T20:00:00",
     duration_minutes: 60,
     max_attendees: 50,
     max_male_attendees: 25,
@@ -105,6 +143,12 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
     cover_image: "",
     location_name: "Digital Lobby",
     is_location_specific: false,
+    scope: "global",
+    latitude: undefined,
+    longitude: undefined,
+    radius_km: undefined,
+    city: "",
+    country: "",
     status: "upcoming",
     visibility: "all",
     tags: ["Speed Dating", "Young Professionals"],
@@ -113,7 +157,7 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
   {
     title: "Sunday Brunch & Mingle",
     description: "Relaxed weekend dating over brunch vibes",
-    event_date: "2026-02-22T11:00:00",
+    event_date: "2027-06-22T11:00:00",
     duration_minutes: 90,
     max_attendees: 30,
     max_male_attendees: 15,
@@ -123,6 +167,12 @@ const TEMPLATE_EVENTS: ParsedEvent[] = [
     cover_image: "",
     location_name: "Virtual Cafe",
     is_location_specific: false,
+    scope: "global",
+    latitude: undefined,
+    longitude: undefined,
+    radius_km: undefined,
+    city: "",
+    country: "",
     status: "upcoming",
     visibility: "all",
     tags: ["Brunch", "Casual"],
@@ -148,9 +198,67 @@ function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
 
   const maxAttendees = Math.trunc(numberValue(ev.max_attendees));
   if (maxAttendees <= 0) errors.push("Attendees must be > 0");
+  else if (maxAttendees > 10000) errors.push("Attendees must be 10000 or fewer");
+
+  const genderCaps = {
+    max_male_attendees: optionalIntegerValue(ev.max_male_attendees),
+    max_female_attendees: optionalIntegerValue(ev.max_female_attendees),
+    max_nonbinary_attendees: optionalIntegerValue(ev.max_nonbinary_attendees),
+  };
+  for (const [field, value] of Object.entries(genderCaps)) {
+    if (Number.isNaN(value)) errors.push(`${field} must be an integer`);
+    else if (value !== undefined && (value < 0 || value > 10000)) {
+      errors.push(`${field} must be 0 to 10000`);
+    }
+  }
 
   const status = stringValue(ev.status).trim().toLowerCase() || "upcoming";
   if (!VALID_STATUSES.includes(status)) errors.push(`Status must be: ${VALID_STATUSES.join(", ")}`);
+
+  const visibility = stringValue(ev.visibility).trim().toLowerCase() || "all";
+  if (!VALID_VISIBILITIES.includes(visibility)) errors.push(`Visibility must be: ${VALID_VISIBILITIES.join(", ")}`);
+
+  const isFree = booleanValue(ev.is_free, true);
+  if (hasInvalidBooleanValue(ev.is_free)) errors.push("is_free must be true or false");
+  const priceAmount = optionalNumberValue(ev.price_amount) ?? 0;
+  if (Number.isNaN(priceAmount)) errors.push("Price must be numeric");
+  else if (priceAmount < 0) errors.push("Price must be non-negative");
+  else if (!isFree && priceAmount <= 0) errors.push("Paid events require price > 0");
+
+  const isLocationSpecific = booleanValue(ev.is_location_specific, false);
+  if (hasInvalidBooleanValue(ev.is_location_specific)) errors.push("is_location_specific must be true or false");
+  const scope = stringValue(ev.scope).trim().toLowerCase() || "global";
+  if (!VALID_SCOPES.includes(scope)) errors.push(`Scope must be: ${VALID_SCOPES.join(", ")}`);
+
+  const latitude = optionalNumberValue(ev.latitude);
+  const longitude = optionalNumberValue(ev.longitude);
+  const radiusKm = optionalNumberValue(ev.radius_km);
+  if (Number.isNaN(latitude)) errors.push("Latitude must be numeric");
+  if (Number.isNaN(longitude)) errors.push("Longitude must be numeric");
+  if (Number.isNaN(radiusKm)) errors.push("Radius must be numeric");
+  if (latitude !== undefined && !Number.isNaN(latitude) && (latitude < -90 || latitude > 90)) {
+    errors.push("Latitude must be -90 to 90");
+  }
+  if (longitude !== undefined && !Number.isNaN(longitude) && (longitude < -180 || longitude > 180)) {
+    errors.push("Longitude must be -180 to 180");
+  }
+  if (radiusKm !== undefined && !Number.isNaN(radiusKm) && (radiusKm < 5 || radiusKm > 500)) {
+    errors.push("Radius must be 5–500 km");
+  }
+
+  const city = stringValue(ev.city).trim();
+  const country = stringValue(ev.country).trim();
+  if (scope === "regional" && !country) errors.push("Regional events require country");
+  if (scope === "local") {
+    if (latitude === undefined || longitude === undefined || Number.isNaN(latitude) || Number.isNaN(longitude)) {
+      errors.push("Local events require coordinates");
+    }
+    if (radiusKm === undefined || Number.isNaN(radiusKm)) errors.push("Local events require radius");
+    if (!city) errors.push("Local events require city");
+  }
+  if (isLocationSpecific && (latitude === undefined || longitude === undefined || Number.isNaN(latitude) || Number.isNaN(longitude))) {
+    errors.push("Location-specific rows require coordinates");
+  }
 
   const tags = stringArrayValue(ev.tags);
   const vibes = stringArrayValue(ev.vibe_tags);
@@ -161,16 +269,22 @@ function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
     event_date: eventDate,
     duration_minutes: duration || 60,
     max_attendees: maxAttendees || 50,
-    max_male_attendees: Math.trunc(numberValue(ev.max_male_attendees)) || undefined,
-    max_female_attendees: Math.trunc(numberValue(ev.max_female_attendees)) || undefined,
-    max_nonbinary_attendees: Math.trunc(numberValue(ev.max_nonbinary_attendees)) || undefined,
-    is_free: ev.is_free === true || ev.is_free === "true" || ev.is_free === undefined,
-    price_amount: numberValue(ev.price_amount),
+    max_male_attendees: Number.isNaN(genderCaps.max_male_attendees) ? undefined : genderCaps.max_male_attendees,
+    max_female_attendees: Number.isNaN(genderCaps.max_female_attendees) ? undefined : genderCaps.max_female_attendees,
+    max_nonbinary_attendees: Number.isNaN(genderCaps.max_nonbinary_attendees) ? undefined : genderCaps.max_nonbinary_attendees,
+    is_free: isFree,
+    price_amount: Number.isNaN(priceAmount) ? undefined : priceAmount,
     cover_image: stringValue(ev.cover_image),
     location_name: stringValue(ev.location_name),
-    is_location_specific: ev.is_location_specific === true || ev.is_location_specific === "true",
+    is_location_specific: isLocationSpecific,
+    scope: scope as ParsedEvent["scope"],
+    latitude: Number.isNaN(latitude) ? undefined : latitude,
+    longitude: Number.isNaN(longitude) ? undefined : longitude,
+    radius_km: Number.isNaN(radiusKm) ? undefined : radiusKm,
+    city,
+    country,
     status,
-    visibility: stringValue(ev.visibility) || "all",
+    visibility,
     tags,
     vibe_tags: vibes,
     _index: index,
@@ -294,6 +408,12 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         cover_image: ev.cover_image || "",
         location_name: ev.location_name || null,
         is_location_specific: ev.is_location_specific || false,
+        scope: ev.scope || "global",
+        latitude: ev.latitude ?? null,
+        longitude: ev.longitude ?? null,
+        radius_km: ev.radius_km ?? null,
+        city: ev.city || null,
+        country: ev.country || null,
         status: ev.status || "upcoming",
         visibility: ev.visibility || "all",
         tags: ev.tags || [],

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -132,16 +132,16 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
 
   const removeRegistration = useMutation({
     mutationFn: async (profileId: string) => {
-      const { data, error } = await supabase.rpc("admin_remove_event_registration", {
+      await callAdminRpc("admin_remove_event_registration", {
         p_event_id: event.id,
         p_profile_id: profileId,
+        p_reason: "Removed registration from /kaan attendees modal",
+        p_idempotency_key: createAdminIdempotencyKey("admin_remove_event_registration"),
       });
-      if (error) throw error;
-      const result = data as { success?: boolean } | null;
-      if (!result?.success) throw new Error("Not removed");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-event-attendees", event.id] });
+      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
       toast.success("Registration removed");
     },
     onError: () => {
@@ -152,15 +152,13 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   // Mark attendance mutation
   const markAttendance = useMutation({
     mutationFn: async ({ registrationId, attended }: { registrationId: string; attended: boolean }) => {
-      const { error } = await supabase
-        .from('event_registrations')
-        .update({
-          attended,
-          attendance_marked: true,
-          attendance_marked_at: new Date().toISOString(),
-        })
-        .eq('id', registrationId);
-      if (error) throw error;
+      return callAdminRpc<{ affected_count?: number }>("admin_mark_event_attendance", {
+        p_event_id: event.id,
+        p_registration_ids: [registrationId],
+        p_attended: attended,
+        p_reason: "Marked attendance from /kaan attendees modal",
+        p_idempotency_key: createAdminIdempotencyKey("admin_mark_event_attendance"),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-event-attendees', event.id] });
@@ -174,20 +172,19 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   // Bulk mark attendance
   const bulkMarkAttendance = useMutation({
     mutationFn: async (attended: boolean) => {
-      const { error } = await supabase
-        .from('event_registrations')
-        .update({
-          attended,
-          attendance_marked: true,
-          attendance_marked_at: new Date().toISOString(),
-        })
-        .in('id', selectedAttendees);
-      if (error) throw error;
+      return callAdminRpc<{ affected_count?: number }>("admin_mark_event_attendance", {
+        p_event_id: event.id,
+        p_registration_ids: selectedAttendees,
+        p_attended: attended,
+        p_reason: "Bulk marked attendance from /kaan attendees modal",
+        p_idempotency_key: createAdminIdempotencyKey("admin_mark_event_attendance"),
+      });
     },
-    onSuccess: () => {
+    onSuccess: (payload) => {
       queryClient.invalidateQueries({ queryKey: ['admin-event-attendees', event.id] });
+      const count = Number(payload.affected_count ?? selectedAttendees.length);
       setSelectedAttendees([]);
-      toast.success(`Marked ${selectedAttendees.length} attendees`);
+      toast.success(`Marked ${count} attendees`);
     },
     onError: () => {
       toast.error('Failed to mark attendance');
@@ -269,12 +266,21 @@ const AdminEventAttendeesModal = ({ event, onClose }: AdminEventAttendeesModalPr
   };
 
   // Filter registrations based on status toggles
-  const filteredRegistrations = registrations?.filter(reg => {
+  const filteredRegistrations = useMemo(() => registrations?.filter(reg => {
     if (!reg.attendance_marked && showPending) return true;
     if (reg.attendance_marked && reg.attended && showAttended) return true;
     if (reg.attendance_marked && !reg.attended && showNoShow) return true;
     return false;
-  });
+  }), [registrations, showAttended, showNoShow, showPending]);
+
+  useEffect(() => {
+    setSelectedAttendees(prev => {
+      if (prev.length === 0) return prev;
+      const visible = new Set((filteredRegistrations ?? []).map(reg => reg.id));
+      const next = prev.filter(id => visible.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [filteredRegistrations]);
 
   const attendedCount = registrations?.filter(r => r.attended).length || 0;
   const totalCount = registrations?.length || 0;
