@@ -35,7 +35,12 @@ SELECT
     WHEN phone_masked LIKE '%****%' THEN 'MASKED'
     WHEN phone_masked = 'unknown' THEN 'UNAVAILABLE'
     ELSE 'EXPOSED'
-  END as phone_masking_status
+  END as phone_masking_status,
+  CASE
+    WHEN phone_masked = 'unknown' THEN 'UNAVAILABLE'
+    WHEN length(replace(phone_masked, ' **** ', '')) <= 4 THEN 'VISIBLE_BUDGET_OK'
+    ELSE 'TOO_MANY_VISIBLE_CHARS'
+  END as phone_visible_budget_status
 FROM public.detect_ghost_bootstrap_accounts(7, 0)
 LIMIT 10;
 
@@ -124,31 +129,35 @@ SELECT
   COUNT(*) as total_with_collisions,
   AVG(collision_count) as avg_collisions_per_candidate,
   MAX(collision_count) as max_collisions,
-  STRING_AGG(DISTINCT identity_collision_hints[1], ', ') as collision_types
+  STRING_AGG(DISTINCT identity_collision_hints[1], ', ') as collision_types,
+  COUNT(*) FILTER (
+    WHERE EXISTS (
+      SELECT 1
+      FROM unnest(identity_collision_hints) hint
+      WHERE hint LIKE '%(0)'
+    )
+  ) as zero_count_collision_hints
 FROM ghost_with_collisions;
 
 -- ============================================================================
 -- Test 6: Verify thresholds work
 -- ============================================================================
--- Test different age thresholds to ensure filtering works
+-- Test different age thresholds and ensure the days threshold is strict.
+WITH matrix AS (
+  SELECT *
+  FROM (VALUES (1), (7), (14), (30)) AS thresholds(days_old_threshold)
+  LEFT JOIN LATERAL public.detect_ghost_bootstrap_accounts(thresholds.days_old_threshold, 0) g ON true
+)
 SELECT
-  'All bootstrap' as test_case,
-  COUNT(*) as count
-FROM public.detect_ghost_bootstrap_accounts(1, 999)  -- Very new, high activity threshold
-
-UNION ALL
-
-SELECT
-  'Only 30+ days old',
-  COUNT(*)
-FROM public.detect_ghost_bootstrap_accounts(30, 0)   -- Only very old accounts
-
-UNION ALL
-
-SELECT
-  'Strict (14+ days, activity <= 1)',
-  COUNT(*)
-FROM public.detect_ghost_bootstrap_accounts(14, 1)   -- More restrictive thresholds;
+  days_old_threshold,
+  COUNT(profile_id) as total_candidates,
+  COUNT(*) FILTER (WHERE profile_id IS NOT NULL AND days_since_creation < days_old_threshold) as strict_age_violations,
+  COUNT(*) FILTER (WHERE review_confidence = 'HIGH') as high_confidence,
+  COUNT(*) FILTER (WHERE review_confidence = 'MEDIUM') as medium_confidence,
+  COUNT(*) FILTER (WHERE review_confidence = 'LOW') as low_confidence
+FROM matrix
+GROUP BY days_old_threshold
+ORDER BY days_old_threshold;
 
 -- ============================================================================
 -- Test 7: Verify review_confidence grading
@@ -159,6 +168,7 @@ WITH candidates AS (
     review_confidence,
     days_since_creation,
     profile_activity_score,
+    created_at,
     last_seen_at
   FROM public.detect_ghost_bootstrap_accounts(7, 0)
 )
@@ -167,7 +177,22 @@ SELECT
   COUNT(*) as count,
   ROUND(AVG(days_since_creation)::numeric, 1) as avg_days_old,
   ROUND(AVG(profile_activity_score)::numeric, 1) as avg_activity_score,
-  COUNT(*) FILTER (WHERE last_seen_at IS NULL) as never_seen
+  COUNT(*) FILTER (WHERE last_seen_at IS NULL OR last_seen_at <= created_at + interval '5 minutes') as signup_only_seen,
+  COUNT(*) FILTER (
+    WHERE review_confidence = 'HIGH'
+      AND NOT (
+        profile_activity_score = 0
+        AND (last_seen_at IS NULL OR last_seen_at <= created_at + interval '5 minutes')
+      )
+  ) as high_rule_violations,
+  COUNT(*) FILTER (
+    WHERE review_confidence = 'MEDIUM'
+      AND NOT (
+        profile_activity_score = 0
+        AND last_seen_at > created_at + interval '5 minutes'
+        AND last_seen_at <= created_at + interval '1 day'
+      )
+  ) as medium_rule_violations
 FROM candidates
 GROUP BY review_confidence
 ORDER BY 

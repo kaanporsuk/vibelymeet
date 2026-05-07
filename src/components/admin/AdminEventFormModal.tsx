@@ -108,6 +108,7 @@ type EventSavePayload = {
   radius_km: number | null;
   city: string | null;
   country: string | null;
+  is_location_specific: boolean;
   is_recurring: boolean;
   recurrence_type: RecurrenceType | null;
   recurrence_days: number[] | null;
@@ -403,6 +404,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         radius_km: scope === 'local' ? radiusKm : null,
         city: scope === 'local' ? resolvedCity : null,
         country: scope !== 'global' ? resolvedCountry : null,
+        is_location_specific: scope === 'local',
         is_recurring: isRecurring,
         recurrence_type: isRecurring ? recurrenceType : null,
         recurrence_days: isRecurring && ['weekly', 'biweekly'].includes(recurrenceType) ? selectedDays : null,

@@ -10,9 +10,13 @@ const panel = read("src/components/admin/AdminGhostBootstrapPanel.tsx");
 const strictConfidenceMigration = read(
   "supabase/migrations/20260507142000_ghost_bootstrap_strict_confidence.sql",
 );
+const collisionMaskFollowupMigration = read(
+  "supabase/migrations/20260507153000_ghost_bootstrap_collision_mask_followup.sql",
+);
 
 test("ghost accounts panel defaults to all candidates and explains filtered empty states", () => {
   assert.match(panel, /useState<FilterConfidence>\('ALL'\)/);
+  assert.match(panel, /const normalizeConfidence/);
   assert.match(panel, /confidenceCounts/);
   assert.match(panel, /All \{confidenceCounts\.ALL\}/);
   assert.match(panel, /\{item\.label\} \{confidenceCounts\[item\.value\]\}/);
@@ -23,11 +27,16 @@ test("ghost accounts panel defaults to all candidates and explains filtered empt
 });
 
 test("ghost bootstrap RPC uses strict age and last_seen_at-aware confidence semantics", () => {
+  assert.match(collisionMaskFollowupMigration, /Reapply ghost bootstrap diagnostics/);
+  assert.match(collisionMaskFollowupMigration, /CREATE OR REPLACE FUNCTION public\.detect_ghost_bootstrap_accounts\(/);
   assert.match(strictConfidenceMigration, /CREATE OR REPLACE FUNCTION public\.detect_ghost_bootstrap_accounts\(/);
   assert.match(strictConfidenceMigration, /days_old_threshold int DEFAULT 7/);
   assert.match(strictConfidenceMigration, /min_activity_threshold int DEFAULT 0/);
   assert.match(strictConfidenceMigration, /ROUND\(\(EXTRACT\(EPOCH FROM now\(\) - p\.created_at\) \/ 3600\)::numeric, 2\) as account_age_hours/);
   assert.match(strictConfidenceMigration, /au\.deleted_at IS NULL/);
+  assert.match(strictConfidenceMigration, /au2\.deleted_at IS NULL/);
+  assert.match(strictConfidenceMigration, /HAVING COUNT\(\*\) > 0/);
+  assert.match(strictConfidenceMigration, /left\(trim\(ac\.phone\), 2\) \|\| ' \*\*\*\* ' \|\| right\(trim\(ac\.phone\), 2\)/);
   assert.match(strictConfidenceMigration, /ac\.days_since_creation >= v_days_old_threshold/);
   assert.doesNotMatch(strictConfidenceMigration, /days_old_threshold\s*-\s*[23]/);
   assert.match(
