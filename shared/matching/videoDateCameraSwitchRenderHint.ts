@@ -3,6 +3,10 @@ export const VIDEO_DATE_CAMERA_SWITCH_RENDER_HINT_VERSION = 1 as const;
 
 export type VideoDateCameraSwitchRenderHintPlatform = "web" | "native";
 
+// Hint is now a one-shot signal that arms the receiver's freshness watchdog
+// (no unconditional teardown). The publishSequence / publishRefreshApplied /
+// hintSequence fields existed for a hint-resend protocol that has been removed.
+// The parser still tolerates them for forward compatibility during rollout.
 export type VideoDateCameraSwitchRenderHint = {
   type: typeof VIDEO_DATE_CAMERA_SWITCH_RENDER_HINT_TYPE;
   version: typeof VIDEO_DATE_CAMERA_SWITCH_RENDER_HINT_VERSION;
@@ -13,9 +17,6 @@ export type VideoDateCameraSwitchRenderHint = {
   commitMethod?: string | null;
   localVideoTrackId?: string | null;
   commitLatencyMs?: number | null;
-  publishSequence?: number | null;
-  publishRefreshApplied?: boolean;
-  hintSequence?: number | null;
   sentAtMs: number;
 };
 
@@ -26,9 +27,6 @@ type CreateVideoDateCameraSwitchRenderHintInput = {
   commitMethod?: string | null;
   localVideoTrackId?: string | null;
   commitLatencyMs?: number | null;
-  publishSequence?: number | null;
-  publishRefreshApplied?: boolean;
-  hintSequence?: number | null;
   sentAtMs?: number;
   random?: () => number;
 };
@@ -55,9 +53,6 @@ export function createVideoDateCameraSwitchRenderHint({
   commitMethod = null,
   localVideoTrackId = null,
   commitLatencyMs = null,
-  publishSequence = null,
-  publishRefreshApplied = false,
-  hintSequence = 1,
   sentAtMs = Date.now(),
   random = Math.random,
 }: CreateVideoDateCameraSwitchRenderHintInput): VideoDateCameraSwitchRenderHint {
@@ -74,15 +69,6 @@ export function createVideoDateCameraSwitchRenderHint({
     commitLatencyMs:
       typeof commitLatencyMs === "number" && Number.isFinite(commitLatencyMs) && commitLatencyMs >= 0
         ? Math.round(commitLatencyMs)
-        : null,
-    publishSequence:
-      typeof publishSequence === "number" && Number.isFinite(publishSequence) && publishSequence > 0
-        ? Math.round(publishSequence)
-        : null,
-    publishRefreshApplied: publishRefreshApplied === true,
-    hintSequence:
-      typeof hintSequence === "number" && Number.isFinite(hintSequence) && hintSequence > 0
-        ? Math.round(hintSequence)
         : null,
     sentAtMs,
   };
@@ -109,19 +95,9 @@ export function parseVideoDateCameraSwitchRenderHint(
   ) {
     return null;
   }
-  if (
-    raw.publishSequence != null &&
-    (typeof raw.publishSequence !== "number" || !Number.isFinite(raw.publishSequence) || raw.publishSequence <= 0)
-  ) {
-    return null;
-  }
-  if (raw.publishRefreshApplied != null && typeof raw.publishRefreshApplied !== "boolean") return null;
-  if (
-    raw.hintSequence != null &&
-    (typeof raw.hintSequence !== "number" || !Number.isFinite(raw.hintSequence) || raw.hintSequence <= 0)
-  ) {
-    return null;
-  }
+  // Forward compatibility: tolerate (and silently drop) the deprecated
+  // publishSequence / publishRefreshApplied / hintSequence fields that older
+  // clients may still send during rollout. They no longer affect behavior.
   if (typeof raw.sentAtMs !== "number" || !Number.isFinite(raw.sentAtMs) || raw.sentAtMs <= 0) {
     return null;
   }
@@ -139,9 +115,6 @@ export function parseVideoDateCameraSwitchRenderHint(
         ? raw.localVideoTrackId.trim()
         : null,
     commitLatencyMs: typeof raw.commitLatencyMs === "number" ? Math.round(raw.commitLatencyMs) : null,
-    publishSequence: typeof raw.publishSequence === "number" ? Math.round(raw.publishSequence) : null,
-    publishRefreshApplied: raw.publishRefreshApplied === true,
-    hintSequence: typeof raw.hintSequence === "number" ? Math.round(raw.hintSequence) : null,
     sentAtMs: raw.sentAtMs,
   };
 }

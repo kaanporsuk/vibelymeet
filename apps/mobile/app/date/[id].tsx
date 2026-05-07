@@ -190,6 +190,10 @@ const HANDSHAKE_CTA_STACK_HEIGHT = 92;
 const HANDSHAKE_CTA_DOCK_TIGHTEN_OFFSET = 24;
 const FLOATING_CHROME_GAP = 10;
 const NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS = 650;
+const NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS = 8_000;
+const NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS = 500;
+const NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS = 3_000;
+const NATIVE_CAMERA_SWITCH_SAME_TRACK_REMOUNT_GRACE_MS = 3_000;
 const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK = 4;
 const NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE = 2;
 const NATIVE_REMOTE_RENDER_REMOUNT_ATTEMPT_TTL_MS = 30_000;
@@ -244,6 +248,31 @@ type NativeDailyCameraControls = {
 };
 type NativeDailyAppMessageControls = {
   sendAppMessage?: (data: unknown, to?: string | string[]) => unknown;
+};
+type NativeDailyInboundVideoStats = {
+  trackId?: unknown;
+  fps?: unknown;
+  frameWidth?: unknown;
+  frameHeight?: unknown;
+};
+type NativeDailyCpuLoadStatsResult = {
+  stats?: {
+    latest?: {
+      cpuInboundVideoStats?: NativeDailyInboundVideoStats[];
+      totalReceivedVideoTracks?: unknown;
+    };
+  };
+};
+type NativeDailyNetworkStatsResult = {
+  stats?: {
+    latest?: {
+      videoRecvBitsPerSecond?: unknown;
+    };
+  };
+};
+type NativeDailyStatsControls = {
+  getCpuLoadStats?: () => Promise<NativeDailyCpuLoadStatsResult>;
+  getNetworkStats?: () => Promise<NativeDailyNetworkStatsResult>;
 };
 
 type NativeCameraSwitchCommitMethod = 'set_camera' | 'cycle_camera';
@@ -548,6 +577,10 @@ function describeNativeCameraSwitchError(error: unknown): { name: string; messag
   return { name: 'unknown', message: String(error) };
 }
 
+function finiteNativeStat(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 /** Sync UI toggles from Daily participant track state (source of truth after join / reconnect). */
 function applyLocalMediaUiFromParticipant(p: DailyParticipant, setters: {
   setIsVideoOff: (v: boolean) => void;
@@ -588,6 +621,11 @@ function normalizeNativeRemoteRenderRecoveryScope(scope: string): string {
 type NativeRemoteRenderAttemptEntry = {
   attempts: number;
   updatedAtMs: number;
+};
+
+type NativeCameraSwitchRenderWatch = {
+  switchId: string;
+  expiresAtMs: number;
 };
 
 function pruneNativeRemoteRenderAttemptMap(
@@ -854,10 +892,13 @@ export default function VideoDateScreen() {
   const remoteParticipantRef = useRef<DailyParticipant | null>(null);
   const nativeCameraSwitchInFlightRef = useRef(false);
   const nativeRemoteRenderRemountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeCameraSwitchFreshnessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeCameraSwitchFreshnessSeqRef = useRef(0);
   const nativeRemoteRenderTrackAttemptsRef = useRef<Map<string, NativeRemoteRenderAttemptEntry>>(new Map());
   const nativeRemoteRenderScopedAttemptsRef = useRef<Map<string, NativeRemoteRenderAttemptEntry>>(new Map());
   const lastNativeRemoteRenderTrackKeyRef = useRef<string | null>(null);
   const lastNativeRemoteCameraSwitchHintIdRef = useRef<string | null>(null);
+  const activeNativeRemoteCameraSwitchRenderWatchRef = useRef<NativeCameraSwitchRenderWatch | null>(null);
   const loggedJourneyRef = useRef<Set<string>>(new Set());
   const surveyOpenedRef = useRef(false);
   const lastLoggedPostJoinStageRef = useRef<VideoDatePostJoinStage | null>(null);
@@ -1224,8 +1265,28 @@ export default function VideoDateScreen() {
     [eventId, sessionId]
   );
 
+  const clearNativeCameraSwitchFreshnessWatch = useCallback(
+    (reason: string, opts: { clearActiveWatch?: boolean } = {}) => {
+      nativeCameraSwitchFreshnessSeqRef.current += 1;
+      if (nativeCameraSwitchFreshnessTimerRef.current) {
+        clearTimeout(nativeCameraSwitchFreshnessTimerRef.current);
+        nativeCameraSwitchFreshnessTimerRef.current = null;
+        videoDateDailyDiagnostic('native_camera_switch_freshness_timer_cleared', {
+          session_id: sessionId ?? '',
+          event_id: eventId || null,
+          reason,
+        });
+      }
+      if (opts.clearActiveWatch) {
+        activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
+      }
+    },
+    [eventId, sessionId]
+  );
+
   const resetNativeRemoteRenderRecovery = useCallback(
     (participant: DailyParticipant | null | undefined, reason: string) => {
+      clearNativeCameraSwitchFreshnessWatch(reason, { clearActiveWatch: true });
       clearNativeRemoteRenderRemount(reason);
       nativeRemoteRenderTrackAttemptsRef.current.clear();
       nativeRemoteRenderScopedAttemptsRef.current.clear();
@@ -1235,7 +1296,7 @@ export default function VideoDateScreen() {
         reason,
       });
     },
-    [clearNativeRemoteRenderRemount, nativeRemoteRenderDiagnostics]
+    [clearNativeCameraSwitchFreshnessWatch, clearNativeRemoteRenderRemount, nativeRemoteRenderDiagnostics]
   );
 
   const scheduleNativeRemoteRenderRemount = useCallback(
@@ -1264,16 +1325,37 @@ export default function VideoDateScreen() {
         });
       }
 
-      const scopeKey = normalizeNativeRemoteRenderRecoveryScope(recoveryScope);
-      const scopedAttemptKey = `${trackKey}:${scopeKey}`;
       const nowMs = Date.now();
+      const scopeKey = normalizeNativeRemoteRenderRecoveryScope(recoveryScope);
+      let cameraSwitchRenderWatch = activeNativeRemoteCameraSwitchRenderWatchRef.current;
+      const cameraSwitchRenderWatchActive = Boolean(cameraSwitchRenderWatch && cameraSwitchRenderWatch.expiresAtMs > nowMs);
+      if (cameraSwitchRenderWatch && !cameraSwitchRenderWatchActive) {
+        activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
+        cameraSwitchRenderWatch = null;
+      }
+      if (scopeKey === 'participant_updated_same_track' && cameraSwitchRenderWatchActive) {
+        videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
+          ...nativeRemoteRenderDiagnostics(participant),
+          source,
+          recovery_scope: recoveryScope,
+          scope_key: scopeKey,
+          reason: 'camera_switch_watch_active',
+          switch_id: cameraSwitchRenderWatch?.switchId ?? null,
+          watch_expires_at_ms: cameraSwitchRenderWatch?.expiresAtMs ?? null,
+        });
+        return;
+      }
+
+      const scopedAttemptKey = `${trackKey}:${scopeKey}`;
       pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderTrackAttemptsRef.current, nowMs);
       pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderScopedAttemptsRef.current, nowMs);
       const trackAttempts = nativeRemoteRenderTrackAttemptsRef.current.get(trackKey)?.attempts ?? 0;
       const scopeAttempts = nativeRemoteRenderScopedAttemptsRef.current.get(scopedAttemptKey)?.attempts ?? 0;
+      const maxScopeAttemptsForScope =
+        scopeKey === 'camera_switch_hint' ? 1 : NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE;
       if (
         trackAttempts >= NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK ||
-        scopeAttempts >= NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE
+        scopeAttempts >= maxScopeAttemptsForScope
       ) {
         videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
           ...nativeRemoteRenderDiagnostics(participant),
@@ -1284,7 +1366,7 @@ export default function VideoDateScreen() {
           track_attempts: trackAttempts,
           scope_attempts: scopeAttempts,
           max_track_attempts: NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK,
-          max_scope_attempts: NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE,
+          max_scope_attempts: maxScopeAttemptsForScope,
         });
         return;
       }
@@ -1302,6 +1384,10 @@ export default function VideoDateScreen() {
       pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderTrackAttemptsRef.current, nowMs);
       pruneNativeRemoteRenderAttemptMap(nativeRemoteRenderScopedAttemptsRef.current, nowMs);
       clearNativeRemoteRenderRemount('reschedule_remote_render_remount');
+      const remountDelayMs =
+        scopeKey === 'participant_updated_same_track'
+          ? NATIVE_CAMERA_SWITCH_SAME_TRACK_REMOUNT_GRACE_MS
+          : NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS;
       videoDateDailyDiagnostic('native_remote_render_remount_scheduled', {
         ...nativeRemoteRenderDiagnostics(participant),
         source,
@@ -1309,11 +1395,28 @@ export default function VideoDateScreen() {
         scope_key: scopeKey,
         track_attempt: nextTrackAttempt,
         scope_attempt: nextScopeAttempt,
-        delay_ms: NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS,
+        delay_ms: remountDelayMs,
       });
 
       nativeRemoteRenderRemountTimerRef.current = setTimeout(() => {
         nativeRemoteRenderRemountTimerRef.current = null;
+        const latestCameraSwitchWatch = activeNativeRemoteCameraSwitchRenderWatchRef.current;
+        if (
+          scopeKey === 'participant_updated_same_track' &&
+          latestCameraSwitchWatch &&
+          latestCameraSwitchWatch.expiresAtMs > Date.now()
+        ) {
+          videoDateDailyDiagnostic('native_remote_render_remount_skipped', {
+            ...nativeRemoteRenderDiagnostics(remoteParticipantRef.current ?? participant),
+            source,
+            recovery_scope: recoveryScope,
+            scope_key: scopeKey,
+            reason: 'camera_switch_watch_active',
+            switch_id: latestCameraSwitchWatch.switchId,
+            watch_expires_at_ms: latestCameraSwitchWatch.expiresAtMs,
+          });
+          return;
+        }
         const latestParticipant = remoteParticipantRef.current ?? participant;
         const latestTrackKey = nativeRemoteRenderTrackKey(latestParticipant ?? undefined);
         if (latestTrackKey !== trackKey) {
@@ -1336,15 +1439,172 @@ export default function VideoDateScreen() {
           track_attempt: nextTrackAttempt,
           scope_attempt: nextScopeAttempt,
         });
-      }, NATIVE_REMOTE_RENDER_REMOUNT_DELAY_MS);
+      }, remountDelayMs);
     },
     [clearNativeRemoteRenderRemount, nativeRemoteRenderDiagnostics]
+  );
+
+  const readNativeCameraSwitchFreshness = useCallback(
+    async (participant: DailyParticipant | null | undefined) => {
+      const call = callRef.current as unknown as NativeDailyStatsControls | null;
+      const videoTrack = getTrack(participant ?? undefined, 'video');
+      const expectedTrackId = videoTrack?.id ?? null;
+      if (!call) {
+        return { supported: false, fresh: false, source: 'none' as const, reason: 'missing_call' };
+      }
+
+      if (typeof call.getCpuLoadStats === 'function') {
+        try {
+          const cpuStats = await call.getCpuLoadStats();
+          const inboundStats = cpuStats.stats?.latest?.cpuInboundVideoStats ?? [];
+          const matchingStats =
+            expectedTrackId != null
+              ? inboundStats.find((entry) => entry.trackId === expectedTrackId)
+              : null;
+          const candidate = matchingStats ?? (inboundStats.length === 1 ? inboundStats[0] : null);
+          const fps = finiteNativeStat(candidate?.fps);
+          if (candidate) {
+            return {
+              supported: true,
+              fresh: fps != null && fps > 0,
+              source: 'cpu' as const,
+              expectedTrackId,
+              statTrackId: typeof candidate.trackId === 'string' ? candidate.trackId : null,
+              fps,
+              frameWidth: finiteNativeStat(candidate.frameWidth),
+              frameHeight: finiteNativeStat(candidate.frameHeight),
+              inboundVideoStatsCount: inboundStats.length,
+            };
+          }
+        } catch (error) {
+          videoDateDailyDiagnostic('native_camera_switch_freshness_stats_failed', {
+            ...nativeRemoteRenderDiagnostics(participant),
+            source: 'cpu',
+            error: describeNativeCameraSwitchError(error),
+          });
+        }
+      }
+
+      if (typeof call.getNetworkStats === 'function') {
+        try {
+          const networkStats = await call.getNetworkStats();
+          const videoRecvBitsPerSecond = finiteNativeStat(networkStats.stats?.latest?.videoRecvBitsPerSecond);
+          return {
+            supported: true,
+            fresh: videoRecvBitsPerSecond != null && videoRecvBitsPerSecond > 0,
+            source: 'network' as const,
+            expectedTrackId,
+            videoRecvBitsPerSecond,
+          };
+        } catch (error) {
+          videoDateDailyDiagnostic('native_camera_switch_freshness_stats_failed', {
+            ...nativeRemoteRenderDiagnostics(participant),
+            source: 'network',
+            error: describeNativeCameraSwitchError(error),
+          });
+        }
+      }
+
+      return { supported: false, fresh: false, source: 'none' as const, reason: 'stats_unavailable', expectedTrackId };
+    },
+    [nativeRemoteRenderDiagnostics]
+  );
+
+  const scheduleNativeCameraSwitchFreshnessWatch = useCallback(
+    (participant: DailyParticipant | null | undefined, switchId: string) => {
+      clearNativeCameraSwitchFreshnessWatch('reschedule_camera_switch_freshness_watch');
+      const watchSeq = nativeCameraSwitchFreshnessSeqRef.current + 1;
+      nativeCameraSwitchFreshnessSeqRef.current = watchSeq;
+      const startedAtMs = Date.now();
+      const initialTrackKey = nativeRemoteRenderTrackKey(participant ?? undefined);
+
+      videoDateDailyDiagnostic('native_camera_switch_render_watch_started', {
+        ...nativeRemoteRenderDiagnostics(participant),
+        switch_id: switchId,
+        poll_ms: NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS,
+        timeout_ms: NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS,
+      });
+
+      const pollFreshness = async () => {
+        nativeCameraSwitchFreshnessTimerRef.current = null;
+        if (nativeCameraSwitchFreshnessSeqRef.current !== watchSeq) return;
+        const latestParticipant = remoteParticipantRef.current ?? participant;
+        const latestTrackKey = nativeRemoteRenderTrackKey(latestParticipant ?? undefined);
+        if (initialTrackKey && latestTrackKey && latestTrackKey !== initialTrackKey) {
+          activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
+          videoDateDailyDiagnostic('native_camera_switch_render_watch_stale_track', {
+            ...nativeRemoteRenderDiagnostics(latestParticipant),
+            switch_id: switchId,
+            initial_track_key: initialTrackKey,
+            latest_track_key: latestTrackKey,
+          });
+          return;
+        }
+
+        const freshness = await readNativeCameraSwitchFreshness(latestParticipant);
+        if (nativeCameraSwitchFreshnessSeqRef.current !== watchSeq) return;
+        const elapsedMs = Date.now() - startedAtMs;
+        if (freshness.fresh) {
+          activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
+          videoDateDailyDiagnostic('native_camera_switch_no_remount_needed', {
+            ...nativeRemoteRenderDiagnostics(latestParticipant),
+            switch_id: switchId,
+            elapsed_ms: elapsedMs,
+            freshness,
+          });
+          return;
+        }
+
+        if (!freshness.supported) {
+          videoDateDailyDiagnostic('native_camera_switch_render_watch_unverified', {
+            ...nativeRemoteRenderDiagnostics(latestParticipant),
+            switch_id: switchId,
+            elapsed_ms: elapsedMs,
+            freshness,
+          });
+          return;
+        }
+
+        if (elapsedMs >= NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS) {
+          activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
+          videoDateDailyDiagnostic('native_camera_switch_render_watch_timed_out', {
+            ...nativeRemoteRenderDiagnostics(latestParticipant),
+            switch_id: switchId,
+            elapsed_ms: elapsedMs,
+            freshness,
+          });
+          scheduleNativeRemoteRenderRemount(
+            latestParticipant,
+            'app_message_camera_switch_hint_timeout',
+            'camera_switch_hint'
+          );
+          return;
+        }
+
+        nativeCameraSwitchFreshnessTimerRef.current = setTimeout(
+          () => void pollFreshness(),
+          NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS
+        );
+      };
+
+      nativeCameraSwitchFreshnessTimerRef.current = setTimeout(
+        () => void pollFreshness(),
+        NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS
+      );
+    },
+    [
+      clearNativeCameraSwitchFreshnessWatch,
+      nativeRemoteRenderDiagnostics,
+      readNativeCameraSwitchFreshness,
+      scheduleNativeRemoteRenderRemount,
+    ]
   );
 
   useEffect(() => {
     const remountTrackAttempts = nativeRemoteRenderTrackAttemptsRef.current;
     const remountScopedAttempts = nativeRemoteRenderScopedAttemptsRef.current;
     return () => {
+      clearNativeCameraSwitchFreshnessWatch('screen_unmount', { clearActiveWatch: true });
       clearNativeRemoteRenderRemount('screen_unmount');
       remountTrackAttempts.clear();
       remountScopedAttempts.clear();
@@ -1354,7 +1614,7 @@ export default function VideoDateScreen() {
       nativeCameraSwitchInFlightRef.current = false;
       lastNativeRemoteCameraSwitchHintIdRef.current = null;
     };
-  }, [clearNativeRemoteRenderRemount]);
+  }, [clearNativeCameraSwitchFreshnessWatch, clearNativeRemoteRenderRemount]);
 
   const boundCallRef = useRef<DailyCallObject | null>(null);
   const boundHandlersRef = useRef<{
@@ -1565,6 +1825,7 @@ export default function VideoDateScreen() {
           Sentry.addBreadcrumb({ category: 'video-date', message: 'Partner left', level: 'info' });
           remoteParticipantRef.current = null;
           lastNativeRemoteCameraSwitchHintIdRef.current = null;
+          activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
           resetNativeRemoteRenderRecovery(null, 'participant_left');
           setRemoteParticipant(null);
           if (!partnerEverJoinedRef.current || !sessionId || phaseRef.current === 'ended') return;
@@ -1583,6 +1844,7 @@ export default function VideoDateScreen() {
         remoteParticipantRef.current = null;
         nativeCameraSwitchInFlightRef.current = false;
         lastNativeRemoteCameraSwitchHintIdRef.current = null;
+        activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
         resetNativeRemoteRenderRecovery(null, 'left_meeting');
         releaseSharedCallIfOwned(call, 'left_meeting');
       };
@@ -1615,6 +1877,11 @@ export default function VideoDateScreen() {
           nativeRemoteRenderTrackAttemptsRef.current.clear();
           nativeRemoteRenderScopedAttemptsRef.current.clear();
         }
+        activeNativeRemoteCameraSwitchRenderWatchRef.current = {
+          switchId: hint.switchId,
+          expiresAtMs: Date.now() + NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS,
+        };
+        clearNativeRemoteRenderRemount('camera_switch_hint_received');
         videoDateDailyDiagnostic('native_camera_switch_render_hint_received', {
           ...nativeRemoteRenderDiagnostics(remote),
           room_name: roomName,
@@ -1627,12 +1894,18 @@ export default function VideoDateScreen() {
           local_video_track_id: hint.localVideoTrackId,
           commit_latency_ms: hint.commitLatencyMs,
           sent_at_ms: hint.sentAtMs,
+          watch_ttl_ms: NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS,
+          freshness_timeout_ms: NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS,
         });
-        scheduleNativeRemoteRenderRemount(
-          remote,
-          'app_message_camera_switch_hint',
-          'camera_switch_hint'
-        );
+        // Do NOT remount <DailyMediaView /> on hint receipt. Daily uses
+        // RTCRtpSender.replaceTrack() under the hood for camera flips, so the
+        // receiver's underlying track keeps streaming. Forcing a remount
+        // tears down the decoder pipeline and forces the receiver to wait
+        // for the next periodic keyframe, which is the original "black
+        // screen" symptom this fix exists to prevent. A conservative stats
+        // freshness watcher escalates only after supported Daily stats fail
+        // to show inbound remote video.
+        scheduleNativeCameraSwitchFreshnessWatch(remote, hint.switchId);
       };
       const onError = (event: unknown) => {
         const msg =
@@ -1693,12 +1966,14 @@ export default function VideoDateScreen() {
     },
     [
       clearFirstConnectWatchdog,
+      clearNativeRemoteRenderRemount,
       detachCallListeners,
       releaseSharedCallIfOwned,
       endBootstrapTiming,
       eventId,
       nativeRemoteRenderDiagnostics,
       resetNativeRemoteRenderRecovery,
+      scheduleNativeCameraSwitchFreshnessWatch,
       scheduleNativeRemoteRenderRemount,
       sessionId,
       user?.id,

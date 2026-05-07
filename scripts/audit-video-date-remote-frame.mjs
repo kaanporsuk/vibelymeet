@@ -119,11 +119,14 @@ assert(
     cameraSwitchHint.includes("commitConfirmed?: boolean") &&
     cameraSwitchHint.includes("commitMethod?: string | null") &&
     cameraSwitchHint.includes("localVideoTrackId?: string | null") &&
-    cameraSwitchHint.includes("commitLatencyMs?: number | null") &&
-    cameraSwitchHint.includes("publishSequence?: number | null") &&
-    cameraSwitchHint.includes("publishRefreshApplied?: boolean") &&
-    cameraSwitchHint.includes("hintSequence?: number | null"),
+    cameraSwitchHint.includes("commitLatencyMs?: number | null"),
   `${cameraSwitchHintPath}: camera-switch render hint contract must remain shared, versioned, parseable, and backward-compatible with optional commit fields`
+);
+assert(
+  !/^[^/]*\bpublishSequence\??:\s*number/m.test(cameraSwitchHint) &&
+    !/^[^/]*\bpublishRefreshApplied\??:\s*boolean/m.test(cameraSwitchHint) &&
+    !/^[^/]*\bhintSequence\??:\s*number/m.test(cameraSwitchHint),
+  `${cameraSwitchHintPath}: deprecated publishSequence/publishRefreshApplied/hintSequence fields must not reappear on the hint type`
 );
 assert(
   webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
@@ -159,10 +162,10 @@ assert(
     webVideoCall.includes("waitForLocalCameraSwitchCommit") &&
     webVideoCall.includes("setInputDevicesAsync") &&
     webVideoCall.includes("videoSource: false") &&
-    webVideoCall.includes("CAMERA_SWITCH_HINT_RESEND_DELAY_MS") &&
-    webVideoCall.includes("publishRefreshApplied") &&
+    webVideoCall.includes("REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS") &&
     webVideoCall.includes("requireFreshFrame") &&
     webVideoCall.includes("freshFrameBaseline") &&
+    webVideoCall.includes("freshFrameTimeoutMs") &&
     webVideoCall.includes("daily_camera_switch_video_source_restore_failed") &&
     webVideoCall.includes("dailyVideoTrackAdopted") &&
     webVideoCall.includes("video_date_camera_switch_committed") &&
@@ -172,11 +175,28 @@ assert(
     webVideoCall.includes("return currentDeviceId ? candidates[0] ?? null : null") &&
     webVideoCall.includes("daily_camera_switch_render_hint_received") &&
     webVideoCall.includes("daily_camera_switch_render_watch_started") &&
+    webVideoCall.includes("daily_camera_switch_no_reattach_needed") &&
+    webVideoCall.includes("sameTrackCameraSwitchCandidate") &&
+    webVideoCall.includes("useFreshFrameGuard") &&
     webVideoCall.includes("fresh_frame_not_observed") &&
     webVideoCall.includes("app_message_camera_switch_hint") &&
     webVideoCall.includes('"camera_switch_hint"') &&
     !webVideoCall.includes("camera_switch_hint:${hint.switchId}"),
   `${webVideoCallPath}: web Video Date must commit a live camera switch before sending shared render hints`
+);
+// Guard against reintroducing the destructive srcObject teardown directly
+// in the camera-switch hint receiver. The hint must arm the freshness
+// watcher (scheduleRemoteRenderValidation) and let the validator escalate
+// to forceRemoteMediaReattach only as a last resort, not unconditionally.
+assert(
+  !/isNewCameraSwitchHint\)\s*\{\s*forceRemoteMediaReattach\(/.test(webVideoCall),
+  `${webVideoCallPath}: camera-switch hint receiver must not call forceRemoteMediaReattach unconditionally; that destroys the WebRTC decoder pipeline and was the recurring "remote sees black" regression`
+);
+assert(
+  !webVideoCall.includes("CAMERA_SWITCH_HINT_RESEND_DELAY_MS") &&
+    !webVideoCall.includes("cameraSwitchPublishSequenceRef") &&
+    !webVideoCall.includes("cameraSwitchHintResendTimeoutRef"),
+  `${webVideoCallPath}: deprecated camera-switch hint resend / publishSequence plumbing must stay removed`
 );
 const deterministicCameraSwitchIndex = webVideoCall.indexOf(
   "switchToDeterministicWebCamera(co, before, desiredFacing"
@@ -197,7 +217,7 @@ assert(
     webVideoCall.includes("pruneRemoteRenderRecoveryAttempts") &&
     webVideoCall.includes('reason: "recovery_already_in_flight"') &&
     /trackAttempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK/.test(webVideoCall) &&
-    /scopeAttempts\s*>=\s*REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE/.test(webVideoCall) &&
+    /scopeAttempts\s*>=\s*(?:REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_SCOPE|maxScopeAttemptsForScope)/.test(webVideoCall) &&
     webVideoCall.includes("daily_remote_render_recovery_skipped"),
   `${webVideoCallPath}: web receiver remote render recovery must be bounded by per-track and stable-scope guards`
 );
@@ -306,10 +326,28 @@ assert(
     nativeDate.includes("nativeCameraFacingModeFromLabel(videoTrack?.label)") &&
     nativeDate.includes("native_camera_switch_render_hint_received") &&
     nativeDate.includes("native_camera_switch_render_hint_sent") &&
-    nativeDate.includes("app_message_camera_switch_hint") &&
+    nativeDate.includes("NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS") &&
+    nativeDate.includes("NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS") &&
+    nativeDate.includes("NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS") &&
+    nativeDate.includes("NATIVE_CAMERA_SWITCH_SAME_TRACK_REMOUNT_GRACE_MS") &&
+    nativeDate.includes("activeNativeRemoteCameraSwitchRenderWatchRef") &&
+    nativeDate.includes("scheduleNativeCameraSwitchFreshnessWatch") &&
+    nativeDate.includes("readNativeCameraSwitchFreshness") &&
+    nativeDate.includes("native_camera_switch_no_remount_needed") &&
+    nativeDate.includes("native_camera_switch_render_watch_timed_out") &&
+    nativeDate.includes("camera_switch_hint_received") &&
+    nativeDate.includes("camera_switch_watch_active") &&
     nativeDate.includes("'camera_switch_hint'") &&
     !nativeDate.includes("camera_switch_hint:${hint.switchId}"),
   `${nativeDatePath}: native Video Date must commit a live camera switch before sending shared render hints`
+);
+// Guard against reintroducing the destructive remount-on-hint pattern. The
+// native receiver must NOT remount <DailyMediaView /> in direct response to
+// a camera-switch hint; that tears down the decoder pipeline and forces
+// the receiver to wait for the next periodic keyframe.
+assert(
+  !/scheduleNativeRemoteRenderRemount\([^)]*'app_message_camera_switch_hint'/.test(nativeDate),
+  `${nativeDatePath}: native camera-switch hint receiver must not call scheduleNativeRemoteRenderRemount; that was the recurring "remote sees black" regression`
 );
 assert(
   nativeDate.includes("NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE") &&
@@ -336,7 +374,7 @@ assert(
     nativeDate.includes("normalizeNativeRemoteRenderRecoveryScope") &&
     nativeDate.includes("pruneNativeRemoteRenderAttemptMap") &&
     /trackAttempts\s*>=\s*NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_TRACK/.test(nativeDate) &&
-    /scopeAttempts\s*>=\s*NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE/.test(nativeDate) &&
+    /scopeAttempts\s*>=\s*(?:NATIVE_REMOTE_RENDER_REMOUNT_MAX_ATTEMPTS_PER_SCOPE|maxScopeAttemptsForScope)/.test(nativeDate) &&
     nativeDate.includes("max_attempts_reached"),
   `${nativeDatePath}: native receiver remount recovery must be bounded by per-track and stable-scope guards`
 );
