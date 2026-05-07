@@ -254,6 +254,12 @@ test("notifications copy is scoped to the latest 100 and broad actions say so", 
   assert.match(adminNotifications, /Promise\.allSettled/);
 });
 
+test("photo verification selfie signing is row-resilient and redacts unexpected failures", () => {
+  assert.match(adminPhotoVerification, /Promise\.allSettled/);
+  assert.match(adminPhotoVerification, /selfie resolution failed/);
+  assert.match(adminPhotoVerification, /sanitizeAdminRpcErrorMessage/);
+});
+
 test("admin badge mutations invalidate the centralized dashboard badge count", () => {
   assert.doesNotMatch(adminNotifications, /admin-unread-notifications/);
   assert.doesNotMatch(adminFeedback, /admin-new-feedback-count/);

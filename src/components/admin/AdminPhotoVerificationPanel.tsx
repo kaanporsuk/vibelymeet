@@ -22,7 +22,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import {
+  callAdminRpc,
+  createAdminIdempotencyKey,
+  sanitizeAdminRpcErrorMessage,
+  type AdminRpcPayload,
+} from "@/lib/adminRpc";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -136,7 +141,7 @@ const AdminPhotoVerificationPanel = () => {
     let cancelled = false;
 
     const resolveUrls = async () => {
-      const entries = await Promise.all(
+      const settledEntries = await Promise.allSettled(
         verifications.map(async (v) => {
           const profileUrl = resolvePhotoUrl(v.profile_photo_url);
           const rawSelfie = (v.selfie_url as string | null | undefined) ?? "";
@@ -222,6 +227,36 @@ const AdminPhotoVerificationPanel = () => {
       );
 
       if (cancelled) return;
+
+      const entries = settledEntries.flatMap((result, index) => {
+        if (result.status === "fulfilled") {
+          return result.value ? [result.value] : [];
+        }
+
+        const v = verifications[index];
+        console.warn("[admin photo verification] selfie resolution failed", {
+          verificationId: v?.id,
+          message: sanitizeAdminRpcErrorMessage(result.reason),
+        });
+
+        if (!v) return [];
+
+        return [
+          [
+            v.id,
+            {
+              profile: resolvePhotoUrl(v.profile_photo_url),
+              selfie: null,
+              selfieError: "Could not load verification selfie.",
+              _diag: {
+                verificationId: v.id,
+                userId: v.user_id,
+                originalSelfieUrl: (v.selfie_url as string | null | undefined) ?? "",
+              },
+            } satisfies ResolvedVerificationUrls,
+          ] as const,
+        ];
+      });
 
       const next: Record<string, ResolvedVerificationUrls> = {};
       for (const e of entries) {
