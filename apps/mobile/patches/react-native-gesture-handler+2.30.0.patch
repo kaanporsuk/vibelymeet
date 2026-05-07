@@ -1,0 +1,40 @@
+diff --git a/node_modules/react-native-gesture-handler/apple/Handlers/RNPanHandler.m b/node_modules/react-native-gesture-handler/apple/Handlers/RNPanHandler.m
+index 32fb344..8bc4486 100644
+--- a/node_modules/react-native-gesture-handler/apple/Handlers/RNPanHandler.m
++++ b/node_modules/react-native-gesture-handler/apple/Handlers/RNPanHandler.m
+@@ -112,7 +112,7 @@ - (void)tryUpdateStylusData:(UIEvent *)event
+ }
+ #endif
+ 
+-- (void)activateAfterLongPress
++- (void)handleActivateAfterLongPress
+ {
+   self.state = UIGestureRecognizerStateBegan;
+   // Send event in ACTIVE state because UIGestureRecognizerStateBegan is mapped to RNGestureHandlerStateBegan
+@@ -148,7 +148,7 @@ - (void)interactionsBegan:(NSSet *)touches withEvent:(UIEvent *)event
+   [self triggerAction];
+ 
+   if (!isnan(_activateAfterLongPress)) {
+-    [self performSelector:@selector(activateAfterLongPress) withObject:nil afterDelay:_activateAfterLongPress];
++    [self performSelector:@selector(handleActivateAfterLongPress) withObject:nil afterDelay:_activateAfterLongPress];
+   }
+ }
+ 
+@@ -263,7 +263,7 @@ - (void)reset
+ {
+   [self triggerActionFromReset];
+   [_gestureHandler.pointerTracker reset];
+-  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(activateAfterLongPress) object:nil];
++  [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(handleActivateAfterLongPress) object:nil];
+   self.enabled = YES;
+   [super reset];
+   [_gestureHandler reset];
+@@ -289,7 +289,7 @@ - (BOOL)shouldFailUnderCustomCriteria
+ #endif
+   // Apple docs say that 10 units is the default allowable movement for UILongPressGestureRecognizer
+   if (!isnan(_activateAfterLongPress) && trans.x * trans.x + trans.y * trans.y > 100) {
+-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(activateAfterLongPress) object:nil];
++    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(handleActivateAfterLongPress) object:nil];
+     return YES;
+   }
+ 

@@ -1,0 +1,75 @@
+diff --git a/node_modules/expo-modules-core/ios/Core/ExpoBridgeModule.h b/node_modules/expo-modules-core/ios/Core/ExpoBridgeModule.h
+index 063fe1a..5c70d4e 100644
+--- a/node_modules/expo-modules-core/ios/Core/ExpoBridgeModule.h
++++ b/node_modules/expo-modules-core/ios/Core/ExpoBridgeModule.h
+@@ -1,7 +1,6 @@
+ // Copyright 2024-present 650 Industries. All rights reserved.
+ 
+-@protocol RCTBridgeModule;
+-
++#import <React/RCTBridgeModule.h>
+ #import <ExpoModulesCore/EXNativeModulesProxy.h>
+ #import <ExpoModulesCore/EXModuleRegistry.h>
+ 
+diff --git a/node_modules/expo-modules-core/ios/JSI/EXJavaScriptRuntime.mm b/node_modules/expo-modules-core/ios/JSI/EXJavaScriptRuntime.mm
+index e0202fd..c589120 100644
+--- a/node_modules/expo-modules-core/ios/JSI/EXJavaScriptRuntime.mm
++++ b/node_modules/expo-modules-core/ios/JSI/EXJavaScriptRuntime.mm
+@@ -58,7 +58,7 @@ - (nonnull instancetype)initWithRuntime:(jsi::Runtime &)runtime
+   return self;
+ }
+ 
+-- (nonnull instancetype)initWithRuntime:(jsi::Runtime &)runtime callInvoker:(std::shared_ptr<react::RuntimeSchedulerCallInvoker>)callInvoker {
++- (nonnull instancetype)initWithRuntime:(jsi::Runtime &)runtime callInvoker:(std::shared_ptr<react::CallInvoker>)callInvoker {
+   if (self = [super init]) {
+     _runtime = std::shared_ptr<jsi::Runtime>(std::shared_ptr<jsi::Runtime>(), &runtime);
+     _runtimeScheduler = nullptr;
+diff --git a/node_modules/expo-modules-core/ios/Legacy/ModuleRegistryAdapter/EXModuleRegistryHolderReactModule.h b/node_modules/expo-modules-core/ios/Legacy/ModuleRegistryAdapter/EXModuleRegistryHolderReactModule.h
+index 40307db..c40c06c 100644
+--- a/node_modules/expo-modules-core/ios/Legacy/ModuleRegistryAdapter/EXModuleRegistryHolderReactModule.h
++++ b/node_modules/expo-modules-core/ios/Legacy/ModuleRegistryAdapter/EXModuleRegistryHolderReactModule.h
+@@ -1,7 +1,6 @@
+ // Copyright 2018-present 650 Industries. All rights reserved.
+ 
+-@protocol RCTBridgeModule;
+-
++#import <React/RCTBridgeModule.h>
+ #import <ExpoModulesCore/EXModuleRegistry.h>
+ 
+ @interface EXModuleRegistryHolderReactModule : NSObject <RCTBridgeModule>
+diff --git a/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.h b/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.h
+index 4e6c173..3303b80 100644
+--- a/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.h
++++ b/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.h
+@@ -1,13 +1,8 @@
+ // Copyright 2018-present 650 Industries. All rights reserved.
+ 
+-#if !__building_module(ExpoModulesCore)
+ #import <React/RCTBridgeModule.h>
+-#else
++
+ @class RCTBridge;
+-@protocol RCTBridgeModule;
+-typedef void (^RCTPromiseResolveBlock)(id result);
+-typedef void (^RCTPromiseRejectBlock)(NSString *code, NSString *message, NSError *error);
+-#endif
+ 
+ #import <ExpoModulesCore/EXInternalModule.h>
+ #import <ExpoModulesCore/EXModuleRegistry.h>
+diff --git a/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.mm b/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.mm
+index 5c79760..7f4e563 100644
+--- a/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.mm
++++ b/node_modules/expo-modules-core/ios/Legacy/NativeModulesProxy/EXNativeModulesProxy.mm
+@@ -42,9 +42,9 @@ - (instancetype)initWithConstants:(nonnull NSDictionary *)constants
+                      viewManagers:(nonnull NSDictionary *)viewManagerMetadata
+ {
+   if (self = [super init]) {
+-    _exportedConstants = constants;
+-    _methodNames = methodNames;
+-    _viewManagerMetadata = viewManagerMetadata;
++    _exportedConstants = [constants mutableCopy];
++    _methodNames = [methodNames mutableCopy];
++    _viewManagerMetadata = [viewManagerMetadata mutableCopy];
+   }
+   return self;
+ }

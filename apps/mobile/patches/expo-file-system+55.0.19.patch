@@ -1,0 +1,28 @@
+diff --git a/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXSessionCancelableUploadTaskDelegate.m b/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXSessionCancelableUploadTaskDelegate.m
+index 46bf020..5c067b9 100644
+--- a/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXSessionCancelableUploadTaskDelegate.m
++++ b/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXSessionCancelableUploadTaskDelegate.m
+@@ -47,8 +47,8 @@ - (void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task
+                                  totalBytesSent:(int64_t)totalBytesSent
+                        totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend
+ {
+-  if (_onSendCallback && bytesSent > 0) {
+-    _onSendCallback(task, bytesSent, totalBytesSent, totalBytesExpectedToSend);
++  if (_onSendCallback && bytesSent > 0 && [task isKindOfClass:[NSURLSessionUploadTask class]]) {
++    _onSendCallback((NSURLSessionUploadTask *)task, bytesSent, totalBytesSent, totalBytesExpectedToSend);
+   }
+ }
+ 
+diff --git a/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXTaskHandlersManager.m b/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXTaskHandlersManager.m
+index c3a8f48..cbd6a41 100644
+--- a/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXTaskHandlersManager.m
++++ b/node_modules/expo-file-system/ios/Legacy/EXSessionTasks/EXTaskHandlersManager.m
+@@ -42,7 +42,7 @@ - (NSURLSessionUploadTask * _Nullable)uploadTaskForId:(NSString *)uuid
+ {
+   NSURLSessionTask *task = [self taskForId:uuid];
+   if ([task isKindOfClass:[NSURLSessionUploadTask class]]) {
+-    return (NSURLSessionDownloadTask *)task;
++    return (NSURLSessionUploadTask *)task;
+   }
+   
+   return nil;
