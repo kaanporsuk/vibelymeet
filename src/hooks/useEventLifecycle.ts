@@ -15,35 +15,53 @@ interface UseEventLifecycleOptions {
 }
 
 export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOptions) => {
-  const [isEventActive, setIsEventActive] = useState(true);
+  const [isEventActive, setIsEventActive] = useState(false);
   const [eventEndsAt, setEventEndsAt] = useState<Date | null>(null);
+  const [isResolved, setIsResolved] = useState(!eventId);
 
   // Fetch event timing
   useEffect(() => {
-    if (!eventId) return;
+    if (!eventId) {
+      setIsEventActive(false);
+      setEventEndsAt(null);
+      setIsResolved(true);
+      return;
+    }
+
+    let cancelled = false;
 
     const fetchEvent = async () => {
-      const { data } = await supabase
+      setIsResolved(false);
+      setIsEventActive(false);
+
+      const { data, error } = await supabase
         .from("events")
         .select("event_date, duration_minutes, status, ended_at")
         .eq("id", eventId)
         .maybeSingle();
 
-      if (!data) return;
+      if (cancelled) return;
 
-      const endsAt = new Date(
-        new Date(data.event_date).getTime() + (data.duration_minutes || 60) * 60000
-      );
-      setEventEndsAt(endsAt);
+      if (error || !data) {
+        setEventEndsAt(null);
+        setIsEventActive(false);
+        setIsResolved(true);
+        return;
+      }
 
       const lifecycle = resolveEventLifecycle(data);
+      setEventEndsAt(lifecycle.endsAt);
+      setIsEventActive(lifecycle.isLive);
+      setIsResolved(true);
       if (lifecycle.isEnded) {
-        setIsEventActive(false);
         onEventEnded?.();
       }
     };
 
-    fetchEvent();
+    void fetchEvent();
+    return () => {
+      cancelled = true;
+    };
   }, [eventId, onEventEnded]);
 
   // Poll for event end every 30s
@@ -63,7 +81,7 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
 
   // Listen for admin manually ending the event
   useEffect(() => {
-    if (!eventId || !isEventActive) return;
+    if (!eventId) return;
 
     const channel = supabase
       .channel(`event-lifecycle-${eventId}`)
@@ -78,8 +96,10 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
         (payload) => {
           const event = payload.new as EventLifecyclePayload;
           const lifecycle = resolveEventLifecycle(event);
+          setEventEndsAt(lifecycle.endsAt);
+          setIsEventActive(lifecycle.isLive);
+          setIsResolved(true);
           if (lifecycle.isEnded) {
-            setIsEventActive(false);
             onEventEnded?.();
           }
         }
@@ -89,21 +109,30 @@ export const useEventLifecycle = ({ eventId, onEventEnded }: UseEventLifecycleOp
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [eventId, isEventActive, onEventEnded]);
+  }, [eventId, onEventEnded]);
 
   const checkEventActive = useCallback(async (): Promise<boolean> => {
     if (!eventId) return false;
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("events")
       .select("event_date, duration_minutes, status, ended_at")
       .eq("id", eventId)
       .maybeSingle();
 
-    if (!data) return false;
+    if (error || !data) {
+      setEventEndsAt(null);
+      setIsEventActive(false);
+      setIsResolved(true);
+      return false;
+    }
 
-    return !resolveEventLifecycle(data).isEnded;
+    const lifecycle = resolveEventLifecycle(data);
+    setEventEndsAt(lifecycle.endsAt);
+    setIsEventActive(lifecycle.isLive);
+    setIsResolved(true);
+    return lifecycle.isLive;
   }, [eventId]);
 
-  return { isEventActive, eventEndsAt, checkEventActive };
+  return { isEventActive, eventEndsAt, isResolved, checkEventActive };
 };

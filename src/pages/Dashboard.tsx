@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -112,6 +112,8 @@ const Dashboard = () => {
 
   const { activeSession, hydrated: sessionHydrated, refetch: refetchActiveSession } = useSessionHydration();
   const [showDashboardPhoneNudge, setShowDashboardPhoneNudge] = useState(false);
+  const [activeSessionRoutePending, setActiveSessionRoutePending] = useState(false);
+  const activeSessionRouteInFlightRef = useRef(false);
 
   const { data: nextEventData, isLoading: eventLoading, refetch: refetchNextEvent } = useNextRegisteredEvent();
   const { data: visibleEventsRaw = [], isLoading: eventsLoading, refetch: refetchEvents } = useVisibleEvents();
@@ -190,6 +192,15 @@ const Dashboard = () => {
 
   const handleActiveSessionRejoin = useCallback(async () => {
     if (!activeSession) return;
+    if (activeSessionRouteInFlightRef.current) return;
+
+    activeSessionRouteInFlightRef.current = true;
+    setActiveSessionRoutePending(true);
+
+    const releaseRoutePending = () => {
+      activeSessionRouteInFlightRef.current = false;
+      setActiveSessionRoutePending(false);
+    };
 
     if (activeSession.kind !== "ready_gate") {
       navigate(`/date/${activeSession.sessionId}`);
@@ -233,14 +244,24 @@ const Dashboard = () => {
         source: "dashboard_active_banner_continue",
       });
       toast(recovery.toast);
+      releaseRoutePending();
     } catch (error) {
       if (import.meta.env.DEV) {
         console.warn("[home] ready gate continue failed:", error);
       }
       toast.error("Ready Gate could not open. Please try again.");
-      await refetchActiveSession();
+      try {
+        await refetchActiveSession();
+      } finally {
+        releaseRoutePending();
+      }
     }
   }, [activeSession, navigate, refetchActiveSession]);
+
+  useEffect(() => {
+    activeSessionRouteInFlightRef.current = false;
+    setActiveSessionRoutePending(false);
+  }, [activeSession?.sessionId, activeSession?.kind, activeSession?.queueStatus]);
 
   const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
@@ -660,6 +681,8 @@ const Dashboard = () => {
                       ? "survey"
                       : "video"
                 }
+                disabled={activeSessionRoutePending}
+                isBusy={activeSessionRoutePending}
                 onRejoin={handleActiveSessionRejoin}
                 onEnd={
                   activeSession.kind === "video" && activeSession.queueStatus === "in_survey"

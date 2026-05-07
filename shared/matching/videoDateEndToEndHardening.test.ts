@@ -16,6 +16,7 @@ import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
   secondsUntilPostDateEventEnd,
+  shouldEnablePostDateSurveyQueueDrain,
 } from "./postDateContinuity";
 import {
   normalizeVideoDateIceBreakerQuestions,
@@ -571,6 +572,48 @@ test("post-date survey continuity prioritizes real queued sessions over deck cop
       hasEventId: true,
     }).action,
     "ready_gate",
+  );
+});
+
+test("post-date survey queue drain waits for resolved live event lifecycle", () => {
+  assert.equal(
+    getPostDateSurveyContinuityDecision({
+      isDrainingQueue: false,
+      queuedCount: 0,
+      isSubmittingSurvey: false,
+      eventActive: false,
+      eventLifecycleResolved: false,
+      secondsUntilEventEnd: null,
+      hasEventId: true,
+    }).tone,
+    "checking",
+  );
+  assert.equal(
+    shouldEnablePostDateSurveyQueueDrain({
+      hasEventId: true,
+      eventLifecycleResolved: false,
+      eventActive: false,
+      secondsUntilEventEnd: null,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEnablePostDateSurveyQueueDrain({
+      hasEventId: true,
+      eventLifecycleResolved: true,
+      eventActive: false,
+      secondsUntilEventEnd: 0,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldEnablePostDateSurveyQueueDrain({
+      hasEventId: true,
+      eventLifecycleResolved: true,
+      eventActive: true,
+      secondsUntilEventEnd: 600,
+    }),
+    true,
   );
 });
 
@@ -1721,11 +1764,15 @@ test("home active-session banners distinguish pending survey from active calls",
 
   assert.match(webActiveCallBanner, /\{onEnd \? \(/);
   assert.match(webActiveCallBanner, /role="button"/);
-  assert.match(webActiveCallBanner, /onClick=\{onRejoin\}/);
+  assert.match(webActiveCallBanner, /aria-disabled=\{isDisabled\}/);
+  assert.match(webActiveCallBanner, /aria-busy=\{isBusy\}/);
+  assert.match(webActiveCallBanner, /if \(isDisabled\) return;[\s\S]*onRejoin\(\)/);
   assert.match(webActiveCallBanner, /event\.stopPropagation\(\)/);
   assert.match(webActiveCallBanner, /mode === "ready_gate" \? Timer : mode === "survey" \? ClipboardCheck : Video/);
   assert.doesNotMatch(webActiveCallBanner, /fixed top-0/);
   assert.match(webDashboardPage, /activeSession\.queueStatus === "in_survey"\s*\?\s*"survey"/);
+  assert.match(webDashboardPage, /disabled=\{activeSessionRoutePending\}/);
+  assert.match(webDashboardPage, /isBusy=\{activeSessionRoutePending\}/);
   assert.match(webDashboardPage, /partnerName=\{activeSession\.partnerName\}/);
   assert.match(webDashboardPage, /transitionFailureMessage\(data\)/);
   assert.ok(webDashboardPage.indexOf("</header>") < webDashboardPage.indexOf("<ActiveCallBanner"));

@@ -33,11 +33,27 @@ export function isPostDateEventNearlyOver(secondsRemaining: number | null | unde
   return secondsRemaining != null && secondsRemaining > 0 && secondsRemaining <= POST_DATE_EVENT_NEARLY_OVER_SECONDS;
 }
 
+export function shouldEnablePostDateSurveyQueueDrain(input: {
+  hasEventId: boolean;
+  eventLifecycleResolved: boolean;
+  eventActive: boolean;
+  secondsUntilEventEnd?: number | null;
+}): boolean {
+  return Boolean(
+    input.hasEventId &&
+      input.eventLifecycleResolved &&
+      input.eventActive &&
+      input.secondsUntilEventEnd != null &&
+      input.secondsUntilEventEnd > 0,
+  );
+}
+
 export function getPostDateSurveyContinuityDecision(input: {
   isDrainingQueue: boolean;
   queuedCount?: number | null;
   isSubmittingSurvey: boolean;
   eventActive: boolean;
+  eventLifecycleResolved?: boolean;
   secondsUntilEventEnd?: number | null;
   hasEventId: boolean;
 }): PostDateContinuityDecision {
@@ -46,6 +62,15 @@ export function getPostDateSurveyContinuityDecision(input: {
       action: "home",
       title: "Saving your check-in",
       message: "We will route you as soon as your answer is secure.",
+      tone: "checking",
+    };
+  }
+
+  if (input.eventLifecycleResolved === false) {
+    return {
+      action: "refreshing_deck",
+      title: "Checking room status",
+      message: "We are confirming whether the room is still open before routing you.",
       tone: "checking",
     };
   }

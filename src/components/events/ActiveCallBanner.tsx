@@ -10,6 +10,8 @@ interface ActiveCallBannerProps {
   mode?: "video" | "ready_gate" | "survey";
   onRejoin: () => void;
   onEnd?: () => void;
+  disabled?: boolean;
+  isBusy?: boolean;
 }
 
 export const ActiveCallBanner = ({
@@ -18,7 +20,10 @@ export const ActiveCallBanner = ({
   mode = "video",
   onRejoin,
   onEnd,
+  disabled = false,
+  isBusy = false,
 }: ActiveCallBannerProps) => {
+  const isDisabled = disabled || isBusy;
   const title =
     mode === "ready_gate"
       ? "Ready Gate in progress"
@@ -47,6 +52,7 @@ export const ActiveCallBanner = ({
   const handleSurfaceKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
+    if (isDisabled) return;
     onRejoin();
   };
 
@@ -59,12 +65,19 @@ export const ActiveCallBanner = ({
     >
       <div
         role="button"
-        tabIndex={0}
+        tabIndex={isDisabled ? -1 : 0}
         aria-label={actionLabel}
+        aria-disabled={isDisabled}
+        aria-busy={isBusy}
         data-session-id={sessionId}
-        onClick={onRejoin}
+        onClick={() => {
+          if (isDisabled) return;
+          onRejoin();
+        }}
         onKeyDown={handleSurfaceKeyDown}
-        className="group rounded-2xl bg-background/95 backdrop-blur-xl px-4 py-3 flex items-center justify-between gap-3 cursor-pointer transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+        className={`group rounded-2xl bg-background/95 backdrop-blur-xl px-4 py-3 flex items-center justify-between gap-3 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 ${
+          isDisabled ? "cursor-wait opacity-70" : "cursor-pointer hover:opacity-90"
+        }`}
       >
         <div className="flex items-center gap-3 min-w-0">
           <motion.div
@@ -85,11 +98,13 @@ export const ActiveCallBanner = ({
             <button
               type="button"
               aria-label={mode === "ready_gate" ? "Leave Ready Gate" : "End date"}
+              disabled={isDisabled}
               onClick={(event) => {
                 event.stopPropagation();
+                if (isDisabled) return;
                 onEnd();
               }}
-              className="w-8 h-8 rounded-full bg-destructive/15 flex items-center justify-center hover:bg-destructive/25 transition-colors"
+              className="w-8 h-8 rounded-full bg-destructive/15 flex items-center justify-center hover:bg-destructive/25 transition-colors disabled:cursor-wait disabled:opacity-60"
             >
               <PhoneOff className="w-3.5 h-3.5 text-destructive" />
             </button>
@@ -97,11 +112,13 @@ export const ActiveCallBanner = ({
           <Button
             variant="gradient"
             size="sm"
+            disabled={isDisabled}
             onClick={(event) => {
               event.stopPropagation();
+              if (isDisabled) return;
               onRejoin();
             }}
-            className="h-8 px-3 text-xs font-semibold"
+            className="h-8 px-3 text-xs font-semibold disabled:cursor-wait disabled:opacity-75"
           >
             {rejoinLabel}
             <ArrowRight className="w-3 h-3 ml-1" />

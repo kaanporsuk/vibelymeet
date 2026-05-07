@@ -25,6 +25,7 @@ import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
   secondsUntilPostDateEventEnd,
+  shouldEnablePostDateSurveyQueueDrain,
   type PostDateContinuityDecision,
 } from "@clientShared/matching/postDateContinuity";
 import {
@@ -226,7 +227,12 @@ export const PostDateSurvey = ({
     return () => { cancelled = true; };
   }, [step, user?.id, partnerId]);
 
-  const { isEventActive, eventEndsAt, checkEventActive } = useEventLifecycle({ eventId });
+  const {
+    isEventActive,
+    eventEndsAt,
+    isResolved: isEventLifecycleResolved,
+    checkEventActive,
+  } = useEventLifecycle({ eventId });
 
   /**
    * Post-date survey is intentionally anchored on `/date/:sessionId` (not lobby `useActiveSession`).
@@ -235,6 +241,16 @@ export const PostDateSurvey = ({
   const secondsUntilEventEnd = useMemo(
     () => secondsUntilPostDateEventEnd(eventEndsAt),
     [eventEndsAt]
+  );
+  const surveyQueueDrainEnabled = useMemo(
+    () =>
+      shouldEnablePostDateSurveyQueueDrain({
+        hasEventId: Boolean(eventId),
+        eventLifecycleResolved: isEventLifecycleResolved,
+        eventActive: isEventActive,
+        secondsUntilEventEnd,
+      }),
+    [eventId, isEventActive, isEventLifecycleResolved, secondsUntilEventEnd],
   );
 
   const handleQueueMatch = useCallback(
@@ -300,7 +316,10 @@ export const PostDateSurvey = ({
   const { queuedCount, isDraining } = useMatchQueue({
     eventId,
     currentStatus: surveyStatus,
+    enabled: surveyQueueDrainEnabled,
     enableSurveyPhaseDrain: true,
+    sourceSurface: "post_date_survey",
+    suppressDrainReasonToasts: true,
     onVideoSessionReady: handleQueueMatch,
   });
 
@@ -311,10 +330,11 @@ export const PostDateSurvey = ({
         queuedCount,
         isSubmittingSurvey: isFinishingSurvey,
         eventActive: isEventActive,
+        eventLifecycleResolved: isEventLifecycleResolved,
         secondsUntilEventEnd,
         hasEventId: Boolean(eventId),
       }),
-    [eventId, isDraining, queuedCount, isFinishingSurvey, isEventActive, secondsUntilEventEnd]
+    [eventId, isDraining, queuedCount, isFinishingSurvey, isEventActive, isEventLifecycleResolved, secondsUntilEventEnd]
   );
 
   const finishSurvey = useCallback(async () => {
