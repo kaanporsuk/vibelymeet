@@ -12,6 +12,7 @@ const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dash
 const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
 const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
 const reviewCommentFollowupMigration = read("supabase/migrations/20260507123000_admin_review_comment_followup.sql");
+const userDetailProjectionMigration = read("supabase/migrations/20260507131000_admin_user_detail_read_model_projection.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
@@ -102,6 +103,17 @@ function reviewCommentFollowupFnSection(fnName: string): string {
   const candidates = [next, revoke].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : reviewCommentFollowupMigration.length;
   return reviewCommentFollowupMigration.slice(start, end);
+}
+
+function userDetailProjectionFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = userDetailProjectionMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = userDetailProjectionMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = userDetailProjectionMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : userDetailProjectionMigration.length;
+  return userDetailProjectionMigration.slice(start, end);
 }
 
 const mutationRpcs = [
@@ -384,6 +396,22 @@ test("admin panel list/detail read model RPCs are security definer, admin checke
   assert.match(readModelSweepFnSection("admin_get_user_detail_read_model"), /public\.daily_drops/);
   assert.match(readModelSweepFnSection("admin_get_user_match_threads"), /LEFT JOIN public\.messages/);
   assert.match(readModelSweepFnSection("admin_get_match_thread_messages"), /WHERE msg\.match_id = p_match_id/);
+
+  const userDetailProjection = userDetailProjectionFnSection("admin_get_user_detail_read_model");
+  assert.match(userDetailProjection, /SECURITY DEFINER/);
+  assert.match(userDetailProjection, /SET search_path = public, pg_catalog/);
+  assert.match(userDetailProjection, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(userDetailProjection, /jsonb_build_object\(\s*'id', p\.id/);
+  assert.doesNotMatch(userDetailProjection, /to_jsonb\(p\)/);
+  assert.doesNotMatch(userDetailProjection, /proof_selfie_url/);
+  assert.doesNotMatch(userDetailProjection, /location_data/);
+  assert.doesNotMatch(userDetailProjection, /referred_by/);
+  assert.doesNotMatch(userDetailProjection, /phone_number/);
+  assert.doesNotMatch(userDetailProjection, /phone_verified/);
+  assert.doesNotMatch(userDetailProjection, /lifestyle/);
+  assert.doesNotMatch(userDetailProjection, /prompts/);
+  assert.match(userDetailProjectionMigration, /REVOKE ALL ON FUNCTION public\.admin_get_user_detail_read_model\(uuid\) FROM PUBLIC/);
+  assert.match(userDetailProjectionMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_user_detail_read_model\(uuid\) TO authenticated/);
 
   const reportsFollowup = reviewCommentFollowupFnSection("admin_get_reports_read_model");
   assert.match(reviewCommentFollowupMigration, /DROP FUNCTION IF EXISTS public\.admin_get_reports_read_model\(text, text, text, integer\)/);
