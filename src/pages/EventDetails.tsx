@@ -209,7 +209,8 @@ const EventDetails = () => {
   const confirmedAdmissionLooksClosed =
     eventClosedForBookingCopy || (bookingChangesClosed && !eventLifecycle.isLive);
   const canViewTicket =
-    canSelfCancelRegistration || (isConfirmed && eventLifecycle.isLive && !eventClosedForBookingCopy);
+    hasEventAdmission &&
+    (canSelfCancelRegistration || (isConfirmed && eventLifecycle.isLive && !eventClosedForBookingCopy));
   const isCancelled = event.status === "cancelled";
   const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isCancelled;
 

@@ -16,7 +16,7 @@ test("web event details gates booking-management entry points behind self-cancel
   assert.match(eventDetails, /const canSelfCancelRegistration = bookingEditability\.canSelfCancel/);
   assert.match(
     eventDetails,
-    /const canViewTicket =[\s\S]*canSelfCancelRegistration \|\| \(isConfirmed && eventLifecycle\.isLive && !eventClosedForBookingCopy\)/,
+    /const canViewTicket =[\s\S]*hasEventAdmission &&[\s\S]*canSelfCancelRegistration \|\| \(isConfirmed && eventLifecycle\.isLive && !eventClosedForBookingCopy\)/,
   );
   assert.match(eventDetails, /canViewTicket[\s\S]*\? \(\) => setShowTicket\(true\)/);
   assert.match(eventDetails, /isOpen=\{showManageBooking && canSelfCancelRegistration\}/);
@@ -38,8 +38,9 @@ test("mobile event details gates booking-management and stale ticket entry point
   assert.match(eventDetails, /visible=\{showManageBooking && canSelfCancelRegistration\}/);
   assert.match(
     eventDetails,
-    /visible=\{showTicket && \(canSelfCancelRegistration \|\| \(isConfirmed && eventLive && !eventClosedForBookingCopy\)\)\}/,
+    /const canViewTicket =[\s\S]*hasAdmission && \(canSelfCancelRegistration \|\| \(isConfirmed && eventLive && !eventClosedForBookingCopy\)\)/,
   );
+  assert.match(eventDetails, /visible=\{showTicket && canViewTicket\}/);
   assert.match(eventDetails, /canCancel=\{canSelfCancelRegistration\}/);
   assert.match(eventDetails, /Booking changes are closed for this event/);
   assert.match(eventDetails, /label="Booking Closed"/);
