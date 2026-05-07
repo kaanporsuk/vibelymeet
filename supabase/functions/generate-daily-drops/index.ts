@@ -420,7 +420,7 @@ serve(async (req) => {
       a.id.localeCompare(b.id)
     );
 
-    if (!eligibleUsersFiltered || eligibleUsersFiltered.length < 2) {
+    if (eligibleUsersFiltered.length < 2) {
       await completeGenerationRun(supabase, generationRunId, {
         status: "skipped",
         source: generationSource,
