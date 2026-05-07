@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY } from "@/hooks/useAdminEngagementAnalytics";
 import { ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY } from "@/hooks/useAdminOverviewDashboard";
 
 interface UseAdminRealtimeOptions {
@@ -14,10 +15,15 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
   }, [queryClient]);
 
+  const invalidateEngagement = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY });
+  }, [queryClient]);
+
   const invalidateAllStats = useCallback(() => {
     invalidateOverview();
+    invalidateEngagement();
     queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
-  }, [invalidateOverview, queryClient]);
+  }, [invalidateEngagement, invalidateOverview, queryClient]);
 
   const invalidateUsers = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-users"] });
@@ -26,12 +32,18 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
 
   const invalidateMatches = useCallback(() => {
     invalidateOverview();
-  }, [invalidateOverview]);
+    invalidateEngagement();
+  }, [invalidateEngagement, invalidateOverview]);
 
   const invalidateEvents = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-events"] });
     invalidateOverview();
   }, [invalidateOverview, queryClient]);
+
+  const invalidateEventEngagement = useCallback(() => {
+    invalidateEvents();
+    invalidateEngagement();
+  }, [invalidateEngagement, invalidateEvents]);
 
   const invalidateNotifications = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
@@ -50,6 +62,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
 
   const invalidateReports = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-reports-summary"] });
     invalidateOverview();
   }, [invalidateOverview, queryClient]);
 
@@ -97,7 +110,7 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "event_registrations" },
-        invalidateEvents
+        invalidateEventEngagement
       )
       .subscribe();
 
@@ -107,7 +120,28 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "daily_drops" },
-        invalidateOverview
+        () => {
+          invalidateOverview();
+          invalidateEngagement();
+        }
+      )
+      .subscribe();
+
+    const engagementPushTelemetryChannel = supabase
+      .channel("admin-engagement-push-telemetry-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "push_notification_events" },
+        invalidateEngagement
+      )
+      .subscribe();
+
+    const engagementNotificationLogChannel = supabase
+      .channel("admin-engagement-notification-log-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notification_log" },
+        invalidateEngagement
       )
       .subscribe();
 
@@ -185,7 +219,10 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
-        invalidateOverview
+        () => {
+          invalidateOverview();
+          invalidateEngagement();
+        }
       )
       .subscribe();
 
@@ -195,6 +232,8 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       supabase.removeChannel(eventsChannel);
       supabase.removeChannel(registrationsChannel);
       supabase.removeChannel(dailyDropsChannel);
+      supabase.removeChannel(engagementPushTelemetryChannel);
+      supabase.removeChannel(engagementNotificationLogChannel);
       supabase.removeChannel(notificationsChannel);
       supabase.removeChannel(reportsChannel);
       supabase.removeChannel(supportTicketsChannel);
@@ -206,6 +245,8 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     };
   }, [
     enabled,
+    invalidateEngagement,
+    invalidateEventEngagement,
     invalidateOverview,
     invalidateUsers,
     invalidateMatches,
@@ -215,7 +256,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     invalidateBadges,
     invalidateSupport,
     invalidatePhotoVerifications,
-    queryClient,
   ]);
 
   return {

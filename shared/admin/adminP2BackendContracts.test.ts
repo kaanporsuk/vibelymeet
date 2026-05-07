@@ -32,6 +32,8 @@ const tierConfigSwipeLimitRetryRecheckMigration = read(
 const tierConfigOverrideAuditLockdownMigration = read(
   "supabase/migrations/20260507200000_tier_config_override_audit_lockdown.sql",
 );
+const engagementAnalyticsMigration = read("supabase/migrations/20260507201000_admin_engagement_analytics_read_model.sql");
+const engagementAnalyticsIndexesMigration = read("supabase/migrations/20260507204000_admin_engagement_analytics_read_model_indexes.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const accountDeletionsValidation = read("supabase/validation/admin_account_deletions_backend_authoritative.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
@@ -60,6 +62,8 @@ const overviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
 const analyticsCharts = read("src/components/admin/AdminAnalyticsCharts.tsx");
 const quickActions = read("src/components/admin/AdminQuickActionsCards.tsx");
 const dailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
+const adminEngagement = read("src/components/admin/AdminEngagementAnalytics.tsx");
+const adminEngagementHook = read("src/hooks/useAdminEngagementAnalytics.ts");
 const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const eventAnalytics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const pushAnalytics = read("src/hooks/usePushAnalytics.ts");
@@ -141,6 +145,20 @@ function eventAnalyticsReadModelsFnSection(fnName: string): string {
   const candidates = [next, revoke].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : eventAnalyticsReadModelsMigration.length;
   return eventAnalyticsReadModelsMigration.slice(start, end);
+}
+
+function engagementAnalyticsFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = engagementAnalyticsMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const revoke = engagementAnalyticsMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = engagementAnalyticsMigration.indexOf(
+    "\nINSERT INTO public.migration_classifications",
+    start + marker.length,
+  );
+  const candidates = [revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : engagementAnalyticsMigration.length;
+  return engagementAnalyticsMigration.slice(start, end);
 }
 
 function reviewCommentFollowupFnSection(fnName: string): string {
@@ -468,7 +486,9 @@ test("Support Inbox admin RPCs are governed, audited, ACL pinned, and lifecycle-
     assert.match(supportInboxMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
   }
 
-  assert.match(supportInboxFnSection("admin_create_support_reply"), /ELSE 'waiting_on_user'/);
+  assert.match(supportInboxFnSection("admin_create_support_reply"), /v_ticket\.status = 'resolved'/);
+  assert.match(supportInboxFnSection("admin_create_support_reply"), /Reopen the support ticket before sending another reply/);
+  assert.match(supportInboxFnSection("admin_create_support_reply"), /SET status = 'waiting_on_user'/);
   assert.match(supportInboxFnSection("admin_update_support_ticket"), /p_set_event_id/);
   assert.match(supportInboxFnSection("admin_update_support_ticket"), /p_set_checkout_session_id/);
 
@@ -479,6 +499,10 @@ test("Support Inbox admin RPCs are governed, audited, ACL pinned, and lifecycle-
   assert.match(triggerSource, /WHEN status = 'resolved' THEN status/);
   assert.match(triggerSource, /ELSE 'in_review'/);
   assert.match(supportInboxMigration, /CREATE TRIGGER support_ticket_replies_status_sync[\s\S]*AFTER INSERT ON public\.support_ticket_replies/);
+  assert.match(supportInboxMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_tickets/);
+  assert.match(supportInboxMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_ticket_replies/);
+  assert.match(supportInboxMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_ticket_events/);
+  assert.match(supportInboxMigration, /GRANT SELECT ON public\.support_ticket_events TO authenticated/);
   assert.match(supportInboxMigration, /'20260507180000'/);
   assert.match(supportInboxMigration, /No support tickets are seeded or backfilled/);
 });
@@ -493,6 +517,10 @@ test("send-support-reply saves through the governed admin reply RPC before notif
   assert.match(sendSupportReplyFunction, /notification_warning/);
   assert.match(sendSupportReplyFunction, /email_warning/);
   assert.match(sendSupportReplyFunction, /sanitizeErrorMessage/);
+  assert.match(sendSupportReplyFunction, /case "INVALID_TRANSITION":[\s\S]{0,80}return 409/);
+  assert.match(sendSupportReplyFunction, /send-notification error for support reply:", sanitizeErrorMessage\(notifyError\)/);
+  assert.match(sendSupportReplyFunction, /Resend email failed for support reply:", sanitizeErrorMessage\(emailError\)/);
+  assert.match(sendSupportReplyFunction, /send-support-reply:", sanitizeErrorMessage\(e\)/);
   assert.doesNotMatch(sendSupportReplyFunction, /jsonResponse\(\{ error: String\(e\) \}/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_ticket_replies["']\)[\s\S]{0,300}\.insert\(/);
   assert.doesNotMatch(sendSupportReplyFunction, /from\(["']support_tickets["']\)[\s\S]{0,300}\.update\(/);
@@ -692,6 +720,62 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(eventAnalyticsReadModelsMigration, /INSERT INTO public\.migration_classifications/);
   assert.match(eventAnalyticsReadModelsMigration, /'20260507163000'/);
   assert.match(eventAnalyticsReadModelsMigration, /'schema-only'/);
+
+  const engagementSource = engagementAnalyticsFnSection("admin_get_engagement_analytics");
+  assert.match(engagementSource, /SECURITY DEFINER/);
+  assert.match(engagementSource, /SET search_path = public, pg_catalog/);
+  assert.match(engagementSource, /auth\.uid\(\)/);
+  assert.match(engagementSource, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
+  assert.match(engagementSource, /public\.admin_json_success/);
+  assert.match(engagementSource, /date_trunc\('day', p_window_start AT TIME ZONE 'UTC'\)/);
+  assert.match(engagementSource, /generate_series\(v_window_start, v_window_end - interval '1 day', interval '1 day'\)/);
+  assert.match(engagementSource, /public\.push_notification_events_admin/);
+  assert.match(engagementSource, /public\.notification_log/);
+  assert.match(engagementSource, /public\.daily_drops/);
+  assert.match(engagementSource, /public\.messages/);
+  assert.match(engagementSource, /public\.matches/);
+  assert.match(engagementSource, /public\.event_registrations/);
+  assert.match(engagementSource, /'reporting_timezone', 'UTC'/);
+  assert.match(engagementSource, /'active_unopened'/);
+  assert.match(engagementSource, /'active_viewed'/);
+  assert.match(engagementSource, /'active_opener_sent'/);
+  assert.match(engagementSource, /'expired_no_action'/);
+  assert.match(engagementSource, /'expired_no_reply'/);
+  assert.match(engagementSource, /'invalidated'/);
+  assert.match(engagementSource, /'engagement_rate'/);
+  assert.match(engagementSource, /'match_conversion_rate'/);
+  assert.match(engagementSource, /'app_by_category'/);
+  assert.doesNotMatch(engagementSource, /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s/im);
+  assert.doesNotMatch(engagementSource, /SELECT\s+\*/);
+  assert.doesNotMatch(engagementSource, /to_jsonb\(/);
+  assert.doesNotMatch(engagementSource, /status = 'pending'/);
+  assert.doesNotMatch(engagementSource, /status = 'liked'/);
+  assert.doesNotMatch(engagementSource, /status = 'expired'/);
+  assert.match(engagementAnalyticsMigration, /REVOKE ALL ON FUNCTION public\.admin_get_engagement_analytics\(timestamptz, timestamptz\) FROM PUBLIC, anon, authenticated/);
+  assert.match(engagementAnalyticsMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_engagement_analytics\(timestamptz, timestamptz\) TO authenticated/);
+  assert.match(engagementAnalyticsMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.daily_drops/);
+  assert.match(engagementAnalyticsMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.notification_log/);
+  assert.match(engagementAnalyticsMigration, /WHEN duplicate_object OR undefined_object THEN NULL/);
+  assert.match(engagementAnalyticsMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(engagementAnalyticsMigration, /'20260507201000'/);
+  assert.match(engagementAnalyticsMigration, /'schema-only'/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_daily_drops_starts_at[\s\S]*ON public\.daily_drops \(starts_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_daily_drops_status_starts_at[\s\S]*ON public\.daily_drops \(status, starts_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_messages_created_at[\s\S]*ON public\.messages \(created_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_matches_matched_at[\s\S]*ON public\.matches \(matched_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_event_registrations_registered_at[\s\S]*ON public\.event_registrations \(registered_at\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /CREATE INDEX IF NOT EXISTS idx_admin_engagement_notification_log_created_category[\s\S]*ON public\.notification_log \(created_at, category\)/);
+  assert.match(engagementAnalyticsIndexesMigration, /'20260507204000'/);
+  assert.match(engagementAnalyticsIndexesMigration, /'schema-only'/);
+  assert.doesNotMatch(engagementAnalyticsIndexesMigration, /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s+(?!INTO public\.migration_classifications\b)/im);
+  assert.match(adminEngagementHook, /callAdminRpc<AdminEngagementAnalyticsPayload>\("admin_get_engagement_analytics"/);
+  assert.match(adminEngagementHook, /queryKey: \[\.\.\.ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY, days\]/);
+  assert.match(adminEngagementHook, /queryFn: \(\) => \{\s*const window = getUtcWindow\(days\)/);
+  assert.match(adminEngagementHook, /refetchInterval: 30_000/);
+  assert.doesNotMatch(adminEngagementHook, /useMemo/);
+  assert.match(adminEngagement, /useAdminEngagementAnalytics\(30\)/);
+  assert.doesNotMatch(adminEngagement, /supabase\s*\.\s*from\(/);
+  assert.doesNotMatch(adminEngagement, /\.from\(['"](admin_notifications|daily_drops|messages|matches|event_registrations|push_notification_events(?:_admin)?|notification_log)['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]profiles['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]event_registrations['"]\)/);
   assert.doesNotMatch(adminUsers, /\.from\(['"]profile_vibes['"]\)/);
@@ -954,7 +1038,8 @@ test("push telemetry admin view preserves nullness while redacting sensitive ide
 test("named residual admin panels use backend read models instead of browser table reads", () => {
   assert.match(verification, /callAdminRpc<PhotoVerificationListPayload>\("admin_list_photo_verifications"/);
   assert.match(reports, /callAdminRpc<ReportsReadModelPayload>\("admin_get_reports_read_model"/);
-  assert.match(reports, /p_search: normalizedSearchQuery \|\| null/);
+  assert.match(reports, /p_search: reportSearchQuery \|\| null/);
+  assert.match(reports, /resolveReportSearchQuery/);
   assert.match(pushCampaigns, /callAdminRpc<PushCampaignsReadModelPayload>\("admin_get_push_campaigns_read_model"/);
   assert.match(pushCampaigns, /callAdminRpc\("admin_upsert_push_campaign_draft"/);
   assert.match(pushCampaigns, /callAdminRpc\("admin_delete_push_campaign_draft"/);

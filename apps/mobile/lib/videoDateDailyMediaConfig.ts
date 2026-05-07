@@ -1,10 +1,10 @@
 import Daily from '@daily-co/react-native-daily-js';
 import {
   isVideoDateCameraConstraintError,
-  type VideoDateMediaCaptureProfile,
+  type VideoDateNativeMediaCaptureProfile,
 } from '@clientShared/matching/videoDateMediaContract';
 
-export type NativeVideoDateCaptureProfile = VideoDateMediaCaptureProfile;
+export type NativeVideoDateCaptureProfile = VideoDateNativeMediaCaptureProfile;
 export type VideoDateDailyCallObject = ReturnType<typeof Daily.createCallObject>;
 
 type NativeDailyCallOptions = NonNullable<Parameters<typeof Daily.createCallObject>[0]>;

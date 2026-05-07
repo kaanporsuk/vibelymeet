@@ -2,10 +2,14 @@ import type { DailyFactoryOptions } from "@daily-co/daily-js";
 import {
   VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS,
   videoDateWebVideoConstraintsForProfile,
-  type VideoDateMediaCaptureProfile,
+  type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
 
 type WebDailyCallObjectMediaOptions = Pick<DailyFactoryOptions, "audioSource" | "videoSource">;
+type VideoDateAppAcquiredMediaTracks = {
+  audioTrack?: MediaStreamTrack | null;
+  videoTrack?: MediaStreamTrack | null;
+};
 type DailyAdvancedConfigWithVideoDateKnobs = NonNullable<DailyFactoryOptions["dailyConfig"]> & {
   experimentalChromeVideoMuteLightOff?: boolean;
 };
@@ -27,7 +31,7 @@ export function dailyCallObjectOptions(options: WebDailyCallObjectMediaOptions):
 }
 
 export function videoDateWebMediaStreamConstraints(
-  profile: VideoDateMediaCaptureProfile,
+  profile: VideoDateWebMediaCaptureProfile,
 ): MediaStreamConstraints {
   return {
     audio: true,
@@ -36,7 +40,8 @@ export function videoDateWebMediaStreamConstraints(
 }
 
 export function dailyVideoDateCallObjectOptions(
-  profile: VideoDateMediaCaptureProfile,
+  profile: VideoDateWebMediaCaptureProfile,
+  appAcquiredMedia?: VideoDateAppAcquiredMediaTracks,
 ): DailyFactoryOptions {
   const videoConstraints = videoDateWebVideoConstraintsForProfile(profile) as MediaTrackConstraints;
   const bandwidthOptimized = readBooleanEnvFlag("VITE_VIDEO_DATE_DAILY_BANDWIDTH_OPTIMIZED");
@@ -48,8 +53,8 @@ export function dailyVideoDateCallObjectOptions(
   };
 
   return {
-    audioSource: true,
-    videoSource: true,
+    audioSource: appAcquiredMedia?.audioTrack ?? true,
+    videoSource: appAcquiredMedia?.videoTrack ?? true,
     inputSettings: {
       video: {
         settings: videoConstraints,
@@ -61,6 +66,13 @@ export function dailyVideoDateCallObjectOptions(
     },
     dailyConfig,
   };
+}
+
+export function dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(
+  profile: VideoDateWebMediaCaptureProfile,
+  appAcquiredMedia: VideoDateAppAcquiredMediaTracks,
+): DailyFactoryOptions {
+  return dailyVideoDateCallObjectOptions(profile, appAcquiredMedia);
 }
 
 export const dailyVideoDateIdealCaptureConstraints = VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS;

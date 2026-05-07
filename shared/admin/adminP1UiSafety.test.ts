@@ -2,6 +2,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { resolveReportSearchQuery } from "../../src/components/admin/adminReportSearch";
+import { resolveSupabaseFunctionErrorMessage } from "../supabaseFunctionInvokeErrors";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -11,12 +13,15 @@ const adminNotifications = read("src/components/admin/AdminNotificationsPanel.ts
 const adminGrantCredits = read("src/components/admin/AdminGrantCreditsModal.tsx");
 const userModeration = read("src/components/admin/UserModerationActions.tsx");
 const adminReports = read("src/components/admin/AdminReportsPanel.tsx");
+const adminReportSearch = read("src/components/admin/adminReportSearch.ts");
 const adminStats = read("src/components/admin/AdminStatsCards.tsx");
 const adminAnalytics = read("src/components/admin/AdminAnalyticsCharts.tsx");
 const adminQuickActions = read("src/components/admin/AdminQuickActionsCards.tsx");
 const adminDailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
 const adminRealtime = read("src/hooks/useAdminRealtime.ts");
 const adminOverviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
+const adminEngagement = read("src/components/admin/AdminEngagementAnalytics.tsx");
+const useAdminEngagementAnalytics = read("src/hooks/useAdminEngagementAnalytics.ts");
 const usePushAnalytics = read("src/hooks/usePushAnalytics.ts");
 const usePushNotificationEvents = read("src/hooks/usePushNotificationEvents.ts");
 const pushAnalyticsDashboard = read("src/components/admin/PushAnalyticsDashboard.tsx");
@@ -154,6 +159,52 @@ test("report actions use backend transaction instead of client side-effect orche
   assert.doesNotMatch(actionHandler, /await updateReport\.mutateAsync/);
   assert.doesNotMatch(actionHandler, /await suspendUser\.mutateAsync/);
   assert.doesNotMatch(actionHandler, /await issueWarning\.mutateAsync/);
+
+  const actionSuccess = section(adminReports, "onSuccess: () => {", "onError");
+  assert.match(actionSuccess, /\["admin-reports"\]/);
+  assert.match(actionSuccess, /\["admin-reports-summary"\]/);
+  assert.match(actionSuccess, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
+});
+
+test("reports list distinguishes fetch failures from true empty results", () => {
+  assert.match(adminReports, /isError/);
+  assert.match(adminReports, /reportsUnavailable = isError/);
+  assert.doesNotMatch(adminReports, /reportsUnavailable = isError &&/);
+  assert.match(adminReports, /Reports unavailable/);
+  assert.match(adminReports, /This is a fetch failure, not proof that no reports exist/);
+  assert.match(adminReports, /No reports found/);
+});
+
+test("reports search maps visible reason labels while preserving client-side label filtering", () => {
+  assert.match(adminReports, /resolveReportSearchQuery/);
+  assert.match(adminReports, /normalizeReportSearchText/);
+  assert.match(adminReportSearch, /word\.length >= 4/);
+  assert.doesNotMatch(adminReportSearch, /"profile", "content"/);
+  assert.match(adminReports, /p_search: reportSearchQuery \|\| null/);
+  assert.match(adminReports, /reasonLabels\[report\.reason\]/);
+  assert.match(adminReports, /normalizeReportSearchText\(reasonLabel\)\.includes\(normalizedSearch\)/);
+});
+
+test("reports reason-label search normalization covers visible label terms", () => {
+  assert.equal(resolveReportSearchQuery("Fake profile / catfish"), "fake");
+  assert.equal(resolveReportSearchQuery("fake catfish"), "fake");
+  assert.equal(resolveReportSearchQuery("catfish"), "fake");
+  assert.equal(resolveReportSearchQuery("profile"), "fake");
+  assert.equal(resolveReportSearchQuery("Harassment or bullying"), "harassment");
+  assert.equal(resolveReportSearchQuery("harassment bullying"), "harassment");
+  assert.equal(resolveReportSearchQuery("bullying"), "harassment");
+  assert.equal(resolveReportSearchQuery("sexual content"), "inappropriate");
+  assert.equal(resolveReportSearchQuery("scam"), "spam");
+  assert.equal(resolveReportSearchQuery("content"), "inappropriate");
+  assert.equal(resolveReportSearchQuery("concern"), "concern");
+  assert.equal(resolveReportSearchQuery("ali"), "ali");
+});
+
+test("reports realtime refreshes list, summary, and overview together", () => {
+  const invalidateReports = section(adminRealtime, "const invalidateReports = useCallback", "const invalidatePhotoVerifications");
+  assert.match(invalidateReports, /\["admin-reports"\]/);
+  assert.match(invalidateReports, /\["admin-reports-summary"\]/);
+  assert.match(invalidateReports, /invalidateOverview\(\)/);
 });
 
 test("overview metrics and event analytics labels match query semantics", () => {
@@ -235,8 +286,12 @@ test("overview charts and Daily Drop read from the backend overview surface", ()
 
 test("overview realtime invalidates the active backend query key", () => {
   assert.match(adminRealtime, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
+  assert.match(adminRealtime, /ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY/);
   assert.match(adminRealtime, /admin-daily-drops-realtime/);
+  assert.match(adminRealtime, /admin-engagement-push-telemetry-realtime/);
+  assert.match(adminRealtime, /admin-engagement-notification-log-realtime/);
   assert.match(adminRealtime, /invalidateOverview/);
+  assert.match(adminRealtime, /invalidateEngagement/);
   assert.doesNotMatch(adminRealtime, /admin-users-count/);
   assert.doesNotMatch(adminRealtime, /admin-matches-count/);
   assert.doesNotMatch(adminRealtime, /admin-event-attendance/);
@@ -257,6 +312,7 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(supportInbox, /callAdminRpc<SupportThreadPayload>\("admin_get_support_ticket_thread"/);
   assert.match(supportInbox, /callAdminRpc\("admin_update_support_ticket"/);
   assert.match(supportInbox, /supabase\.functions\.invoke<SendSupportReplyResponse>\("send-support-reply"/);
+  assert.match(supportInbox, /resolveSupabaseFunctionErrorMessage/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_tickets["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']support_ticket_replies["']\)/);
   assert.doesNotMatch(supportInbox, /\.from\(["']event_payment_exceptions["']\)/);
@@ -267,6 +323,28 @@ test("Support Inbox has honest empty/error states and governed data access", () 
   assert.match(adminRealtime, /admin-support-events-realtime/);
   assert.match(adminRealtime, /\["admin-support-tickets"\]/);
   assert.match(adminRealtime, /\["admin-support-thread"\]/);
+});
+
+test("Support Inbox function errors preserve human server messages", async () => {
+  const response = new Response(
+    JSON.stringify({
+      error: "INVALID_TRANSITION",
+      message: "Reopen the support ticket before sending another reply.",
+    }),
+    { status: 409 },
+  );
+
+  const message = await resolveSupabaseFunctionErrorMessage(
+    {
+      name: "FunctionsHttpError",
+      message: "Edge Function returned a non-2xx status code",
+      context: response,
+    },
+    null,
+    "Failed to send reply",
+  );
+
+  assert.equal(message, "Reopen the support ticket before sending another reply. (HTTP 409)");
 });
 
 test("push analytics uses the backend admin telemetry RPC and honest states", () => {
@@ -293,6 +371,30 @@ test("push analytics uses the backend admin telemetry RPC and honest states", ()
   assert.doesNotMatch(pushAnalyticsDashboard, /Delivery & Opens Trend/);
   assert.doesNotMatch(pushAnalyticsDashboard, /Device Distribution/);
   assert.doesNotMatch(pushAnalyticsDashboard, /Best Performing Send Times/);
+});
+
+test("engagement analytics uses one backend read model and honest states", () => {
+  assert.match(adminEngagement, /useAdminEngagementAnalytics\(30\)/);
+  assert.match(useAdminEngagementAnalytics, /callAdminRpc<AdminEngagementAnalyticsPayload>\("admin_get_engagement_analytics"/);
+  assert.match(useAdminEngagementAnalytics, /queryKey: \[\.\.\.ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY, days\]/);
+  assert.match(useAdminEngagementAnalytics, /queryFn: \(\) => \{\s*const window = getUtcWindow\(days\)/);
+  assert.match(useAdminEngagementAnalytics, /refetchInterval: 30_000/);
+  assert.match(adminEngagement, /Push Delivery & Opens \(30 Days UTC\)/);
+  assert.match(adminEngagement, /Notification Performance by Category/);
+  assert.match(adminEngagement, /formatRate\(provider\.delivery_rate, provider\.sent_rows > 0\)/);
+  assert.match(adminEngagement, /formatRate\(provider\.open_rate, provider\.delivered_rows > 0\)/);
+  assert.match(adminEngagement, /formatRate\(dailyDrop\.engagement_rate, hasDailyDropRows\)/);
+  assert.match(adminEngagement, /No provider telemetry in this UTC window/);
+  assert.match(adminEngagement, /No Daily Drop rows in this UTC window/);
+  assert.match(adminEngagement, /Metrics are hidden until the backend engagement read model succeeds/);
+  assert.doesNotMatch(adminEngagement, /supabase\s*\.\s*from\(/);
+  assert.doesNotMatch(adminEngagement, /\.from\(['"](admin_notifications|daily_drops|messages|matches|event_registrations|push_notification_events(?:_admin)?|notification_log)['"]\)/);
+  assert.doesNotMatch(useAdminEngagementAnalytics, /supabase\s*\.\s*from\(/);
+  assert.doesNotMatch(useAdminEngagementAnalytics, /useMemo/);
+  assert.doesNotMatch(adminEngagement, /Notification Read Rate/);
+  assert.doesNotMatch(adminEngagement, /status === ['"]pending['"]/);
+  assert.doesNotMatch(adminEngagement, /status === ['"]liked['"]/);
+  assert.doesNotMatch(adminEngagement, /status === ['"]expired['"]/);
 });
 
 test("live push monitor is labeled as admin telemetry rather than full delivery proof", () => {

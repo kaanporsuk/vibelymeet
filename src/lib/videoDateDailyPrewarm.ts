@@ -1,10 +1,13 @@
 import DailyIframe, { type DailyCall } from "@daily-co/daily-js";
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
-import { dailyVideoDateCallObjectOptions } from "@/lib/dailyCallObjectConfig";
+import {
+  dailyVideoDateCallObjectOptions,
+  dailyVideoDateCallObjectOptionsWithAppAcquiredMedia,
+} from "@/lib/dailyCallObjectConfig";
 import { vdbg } from "@/lib/vdbg";
 import { LobbyPostDateEvents } from "@clientShared/analytics/lobbyToPostDateJourney";
-import type { VideoDateMediaCaptureProfile } from "@clientShared/matching/videoDateMediaContract";
+import type { VideoDateWebMediaCaptureProfile } from "@clientShared/matching/videoDateMediaContract";
 import {
   buildReadyGateToDateLatencyPayload,
   recordReadyGateToDateLatencyCheckpoint,
@@ -28,6 +31,13 @@ type WebDailyPrewarmStatus =
 
 type WebDailyPrewarmJoinSource = "both_ready" | "solo_prejoin";
 
+type WebDailyPrewarmAppAcquiredMedia = {
+  stream: MediaStream;
+  captureProfile: VideoDateWebMediaCaptureProfile;
+  acquiredAtMs: number;
+  source: string;
+};
+
 type WebDailyPrewarmEntry = {
   key: string;
   sessionId: string;
@@ -35,7 +45,7 @@ type WebDailyPrewarmEntry = {
   eventId: string | null;
   roomName: string;
   roomUrl: string;
-  captureProfile: VideoDateMediaCaptureProfile;
+  captureProfile: VideoDateWebMediaCaptureProfile;
   call: DailyCall;
   createdAtMs: number;
   expiresAtMs: number;
@@ -46,6 +56,7 @@ type WebDailyPrewarmEntry = {
   joinStartedAtMs: number | null;
   joinedAtMs: number | null;
   joinSource: WebDailyPrewarmJoinSource | null;
+  appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia | null;
   destroyTimer: number | null;
 };
 
@@ -53,13 +64,14 @@ type WebDailyPrewarmPublicEntry = {
   call: DailyCall;
   roomName: string;
   roomUrl: string;
-  captureProfile: VideoDateMediaCaptureProfile;
+  captureProfile: VideoDateWebMediaCaptureProfile;
   createdAtMs: number;
   joined: boolean;
   joinPromise: Promise<boolean> | null;
   joinStartedAtMs: number | null;
   joinedAtMs: number | null;
   joinSource: WebDailyPrewarmJoinSource | null;
+  appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia | null;
 };
 
 type WebDailyPrewarmConsumeResult =
@@ -80,7 +92,22 @@ function publicEntry(entry: WebDailyPrewarmEntry): WebDailyPrewarmPublicEntry {
     joinStartedAtMs: entry.joinStartedAtMs,
     joinedAtMs: entry.joinedAtMs,
     joinSource: entry.joinSource,
+    appAcquiredMedia: entry.appAcquiredMedia,
   };
+}
+
+function firstLiveTrack(tracks: MediaStreamTrack[]): MediaStreamTrack | null {
+  return tracks.find((track) => track.readyState !== "ended") ?? null;
+}
+
+function stopMediaStreamTracks(stream: MediaStream | null | undefined) {
+  stream?.getTracks().forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      /* best-effort cleanup */
+    }
+  });
 }
 
 function prewarmEnabled(): boolean {
@@ -178,6 +205,8 @@ function cleanupAbandonedCall(entry: WebDailyPrewarmEntry, reason: string) {
         message: "web_daily_prewarm_destroy_failed",
         data: { sessionId: entry.sessionId, reason, error: error instanceof Error ? error.message : String(error) },
       });
+    } finally {
+      stopMediaStreamTracks(entry.appAcquiredMedia?.stream);
     }
   };
   void cleanup();
@@ -221,7 +250,8 @@ export function startWebVideoDateDailyPrewarm(params: {
   eventId: string | null;
   roomName: string;
   roomUrl: string;
-  captureProfile?: VideoDateMediaCaptureProfile;
+  captureProfile?: VideoDateWebMediaCaptureProfile;
+  appAcquiredMedia?: WebDailyPrewarmAppAcquiredMedia | null;
   source: string;
 }): WebDailyPrewarmConsumeResult {
   if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
@@ -237,8 +267,20 @@ export function startWebVideoDateDailyPrewarm(params: {
     }
   }
 
-  const captureProfile = params.captureProfile ?? "ideal";
-  const call = DailyIframe.createCallObject(dailyVideoDateCallObjectOptions(captureProfile));
+  const captureProfile = params.appAcquiredMedia?.captureProfile ?? params.captureProfile ?? "ideal";
+  const appAcquiredMedia =
+    params.appAcquiredMedia?.captureProfile === captureProfile &&
+    firstLiveTrack(params.appAcquiredMedia.stream.getVideoTracks())
+      ? params.appAcquiredMedia
+      : null;
+  const call = DailyIframe.createCallObject(
+    appAcquiredMedia
+      ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(captureProfile, {
+          audioTrack: firstLiveTrack(appAcquiredMedia.stream.getAudioTracks()),
+          videoTrack: firstLiveTrack(appAcquiredMedia.stream.getVideoTracks()),
+        })
+      : dailyVideoDateCallObjectOptions(captureProfile),
+  );
   const nowMs = Date.now();
   const entry: WebDailyPrewarmEntry = {
     key,
@@ -258,6 +300,7 @@ export function startWebVideoDateDailyPrewarm(params: {
     joinStartedAtMs: null,
     joinedAtMs: null,
     joinSource: null,
+    appAcquiredMedia,
     destroyTimer: null,
   };
   prewarmEntries.set(key, entry);
@@ -280,6 +323,7 @@ export function startWebVideoDateDailyPrewarm(params: {
     userId: params.userId,
     roomName: params.roomName,
     captureProfile,
+    appAcquiredMedia: Boolean(appAcquiredMedia),
   });
 
   entry.cameraPromise = Promise.resolve(call.startCamera({ url: params.roomUrl })).then(
@@ -477,7 +521,7 @@ export function consumeWebVideoDateDailyPrewarm(params: {
   eventId: string | null;
   roomName: string;
   roomUrl: string;
-  captureProfile: VideoDateMediaCaptureProfile;
+  captureProfile: VideoDateWebMediaCaptureProfile;
 }): WebDailyPrewarmConsumeResult {
   if (!prewarmEnabled()) return { ok: false, reason: "flag_disabled" };
   const key = keyFor(params.sessionId, params.userId);

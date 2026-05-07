@@ -3,6 +3,15 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sanitizeProductIntelligenceProperties } from "../analytics/productIntelligence";
+import {
+  createDefaultP4Window,
+  filterEntitlementDriftRows,
+  isValidP4Window,
+  normalizeEntitlementRows,
+  normalizeEventLiquidityRows,
+  normalizeQualityBudgetRows,
+  splitEventLiquidityRows,
+} from "./p4IntelligenceAdapters.ts";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
@@ -14,6 +23,7 @@ const p4Migrations = [
   "supabase/migrations/20260506133000_admin_p4_experiments_growth.sql",
   "supabase/migrations/20260506134000_admin_p4_revenue_store_cost_quality.sql",
   "supabase/migrations/20260507100000_admin_governed_export_queue_read_model.sql",
+  "supabase/migrations/20260507202000_admin_p4_revenue_drift_semantics_alignment.sql",
 ].map(read).join("\n");
 
 const validation = read("supabase/validation/admin_p4_growth_scale_intelligence.sql");
@@ -241,6 +251,15 @@ test("P4 /kaan Intelligence panel is wired through admin RPCs only", () => {
   assert.match(intelligencePanel, /callAdminRpc<AdminMetricPayload>\("admin_get_revenue_intelligence"/);
   assert.match(intelligencePanel, /callAdminRpc<AdminMetricPayload>\("admin_get_trust_triage_queue"/);
   assert.match(intelligencePanel, /callAdminRpc<AdminMetricPayload>\("admin_get_cost_capacity_metrics"/);
+  assert.match(intelligencePanel, /normalizeEventLiquidityRows/);
+  assert.match(intelligencePanel, /filterEntitlementDriftRows/);
+  assert.match(intelligencePanel, /EventLiquiditySection/);
+  assert.match(intelligencePanel, /EntitlementReconciliationSection/);
+  assert.match(intelligencePanel, /Start \(UTC\)/);
+  assert.match(intelligencePanel, /End \(UTC\)/);
+  assert.match(intelligencePanel, /Current-state queues remain labeled as queues/);
+  assert.match(intelligencePanel, /Score unavailable/);
+  assert.match(intelligencePanel, /windowArgs\(window\)/);
   assert.match(intelligencePanel, /Scores are advisory/);
   assert.match(intelligencePanel, /verified_new_profiles/);
   assert.match(intelligencePanel, /profile_photo_users/);
@@ -262,6 +281,7 @@ test("P4 /kaan Intelligence panel is wired through admin RPCs only", () => {
   ]) {
     assert.doesNotMatch(intelligencePanel, new RegExp(stalePayloadKey.replace(".", "\\.")), `stale P4 payload key still present: ${stalePayloadKey}`);
   }
+  assert.doesNotMatch(intelligencePanel, /const SignalList/);
   assert.doesNotMatch(intelligencePanel, /\.from\(["']/);
   assert.doesNotMatch(intelligencePanel, /\.(insert|update|upsert|delete)\(/);
   assert.doesNotMatch(intelligencePanel, /\bfetch\(/);
@@ -274,6 +294,120 @@ test("P4 /kaan Intelligence panel renders partial data when one read RPC fails",
   assert.match(intelligencePanel, /sanitizeAdminRpcErrorMessage/);
   assert.match(intelligencePanel, /P4 intelligence data is partially unavailable/);
   assert.match(intelligencePanel, /Successful RPC sections are still shown below/);
+});
+
+test("P4 revenue drift semantics include active admin grants and queue drift rows only", () => {
+  const revenue = fnSection("admin_get_revenue_intelligence");
+  const reconciliation = fnSection("admin_get_entitlement_reconciliation");
+
+  for (const source of [revenue, reconciliation]) {
+    assert.match(source, /has_active_subscription OR has_active_admin_grant/);
+    assert.match(source, /p\.premium_until IS NOT NULL AND p\.premium_until > now\(\)/);
+    assert.match(source, /profile_is_premium IS DISTINCT FROM \(has_active_subscription OR has_active_admin_grant\)/);
+  }
+
+  assert.match(reconciliation, /WHERE drift IS TRUE/);
+  assert.match(reconciliation, /all_profiles_count/);
+  assert.match(reconciliation, /Queue contains drift=true rows only/);
+  assert.match(intelligencePanel, /No entitlement drift found/);
+  assert.match(intelligencePanel, /Profiles differing from subscription\/admin-grant evidence/);
+  assert.match(intelligencePanel, /Profiles with matching subscription\/admin-grant state are hidden from this queue/);
+});
+
+test("P4 Intelligence adapters make screenshot-shaped payloads operator-safe", () => {
+  const window = createDefaultP4Window(new Date("2026-05-07T12:00:00.000Z"));
+  assert.equal(isValidP4Window(window), true);
+
+  const events = normalizeEventLiquidityRows([
+    {
+      event_id: "archived-event",
+      title: "Archived Smoke",
+      event_date: "2026-04-26T22:36:22.70987+00:00",
+      archived: true,
+      raw_status: "published",
+      market: "Unavailable",
+      score: 43,
+      confidence: "low",
+      recommendation: "archived_no_action",
+      factors: { registrations: 6, capacity: 20, matches: 0, participant_reports: 0 },
+    },
+    {
+      event_id: "archived-status-event",
+      title: "Archived Status",
+      event_date: "not-a-date",
+      raw_status: "ARCHIVED",
+      archived: false,
+      score: null,
+      factors: { registrations: "2", capacity: "10" },
+    },
+    {
+      event_id: "active-event",
+      title: "7 May Test",
+      event_date: "2026-05-07T09:42:00+00:00",
+      archived: false,
+      raw_status: "published",
+      market: "Istanbul",
+      score: 61,
+      confidence: "low",
+      recommendation: "monitor",
+      factors: { registrations: 0, capacity: 0, matches: 0, participant_reports: 0 },
+    },
+  ]);
+  const splitEvents = splitEventLiquidityRows(events);
+  assert.deepEqual(splitEvents.activeRows.map((row) => row.eventId), ["active-event"]);
+  assert.deepEqual(splitEvents.archivedRows.map((row) => row.eventId), ["archived-event", "archived-status-event"]);
+  assert.equal(events[0].recommendation, "archived_no_action");
+  assert.equal(events[1].score, null);
+  assert.equal(events[1].registrations, 2);
+
+  const entitlementRows = normalizeEntitlementRows([
+    {
+      user_id: "aligned-admin-grant",
+      drift: false,
+      profile_is_premium: true,
+      has_active_subscription: false,
+      has_active_admin_grant: " true ",
+      entitlement_should_be_premium: true,
+      premium_until: "2026-06-01T00:00:00+00:00",
+      subscription_tier: "premium",
+      subscriptions: [],
+    },
+    {
+      user_id: "real-drift",
+      drift: true,
+      profile_is_premium: true,
+      has_active_subscription: false,
+      has_active_admin_grant: false,
+      entitlement_should_be_premium: false,
+      premium_until: null,
+      subscription_tier: "premium",
+      subscriptions: [],
+    },
+    {
+      user_id: "null-profile-premium",
+      profile_is_premium: null,
+      has_active_subscription: false,
+      has_active_admin_grant: false,
+      entitlement_should_be_premium: false,
+      subscriptions: [],
+    },
+  ]);
+  assert.deepEqual(filterEntitlementDriftRows(entitlementRows).map((row) => row.userId), ["real-drift", "null-profile-premium"]);
+
+  const qualityRows = normalizeQualityBudgetRows([
+    {
+      budget_key: "chat.send_ms",
+      domain: "chat",
+      label: "Chat send latency",
+      target_value: 1200,
+      comparison: "lte",
+      unit: "ms",
+      latest_observed_value: null,
+      status: "missing",
+    },
+  ]);
+  assert.equal(qualityRows[0].status, "missing");
+  assert.equal(qualityRows[0].latestObservedValue, null);
 });
 
 test("report moderation UI attaches P4 policy context without automated enforcement", () => {

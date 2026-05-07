@@ -41,7 +41,11 @@ import {
   getVideoDatePermissionHandoff,
   setVideoDatePermissionHandoff,
 } from "@clientShared/matching/videoDatePermissionHandoff";
-import { isVideoDateCameraConstraintError } from "@clientShared/matching/videoDateMediaContract";
+import {
+  VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER,
+  isVideoDateCameraConstraintError,
+  type VideoDateWebMediaCaptureProfile,
+} from "@clientShared/matching/videoDateMediaContract";
 import {
   canAttemptDailyRoomFromVideoSessionTruth,
   decideVideoSessionRouteFromTruth,
@@ -75,6 +79,7 @@ interface ReadyGateOverlayProps {
 
 const GATE_TIMEOUT = READY_GATE_DEFAULT_TIMEOUT_SECONDS;
 const WEB_READY_GATE_SILENT_PERMISSION_FALLBACK_WAIT_MS = 100;
+const WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000;
 const ACTIVE_DATE_QUEUE_STATUSES = new Set(["in_handshake", "in_date"]);
 const EXPIRY_SYNC_RETRY_DELAY_MS = 3_000;
 
@@ -90,6 +95,13 @@ type PrepareEntryFailureState = {
   retryable: boolean;
   httpStatus?: number;
 } | null;
+
+type ReadyGatePermissionPrewarmMedia = {
+  stream: MediaStream;
+  captureProfile: VideoDateWebMediaCaptureProfile;
+  acquiredAtMs: number;
+  source: string;
+};
 
 function stopMediaStreamTracks(stream: MediaStream | null) {
   if (!stream) return;
@@ -112,23 +124,29 @@ async function hasPriorGrantedVideoDateDeviceLabels(): Promise<boolean> {
   return hasLabeledDevice(devices, "videoinput") && hasLabeledDevice(devices, "audioinput");
 }
 
-async function getVideoDatePermissionPrewarmStream(): Promise<MediaStream> {
-  try {
-    return await navigator.mediaDevices.getUserMedia(
-      videoDateWebMediaStreamConstraints("ideal"),
-    );
-  } catch (idealError) {
-    if (!isVideoDateCameraConstraintError(idealError)) throw idealError;
-    return await navigator.mediaDevices.getUserMedia(
-      videoDateWebMediaStreamConstraints("fallback"),
-    );
+async function getVideoDatePermissionPrewarmStream(): Promise<ReadyGatePermissionPrewarmMedia> {
+  let lastConstraintError: unknown = null;
+  for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints(profile));
+      return {
+        stream,
+        captureProfile: profile,
+        acquiredAtMs: Date.now(),
+        source: "ready_gate_permission_prewarm",
+      };
+    } catch (error) {
+      if (!isVideoDateCameraConstraintError(error) || profile === "fallback") throw error;
+      lastConstraintError = error;
+    }
   }
+  throw lastConstraintError ?? new Error("No Video Date media capture profile available");
 }
 
 function waitForMediaStreamWithTimeout(
-  streamPromise: Promise<MediaStream>,
+  streamPromise: Promise<ReadyGatePermissionPrewarmMedia>,
   timeoutMs: number,
-): Promise<MediaStream | null> {
+): Promise<ReadyGatePermissionPrewarmMedia | null> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const timeout = window.setTimeout(() => {
@@ -139,7 +157,7 @@ function waitForMediaStreamWithTimeout(
     void streamPromise.then(
       (stream) => {
         if (settled) {
-          stopMediaStreamTracks(stream);
+          stopMediaStreamTracks(stream.stream);
           return;
         }
         settled = true;
@@ -250,6 +268,8 @@ const ReadyGateOverlay = ({
   const readyGateOpenedAtMsRef = useRef(Date.now());
   const prepareEntryHandoffStartedRef = useRef(false);
   const permissionPrewarmStartedRef = useRef(false);
+  const permissionPrewarmMediaRef = useRef<ReadyGatePermissionPrewarmMedia | null>(null);
+  const permissionPrewarmMediaReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const permissionPrewarmSkipLoggedRef = useRef(false);
   const roomWarmupStartedRef = useRef(false);
   const prepareEntryRunIdRef = useRef(0);
@@ -265,6 +285,7 @@ const ReadyGateOverlay = ({
   const nonRetryablePrepareFailureRef = useRef<string | null>(null);
   const latestUnmountCleanupContextRef = useRef({
     sessionId,
+    eventId,
     userId: user?.id ?? null,
   });
 
@@ -281,6 +302,28 @@ const ReadyGateOverlay = ({
     [eventId, sessionId],
   );
 
+  const clearPermissionPrewarmMediaReleaseTimer = useCallback(() => {
+    if (!permissionPrewarmMediaReleaseTimerRef.current) return;
+    clearTimeout(permissionPrewarmMediaReleaseTimerRef.current);
+    permissionPrewarmMediaReleaseTimerRef.current = null;
+  }, []);
+
+  const releasePermissionPrewarmMedia = useCallback((reason: string) => {
+    const media = permissionPrewarmMediaRef.current;
+    clearPermissionPrewarmMediaReleaseTimer();
+    if (!media) return;
+    permissionPrewarmMediaRef.current = null;
+    stopMediaStreamTracks(media.stream);
+    vdbg("ready_gate_permission_prewarm_media_released", {
+      sessionId,
+      eventId,
+      captureProfile: media.captureProfile,
+      source: media.source,
+      reason,
+      ageMs: Math.max(0, Date.now() - media.acquiredAtMs),
+    });
+  }, [clearPermissionPrewarmMediaReleaseTimer, eventId, sessionId]);
+
   useLayoutEffect(() => {
     activeReadyGateKeyRef.current = activeReadyGateKey;
   }, [activeReadyGateKey]);
@@ -288,9 +331,10 @@ const ReadyGateOverlay = ({
   useLayoutEffect(() => {
     latestUnmountCleanupContextRef.current = {
       sessionId,
+      eventId,
       userId: user?.id ?? null,
     };
-  }, [sessionId, user?.id]);
+  }, [eventId, sessionId, user?.id]);
 
   const addReadyGateBreadcrumb = useCallback(
     (message: string, data?: Record<string, unknown>) => {
@@ -477,18 +521,25 @@ const ReadyGateOverlay = ({
   //     outside of a user gesture.
   //   * "ready_tap"        — invoked in the "I'm Ready" click handler so the
   //     prompt (if any) fires inside transient activation.
-  // Tracks are stopped immediately after acquisition; Phase 2's Daily prewarm
-  // will own the stream lifetime.
+  // The acquired stream is kept briefly so Daily prewarm can publish the exact
+  // same app-acquired track instead of reopening the camera with a different
+  // aspect negotiation.
   const runPermissionPrewarm = useCallback(
     async (source: "ready_gate_open" | "ready_tap"): Promise<void> => {
-      if (permissionPrewarmStartedRef.current) return;
+      if (permissionPrewarmStartedRef.current) {
+        if (source !== "ready_tap" || permissionPrewarmMediaRef.current) return;
+        permissionPrewarmStartedRef.current = false;
+      }
       if (closedRef.current || dateNavigationStartedRef.current) return;
       const userId = user?.id;
       if (!userId) return;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
       const readyGateKey = activeReadyGateKey;
 
-      if (getVideoDatePermissionHandoff(sessionId, userId)) {
+      if (
+        getVideoDatePermissionHandoff(sessionId, userId) &&
+        (source !== "ready_tap" || permissionPrewarmMediaRef.current)
+      ) {
         permissionPrewarmStartedRef.current = true;
         return;
       }
@@ -574,13 +625,13 @@ const ReadyGateOverlay = ({
         source_action: sourceAction,
       });
 
-      let stream: MediaStream | null = null;
+      let media: ReadyGatePermissionPrewarmMedia | null = null;
       try {
         const streamPromise = getVideoDatePermissionPrewarmStream();
-        stream = silentFallbackWaitMs == null
+        media = silentFallbackWaitMs == null
           ? await streamPromise
           : await waitForMediaStreamWithTimeout(streamPromise, silentFallbackWaitMs);
-        if (!stream) {
+        if (!media) {
           permissionPrewarmStartedRef.current = false;
           vdbg("ready_gate_permission_prewarm_silent_fallback_timed_out", {
             sessionId,
@@ -592,20 +643,28 @@ const ReadyGateOverlay = ({
           return;
         }
 
-        stopMediaStreamTracks(stream);
-        stream = null;
+        releasePermissionPrewarmMedia("permission_prewarm_replaced");
         if (activeReadyGateKeyRef.current !== readyGateKey) {
+          stopMediaStreamTracks(media.stream);
           return;
         }
 
         if (closedRef.current && !dateNavigationStartedRef.current) {
+          stopMediaStreamTracks(media.stream);
           return;
         }
+        permissionPrewarmMediaRef.current = media;
+        media = null;
+        clearPermissionPrewarmMediaReleaseTimer();
+        permissionPrewarmMediaReleaseTimerRef.current = setTimeout(() => {
+          releasePermissionPrewarmMedia("permission_prewarm_media_ttl_expired");
+        }, WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS);
 
         setVideoDatePermissionHandoff({
           sessionId,
           userId,
           platform: "web",
+          captureProfile: permissionPrewarmMediaRef.current?.captureProfile ?? null,
           source: "web_ready_gate",
         });
         const durationMs = Math.max(0, Date.now() - startedAtMs);
@@ -644,7 +703,7 @@ const ReadyGateOverlay = ({
           durationMs,
         });
       } catch (error) {
-        stopMediaStreamTracks(stream);
+        stopMediaStreamTracks(media?.stream ?? null);
         const isActiveReadyGate = activeReadyGateKeyRef.current === readyGateKey;
         if (source === "ready_gate_open") {
           if (isActiveReadyGate) {
@@ -685,7 +744,14 @@ const ReadyGateOverlay = ({
         });
       }
     },
-    [activeReadyGateKey, eventId, sessionId, user?.id],
+    [
+      activeReadyGateKey,
+      clearPermissionPrewarmMediaReleaseTimer,
+      eventId,
+      releasePermissionPrewarmMedia,
+      sessionId,
+      user?.id,
+    ],
   );
 
   const canStartDailyPrewarmAfterWarmup = useCallback(
@@ -749,14 +815,25 @@ const ReadyGateOverlay = ({
           return;
         }
 
+        const prewarmMedia = permissionPrewarmMediaRef.current;
         const prewarm = startWebVideoDateDailyPrewarm({
           sessionId,
           userId,
           eventId,
           roomName: result.data.room_name,
           roomUrl: result.data.room_url,
+          captureProfile: prewarmMedia?.captureProfile,
+          appAcquiredMedia: prewarmMedia,
           source: "ready_gate_room_warmup_success",
         });
+        if (
+          prewarm.ok === true &&
+          prewarmMedia &&
+          prewarm.entry.appAcquiredMedia?.stream === prewarmMedia.stream
+        ) {
+          permissionPrewarmMediaRef.current = null;
+          clearPermissionPrewarmMediaReleaseTimer();
+        }
         vdbg("ready_gate_daily_prewarm_after_room_warmup", {
           sessionId,
           eventId,
@@ -765,6 +842,7 @@ const ReadyGateOverlay = ({
           roomName: result.data.room_name,
           ok: prewarm.ok,
           reason: prewarm.ok === true ? null : prewarm.reason,
+          appAcquiredMedia: prewarm.ok === true ? Boolean(prewarm.entry.appAcquiredMedia) : false,
         });
         if (
           prewarm.ok === true &&
@@ -802,7 +880,14 @@ const ReadyGateOverlay = ({
         }
       })();
     },
-    [activeReadyGateKey, canStartDailyPrewarmAfterWarmup, eventId, sessionId, user?.id],
+    [
+      activeReadyGateKey,
+      canStartDailyPrewarmAfterWarmup,
+      clearPermissionPrewarmMediaReleaseTimer,
+      eventId,
+      sessionId,
+      user?.id,
+    ],
   );
 
   const handleBothReady = useCallback((
@@ -1515,6 +1600,7 @@ const ReadyGateOverlay = ({
   }, [iAmReady]);
 
   useEffect(() => {
+    releasePermissionPrewarmMedia("ready_gate_session_changed");
     closedRef.current = false;
     dateNavigationStartedRef.current = false;
     invalidCloseToastRef.current = false;
@@ -1582,7 +1668,7 @@ const ReadyGateOverlay = ({
       });
     }
     preloadVideoDateRoute("ready_gate_open");
-  }, [sessionId, eventId, preloadVideoDateRoute]);
+  }, [sessionId, eventId, preloadVideoDateRoute, releasePermissionPrewarmMedia]);
 
   useEffect(() => {
     if (!sessionId || !eventId || !user?.id) return;
@@ -1600,6 +1686,23 @@ const ReadyGateOverlay = ({
           latestContext.userId,
           "ready_gate_unmount_before_date_navigation",
         );
+      }
+      const media = permissionPrewarmMediaRef.current;
+      if (media) {
+        permissionPrewarmMediaRef.current = null;
+        if (permissionPrewarmMediaReleaseTimerRef.current) {
+          clearTimeout(permissionPrewarmMediaReleaseTimerRef.current);
+          permissionPrewarmMediaReleaseTimerRef.current = null;
+        }
+        stopMediaStreamTracks(media.stream);
+        vdbg("ready_gate_permission_prewarm_media_released", {
+          sessionId: latestContext.sessionId,
+          eventId: latestContext.eventId,
+          captureProfile: media.captureProfile,
+          source: media.source,
+          reason: "ready_gate_unmount",
+          ageMs: Math.max(0, Date.now() - media.acquiredAtMs),
+        });
       }
     };
   }, []);

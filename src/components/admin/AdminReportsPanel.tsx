@@ -55,6 +55,8 @@ import { REPORT_REASONS, type ReportReasonId } from "../../../shared/safety/repo
 import { resolvePrimaryProfilePhotoPath } from "../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
+import { ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY } from "@/hooks/useAdminOverviewDashboard";
+import { normalizeReportSearchText, resolveReportSearchQuery } from "./adminReportSearch";
 
 type SortField = "created_at" | "status";
 type SortDirection = "asc" | "desc";
@@ -131,6 +133,7 @@ const AdminReportsPanel = () => {
   const [actionType, setActionType] = useState<ReportActionType>("dismiss");
   const [policyCategory, setPolicyCategory] = useState<PolicyCategory>("other");
   const normalizedSearchQuery = searchQuery.trim();
+  const reportSearchQuery = resolveReportSearchQuery(normalizedSearchQuery);
 
   const openReportActionDialog = (report: UserReportRow) => {
     setSelectedReport(report);
@@ -151,15 +154,15 @@ const AdminReportsPanel = () => {
   };
 
   // Fetch all reports
-  const { data: reports, isLoading } = useQuery({
-    queryKey: ["admin-reports", statusFilter, sortField, sortDirection, normalizedSearchQuery],
+  const { data: reports, isLoading, isError } = useQuery({
+    queryKey: ["admin-reports", statusFilter, sortField, sortDirection, normalizedSearchQuery, reportSearchQuery],
     queryFn: async () => {
       const payload = await callAdminRpc<ReportsReadModelPayload>("admin_get_reports_read_model", {
         p_status: statusFilter,
         p_sort_field: sortField,
         p_sort_direction: sortDirection,
         p_limit: 200,
-        p_search: normalizedSearchQuery || null,
+        p_search: reportSearchQuery || null,
       });
 
       return (payload.reports ?? []).map((report) => ({
@@ -198,6 +201,7 @@ const AdminReportsPanel = () => {
     }
     return profileMap;
   }, [reports]);
+  const reportsUnavailable = isError;
 
   const resolveReport = useMutation({
     mutationFn: async ({
@@ -226,6 +230,8 @@ const AdminReportsPanel = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-reports-summary"] });
+      queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
       toast.success("Report action completed");
       closeReportActionDialog();
     },
@@ -329,14 +335,18 @@ const AdminReportsPanel = () => {
 
   // Filter by search query
   const filteredReports = reports?.filter((report) => {
-    if (!searchQuery) return true;
+    if (!normalizedSearchQuery) return true;
     const reporter = profiles?.[report.reporter_id];
     const reported = profiles?.[report.reported_id];
-    const searchLower = searchQuery.toLowerCase();
+    const searchLower = normalizedSearchQuery.toLowerCase();
+    const normalizedSearch = normalizeReportSearchText(normalizedSearchQuery);
+    const reasonLabel = reasonLabels[report.reason] || report.reason;
     return (
       reporter?.name?.toLowerCase().includes(searchLower) ||
       reported?.name?.toLowerCase().includes(searchLower) ||
-      report.reason?.toLowerCase().includes(searchLower)
+      report.reason?.toLowerCase().includes(searchLower) ||
+      reasonLabel.toLowerCase().includes(searchLower) ||
+      normalizeReportSearchText(reasonLabel).includes(normalizedSearch)
     );
   });
 
@@ -414,6 +424,16 @@ const AdminReportsPanel = () => {
                     </TableCell>
                   </TableRow>
                 ))
+              ) : reportsUnavailable ? (
+                <TableRow className="border-border/50">
+                  <TableCell colSpan={6} className="text-center py-8 text-destructive">
+                    <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-70" />
+                    <p className="font-medium">Reports unavailable</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      This is a fetch failure, not proof that no reports exist.
+                    </p>
+                  </TableCell>
+                </TableRow>
               ) : filteredReports?.length === 0 ? (
                 <TableRow className="border-border/50">
                   <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">

@@ -44,6 +44,10 @@ const webVideoCallPath = "src/hooks/useVideoCall.ts";
 const webVideoCall = read(webVideoCallPath);
 const webDailyConfigPath = "src/lib/dailyCallObjectConfig.ts";
 const webDailyConfig = read(webDailyConfigPath);
+const webDailyPrewarmPath = "src/lib/videoDateDailyPrewarm.ts";
+const webDailyPrewarm = read(webDailyPrewarmPath);
+const readyGateOverlayPath = "src/components/lobby/ReadyGateOverlay.tsx";
+const readyGateOverlay = read(readyGateOverlayPath);
 const mediaContractPath = "shared/matching/videoDateMediaContract.ts";
 const mediaContract = read(mediaContractPath);
 const cameraSwitchHintPath = "shared/matching/videoDateCameraSwitchRenderHint.ts";
@@ -100,14 +104,17 @@ assert(
   `${mediaContractPath}: remote Video Date fit must remain contain`
 );
 assert(
-  mediaContract.includes('VIDEO_DATE_SELF_VIEW_OBJECT_FIT = "cover"'),
-  `${mediaContractPath}: self-view Video Date fit must remain explicitly cover`
+  mediaContract.includes('VIDEO_DATE_SELF_VIEW_OBJECT_FIT = "contain"'),
+  `${mediaContractPath}: self-view Video Date fit must preserve the full local frame`
 );
 assert(
   mediaContract.includes("VIDEO_DATE_WEB_IDEAL_VIDEO_CONSTRAINTS") &&
+    mediaContract.includes("VIDEO_DATE_WEB_PORTRAIT_MEDIUM_VIDEO_CONSTRAINTS") &&
+    mediaContract.includes("VIDEO_DATE_WEB_PORTRAIT_COMPATIBLE_VIDEO_CONSTRAINTS") &&
+    mediaContract.includes("VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER") &&
     mediaContract.includes("VIDEO_DATE_NATIVE_IDEAL_VIDEO_CONSTRAINTS") &&
     mediaContract.includes("VIDEO_DATE_CAPTURE_ASPECT_RATIO = 9 / 16"),
-  `${mediaContractPath}: shared web/native capture contract must remain explicit`
+  `${mediaContractPath}: shared capture contract must keep progressive web portrait profiles and native defaults explicit`
 );
 assert(
   cameraSwitchHint.includes('VIDEO_DATE_CAMERA_SWITCH_RENDER_HINT_TYPE = "video_date_camera_switch_render_hint"') &&
@@ -130,7 +137,9 @@ assert(
 );
 assert(
   webDailyConfig.includes("dailyVideoDateCallObjectOptions") &&
+    webDailyConfig.includes("dailyVideoDateCallObjectOptionsWithAppAcquiredMedia") &&
     webDailyConfig.includes("videoDateWebMediaStreamConstraints") &&
+    webDailyConfig.includes("appAcquiredMedia?.videoTrack") &&
     webDailyConfig.includes("inputSettings") &&
     webDailyConfig.includes("settings: videoConstraints") &&
     webDailyConfig.includes("avoidEval: true") &&
@@ -143,8 +152,31 @@ assert(
   `${webDailyConfigPath}: web Video Date Daily options must not use deprecated userMediaVideoConstraints`
 );
 assert(
-  webVideoCall.includes("dailyVideoDateCallObjectOptions(captureProfileForCall)"),
-  `${webVideoCallPath}: Video Date must create its Daily call object through the Video Date media helper`
+  webVideoCall.includes("dailyVideoDateCallObjectOptions(captureProfileForCall)") &&
+    webVideoCall.includes("dailyVideoDateCallObjectOptionsWithAppAcquiredMedia") &&
+    webVideoCall.includes("appAcquiredMediaRef") &&
+    webVideoCall.includes("consumedByDaily = true") &&
+    webVideoCall.includes("permission_handoff_media_acquired") &&
+    webVideoCall.includes("daily_media_permission_handoff_fallback_to_preflight") &&
+    webVideoCall.includes("prewarmAppAcquiredMedia") &&
+    webVideoCall.includes('releaseAppAcquiredMedia("daily_room_failed_after_media_preflight")'),
+  `${webVideoCallPath}: Video Date must create its Daily call object through helpers, prefer app-acquired capture, and release preflight media on room failure`
+);
+assert(
+  webDailyPrewarm.includes("dailyVideoDateCallObjectOptionsWithAppAcquiredMedia") &&
+    webDailyPrewarm.includes("appAcquiredMedia: WebDailyPrewarmAppAcquiredMedia | null") &&
+    readyGateOverlay.includes("permissionPrewarmMediaRef") &&
+    readyGateOverlay.includes("WEB_READY_GATE_PERMISSION_PREWARM_MEDIA_TTL_MS = 12_000") &&
+    readyGateOverlay.includes("permission_prewarm_media_ttl_expired") &&
+    readyGateOverlay.includes("ready_gate_session_changed") &&
+    readyGateOverlay.includes("appAcquiredMedia: prewarmMedia") &&
+    readyGateOverlay.includes("captureProfile: permissionPrewarmMediaRef.current?.captureProfile") &&
+    webVideoCall.includes('permissionHandoff.captureProfile ?? "ideal"'),
+  `${webDailyPrewarmPath}/${readyGateOverlayPath}: Ready Gate Daily prewarm must transfer app-acquired media instead of reopening capture through Daily`
+);
+assert(
+  /finally\s*\{[\s\S]*stopMediaStreamTracks\(entry\.appAcquiredMedia\?\.stream\)/.test(webDailyPrewarm),
+  `${webDailyPrewarmPath}: abandoned prewarm cleanup must stop app-acquired media even when Daily destroy/leave throws`
 );
 assert(
   webVideoCall.includes("REMOTE_RENDER_RECOVERY_MAX_ATTEMPTS_PER_TRACK") &&
@@ -259,9 +291,11 @@ assert(
   `${webVideoCallPath}: Video Date must not use raw Daily call-object media options`
 );
 assert(
-  webVideoCall.includes('getUserMedia(videoDateWebMediaStreamConstraints("ideal"))') &&
-    webVideoCall.includes('getUserMedia(videoDateWebMediaStreamConstraints("fallback"))'),
-  `${webVideoCallPath}: permission preflight must use ideal/fallback Video Date constraints`
+  webVideoCall.includes("VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER") &&
+    webVideoCall.includes("for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER)") &&
+    webVideoCall.includes("getUserMedia(videoDateWebMediaStreamConstraints(profile))") &&
+    webVideoCall.includes("VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC"),
+  `${webVideoCallPath}: permission preflight must walk progressive portrait capture profiles and emit sender diagnostics`
 );
 assert(
   !/getUserMedia\(\{\s*audio:\s*true,\s*video:\s*true\s*\}\)/.test(webVideoCall),
@@ -463,8 +497,19 @@ assert(
 const selfViewPath = "src/components/video-date/SelfViewPIP.tsx";
 const selfView = read(selfViewPath);
 assert(
-  selfView.includes("Self-view PIP") && selfView.includes("intentionally crops"),
-  `${selfViewPath}: intentional self-view crop behavior must stay documented`
+  selfView.includes("VIDEO_DATE_SELF_VIEW_OBJECT_FIT") &&
+    selfView.includes("object-contain") &&
+    selfView.includes("aspect-[9/16]") &&
+    selfView.includes("Self-view must preserve"),
+  `${selfViewPath}: self-view PIP must remain a 9:16 full-frame local preview`
+);
+assert(
+  webRemoteRender.includes("remoteBackdropVideoRef") &&
+    webRemoteRender.includes('aria-hidden="true"') &&
+    webRemoteRender.includes("object-cover") &&
+    webRemoteRender.includes("className={REMOTE_DATE_VIDEO_CLASS}") &&
+    webDate.includes("VIDEO_DATE_RECEIVER_LAYOUT_DIAGNOSTIC"),
+  `${webDatePath}: remote video must keep a full-frame primary video with a decorative blurred cover backdrop and receiver diagnostics`
 );
 
 const webMatchCallPath = "src/components/chat/ActiveCallOverlay.tsx";

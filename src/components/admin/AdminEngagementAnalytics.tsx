@@ -1,349 +1,245 @@
-import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
   Bar,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
+  BarChart,
+  CartesianGrid,
   Cell,
   ComposedChart,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
-import { format, subDays, eachDayOfInterval, startOfDay, parseISO } from "date-fns";
-import { supabase } from "@/integrations/supabase/client";
-import { 
-  Bell, 
-  Droplet, 
-  TrendingUp, 
-  Target, 
-  CheckCircle2, 
-  XCircle,
-  Clock,
-  Heart,
+import {
+  AlertTriangle,
   BarChart3,
+  Bell,
+  Droplet,
+  Eye,
+  Heart,
+  RefreshCw,
+  Send,
+  Target,
+  TrendingUp,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { useAdminEngagementAnalytics } from "@/hooks/useAdminEngagementAnalytics";
+import { sanitizeAdminRpcErrorMessage } from "@/lib/adminRpc";
 
-const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', '#22d3ee', '#f472b6', '#a78bfa', '#34d399'];
+const COLORS = ["hsl(var(--primary))", "hsl(var(--accent))", "#22d3ee", "#f472b6", "#a78bfa", "#34d399"];
+
+const tooltipStyle = {
+  backgroundColor: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "12px",
+  color: "hsl(var(--foreground))",
+};
+
+function formatCount(value: number | null | undefined): string {
+  return Number(value ?? 0).toLocaleString();
+}
+
+function formatRate(value: number | null | undefined, hasDenominator: boolean): string {
+  return hasDenominator ? `${Number(value ?? 0)}%` : "N/A";
+}
+
+type MetricCardProps = {
+  delay?: number;
+  icon: ReactNode;
+  title: string;
+  value: string;
+  badges: ReactNode;
+  gradient: string;
+};
+
+const MetricCard = ({ delay = 0, icon, title, value, badges, gradient }: MetricCardProps) => (
+  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
+    <Card className="glass-card">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-xl ${gradient} flex items-center justify-center text-white`}>
+            {icon}
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-foreground">{value}</p>
+            <p className="text-xs text-muted-foreground">{title}</p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">{badges}</div>
+      </CardContent>
+    </Card>
+  </motion.div>
+);
+
+const LoadingPanel = () => (
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    {Array.from({ length: 4 }).map((_, index) => (
+      <div key={index} className="glass-card p-6 rounded-2xl animate-pulse">
+        <div className="h-5 w-52 rounded bg-secondary mb-4" />
+        <div className="h-64 rounded bg-secondary/70" />
+      </div>
+    ))}
+  </div>
+);
+
+const ChartEmptyState = ({ title, detail }: { title: string; detail: string }) => (
+  <div className="h-full rounded-xl border border-border/50 bg-secondary/20 flex items-center justify-center px-6 text-center">
+    <div>
+      <p className="font-medium text-foreground">{title}</p>
+      <p className="text-sm text-muted-foreground mt-1">{detail}</p>
+    </div>
+  </div>
+);
 
 const AdminEngagementAnalytics = () => {
-  // Generate last 30 days
-  const last30Days = eachDayOfInterval({
-    start: subDays(new Date(), 29),
-    end: new Date(),
-  });
+  const { data, error, isError, isLoading, refetch } = useAdminEngagementAnalytics(30);
 
-  // Fetch admin notification analytics
-  const { data: notificationStats } = useQuery({
-    queryKey: ['admin-notification-stats'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('admin_notifications')
-        .select('type, read, created_at');
-      
-      if (error) throw error;
+  if (isLoading) {
+    return (
+      <div className="space-y-6" aria-label="Loading Engagement Analytics">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Card key={index} className="glass-card animate-pulse">
+              <CardContent className="p-4">
+                <div className="h-12 w-12 rounded-xl bg-secondary mb-3" />
+                <div className="h-7 w-20 rounded bg-secondary mb-2" />
+                <div className="h-4 w-36 rounded bg-secondary" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <LoadingPanel />
+      </div>
+    );
+  }
 
-      const total = data?.length || 0;
-      const read = data?.filter(n => n.read).length || 0;
-      const unread = total - read;
-      const readRate = total > 0 ? Math.round((read / total) * 100) : 0;
+  if (isError || !data) {
+    return (
+      <div className="glass-card p-6 rounded-2xl border-destructive/40">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-destructive/15 text-destructive flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground">Unable to load Engagement Analytics</h3>
+              <p className="text-sm text-muted-foreground">
+                Metrics are hidden until the backend engagement read model succeeds.
+              </p>
+              {error?.message && (
+                <p className="text-xs text-muted-foreground mt-1">{sanitizeAdminRpcErrorMessage(error)}</p>
+              )}
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void refetch()} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
-      // Group by type
-      const byType: Record<string, { total: number; read: number }> = {};
-      data?.forEach(n => {
-        if (!byType[n.type]) {
-          byType[n.type] = { total: 0, read: 0 };
-        }
-        byType[n.type].total++;
-        if (n.read) byType[n.type].read++;
-      });
+  const provider = data.notifications.provider_totals;
+  const notificationDays = data.notifications.by_day;
+  const appCategories = data.notifications.app_by_category;
+  const appLogTotals = data.notifications.app_log_totals;
+  const dailyDrop = data.daily_drop.totals;
+  const dailyDropDays = data.daily_drop.by_day;
+  const statusDistribution = data.daily_drop.status_distribution.filter((item) => item.value > 0);
+  const activityTotals = data.user_activity.totals;
+  const activityDays = data.user_activity.by_day;
 
-      // Group by day
-      const byDay = last30Days.map(day => {
-        const dayStart = startOfDay(day);
-        const dayNotifs = data?.filter(
-          n => startOfDay(new Date(n.created_at!)).getTime() === dayStart.getTime()
-        ) || [];
-        return {
-          date: format(day, 'MMM d'),
-          sent: dayNotifs.length,
-          read: dayNotifs.filter(n => n.read).length,
-        };
-      });
-
-      return {
-        total,
-        read,
-        unread,
-        readRate,
-        byType: Object.entries(byType).map(([type, stats]) => ({
-          type,
-          ...stats,
-          readRate: stats.total > 0 ? Math.round((stats.read / stats.total) * 100) : 0,
-        })),
-        byDay,
-      };
-    },
-  });
-
-  // Fetch daily drop analytics
-  const { data: dailyDropStats } = useQuery({
-    queryKey: ['admin-daily-drop-stats'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('daily_drops')
-        .select('status, created_at, drop_date, expires_at');
-      
-      if (error) throw error;
-
-      const total = data?.length || 0;
-      const pending = data?.filter(d => d.status === 'pending').length || 0;
-      const liked = data?.filter(d => d.status === 'liked').length || 0;
-      const passed = data?.filter(d => d.status === 'passed').length || 0;
-      const expired = data?.filter(d => d.status === 'expired').length || 0;
-      const matched = data?.filter(d => d.status === 'matched').length || 0;
-
-      const engagementRate = total > 0 
-        ? Math.round(((liked + passed) / total) * 100) 
-        : 0;
-      const likeRate = (liked + passed) > 0 
-        ? Math.round((liked / (liked + passed)) * 100) 
-        : 0;
-      const matchRate = liked > 0 
-        ? Math.round((matched / liked) * 100) 
-        : 0;
-
-      // Group by day
-      const byDay = last30Days.map(day => {
-        const dayStart = startOfDay(day);
-        const dayDrops = data?.filter(
-          d => startOfDay(new Date(d.created_at)).getTime() === dayStart.getTime()
-        ) || [];
-        return {
-          date: format(day, 'MMM d'),
-          total: dayDrops.length,
-          liked: dayDrops.filter(d => d.status === 'liked').length,
-          passed: dayDrops.filter(d => d.status === 'passed').length,
-          expired: dayDrops.filter(d => d.status === 'expired').length,
-          matched: dayDrops.filter(d => d.status === 'matched').length,
-        };
-      });
-
-      // Status distribution for pie chart
-      const statusDistribution = [
-        { name: 'Pending', value: pending, color: 'hsl(var(--muted-foreground))' },
-        { name: 'Liked', value: liked, color: '#f472b6' },
-        { name: 'Passed', value: passed, color: '#a78bfa' },
-        { name: 'Expired', value: expired, color: '#64748b' },
-        { name: 'Matched', value: matched, color: '#34d399' },
-      ].filter(s => s.value > 0);
-
-      return {
-        total,
-        pending,
-        liked,
-        passed,
-        expired,
-        matched,
-        engagementRate,
-        likeRate,
-        matchRate,
-        byDay,
-        statusDistribution,
-      };
-    },
-  });
-
-  // Fetch user engagement metrics
-  const { data: userEngagement } = useQuery({
-    queryKey: ['admin-user-engagement'],
-    queryFn: async () => {
-      // Get message activity
-      const { data: messages } = await supabase
-        .from('messages')
-        .select('created_at')
-        .gte('created_at', subDays(new Date(), 30).toISOString());
-
-      // Get match activity
-      const { data: matches } = await supabase
-        .from('matches')
-        .select('matched_at')
-        .gte('matched_at', subDays(new Date(), 30).toISOString());
-
-      // Get event registrations
-      const { data: registrations } = await supabase
-        .from('event_registrations')
-        .select('registered_at')
-        .gte('registered_at', subDays(new Date(), 30).toISOString());
-
-      const byDay = last30Days.map(day => {
-        const dayStart = startOfDay(day);
-        return {
-          date: format(day, 'MMM d'),
-          messages: messages?.filter(
-            m => startOfDay(new Date(m.created_at)).getTime() === dayStart.getTime()
-          ).length || 0,
-          matches: matches?.filter(
-            m => startOfDay(new Date(m.matched_at)).getTime() === dayStart.getTime()
-          ).length || 0,
-          registrations: registrations?.filter(
-            r => startOfDay(new Date(r.registered_at)).getTime() === dayStart.getTime()
-          ).length || 0,
-        };
-      });
-
-      return {
-        totalMessages: messages?.length || 0,
-        totalMatches: matches?.length || 0,
-        totalRegistrations: registrations?.length || 0,
-        byDay,
-      };
-    },
-  });
-
-  const typeLabels: Record<string, string> = {
-    new_user: 'New Users',
-    new_match: 'Matches',
-    event_full: 'Event Full',
-    event_capacity_warning: 'Capacity Alert',
-    user_report: 'Reports',
-    user_suspended: 'Suspensions',
-  };
+  const hasProviderTelemetry = provider.queued_rows > 0;
+  const hasDailyDropRows = dailyDrop.total > 0;
+  const hasActivityRows = activityTotals.total_activities > 0;
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Notification Read Rate */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <Card className="glass-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                  <Bell className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {notificationStats?.readRate || 0}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">Notification Read Rate</p>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">
-                  {notificationStats?.read || 0} read
-                </Badge>
-                <Badge variant="secondary" className="text-xs">
-                  {notificationStats?.unread || 0} unread
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        <MetricCard
+          icon={<Send className="w-6 h-6" />}
+          title="Push Delivery Rate"
+          value={formatRate(provider.delivery_rate, provider.sent_rows > 0)}
+          gradient="bg-gradient-to-br from-primary to-accent"
+          badges={
+            <>
+              <Badge variant="outline" className="text-xs">
+                {formatCount(provider.delivered_rows)} delivered
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                {formatCount(provider.sent_rows)} sent
+              </Badge>
+            </>
+          }
+        />
 
-        {/* Daily Drop Engagement */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Card className="glass-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-                  <Droplet className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {dailyDropStats?.engagementRate || 0}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">Drop Engagement Rate</p>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <Badge variant="outline" className="text-xs text-pink-500 border-pink-500/30">
-                  {dailyDropStats?.likeRate || 0}% like rate
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        <MetricCard
+          delay={0.1}
+          icon={<Eye className="w-6 h-6" />}
+          title="Push Open Rate"
+          value={formatRate(provider.open_rate, provider.delivered_rows > 0)}
+          gradient="bg-gradient-to-br from-cyan-500 to-blue-500"
+          badges={
+            <>
+              <Badge variant="outline" className="text-xs text-cyan-400 border-cyan-400/30">
+                {formatCount(provider.opened_rows)} opened
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                {formatCount(provider.clicked_rows)} clicked
+              </Badge>
+            </>
+          }
+        />
 
-        {/* Match Conversion */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card className="glass-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center">
-                  <Heart className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {dailyDropStats?.matchRate || 0}%
-                  </p>
-                  <p className="text-xs text-muted-foreground">Drop → Match Rate</p>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <Badge variant="outline" className="text-xs text-green-500 border-green-500/30">
-                  {dailyDropStats?.matched || 0} matches
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        <MetricCard
+          delay={0.2}
+          icon={<Droplet className="w-6 h-6" />}
+          title="Drop Engagement Rate"
+          value={formatRate(dailyDrop.engagement_rate, hasDailyDropRows)}
+          gradient="bg-gradient-to-br from-pink-500 to-rose-500"
+          badges={
+            <>
+              <Badge variant="outline" className="text-xs text-pink-400 border-pink-400/30">
+                {formatCount(dailyDrop.engaged_rows)} engaged
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                {formatRate(dailyDrop.opener_rate, hasDailyDropRows)} opener rate
+              </Badge>
+            </>
+          }
+        />
 
-        {/* Total Activity */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <Card className="glass-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-                  <BarChart3 className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">
-                    {(userEngagement?.totalMessages || 0) + (userEngagement?.totalMatches || 0)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">30-Day Activities</p>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">
-                  {userEngagement?.totalMessages || 0} msgs
-                </Badge>
-                <Badge variant="secondary" className="text-xs">
-                  {userEngagement?.totalMatches || 0} matches
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        <MetricCard
+          delay={0.3}
+          icon={<BarChart3 className="w-6 h-6" />}
+          title="30-Day Activities"
+          value={formatCount(activityTotals.total_activities)}
+          gradient="bg-gradient-to-br from-amber-500 to-orange-500"
+          badges={
+            <>
+              <Badge variant="outline" className="text-xs">
+                {formatCount(activityTotals.total_messages)} msgs
+              </Badge>
+              <Badge variant="secondary" className="text-xs">
+                {formatCount(activityTotals.total_matches)} matches
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {formatCount(activityTotals.total_registrations)} regs
+              </Badge>
+            </>
+          }
+        />
       </div>
 
-      {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Notification Delivery Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -352,67 +248,31 @@ const AdminEngagementAnalytics = () => {
         >
           <div className="flex items-center gap-2 mb-4">
             <Bell className="w-5 h-5 text-primary" />
-            <h3 className="text-lg font-semibold text-foreground">Notification Delivery & Opens</h3>
+            <h3 className="text-lg font-semibold text-foreground">Push Delivery & Opens (30 Days UTC)</h3>
           </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={notificationStats?.byDay || []}>
-                <defs>
-                  <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorRead" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                <XAxis
-                  dataKey="date"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '12px',
-                    color: 'hsl(var(--foreground))',
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="sent"
-                  stroke="hsl(var(--primary))"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorSent)"
-                  name="Sent"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="read"
-                  stroke="#34d399"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorRead)"
-                  name="Read"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {!hasProviderTelemetry ? (
+              <ChartEmptyState
+                title="No provider telemetry in this UTC window"
+                detail="This does not prove no user notifications were sent outside tracked provider rows."
+              />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={notificationDays}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                  <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Line type="monotone" dataKey="sent" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} name="Sent" />
+                  <Line type="monotone" dataKey="delivered" stroke="#34d399" strokeWidth={2} dot={{ r: 3 }} name="Delivered" />
+                  <Line type="monotone" dataKey="opened" stroke="#22d3ee" strokeWidth={2} dot={{ r: 3 }} name="Opened" />
+                  <Line type="monotone" dataKey="clicked" stroke="#f472b6" strokeWidth={2} dot={{ r: 3 }} name="Clicked" />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 
-        {/* Daily Drop Status Distribution */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -424,48 +284,38 @@ const AdminEngagementAnalytics = () => {
             <h3 className="text-lg font-semibold text-foreground">Daily Drop Outcomes</h3>
           </div>
           <div className="h-64 flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={dailyDropStats?.statusDistribution || []}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={90}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {dailyDropStats?.statusDistribution?.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '12px',
-                    color: 'hsl(var(--foreground))',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {!hasDailyDropRows ? (
+              <ChartEmptyState
+                title="No Daily Drop rows in this UTC window"
+                detail="Outcome distribution is unavailable until drops exist for the selected range."
+              />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={statusDistribution} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={5} dataKey="value">
+                    {statusDistribution.map((entry, index) => (
+                      <Cell key={entry.status} fill={entry.color || COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={tooltipStyle} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
-          <div className="flex flex-wrap justify-center gap-3 mt-2">
-            {dailyDropStats?.statusDistribution?.map((entry, index) => (
-              <div key={entry.name} className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: entry.color || COLORS[index % COLORS.length] }}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {entry.name}: {entry.value}
-                </span>
-              </div>
-            ))}
-          </div>
+          {statusDistribution.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-3 mt-2">
+              {statusDistribution.map((entry, index) => (
+                <div key={entry.status} className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.color || COLORS[index % COLORS.length] }} />
+                  <span className="text-sm text-muted-foreground">
+                    {entry.name}: {formatCount(entry.value)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </motion.div>
 
-        {/* Daily Drop Trends */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -474,56 +324,31 @@ const AdminEngagementAnalytics = () => {
         >
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-5 h-5 text-pink-400" />
-            <h3 className="text-lg font-semibold text-foreground">Daily Drop Engagement (30 Days)</h3>
+            <h3 className="text-lg font-semibold text-foreground">Daily Drop Engagement (30 Days UTC)</h3>
           </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={dailyDropStats?.byDay || []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                <XAxis
-                  dataKey="date"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '12px',
-                    color: 'hsl(var(--foreground))',
-                  }}
-                />
-                <Bar dataKey="total" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} name="Total Drops" />
-                <Line
-                  type="monotone"
-                  dataKey="liked"
-                  stroke="#f472b6"
-                  strokeWidth={2}
-                  dot={{ fill: '#f472b6', strokeWidth: 0, r: 3 }}
-                  name="Liked"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="matched"
-                  stroke="#34d399"
-                  strokeWidth={2}
-                  dot={{ fill: '#34d399', strokeWidth: 0, r: 3 }}
-                  name="Matched"
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
+            {!hasDailyDropRows ? (
+              <ChartEmptyState
+                title="No Daily Drop trend data"
+                detail="The backend returned zero Daily Drop rows for this UTC window."
+              />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={dailyDropDays}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                  <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Bar dataKey="total" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} name="Total Drops" />
+                  <Line type="monotone" dataKey="engaged" stroke="#f472b6" strokeWidth={2} dot={{ r: 3 }} name="Engaged" />
+                  <Line type="monotone" dataKey="opener_sent" stroke="#22d3ee" strokeWidth={2} dot={{ r: 3 }} name="Opener Sent" />
+                  <Line type="monotone" dataKey="matched" stroke="#34d399" strokeWidth={2} dot={{ r: 3 }} name="Matched" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 
-        {/* User Activity Trends */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -535,61 +360,28 @@ const AdminEngagementAnalytics = () => {
             <h3 className="text-lg font-semibold text-foreground">User Activity Trends</h3>
           </div>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={userEngagement?.byDay || []}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                <XAxis
-                  dataKey="date"
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '12px',
-                    color: 'hsl(var(--foreground))',
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="messages"
-                  stroke="hsl(var(--primary))"
-                  strokeWidth={2}
-                  dot={{ fill: 'hsl(var(--primary))', strokeWidth: 0, r: 3 }}
-                  name="Messages"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="matches"
-                  stroke="#f472b6"
-                  strokeWidth={2}
-                  dot={{ fill: '#f472b6', strokeWidth: 0, r: 3 }}
-                  name="Matches"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="registrations"
-                  stroke="#22d3ee"
-                  strokeWidth={2}
-                  dot={{ fill: '#22d3ee', strokeWidth: 0, r: 3 }}
-                  name="Event Registrations"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {!hasActivityRows ? (
+              <ChartEmptyState
+                title="No activity rows in this UTC window"
+                detail="Messages, matches, and event registrations all returned zero."
+              />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={activityDays}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                  <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Line type="monotone" dataKey="messages" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} name="Messages" />
+                  <Line type="monotone" dataKey="matches" stroke="#f472b6" strokeWidth={2} dot={{ r: 3 }} name="Matches" />
+                  <Line type="monotone" dataKey="registrations" stroke="#22d3ee" strokeWidth={2} dot={{ r: 3 }} name="Event Registrations" />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
       </div>
 
-      {/* Notification Type Breakdown */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -597,51 +389,28 @@ const AdminEngagementAnalytics = () => {
         className="glass-card p-6 rounded-2xl"
       >
         <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-5 h-5 text-primary" />
-          <h3 className="text-lg font-semibold text-foreground">Notification Performance by Type</h3>
+          <Heart className="w-5 h-5 text-primary" />
+          <h3 className="text-lg font-semibold text-foreground">Notification Performance by Category</h3>
         </div>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={notificationStats?.byType?.map(t => ({
-                ...t,
-                label: typeLabels[t.type] || t.type,
-              })) || []}
-              layout="vertical"
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-              <XAxis
-                type="number"
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                dataKey="label"
-                type="category"
-                stroke="hsl(var(--muted-foreground))"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                width={120}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '12px',
-                  color: 'hsl(var(--foreground))',
-                }}
-                formatter={(value: number, name: string) => [
-                  name === 'total' ? `${value} sent` : `${value} read`,
-                  name === 'total' ? 'Sent' : 'Read',
-                ]}
-              />
-              <Bar dataKey="total" fill="hsl(var(--muted))" radius={[0, 4, 4, 0]} name="total" />
-              <Bar dataKey="read" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="read" />
-            </BarChart>
-          </ResponsiveContainer>
+          {appCategories.length === 0 ? (
+            <ChartEmptyState
+              title="No app notification log categories"
+              detail={`${formatCount(appLogTotals.log_rows)} notification_log rows were found in this UTC window.`}
+            />
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={appCategories} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                <XAxis type="number" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis dataKey="label" type="category" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} width={130} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar dataKey="total" fill="hsl(var(--muted))" radius={[0, 4, 4, 0]} name="Logged" />
+                <Bar dataKey="delivered" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} name="Delivered" />
+                <Bar dataKey="suppressed" fill="#ef4444" radius={[0, 4, 4, 0]} name="Suppressed" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </motion.div>
     </div>

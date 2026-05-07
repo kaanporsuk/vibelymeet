@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
@@ -14,6 +14,7 @@ import {
   Server,
   ShieldCheck,
   Video,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -61,6 +62,25 @@ type AuditRow = {
   created_at: string;
 };
 
+type RebuildRehearsalSummary = {
+  id?: string | null;
+  status?: OpsStatus | null;
+  scope?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  notes?: string | null;
+  source?: string | null;
+  provider_smoke?: string | null;
+};
+
+type AdminPermissionCatalogItem = {
+  permission: string;
+  area?: string | null;
+  label?: string | null;
+  description?: string | null;
+  is_break_glass?: boolean | null;
+};
+
 type SystemHealthPayload = AdminRpcPayload & {
   generated_at?: string;
   overall_status?: OpsStatus;
@@ -81,7 +101,11 @@ type RebuildStatusPayload = AdminRpcPayload & {
   latest_migration?: string | null;
   classified_migrations?: number;
   unclassified_migrations?: number;
+  classification_coverage_pct?: number;
   rebuild_rehearsal_count?: number;
+  passed_rebuild_rehearsal_count?: number;
+  latest_rehearsal_summary?: RebuildRehearsalSummary | null;
+  degraded_reasons?: string[];
   expected_functions?: string[];
   provider_inventory_required?: string[];
 };
@@ -94,6 +118,7 @@ type IncidentSignalsPayload = AdminRpcPayload & {
 type PermissionsPayload = AdminRpcPayload & {
   roles?: string[];
   permissions?: string[];
+  catalog?: AdminPermissionCatalogItem[];
   permission_model?: string;
 };
 
@@ -164,6 +189,27 @@ const asArray = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T
 const formatCount = (value: unknown): string =>
   typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "0";
 
+const formatPercent = (value: unknown): string =>
+  typeof value === "number" && Number.isFinite(value) ? `${value.toLocaleString()}%` : "0%";
+
+const formatRelativeTime = (value: unknown): string => {
+  if (typeof value !== "string" || !value) return "unknown time";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : formatDistanceToNow(date, { addSuffix: true });
+};
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuidOrNull = (value: string): string | null => {
+  const trimmed = value.trim();
+  return uuidPattern.test(trimmed) ? trimmed : null;
+};
+
+const toIsoOrNull = (value: string): string | null => {
+  if (!value.trim()) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
 const factRows = (value: Record<string, unknown> | undefined) =>
   Object.entries(value || {}).map(([key, entry]) => (
     <div key={key} className="flex items-start justify-between gap-3 text-xs">
@@ -180,6 +226,17 @@ const fulfilledValue = <T,>(result: PromiseSettledResult<T>): T | undefined =>
 const failureFor = (rpc: OperationsRpcName, result: PromiseSettledResult<unknown>): OperationsFailure | null =>
   result.status === "rejected" ? { rpc, message: sanitizeAdminRpcErrorMessage(result.reason) } : null;
 
+const useDebouncedValue = <T,>(value: T, delayMs = 350): T => {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [value, delayMs]);
+
+  return debounced;
+};
+
 const unavailableSection = (label: string, rpc: OperationsRpcName, failures: OperationsFailure[]) => {
   const failure = failures.find((item) => item.rpc === rpc);
   return (
@@ -193,6 +250,22 @@ const unavailableSection = (label: string, rpc: OperationsRpcName, failures: Ope
 const AdminOperationsCenter = () => {
   const [auditAction, setAuditAction] = useState("");
   const [auditTargetType, setAuditTargetType] = useState("");
+  const [auditTargetId, setAuditTargetId] = useState("");
+  const [auditActorId, setAuditActorId] = useState("");
+  const [auditFrom, setAuditFrom] = useState("");
+  const [auditTo, setAuditTo] = useState("");
+
+  const debouncedAuditAction = useDebouncedValue(auditAction);
+  const debouncedAuditTargetType = useDebouncedValue(auditTargetType);
+  const debouncedAuditTargetId = useDebouncedValue(auditTargetId);
+  const debouncedAuditActorId = useDebouncedValue(auditActorId);
+  const debouncedAuditFrom = useDebouncedValue(auditFrom);
+  const debouncedAuditTo = useDebouncedValue(auditTo);
+  const targetIdInvalid = Boolean(auditTargetId.trim()) && !uuidOrNull(auditTargetId);
+  const actorIdInvalid = Boolean(auditActorId.trim()) && !uuidOrNull(auditActorId);
+  const debouncedTargetIdInvalid = Boolean(debouncedAuditTargetId.trim()) && !uuidOrNull(debouncedAuditTargetId);
+  const debouncedActorIdInvalid = Boolean(debouncedAuditActorId.trim()) && !uuidOrNull(debouncedAuditActorId);
+  const auditUuidFiltersInvalid = targetIdInvalid || actorIdInvalid || debouncedTargetIdInvalid || debouncedActorIdInvalid;
 
   const opsQuery = useQuery<OperationsData>({
     queryKey: ["admin-operations-center"],
@@ -224,18 +297,27 @@ const AdminOperationsCenter = () => {
   });
 
   const auditQuery = useQuery({
-    queryKey: ["admin-operations-audit", auditAction, auditTargetType],
+    queryKey: [
+      "admin-operations-audit",
+      debouncedAuditAction,
+      debouncedAuditTargetType,
+      debouncedAuditTargetId,
+      debouncedAuditActorId,
+      debouncedAuditFrom,
+      debouncedAuditTo,
+    ],
     queryFn: async () =>
       callAdminRpc<AuditPayload>("admin_search_admin_audit_logs", {
-        p_action_type: auditAction.trim() || null,
-        p_target_type: auditTargetType.trim() || null,
-        p_target_id: null,
-        p_actor_id: null,
-        p_from: null,
-        p_to: null,
+        p_action_type: debouncedAuditAction.trim() || null,
+        p_target_type: debouncedAuditTargetType.trim() || null,
+        p_target_id: uuidOrNull(debouncedAuditTargetId),
+        p_actor_id: uuidOrNull(debouncedAuditActorId),
+        p_from: toIsoOrNull(debouncedAuditFrom),
+        p_to: toIsoOrNull(debouncedAuditTo),
         p_limit: 25,
         p_offset: 0,
       }),
+    enabled: !auditUuidFiltersInvalid,
   });
 
   const overallStatus = useMemo(() => {
@@ -260,6 +342,39 @@ const AdminOperationsCenter = () => {
   const providerChecks = asArray<ProviderCheck>(providers?.providers);
   const incidentSignals = asArray<IncidentSignal>(incidents?.signals);
   const auditRows = asArray<AuditRow>(auditQuery.data?.rows);
+  const rebuildDegradedReasons = asArray<string>(rebuild?.degraded_reasons);
+  const latestRehearsal = rebuild?.latest_rehearsal_summary;
+  const auditFiltersActive = Boolean(
+    auditAction.trim() ||
+      auditTargetType.trim() ||
+      auditTargetId.trim() ||
+      auditActorId.trim() ||
+      auditFrom.trim() ||
+      auditTo.trim(),
+  );
+  const permissionCatalogByArea = useMemo(() => {
+    const grantedPermissions = asArray<string>(permissions?.permissions);
+    const granted = new Set(grantedPermissions);
+    const catalog = asArray<AdminPermissionCatalogItem>(permissions?.catalog);
+    const rows = catalog.length
+      ? catalog.filter((item) => granted.has(item.permission))
+      : grantedPermissions.map((permission) => ({ permission, area: "Granted" }));
+
+    return rows.reduce<Record<string, AdminPermissionCatalogItem[]>>((acc, item) => {
+      const area = item.area || "Granted";
+      acc[area] = [...(acc[area] || []), item];
+      return acc;
+    }, {});
+  }, [permissions]);
+
+  const clearAuditFilters = () => {
+    setAuditAction("");
+    setAuditTargetType("");
+    setAuditTargetId("");
+    setAuditActorId("");
+    setAuditFrom("");
+    setAuditTo("");
+  };
 
   if (opsQuery.isLoading) {
     return (
@@ -317,7 +432,9 @@ const AdminOperationsCenter = () => {
               className="gap-2"
               onClick={() => {
                 opsQuery.refetch();
-                auditQuery.refetch();
+                if (!auditUuidFiltersInvalid) {
+                  auditQuery.refetch();
+                }
               }}
             >
               <RefreshCw className="h-4 w-4" />
@@ -357,8 +474,18 @@ const AdminOperationsCenter = () => {
             <ShieldCheck className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">Provider Reconciliation</h3>
           </div>
-          {statusBadge(providers?.overall_status)}
+          <div className="flex items-center gap-2">
+            {providers?.provider_checks_are_app_layer_only && (
+              <Badge variant="outline" className="border-border text-muted-foreground">
+                app-layer only
+              </Badge>
+            )}
+            {statusBadge(providers?.overall_status)}
+          </div>
         </div>
+        <p className="mb-4 text-xs text-muted-foreground">
+          Provider truth is manual: this RPC reads Supabase app telemetry and does not contact Stripe, Bunny, Daily, or OneSignal APIs.
+        </p>
         {providers ? (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             {providerChecks.map((provider) => {
@@ -450,18 +577,58 @@ const AdminOperationsCenter = () => {
                   <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.migration_count)}</div>
                 </div>
                 <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                  <div className="text-xs text-muted-foreground">Coverage</div>
+                  <div className="text-xl font-semibold text-foreground">{formatPercent(rebuild.classification_coverage_pct)}</div>
+                </div>
+                <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
                   <div className="text-xs text-muted-foreground">Unclassified</div>
                   <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.unclassified_migrations)}</div>
                 </div>
                 <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-                  <div className="text-xs text-muted-foreground">Classified</div>
-                  <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.classified_migrations)}</div>
-                </div>
-                <div className="rounded-lg border border-border/70 bg-secondary/20 p-3">
-                  <div className="text-xs text-muted-foreground">Rehearsals</div>
-                  <div className="text-xl font-semibold text-foreground">{formatCount(rebuild.rebuild_rehearsal_count)}</div>
+                  <div className="text-xs text-muted-foreground">Passed Rehearsals</div>
+                  <div className="text-xl font-semibold text-foreground">
+                    {formatCount(rebuild.passed_rebuild_rehearsal_count)}
+                  </div>
                 </div>
               </div>
+              <div className="mt-3 text-xs text-muted-foreground">
+                Classified migrations: <span className="text-foreground">{formatCount(rebuild.classified_migrations)}</span>
+                {" "}of <span className="text-foreground">{formatCount(rebuild.migration_count)}</span>
+              </div>
+              {rebuildDegradedReasons.length > 0 ? (
+                <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                  <div className="font-medium">Governance drivers</div>
+                  <div className="mt-2 space-y-1">
+                    {rebuildDegradedReasons.map((reason) => (
+                      <div key={reason}>{reason}</div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                  Governance ledger is complete for applied migrations and passed rehearsal evidence.
+                </div>
+              )}
+              {latestRehearsal && (
+                <div className="mt-4 rounded-lg border border-border/70 bg-secondary/20 p-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-foreground">Latest rehearsal</span>
+                    {statusBadge(latestRehearsal.status || "unknown")}
+                    <span className="text-muted-foreground">{latestRehearsal.scope || "unknown scope"}</span>
+                  </div>
+                  <div className="mt-2 text-muted-foreground">
+                    Completed: <span className="text-foreground">{formatRelativeTime(latestRehearsal.completed_at)}</span>
+                  </div>
+                  {latestRehearsal.source && (
+                    <div className="mt-1 text-muted-foreground">
+                      Source: <span className="text-foreground">{latestRehearsal.source}</span>
+                    </div>
+                  )}
+                  {latestRehearsal.notes && (
+                    <div className="mt-2 text-muted-foreground">{latestRehearsal.notes}</div>
+                  )}
+                </div>
+              )}
               <div className="mt-4 space-y-2 text-xs text-muted-foreground">
                 <div>Latest migration: <span className="text-foreground">{rebuild.latest_migration || "unknown"}</span></div>
                 <div>Expected functions: {asArray<string>(rebuild.expected_functions).join(", ") || "unknown"}</div>
@@ -478,8 +645,13 @@ const AdminOperationsCenter = () => {
           <div className="flex items-center gap-2">
             <FileSearch className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">Admin Audit Explorer</h3>
+            {auditQuery.isFetching && !auditQuery.isLoading && (
+              <Badge variant="outline" className="border-border text-muted-foreground">
+                refreshing
+              </Badge>
+            )}
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-7">
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
@@ -487,7 +659,7 @@ const AdminOperationsCenter = () => {
                 onChange={(event) => setAuditAction(event.target.value)}
                 aria-label="Filter audit logs by action type"
                 placeholder="action type"
-                className="w-full pl-8 sm:w-48"
+                className="w-full pl-8"
               />
             </div>
             <Input
@@ -495,11 +667,51 @@ const AdminOperationsCenter = () => {
               onChange={(event) => setAuditTargetType(event.target.value)}
               aria-label="Filter audit logs by target type"
               placeholder="target type"
-              className="w-full sm:w-40"
+              className="w-full"
             />
+            <Input
+              value={auditTargetId}
+              onChange={(event) => setAuditTargetId(event.target.value)}
+              aria-label="Filter audit logs by target id"
+              placeholder="target uuid"
+              className={targetIdInvalid ? "border-destructive" : ""}
+            />
+            <Input
+              value={auditActorId}
+              onChange={(event) => setAuditActorId(event.target.value)}
+              aria-label="Filter audit logs by actor id"
+              placeholder="actor uuid"
+              className={actorIdInvalid ? "border-destructive" : ""}
+            />
+            <Input
+              type="datetime-local"
+              value={auditFrom}
+              onChange={(event) => setAuditFrom(event.target.value)}
+              aria-label="Filter audit logs from timestamp"
+            />
+            <Input
+              type="datetime-local"
+              value={auditTo}
+              onChange={(event) => setAuditTo(event.target.value)}
+              aria-label="Filter audit logs to timestamp"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={clearAuditFilters}
+              disabled={!auditFiltersActive}
+            >
+              <X className="h-4 w-4" />
+              Clear
+            </Button>
           </div>
         </div>
-        {auditQuery.isError ? (
+        {auditUuidFiltersInvalid ? (
+          <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            UUID filters pause search until they contain a valid UUID.
+          </div>
+        ) : auditQuery.isError ? (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
             Unable to read audit logs from admin_search_admin_audit_logs.
           </div>
@@ -532,7 +744,7 @@ const AdminOperationsCenter = () => {
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {row.created_at ? formatDistanceToNow(new Date(row.created_at), { addSuffix: true }) : "unknown time"}
+                    {formatRelativeTime(row.created_at)}
                   </div>
                 </div>
                 {row.details && (
@@ -551,22 +763,46 @@ const AdminOperationsCenter = () => {
           <LockKeyhole className="h-5 w-5 text-primary" />
           <h3 className="text-lg font-semibold text-foreground">Admin Permissions</h3>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {asArray<string>(permissions?.roles).map((role) => (
-            <Badge key={role} variant="outline" className="border-border">
-              role: {role}
-            </Badge>
-          ))}
-          {asArray<string>(permissions?.permissions).slice(0, 12).map((permission) => (
-            <Badge key={permission} className="bg-secondary text-secondary-foreground border-border">
-              {permission}
-            </Badge>
-          ))}
-        </div>
         {permissions ? (
-          <div className="mt-3 text-xs text-muted-foreground">
-            {permissions.permission_model}
-          </div>
+          <>
+            <div className="flex flex-wrap gap-2">
+              {asArray<string>(permissions.roles).map((role) => (
+                <Badge key={role} variant="outline" className="border-border">
+                  role: {role}
+                </Badge>
+              ))}
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {Object.entries(permissionCatalogByArea).map(([area, items]) => (
+                <div key={area} className="rounded-lg border border-border/70 bg-secondary/20 p-3">
+                  <div className="mb-2 text-sm font-medium text-foreground">{area}</div>
+                  <div className="space-y-2">
+                    {items.map((item) => (
+                      <div key={item.permission} className="rounded-md border border-border/50 bg-background/40 p-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-medium text-foreground">{item.permission}</span>
+                          {item.is_break_glass && (
+                            <Badge className="border-amber-500/30 bg-amber-500/15 text-amber-300">
+                              break-glass
+                            </Badge>
+                          )}
+                        </div>
+                        {item.label && <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {Object.keys(permissionCatalogByArea).length === 0 && (
+              <div className="mt-3 rounded-lg border border-border/70 bg-secondary/20 p-4 text-sm text-muted-foreground">
+                No granted admin permissions are visible for this session.
+              </div>
+            )}
+            <div className="mt-3 text-xs text-muted-foreground">
+              {permissions.permission_model}
+            </div>
+          </>
         ) : (
           <div className="mt-3">
             {unavailableSection("Admin permissions", "admin_get_admin_permissions", operationFailures)}

@@ -8,6 +8,7 @@ import { trackEvent } from "@/lib/analytics";
 import { emitWebVideoDateClientStuckState } from "@/lib/videoDateClientStuckObservability";
 import {
   dailyVideoDateCallObjectOptions,
+  dailyVideoDateCallObjectOptionsWithAppAcquiredMedia,
   videoDateWebMediaStreamConstraints,
 } from "@/lib/dailyCallObjectConfig";
 import {
@@ -32,9 +33,10 @@ import {
 } from "@clientShared/matching/dailyRoomFailure";
 import type { PreparedVideoDateEntryCacheEntry } from "@clientShared/matching/videoDatePrepareEntry";
 import {
+  VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER,
   isVideoDateCameraConstraintError,
   videoDateAspectRatio,
-  type VideoDateMediaCaptureProfile,
+  type VideoDateWebMediaCaptureProfile,
 } from "@clientShared/matching/videoDateMediaContract";
 import {
   createVideoDateCameraSwitchRenderHint,
@@ -162,6 +164,13 @@ type WebCameraSwitchCommit = LocalCameraSnapshot & {
   publishRefreshApplied: boolean;
 };
 
+type AppAcquiredVideoDateMedia = {
+  stream: MediaStream;
+  captureProfile: VideoDateWebMediaCaptureProfile;
+  acquiredAtMs: number;
+  consumedByDaily: boolean;
+};
+
 function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined) {
   if (!track || typeof track.getSettings !== "function") return null;
   const settings = track.getSettings();
@@ -173,6 +182,51 @@ function summarizeVideoTrackSettings(track: MediaStreamTrack | null | undefined)
     frameRate: typeof settings.frameRate === "number" ? settings.frameRate : null,
     facingMode: typeof settings.facingMode === "string" ? settings.facingMode : null,
   };
+}
+
+function summarizeWebRuntime() {
+  if (typeof navigator === "undefined") {
+    return {
+      browser_family: "unknown",
+      is_ios: false,
+      is_mobile_safari: false,
+      is_safari: false,
+    };
+  }
+  const ua = navigator.userAgent ?? "";
+  const vendor = navigator.vendor ?? "";
+  const isIOS = /\b(iPhone|iPad|iPod)\b/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/(Chrome|Chromium|CriOS|FxiOS|Edg|OPR)/i.test(ua);
+  const isMobileSafari = isIOS && isSafari;
+  const browserFamily = /CriOS|Chrome|Chromium/i.test(ua)
+    ? "chrome"
+    : /FxiOS|Firefox/i.test(ua)
+      ? "firefox"
+      : /Edg/i.test(ua)
+        ? "edge"
+        : isSafari || /Apple/i.test(vendor)
+          ? "safari"
+          : "unknown";
+  return {
+    browser_family: browserFamily,
+    is_ios: isIOS,
+    is_mobile_safari: isMobileSafari,
+    is_safari: isSafari,
+  };
+}
+
+function stopMediaStreamTracks(stream: MediaStream | null | undefined) {
+  stream?.getTracks().forEach((track) => {
+    try {
+      track.stop();
+    } catch {
+      /* best-effort cleanup */
+    }
+  });
+}
+
+function firstLiveTrack(tracks: MediaStreamTrack[]): MediaStreamTrack | null {
+  return tracks.find((track) => track.readyState !== "ended") ?? null;
 }
 
 type VideoDateTruthRow = {
@@ -353,7 +407,7 @@ function chooseWebVideoDevice(
 }
 
 function videoOnlyCameraSwitchConstraints(
-  captureProfile: VideoDateMediaCaptureProfile,
+  captureProfile: VideoDateWebMediaCaptureProfile,
   desiredFacing: VideoDateCameraFacingMode | null,
   deviceId?: string | null,
 ): MediaStreamConstraints {
@@ -553,7 +607,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const [dailyReconnectState, setDailyReconnectState] = useState<DailyReconnectState>("connected");
   const [reconnectGraceTimeLeft, setReconnectGraceTimeLeft] = useState(0);
   const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
-  const [captureProfile, setCaptureProfile] = useState<VideoDateMediaCaptureProfile>("ideal");
+  const [captureProfile, setCaptureProfile] = useState<VideoDateWebMediaCaptureProfile>("ideal");
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -611,11 +665,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const reconnectSyncRequestedRef = useRef(false);
   const mediaPermissionDeniedRef = useRef(false);
   const playbackBlockedRef = useRef(false);
-  const captureProfileRef = useRef<VideoDateMediaCaptureProfile>("ideal");
+  const captureProfileRef = useRef<VideoDateWebMediaCaptureProfile>("ideal");
   const activePreparedEntryCacheRef = useRef<PreparedVideoDateEntryCacheEntry | null>(null);
   const activePreparedEntryCacheHitRef = useRef<boolean | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
   const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
+  const appAcquiredMediaRef = useRef<AppAcquiredVideoDateMedia | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -1617,6 +1672,22 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
     });
   }, []);
 
+  const releaseAppAcquiredMedia = useCallback((reason: string) => {
+    const entry = appAcquiredMediaRef.current;
+    if (!entry) return;
+    appAcquiredMediaRef.current = null;
+    stopMediaStreamTracks(entry.stream);
+    vdbg("daily_app_acquired_media_released", {
+      sessionId: optionsRef.current?.roomId ?? null,
+      eventId: optionsRef.current?.eventId ?? null,
+      userId: optionsRef.current?.userId ?? null,
+      captureProfile: entry.captureProfile,
+      consumedByDaily: entry.consumedByDaily,
+      reason,
+      ageMs: Math.max(0, Date.now() - entry.acquiredAtMs),
+    });
+  }, []);
+
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
       const permissionStartedAt = Date.now();
@@ -1645,6 +1716,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         source_action: "permission_check_started",
       });
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+        releaseAppAcquiredMedia("media_devices_unavailable");
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
         setMediaPermissionError("Camera and microphone access are not available in this browser.");
@@ -1659,76 +1731,173 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
       const permissionHandoff = userId ? getVideoDatePermissionHandoff(sessionId, userId) : null;
       if (permissionHandoff) {
-        setHasPermission(true);
-        setMediaPermissionError(null);
-        const durationMs = Math.max(0, Date.now() - permissionStartedAt);
-        const successContext = recordReadyGateToDateLatencyCheckpoint({
-          sessionId,
-          platform: "web",
-          eventId: eventId ?? null,
-          sourceSurface: "video_date_daily",
-          checkpoint: "permission_check_success",
-          permissionHandoffUsed: true,
-        });
-        trackEvent(
-          LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-          buildReadyGateToDateLatencyPayload({
-            context: successContext,
+        releaseAppAcquiredMedia("permission_handoff_media_restart");
+        let handoffCaptureProfile: VideoDateWebMediaCaptureProfile = permissionHandoff.captureProfile ?? "ideal";
+        let handoffStream: MediaStream | null = null;
+        let handoffMediaAcquired = false;
+        try {
+          for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
+            try {
+              handoffStream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints(profile));
+              handoffCaptureProfile = profile;
+              break;
+            } catch (profileError) {
+              if (!isVideoDateCameraConstraintError(profileError) || profile === "fallback") {
+                throw profileError;
+              }
+              vdbg("daily_media_permission_handoff_constraint_fallback", {
+                sessionId,
+                eventId: eventId ?? null,
+                userId: userId ?? null,
+                attemptedProfile: profile,
+                error:
+                  profileError instanceof Error
+                    ? { name: profileError.name, message: profileError.message }
+                    : String(profileError),
+              });
+            }
+          }
+          const videoTrack = firstLiveTrack(handoffStream?.getVideoTracks() ?? []);
+          const audioTrack = firstLiveTrack(handoffStream?.getAudioTracks() ?? []);
+          if (handoffStream && videoTrack) {
+            const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
+            appAcquiredMediaRef.current = {
+              stream: handoffStream,
+              captureProfile: handoffCaptureProfile,
+              acquiredAtMs: Date.now(),
+              consumedByDaily: false,
+            };
+            handoffMediaAcquired = true;
+            handoffStream = null;
+            trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
+              platform: "web",
+              session_id: sessionId,
+              event_id: eventId ?? null,
+              source_surface: "video_date_daily",
+              source_action: "permission_handoff_media_acquired",
+              diagnostic_scope: "sender_capture",
+              capture_profile: handoffCaptureProfile,
+              app_acquired_media: true,
+              audio_track_present: Boolean(audioTrack),
+              video_track_present: true,
+              video_track_width: videoTrackSettings?.width ?? null,
+              video_track_height: videoTrackSettings?.height ?? null,
+              video_track_aspect_ratio: videoTrackSettings?.aspectRatio ?? null,
+              video_track_frame_rate: videoTrackSettings?.frameRate ?? null,
+              video_track_facing_mode: videoTrackSettings?.facingMode ?? null,
+              ...summarizeWebRuntime(),
+            });
+          }
+        } catch (error) {
+          vdbg("daily_media_permission_handoff_media_acquire_failed", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId: userId ?? null,
+            error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+          });
+        } finally {
+          stopMediaStreamTracks(handoffStream);
+        }
+        if (handoffMediaAcquired) {
+          captureProfileRef.current = handoffCaptureProfile;
+          setCaptureProfile(handoffCaptureProfile);
+          setHasPermission(true);
+          setMediaPermissionError(null);
+          const durationMs = Math.max(0, Date.now() - permissionStartedAt);
+          const successContext = recordReadyGateToDateLatencyCheckpoint({
+            sessionId,
+            platform: "web",
+            eventId: eventId ?? null,
+            sourceSurface: "video_date_daily",
             checkpoint: "permission_check_success",
-            sourceAction: "permission_handoff",
-            outcome: "success",
-            durationMs,
-          }),
-        );
-        trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
-          platform: "web",
-          session_id: sessionId,
-          event_id: eventId ?? null,
-          source_surface: "video_date_daily",
-          source_action: "permission_handoff",
-          duration_ms: durationMs,
-          latency_bucket: bucketVideoDateLatencyMs(durationMs),
-        });
-        vdbg("daily_media_permission_handoff_used", {
+            permissionHandoffUsed: true,
+          });
+          trackEvent(
+            LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+            buildReadyGateToDateLatencyPayload({
+              context: successContext,
+              checkpoint: "permission_check_success",
+              sourceAction: "permission_handoff",
+              outcome: "success",
+              durationMs,
+            }),
+          );
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId ?? null,
+            source_surface: "video_date_daily",
+            source_action: "permission_handoff",
+            duration_ms: durationMs,
+            latency_bucket: bucketVideoDateLatencyMs(durationMs),
+          });
+          vdbg("daily_media_permission_handoff_used", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId,
+            handoffSource: permissionHandoff.source,
+          });
+          return true;
+        }
+        vdbg("daily_media_permission_handoff_fallback_to_preflight", {
           sessionId,
           eventId: eventId ?? null,
           userId,
           handoffSource: permissionHandoff.source,
         });
-        return true;
       }
 
       try {
+        releaseAppAcquiredMedia("media_permission_preflight_restart");
         let stream: MediaStream | null = null;
-        let nextCaptureProfile: VideoDateMediaCaptureProfile = "ideal";
+        let nextCaptureProfile: VideoDateWebMediaCaptureProfile = "ideal";
+        let lastConstraintError: unknown = null;
 
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints("ideal"));
-        } catch (idealError) {
-          if (!isVideoDateCameraConstraintError(idealError)) {
-            throw idealError;
+        for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints(profile));
+            nextCaptureProfile = profile;
+            break;
+          } catch (profileError) {
+            if (!isVideoDateCameraConstraintError(profileError) || profile === "fallback") {
+              throw profileError;
+            }
+            lastConstraintError = profileError;
+            vdbg("daily_media_permission_preflight_constraint_fallback", {
+              sessionId,
+              eventId: eventId ?? null,
+              userId: userId ?? null,
+              attemptedProfile: profile,
+              nextProfiles: VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER.slice(
+                VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER.indexOf(profile) + 1,
+              ),
+              error:
+                profileError instanceof Error
+                  ? { name: profileError.name, message: profileError.message }
+                  : String(profileError),
+            });
           }
-          nextCaptureProfile = "fallback";
-          vdbg("daily_media_permission_preflight_constraint_fallback", {
-            sessionId,
-            eventId: eventId ?? null,
-            userId: userId ?? null,
-            error:
-              idealError instanceof Error
-                ? { name: idealError.name, message: idealError.message }
-                : String(idealError),
-          });
-          stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints("fallback"));
         }
 
         if (!stream) {
-          throw new Error("Media permission preflight returned no stream");
+          throw lastConstraintError ?? new Error("Media permission preflight returned no stream");
         }
 
         captureProfileRef.current = nextCaptureProfile;
         setCaptureProfile(nextCaptureProfile);
-        const videoTrackSettings = summarizeVideoTrackSettings(stream.getVideoTracks()[0]);
-        stream.getTracks().forEach((track) => track.stop());
+        const videoTrack = firstLiveTrack(stream.getVideoTracks());
+        const audioTrack = firstLiveTrack(stream.getAudioTracks());
+        if (!videoTrack) {
+          stopMediaStreamTracks(stream);
+          throw new Error("Video Date media permission preflight returned no live video track");
+        }
+        const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
+        appAcquiredMediaRef.current = {
+          stream,
+          captureProfile: nextCaptureProfile,
+          acquiredAtMs: Date.now(),
+          consumedByDaily: false,
+        };
         setHasPermission(true);
         setMediaPermissionError(null);
         const durationMs = Math.max(0, Date.now() - permissionStartedAt);
@@ -1759,11 +1928,31 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           duration_ms: durationMs,
           latency_bucket: bucketVideoDateLatencyMs(durationMs),
         });
+        trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: eventId ?? null,
+          source_surface: "video_date_daily",
+          source_action: "media_permission_preflight_succeeded",
+          diagnostic_scope: "sender_capture",
+          capture_profile: nextCaptureProfile,
+          app_acquired_media: true,
+          audio_track_present: Boolean(audioTrack),
+          video_track_present: Boolean(videoTrack),
+          video_track_width: videoTrackSettings?.width ?? null,
+          video_track_height: videoTrackSettings?.height ?? null,
+          video_track_aspect_ratio: videoTrackSettings?.aspectRatio ?? null,
+          video_track_frame_rate: videoTrackSettings?.frameRate ?? null,
+          video_track_facing_mode: videoTrackSettings?.facingMode ?? null,
+          ...summarizeWebRuntime(),
+        });
         vdbg("daily_media_permission_preflight_succeeded", {
           sessionId,
           eventId: eventId ?? null,
           userId: userId ?? null,
           captureProfile: nextCaptureProfile,
+          appAcquiredMedia: true,
+          audioTrackPresent: Boolean(audioTrack),
           videoTrack: videoTrackSettings,
         });
         if (mediaPermissionDeniedRef.current) {
@@ -1776,6 +1965,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         return true;
       } catch (error) {
+        releaseAppAcquiredMedia("media_permission_preflight_failed");
         mediaPermissionDeniedRef.current = true;
         setHasPermission(false);
         const description = describeMediaError(error);
@@ -1809,7 +1999,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         return false;
       }
     },
-    []
+    [releaseAppAcquiredMedia]
   );
 
   const clearReconnectGraceTimers = useCallback(() => {
@@ -1913,8 +2103,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       cameraSwitchInFlightRef.current = false;
       lastRemoteCameraSwitchHintIdRef.current = null;
       activeRemoteCameraSwitchRenderWatchRef.current = null;
+      releaseAppAcquiredMedia("daily_call_cleanup");
     },
-    [clearFirstRemoteWatchdog, clearReconnectGraceTimers, clearRemoteRenderValidation, resetRemoteRenderRecoveryAttempts]
+    [
+      clearFirstRemoteWatchdog,
+      clearReconnectGraceTimers,
+      clearRemoteRenderValidation,
+      releaseAppAcquiredMedia,
+      resetRemoteRenderRecoveryAttempts,
+    ]
   );
 
   const fetchVideoDateTruth = useCallback(async (sessionId: string) => {
@@ -2320,6 +2517,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           truthRow
         );
         if (roomResult.ok === false) {
+          releaseAppAcquiredMedia("daily_room_failed_after_media_preflight");
           setIsConnecting(false);
           return { ok: false, failure: roomResult.failure } as VideoCallStartResult;
         }
@@ -2331,7 +2529,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
 
         roomNameRef.current = roomData.room_name;
 
-        const captureProfileForCall = captureProfileRef.current;
+        let captureProfileForCall = captureProfileRef.current;
         const prewarmedCall = userId
           ? consumeWebVideoDateDailyPrewarm({
               sessionId,
@@ -2350,13 +2548,157 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             reason: prewarmedCall.reason,
           });
         }
+        if (
+          prewarmedCall.ok === false &&
+          !appAcquiredMediaRef.current &&
+          typeof navigator !== "undefined" &&
+          navigator.mediaDevices?.getUserMedia
+        ) {
+          let stream: MediaStream | null = null;
+          let nextCaptureProfile: VideoDateWebMediaCaptureProfile = captureProfileForCall;
+          try {
+            for (const profile of VIDEO_DATE_WEB_CAPTURE_PROFILE_ORDER) {
+              try {
+                stream = await navigator.mediaDevices.getUserMedia(videoDateWebMediaStreamConstraints(profile));
+                nextCaptureProfile = profile;
+                break;
+              } catch (profileError) {
+                if (!isVideoDateCameraConstraintError(profileError) || profile === "fallback") {
+                  throw profileError;
+                }
+                vdbg("daily_media_permission_handoff_capture_fallback", {
+                  sessionId,
+                  eventId: truthRow.event_id ?? eventId,
+                  userId,
+                  attemptedProfile: profile,
+                  reason: prewarmedCall.reason,
+                  error:
+                    profileError instanceof Error
+                      ? { name: profileError.name, message: profileError.message }
+                      : String(profileError),
+                });
+              }
+            }
+            if (stream) {
+              const videoTrack = firstLiveTrack(stream.getVideoTracks());
+              const audioTrack = firstLiveTrack(stream.getAudioTracks());
+              if (!videoTrack) {
+                stopMediaStreamTracks(stream);
+                stream = null;
+                throw new Error("Video Date handoff capture returned no live video track");
+              }
+              const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
+              captureProfileForCall = nextCaptureProfile;
+              captureProfileRef.current = nextCaptureProfile;
+              setCaptureProfile(nextCaptureProfile);
+              appAcquiredMediaRef.current = {
+                stream,
+                captureProfile: nextCaptureProfile,
+                acquiredAtMs: Date.now(),
+                consumedByDaily: false,
+              };
+              trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
+                platform: "web",
+                session_id: sessionId,
+                event_id: truthRow.event_id ?? eventId,
+                source_surface: "video_date_daily",
+                source_action: "daily_create_without_prewarm",
+                diagnostic_scope: "sender_capture",
+                capture_profile: nextCaptureProfile,
+                app_acquired_media: true,
+                audio_track_present: Boolean(audioTrack),
+                video_track_present: Boolean(videoTrack),
+                video_track_width: videoTrackSettings?.width ?? null,
+                video_track_height: videoTrackSettings?.height ?? null,
+                video_track_aspect_ratio: videoTrackSettings?.aspectRatio ?? null,
+                video_track_frame_rate: videoTrackSettings?.frameRate ?? null,
+                video_track_facing_mode: videoTrackSettings?.facingMode ?? null,
+                ...summarizeWebRuntime(),
+              });
+              vdbg("daily_app_acquired_media_after_prewarm_miss", {
+                sessionId,
+                eventId: truthRow.event_id ?? eventId,
+                userId,
+                captureProfile: nextCaptureProfile,
+                prewarmFallbackReason: prewarmedCall.reason,
+                videoTrack: videoTrackSettings,
+              });
+            }
+          } catch (error) {
+            if (stream) stopMediaStreamTracks(stream);
+            vdbg("daily_app_acquired_media_after_prewarm_miss_failed", {
+              sessionId,
+              eventId: truthRow.event_id ?? eventId,
+              userId,
+              reason: prewarmedCall.reason,
+              error: error instanceof Error ? { name: error.name, message: error.message } : String(error),
+            });
+          }
+        }
+        const prewarmAppAcquiredMedia =
+          prewarmedCall.ok === true ? prewarmedCall.entry.appAcquiredMedia : null;
+        if (prewarmAppAcquiredMedia) {
+          const existingMedia = appAcquiredMediaRef.current;
+          if (existingMedia && existingMedia.stream !== prewarmAppAcquiredMedia.stream) {
+            releaseAppAcquiredMedia("prewarmed_app_acquired_media_replaced_route_media");
+          }
+          appAcquiredMediaRef.current = {
+            stream: prewarmAppAcquiredMedia.stream,
+            captureProfile: prewarmAppAcquiredMedia.captureProfile,
+            acquiredAtMs: prewarmAppAcquiredMedia.acquiredAtMs,
+            consumedByDaily: true,
+          };
+          vdbg("daily_prewarm_app_acquired_media_consumed", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            captureProfile: prewarmAppAcquiredMedia.captureProfile,
+            source: prewarmAppAcquiredMedia.source,
+            videoTrack: summarizeVideoTrackSettings(
+              firstLiveTrack(prewarmAppAcquiredMedia.stream.getVideoTracks()),
+            ),
+          });
+        }
         const prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
         const prewarmedJoinPromise = prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
+        const acquiredMedia = appAcquiredMediaRef.current;
+        const appAcquiredMediaForCall =
+          acquiredMedia && acquiredMedia.captureProfile === captureProfileForCall
+            ? {
+                audioTrack: firstLiveTrack(acquiredMedia.stream.getAudioTracks()),
+                videoTrack: firstLiveTrack(acquiredMedia.stream.getVideoTracks()),
+              }
+            : undefined;
+        const hasAppAcquiredVideoTrack = Boolean(appAcquiredMediaForCall?.videoTrack);
+        if (acquiredMedia && acquiredMedia.captureProfile !== captureProfileForCall) {
+          releaseAppAcquiredMedia("capture_profile_changed_before_daily_create");
+        }
         const callObject = prewarmedCall.ok === true
           ? prewarmedCall.entry.call
           : DailyIframe.createCallObject(
-              dailyVideoDateCallObjectOptions(captureProfileForCall)
+              hasAppAcquiredVideoTrack && appAcquiredMediaForCall
+                ? dailyVideoDateCallObjectOptionsWithAppAcquiredMedia(
+                    captureProfileForCall,
+                    appAcquiredMediaForCall,
+                  )
+                : dailyVideoDateCallObjectOptions(captureProfileForCall)
             );
+        if (prewarmedCall.ok === true && appAcquiredMediaRef.current && !prewarmAppAcquiredMedia) {
+          releaseAppAcquiredMedia("prewarmed_call_reused");
+        } else if (hasAppAcquiredVideoTrack && appAcquiredMediaRef.current) {
+          appAcquiredMediaRef.current.consumedByDaily = true;
+          vdbg("daily_call_object_app_acquired_media_used", {
+            sessionId,
+            eventId: truthRow.event_id ?? eventId,
+            userId,
+            roomName: roomData.room_name,
+            captureProfile: captureProfileForCall,
+            audioTrackId: appAcquiredMediaForCall?.audioTrack?.id ?? null,
+            videoTrackId: appAcquiredMediaForCall?.videoTrack?.id ?? null,
+            videoTrack: summarizeVideoTrackSettings(appAcquiredMediaForCall?.videoTrack),
+          });
+        }
         dailyPrewarmConsumedForJoin = prewarmedCall.ok === true;
         callObjectRef.current = callObject;
         vdbg("daily_call_object_created", {
@@ -2370,6 +2712,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reusedCallObject: prewarmedCall.ok === true,
           reusedJoinedCallObject: prewarmedAlreadyJoined,
           reusedJoinInFlight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+          appAcquiredMediaUsed: hasAppAcquiredVideoTrack && prewarmedCall.ok === false,
           prewarmFallbackReason: prewarmedCall.ok === false ? prewarmedCall.reason : null,
         });
 
@@ -3494,6 +3837,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       logTrackMounted,
       needsTrackReattach,
       preflightMediaPermission,
+      releaseAppAcquiredMedia,
       resetRemoteRenderRecoveryAttempts,
       resetRemoteRenderRecoveryForParticipant,
       scheduleRemoteRenderValidation,

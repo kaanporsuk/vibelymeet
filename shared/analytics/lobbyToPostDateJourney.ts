@@ -55,6 +55,8 @@ export const LobbyPostDateEvents = {
   VIDEO_DATE_VIDEO_STAGE_SHELL_VISIBLE: 'video_date_video_stage_shell_visible',
   VIDEO_DATE_PERMISSION_CHECK_STARTED: 'video_date_permission_check_started',
   VIDEO_DATE_PERMISSION_CHECK_SUCCESS: 'video_date_permission_check_success',
+  VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC: 'video_date_sender_capture_diagnostic',
+  VIDEO_DATE_RECEIVER_LAYOUT_DIAGNOSTIC: 'video_date_receiver_layout_diagnostic',
   VIDEO_DATE_LOCAL_VIDEO_READY: 'video_date_local_video_ready',
   VIDEO_DATE_REMOTE_READABLE: 'video_date_remote_readable',
   VIDEO_DATE_WARMUP_TIMER_STARTED: 'video_date_warmup_timer_started',
