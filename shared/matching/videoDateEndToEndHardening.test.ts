@@ -1442,19 +1442,25 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(cameraSwitchRenderHintContract, /commitMethod\?: string \| null/);
   assert.match(cameraSwitchRenderHintContract, /localVideoTrackId\?: string \| null/);
   assert.match(cameraSwitchRenderHintContract, /commitLatencyMs\?: number \| null/);
-  assert.match(cameraSwitchRenderHintContract, /publishSequence\?: number \| null/);
-  assert.match(cameraSwitchRenderHintContract, /publishRefreshApplied\?: boolean/);
-  assert.match(cameraSwitchRenderHintContract, /hintSequence\?: number \| null/);
+  assert.doesNotMatch(cameraSwitchRenderHintContract, /publishSequence\?: number \| null/);
+  assert.doesNotMatch(cameraSwitchRenderHintContract, /publishRefreshApplied\?: boolean/);
+  assert.doesNotMatch(cameraSwitchRenderHintContract, /hintSequence\?: number \| null/);
   assert.match(webVideoCallHook, /waitForLocalCameraSwitchCommit/);
   assert.match(webVideoCallHook, /setInputDevicesAsync/);
   assert.match(webVideoCallHook, /videoSource: false/);
   assert.match(webVideoCallHook, /function videoOnlyCameraSwitchConstraints\(\s*captureProfile: VideoDateMediaCaptureProfile/);
   assert.match(webVideoCallHook, /videoDateWebMediaStreamConstraints\(captureProfile\)/);
   assert.match(webVideoCallHook, /videoOnlyCameraSwitchConstraints\(captureProfileRef\.current, desiredFacing, expectedDeviceId\)/);
-  assert.match(webVideoCallHook, /CAMERA_SWITCH_HINT_RESEND_DELAY_MS/);
-  assert.match(webVideoCallHook, /publishRefreshApplied/);
+  assert.doesNotMatch(webVideoCallHook, /CAMERA_SWITCH_HINT_RESEND_DELAY_MS/);
+  assert.doesNotMatch(webVideoCallHook, /cameraSwitchPublishSequenceRef/);
+  assert.doesNotMatch(webVideoCallHook, /cameraSwitchHintResendTimeoutRef/);
   assert.match(webVideoCallHook, /requireFreshFrame/);
   assert.match(webVideoCallHook, /freshFrameBaseline/);
+  assert.match(webVideoCallHook, /freshFrameTimeoutMs/);
+  assert.match(webVideoCallHook, /REMOTE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS/);
+  assert.match(webVideoCallHook, /daily_camera_switch_no_reattach_needed/);
+  assert.match(webVideoCallHook, /sameTrackCameraSwitchCandidate/);
+  assert.match(webVideoCallHook, /useFreshFrameGuard/);
   assert.match(webVideoCallHook, /daily_camera_switch_video_source_restore_failed/);
   assert.match(webVideoCallHook, /dailyVideoTrackAdopted/);
   assert.match(webVideoCallHook, /recovery_already_in_flight/);
@@ -1480,45 +1486,63 @@ test("video date camera switch hints are sent only after committed live capture"
   assert.match(nativeVideoDateRoute, /nativeCameraDeviceKey/);
   assert.match(nativeVideoDateRoute, /nativeCameraFacingModeFromLabel\(videoTrack\?\.label\)/);
   assert.match(nativeVideoDateRoute, /lastNativeRemoteCameraSwitchHintIdRef/);
+  assert.match(nativeVideoDateRoute, /NATIVE_CAMERA_SWITCH_RENDER_WATCH_TTL_MS/);
+  assert.match(nativeVideoDateRoute, /NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS/);
+  assert.match(nativeVideoDateRoute, /NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS/);
+  assert.match(nativeVideoDateRoute, /NATIVE_CAMERA_SWITCH_SAME_TRACK_REMOUNT_GRACE_MS/);
+  assert.match(nativeVideoDateRoute, /activeNativeRemoteCameraSwitchRenderWatchRef/);
+  assert.match(nativeVideoDateRoute, /scheduleNativeCameraSwitchFreshnessWatch/);
+  assert.match(nativeVideoDateRoute, /readNativeCameraSwitchFreshness/);
+  assert.match(nativeVideoDateRoute, /native_camera_switch_no_remount_needed/);
+  assert.match(nativeVideoDateRoute, /native_camera_switch_render_watch_timed_out/);
+  assert.match(nativeVideoDateRoute, /camera_switch_hint_received/);
+  assert.match(nativeVideoDateRoute, /camera_switch_watch_active/);
 });
 
-test("camera switch render hints preserve optional publish metadata without breaking legacy hints", () => {
-  const enrichedHint = createVideoDateCameraSwitchRenderHint({
+test("camera switch render hints round-trip core commit metadata and tolerate legacy fields", () => {
+  const hint = createVideoDateCameraSwitchRenderHint({
     sourcePlatform: "web",
     facingMode: "environment",
     commitMethod: "video_source",
     localVideoTrackId: "track-2",
     commitLatencyMs: 32.7,
-    publishSequence: 3.2,
-    publishRefreshApplied: true,
-    hintSequence: 2.8,
     sentAtMs: 1_777,
     random: () => 0.42,
   });
 
-  assert.equal(enrichedHint.publishSequence, 3);
-  assert.equal(enrichedHint.publishRefreshApplied, true);
-  assert.equal(enrichedHint.hintSequence, 3);
-  const parsedEnrichedHint = parseVideoDateCameraSwitchRenderHint(enrichedHint);
-  assert.equal(parsedEnrichedHint?.publishSequence, 3);
-  assert.equal(parsedEnrichedHint?.publishRefreshApplied, true);
-  assert.equal(parsedEnrichedHint?.hintSequence, 3);
+  assert.equal(hint.facingMode, "environment");
+  assert.equal(hint.commitMethod, "video_source");
+  assert.equal(hint.localVideoTrackId, "track-2");
+  assert.equal(hint.commitLatencyMs, 33);
+  const parsedHint = parseVideoDateCameraSwitchRenderHint(hint);
+  assert.equal(parsedHint?.facingMode, "environment");
+  assert.equal(parsedHint?.commitMethod, "video_source");
+  assert.equal(parsedHint?.localVideoTrackId, "track-2");
+  assert.equal(parsedHint?.commitLatencyMs, 33);
 
+  // Legacy in-flight clients may still send the deprecated retry-protocol
+  // fields (publishSequence / publishRefreshApplied / hintSequence). The
+  // parser must silently drop them without rejecting the hint.
   const legacyParsedHint = parseVideoDateCameraSwitchRenderHint({
     type: "video_date_camera_switch_render_hint",
     version: 1,
     switchId: "legacy-switch",
     sourcePlatform: "native",
     facingMode: "user",
+    publishSequence: 7,
+    publishRefreshApplied: true,
+    hintSequence: 2,
     sentAtMs: 1_778,
   });
-  assert.equal(legacyParsedHint?.publishSequence, null);
-  assert.equal(legacyParsedHint?.publishRefreshApplied, false);
-  assert.equal(legacyParsedHint?.hintSequence, null);
+  assert.equal(legacyParsedHint?.facingMode, "user");
+  assert.equal(legacyParsedHint?.sourcePlatform, "native");
+  assert.equal((legacyParsedHint as Record<string, unknown> | null)?.publishSequence, undefined);
+  assert.equal((legacyParsedHint as Record<string, unknown> | null)?.publishRefreshApplied, undefined);
+  assert.equal((legacyParsedHint as Record<string, unknown> | null)?.hintSequence, undefined);
 
-  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...enrichedHint, publishSequence: 0 }), null);
-  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...enrichedHint, publishRefreshApplied: "yes" }), null);
-  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...enrichedHint, hintSequence: Number.NaN }), null);
+  // Hard rejections still apply to actual contract fields.
+  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...hint, commitLatencyMs: -1 }), null);
+  assert.equal(parseVideoDateCameraSwitchRenderHint({ ...hint, sentAtMs: 0 }), null);
 });
 
 test("queue_status reaches in_handshake only after provider confirm succeeds", () => {
