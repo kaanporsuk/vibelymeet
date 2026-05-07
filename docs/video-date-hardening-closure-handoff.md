@@ -64,7 +64,7 @@ The client should not own video-date lifecycle authority or invent session/deck/
 - Query documentation covers Ready Gate join latency, simultaneous-swipe recovery/collision signal, survey-to-next-gate conversion, queue drain failures, and timer drift recovery.
 - The `video_date_timer_drift_recovered_by_server_truth` analytics event records meaningful client corrections only.
 - `/kaan/dashboard` -> Event Analytics includes the Video Date Ops panel.
-- `admin-video-date-ops` returns aggregate-only 24h and 7d metrics; it does not expose raw rows or user PII.
+- `admin-video-date-ops` returns aggregate-only 24h and 7d metrics. Its separate admin-only Date Timeline action returns redacted raw rows for one explicit video session UUID; it does not expose profile fields, names, emails, or unrestricted user-level drilldowns.
 
 ## Supabase Deploy History
 
@@ -120,7 +120,7 @@ supabase db push --linked --dry-run
 ## Known Non-Blocking Limitations
 
 - PostHog timer drift trends only reflect deployed clients after #521 and #528.
-- The admin panel is aggregate-only by design; deeper incident investigation still requires SQL/PostHog/Sentry follow-up.
+- The Event Analytics admin panel is aggregate-only by design. The Date Timeline tab supports admin-only, single-session raw-row inspection for incident follow-up; broader investigation still requires SQL/PostHog/Sentry.
 - Existing Vite chunk/import warnings are unrelated to the video-date hardening chain.
 
 ## Rollback Notes

@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   formatAdminCount,
-  formatAdminUtcDateTime,
   useAdminOverviewDashboard,
 } from "@/hooks/useAdminOverviewDashboard";
 
@@ -126,42 +125,35 @@ const AdminStatsCards = () => {
   ];
 
   return (
-    <div className="space-y-2">
-      <div className="flex justify-end">
-        <p className="text-xs text-muted-foreground">
-          Last updated {formatAdminUtcDateTime(overview.generated_at)}
-        </p>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <motion.div
-              key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="glass-card p-6 rounded-2xl"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center`}>
-                  <Icon className="w-6 h-6 text-white" />
-                </div>
-                <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded-full">
-                  {stat.change}
-                </span>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {stats.map((stat, index) => {
+        const Icon = stat.icon;
+        return (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.1 }}
+            className="glass-card p-6 rounded-2xl"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center`}>
+                <Icon className="w-6 h-6 text-white" />
               </div>
-              <div>
-                <p className="text-3xl font-bold text-foreground">{stat.value}</p>
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
-                {stat.description && (
-                  <p className="text-xs text-muted-foreground mt-1 leading-snug">{stat.description}</p>
-                )}
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
+              <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded-full">
+                {stat.change}
+              </span>
+            </div>
+            <div>
+              <p className="text-3xl font-bold text-foreground">{stat.value}</p>
+              <p className="text-sm text-muted-foreground">{stat.label}</p>
+              {stat.description && (
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">{stat.description}</p>
+              )}
+            </div>
+          </motion.div>
+        );
+      })}
     </div>
   );
 };

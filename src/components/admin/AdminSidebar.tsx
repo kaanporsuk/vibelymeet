@@ -15,7 +15,6 @@ import {
   Bell,
   X,
   UserMinus,
-  MessageSquare,
   LifeBuoy,
   Layers,
   Archive,
@@ -25,7 +24,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
 
 interface AdminSidebarProps {
   activePanel: ActivePanel;
@@ -33,11 +32,10 @@ interface AdminSidebarProps {
   onLogout: () => void;
   isOpen?: boolean;
   onClose?: () => void;
-  feedbackCount?: number;
   supportCount?: number;
 }
 
-const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, feedbackCount = 0, supportCount = 0 }: AdminSidebarProps) => {
+const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, supportCount = 0 }: AdminSidebarProps) => {
   const menuItems = [
     { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
     { id: 'operations' as const, label: 'Operations', icon: Server },
@@ -55,7 +53,6 @@ const AdminSidebar = ({ activePanel, setActivePanel, onLogout, isOpen, onClose, 
     { id: 'deletions' as const, label: 'Deletions', icon: UserMinus },
     { id: 'ghost-bootstrap' as const, label: 'Ghost Accounts', icon: Zap },
     { id: 'support' as const, label: 'Support', icon: LifeBuoy, badge: supportCount > 0 ? supportCount : undefined },
-    { id: 'feedback' as const, label: 'Feedback', icon: MessageSquare, badge: feedbackCount > 0 ? feedbackCount : undefined },
     { id: 'activity-log' as const, label: 'Activity Log', icon: Activity },
     { id: 'export' as const, label: 'Export', icon: Download },
   ];

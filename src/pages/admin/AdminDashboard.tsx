@@ -1,6 +1,6 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Menu,
   LogOut,
@@ -14,6 +14,10 @@ import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminStaleBundleNotice from "@/components/admin/AdminStaleBundleNotice";
 import { useAdminRealtime } from "@/hooks/useAdminRealtime";
+import {
+  formatAdminUtcDateTime,
+  useAdminOverviewDashboard,
+} from "@/hooks/useAdminOverviewDashboard";
 import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
 const AdminUsersPanel = lazy(() => import("@/components/admin/AdminUsersPanel"));
@@ -31,7 +35,6 @@ const AdminEngagementAnalytics = lazy(() => import("@/components/admin/AdminEnga
 const AdminPushCampaignsPanel = lazy(() => import("@/components/admin/AdminPushCampaignsPanel"));
 const AdminPhotoVerificationPanel = lazy(() => import("@/components/admin/AdminPhotoVerificationPanel"));
 const AdminDeletionsPanel = lazy(() => import("@/components/admin/AdminDeletionsPanel"));
-const AdminFeedbackPanel = lazy(() => import("@/components/admin/AdminFeedbackPanel"));
 const SupportInbox = lazy(() => import("@/components/admin/SupportInbox"));
 const AdminDailyDropCard = lazy(() => import("@/components/admin/AdminDailyDropCard"));
 const AdminTierConfigPanel = lazy(() => import("@/components/admin/AdminTierConfigPanel"));
@@ -44,21 +47,67 @@ const AdminGhostBootstrapPanel = lazy(() =>
 );
 const AdminMediaLifecyclePanel = lazy(() => import("@/components/admin/AdminMediaLifecyclePanel"));
 
-type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'feedback' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+type ActivePanel = 'overview' | 'operations' | 'intelligence' | 'users' | 'events' | 'reports' | 'export' | 'event-analytics' | 'video-date-timeline' | 'activity-log' | 'engagement' | 'campaigns' | 'photo-verification' | 'deletions' | 'support' | 'tier-config' | 'ghost-bootstrap' | 'media-lifecycle';
+
+const ADMIN_PANEL_IDS = [
+  'overview',
+  'operations',
+  'intelligence',
+  'users',
+  'events',
+  'reports',
+  'export',
+  'event-analytics',
+  'video-date-timeline',
+  'activity-log',
+  'engagement',
+  'campaigns',
+  'photo-verification',
+  'deletions',
+  'support',
+  'tier-config',
+  'ghost-bootstrap',
+  'media-lifecycle',
+] as const satisfies readonly ActivePanel[];
+
+const isAdminPanel = (value: string | null): value is ActivePanel =>
+  typeof value === "string" && (ADMIN_PANEL_IDS as readonly string[]).includes(value);
+
+const panelFromSearchParams = (searchParams: URLSearchParams): ActivePanel => {
+  const panel = searchParams.get("panel");
+  return isAdminPanel(panel) ? panel : "overview";
+};
 
 type AdminDashboardBadgeCountsPayload = AdminRpcPayload & {
   unread_notifications?: number;
   open_support_tickets?: number;
-  new_feedback?: number;
 };
 
 const AdminPanelFallback = () => (
   <div className="min-h-[320px] rounded-xl border border-border/50 bg-card/30 animate-pulse" />
 );
 
+const AdminOverviewMetadata = () => {
+  const { data: overview, isError, isLoading } = useAdminOverviewDashboard();
+
+  return (
+    <div className="flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <span>Reporting timezone: UTC</span>
+      <span>
+        {isLoading
+          ? "Refreshing Overview data..."
+          : isError || !overview?.generated_at
+            ? "Overview timestamp unavailable"
+            : `Last updated ${formatAdminUtcDateTime(overview.generated_at)}`}
+      </span>
+    </div>
+  );
+};
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
-  const [activePanel, setActivePanel] = useState<ActivePanel>('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activePanel, setActivePanelState] = useState<ActivePanel>(() => panelFromSearchParams(searchParams));
   const [showNotifications, setShowNotifications] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -72,8 +121,28 @@ const AdminDashboard = () => {
     refetchInterval: 30000,
   });
   const unreadCount = Number(badgeCounts?.unread_notifications ?? 0);
-  const feedbackCount = Number(badgeCounts?.new_feedback ?? 0);
   const supportCount = Number(badgeCounts?.open_support_tickets ?? 0);
+
+  useEffect(() => {
+    const nextPanel = panelFromSearchParams(searchParams);
+    setActivePanelState((currentPanel) => (currentPanel === nextPanel ? currentPanel : nextPanel));
+  }, [searchParams]);
+
+  const setActivePanel = (panel: ActivePanel) => {
+    setActivePanelState(panel);
+    setSearchParams((currentSearchParams) => {
+      const nextSearchParams = new URLSearchParams(currentSearchParams);
+      if (panel === "overview") {
+        nextSearchParams.delete("panel");
+      } else {
+        nextSearchParams.set("panel", panel);
+      }
+      if (panel !== "video-date-timeline") {
+        nextSearchParams.delete("session_id");
+      }
+      return nextSearchParams;
+    });
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -90,7 +159,6 @@ const AdminDashboard = () => {
         onLogout={handleLogout}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        feedbackCount={feedbackCount}
         supportCount={supportCount}
       />
 
@@ -123,7 +191,6 @@ const AdminDashboard = () => {
                   {activePanel === 'photo-verification' && 'Photo Verification'}
                   {activePanel === 'media-lifecycle' && 'Media Lifecycle'}
                   {activePanel === 'deletions' && 'Account Deletions'}
-                  {activePanel === 'feedback' && 'Legacy feedback'}
                   {activePanel === 'support' && 'Support inbox'}
                   {activePanel === 'tier-config' && 'Tier configuration'}
                   {activePanel === 'ghost-bootstrap' && 'Ghost Bootstrap Accounts'}
@@ -144,7 +211,6 @@ const AdminDashboard = () => {
                   {activePanel === 'photo-verification' && 'Review and approve user photo verifications'}
                   {activePanel === 'media-lifecycle' && 'Retention policy controls, worker readiness, and guarded cron rollout planning'}
                   {activePanel === 'deletions' && 'Manage account deletion requests and recoveries'}
-                  {activePanel === 'feedback' && 'Legacy Help & Feedback submissions'}
                   {activePanel === 'support' && 'Support tickets, safety reports, and user replies'}
                   {activePanel === 'tier-config' && 'Live overrides for subscription tier capabilities (merged with code defaults)'}
                 </p>
@@ -187,6 +253,8 @@ const AdminDashboard = () => {
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-6"
               >
+                <AdminOverviewMetadata />
+
                 {/* Quick Actions Widgets */}
                 <AdminQuickActionsCards
                   onNavigateToReports={() => setActivePanel('reports')}
@@ -194,9 +262,7 @@ const AdminDashboard = () => {
                   onNavigateToEvents={() => setActivePanel('events')}
                 />
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <AdminDailyDropCard />
-                </div>
+                <AdminDailyDropCard />
                 <AdminStatsCards />
                 <AdminAnalyticsCharts />
               </motion.div>
@@ -216,7 +282,6 @@ const AdminDashboard = () => {
             {activePanel === 'photo-verification' && <AdminPhotoVerificationPanel />}
             {activePanel === 'media-lifecycle' && <AdminMediaLifecyclePanel />}
             {activePanel === 'deletions' && <AdminDeletionsPanel />}
-            {activePanel === 'feedback' && <AdminFeedbackPanel />}
             {activePanel === 'support' && <SupportInbox />}
             {activePanel === 'tier-config' && <AdminTierConfigPanel />}
             {activePanel === 'ghost-bootstrap' && <AdminGhostBootstrapPanel />}

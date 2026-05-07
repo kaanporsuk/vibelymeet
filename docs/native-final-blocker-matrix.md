@@ -50,14 +50,14 @@ This is not a code-hardening no-go. The video-date loop, regression harness, see
 | OneSignal native push receive/tap proof | Provider-dashboard pending, then Manual proof pending | Operator | OneSignal iOS APNs and Android FCM are configured, `EXPO_PUBLIC_ONESIGNAL_APP_ID` is in EAS, real devices register player IDs, test pushes arrive, and at least one notification tap routes correctly. | `docs/native-external-setup-closure.md`, `docs/qa/native-rc-smoke-pack.md` |
 | Daily native video join proof | Manual proof pending | Operator | iOS and Android preview builds join a Daily room from the Ready Gate/date path, camera/mic work, leave/end works, and backend session state is sane afterward. | `docs/qa/video-date-seeded-runtime-qa-pack.md`, `docs/qa/native-rc-smoke-pack.md` |
 | Native RC smoke execution on devices | Build/device proof pending | Operator | `docs/qa/native-rc-smoke-pack.md` is executed on iOS and Android, including auth/session, event lobby, Ready Gate/date/survey, chat send-message, push identity, media/Vibe Video, and sign-off template. | `docs/qa/native-rc-smoke-pack.md` |
-| Admin Video Date Ops runtime cross-check during native QA | Manual proof pending | Operator | Admin selects the test event in `/kaan/dashboard`, confirms 24h/7d Video Date Ops metrics, verifies aggregate-only output, confirms non-admin 403, and cross-checks one metric against SQL/PostHog. | `docs/qa/video-date-seeded-runtime-qa-pack.md` |
+| Admin Video Date Ops runtime cross-check during native QA | Manual proof pending | Operator | Admin selects the test event in `/kaan/dashboard`, confirms 24h/7d Video Date Ops metrics, verifies aggregate metrics output, confirms non-admin 403, and cross-checks one metric against SQL/PostHog. | `docs/qa/video-date-seeded-runtime-qa-pack.md` |
 | OneSignal web final interactive proof | Manual proof pending | Operator | Human grants web push permission and taps a delivered notification on production. Worker, subscribed session, and DB sync are already proven. | `docs/web-push-production-checklist.md`, `docs/browser-auth-runtime-proof-results.md` |
 
 ## Non-Blocking / Accepted Limitations
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| Admin Video Date Ops aggregate-only design | Accepted | Intentional privacy boundary; deeper incident investigation uses SQL/PostHog/Sentry. |
+| Admin Video Date Ops metrics aggregate-only design | Accepted | Intentional privacy boundary for metrics; Date Timeline is admin-only and scoped to one explicit session UUID. |
 | PostHog timer drift trends | Accepted | Trends only reflect deployed clients after the observability/timer reconciliation changes. |
 | Existing Vite chunk/import warnings | Accepted | Documented as unrelated to the video-date hardening chain. |
 | Bunny photo/CDN 404s | Provider-dashboard pending, non-blocking if accepted | If still present, verify Bunny pull-zone origin/path prefix. App-side URL logic has been documented as correct. |
@@ -81,7 +81,7 @@ Fill these rows as operator proof is completed. Do not invent proof; link build 
 | Android native RC smoke | Build/device proof pending | Run `docs/qa/native-rc-smoke-pack.md` on installed Android build. |
 | Two-user video-date seeded runtime QA | Manual proof pending | Run `docs/qa/video-date-seeded-runtime-qa-pack.md` with admin, User A, User B, and a live/recent event. |
 | Daily real-device join/leave | Manual proof pending | Verify room join, media, refresh/rejoin, end/leave, and backend state. |
-| Admin Video Date Ops cross-check | Manual proof pending | Confirm admin panel metrics, non-admin 403, aggregate-only output, and one SQL/PostHog cross-check. |
+| Admin Video Date Ops cross-check | Manual proof pending | Confirm admin panel metrics, non-admin 403, aggregate metrics output, and one SQL/PostHog cross-check. |
 | OneSignal web prompt/tap | Manual proof pending | Worker and subscribed state are proven; prompt grant and delivered-notification tap remain manual. |
 
 ## Next Operator Action Sequence

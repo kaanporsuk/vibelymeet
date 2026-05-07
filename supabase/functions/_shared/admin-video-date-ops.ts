@@ -13,11 +13,10 @@ export const VIDEO_DATE_OPS_WINDOWS = [
 
 export type MetricStatus = "healthy" | "warning" | "critical" | "unknown" | "external_only";
 
-export type VideoDateTimelineRole = "admin" | "moderator";
+export type VideoDateTimelineRole = "admin";
 
 export const VIDEO_DATE_TIMELINE_ALLOWED_ROLES = [
   "admin",
-  "moderator",
 ] as const satisfies readonly VideoDateTimelineRole[];
 
 export type VideoDateSessionTimelineRow = {
@@ -53,6 +52,11 @@ export function hasVideoDateTimelineRole(
   );
 }
 
+function timelineSortTimestamp(value: string): number {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : Number.MAX_SAFE_INTEGER;
+}
+
 export function redactVideoDateTimelineDetail(value: unknown, depth = 0): unknown {
   if (depth > 8) return "[Max depth]";
   if (Array.isArray(value)) {
@@ -81,7 +85,7 @@ export function safeVideoDateTimelineRows(rows: VideoDateSessionTimelineRow[]): 
       const seqA = Number.isFinite(a.timeline_seq) ? a.timeline_seq : Number.MAX_SAFE_INTEGER;
       const seqB = Number.isFinite(b.timeline_seq) ? b.timeline_seq : Number.MAX_SAFE_INTEGER;
       if (seqA !== seqB) return seqA - seqB;
-      return new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime();
+      return timelineSortTimestamp(a.occurred_at) - timelineSortTimestamp(b.occurred_at);
     })
     .map((row) => ({
       ...row,

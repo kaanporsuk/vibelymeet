@@ -37,50 +37,43 @@ type SettingsRow = {
   updated_by: string | null;
 };
 
-type AssetRefRow = {
-  id: string;
-  is_active: boolean;
-};
-
-type AssetRow = {
-  id: string;
-  media_family: MediaFamily;
-  status: string;
-  provider: string;
-  purge_after: string | null;
-  created_at: string;
-  deleted_at: string | null;
-  last_error: string | null;
-  media_references?: AssetRefRow[] | null;
-};
-
 type JobAssetRow = {
   media_family: MediaFamily;
   status: string;
   purge_after: string | null;
 };
 
-type JobRow = {
-  id: string;
-  asset_id: string;
-  provider: string;
+type CountRow = {
+  media_family: string;
   status: string;
-  job_type: string;
-  attempts: number;
-  max_attempts: number;
-  next_attempt_at: string;
-  last_error: string | null;
-  created_at: string;
-  started_at: string | null;
-  worker_id: string | null;
-  media_assets?: JobAssetRow | JobAssetRow[] | null;
+  job_type?: string | null;
+  count: number;
 };
 
-type CronJobRow = {
-  jobid: number;
-  jobname: string;
-  schedule: string;
-  active: boolean;
+type OrphanRow = {
+  bucket: string;
+  media_family: string;
+  count: number;
+};
+
+type SnapshotSummary = {
+  asset_status_counts?: CountRow[];
+  job_status_counts?: CountRow[];
+  orphan_like_counts?: OrphanRow[];
+  orphan_like_total?: number;
+  failed_job_total?: number;
+  would_process_now?: {
+    promotable_assets?: number;
+    queued_jobs?: number;
+    total_candidates?: number;
+    by_family?: Array<{
+      media_family: string;
+      promotable_assets: number;
+      queued_jobs: number;
+      total_candidates: number;
+    }>;
+    explanation?: string;
+  };
 };
 
 type CronRunRow = {
@@ -91,6 +84,15 @@ type CronRunRow = {
   end_time: string | null;
 };
 
+type CronStatusCode = "found" | "missing_job" | "rpc_error" | "inactive" | "recent_runs_unavailable";
+
+type AuditLogResult = {
+  audit_logged: boolean;
+  audit_error: string | null;
+};
+
+type SnapshotCore = ReturnType<typeof buildSnapshotFromSummary>;
+
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -98,94 +100,8 @@ function json(body: Record<string, unknown>, status = 200) {
   });
 }
 
-function normalizeJobAsset(job: JobRow): JobAssetRow | null {
-  if (!job.media_assets) return null;
-  return Array.isArray(job.media_assets) ? job.media_assets[0] ?? null : job.media_assets;
-}
-
-function toCountRows(records: Record<string, number>) {
-  return Object.entries(records)
-    .filter(([, count]) => count > 0)
-    .map(([key, count]) => {
-      const [media_family, status, job_type] = key.split("|");
-      return { media_family, status, job_type: job_type ?? null, count };
-    })
-    .sort((a, b) =>
-      a.media_family.localeCompare(b.media_family)
-      || a.status.localeCompare(b.status)
-      || (a.job_type ?? "").localeCompare(b.job_type ?? ""),
-    );
-}
-
-function increment(records: Record<string, number>, key: string) {
-  records[key] = (records[key] ?? 0) + 1;
-}
-
-function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow[]) {
+function buildSnapshotFromSummary(settings: SettingsRow[], summary: SnapshotSummary) {
   const settingsByFamily = new Map(settings.map((row) => [row.media_family, row]));
-  const nowMs = Date.now();
-
-  const assetStatusCounts: Record<string, number> = {};
-  const orphanLikeCounts: Record<string, number> = {};
-  const readyNowByFamily: Record<string, { promotable_assets: number; queued_jobs: number }> = {};
-
-  let orphanLikeTotal = 0;
-  let failedJobTotal = 0;
-  let readyJobTotal = 0;
-  let promotableAssetTotal = 0;
-
-  for (const asset of assets) {
-    increment(assetStatusCounts, `${asset.media_family}|${asset.status}`);
-
-    const activeRefCount = (asset.media_references ?? []).filter((row) => row.is_active).length;
-    if ((asset.status === "active" || asset.status === "uploading") && activeRefCount === 0) {
-      const isStaleUpload = asset.status === "uploading"
-        && new Date(asset.created_at).getTime() <= nowMs - 24 * 60 * 60 * 1000;
-      if (asset.status === "active" || isStaleUpload) {
-        const bucket = asset.status === "active" ? "active_without_refs" : "stale_uploading";
-        increment(orphanLikeCounts, `${bucket}|${asset.media_family}`);
-        orphanLikeTotal++;
-      }
-    }
-
-    const policy = settingsByFamily.get(asset.media_family);
-    const isPromotable = asset.status === "soft_deleted"
-      && activeRefCount === 0
-      && !!asset.purge_after
-      && new Date(asset.purge_after).getTime() <= nowMs
-      && policy?.worker_enabled === true;
-
-    if (isPromotable) {
-      const existing = readyNowByFamily[asset.media_family] ?? { promotable_assets: 0, queued_jobs: 0 };
-      existing.promotable_assets += 1;
-      readyNowByFamily[asset.media_family] = existing;
-      promotableAssetTotal += 1;
-    }
-  }
-
-  const jobStatusCounts: Record<string, number> = {};
-  for (const job of jobs) {
-    const asset = normalizeJobAsset(job);
-    const mediaFamily = asset?.media_family ?? "unknown";
-    increment(jobStatusCounts, `${mediaFamily}|${job.status}|${job.job_type}`);
-
-    if (job.status === "failed" || job.status === "abandoned") {
-      failedJobTotal++;
-    }
-
-    const policy = asset ? settingsByFamily.get(asset.media_family) : null;
-    const readyNow = (job.status === "pending" || job.status === "failed")
-      && new Date(job.next_attempt_at).getTime() <= nowMs
-      && policy?.worker_enabled === true;
-
-    if (asset && readyNow) {
-      const existing = readyNowByFamily[asset.media_family] ?? { promotable_assets: 0, queued_jobs: 0 };
-      existing.queued_jobs += 1;
-      readyNowByFamily[asset.media_family] = existing;
-      readyJobTotal += 1;
-    }
-  }
-
   const ownedPolicies = OWNED_MEDIA_FAMILIES.map((family) => settingsByFamily.get(family)).filter(Boolean) as SettingsRow[];
   const chatPolicies = CHAT_MEDIA_FAMILIES.map((family) => settingsByFamily.get(family)).filter(Boolean) as SettingsRow[];
   const verificationPolicy = settingsByFamily.get("verification_selfie") ?? null;
@@ -197,15 +113,10 @@ function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow
     && row.worker_enabled === firstChat?.worker_enabled,
   );
 
-  const readyByFamily = Object.entries(readyNowByFamily)
-    .map(([media_family, values]) => ({
-      media_family,
-      promotable_assets: values.promotable_assets,
-      queued_jobs: values.queued_jobs,
-      total_candidates: values.promotable_assets + values.queued_jobs,
-    }))
-    .filter((row) => row.total_candidates > 0)
-    .sort((a, b) => a.media_family.localeCompare(b.media_family));
+  const orphanLikeTotal = Number(summary.orphan_like_total ?? 0);
+  const failedJobTotal = Number(summary.failed_job_total ?? 0);
+  const wouldProcessNow = summary.would_process_now ?? {};
+  const verdict = orphanLikeTotal > 0 || failedJobTotal > 0 ? "keep_disabled" : "healthy";
 
   return {
     settings: {
@@ -221,42 +132,113 @@ function buildSnapshot(settings: SettingsRow[], assets: AssetRow[], jobs: JobRow
       verification_selfie: verificationPolicy,
     },
     readiness: {
-      asset_status_counts: toCountRows(assetStatusCounts),
-      job_status_counts: toCountRows(jobStatusCounts),
-      orphan_like_counts: Object.entries(orphanLikeCounts).map(([key, count]) => {
-        const [bucket, media_family] = key.split("|");
-        return { bucket, media_family, count };
-      }).sort((a, b) => a.bucket.localeCompare(b.bucket) || a.media_family.localeCompare(b.media_family)),
+      asset_status_counts: summary.asset_status_counts ?? [],
+      job_status_counts: summary.job_status_counts ?? [],
+      orphan_like_counts: summary.orphan_like_counts ?? [],
       would_process_now: {
-        promotable_assets: promotableAssetTotal,
-        queued_jobs: readyJobTotal,
-        total_candidates: promotableAssetTotal + readyJobTotal,
-        by_family: readyByFamily,
-        explanation: "Read-only preview that combines existing pending/failed ready jobs with soft_deleted assets that a real run would promote before claiming. No mutations are performed.",
+        promotable_assets: Number(wouldProcessNow.promotable_assets ?? 0),
+        queued_jobs: Number(wouldProcessNow.queued_jobs ?? 0),
+        total_candidates: Number(wouldProcessNow.total_candidates ?? 0),
+        by_family: wouldProcessNow.by_family ?? [],
+        explanation: wouldProcessNow.explanation
+          ?? "Read-only aggregate preview that combines claimable pending/failed jobs with soft_deleted assets a real run would promote before claiming. No mutations are performed.",
       },
       failed_job_total: failedJobTotal,
       orphan_like_total: orphanLikeTotal,
       notes: [
-        "The existing process-media-delete-jobs dry-run only previews queued pending/failed jobs.",
-        "This admin snapshot adds promotable soft_deleted assets so operators can see what a real run would likely process first.",
+        "The process-media-delete-jobs dry-run only previews existing queued pending/failed jobs.",
+        "This admin snapshot uses aggregate SQL to include promotable soft_deleted assets without scanning raw rows in the Edge Function.",
         "verification_selfie remains worker-disabled and is excluded from rollout recommendations.",
       ],
     },
     recommended_activation: {
-      verdict: orphanLikeTotal > 0 || failedJobTotal > 0 ? "keep_disabled" : "healthy",
+      verdict,
       initial_batch_size: 10,
       initial_cadence: "every 15 minutes",
-      retry_behavior: "DB-owned exponential backoff: 1m, 5m, 25m, 2h, 10h, up to per-family max_attempts (default 5).",
+      retry_behavior: "DB-owned exponential backoff: 1m, 5m, 25m, 2h, 10h, up to per-family max_attempts (default 5). Abandoned jobs reset attempts before requeue so they are claimable.",
       initial_family_filter: null,
       rollback: [
         "Disable the scheduler: UPDATE cron.job SET active = false WHERE jobname = 'media-delete-worker-every-15m';",
         "Set worker_enabled = false for the affected family in the admin panel.",
         "Leave existing queued jobs untouched while you inspect media_delete_jobs and provider logs.",
       ],
-      rationale: orphanLikeTotal > 0 || failedJobTotal > 0
-        ? "Anomalies detected — investigate before next worker run."
-        : "System healthy — cron is running on schedule.",
+      rationale: verdict === "healthy"
+        ? "System healthy — cron is running on schedule."
+        : "Anomalies detected — investigate before next worker run.",
     },
+  };
+}
+
+function numericHealthValue(health: Record<string, unknown> | null, key: string) {
+  const value = health?.[key];
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function validationResponse(error: unknown) {
+  return json({
+    success: false,
+    error: error instanceof Error ? error.message : "Invalid media lifecycle input",
+  }, 400);
+}
+
+function buildActivationRecommendation(
+  core: SnapshotCore,
+  opsStatus: {
+    health: Record<string, unknown> | null;
+    cron_status: {
+      status: CronStatusCode;
+      found: boolean;
+      jobname: string;
+      message?: string | null;
+    } | null;
+    cron_job: { active: boolean } | null;
+  },
+) {
+  const issues: string[] = [];
+  const orphanLikeTotal = Number(core.readiness.orphan_like_total ?? 0);
+  const failedJobTotal = Number(core.readiness.failed_job_total ?? 0);
+
+  if (orphanLikeTotal > 0) {
+    issues.push(`${orphanLikeTotal} orphan-like asset${orphanLikeTotal === 1 ? "" : "s"}`);
+  }
+  if (failedJobTotal > 0) {
+    issues.push(`${failedJobTotal} failed or abandoned delete job${failedJobTotal === 1 ? "" : "s"}`);
+  }
+
+  if (!opsStatus.health) {
+    issues.push("media lifecycle health RPC unavailable");
+  } else {
+    const staleClaimed = numericHealthValue(opsStatus.health, "stale_claimed_count");
+    if (staleClaimed > 0) {
+      issues.push(`${staleClaimed} stale claimed job${staleClaimed === 1 ? "" : "s"}`);
+    }
+    if (opsStatus.health.healthy === false && failedJobTotal === 0 && staleClaimed === 0) {
+      issues.push("health RPC reported an unhealthy state");
+    }
+  }
+
+  const cronStatus = opsStatus.cron_status?.status ?? "rpc_error";
+  if (cronStatus === "missing_job") {
+    issues.push("cron job missing");
+  } else if (cronStatus === "rpc_error") {
+    issues.push("cron status RPC unavailable");
+  } else if (cronStatus === "inactive") {
+    issues.push("cron job paused");
+  } else if (cronStatus === "recent_runs_unavailable") {
+    issues.push("cron run history unavailable");
+  } else if (opsStatus.cron_job?.active !== true) {
+    issues.push("cron job not active");
+  }
+
+  const verdict = issues.length > 0 ? "keep_disabled" : "healthy";
+
+  return {
+    ...core.recommended_activation,
+    verdict,
+    rationale: verdict === "healthy"
+      ? "Healthy: cron is active, the health RPC is clean, and no failed, abandoned, stale, or orphan-like media lifecycle anomalies are present."
+      : `Hold: ${issues.join("; ")}.`,
   };
 }
 
@@ -284,14 +266,45 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
   const health = healthResult.data as unknown as Record<string, unknown> | null;
   const cronRaw = cronResult.data as unknown as Record<string, unknown> | null;
 
+  if (cronResult.error) {
+    return {
+      health,
+      cron_status: {
+        status: "rpc_error" as CronStatusCode,
+        found: false,
+        jobname: MEDIA_WORKER_JOB_NAME,
+        message: cronResult.error.message,
+      },
+      cron_job: null,
+      recent_runs: [] as CronRunRow[],
+    };
+  }
+
   if (!cronRaw || !cronRaw.found) {
-    return { health, cron_job: null, recent_runs: [] as CronRunRow[] };
+    return {
+      health,
+      cron_status: {
+        status: "missing_job" as CronStatusCode,
+        found: false,
+        jobname: (cronRaw?.jobname as string | undefined) ?? MEDIA_WORKER_JOB_NAME,
+        message: "Cron job was not found in cron.job.",
+      },
+      cron_job: null,
+      recent_runs: [] as CronRunRow[],
+    };
   }
 
   const recentRuns = (cronRaw.recent_runs as CronRunRow[] | null) ?? [];
+  const cronStatus = (cronRaw.status as CronStatusCode | undefined) ?? ((cronRaw.active as boolean) ? "found" : "inactive");
 
   return {
     health,
+    cron_status: {
+      status: cronStatus,
+      found: true,
+      jobname: cronRaw.jobname as string,
+      message: (cronRaw.recent_runs_error as string | null) ?? null,
+    },
     cron_job: {
       job_id: cronRaw.job_id as number,
       jobname: cronRaw.jobname as string,
@@ -301,8 +314,8 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
       last_failed_at: (cronRaw.last_failed_at as string | null) ?? null,
       consecutive_failures: (cronRaw.consecutive_failures as number) ?? 0,
     },
-    recent_runs: recentRuns.map((r) => ({
-      runid: r.runid,
+    recent_runs: recentRuns.map((r, index) => ({
+      runid: r.runid ?? index,
       status: r.status,
       start_time: r.start_time,
       end_time: r.end_time ?? null,
@@ -350,38 +363,34 @@ async function fetchOpsJobLists(admin: ReturnType<typeof createClient>) {
 // ── Main snapshot ─────────────────────────────────────────────────────────────
 
 async function fetchSnapshot(admin: ReturnType<typeof createClient>) {
-  const [settingsResult, assetsResult, jobsResult] = await Promise.all([
+  const [settingsResult, summaryResult] = await Promise.all([
     admin
       .from("media_retention_settings")
       .select("media_family, retention_mode, retention_days, eligible_days, worker_enabled, dry_run, batch_size, max_attempts, notes, updated_at, updated_by")
       .order("media_family", { ascending: true }),
-    admin
-      .from("media_assets")
-      .select("id, media_family, status, provider, purge_after, created_at, deleted_at, last_error, media_references!left(id, is_active)"),
-    admin
-      .from("media_delete_jobs")
-      .select("id, asset_id, provider, status, job_type, attempts, max_attempts, next_attempt_at, last_error, created_at, started_at, worker_id, media_assets!inner(media_family, status, purge_after)"),
+    admin.rpc("summarize_media_lifecycle_snapshot"),
   ]);
 
   if (settingsResult.error) throw new Error(`settings query failed: ${settingsResult.error.message}`);
-  if (assetsResult.error) throw new Error(`assets query failed: ${assetsResult.error.message}`);
-  if (jobsResult.error) throw new Error(`jobs query failed: ${jobsResult.error.message}`);
+  if (summaryResult.error) throw new Error(`snapshot summary RPC failed: ${summaryResult.error.message}`);
 
-  const core = buildSnapshot(
+  const core = buildSnapshotFromSummary(
     (settingsResult.data ?? []) as SettingsRow[],
-    (assetsResult.data ?? []) as AssetRow[],
-    (jobsResult.data ?? []) as JobRow[],
+    (summaryResult.data ?? {}) as SnapshotSummary,
   );
 
   const [opsStatus, opsJobs] = await Promise.all([
     fetchCronStatusViaSQL(admin),
     fetchOpsJobLists(admin),
   ]);
+  const recommendedActivation = buildActivationRecommendation(core, opsStatus);
 
   return {
     ...core,
+    recommended_activation: recommendedActivation,
     ops: {
       health: opsStatus.health,
+      cron_status: opsStatus.cron_status,
       cron_job: opsStatus.cron_job,
       recent_runs: opsStatus.recent_runs,
       failed_jobs: opsJobs.failed_jobs,
@@ -442,19 +451,22 @@ async function logAdminAction(
   admin: ReturnType<typeof createClient>,
   adminUserId: string,
   actionType: string,
-  targetId: string,
+  targetType: string,
+  targetKey: string | null,
   details: Record<string, unknown>,
-) {
+): Promise<AuditLogResult> {
   const { error } = await admin.from("admin_activity_logs").insert({
     admin_id: adminUserId,
     action_type: actionType,
-    target_type: "media_retention_settings",
-    target_id: targetId,
-    details,
+    target_type: targetType,
+    target_id: null,
+    details: { ...details, target_key: targetKey },
   });
   if (error) {
     console.error("admin-media-lifecycle-controls activity log failed:", error.message);
+    return { audit_logged: false, audit_error: error.message };
   }
+  return { audit_logged: true, audit_error: null };
 }
 
 // ── Request handler ───────────────────────────────────────────────────────────
@@ -495,6 +507,7 @@ Deno.serve(async (req) => {
       return json({
         success: true,
         health: opsStatus.health,
+        cron_status: opsStatus.cron_status,
         cron_job: opsStatus.cron_job,
         recent_runs: opsStatus.recent_runs,
         failed_jobs: opsJobs.failed_jobs,
@@ -518,24 +531,28 @@ Deno.serve(async (req) => {
         return json({ success: false, error: requeueError.message }, 500);
       }
 
-      await logAdminAction(auth.admin, auth.userId, "media_jobs_requeue_stale", "media_delete_jobs", {
+      const audit = await logAdminAction(auth.admin, auth.userId, "media_jobs_requeue_stale", "media_delete_jobs", null, {
         stale_minutes: staleMinutes,
         requeued_count: requeuedCount,
       });
 
       console.log(`[admin-media-lifecycle-controls] requeue_stale: requeued=${requeuedCount} stale_minutes=${staleMinutes} admin=${auth.userId}`);
-      return json({ success: true, requeued_count: requeuedCount });
+      return json({ success: true, requeued_count: requeuedCount, ...audit });
     }
 
     // ── Mutation: retry_failed ────────────────────────────────────────────────
 
     if (action === "retry_failed") {
       const family = typeof body.family === "string" ? body.family : null;
+      const status = typeof body.status === "string" ? body.status : null;
       const limit = typeof body.limit === "number" ? body.limit : 50;
       const resetAttempts = body.reset_attempts === true;
 
       if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
         return json({ success: false, error: "limit must be an integer between 1 and 500" }, 400);
+      }
+      if (status !== null && !["failed", "abandoned"].includes(status)) {
+        return json({ success: false, error: "status must be failed, abandoned, or null" }, 400);
       }
 
       const { data: retriedCount, error: retryError } = await auth.admin
@@ -543,6 +560,7 @@ Deno.serve(async (req) => {
           p_family: family,
           p_limit: limit,
           p_reset_attempts: resetAttempts,
+          p_status: status,
         });
 
       if (retryError) {
@@ -550,15 +568,16 @@ Deno.serve(async (req) => {
         return json({ success: false, error: retryError.message }, 500);
       }
 
-      await logAdminAction(auth.admin, auth.userId, "media_jobs_retry_failed", "media_delete_jobs", {
+      const audit = await logAdminAction(auth.admin, auth.userId, "media_jobs_retry_failed", "media_delete_jobs", null, {
         family,
+        status,
         limit,
         reset_attempts: resetAttempts,
         retried_count: retriedCount,
       });
 
-      console.log(`[admin-media-lifecycle-controls] retry_failed: retried=${retriedCount} family=${family ?? "all"} reset_attempts=${resetAttempts} admin=${auth.userId}`);
-      return json({ success: true, retried_count: retriedCount });
+      console.log(`[admin-media-lifecycle-controls] retry_failed: retried=${retriedCount} family=${family ?? "all"} status=${status ?? "all"} reset_attempts=${resetAttempts} admin=${auth.userId}`);
+      return json({ success: true, retried_count: retriedCount, ...audit });
     }
 
     // ── Mutation: update_family ───────────────────────────────────────────────
@@ -585,7 +604,11 @@ Deno.serve(async (req) => {
       };
 
       if (Object.prototype.hasOwnProperty.call(body, "retention_days")) {
-        updates.retention_days = ensureNonNegativeInteger("retention_days", body.retention_days);
+        try {
+          updates.retention_days = ensureNonNegativeInteger("retention_days", body.retention_days);
+        } catch (error) {
+          return validationResponse(error);
+        }
       }
       if (Object.prototype.hasOwnProperty.call(body, "worker_enabled")) {
         if (typeof body.worker_enabled !== "boolean") {
@@ -609,13 +632,13 @@ Deno.serve(async (req) => {
         return json({ success: false, error: updateError.message }, 500);
       }
 
-      await logAdminAction(auth.admin, auth.userId, "media_retention_setting_updated", String(mediaFamily), {
+      const audit = await logAdminAction(auth.admin, auth.userId, "media_retention_setting_updated", "media_retention_settings", String(mediaFamily), {
         before: currentRow,
         after: updatedRow,
       });
 
       const snapshot = await fetchSnapshot(auth.admin);
-      return json({ success: true, updated: updatedRow, ...snapshot });
+      return json({ success: true, updated: updatedRow, ...audit, ...snapshot });
     }
 
     // ── Mutation: update_chat_policy ─────────────────────────────────────────
@@ -635,7 +658,11 @@ Deno.serve(async (req) => {
       };
 
       if (eligibleDaysProvided) {
-        updates.eligible_days = ensureNonNegativeInteger("eligible_days", body.eligible_days);
+        try {
+          updates.eligible_days = ensureNonNegativeInteger("eligible_days", body.eligible_days);
+        } catch (error) {
+          return validationResponse(error);
+        }
       } else if (retentionMode !== "retain_until_eligible") {
         updates.eligible_days = null;
       }
@@ -666,13 +693,13 @@ Deno.serve(async (req) => {
         return json({ success: false, error: updateError.message }, 500);
       }
 
-      await logAdminAction(auth.admin, auth.userId, "media_retention_chat_policy_updated", "chat_media_group", {
+      const audit = await logAdminAction(auth.admin, auth.userId, "media_retention_chat_policy_updated", "media_retention_settings", "chat_media_group", {
         before: currentRows,
         after: updatedRows,
       });
 
       const snapshot = await fetchSnapshot(auth.admin);
-      return json({ success: true, updated: updatedRows, ...snapshot });
+      return json({ success: true, updated: updatedRows, ...audit, ...snapshot });
     }
 
     return json({ success: false, error: "Unsupported action" }, 400);

@@ -37,6 +37,20 @@ export type AdminOverviewGenderRow = {
   value: number;
 };
 
+export type AdminOverviewDailyDropLastRun = {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "started" | "succeeded" | "skipped" | "failed" | "partial";
+  source: "cron" | "admin" | "unknown";
+  force: boolean;
+  pairs_created: number;
+  users_notified: number;
+  unpaired_users: number | null;
+  reason: string | null;
+  error: string | null;
+};
+
 export type AdminOverviewDashboardPayload = AdminRpcPayload & {
   generated_at: string;
   reporting_timezone: "UTC";
@@ -70,6 +84,7 @@ export type AdminOverviewDashboardPayload = AdminRpcPayload & {
     today_pairs: number;
     today_date_utc: string;
     last_generated_at: string | null;
+    last_run: AdminOverviewDailyDropLastRun | null;
   };
   charts: {
     user_growth_30d: AdminOverviewChartPoint[];
@@ -86,15 +101,15 @@ export function useAdminOverviewDashboard() {
   return useQuery<AdminOverviewDashboardPayload, Error>({
     queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY,
     queryFn: () =>
-      callAdminRpc<AdminOverviewDashboardPayload>("admin_get_overview_dashboard", {
-        p_now: new Date().toISOString(),
-      }),
+      callAdminRpc<AdminOverviewDashboardPayload>("admin_get_overview_dashboard", {}),
     refetchInterval: 30000,
   });
 }
 
 export function formatAdminUtcDateTime(value: string | null | undefined): string {
   if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unavailable";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -102,7 +117,7 @@ export function formatAdminUtcDateTime(value: string | null | undefined): string
     minute: "2-digit",
     hour12: true,
     timeZone: "UTC",
-  }).format(new Date(value)) + " UTC";
+  }).format(date) + " UTC";
 }
 
 export function formatAdminCount(value: number | null | undefined): string {

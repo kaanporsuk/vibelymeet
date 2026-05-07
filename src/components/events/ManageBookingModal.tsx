@@ -25,6 +25,7 @@ interface ManageBookingModalProps {
   isVirtual?: boolean;
   /** Confirmed = lobby-eligible when live; waitlist must not imply lobby access. */
   admissionStatus?: BookingAdmissionStatus;
+  canCancel?: boolean;
 }
 
 const ManageBookingModal = ({
@@ -41,6 +42,7 @@ const ManageBookingModal = ({
   price,
   isVirtual = false,
   admissionStatus = "confirmed",
+  canCancel = true,
 }: ManageBookingModalProps) => {
   const isWaitlisted = admissionStatus === "waitlisted";
 
@@ -200,12 +202,14 @@ const ManageBookingModal = ({
                   Share Event
                 </Button>
 
-                <button
-                  onClick={onCancel}
-                  className="w-full text-center text-sm text-destructive/70 hover:text-destructive transition-colors py-2"
-                >
-                  {releaseCta}
-                </button>
+                {canCancel ? (
+                  <button
+                    onClick={onCancel}
+                    className="w-full text-center text-sm text-destructive/70 hover:text-destructive transition-colors py-2"
+                  >
+                    {releaseCta}
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>

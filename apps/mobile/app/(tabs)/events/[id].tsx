@@ -57,6 +57,7 @@ import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificati
 import { openPremium } from '@/lib/premiumNavigation';
 import { getCachedAccessToken } from '@/lib/nativeAuthSession';
 import { PREMIUM_ENTRY_SURFACE } from '@shared/premiumFunnel';
+import { resolveEventBookingEditability } from '@clientShared/eventBookingEditability';
 
 /** Same key as web `EventDetails` (`vibely_phone_nudge_event_dismissed`) for product-consistent dismiss semantics. */
 const EVENT_PHONE_NUDGE_DISMISSED_KEY = 'vibely_phone_nudge_event_dismissed';
@@ -93,6 +94,17 @@ export default function EventDetailScreen() {
   const { data: receivedVibes = [], refetch: refetchReceivedVibes } = useEventVibesReceived(id ?? undefined, user?.id);
   const trackedEventId = event?.id ?? null;
   const trackedEventTitle = event?.title ?? '';
+  const bookingEditability = event
+    ? resolveEventBookingEditability({
+        status: (event as EventDetailsRow).status,
+        eventDate: event.event_date,
+        durationMinutes: event.duration_minutes ?? 60,
+        endedAt: (event as EventDetailsRow).ended_at,
+        archivedAt: (event as EventDetailsRow).archived_at,
+        nowMs: phaseClockMs,
+      })
+    : null;
+  const canSelfCancelRegistration = bookingEditability?.canSelfCancel ?? false;
 
   useEffect(() => {
     if (!id || !trackedEventId) return;
@@ -405,6 +417,17 @@ export default function EventDetailScreen() {
 
   const handleUnregister = useCallback(async () => {
     if (!event) return;
+    if (!canSelfCancelRegistration) {
+      setShowManageBooking(false);
+      showDialog({
+        title: 'Booking changes are closed',
+        message: "This event has started or is no longer active, so this booking can't be cancelled in-app.",
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+
     const wasConfirmed = isConfirmed;
     const wasWaitlisted = isWaitlisted;
     const ok = await unregisterFromEvent(event.id);
@@ -447,6 +470,7 @@ export default function EventDetailScreen() {
     }
   }, [
     event,
+    canSelfCancelRegistration,
     isConfirmed,
     isWaitlisted,
     unregisterFromEvent,
@@ -459,6 +483,16 @@ export default function EventDetailScreen() {
   const openCancelConfirm = useCallback(() => {
     if (!event) return;
     setShowManageBooking(false);
+    if (!canSelfCancelRegistration) {
+      showDialog({
+        title: 'Booking changes are closed',
+        message: "This event has started or is no longer active, so this booking can't be cancelled in-app.",
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+
     const refundNote =
       'Refunds aren’t handled in this app. Check your payment confirmation or reach out to support if you think you’re eligible for one.';
     if (isWaitlisted) {
@@ -478,7 +512,7 @@ export default function EventDetailScreen() {
         secondaryAction: { label: 'Keep my spot', onPress: () => {} },
       });
     }
-  }, [event, isWaitlisted, handleUnregister, showDialog]);
+  }, [event, canSelfCancelRegistration, isWaitlisted, handleUnregister, showDialog]);
 
   /** Web `EventDetails` parity: next occurrence in same recurring series (`parent_event_id`). */
   const parentEventIdForSeries = event?.parent_event_id ?? null;
@@ -550,6 +584,29 @@ export default function EventDetailScreen() {
   const eventEnded = eventPhase.isEnded;
   const eventLive = eventPhase.isLive;
   const descText = event.description?.trim() ?? '';
+  const eventClosedForBookingCopy =
+    eventEnded || bookingEditability?.closedReason === 'ended' || bookingEditability?.closedReason === 'completed';
+  const bookingChangesClosed = !canSelfCancelRegistration;
+  const confirmedAdmissionLooksClosed = eventClosedForBookingCopy || (bookingChangesClosed && !eventLive);
+  const confirmedAdmissionTitle = eventClosedForBookingCopy
+    ? 'Event ended'
+    : eventLive
+      ? 'Event is live'
+      : bookingChangesClosed
+        ? 'Booking closed'
+        : "You're in!";
+  const confirmedAdmissionSub = eventClosedForBookingCopy
+    ? 'Your booking is now closed'
+    : eventLive
+      ? 'Join from the venue section'
+      : bookingChangesClosed
+        ? 'Booking changes are closed for this event'
+        : 'Your seat is confirmed';
+  const waitlistAdmissionSub = eventClosedForBookingCopy
+    ? 'This waitlist is now closed'
+    : eventLive || bookingChangesClosed
+      ? 'Waitlist changes are closed'
+      : "We'll confirm you if a spot opens";
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
@@ -752,8 +809,8 @@ export default function EventDetailScreen() {
           >
             <Text style={[styles.cancelledBannerTitle, { color: theme.danger }]}>This event was cancelled</Text>
             <Text style={[styles.cancelledBannerBody, { color: theme.textSecondary }]}>
-              You can still open this page to manage an existing booking if you registered—registration and lobby access are
-              closed.
+              Registration, cancellation, and lobby access are closed. Your booking record stays on file for support and
+              attendance history.
             </Text>
           </View>
         ) : null}
@@ -838,38 +895,35 @@ export default function EventDetailScreen() {
                 <View style={styles.youreInText}>
                   <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
                   <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                    Your booking is still on file—lobby and live access are closed. Use Manage Booking if you need to release your
-                    spot.
+                    Your booking is still on file. Booking changes are closed for this event.
                   </Text>
                 </View>
               </View>
-              <VibelyButton
-                label="View Ticket"
-                variant="secondary"
-                onPress={() => setShowTicket(true)}
-                style={styles.cta}
-              />
-              {!eventEnded ? (
-                <VibelyButton
-                  label="Manage Booking"
-                  variant="secondary"
-                  onPress={() => setShowManageBooking(true)}
-                  style={styles.cta}
-                />
-              ) : null}
             </>
           ) : (
             <>
-              <View style={[styles.youreInBlock, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
-                <View style={[styles.youreInIconWrap, { backgroundColor: theme.tint }]}>
-                  <Ionicons name="sparkles" size={22} color="#fff" />
+              <View
+                style={[
+                  styles.youreInBlock,
+                  {
+                    backgroundColor: confirmedAdmissionLooksClosed ? theme.surfaceSubtle : theme.tintSoft,
+                    borderColor: confirmedAdmissionLooksClosed ? theme.border : theme.tint,
+                  },
+                ]}
+              >
+                <View style={[styles.youreInIconWrap, { backgroundColor: confirmedAdmissionLooksClosed ? theme.muted : theme.tint }]}>
+                  <Ionicons
+                    name={confirmedAdmissionLooksClosed ? 'time-outline' : 'sparkles'}
+                    size={22}
+                    color={confirmedAdmissionLooksClosed ? theme.textSecondary : '#fff'}
+                  />
                 </View>
                 <View style={styles.youreInText}>
-                  <Text style={[styles.youreInTitle, { color: theme.text }]}>You're in!</Text>
-                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>Your seat is confirmed</Text>
+                  <Text style={[styles.youreInTitle, { color: theme.text }]}>{confirmedAdmissionTitle}</Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>{confirmedAdmissionSub}</Text>
                 </View>
               </View>
-              {eventEnded ? (
+              {eventClosedForBookingCopy ? (
                 <VibelyButton label="Event Ended" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
               ) : eventLive ? (
                 <VibelyButton
@@ -878,6 +932,8 @@ export default function EventDetailScreen() {
                   onPress={() => router.push(`/event/${event.id}/lobby` as const)}
                   style={styles.cta}
                 />
+              ) : bookingChangesClosed ? (
+                <VibelyButton label="Booking Closed" variant="secondary" disabled style={styles.cta} onPress={() => {}} />
               ) : (
                 <VibelyButton
                   label="View Ticket"
@@ -886,7 +942,7 @@ export default function EventDetailScreen() {
                   style={styles.cta}
                 />
               )}
-              {eventLive ? (
+              {eventLive && !eventClosedForBookingCopy ? (
                 <VibelyButton
                   label="View Ticket"
                   variant="secondary"
@@ -894,7 +950,7 @@ export default function EventDetailScreen() {
                   style={styles.cta}
                 />
               ) : null}
-              {!eventEnded ? (
+              {canSelfCancelRegistration ? (
                 <VibelyButton
                   label="Manage Booking"
                   variant="secondary"
@@ -902,7 +958,7 @@ export default function EventDetailScreen() {
                   style={styles.cta}
                 />
               ) : null}
-              {!eventEnded ? (
+              {!confirmedAdmissionLooksClosed ? (
                 <Pressable
                   onPress={() => setShowInviteSheet(true)}
                   style={({ pressed }) => [styles.bringFriendRow, pressed && { opacity: 0.85 }]}
@@ -922,22 +978,10 @@ export default function EventDetailScreen() {
                 <View style={styles.youreInText}>
                   <Text style={[styles.youreInTitle, { color: theme.text }]}>Event cancelled</Text>
                   <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                    You were on the paid waitlist—this event will not run. Use Manage Booking for your options.
+                    You were on the paid waitlist. Booking changes are closed for this event.
                   </Text>
                 </View>
               </View>
-              <VibelyButton
-                label="Manage Booking"
-                variant="primary"
-                onPress={() => setShowManageBooking(true)}
-                style={styles.cta}
-              />
-              <VibelyButton
-                label="View Ticket"
-                variant="secondary"
-                onPress={() => setShowTicket(true)}
-                style={styles.cta}
-              />
             </>
           ) : (
             <>
@@ -947,18 +991,18 @@ export default function EventDetailScreen() {
                 </View>
                 <View style={styles.youreInText}>
                   <Text style={[styles.youreInTitle, { color: theme.text }]}>Paid waitlist</Text>
-                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>
-                    We'll confirm you if a spot opens
-                  </Text>
+                  <Text style={[styles.youreInSub, { color: theme.textSecondary }]}>{waitlistAdmissionSub}</Text>
                 </View>
               </View>
-              <VibelyButton
-                label="View Ticket"
-                variant="primary"
-                onPress={() => setShowTicket(true)}
-                style={styles.cta}
-              />
-              {!eventEnded ? (
+              {canSelfCancelRegistration ? (
+                <VibelyButton
+                  label="View Ticket"
+                  variant="primary"
+                  onPress={() => setShowTicket(true)}
+                  style={styles.cta}
+                />
+              ) : null}
+              {canSelfCancelRegistration ? (
                 <VibelyButton
                   label="Manage Booking"
                   variant="secondary"
@@ -1001,20 +1045,14 @@ export default function EventDetailScreen() {
           <View style={{ flex: 1, marginRight: spacing.md }}>
             <Text style={[styles.cancelledAdmissionTitle, { color: theme.danger }]}>Event cancelled</Text>
             <Text style={[styles.cancelledAdmissionSub, { color: theme.textSecondary }]}>
-              Manage booking if you need to release your spot
+              Booking changes are closed for this event
             </Text>
           </View>
-          <VibelyButton
-            label="Manage Booking"
-            variant="secondary"
-            onPress={() => setShowManageBooking(true)}
-            style={{ flexShrink: 0 }}
-          />
         </View>
       ) : null}
 
       <ManageBookingModal
-        visible={showManageBooking}
+        visible={showManageBooking && canSelfCancelRegistration}
         onClose={() => setShowManageBooking(false)}
         onCancel={openCancelConfirm}
         eventTitle={event.title}
@@ -1025,10 +1063,11 @@ export default function EventDetailScreen() {
         price={userPrice}
         isVirtual={isVirtual}
         admissionStatus={isConfirmed ? 'confirmed' : 'waitlisted'}
+        canCancel={canSelfCancelRegistration}
       />
 
       <TicketStub
-        visible={showTicket}
+        visible={showTicket && (canSelfCancelRegistration || (isConfirmed && eventLive && !eventClosedForBookingCopy))}
         onClose={() => setShowTicket(false)}
         eventTitle={event.title}
         eventDate={dateStr}

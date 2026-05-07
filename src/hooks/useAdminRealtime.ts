@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY } from "@/hooks/useAdminEngagementAnalytics";
@@ -10,9 +10,15 @@ interface UseAdminRealtimeOptions {
 
 export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {}) => {
   const queryClient = useQueryClient();
+  const overviewInvalidationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const invalidateOverview = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
+    if (overviewInvalidationTimer.current) return;
+
+    overviewInvalidationTimer.current = setTimeout(() => {
+      overviewInvalidationTimer.current = null;
+      queryClient.invalidateQueries({ queryKey: ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY });
+    }, 750);
   }, [queryClient]);
 
   const invalidateEngagement = useCallback(() => {
@@ -48,10 +54,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
   const invalidateNotifications = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
     queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
-  }, [queryClient]);
-
-  const invalidateBadges = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
   }, [queryClient]);
 
   const invalidateSupport = useCallback(() => {
@@ -127,6 +129,15 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       )
       .subscribe();
 
+    const dailyDropRunsChannel = supabase
+      .channel("admin-daily-drop-generation-runs-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "daily_drop_generation_runs" },
+        invalidateOverview
+      )
+      .subscribe();
+
     const engagementPushTelemetryChannel = supabase
       .channel("admin-engagement-push-telemetry-realtime")
       .on(
@@ -195,15 +206,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       )
       .subscribe();
 
-    const feedbackChannel = supabase
-      .channel("admin-feedback-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "feedback" },
-        invalidateBadges
-      )
-      .subscribe();
-
     const photoVerificationsChannel = supabase
       .channel("admin-photo-verifications-realtime")
       .on(
@@ -227,11 +229,16 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .subscribe();
 
     return () => {
+      if (overviewInvalidationTimer.current) {
+        clearTimeout(overviewInvalidationTimer.current);
+        overviewInvalidationTimer.current = null;
+      }
       supabase.removeChannel(profilesChannel);
       supabase.removeChannel(matchesChannel);
       supabase.removeChannel(eventsChannel);
       supabase.removeChannel(registrationsChannel);
       supabase.removeChannel(dailyDropsChannel);
+      supabase.removeChannel(dailyDropRunsChannel);
       supabase.removeChannel(engagementPushTelemetryChannel);
       supabase.removeChannel(engagementNotificationLogChannel);
       supabase.removeChannel(notificationsChannel);
@@ -239,7 +246,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       supabase.removeChannel(supportTicketsChannel);
       supabase.removeChannel(supportRepliesChannel);
       supabase.removeChannel(supportEventsChannel);
-      supabase.removeChannel(feedbackChannel);
       supabase.removeChannel(photoVerificationsChannel);
       supabase.removeChannel(messagesChannel);
     };
@@ -253,7 +259,6 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     invalidateEvents,
     invalidateNotifications,
     invalidateReports,
-    invalidateBadges,
     invalidateSupport,
     invalidatePhotoVerifications,
   ]);

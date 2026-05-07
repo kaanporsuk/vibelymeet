@@ -44,6 +44,7 @@ import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { buildEventShareUrl } from "@/lib/inviteLinks";
 import { isWebShareAbortError } from "@/lib/webShare";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
+import { resolveEventBookingEditability } from "@clientShared/eventBookingEditability";
 
 const EventDetails = () => {
   const { id } = useParams();
@@ -193,7 +194,20 @@ const EventDetails = () => {
     durationMinutes: event.durationMinutes,
     endedAt: event.endedAt,
   });
+  const bookingEditability = resolveEventBookingEditability({
+    status: event.status,
+    eventDate: event.eventDate,
+    durationMinutes: event.durationMinutes,
+    endedAt: event.endedAt,
+    archivedAt: event.archivedAt,
+  });
   const eventEnded = eventLifecycle.isEnded;
+  const canSelfCancelRegistration = bookingEditability.canSelfCancel;
+  const eventClosedForBookingCopy =
+    eventEnded || bookingEditability.closedReason === "ended" || bookingEditability.closedReason === "completed";
+  const bookingChangesClosed = !canSelfCancelRegistration;
+  const confirmedAdmissionLooksClosed =
+    eventClosedForBookingCopy || (bookingChangesClosed && !eventLifecycle.isLive);
   const isCancelled = event.status === "cancelled";
   const purchaseCtaDisabled = soldOut || eventEnded || freeRegisterBusy || isCancelled;
 
@@ -301,6 +315,13 @@ const EventDetails = () => {
   };
 
   const handleCancelConfirm = async () => {
+    if (!canSelfCancelRegistration) {
+      setShowCancelModal(false);
+      setShowManageBooking(false);
+      toast.info("Booking changes are closed for this event.");
+      return;
+    }
+
     const wasConfirmed = isConfirmed;
     const wasWaitlisted = isWaitlisted;
     const success = await unregisterFromEvent(event.id);
@@ -369,6 +390,26 @@ const EventDetails = () => {
         superVibeTowardViewer: r.super_vibe_toward_viewer,
       }))
     : [];
+
+  const confirmedAdmissionTitle = eventClosedForBookingCopy
+    ? "Event ended"
+    : eventLifecycle.isLive
+      ? "Event is live"
+      : bookingChangesClosed
+        ? "Booking closed"
+        : "You're In!";
+  const confirmedAdmissionSubtitle = eventClosedForBookingCopy
+    ? "Your booking is now closed"
+    : eventLifecycle.isLive
+      ? "Join from the venue section"
+      : bookingChangesClosed
+        ? "Booking changes are closed for this event"
+        : "See you there";
+  const waitlistAdmissionSubtitle = eventClosedForBookingCopy
+    ? "This waitlist is now closed"
+    : eventLifecycle.isLive || bookingChangesClosed
+      ? "Waitlist changes are closed"
+      : "We'll confirm you if a spot opens";
 
   return (
     <div className="min-h-screen bg-background pb-[100px] overflow-y-auto">
@@ -445,8 +486,8 @@ const EventDetails = () => {
           <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
             <p className="font-semibold text-destructive">This event was cancelled</p>
             <p className="text-muted-foreground mt-1 leading-relaxed">
-              You can still open this page to manage an existing booking if you registered—registration and lobby access
-              are closed. Per-gender “spots” are not shown; admission uses total capacity only.
+              Registration, cancellation, and lobby access are closed. Your booking record stays on file for support and
+              attendance history.
             </p>
           </div>
         )}
@@ -547,7 +588,7 @@ const EventDetails = () => {
                     visibleCohortCount={preview.visible_cohort_count}
                     visibleOtherCount={preview.visible_other_count}
                     onAttendeeClick={(attendee) => navigate(`/user/${attendee.id}`)}
-                    onTicketClick={() => setShowManageBooking(true)}
+                    onTicketClick={canSelfCancelRegistration ? () => setShowManageBooking(true) : undefined}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-6">
@@ -616,11 +657,8 @@ const EventDetails = () => {
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
             <div>
               <p className="font-semibold text-destructive">Event cancelled</p>
-              <p className="text-xs text-muted-foreground">Manage booking if you need to release your spot</p>
+              <p className="text-xs text-muted-foreground">Booking changes are closed for this event</p>
             </div>
-            <Button variant="outline" onClick={() => setShowManageBooking(true)}>
-              Manage Booking
-            </Button>
           </div>
         </div>
       )}
@@ -631,20 +669,30 @@ const EventDetails = () => {
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
+                animate={confirmedAdmissionLooksClosed ? undefined : { scale: [1, 1.1, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
-                className="w-10 h-10 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 flex items-center justify-center"
+                className={
+                  confirmedAdmissionLooksClosed
+                    ? "w-10 h-10 rounded-full bg-secondary border border-border flex items-center justify-center"
+                    : "w-10 h-10 rounded-full bg-gradient-to-r from-green-400 to-emerald-500 flex items-center justify-center"
+                }
               >
-                <Sparkles className="w-5 h-5 text-white" />
+                {confirmedAdmissionLooksClosed ? (
+                  <Clock className="w-5 h-5 text-muted-foreground" />
+                ) : (
+                  <Sparkles className="w-5 h-5 text-white" />
+                )}
               </motion.div>
               <div>
-                <p className="font-semibold text-foreground">You're In!</p>
-                <p className="text-xs text-muted-foreground">See you there</p>
+                <p className="font-semibold text-foreground">{confirmedAdmissionTitle}</p>
+                <p className="text-xs text-muted-foreground">{confirmedAdmissionSubtitle}</p>
               </div>
             </div>
-            <Button variant="outline" onClick={() => setShowManageBooking(true)}>
-              Manage Booking
-            </Button>
+            {canSelfCancelRegistration ? (
+              <Button variant="outline" onClick={() => setShowManageBooking(true)}>
+                Manage Booking
+              </Button>
+            ) : null}
           </div>
         </div>
       )}
@@ -655,11 +703,13 @@ const EventDetails = () => {
           <div className="max-w-lg mx-auto p-4 flex items-center justify-between gap-3">
             <div>
               <p className="font-semibold text-foreground">You're on the paid waitlist</p>
-              <p className="text-xs text-muted-foreground">We'll confirm you if a spot opens</p>
+              <p className="text-xs text-muted-foreground">{waitlistAdmissionSubtitle}</p>
             </div>
-            <Button variant="outline" onClick={() => setShowManageBooking(true)}>
-              Manage Booking
-            </Button>
+            {canSelfCancelRegistration ? (
+              <Button variant="outline" onClick={() => setShowManageBooking(true)}>
+                Manage Booking
+              </Button>
+            ) : null}
           </div>
         </div>
       )}
@@ -676,9 +726,14 @@ const EventDetails = () => {
       />
 
       <ManageBookingModal
-        isOpen={showManageBooking}
+        isOpen={showManageBooking && canSelfCancelRegistration}
         onClose={() => setShowManageBooking(false)}
         onCancel={() => {
+          if (!canSelfCancelRegistration) {
+            setShowManageBooking(false);
+            toast.info("Booking changes are closed for this event.");
+            return;
+          }
           setShowManageBooking(false);
           setShowCancelModal(true);
         }}
@@ -691,10 +746,11 @@ const EventDetails = () => {
         ticketNumber={`VBL-${event.id.slice(0, 8).toUpperCase()}`}
         price={userPrice}
         admissionStatus={isConfirmed ? "confirmed" : "waitlisted"}
+        canCancel={canSelfCancelRegistration}
       />
 
       <CancelBookingModal
-        isOpen={showCancelModal}
+        isOpen={showCancelModal && canSelfCancelRegistration}
         onClose={() => setShowCancelModal(false)}
         onConfirm={handleCancelConfirm}
         eventTitle={event.title}
@@ -735,7 +791,7 @@ const EventDetails = () => {
 
       {/* Ticket Stub */}
       <AnimatePresence>
-        {showTicket && (
+        {showTicket && canSelfCancelRegistration && (
           <TicketStub
             eventTitle={event.title}
             eventDate={formatDate(event.eventDate)}

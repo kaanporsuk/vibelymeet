@@ -1,5 +1,6 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { Activity, Copy, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -38,6 +39,14 @@ const formatMs = (value: number | null | undefined): string => {
   return `${Math.round(value)}ms`;
 };
 
+const formatTimestamp = (value: string) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return { local: value, utc: value };
+  }
+  return { local: date.toLocaleString(), utc: date.toISOString() };
+};
+
 const CopyIconButton = ({ value, label }: { value: string | null | undefined; label: string }) => {
   if (!value) return null;
   return (
@@ -47,9 +56,17 @@ const CopyIconButton = ({ value, label }: { value: string | null | undefined; la
       size="icon"
       className="h-7 w-7 shrink-0"
       aria-label={`Copy ${label}`}
-      onClick={() => {
-        void navigator.clipboard.writeText(value);
-        toast.success(`${label} copied`);
+      onClick={async () => {
+        if (!navigator.clipboard) {
+          toast.error("Clipboard unavailable");
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(value);
+          toast.success(`${label} copied`);
+        } catch {
+          toast.error(`Could not copy ${label}`);
+        }
       }}
     >
       <Copy className="h-3.5 w-3.5" />
@@ -82,9 +99,17 @@ const stateSummary = (detail: Record<string, unknown> | null) => {
 };
 
 const AdminVideoDateTimelinePanel = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionIdFromUrl = searchParams.get("session_id")?.trim() ?? "";
   const [sessionInput, setSessionInput] = useState("");
   const [submittedSessionId, setSubmittedSessionId] = useState("");
-  const canSubmit = isValidUuid(sessionInput.trim());
+  const trimmedSessionInput = sessionInput.trim();
+  const canSubmit = isValidUuid(trimmedSessionInput);
+
+  useEffect(() => {
+    setSessionInput(sessionIdFromUrl);
+    setSubmittedSessionId(isValidUuid(sessionIdFromUrl) ? sessionIdFromUrl : "");
+  }, [sessionIdFromUrl]);
 
   const timelineQuery = useQuery({
     queryKey: ["admin-video-date-session-timeline", submittedSessionId],
@@ -140,12 +165,25 @@ const AdminVideoDateTimelinePanel = () => {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const nextSessionId = sessionInput.trim();
+    const nextSessionId = trimmedSessionInput;
     if (!isValidUuid(nextSessionId)) {
       toast.error("Enter a valid video session UUID");
       return;
     }
     setSubmittedSessionId(nextSessionId);
+    setSearchParams((currentSearchParams) => {
+      const nextSearchParams = new URLSearchParams(currentSearchParams);
+      nextSearchParams.set("panel", "video-date-timeline");
+      nextSearchParams.set("session_id", nextSessionId);
+      return nextSearchParams;
+    });
+  };
+
+  const handleSessionInputChange = (value: string) => {
+    setSessionInput(value);
+    if (value.trim() !== submittedSessionId) {
+      setSubmittedSessionId("");
+    }
   };
 
   return (
@@ -161,17 +199,24 @@ const AdminVideoDateTimelinePanel = () => {
               Service-role session timeline fetched through the admin Edge Function.
             </p>
           </div>
-          {timelineQuery.data?.generated_at && (
-            <Badge className="bg-secondary text-muted-foreground border-white/10">
-              fetched {new Date(timelineQuery.data.generated_at).toLocaleTimeString()}
-            </Badge>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {submittedSessionId && !timelineQuery.isFetching && !timelineQuery.error && (
+              <Badge className="bg-secondary text-muted-foreground border-white/10">
+                {rows.length} rows
+              </Badge>
+            )}
+            {timelineQuery.data?.generated_at && (
+              <Badge className="bg-secondary text-muted-foreground border-white/10">
+                fetched {new Date(timelineQuery.data.generated_at).toLocaleTimeString()}
+              </Badge>
+            )}
+          </div>
         </div>
 
         <form onSubmit={onSubmit} className="flex flex-col gap-3 md:flex-row">
           <Input
             value={sessionInput}
-            onChange={(event) => setSessionInput(event.target.value)}
+            onChange={(event) => handleSessionInputChange(event.target.value)}
             placeholder="video session UUID"
             className="font-mono text-sm"
             spellCheck={false}
@@ -185,6 +230,12 @@ const AdminVideoDateTimelinePanel = () => {
             Fetch
           </Button>
         </form>
+
+        {trimmedSessionInput && !canSubmit && (
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-xs text-amber-200">
+            Invalid video session UUID.
+          </div>
+        )}
 
         {submittedSessionId && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -252,6 +303,7 @@ const AdminVideoDateTimelinePanel = () => {
             const detail = asRecord(redactVideoDateTimelineDetail(row.detail));
             const traceIds = extractVideoDateTimelineTraceIds(detail);
             const stateItems = stateSummary(detail);
+            const timestamp = formatTimestamp(row.occurred_at);
 
             return (
               <div key={`${row.timeline_seq}-${row.operation}-${row.occurred_at}`} className="glass-card p-4 rounded-2xl">
@@ -265,7 +317,10 @@ const AdminVideoDateTimelinePanel = () => {
                         <Badge className="bg-cyan-500/15 text-cyan-300 border-cyan-500/30">{row.reason_code}</Badge>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">{new Date(row.occurred_at).toLocaleString()}</div>
+                    <div className="space-y-0.5 text-xs text-muted-foreground">
+                      <div>{timestamp.local}</div>
+                      <div className="font-mono text-[10px]">{timestamp.utc}</div>
+                    </div>
                   </div>
                   <Badge className="bg-secondary text-muted-foreground border-white/10">{row.source}</Badge>
                 </div>
@@ -315,6 +370,12 @@ const AdminVideoDateTimelinePanel = () => {
       {submittedSessionId && !timelineQuery.isFetching && !timelineQuery.error && rows.length === 0 && (
         <div className="glass-card p-8 rounded-2xl text-center text-sm text-muted-foreground">
           No timeline rows found for this session.
+        </div>
+      )}
+
+      {!submittedSessionId && !trimmedSessionInput && (
+        <div className="glass-card p-8 rounded-2xl text-center text-sm text-muted-foreground">
+          No session selected.
         </div>
       )}
     </div>

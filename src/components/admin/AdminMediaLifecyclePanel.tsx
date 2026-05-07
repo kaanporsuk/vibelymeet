@@ -69,6 +69,13 @@ type CronJobInfo = {
   consecutive_failures: number;
 };
 
+type CronStatusInfo = {
+  status: "found" | "missing_job" | "rpc_error" | "inactive" | "recent_runs_unavailable";
+  found: boolean;
+  jobname: string;
+  message: string | null;
+};
+
 type CronRun = {
   runid: number;
   status: string;
@@ -158,6 +165,7 @@ type SnapshotPayload = {
   };
   ops: {
     health: OpsHealth | null;
+    cron_status?: CronStatusInfo | null;
     cron_job: CronJobInfo | null;
     recent_runs: CronRun[];
     failed_jobs: FailedJob[];
@@ -168,6 +176,13 @@ type SnapshotPayload = {
 type FamilyDraft = {
   retentionDays: string;
   workerEnabled: boolean;
+};
+
+type RetryStatus = "failed" | "abandoned";
+
+type AuditAwareResponse = {
+  audit_logged?: boolean;
+  audit_error?: string | null;
 };
 
 const FAMILY_LABELS: Record<OwnedFamily, string> = {
@@ -197,17 +212,50 @@ function formatRelative(iso: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function CronStatusCard({ cronJob, recentRuns }: { cronJob: CronJobInfo | null; recentRuns: CronRun[] }) {
+function warnIfAuditMissing(result: AuditAwareResponse) {
+  if (result.audit_logged === false) {
+    toast.warning("Action succeeded, but audit logging failed", {
+      description: result.audit_error ?? "Check Edge Function logs before relying on the audit trail.",
+    });
+  }
+}
+
+function CronStatusCard({
+  cronJob,
+  recentRuns,
+  cronStatus,
+}: {
+  cronJob: CronJobInfo | null;
+  recentRuns: CronRun[];
+  cronStatus: CronStatusInfo | null;
+}) {
   if (!cronJob) {
+    const status = cronStatus?.status ?? "missing_job";
+    const isError = status === "rpc_error";
     return (
-      <Card className="glass-card border-border/50">
+      <Card className={`glass-card ${isError ? "border-destructive/40" : "border-amber-500/30"}`}>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
-            <Timer className="h-4 w-4 text-muted-foreground" />
+            {isError
+              ? <XCircle className="h-4 w-4 text-destructive" />
+              : <Timer className="h-4 w-4 text-amber-500" />}
             Cron scheduler
           </CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Job not found.</CardContent>
+        <CardContent className="space-y-2 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Status</span>
+            <Badge variant="outline" className={isError ? "border-destructive/40 text-destructive" : "border-amber-500/40 text-amber-500"}>
+              {isError ? "unavailable" : "missing"}
+            </Badge>
+          </div>
+          <p className="text-muted-foreground">
+            {isError
+              ? "Cron status RPC failed."
+              : `Cron job not found: ${cronStatus?.jobname ?? "media-delete-worker-every-15m"}.`}
+          </p>
+          {cronStatus?.message ? <p className="text-xs text-muted-foreground">{cronStatus.message}</p> : null}
+        </CardContent>
       </Card>
     );
   }
@@ -253,6 +301,11 @@ function CronStatusCard({ cronJob, recentRuns }: { cronJob: CronJobInfo | null; 
                 : <XCircle className="h-3.5 w-3.5 text-destructive" />}
               <span className="text-xs">{formatRelative(lastRun.start_time)}</span>
             </div>
+          </div>
+        )}
+        {cronStatus?.status === "recent_runs_unavailable" && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
+            Recent run history is unavailable. {cronStatus.message ?? ""}
           </div>
         )}
       </CardContent>
@@ -301,14 +354,22 @@ function FailedJobsSection({
   isPending,
 }: {
   jobs: FailedJob[];
-  onRetryAll: () => void;
-  onRetryFamily: (family: string) => void;
+  onRetryAll: (status: RetryStatus) => void;
+  onRetryFamily: (family: string, status: RetryStatus) => void;
   isPending: boolean;
 }) {
   if (!jobs.length) return null;
 
-  const byFamily = jobs.reduce<Record<string, number>>((acc, j) => {
-    acc[j.media_family] = (acc[j.media_family] ?? 0) + 1;
+  const failedCount = jobs.filter((job) => job.status === "failed").length;
+  const abandonedCount = jobs.filter((job) => job.status === "abandoned").length;
+  const byFamilyStatus = jobs.reduce<Record<string, { failed: number; abandoned: number }>>((acc, job) => {
+    const current = acc[job.media_family] ?? { failed: 0, abandoned: 0 };
+    if (job.status === "abandoned") {
+      current.abandoned += 1;
+    } else {
+      current.failed += 1;
+    }
+    acc[job.media_family] = current;
     return acc;
   }, {});
 
@@ -322,35 +383,72 @@ function FailedJobsSection({
               Failed / abandoned jobs
               <Badge variant="destructive" className="ml-1">{jobs.length}</Badge>
             </CardTitle>
-            <CardDescription>These jobs failed all retry attempts or hit the max-attempts limit.</CardDescription>
+            <CardDescription>Failed jobs keep their attempt count; abandoned jobs reset attempts so the worker can claim them.</CardDescription>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10"
-            onClick={onRetryAll}
-            disabled={isPending}
-          >
-            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-            Retry all
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {failedCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10"
+                onClick={() => onRetryAll("failed")}
+                disabled={isPending}
+              >
+                {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                Retry failed ({failedCount})
+              </Button>
+            )}
+            {abandonedCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
+                onClick={() => onRetryAll("abandoned")}
+                disabled={isPending}
+              >
+                {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                Retry abandoned ({abandonedCount})
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap gap-2">
-          {Object.entries(byFamily).map(([family, count]) => (
-            <Button
-              key={family}
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 text-xs border border-border/50"
-              onClick={() => onRetryFamily(family)}
-              disabled={isPending}
-            >
-              <RotateCcw className="h-3 w-3" />
-              Retry {family} ({count})
-            </Button>
-          ))}
+          {Object.entries(byFamilyStatus).flatMap(([family, counts]) => {
+            const actions: JSX.Element[] = [];
+            if (counts.failed > 0) {
+              actions.push(
+                <Button
+                  key={`${family}-failed`}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs border border-border/50"
+                  onClick={() => onRetryFamily(family, "failed")}
+                  disabled={isPending}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Retry failed {family} ({counts.failed})
+                </Button>,
+              );
+            }
+            if (counts.abandoned > 0) {
+              actions.push(
+                <Button
+                  key={`${family}-abandoned`}
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs border border-amber-500/40 text-amber-500"
+                  onClick={() => onRetryFamily(family, "abandoned")}
+                  disabled={isPending}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Retry abandoned {family} ({counts.abandoned})
+                </Button>,
+              );
+            }
+            return actions;
+          })}
         </div>
         <div className="overflow-auto">
           <table className="w-full text-xs">
@@ -458,6 +556,12 @@ export default function AdminMediaLifecyclePanel() {
   const [chatMode, setChatMode] = useState<ChatMode>("retain_until_eligible");
   const [chatEligibleDays, setChatEligibleDays] = useState("0");
   const [chatWorkerEnabled, setChatWorkerEnabled] = useState(true);
+  const [familyDirty, setFamilyDirty] = useState<Record<OwnedFamily, boolean>>({
+    vibe_video: false,
+    profile_photo: false,
+    event_cover: false,
+  });
+  const [chatDirty, setChatDirty] = useState(false);
   const [confirmation, setConfirmation] = useState<{
     title: string;
     description: string;
@@ -476,21 +580,24 @@ export default function AdminMediaLifecyclePanel() {
     if (!data) return;
     const nextDrafts = { ...familyDrafts };
     for (const row of data.settings.owned_media) {
-      if (row.media_family in nextDrafts) {
-        nextDrafts[row.media_family as OwnedFamily] = {
+      const family = row.media_family as OwnedFamily;
+      if (family in nextDrafts && !familyDirty[family]) {
+        nextDrafts[family] = {
           retentionDays: row.retention_days === null ? "" : String(row.retention_days),
           workerEnabled: row.worker_enabled,
         };
       }
     }
     setFamilyDrafts(nextDrafts);
-    if (data.settings.chat_policy.retention_mode && data.settings.chat_policy.retention_mode !== "mixed") {
-      setChatMode(data.settings.chat_policy.retention_mode);
+    if (!chatDirty) {
+      if (data.settings.chat_policy.retention_mode && data.settings.chat_policy.retention_mode !== "mixed") {
+        setChatMode(data.settings.chat_policy.retention_mode);
+      }
+      setChatEligibleDays(data.settings.chat_policy.eligible_days === null ? "" : String(data.settings.chat_policy.eligible_days));
+      setChatWorkerEnabled(data.settings.chat_policy.worker_enabled ?? true);
     }
-    setChatEligibleDays(data.settings.chat_policy.eligible_days === null ? "" : String(data.settings.chat_policy.eligible_days));
-    setChatWorkerEnabled(data.settings.chat_policy.worker_enabled ?? true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, familyDirty, chatDirty]);
 
   const saveFamilyMutation = useMutation({
     mutationFn: async ({ mediaFamily, draft }: { mediaFamily: OwnedFamily; draft: FamilyDraft }) => {
@@ -502,8 +609,11 @@ export default function AdminMediaLifecyclePanel() {
         body: { action: "update_family", media_family: mediaFamily, retention_days: retentionDays, worker_enabled: draft.workerEnabled },
       });
       if (error || !data?.success) throw new Error(data?.error || error?.message || "Failed to update setting");
+      return data as AuditAwareResponse;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (result, variables) => {
+      warnIfAuditMissing(result);
+      setFamilyDirty((curr) => ({ ...curr, [variables.mediaFamily]: false }));
       toast.success(`${FAMILY_LABELS[variables.mediaFamily]} updated`);
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
@@ -520,8 +630,11 @@ export default function AdminMediaLifecyclePanel() {
         body: { action: "update_chat_policy", retention_mode: chatMode, eligible_days: eligibleDays, worker_enabled: chatWorkerEnabled },
       });
       if (error || !data?.success) throw new Error(data?.error || error?.message || "Failed to update chat policy");
+      return data as AuditAwareResponse;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      warnIfAuditMissing(result);
+      setChatDirty(false);
       toast.success("Chat media policy updated");
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
@@ -529,15 +642,17 @@ export default function AdminMediaLifecyclePanel() {
   });
 
   const retryFailedMutation = useMutation({
-    mutationFn: async (family?: string) => {
+    mutationFn: async ({ family, status }: { family?: string; status: RetryStatus }) => {
+      const resetAttempts = status === "abandoned";
       const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
-        body: { action: "retry_failed", family: family ?? null, limit: 50 },
+        body: { action: "retry_failed", family: family ?? null, status, limit: 50, reset_attempts: resetAttempts },
       });
       if (error || !data?.success) throw new Error(data?.error || error?.message || "Retry failed");
-      return data as { retried_count: number };
+      return data as { retried_count: number } & AuditAwareResponse & { status?: RetryStatus };
     },
-    onSuccess: (result) => {
-      toast.success(`Retried ${result.retried_count} failed job${result.retried_count === 1 ? "" : "s"}`);
+    onSuccess: (result, variables) => {
+      warnIfAuditMissing(result);
+      toast.success(`Retried ${result.retried_count} ${variables.status} job${result.retried_count === 1 ? "" : "s"}`);
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not retry jobs"),
@@ -549,9 +664,10 @@ export default function AdminMediaLifecyclePanel() {
         body: { action: "requeue_stale", stale_minutes: 30 },
       });
       if (error || !data?.success) throw new Error(data?.error || error?.message || "Requeue failed");
-      return data as { requeued_count: number };
+      return data as { requeued_count: number } & AuditAwareResponse;
     },
     onSuccess: (result) => {
+      warnIfAuditMissing(result);
       toast.success(`Requeued ${result.requeued_count} stale job${result.requeued_count === 1 ? "" : "s"}`);
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
@@ -568,12 +684,24 @@ export default function AdminMediaLifecyclePanel() {
   const jobStatusRows = useMemo(() => data?.readiness.job_status_counts ?? [], [data]);
   const verificationSelfie = data?.settings.verification_selfie;
   const opsHealth = data?.ops?.health ?? null;
+  const cronStatus = data?.ops?.cron_status ?? null;
   const cronJob = data?.ops?.cron_job ?? null;
   const recentRuns = data?.ops?.recent_runs ?? [];
   const failedJobs = data?.ops?.failed_jobs ?? [];
   const staleJobs = data?.ops?.stale_claimed_jobs ?? [];
+  const orphanLikeTotal = data?.readiness.orphan_like_total ?? data?.readiness.orphan_like_counts.reduce((s, r) => s + r.count, 0) ?? 0;
 
-  const healthOk = opsHealth?.healthy ?? true;
+  const cronHealthy = cronStatus?.status === "found" && cronJob?.active === true;
+  const cronHealthLabel = cronHealthy
+    ? "active"
+    : cronStatus?.status === "inactive"
+      ? "paused"
+      : cronStatus?.status === "missing_job"
+        ? "missing"
+        : cronStatus?.status === "recent_runs_unavailable"
+          ? "runs unknown"
+          : "unavailable";
+  const healthOk = opsHealth?.healthy === true && orphanLikeTotal === 0 && cronHealthy;
 
   if (isLoading) {
     return (
@@ -620,6 +748,10 @@ export default function AdminMediaLifecyclePanel() {
               </Badge>
             </div>
             <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Cron scheduler</span>
+              <span className={`font-semibold ${cronHealthy ? "" : "text-amber-500"}`}>{cronHealthLabel}</span>
+            </div>
+            <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Failed/abandoned</span>
               <span className={`font-semibold ${(opsHealth?.failed_count ?? 0) + (opsHealth?.abandoned_count ?? 0) > 0 ? "text-destructive" : ""}`}>
                 {(opsHealth?.failed_count ?? 0) + (opsHealth?.abandoned_count ?? 0)}
@@ -635,11 +767,15 @@ export default function AdminMediaLifecyclePanel() {
               <span className="text-muted-foreground">Promotable now</span>
               <span className="font-semibold">{opsHealth?.promotable_now ?? 0}</span>
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Orphan-like assets</span>
+              <span className={`font-semibold ${orphanLikeTotal > 0 ? "text-amber-500" : ""}`}>{orphanLikeTotal}</span>
+            </div>
           </CardContent>
         </Card>
 
         {/* Cron status */}
-        <CronStatusCard cronJob={cronJob} recentRuns={recentRuns} />
+        <CronStatusCard cronJob={cronJob} recentRuns={recentRuns} cronStatus={cronStatus} />
 
         {/* Would process now */}
         <Card className="glass-card border-border/50">
@@ -665,7 +801,7 @@ export default function AdminMediaLifecyclePanel() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Orphan-like assets</span>
-              <span className="font-semibold">{data?.readiness.orphan_like_counts.reduce((s, r) => s + r.count, 0) ?? 0}</span>
+              <span className="font-semibold">{orphanLikeTotal}</span>
             </div>
           </CardContent>
         </Card>
@@ -677,22 +813,28 @@ export default function AdminMediaLifecyclePanel() {
       {/* ── Failed jobs (only shown when present) ───────────────────────────── */}
       <FailedJobsSection
         jobs={failedJobs}
-        onRetryAll={() => {
+        onRetryAll={(status) => {
+          const isAbandoned = status === "abandoned";
           setConfirmation({
-            title: "Retry all failed media delete jobs?",
-            description: "This requeues up to 50 failed or abandoned media delete jobs for another worker attempt.",
-            confirmLabel: "Retry All",
+            title: isAbandoned ? "Retry all abandoned media delete jobs?" : "Retry all failed media delete jobs?",
+            description: isAbandoned
+              ? "This resets attempts and requeues up to 50 abandoned media delete jobs so the worker can claim them again."
+              : "This requeues up to 50 failed media delete jobs while preserving their attempt counts.",
+            confirmLabel: isAbandoned ? "Retry Abandoned" : "Retry Failed",
             variant: "default",
-            onConfirm: () => retryFailedMutation.mutateAsync(undefined),
+            onConfirm: () => retryFailedMutation.mutateAsync({ status }),
           });
         }}
-        onRetryFamily={(family) => {
+        onRetryFamily={(family, status) => {
+          const isAbandoned = status === "abandoned";
           setConfirmation({
-            title: `Retry failed ${family} jobs?`,
-            description: `This requeues up to 50 failed or abandoned media delete jobs for the ${family} family.`,
-            confirmLabel: "Retry Family",
+            title: `Retry ${status} ${family} jobs?`,
+            description: isAbandoned
+              ? `This resets attempts and requeues up to 50 abandoned media delete jobs for the ${family} family.`
+              : `This requeues up to 50 failed media delete jobs for the ${family} family while preserving attempt counts.`,
+            confirmLabel: isAbandoned ? "Retry Abandoned" : "Retry Failed",
             variant: "default",
-            onConfirm: () => retryFailedMutation.mutateAsync(family),
+            onConfirm: () => retryFailedMutation.mutateAsync({ family, status }),
           });
         }}
         isPending={retryFailedMutation.isPending}
@@ -765,6 +907,18 @@ export default function AdminMediaLifecyclePanel() {
             <CardDescription>Recovery actions and policy guardrails.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
+            <div className="rounded-xl border border-border/50 bg-secondary/20 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-medium text-foreground">Activation verdict</p>
+                <Badge
+                  variant="outline"
+                  className={data?.recommended_activation.verdict === "healthy" ? "border-emerald-500/40 text-emerald-500" : "border-amber-500/40 text-amber-500"}
+                >
+                  {data?.recommended_activation.verdict === "healthy" ? "healthy" : "hold"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-muted-foreground">{data?.recommended_activation.rationale}</p>
+            </div>
             <div className="space-y-2">
               {data?.recommended_activation.rollback.map((line) => (
                 <div key={line} className="rounded-xl border border-border/50 bg-secondary/20 px-4 py-3 text-muted-foreground">
@@ -824,20 +978,26 @@ export default function AdminMediaLifecyclePanel() {
                       type="number"
                       min={0}
                       value={familyDrafts[mediaFamily].retentionDays}
-                      onChange={(e) => setFamilyDrafts((curr) => ({
-                        ...curr,
-                        [mediaFamily]: { ...curr[mediaFamily], retentionDays: e.target.value },
-                      }))}
+                      onChange={(e) => {
+                        setFamilyDirty((curr) => ({ ...curr, [mediaFamily]: true }));
+                        setFamilyDrafts((curr) => ({
+                          ...curr,
+                          [mediaFamily]: { ...curr[mediaFamily], retentionDays: e.target.value },
+                        }));
+                      }}
                     />
                   </div>
                   <div className="flex h-10 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background px-3">
                     <span className="text-sm text-foreground">Worker</span>
                     <Switch
                       checked={familyDrafts[mediaFamily].workerEnabled}
-                      onCheckedChange={(checked) => setFamilyDrafts((curr) => ({
-                        ...curr,
-                        [mediaFamily]: { ...curr[mediaFamily], workerEnabled: checked },
-                      }))}
+                      onCheckedChange={(checked) => {
+                        setFamilyDirty((curr) => ({ ...curr, [mediaFamily]: true }));
+                        setFamilyDrafts((curr) => ({
+                          ...curr,
+                          [mediaFamily]: { ...curr[mediaFamily], workerEnabled: checked },
+                        }));
+                      }}
                     />
                   </div>
                   <Button
@@ -882,7 +1042,10 @@ export default function AdminMediaLifecyclePanel() {
           <div className="grid gap-4 md:grid-cols-[220px_180px_180px_auto] md:items-end">
             <div className="space-y-2">
               <Label>Retention mode</Label>
-              <Select value={chatMode} onValueChange={(value: ChatMode) => setChatMode(value)}>
+              <Select value={chatMode} onValueChange={(value: ChatMode) => {
+                setChatDirty(true);
+                setChatMode(value);
+              }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="retain_until_eligible">Retain until eligible</SelectItem>
@@ -898,12 +1061,18 @@ export default function AdminMediaLifecyclePanel() {
                 min={0}
                 value={chatEligibleDays}
                 disabled={chatMode === "immediate"}
-                onChange={(e) => setChatEligibleDays(e.target.value)}
+                onChange={(e) => {
+                  setChatDirty(true);
+                  setChatEligibleDays(e.target.value);
+                }}
               />
             </div>
             <div className="flex h-10 items-center justify-between gap-3 rounded-xl border border-border/60 bg-background px-3">
               <span className="text-sm text-foreground">Worker</span>
-              <Switch checked={chatWorkerEnabled} onCheckedChange={setChatWorkerEnabled} />
+              <Switch checked={chatWorkerEnabled} onCheckedChange={(checked) => {
+                setChatDirty(true);
+                setChatWorkerEnabled(checked);
+              }} />
             </div>
             <Button
               className="gap-2"
