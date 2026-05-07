@@ -1555,16 +1555,6 @@ export default function VideoDateScreen() {
           return;
         }
 
-        if (!freshness.supported) {
-          videoDateDailyDiagnostic('native_camera_switch_render_watch_unverified', {
-            ...nativeRemoteRenderDiagnostics(latestParticipant),
-            switch_id: switchId,
-            elapsed_ms: elapsedMs,
-            freshness,
-          });
-          return;
-        }
-
         if (elapsedMs >= NATIVE_CAMERA_SWITCH_FRESH_FRAME_TIMEOUT_MS) {
           activeNativeRemoteCameraSwitchRenderWatchRef.current = null;
           videoDateDailyDiagnostic('native_camera_switch_render_watch_timed_out', {
@@ -1579,6 +1569,16 @@ export default function VideoDateScreen() {
             'camera_switch_hint'
           );
           return;
+        }
+
+        if (!freshness.supported) {
+          videoDateDailyDiagnostic('native_camera_switch_render_watch_unverified', {
+            ...nativeRemoteRenderDiagnostics(latestParticipant),
+            switch_id: switchId,
+            elapsed_ms: elapsedMs,
+            freshness,
+            next_poll_ms: NATIVE_CAMERA_SWITCH_FRESH_FRAME_POLL_MS,
+          });
         }
 
         nativeCameraSwitchFreshnessTimerRef.current = setTimeout(
