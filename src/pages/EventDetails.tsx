@@ -46,6 +46,10 @@ import { isWebShareAbortError } from "@/lib/webShare";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { resolveEventBookingEditability } from "@clientShared/eventBookingEditability";
 
+const EVENT_DETAILS_CLOCK_REFRESH_MS = 30_000;
+const EVENT_DETAILS_CUTOFF_TICK_GRACE_MS = 250;
+const MAX_BROWSER_TIMEOUT_MS = 2_147_483_647;
+
 const EventDetails = () => {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -109,6 +113,7 @@ const EventDetails = () => {
   const [showEventPhoneNudge, setShowEventPhoneNudge] = useState(false);
   const [freeRegisterBusy, setFreeRegisterBusy] = useState(false);
   const [visibilityUpsell, setVisibilityUpsell] = useState<"premium" | "vip" | null>(null);
+  const [eventClockMs, setEventClockMs] = useState(() => Date.now());
   /** Wired after purchase handler exists — lets MiniProfile use the same guarded funnel. */
   const purchasePressRef = useRef<() => void>(() => {});
 
@@ -146,6 +151,39 @@ const EventDetails = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (!event?.eventDate) {
+      setEventClockMs(Date.now());
+      return;
+    }
+
+    const refreshClock = () => setEventClockMs(Date.now());
+    const timeoutIds: number[] = [];
+    const eventStartMs = event.eventDate.getTime();
+    const durationMinutes =
+      typeof event.durationMinutes === "number" && Number.isFinite(event.durationMinutes)
+        ? event.durationMinutes
+        : 60;
+    const eventEndMs = eventStartMs + durationMinutes * 60_000;
+
+    const scheduleRefreshAt = (targetMs: number) => {
+      const delayMs = targetMs - Date.now();
+      if (!Number.isFinite(delayMs) || delayMs < 0 || delayMs > MAX_BROWSER_TIMEOUT_MS) return;
+      timeoutIds.push(window.setTimeout(refreshClock, delayMs + EVENT_DETAILS_CUTOFF_TICK_GRACE_MS));
+    };
+
+    refreshClock();
+    scheduleRefreshAt(eventStartMs);
+    scheduleRefreshAt(eventEndMs);
+
+    const intervalId = window.setInterval(refreshClock, EVENT_DETAILS_CLOCK_REFRESH_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [event?.durationMinutes, event?.eventDate, event?.endedAt, event?.status]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
@@ -193,6 +231,7 @@ const EventDetails = () => {
     eventDate: event.eventDate,
     durationMinutes: event.durationMinutes,
     endedAt: event.endedAt,
+    nowMs: eventClockMs,
   });
   const bookingEditability = resolveEventBookingEditability({
     status: event.status,
@@ -200,6 +239,7 @@ const EventDetails = () => {
     durationMinutes: event.durationMinutes,
     endedAt: event.endedAt,
     archivedAt: event.archivedAt,
+    nowMs: eventClockMs,
   });
   const eventEnded = eventLifecycle.isEnded;
   const canSelfCancelRegistration = bookingEditability.canSelfCancel;

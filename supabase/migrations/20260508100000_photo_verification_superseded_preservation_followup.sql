@@ -1,38 +1,19 @@
--- Photo Verification admin hardening.
+-- Photo verification duplicate-pending preservation follow-up.
 --
--- Migration classification: schema+policy.
--- Intent: keep new user submissions strictly pending, expose reviewed_at to the
--- admin read model, and make photo verification updates refresh the /kaan tab.
+-- The original hardening migration is already applied in cloud environments, so
+-- this forward migration brings those databases to the non-destructive contract:
+-- older duplicate pending submissions are preserved as superseded rows instead
+-- of being removed to satisfy pending-per-user uniqueness.
+
+ALTER TABLE public.photo_verifications
+  DROP CONSTRAINT IF EXISTS photo_verifications_status_check;
 
 ALTER TABLE public.photo_verifications
   ADD CONSTRAINT photo_verifications_status_check
   CHECK (status IN ('pending', 'approved', 'rejected', 'superseded')) NOT VALID;
 
 ALTER TABLE public.photo_verifications
-  ADD CONSTRAINT photo_verifications_selfie_url_not_blank
-  CHECK (NULLIF(btrim(selfie_url), '') IS NOT NULL) NOT VALID;
-
-ALTER TABLE public.photo_verifications
-  ADD CONSTRAINT photo_verifications_profile_photo_url_not_blank
-  CHECK (NULLIF(btrim(profile_photo_url), '') IS NOT NULL) NOT VALID;
-
-ALTER TABLE public.photo_verifications
-  ADD CONSTRAINT photo_verifications_client_confidence_score_range
-  CHECK (
-    client_confidence_score IS NULL
-    OR client_confidence_score BETWEEN 0 AND 100
-  ) NOT VALID;
-
-ALTER TABLE public.photo_verifications
-  ADD CONSTRAINT photo_verifications_pending_review_fields_null
-  CHECK (
-    status <> 'pending'
-    OR (
-      reviewed_by IS NULL
-      AND reviewed_at IS NULL
-      AND rejection_reason IS NULL
-    )
-  ) NOT VALID;
+  DROP CONSTRAINT IF EXISTS photo_verifications_final_review_metadata_present;
 
 ALTER TABLE public.photo_verifications
   ADD CONSTRAINT photo_verifications_final_review_metadata_present
@@ -45,11 +26,7 @@ ALTER TABLE public.photo_verifications
   ) NOT VALID;
 
 ALTER TABLE public.photo_verifications
-  ADD CONSTRAINT photo_verifications_rejected_reason_not_blank
-  CHECK (
-    status <> 'rejected'
-    OR NULLIF(btrim(COALESCE(rejection_reason, '')), '') IS NOT NULL
-  ) NOT VALID;
+  DROP CONSTRAINT IF EXISTS photo_verifications_superseded_reason_present;
 
 ALTER TABLE public.photo_verifications
   ADD CONSTRAINT photo_verifications_superseded_reason_present
@@ -62,12 +39,7 @@ ALTER TABLE public.photo_verifications
   ) NOT VALID;
 
 ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_status_check;
-ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_selfie_url_not_blank;
-ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_profile_photo_url_not_blank;
-ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_client_confidence_score_range;
-ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_pending_review_fields_null;
 ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_final_review_metadata_present;
-ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_rejected_reason_not_blank;
 ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_superseded_reason_present;
 
 WITH ranked_pending AS (
@@ -90,49 +62,6 @@ SET status = 'superseded',
 FROM ranked_pending rp
 WHERE pv.id = rp.id
   AND rp.pending_rank > 1;
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_verifications_one_pending_per_user
-  ON public.photo_verifications (user_id)
-  WHERE status = 'pending';
-
-DROP POLICY IF EXISTS "Users can submit verifications" ON public.photo_verifications;
-DROP POLICY IF EXISTS "Users can submit pending verifications" ON public.photo_verifications;
-
-CREATE POLICY "Users can submit pending verifications"
-  ON public.photo_verifications
-  FOR INSERT
-  WITH CHECK (
-    auth.uid() = user_id
-    AND status = 'pending'
-    AND reviewed_by IS NULL
-    AND reviewed_at IS NULL
-    AND rejection_reason IS NULL
-    AND NULLIF(btrim(selfie_url), '') IS NOT NULL
-    AND NULLIF(btrim(profile_photo_url), '') IS NOT NULL
-    AND (
-      client_confidence_score IS NULL
-      OR client_confidence_score BETWEEN 0 AND 100
-    )
-  );
-
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM pg_publication
-    WHERE pubname = 'supabase_realtime'
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime'
-      AND schemaname = 'public'
-      AND tablename = 'photo_verifications'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.photo_verifications;
-  END IF;
-END;
-$$;
 
 CREATE OR REPLACE FUNCTION public.admin_list_photo_verifications(
   p_status text,
@@ -235,6 +164,10 @@ $function$;
 REVOKE ALL ON FUNCTION public.admin_list_photo_verifications(text, timestamptz, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_list_photo_verifications(text, timestamptz, integer) TO authenticated;
 
+UPDATE public.migration_classifications
+SET risk_notes = 'Adds constraints and a stricter user insert policy for photo_verifications, preserves older duplicate pending submissions as superseded before the unique index, enrolls the table in realtime when needed, and replaces the admin list read model to expose reviewed_at and sort reviewed rows by review time.'
+WHERE migration_version = '20260507170000';
+
 INSERT INTO public.migration_classifications (
   migration_version,
   title,
@@ -243,10 +176,10 @@ INSERT INTO public.migration_classifications (
   destructive_requires_signoff
 )
 VALUES (
-  '20260507170000',
-  'Photo Verification admin hardening',
+  '20260508100000',
+  'Photo verification superseded preservation follow-up',
   'schema+policy',
-  'Adds constraints and a stricter user insert policy for photo_verifications, preserves older duplicate pending submissions as superseded before the unique index, enrolls the table in realtime when needed, and replaces the admin list read model to expose reviewed_at and sort reviewed rows by review time.',
+  'Forward migration for already-applied cloud databases: allows superseded photo verification rows, preserves any older duplicate pending rows as superseded, and refreshes the admin list RPC contract. No rows are deleted.',
   false
 )
 ON CONFLICT (migration_version) DO UPDATE
