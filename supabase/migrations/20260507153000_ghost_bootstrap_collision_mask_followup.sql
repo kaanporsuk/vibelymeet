@@ -1,6 +1,10 @@
--- Make ghost bootstrap diagnostics align with production last_seen_at semantics.
--- profiles.last_seen_at defaults to now(), so a signup-time heartbeat should
--- still count as "not meaningfully seen" for HIGH confidence candidates.
+-- Reapply ghost bootstrap diagnostics after review follow-up changes.
+--
+-- The previous ghost bootstrap hardening migration has already run in cloud
+-- environments. This follow-up keeps the deployed function aligned with the
+-- current local definition: deleted auth users do not count as identity
+-- collisions, zero-count collision hints are omitted, and phone masks expose a
+-- fixed two-character prefix/suffix budget.
 
 CREATE OR REPLACE FUNCTION public.detect_ghost_bootstrap_accounts(
   days_old_threshold int DEFAULT 7,

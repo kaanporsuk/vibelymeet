@@ -61,6 +61,15 @@ type Ghost = {
 
 type Confidence = Ghost['review_confidence'];
 type FilterConfidence = 'ALL' | 'HIGH' | 'MEDIUM' | 'LOW';
+type VisibleConfidence = Exclude<Confidence, 'NONE'>;
+
+const normalizeConfidence = (confidence: string): Confidence => {
+  if (confidence === 'HIGH' || confidence === 'MEDIUM' || confidence === 'LOW' || confidence === 'NONE') {
+    return confidence;
+  }
+
+  return 'NONE';
+};
 
 export function AdminGhostBootstrapPanel() {
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
@@ -101,19 +110,20 @@ export function AdminGhostBootstrapPanel() {
 
   const filteredGhosts = ghosts.filter(g => {
     if (confidenceFilter === 'ALL') return true;
-    return g.review_confidence === confidenceFilter;
+    return normalizeConfidence(g.review_confidence) === confidenceFilter;
   });
 
   const confidenceCounts = ghosts.reduce<Record<Confidence | 'ALL', number>>(
     (counts, g) => {
+      const confidence = normalizeConfidence(g.review_confidence);
       counts.ALL += 1;
-      counts[g.review_confidence] += 1;
+      counts[confidence] += 1;
       return counts;
     },
     { ALL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, NONE: 0 }
   );
 
-  const confidenceCountItems: Array<{ value: Confidence; label: string }> = [
+  const confidenceCountItems: Array<{ value: VisibleConfidence; label: string }> = [
     { value: 'HIGH', label: 'High' },
     { value: 'MEDIUM', label: 'Medium' },
     { value: 'LOW', label: 'Low' },
@@ -264,74 +274,78 @@ export function AdminGhostBootstrapPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredGhosts.map(g => (
-                <TableRow key={g.profile_id} className="hover:bg-muted/50">
-                  {/* Confidence */}
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn('font-medium', confidenceBadgeColor(g.review_confidence))}
-                    >
-                      {g.review_confidence}
-                    </Badge>
-                  </TableCell>
+              {filteredGhosts.map(g => {
+                const confidence = normalizeConfidence(g.review_confidence);
 
-                  {/* Account Age */}
-                  <TableCell className="text-sm">
-                    {g.days_since_creation}d
-                    <div className="text-xs text-muted-foreground">
-                      {format(new Date(g.created_at), 'MMM d')}
-                    </div>
-                  </TableCell>
+                return (
+                  <TableRow key={g.profile_id} className="hover:bg-muted/50">
+                    {/* Confidence */}
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={cn('font-medium', confidenceBadgeColor(confidence))}
+                      >
+                        {confidence}
+                      </Badge>
+                    </TableCell>
 
-                  {/* Contact */}
-                  <TableCell className="text-sm font-mono text-muted-foreground">
-                    <div>{g.email_masked}</div>
-                    <div className="text-xs">{g.phone_masked}</div>
-                  </TableCell>
-
-                  {/* Activity Score */}
-                  <TableCell className="text-right">
-                    <div className="font-mono text-sm">{g.profile_activity_score}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {totalActivity(g) === 0 ? '0 events' : `${totalActivity(g)} events`}
-                    </div>
-                  </TableCell>
-
-                  {/* Last Seen */}
-                  <TableCell className="text-sm text-muted-foreground">
-                    {g.last_seen_at
-                      ? format(new Date(g.last_seen_at), 'MMM d HH:mm')
-                      : 'Never'}
-                  </TableCell>
-
-                  {/* Collision Hints */}
-                  <TableCell>
-                    {g.identity_collision_hints && g.identity_collision_hints.length > 0 ? (
-                      <div className="flex items-center gap-1">
-                        <AlertTriangle className="w-4 h-4 text-amber-600" />
-                        <span className="text-xs text-amber-700">{g.identity_collision_hints.length}</span>
+                    {/* Account Age */}
+                    <TableCell className="text-sm">
+                      {g.days_since_creation}d
+                      <div className="text-xs text-muted-foreground">
+                        {format(new Date(g.created_at), 'MMM d')}
                       </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
+                    </TableCell>
 
-                  {/* Detail Button */}
-                  <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setSelectedGhost(g);
-                        setShowDetail(true);
-                      }}
-                    >
-                      <Eye className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    {/* Contact */}
+                    <TableCell className="text-sm font-mono text-muted-foreground">
+                      <div>{g.email_masked}</div>
+                      <div className="text-xs">{g.phone_masked}</div>
+                    </TableCell>
+
+                    {/* Activity Score */}
+                    <TableCell className="text-right">
+                      <div className="font-mono text-sm">{g.profile_activity_score}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {totalActivity(g) === 0 ? '0 events' : `${totalActivity(g)} events`}
+                      </div>
+                    </TableCell>
+
+                    {/* Last Seen */}
+                    <TableCell className="text-sm text-muted-foreground">
+                      {g.last_seen_at
+                        ? format(new Date(g.last_seen_at), 'MMM d HH:mm')
+                        : 'Never'}
+                    </TableCell>
+
+                    {/* Collision Hints */}
+                    <TableCell>
+                      {g.identity_collision_hints && g.identity_collision_hints.length > 0 ? (
+                        <div className="flex items-center gap-1">
+                          <AlertTriangle className="w-4 h-4 text-amber-600" />
+                          <span className="text-xs text-amber-700">{g.identity_collision_hints.length}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+
+                    {/* Detail Button */}
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setSelectedGhost(g);
+                          setShowDetail(true);
+                        }}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -397,8 +411,8 @@ export function AdminGhostBootstrapPanel() {
 
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground">Review Confidence</label>
-                  <Badge className={cn('mt-1', confidenceBadgeColor(selectedGhost.review_confidence))}>
-                    {selectedGhost.review_confidence}
+                  <Badge className={cn('mt-1', confidenceBadgeColor(normalizeConfidence(selectedGhost.review_confidence)))}>
+                    {normalizeConfidence(selectedGhost.review_confidence)}
                   </Badge>
                 </div>
               </div>

@@ -13,6 +13,10 @@ const adminEventsHardeningMigration = readFileSync(
   join(root, "supabase/migrations/20260507150000_admin_events_tab_static_hardening.sql"),
   "utf8"
 );
+const adminEventScopeFollowupMigration = readFileSync(
+  join(root, "supabase/migrations/20260507152000_admin_event_scope_legacy_location_specific_fix.sql"),
+  "utf8"
+);
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -137,6 +141,17 @@ test("admin events hardening migration owns reads, attendance writes, validation
   assert.match(adminEventsHardeningMigration, /no_show_count', v_no_show/);
   assert.match(adminEventsHardeningMigration, /WHERE event_id = p_event_id AND attended IS TRUE/);
   assert.doesNotMatch(adminEventsHardeningMigration, /attendance_marked IS TRUE OR attended IS TRUE/);
+});
+
+test("admin event updates clear legacy location-specific state when scope moves non-local", () => {
+  assert.match(adminEventForm, /is_location_specific:\s*scope === ['"]local['"]/);
+  assert.match(adminEventScopeFollowupMigration, /CREATE OR REPLACE FUNCTION public\.admin_update_event/);
+  assert.match(adminEventScopeFollowupMigration, /v_effective := to_jsonb\(v_before\) \|\| p_payload/);
+  assert.match(adminEventScopeFollowupMigration, /jsonb_set\(v_effective, '\{is_location_specific\}', 'false'::jsonb, true\)/);
+  assert.match(adminEventScopeFollowupMigration, /admin_validate_event_payload\(v_effective, false\)/);
+  assert.match(adminEventScopeFollowupMigration, /WHEN p_payload \? 'scope' AND COALESCE\(NULLIF\(lower\(p_payload ->> 'scope'\), ''\), 'global'\) <> 'local' THEN false/);
+  assert.match(adminEventScopeFollowupMigration, /REVOKE ALL ON FUNCTION public\.admin_update_event\(uuid, jsonb, text\) FROM PUBLIC, anon, authenticated/);
+  assert.match(adminEventScopeFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_update_event\(uuid, jsonb, text\) TO authenticated/);
 });
 
 test("admin event form footer submits through validation path", () => {
