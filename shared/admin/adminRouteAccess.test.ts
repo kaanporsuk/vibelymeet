@@ -27,7 +27,6 @@ const adminPanels = [
   { id: "campaigns", component: "AdminPushCampaignsPanel" },
   { id: "photo-verification", component: "AdminPhotoVerificationPanel" },
   { id: "deletions", component: "AdminDeletionsPanel" },
-  { id: "feedback", component: "AdminFeedbackPanel" },
   { id: "support", component: "SupportInbox" },
   { id: "tier-config", component: "AdminTierConfigPanel" },
   { id: "ghost-bootstrap", component: "AdminGhostBootstrapPanel" },
@@ -84,4 +83,13 @@ test("every /kaan dashboard sidebar tab has a title and render branch", () => {
     assert.match(adminDashboard, new RegExp(`activePanel === '${panel.id}' &&`), `${panel.id} must have title/copy coverage`);
     assert.match(adminDashboard, new RegExp(panel.component), `${panel.id} must render ${panel.component}`);
   }
+  assert.doesNotMatch(adminDashboard, /AdminFeedbackPanel/);
+  assert.doesNotMatch(adminSidebar, /id: 'feedback' as const/);
+});
+
+test("admin dashboard supports URL-selected Date Timeline sessions", () => {
+  assert.match(adminDashboard, /useSearchParams/);
+  assert.match(adminDashboard, /panelFromSearchParams/);
+  assert.match(adminDashboard, /'video-date-timeline'/);
+  assert.match(adminDashboard, /nextSearchParams\.delete\("session_id"\)/);
 });

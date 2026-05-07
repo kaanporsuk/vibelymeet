@@ -240,6 +240,7 @@ Admin UI:
 - [ ] Select the test event.
 - [ ] Confirm Video Date Ops renders 24h and 7d windows.
 - [ ] Confirm metrics are aggregate-only and do not expose user PII.
+- [ ] Open `/kaan/dashboard?panel=video-date-timeline&session_id=<video-session-uuid>` as an admin and confirm the single-session timeline renders redacted rows only.
 
 Non-admin 403:
 

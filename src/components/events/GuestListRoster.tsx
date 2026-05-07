@@ -20,7 +20,7 @@ interface GuestListRosterProps {
   /** Visible others on event (excludes hidden and unauthorized matches_only attendees) */
   visibleOtherCount: number;
   onAttendeeClick: (attendee: GuestListRosterAttendee) => void;
-  onTicketClick: () => void;
+  onTicketClick?: () => void;
 }
 
 function ObscuredCard({ index }: { index: number }) {
@@ -72,15 +72,17 @@ const GuestListRoster = ({
           </motion.div>
         </div>
 
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onTicketClick}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-xs font-medium"
-        >
-          <Ticket className="w-3 h-3" />
-          My Spot
-        </motion.button>
+        {onTicketClick ? (
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onTicketClick}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-primary to-accent text-primary-foreground text-xs font-medium"
+          >
+            <Ticket className="w-3 h-3" />
+            My Spot
+          </motion.button>
+        ) : null}
       </div>
 
       <div className="overflow-x-auto -mx-4 px-4 scrollbar-hide">

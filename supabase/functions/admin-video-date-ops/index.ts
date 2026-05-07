@@ -830,9 +830,7 @@ serve(async (req) => {
       return typedErrorResponse("unauthorized", "Unauthorized", 401);
     }
 
-    const allowedRoles = action === "get_session_timeline"
-      ? ["admin", "moderator"]
-      : ["admin"];
+    const allowedRoles = ["admin"];
     const { data: roleRows, error: roleError } = await userClient
       .from("user_roles")
       .select("role")

@@ -75,7 +75,7 @@ const AdminAnalyticsCharts = () => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* User Growth Chart */}
+      {/* New users per day chart */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -83,7 +83,7 @@ const AdminAnalyticsCharts = () => {
       >
         <div className="flex items-center gap-2 mb-4">
           <Users className="w-5 h-5 text-primary" />
-          <h3 className="text-lg font-semibold text-foreground">User Growth (30 Days UTC)</h3>
+          <h3 className="text-lg font-semibold text-foreground">New Users Per Day (30 Days UTC)</h3>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">

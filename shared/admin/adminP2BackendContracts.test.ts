@@ -8,6 +8,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260506103000_admin_p2_backend_authoritative_hardening.sql");
 const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
+const overviewOperationalTruthMigration = read("supabase/migrations/20260507211000_admin_overview_operational_truth.sql");
 const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dashboard_badge_counts.sql");
 const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
 const readModelSweepMigration = read("supabase/migrations/20260507112000_admin_panel_read_model_sweep.sql");
@@ -19,6 +20,9 @@ const pushTelemetryViewRedactionMigration = read("supabase/migrations/2026050715
 const eventAnalyticsReadModelsMigration = read("supabase/migrations/20260507163000_admin_event_analytics_backend_read_models.sql");
 const photoVerificationHardeningMigration = read("supabase/migrations/20260507170000_photo_verification_admin_hardening.sql");
 const supportInboxMigration = read("supabase/migrations/20260507180000_admin_support_inbox_governed.sql");
+const supportInboxLiveDriftGuardMigration = read(
+  "supabase/migrations/20260508093000_admin_support_inbox_live_drift_guard.sql",
+);
 const tierConfigAuthorityMigration = read("supabase/migrations/20260507190000_tier_config_backend_authority.sql");
 const tierConfigConcurrencyRepairMigration = read(
   "supabase/migrations/20260507193000_tier_config_backend_authority_concurrency_repair.sql",
@@ -34,6 +38,9 @@ const tierConfigOverrideAuditLockdownMigration = read(
 );
 const engagementAnalyticsMigration = read("supabase/migrations/20260507201000_admin_engagement_analytics_read_model.sql");
 const engagementAnalyticsIndexesMigration = read("supabase/migrations/20260507204000_admin_engagement_analytics_read_model_indexes.sql");
+const badgeLegacyFeedbackCleanupMigration = read(
+  "supabase/migrations/20260507214000_admin_dashboard_remove_legacy_feedback_badge.sql",
+);
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const accountDeletionsValidation = read("supabase/validation/admin_account_deletions_backend_authoritative.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
@@ -68,6 +75,7 @@ const adminUsers = read("src/components/admin/AdminUsersPanel.tsx");
 const eventAnalytics = read("src/components/admin/AdminLiveEventMetrics.tsx");
 const pushAnalytics = read("src/hooks/usePushAnalytics.ts");
 const verificationFunction = read("supabase/functions/admin-review-verification/index.ts");
+const generateDailyDropsFunction = read("supabase/functions/generate-daily-drops/index.ts");
 const sendSupportReplyFunction = read("supabase/functions/send-support-reply/index.ts");
 const createEventCheckoutFunction = read("supabase/functions/create-event-checkout/index.ts");
 const dateSuggestionActionsFunction = read("supabase/functions/date-suggestion-actions/index.ts");
@@ -92,6 +100,15 @@ function overviewFnSection(fnName: string): string {
   const next = overviewMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
   const end = next === -1 ? overviewMigration.length : next;
   return overviewMigration.slice(start, end);
+}
+
+function overviewOperationalTruthFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = overviewOperationalTruthMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = overviewOperationalTruthMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const end = next === -1 ? overviewOperationalTruthMigration.length : next;
+  return overviewOperationalTruthMigration.slice(start, end);
 }
 
 function badgeCountsFnSection(fnName: string): string {
@@ -170,6 +187,20 @@ function reviewCommentFollowupFnSection(fnName: string): string {
   const candidates = [next, revoke].filter((i) => i !== -1);
   const end = candidates.length ? Math.min(...candidates) : reviewCommentFollowupMigration.length;
   return reviewCommentFollowupMigration.slice(start, end);
+}
+
+function badgeLegacyFeedbackCleanupFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = badgeLegacyFeedbackCleanupMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const revoke = badgeLegacyFeedbackCleanupMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const classification = badgeLegacyFeedbackCleanupMigration.indexOf(
+    "\nINSERT INTO public.migration_classifications",
+    start + marker.length,
+  );
+  const candidates = [revoke, classification].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : badgeLegacyFeedbackCleanupMigration.length;
+  return badgeLegacyFeedbackCleanupMigration.slice(start, end);
 }
 
 function adminUsersLifecycleFnSection(fnName: string): string {
@@ -507,6 +538,40 @@ test("Support Inbox admin RPCs are governed, audited, ACL pinned, and lifecycle-
   assert.match(supportInboxMigration, /No support tickets are seeded or backfilled/);
 });
 
+test("Support Inbox live drift guard reasserts realtime and least-privilege grants", () => {
+  assert.match(supportInboxLiveDriftGuardMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_tickets/);
+  assert.match(supportInboxLiveDriftGuardMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_ticket_replies/);
+  assert.match(supportInboxLiveDriftGuardMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.support_ticket_events/);
+  assert.match(supportInboxLiveDriftGuardMigration, /WHEN duplicate_object OR undefined_object THEN NULL/);
+
+  for (const table of [
+    "support_tickets",
+    "support_ticket_replies",
+    "support_ticket_attachments",
+    "support_ticket_events",
+  ]) {
+    assert.match(
+      supportInboxLiveDriftGuardMigration,
+      new RegExp(`ALTER TABLE public\\.${table} ENABLE ROW LEVEL SECURITY`),
+      `${table} must keep RLS enabled`,
+    );
+    assert.match(
+      supportInboxLiveDriftGuardMigration,
+      new RegExp(`REVOKE ALL ON TABLE public\\.${table} FROM PUBLIC, anon, authenticated;`),
+      `${table} must clear broad stale grants`,
+    );
+  }
+
+  assert.match(supportInboxLiveDriftGuardMigration, /GRANT SELECT, INSERT ON TABLE public\.support_tickets TO authenticated/);
+  assert.match(supportInboxLiveDriftGuardMigration, /GRANT SELECT, INSERT ON TABLE public\.support_ticket_replies TO authenticated/);
+  assert.match(supportInboxLiveDriftGuardMigration, /GRANT SELECT, INSERT ON TABLE public\.support_ticket_attachments TO authenticated/);
+  assert.match(supportInboxLiveDriftGuardMigration, /GRANT SELECT ON TABLE public\.support_ticket_events TO authenticated/);
+  assert.doesNotMatch(supportInboxLiveDriftGuardMigration, /GRANT .*ON TABLE public\.support_ticket_events TO anon/);
+  assert.match(supportInboxLiveDriftGuardMigration, /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.support_ticket_events TO service_role/);
+  assert.match(supportInboxLiveDriftGuardMigration, /'20260508093000'/);
+  assert.match(supportInboxLiveDriftGuardMigration, /No support data is rewritten or deleted/);
+});
+
 test("send-support-reply saves through the governed admin reply RPC before notification side effects", () => {
   const saveIndex = sendSupportReplyFunction.indexOf('userClient.rpc("admin_create_support_reply"');
   const notificationIndex = sendSupportReplyFunction.indexOf("/functions/v1/send-notification");
@@ -661,10 +726,21 @@ test("authoritative read surfaces are backend RPC based", () => {
   assert.match(overviewFnSection("admin_get_overview_dashboard"), /auth\.uid\(\)/);
   assert.match(overviewFnSection("admin_get_overview_dashboard"), /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
   assert.match(overviewFnSection("admin_get_overview_dashboard"), /generate_series\(v_window_start, v_today_start, interval '1 day'\)/);
+  const operationalOverview = overviewOperationalTruthFnSection("admin_get_overview_dashboard");
+  assert.match(operationalOverview, /p_now timestamptz DEFAULT NULL/);
+  assert.match(operationalOverview, /STABLE/);
+  assert.match(operationalOverview, /v_now timestamptz := COALESCE\(p_now, now\(\)\)/);
+  assert.match(operationalOverview, /'generated_at', v_now/);
+  assert.match(operationalOverview, /public\.daily_drop_generation_runs/);
+  assert.match(operationalOverview, /'last_run'/);
   assert.match(overviewMigration, /REVOKE ALL ON FUNCTION public\.admin_get_overview_dashboard\(timestamptz\) FROM PUBLIC/);
+  assert.match(overviewOperationalTruthMigration, /REVOKE ALL ON FUNCTION public\.admin_get_overview_dashboard\(timestamptz\) FROM PUBLIC/);
   assert.match(overviewMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_overview_dashboard\(timestamptz\) TO authenticated/);
+  assert.match(overviewOperationalTruthMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_overview_dashboard\(timestamptz\) TO authenticated/);
   assert.match(overviewMigration, /'20260506135000'/);
   assert.match(overviewMigration, /Admin Overview dashboard read model/);
+  assert.match(overviewOperationalTruthMigration, /'20260507211000'/);
+  assert.match(overviewOperationalTruthMigration, /Admin Overview operational truth/);
   assert.match(fnSection("admin_search_users"), /count\(\*\)::integer AS total_count/);
   assert.match(fnSection("admin_get_event_metrics"), /participant_reports_near_event_window/);
   assert.match(fnSection("admin_get_push_delivery_metrics"), /app_notification_log/);
@@ -839,8 +915,9 @@ test("latest admin Users search read model exposes lifecycle fields and filters"
 
 test("dashboard badge counts are backend RPC based and avoid direct HEAD counts", () => {
   assert.match(badgeCountsFnSection("admin_get_dashboard_badge_counts"), /public\.support_tickets/);
+  assert.match(reviewCommentFollowupFnSection("admin_get_dashboard_badge_counts"), /public\.feedback/);
 
-  const badgeCounts = reviewCommentFollowupFnSection("admin_get_dashboard_badge_counts");
+  const badgeCounts = badgeLegacyFeedbackCleanupFnSection("admin_get_dashboard_badge_counts");
   assert.match(badgeCounts, /SECURITY DEFINER/);
   assert.match(badgeCounts, /SET search_path = public, pg_catalog/);
   assert.match(badgeCounts, /auth\.uid\(\)/);
@@ -849,16 +926,58 @@ test("dashboard badge counts are backend RPC based and avoid direct HEAD counts"
   assert.match(badgeCounts, /public\.support_tickets/);
   assert.match(badgeCounts, /status IN \('submitted', 'in_review'\)/);
   assert.doesNotMatch(badgeCounts, /waiting_on_user/);
-  assert.match(badgeCounts, /public\.feedback/);
-  assert.match(reviewCommentFollowupMigration, /REVOKE ALL ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) FROM PUBLIC/);
-  assert.match(reviewCommentFollowupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) TO authenticated/);
+  assert.doesNotMatch(badgeCounts, /public\.feedback/);
+  assert.doesNotMatch(badgeCounts, /new_feedback/);
+  assert.match(badgeLegacyFeedbackCleanupMigration, /REVOKE ALL ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) FROM PUBLIC/);
+  assert.match(badgeLegacyFeedbackCleanupMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) TO authenticated/);
   assert.match(adminDashboard, /callAdminRpc<AdminDashboardBadgeCountsPayload>\("admin_get_dashboard_badge_counts"/);
+  assert.doesNotMatch(adminDashboard, /new_feedback/);
   assert.doesNotMatch(adminDashboard, /\.from\(['"]admin_notifications['"]\)/);
   assert.doesNotMatch(adminDashboard, /\.from\(['"]support_tickets['"]\)/);
   assert.doesNotMatch(adminDashboard, /\.from\(['"]feedback['"]\)/);
   assert.doesNotMatch(adminDashboard, /head:\s*true/);
   assert.doesNotMatch(adminDashboard, /admin_get_notification_counts/);
   assert.doesNotMatch(adminDashboard, /admin_get_system_health/);
+});
+
+test("Daily Drop generation exposes operational run truth and admin audit", () => {
+  assert.match(overviewOperationalTruthMigration, /CREATE TABLE IF NOT EXISTS public\.daily_drop_generation_runs/);
+  assert.match(overviewOperationalTruthMigration, /status IN \('started', 'succeeded', 'skipped', 'failed', 'partial'\)/);
+  assert.match(overviewOperationalTruthMigration, /source IN \('cron', 'admin', 'unknown'\)/);
+  assert.match(overviewOperationalTruthMigration, /admin_id uuid REFERENCES auth\.users\(id\) ON DELETE SET NULL/);
+  assert.match(overviewOperationalTruthMigration, /ALTER TABLE public\.daily_drop_generation_runs ENABLE ROW LEVEL SECURITY/);
+  assert.match(overviewOperationalTruthMigration, /GRANT SELECT ON public\.daily_drop_generation_runs TO authenticated/);
+  assert.match(overviewOperationalTruthMigration, /admins_select_daily_drop_generation_runs/);
+  assert.match(overviewOperationalTruthMigration, /ALTER PUBLICATION supabase_realtime ADD TABLE public\.daily_drop_generation_runs/);
+  assert.match(overviewOperationalTruthMigration, /WHEN duplicate_object OR undefined_object THEN NULL/);
+  assert.match(overviewOperationalTruthMigration, /idx_daily_drop_generation_runs_started_at/);
+  assert.match(overviewOperationalTruthMigration, /idx_profiles_created_at/);
+  assert.match(overviewOperationalTruthMigration, /idx_matches_matched_at/);
+  assert.match(overviewOperationalTruthMigration, /idx_daily_drops_drop_date/);
+  assert.match(overviewOperationalTruthMigration, /idx_events_admin_overview_actionable/);
+
+  assert.match(generateDailyDropsFunction, /createGenerationRun/);
+  assert.match(generateDailyDropsFunction, /completeGenerationRun/);
+  assert.match(generateDailyDropsFunction, /\.from\("daily_drop_generation_runs"\)/);
+  assert.match(generateDailyDropsFunction, /\.from\("admin_activity_logs"\)/);
+  assert.match(generateDailyDropsFunction, /action_type: "generate_daily_drops"/);
+  assert.match(generateDailyDropsFunction, /force_regenerate_requires_admin_jwt/);
+  assert.match(generateDailyDropsFunction, /database_step_failed/);
+  assert.match(generateDailyDropsFunction, /count_existing_today_drops/);
+  assert.match(generateDailyDropsFunction, /delete_existing_today_drops/);
+  assert.match(generateDailyDropsFunction, /select_existing_matches/);
+  assert.match(generateDailyDropsFunction, /select_blocked_users/);
+  assert.match(generateDailyDropsFunction, /select_user_reports/);
+  assert.match(generateDailyDropsFunction, /select_active_cooldowns/);
+  assert.match(generateDailyDropsFunction, /\[drop\.user_a_id, drop\.user_b_id\]\.sort\(\)/);
+  assert.match(generateDailyDropsFunction, /\[c\.user_a_id, c\.user_b_id\]\.sort\(\)\.join\(":"\)/);
+  assert.match(generateDailyDropsFunction, /notificationFailures/);
+  assert.match(generateDailyDropsFunction, /notification_failures/);
+  assert.match(generateDailyDropsFunction, /usersNotified: notifiedSuccessCount/);
+  assert.match(generateDailyDropsFunction, /status: "failed"/);
+  assert.match(generateDailyDropsFunction, /status: "partial"/);
+  assert.match(generateDailyDropsFunction, /status: "skipped"/);
+  assert.match(generateDailyDropsFunction, /source: generationSource/);
 });
 
 test("admin panel count read RPCs are security definer, admin checked, ACL pinned, and read-only", () => {

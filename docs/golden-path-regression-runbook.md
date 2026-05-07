@@ -71,7 +71,7 @@ For the full native RC operator sequence around that Maestro smoke, see `docs/qa
 | Video date join/timer/end | Video-date tests cover shared contracts | Daily room join, timer, refresh/rejoin, end flow |
 | Post-date survey continuity | Video-date hardening test | Survey submit to Ready Gate/lobby/empty/event-ended |
 | Chat/match creation | Type/build | Match thread created, send-message, notification/deep link |
-| Admin Video Date Ops | Admin helper test | Admin panel loads, non-admin 403, aggregate-only data |
+| Admin Video Date Ops | Admin helper test | Admin panel loads, non-admin 403, aggregate metrics, admin-only single-session timeline |
 
 ## Manual Golden Path
 
@@ -138,7 +138,7 @@ For the full native RC operator sequence around that Maestro smoke, see `docs/qa
 | --- | --- | --- |
 | 7.1 | Log in as admin and open `/kaan/dashboard` | Admin dashboard loads. |
 | 7.2 | Go to Event Analytics and select a live/recent event | Video Date Ops shows 24h and 7d windows. |
-| 7.3 | Inspect returned metrics | Data is aggregate-only and contains no user PII. |
+| 7.3 | Inspect returned metrics | Metrics data is aggregate-only and contains no user PII. |
 | 7.4 | Call `admin-video-date-ops` as non-admin | Request returns 403. |
 | 7.5 | Cross-check one metric against SQL/PostHog | Values are directionally consistent with backend truth. |
 
@@ -158,7 +158,7 @@ For iOS/Android RC-specific environment, build, install, push, media, and sign-o
 - No console errors block the manual flow.
 - No Supabase function errors appear for the tested paths.
 - Video-date lifecycle state remains backend-owned.
-- Admin ops remains aggregate-only and admin-gated.
+- Admin ops metrics remain aggregate-only and admin-gated; Date Timeline remains admin-only and scoped to one session UUID.
 - Any known limitation is recorded before release.
 
 ## What Remains Manual

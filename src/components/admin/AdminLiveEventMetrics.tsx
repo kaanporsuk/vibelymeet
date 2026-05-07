@@ -11,9 +11,11 @@ import {
   MessageSquare,
   AlertTriangle,
   Clock,
+  GitBranch,
   PieChart,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { callAdminRpc, sanitizeAdminRpcErrorMessage, type AdminRpcPayload } from "@/lib/adminRpc";
 import {
@@ -32,6 +34,7 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import { useNavigate } from "react-router-dom";
 
 const COLORS = ["#ec4899", "#8b5cf6", "#06b6d4", "#f97316", "#22c55e"];
 
@@ -385,7 +388,12 @@ const MetricCard = ({ icon: Icon, label, value, color, description, warning }: M
 );
 
 const AdminLiveEventMetrics = () => {
+  const navigate = useNavigate();
   const [selectedEventId, setSelectedEventId] = useState<string>("");
+
+  const openVideoDateTimeline = (sessionId: string) => {
+    navigate(`/kaan/dashboard?panel=video-date-timeline&session_id=${encodeURIComponent(sessionId)}`);
+  };
 
   // Fetch selector options through the backend read model.
   const {
@@ -854,22 +862,37 @@ const AdminLiveEventMetrics = () => {
                         <div className="rounded-xl border border-white/10 bg-secondary/10 p-3">
                           <div className="mb-2 text-xs font-medium text-foreground">Slowest sessions</div>
                           <div className="space-y-2 text-[11px] text-muted-foreground">
-                            {readyTapToFrame.slowest_sessions.slice(0, 5).map((session, index) => (
-                              <div
-                                key={`${session.session_id}:${session.actor_id}:${session.occurred_at}:${index}`}
-                                className="rounded-lg bg-background/50 p-2"
-                              >
-                                <div className="font-medium text-foreground">
-                                  {formatMs(session.latency_ms)} / {session.platform} / prewarm {session.daily_prewarm}
+                            {readyTapToFrame.slowest_sessions.slice(0, 5).map((session, index) => {
+                              const sessionId = session.session_id;
+                              return (
+                                <div
+                                  key={`${sessionId}:${session.actor_id}:${session.occurred_at}:${index}`}
+                                  className="rounded-lg bg-background/50 p-2"
+                                >
+                                  <div className="font-medium text-foreground">
+                                    {formatMs(session.latency_ms)} / {session.platform} / prewarm {session.daily_prewarm}
+                                  </div>
+                                  <div>session: {sessionId ? "linked" : "-"}</div>
+                                  <div>
+                                    {(session.timeline_rows ?? []).slice(-4).map((row) => row.reason_code ?? row.operation).join(" -> ") ||
+                                      session.timeline_error ||
+                                      "timeline unavailable"}
+                                  </div>
+                                  {sessionId && (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="mt-2 h-7 gap-1.5 px-2 text-[11px]"
+                                      onClick={() => openVideoDateTimeline(sessionId)}
+                                    >
+                                      <GitBranch className="h-3.5 w-3.5" />
+                                      Open timeline
+                                    </Button>
+                                  )}
                                 </div>
-                                <div>session: {session.session_id ? "linked" : "-"}</div>
-                                <div>
-                                  {(session.timeline_rows ?? []).slice(-4).map((row) => row.reason_code ?? row.operation).join(" -> ") ||
-                                    session.timeline_error ||
-                                    "timeline unavailable"}
-                                </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ) : null}

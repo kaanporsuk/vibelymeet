@@ -24,6 +24,7 @@ type ManageBookingModalProps = {
   isVirtual?: boolean;
   /** Confirmed = lobby-eligible when live; waitlist must not imply lobby access. */
   admissionStatus?: BookingAdmissionStatus;
+  canCancel?: boolean;
 };
 
 export function ManageBookingModal({
@@ -38,6 +39,7 @@ export function ManageBookingModal({
   price,
   isVirtual = false,
   admissionStatus = 'confirmed',
+  canCancel = true,
 }: ManageBookingModalProps) {
   const theme = Colors[useColorScheme()];
   const isWaitlisted = admissionStatus === 'waitlisted';
@@ -133,9 +135,11 @@ export function ManageBookingModal({
               <Text style={[styles.refundHint, { color: theme.textSecondary }]}>Refund exceptions are reviewed manually by support and are not automatic in-app.</Text>
             ) : null}
             <VibelyButton label="Share Event" onPress={handleShare} variant="secondary" style={styles.shareBtn} />
-            <Pressable onPress={onCancel} style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}>
-              <Text style={[styles.cancelText, { color: theme.danger }]}>{releaseCta}</Text>
-            </Pressable>
+            {canCancel ? (
+              <Pressable onPress={onCancel} style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.8 }]}>
+                <Text style={[styles.cancelText, { color: theme.danger }]}>{releaseCta}</Text>
+              </Pressable>
+            ) : null}
           </View>
         </Pressable>
       </Pressable>

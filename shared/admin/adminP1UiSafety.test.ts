@@ -20,6 +20,7 @@ const adminQuickActions = read("src/components/admin/AdminQuickActionsCards.tsx"
 const adminDailyDrop = read("src/components/admin/AdminDailyDropCard.tsx");
 const adminRealtime = read("src/hooks/useAdminRealtime.ts");
 const adminOverviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
+const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
 const adminEngagement = read("src/components/admin/AdminEngagementAnalytics.tsx");
 const useAdminEngagementAnalytics = read("src/hooks/useAdminEngagementAnalytics.ts");
 const usePushAnalytics = read("src/hooks/usePushAnalytics.ts");
@@ -34,7 +35,6 @@ const adminEvents = read("src/components/admin/AdminEventsPanel.tsx");
 const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
 const adminPhotoVerification = read("src/components/admin/AdminPhotoVerificationPanel.tsx");
 const supportInbox = read("src/components/admin/SupportInbox.tsx");
-const adminFeedback = read("src/components/admin/AdminFeedbackPanel.tsx");
 const adminPremium = read("src/components/admin/AdminPremiumModal.tsx");
 const adminTierConfig = read("src/components/admin/AdminTierConfigPanel.tsx");
 const adminMediaLifecycle = read("src/components/admin/AdminMediaLifecyclePanel.tsx");
@@ -43,6 +43,7 @@ const adminPushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.ts
 const adminMatchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
+const adminOverviewOperationalTruthMigration = read("supabase/migrations/20260507211000_admin_overview_operational_truth.sql");
 const proofSelfieUrl = read("src/lib/proofSelfieUrl.ts");
 const adminProofSelfieSign = read("supabase/functions/admin-proof-selfie-sign/index.ts");
 const simplePhotoVerification = read("src/components/verification/SimplePhotoVerification.tsx");
@@ -209,10 +210,14 @@ test("reports realtime refreshes list, summary, and overview together", () => {
 
 test("overview metrics and event analytics labels match query semantics", () => {
   assert.match(adminOverviewHook, /admin_get_overview_dashboard/);
+  assert.doesNotMatch(adminOverviewHook, /p_now/);
   assert.match(adminStats, /useAdminOverviewDashboard/);
   assert.match(adminStats, /Unable to load Overview metrics/);
   assert.match(adminStats, /not showing fallback zeroes/);
-  assert.match(adminStats, /Last updated/);
+  assert.match(adminDashboard, /AdminOverviewMetadata/);
+  assert.match(adminDashboard, /Reporting timezone: UTC/);
+  assert.match(adminDashboard, /Last updated/);
+  assert.doesNotMatch(adminStats, /Last updated/);
   assert.match(adminStats, /formatAdminCount/);
   assert.doesNotMatch(adminStats, /Number\(metrics\?\./);
   assert.doesNotMatch(adminStats, /\|\| '0'/);
@@ -237,7 +242,7 @@ test("overview metrics and event analytics labels match query semantics", () => 
   assert.match(adminLiveEventMetrics, /Backend lifecycle read model unavailable/);
   assert.match(adminLiveEventMetrics, /payment_exceptions/);
   assert.match(adminLiveEventMetrics, /Post-event feedback metrics are unavailable/);
-  assert.match(adminLiveEventMetrics, /session: \{session\.session_id \? "linked" : "-"\}/);
+  assert.match(adminLiveEventMetrics, /session: \{sessionId \? "linked" : "-"\}/);
   assert.match(adminLiveEventMetrics, /profile_ref: \{item\.profile_ref \? "present" : "-"\}/);
   assert.doesNotMatch(adminLiveEventMetrics, /exception_id: \{item\.id\}/);
   assert.doesNotMatch(adminLiveEventMetrics, /checkout_session_id: \{item\.checkout_session_id/);
@@ -262,11 +267,13 @@ test("quick actions show only actionable upcoming events", () => {
   assert.doesNotMatch(adminQuickActions, /\.not\(['"]status['"]/);
   assert.doesNotMatch(adminQuickActions, /admin-upcoming-events/);
   assert.match(adminOverviewDashboardMigration, /lower\(COALESCE\(status, 'upcoming'\)\) NOT IN \('draft', 'cancelled', 'completed', 'ended'\)/);
+  assert.match(adminOverviewOperationalTruthMigration, /COALESCE\(p_now, now\(\)\)/);
 });
 
 test("overview charts and Daily Drop read from the backend overview surface", () => {
   assert.match(adminAnalytics, /useAdminOverviewDashboard/);
   assert.match(adminAnalytics, /Unable to load Overview charts/);
+  assert.match(adminAnalytics, /New Users Per Day \(30 Days UTC\)/);
   assert.match(adminAnalytics, /Latest Event Rows \(Capacity Fill\)/);
   assert.match(adminAnalytics, /including archived\/ended rows when present/);
   assert.match(adminAnalytics, /look like test\/smoke data/);
@@ -278,7 +285,13 @@ test("overview charts and Daily Drop read from the backend overview surface", ()
 
   assert.match(adminDailyDrop, /useAdminOverviewDashboard/);
   assert.match(adminDailyDrop, /Unable to load Daily Drop status/);
-  assert.match(adminDailyDrop, /Last generated \(UTC\)/);
+  assert.match(adminDailyDrop, /Last pair generated \(UTC\)/);
+  assert.match(adminDailyDrop, /Last job run \(UTC\)/);
+  assert.match(adminDailyDrop, /No Daily Drop generation run has been recorded yet/);
+  assert.match(adminDailyDrop, /getTodayBatchCutoffUtc/);
+  assert.match(adminDailyDrop, /still marked started and may need investigation/);
+  assert.match(adminDailyDrop, /notification_failures/);
+  assert.match(adminDailyDrop, /toast\.warning/);
   assert.match(adminDailyDrop, /Daily Drop status unavailable/);
   assert.doesNotMatch(adminDailyDrop, /\.from\(['"]daily_drops['"]\)/);
   assert.doesNotMatch(adminDailyDrop, /admin-daily-drops-today/);
@@ -288,10 +301,14 @@ test("overview realtime invalidates the active backend query key", () => {
   assert.match(adminRealtime, /ADMIN_OVERVIEW_DASHBOARD_QUERY_KEY/);
   assert.match(adminRealtime, /ADMIN_ENGAGEMENT_ANALYTICS_QUERY_KEY/);
   assert.match(adminRealtime, /admin-daily-drops-realtime/);
+  assert.match(adminRealtime, /admin-daily-drop-generation-runs-realtime/);
+  assert.match(adminRealtime, /table: "daily_drop_generation_runs"/);
   assert.match(adminRealtime, /admin-engagement-push-telemetry-realtime/);
   assert.match(adminRealtime, /admin-engagement-notification-log-realtime/);
   assert.match(adminRealtime, /invalidateOverview/);
   assert.match(adminRealtime, /invalidateEngagement/);
+  assert.match(adminRealtime, /setTimeout/);
+  assert.match(adminRealtime, /clearTimeout/);
   assert.doesNotMatch(adminRealtime, /admin-users-count/);
   assert.doesNotMatch(adminRealtime, /admin-matches-count/);
   assert.doesNotMatch(adminRealtime, /admin-event-attendance/);
@@ -521,10 +538,8 @@ test("photo verification submission preflights pending rows and profile photo be
 
 test("admin badge mutations invalidate the centralized dashboard badge count", () => {
   assert.doesNotMatch(adminNotifications, /admin-unread-notifications/);
-  assert.doesNotMatch(adminFeedback, /admin-new-feedback-count/);
   assert.doesNotMatch(supportInbox, /admin-support-open-count/);
   assert.match(adminNotifications, /admin-dashboard-badge-counts/);
-  assert.match(adminFeedback, /admin-dashboard-badge-counts/);
   assert.match(supportInbox, /admin-dashboard-badge-counts/);
 });
 

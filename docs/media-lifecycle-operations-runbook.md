@@ -179,24 +179,24 @@ SELECT cron.unschedule('media-delete-worker-every-15m');
 
 ### Retry failed / abandoned jobs
 
-Via admin panel: Failed jobs section → **Retry all** or **Retry [family]**.
+Via admin panel: Failed jobs section -> **Retry failed** or **Retry abandoned** globally or by family. Abandoned retries reset attempts so the worker can claim them again. Failed retries preserve normal attempt counts, but failed rows already at `max_attempts` are clamped below max so inconsistent legacy rows do not requeue into an unclaimable state.
 
 Via SQL (operator direct):
 
 ```sql
--- Retry all failed + abandoned (keeps attempt count, resets next_attempt_at to now)
+-- Retry all failed + abandoned (abandoned attempts reset automatically)
 SELECT retry_failed_media_delete_jobs();
 
--- Retry one family only
-SELECT retry_failed_media_delete_jobs(p_family := 'vibe_video');
+-- Retry failed jobs for one family only
+SELECT retry_failed_media_delete_jobs(p_family := 'vibe_video', p_status := 'failed');
 
--- Retry with attempt counter reset (use only when provider error is resolved)
-SELECT retry_failed_media_delete_jobs(p_reset_attempts := true);
+-- Retry abandoned jobs for one family only
+SELECT retry_failed_media_delete_jobs(p_family := 'vibe_video', p_status := 'abandoned', p_reset_attempts := true);
 ```
 
 ### Requeue stale claimed jobs
 
-Via admin panel: Stale claimed jobs section → **Requeue all stale**.
+Via admin panel: Stale claimed jobs section -> **Requeue all stale**.
 
 Via SQL:
 
@@ -289,6 +289,8 @@ SELECT status, count(*) FROM cron.job_run_details WHERE jobid = 18 ORDER BY stat
 -- Expect: mostly succeeded
 ```
 
+The Admin Dashboard activation verdict should remain on **hold** if any of these are true: the cron job is missing or paused, cron run history is unavailable, the health RPC is unavailable, failed/abandoned jobs exist, stale claimed jobs exist, or orphan-like assets exist.
+
 ---
 
 ## Incident response
@@ -344,8 +346,9 @@ UPDATE media_retention_settings SET worker_enabled = true WHERE media_family NOT
 | RPC | Caller | Purpose |
 |---|---|---|
 | `summarize_media_lifecycle_health()` | service_role | Returns JSONB health snapshot with counts, failures, stale claims, promotable backlog |
+| `summarize_media_lifecycle_snapshot()` | service_role | Returns aggregate asset/job/orphan/readiness counts for the admin panel |
 | `requeue_stale_media_delete_jobs(p_stale_minutes int)` | service_role | Releases stuck claimed jobs back to pending |
-| `retry_failed_media_delete_jobs(p_family, p_limit, p_reset_attempts)` | service_role | Resets failed/abandoned jobs to pending for re-processing |
+| `retry_failed_media_delete_jobs(p_family, p_limit, p_reset_attempts, p_status)` | service_role | Resets failed/abandoned jobs to pending for re-processing |
 
 ---
 

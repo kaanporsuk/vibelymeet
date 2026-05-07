@@ -2824,9 +2824,24 @@ test("Daily provider observability is fail-soft and redacts token material", () 
 
 test("operator timeline UI uses admin Edge Function instead of direct browser RPC", () => {
   assert.match(adminDashboardPage, /video-date-timeline/);
+  assert.match(adminDashboardPage, /useSearchParams/);
+  assert.match(adminDashboardPage, /panelFromSearchParams/);
+  assert.match(adminDashboardPage, /nextSearchParams\.delete\("session_id"\)/);
   assert.match(adminDashboardPage, /<AdminVideoDateTimelinePanel \/>/);
+  assert.match(adminLiveEventMetrics, /Open timeline/);
+  assert.match(adminLiveEventMetrics, /panel=video-date-timeline&session_id=/);
   assert.match(adminVideoDateTimelinePanel, /functions\.invoke<AdminVideoDateTimelineResponse>\(\s*"admin-video-date-ops"/);
   assert.match(adminVideoDateTimelinePanel, /action: "get_session_timeline"/);
+  assert.match(adminVideoDateTimelinePanel, /searchParams\.get\("session_id"\)/);
+  assert.match(adminVideoDateTimelinePanel, /nextSearchParams\.set\("session_id", nextSessionId\)/);
+  assert.match(adminVideoDateTimelinePanel, /const handleSessionInputChange = \(value: string\) => \{/);
+  assert.match(adminVideoDateTimelinePanel, /value\.trim\(\) !== submittedSessionId[\s\S]*setSubmittedSessionId\(""\)/);
+  assert.match(adminVideoDateTimelinePanel, /onChange=\{\(event\) => handleSessionInputChange\(event\.target\.value\)\}/);
+  assert.match(adminVideoDateTimelinePanel, /if \(!navigator\.clipboard\)/);
+  assert.match(adminVideoDateTimelinePanel, /await navigator\.clipboard\.writeText\(value\)/);
+  assert.match(adminVideoDateTimelinePanel, /Could not copy/);
+  assert.match(adminVideoDateTimelinePanel, /formatTimestamp/);
+  assert.match(adminVideoDateTimelinePanel, /\{rows\.length\} rows/);
   assert.match(adminVideoDateTimelinePanel, /redactVideoDateTimelineDetail/);
   assert.match(adminVideoDateTimelinePanel, /extractVideoDateTimelineTraceIds/);
   assert.doesNotMatch(adminVideoDateTimelinePanel, /rpc\(["']get_video_date_session_timeline/);
@@ -2837,6 +2852,8 @@ test("admin-video-date-ops gates service-role timeline access behind role and se
   assert.match(adminVideoDateOpsFunction, /isValidUuid\(sessionId\)/);
   assert.match(adminVideoDateOpsFunction, /typedErrorResponse\("invalid_session_id"/);
   assert.match(adminVideoDateOpsFunction, /hasVideoDateTimelineRole\(roleRows\)/);
+  assert.match(adminVideoDateOpsFunction, /const allowedRoles = \["admin"\]/);
+  assert.doesNotMatch(adminVideoDateOpsFunction, /"moderator"/);
   assert.match(adminVideoDateOpsFunction, /\.in\("role", allowedRoles\)/);
   assert.match(adminVideoDateOpsFunction, /const service = createClient\(supabaseUrl, serviceKey\)/);
   assert.match(adminVideoDateOpsFunction, /service\.rpc\("get_video_date_session_timeline"/);

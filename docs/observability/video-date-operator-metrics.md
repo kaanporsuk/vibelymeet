@@ -7,7 +7,7 @@ This pack defines the operator-grade read model for the Vibely video-date loop. 
 - Supabase event-loop read models are operator/service-role only. The relevant migrations revoke `anon` and `authenticated` access and grant `service_role`.
 - Current admin web surfaces use authenticated Supabase clients, so they cannot read `event_loop_observability_events` or `v_event_loop_*` directly.
 - The in-app operator dashboard uses the `admin-video-date-ops` Edge Function as a read bridge. The function requires bearer auth, verifies the caller is an admin with the bearer-scoped client, then creates a service-role client only after that verification.
-- The bridge returns aggregate metrics only. It does not expose raw observability rows, profile fields, names, emails, or user-level drilldowns.
+- The metrics action returns aggregate metrics only. The separate admin-only Date Timeline action returns redacted raw rows for one explicit `video_sessions.id` to support incident investigation; it does not expose profile fields, names, emails, or unrestricted user-level drilldowns.
 - No Supabase database migration is required for the dashboard bridge. Supabase Edge Function deployment is required when the function changes.
 
 Read this together with `docs/observability/event-loop-dashboard-normalization.md` before mixing drain, promotion, and mark-lobby aggregates.
@@ -21,6 +21,15 @@ Location:
 - Video Date Ops
 
 The panel calls `admin-video-date-ops` for the selected event and shows both 24h and 7d windows.
+
+## Admin Date Timeline
+
+Location:
+
+- `/kaan/dashboard?panel=video-date-timeline`
+- Optional direct session load: `/kaan/dashboard?panel=video-date-timeline&session_id=<video-session-uuid>`
+
+The Date Timeline tab calls `admin-video-date-ops` with `action = "get_session_timeline"`. This path is admin-only, validates the session UUID, confirms the session exists, then reads the service-role-only `public.get_video_date_session_timeline(uuid)` RPC. The UI redacts token-like payload fields again before rendering and shows local plus UTC timestamps for each row.
 
 Returned aggregates:
 

@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
     // ── Step 1: Promote purgeable assets (real execution only) ───────────────
     const { data: promoteResult, error: promoteError } = await supabase.rpc(
       "promote_purgeable_assets",
-      { p_limit: batchSize * 2 },
+      { p_limit: batchSize * 2, p_family_filter: familyFilter },
     );
 
     if (promoteError) {
