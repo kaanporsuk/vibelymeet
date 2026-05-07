@@ -509,6 +509,8 @@ test("tier config authority migration validates overrides and enforces backend e
   assert.match(tierConfigSwipeLimitRetryRecheckMigration, /'20260507195000'/);
   assert.match(tierConfigOverrideAuditLockdownMigration, /INSERT INTO public\.migration_classifications/);
   assert.match(tierConfigOverrideAuditLockdownMigration, /'20260507200000'/);
+  assert.match(tierConfigOverrideAuditLockdownMigration, /'schema\+policy'/);
+  assert.doesNotMatch(tierConfigOverrideAuditLockdownMigration, /'policy'/);
   assert.match(tierConfigOverrideAuditLockdownMigration, /DROP POLICY IF EXISTS "Admins can manage tier config"/);
   assert.match(tierConfigOverrideAuditLockdownMigration, /CREATE POLICY "Service role can manage tier config overrides"/);
   assert.match(tierConfigOverrideAuditLockdownMigration, /auth\.role\(\) = 'service_role'/);

@@ -1,5 +1,5 @@
 -- Tier Config override audit lockdown.
--- Migration classification: policy.
+-- Migration classification: schema+policy.
 
 DROP POLICY IF EXISTS "Admins can manage tier config" ON public.tier_config_overrides;
 
@@ -20,7 +20,7 @@ INSERT INTO public.migration_classifications (
 VALUES (
   '20260507200000',
   'Tier Config override audit lockdown',
-  'policy',
+  'schema+policy',
   'Removes direct authenticated-admin writes to tier_config_overrides so normal override changes must flow through audited RPCs. Authenticated read access is preserved for admin display and realtime invalidation.',
   false
 )
