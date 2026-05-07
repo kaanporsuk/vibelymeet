@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { avatarUrl as avatarPreset } from "@/utils/imageUrl";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
 interface AdminMatchMessagesDrawerProps {
   userId: string;
@@ -49,6 +50,13 @@ interface MatchProfile {
   gender: string | null;
   avatarUrl: string | null;
 }
+
+type MatchMessageCountsPayload = AdminRpcPayload & {
+  rows?: Array<{
+    match_id?: string;
+    message_count?: number;
+  }>;
+};
 
 const AdminMatchMessagesDrawer = ({
   userId,
@@ -123,18 +131,18 @@ const AdminMatchMessagesDrawer = ({
   });
 
   // Fetch message count per match
-  const { data: messageCounts } = useQuery({
+  const { data: messageCounts, isError: messageCountsError, isLoading: messageCountsLoading } = useQuery({
     queryKey: ["admin-match-message-counts", matches],
     queryFn: async () => {
       if (!matches?.length) return {};
 
+      const matchIds = matches.slice(0, 200).map((match) => match.id);
+      const payload = await callAdminRpc<MatchMessageCountsPayload>("admin_get_match_message_counts", {
+        p_match_ids: matchIds,
+      });
       const counts: Record<string, number> = {};
-      for (const match of matches) {
-        const { count } = await supabase
-          .from("messages")
-          .select("*", { count: "exact", head: true })
-          .eq("match_id", match.id);
-        counts[match.id] = count || 0;
+      for (const row of payload.rows ?? []) {
+        if (row.match_id) counts[row.match_id] = Number(row.message_count ?? 0);
       }
       return counts;
     },
@@ -204,7 +212,13 @@ const AdminMatchMessagesDrawer = ({
                   const otherId =
                     match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1;
                   const otherUser = matchProfiles?.[otherId];
-                  const msgCount = messageCounts?.[match.id] || 0;
+                  const msgCount = messageCounts?.[match.id];
+                  const msgCountLabel =
+                    messageCountsLoading
+                      ? "— messages"
+                      : messageCountsError || msgCount === undefined
+                        ? "Messages unavailable"
+                        : `${msgCount} messages`;
 
                   return (
                     <motion.button
@@ -247,7 +261,7 @@ const AdminMatchMessagesDrawer = ({
                           </span>
                           <span className="flex items-center gap-1">
                             <MessageSquare className="w-3 h-3" />
-                            {msgCount} messages
+                            {msgCountLabel}
                           </span>
                         </div>
                       </div>

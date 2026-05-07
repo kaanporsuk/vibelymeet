@@ -42,6 +42,7 @@ import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
 import LiveNotificationMonitor from "./LiveNotificationMonitor";
 import AdminConfirmDialog from "./AdminConfirmDialog";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
 interface Campaign {
   id: string;
@@ -80,6 +81,10 @@ type CampaignStats = {
 type PushEventRow = {
   campaign_id: string | null;
   status: string | null;
+};
+
+type PushCampaignReachPayload = AdminRpcPayload & {
+  estimated_reach?: number;
 };
 
 const DEFAULT_TARGET_SEGMENT: TargetSegment = {
@@ -197,27 +202,22 @@ const AdminPushCampaignsPanel = () => {
   });
 
   // Get estimated reach
-  const { data: estimatedReach = 0 } = useQuery({
+  const { data: estimatedReach, isError: isReachError } = useQuery({
     queryKey: ['campaign-reach', segment],
     queryFn: async () => {
-      // Keep the reach preview aligned with the only targeting filters currently applied.
-      let query = supabase.from('profiles').select('id', { count: 'exact', head: true });
-      
-      if (segment.gender?.length) {
-        query = query.in('gender', segment.gender);
-      }
-      if (segment.isVerified !== undefined) {
-        query = query.eq('photo_verified', segment.isVerified);
-      }
-      if (segment.ageRange) {
-        query = query.gte('age', segment.ageRange[0]).lte('age', segment.ageRange[1]);
-      }
-      
-      const { count } = await query;
-      return count || 0;
+      const reach = await callAdminRpc<PushCampaignReachPayload>("admin_estimate_push_campaign_reach", {
+        p_segment: normalizeSupportedSegment(segment),
+      });
+      return Number(reach.estimated_reach ?? 0);
     },
     enabled: showCreateForm || !!editingCampaign,
   });
+
+  const estimatedReachLabel = isReachError
+    ? "Unavailable"
+    : typeof estimatedReach === "number"
+      ? estimatedReach.toLocaleString()
+      : "—";
 
   const campaignStats = useMemo(() => {
     const statsByCampaign = new Map<string, CampaignStats>();
@@ -715,7 +715,7 @@ const AdminPushCampaignsPanel = () => {
                       Target Audience
                     </CardTitle>
                     <CardDescription>
-                      Estimated reach: <span className="text-foreground font-medium">{estimatedReach.toLocaleString()} users</span>.
+                      Estimated reach: <span className="text-foreground font-medium">{estimatedReachLabel}</span>{isReachError ? "." : " users."}
                       This preview uses gender, verified status, and age only.
                     </CardDescription>
                   </CardHeader>
@@ -779,7 +779,7 @@ const AdminPushCampaignsPanel = () => {
               <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
                 <div className="text-sm text-muted-foreground">
                   <Target className="w-4 h-4 inline mr-1" />
-                  Draft reach preview: <span className="text-foreground font-medium">{estimatedReach.toLocaleString()}</span> users
+                  Draft reach preview: <span className="text-foreground font-medium">{estimatedReachLabel}</span>{isReachError ? "" : " users"}
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={resetCampaignForm}>

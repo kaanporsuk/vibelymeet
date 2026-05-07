@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 
 type TabFilter = "pending" | "approved" | "rejected";
 
@@ -55,6 +55,12 @@ type VerificationProfileRow = {
   name: string | null;
   age: number | null;
   avatar_url: string | null;
+};
+
+type PhotoVerificationCountsPayload = AdminRpcPayload & {
+  pending?: number;
+  approved_today?: number;
+  rejected_today?: number;
 };
 
 const REJECTION_REASONS = [
@@ -240,16 +246,14 @@ const AdminPhotoVerificationPanel = () => {
       today.setHours(0, 0, 0, 0);
       const todayStr = today.toISOString();
 
-      const [pending, approvedToday, rejectedToday] = await Promise.all([
-        supabase.from("photo_verifications").select("*", { count: "exact", head: true }).eq("status", "pending"),
-        supabase.from("photo_verifications").select("*", { count: "exact", head: true }).eq("status", "approved").gte("reviewed_at", todayStr),
-        supabase.from("photo_verifications").select("*", { count: "exact", head: true }).eq("status", "rejected").gte("reviewed_at", todayStr),
-      ]);
+      const counts = await callAdminRpc<PhotoVerificationCountsPayload>("admin_get_photo_verification_counts", {
+        p_today_start: todayStr,
+      });
 
       return {
-        pending: pending.count || 0,
-        approvedToday: approvedToday.count || 0,
-        rejectedToday: rejectedToday.count || 0,
+        pending: Number(counts.pending ?? 0),
+        approvedToday: Number(counts.approved_today ?? 0),
+        rejectedToday: Number(counts.rejected_today ?? 0),
       };
     },
   });

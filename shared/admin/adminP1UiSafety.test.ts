@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -34,6 +34,20 @@ const adminDeletions = read("src/components/admin/AdminDeletionsPanel.tsx");
 const adminPushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
+
+function readTree(path: string): string[] {
+  const dir = join(root, path);
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const child = `${path}/${entry.name}`;
+    if (entry.isDirectory()) return readTree(child);
+    return /\.(ts|tsx)$/.test(entry.name) ? [read(child)] : [];
+  });
+}
+
+const adminComponentAndPageSources = [
+  ...readTree("src/components/admin"),
+  ...readTree("src/pages/admin"),
+].join("\n");
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -247,6 +261,10 @@ test("admin badge mutations invalidate the centralized dashboard badge count", (
   assert.match(adminNotifications, /admin-dashboard-badge-counts/);
   assert.match(adminFeedback, /admin-dashboard-badge-counts/);
   assert.match(supportInbox, /admin-dashboard-badge-counts/);
+});
+
+test("admin component and dashboard sources avoid browser-side HEAD count reads", () => {
+  assert.doesNotMatch(adminComponentAndPageSources, /head:\s*true/);
 });
 
 test("password reset is visibly unavailable instead of toast-only fake action", () => {

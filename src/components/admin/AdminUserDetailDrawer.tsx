@@ -44,6 +44,7 @@ import { Crown } from "lucide-react";
 import { getRelationshipIntentDisplaySafe } from "@shared/profileContracts";
 import { resolveWebVibeVideoState } from "@/lib/vibeVideo/webVibeVideoState";
 import { VibePlayer } from "@/components/vibe-video/VibePlayer";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
 interface AdminUserDetailDrawerProps {
   userId: string;
@@ -70,6 +71,10 @@ type AdminMatchRow = {
   matched_at: string;
   profile_id_1: string;
   profile_id_2: string;
+};
+
+type UserDetailCountsPayload = AdminRpcPayload & {
+  event_registrations?: number;
 };
 
 const ADMIN_PROFILE_DETAIL_SELECT = `
@@ -130,11 +135,23 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
         .eq('id', userId)
         .single();
       if (error) throw error;
-      const { count } = await supabase
-        .from('event_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('profile_id', userId);
-      return { ...data, event_registrations: count ?? 0 };
+
+      try {
+        const counts = await callAdminRpc<UserDetailCountsPayload>("admin_get_user_detail_counts", {
+          p_user_id: userId,
+        });
+        return {
+          ...data,
+          event_registrations: Number(counts.event_registrations ?? 0),
+          event_registrations_unavailable: false,
+        };
+      } catch {
+        return {
+          ...data,
+          event_registrations: null,
+          event_registrations_unavailable: true,
+        };
+      }
     },
   });
 
@@ -439,9 +456,13 @@ const AdminUserDetailDrawer = ({ userId, onClose }: AdminUserDetailDrawerProps) 
                 </div>
                 <div className="glass-card p-4 rounded-xl text-center">
                   <Calendar className="w-5 h-5 text-orange-400 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-foreground">{profile.event_registrations || 0}</p>
+                  <p className="text-2xl font-bold text-foreground">
+                    {profile.event_registrations_unavailable ? "—" : profile.event_registrations ?? 0}
+                  </p>
                   <p className="text-xs text-muted-foreground">Event registrations</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">Not confirmed attendance</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {profile.event_registrations_unavailable ? "Unavailable" : "Not confirmed attendance"}
+                  </p>
                 </div>
               </div>
 

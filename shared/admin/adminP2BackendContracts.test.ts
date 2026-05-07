@@ -9,6 +9,7 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read("supabase/migrations/20260506103000_admin_p2_backend_authoritative_hardening.sql");
 const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const badgeCountsMigration = read("supabase/migrations/20260507103000_admin_dashboard_badge_counts.sql");
+const countReadModelsMigration = read("supabase/migrations/20260507110000_admin_panel_count_read_models.sql");
 const validation = read("supabase/validation/admin_p2_backend_authoritative_hardening.sql");
 const adminRpc = read("src/lib/adminRpc.ts");
 const adminDashboard = read("src/pages/admin/AdminDashboard.tsx");
@@ -24,6 +25,10 @@ const eventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const batchImport = read("src/components/admin/BatchEventImportModal.tsx");
 const notifications = read("src/components/admin/AdminNotificationsPanel.tsx");
 const verification = read("src/components/admin/AdminPhotoVerificationPanel.tsx");
+const reportsSummary = read("src/components/admin/AdminReportsSummary.tsx");
+const pushCampaigns = read("src/components/admin/AdminPushCampaignsPanel.tsx");
+const matchMessages = read("src/components/admin/AdminMatchMessagesDrawer.tsx");
+const adminUserDetail = read("src/components/admin/AdminUserDetailDrawer.tsx");
 const support = read("src/components/admin/SupportInbox.tsx");
 const stats = read("src/components/admin/AdminStatsCards.tsx");
 const overviewHook = read("src/hooks/useAdminOverviewDashboard.ts");
@@ -64,6 +69,17 @@ function badgeCountsFnSection(fnName: string): string {
   return badgeCountsMigration.slice(start, end);
 }
 
+function countReadModelFnSection(fnName: string): string {
+  const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
+  const start = countReadModelsMigration.indexOf(marker);
+  assert.notEqual(start, -1, `Missing function ${fnName}`);
+  const next = countReadModelsMigration.indexOf("\nCREATE OR REPLACE FUNCTION public.", start + marker.length);
+  const revoke = countReadModelsMigration.indexOf("\nREVOKE ALL ON FUNCTION", start + marker.length);
+  const candidates = [next, revoke].filter((i) => i !== -1);
+  const end = candidates.length ? Math.min(...candidates) : countReadModelsMigration.length;
+  return countReadModelsMigration.slice(start, end);
+}
+
 const mutationRpcs = [
   "admin_adjust_user_credits",
   "admin_set_premium_status",
@@ -87,6 +103,14 @@ const mutationRpcs = [
   "admin_delete_notifications",
   "admin_create_event_payment_exception",
   "admin_transition_event_payment_exception",
+];
+
+const panelCountReadRpcs = [
+  "admin_get_photo_verification_counts",
+  "admin_get_reports_summary_counts",
+  "admin_estimate_push_campaign_reach",
+  "admin_get_user_detail_counts",
+  "admin_get_match_message_counts",
 ];
 
 test("P2 migration adds shared backend admin primitives", () => {
@@ -264,6 +288,51 @@ test("dashboard badge counts are backend RPC based and avoid direct HEAD counts"
   assert.doesNotMatch(adminDashboard, /head:\s*true/);
   assert.doesNotMatch(adminDashboard, /admin_get_notification_counts/);
   assert.doesNotMatch(adminDashboard, /admin_get_system_health/);
+});
+
+test("admin panel count read RPCs are security definer, admin checked, ACL pinned, and read-only", () => {
+  const writeStatement = /^\s*(INSERT|UPDATE|DELETE|TRUNCATE)\s/im;
+
+  for (const fn of panelCountReadRpcs) {
+    const source = countReadModelFnSection(fn);
+    assert.match(source, /SECURITY DEFINER/, `${fn} must be security definer`);
+    assert.match(source, /SET search_path = public, pg_catalog/, `${fn} must pin search_path`);
+    assert.match(source, /auth\.uid\(\)/, `${fn} must derive admin identity from auth.uid()`);
+    assert.match(source, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/, `${fn} must verify admin role`);
+    assert.match(source, /public\.admin_json_success/, `${fn} must return the admin JSON envelope`);
+    assert.match(countReadModelsMigration, new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\(`), `${fn} must be revoked from PUBLIC`);
+    assert.match(countReadModelsMigration, new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\(`), `${fn} must be granted to authenticated`);
+    assert.doesNotMatch(source, writeStatement, `${fn} must stay read-only`);
+  }
+
+  assert.match(countReadModelFnSection("admin_get_photo_verification_counts"), /public\.photo_verifications/);
+  assert.match(countReadModelFnSection("admin_get_reports_summary_counts"), /public\.user_reports/);
+  assert.match(countReadModelFnSection("admin_get_reports_summary_counts"), /public\.user_suspensions/);
+  assert.match(countReadModelFnSection("admin_estimate_push_campaign_reach"), /gender/);
+  assert.match(countReadModelFnSection("admin_estimate_push_campaign_reach"), /isVerified/);
+  assert.match(countReadModelFnSection("admin_estimate_push_campaign_reach"), /ageRange/);
+  assert.match(countReadModelFnSection("admin_get_user_detail_counts"), /public\.event_registrations/);
+  assert.match(countReadModelFnSection("admin_get_match_message_counts"), /array_length\(v_ids, 1\)/);
+  assert.match(countReadModelFnSection("admin_get_match_message_counts"), /LEFT JOIN public\.messages/);
+});
+
+test("remaining admin panel count surfaces call backend RPCs instead of HEAD counts", () => {
+  const countSurfaceSources = [
+    verification,
+    reportsSummary,
+    pushCampaigns,
+    matchMessages,
+    adminUserDetail,
+  ].join("\n");
+
+  assert.match(verification, /callAdminRpc<PhotoVerificationCountsPayload>\("admin_get_photo_verification_counts"/);
+  assert.match(reportsSummary, /callAdminRpc<ReportsSummaryCountsPayload>\("admin_get_reports_summary_counts"/);
+  assert.match(pushCampaigns, /callAdminRpc<PushCampaignReachPayload>\("admin_estimate_push_campaign_reach"/);
+  assert.match(adminUserDetail, /callAdminRpc<UserDetailCountsPayload>\("admin_get_user_detail_counts"/);
+  assert.match(matchMessages, /callAdminRpc<MatchMessageCountsPayload>\("admin_get_match_message_counts"/);
+  assert.match(matchMessages, /p_match_ids: matchIds/);
+  assert.doesNotMatch(countSurfaceSources, /head:\s*true/);
+  assert.doesNotMatch(matchMessages, /for\s*\(const match of matches\)[\s\S]{0,260}\.from\(["']messages["']\)/);
 });
 
 test("admin dashboard surfaces stale hashed bundles before more admin work", () => {

@@ -1,46 +1,46 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Clock, Shield, Ban } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { subDays, startOfWeek } from "date-fns";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+
+type ReportsSummaryCountsPayload = AdminRpcPayload & {
+  open_reports?: number;
+  reports_this_week?: number;
+  suspended?: number;
+  banned_this_month?: number;
+};
 
 const AdminReportsSummary = () => {
-  const { data: summary } = useQuery({
+  const { data: summary, isError } = useQuery({
     queryKey: ["admin-reports-summary"],
     queryFn: async () => {
       const now = new Date();
       const weekStart = startOfWeek(now).toISOString();
       const monthStart = subDays(now, 30).toISOString();
 
-      const { count: openReports } = await supabase
-        .from("user_reports")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "pending");
-
-      const { count: reportsThisWeek } = await supabase
-        .from("user_reports")
-        .select("*", { count: "exact", head: true })
-        .gte("created_at", weekStart);
-
-      const { count: suspended } = await supabase
-        .from("user_suspensions")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "active");
-
-      const { count: bannedThisMonth } = await supabase
-        .from("user_suspensions")
-        .select("*", { count: "exact", head: true })
-        .is("expires_at", null)
-        .gte("suspended_at", monthStart);
+      const counts = await callAdminRpc<ReportsSummaryCountsPayload>("admin_get_reports_summary_counts", {
+        p_week_start: weekStart,
+        p_month_start: monthStart,
+      });
 
       return {
-        openReports: openReports || 0,
-        reportsThisWeek: reportsThisWeek || 0,
-        suspended: suspended || 0,
-        bannedThisMonth: bannedThisMonth || 0,
+        openReports: Number(counts.open_reports ?? 0),
+        reportsThisWeek: Number(counts.reports_this_week ?? 0),
+        suspended: Number(counts.suspended ?? 0),
+        bannedThisMonth: Number(counts.banned_this_month ?? 0),
       };
     },
     refetchInterval: 30000,
   });
+
+  if (isError && !summary) {
+    return (
+      <div className="glass-card p-4 rounded-2xl mb-6 border border-destructive/40 text-sm text-destructive">
+        <AlertTriangle className="w-4 h-4 inline mr-2" />
+        Report summary counts unavailable.
+      </div>
+    );
+  }
 
   if (!summary) return null;
 
