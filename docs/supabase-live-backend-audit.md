@@ -204,7 +204,7 @@ Tables in publication: **events**, **event_registrations**, **matches**, **messa
 ### 6a. Realtime subscriptions in code
 
 **Web:**  
-Channels / postgres_changes: `events-realtime` (events), `match-queue-*` (event_registrations / match flow), `matches-realtime-*` (matches), `messages:*` (messages), `session-timer-*`, `event-lifecycle-*` (events), `lobby-match-*`, `match-calls-*` (match_calls), `premium-*`, `subscription-*` (**subscriptions**), `push-notification-events-realtime` (push_notification_events), `event-status-*`, `daily-drop-*` (daily_drops), `ready-gate-*` (video_sessions), `vibe-questions-*`, admin: **profiles**, **matches**, **events**, **event_registrations**, **admin_notifications**, **user_reports**, **messages**.
+Channels / postgres_changes: `events-realtime` (events), `match-queue-*` (event_registrations / match flow), `matches-realtime-*` (matches), `messages:*` (messages), `session-timer-*`, `event-lifecycle-*` (events), `lobby-match-*`, `match-calls-*` (match_calls), `premium-*`, `subscription-*` (**subscriptions**), `event-status-*`, `daily-drop-*` (daily_drops), `ready-gate-*` (video_sessions), `vibe-questions-*`, admin: **profiles**, **matches**, **events**, **event_registrations**, **admin_notifications**, **user_reports**, **messages**. The Push Campaigns monitor no longer subscribes to raw `push_notification_events`; it polls the redacted `push_notification_events_admin` view instead.
 
 **Native:**  
 `matches-realtime-*` (matches), `messages-*` (messages), `daily-drop-*` (daily_drops), `lobby-reg-*`, `lobby-video-*`, `event-lifecycle-*`, `match-calls-*` (match_calls), `video-date-session-*` (video_sessions), `ready-gate-*` (video_sessions).
