@@ -9,27 +9,32 @@
 
 export const TIER_IDS = ['free', 'premium', 'vip'] as const;
 export type TierId = (typeof TIER_IDS)[number];
+export const TIER_CONFIG_MAX_INTEGER = 2_147_483_647;
 
 export interface BooleanCapabilities {
   canSeeLikedYou: boolean;
   canCityBrowse: boolean;
   canUseVibeSchedule: boolean;
   canSuggestDate: boolean;
-  canAccessPremiumEvents: boolean;
-  canAccessVipEvents: boolean;
   hasBadge: boolean;
 }
 
 export interface QuotaCapabilities {
   dailySwipeLimit: number | null;
   monthlyEventJoins: number | null;
-  monthlyVideoDateCredits: number | null;
+  monthlyExtraTimeCredits: number;
+  monthlyExtendedVibeCredits: number;
   maxActiveConversations: number | null;
   dailyDropPriority: number;
 }
 
 export interface AccessCapabilities {
   accessibleEventTiers: string[];
+}
+
+export interface DerivedCapabilities {
+  canAccessPremiumEvents: boolean;
+  canAccessVipEvents: boolean;
 }
 
 export interface TierDefinition {
@@ -51,16 +56,13 @@ export const TIERS: Record<TierId, TierDefinition> = {
       canCityBrowse: false,
       canUseVibeSchedule: true,
       canSuggestDate: true,
-      canAccessPremiumEvents: false,
-      canAccessVipEvents: false,
       hasBadge: false,
     },
     quotas: {
       dailySwipeLimit: null,
       monthlyEventJoins: null,
-      /** Monthly auto-replenished credits via credit-replenish cron (1st of month UTC).
-       *  free=0, premium=3 extra_time, vip=10 each type (see replenish_monthly_credits). */
-      monthlyVideoDateCredits: 0,
+      monthlyExtraTimeCredits: 0,
+      monthlyExtendedVibeCredits: 0,
       maxActiveConversations: null,
       dailyDropPriority: 0,
     },
@@ -77,16 +79,13 @@ export const TIERS: Record<TierId, TierDefinition> = {
       canCityBrowse: true,
       canUseVibeSchedule: true,
       canSuggestDate: true,
-      canAccessPremiumEvents: true,
-      canAccessVipEvents: false,
       hasBadge: true,
     },
     quotas: {
       dailySwipeLimit: null,
       monthlyEventJoins: null,
-      /** Monthly auto-replenished credits via credit-replenish cron (1st of month UTC).
-       *  free=0, premium=3 extra_time, vip=10 each type (see replenish_monthly_credits). */
-      monthlyVideoDateCredits: 3,
+      monthlyExtraTimeCredits: 3,
+      monthlyExtendedVibeCredits: 0,
       maxActiveConversations: null,
       dailyDropPriority: 1,
     },
@@ -103,16 +102,13 @@ export const TIERS: Record<TierId, TierDefinition> = {
       canCityBrowse: true,
       canUseVibeSchedule: true,
       canSuggestDate: true,
-      canAccessPremiumEvents: true,
-      canAccessVipEvents: true,
       hasBadge: true,
     },
     quotas: {
       dailySwipeLimit: null,
       monthlyEventJoins: null,
-      /** Monthly auto-replenished credits via credit-replenish cron (1st of month UTC).
-       *  free=0, premium=3 extra_time, vip=10 each type (see replenish_monthly_credits). */
-      monthlyVideoDateCredits: 10,
+      monthlyExtraTimeCredits: 10,
+      monthlyExtendedVibeCredits: 10,
       maxActiveConversations: null,
       dailyDropPriority: 2,
     },
@@ -127,7 +123,7 @@ export function getTierDefinition(tierId: string | null | undefined): TierDefini
   return TIERS.free;
 }
 
-export type FlatCapabilities = BooleanCapabilities & QuotaCapabilities & AccessCapabilities & {
+export type FlatCapabilities = BooleanCapabilities & QuotaCapabilities & AccessCapabilities & DerivedCapabilities & {
   tierId: TierId;
   tierLabel: string;
   badgeType: 'premium' | 'vip' | null;
@@ -136,12 +132,18 @@ export type FlatCapabilities = BooleanCapabilities & QuotaCapabilities & AccessC
 
 export function getFlatCapabilities(tierId: string | null | undefined): FlatCapabilities {
   const def = getTierDefinition(tierId);
+  const canAccessPremiumEvents = def.access.accessibleEventTiers.includes('premium');
+  const canAccessVipEvents = def.access.accessibleEventTiers.includes('vip');
+  const hasBadge = def.boolean.hasBadge;
   return {
     tierId: def.id,
     tierLabel: def.label,
-    badgeType: def.badgeType,
+    badgeType: hasBadge ? def.badgeType : null,
     isPremium: def.id !== 'free',
     ...def.boolean,
+    canAccessPremiumEvents,
+    canAccessVipEvents,
+    hasBadge,
     ...def.quotas,
     ...def.access,
   };
@@ -151,8 +153,9 @@ export function canAccessEventTier(
   userTierId: string | null | undefined,
   eventVisibility: string | null | undefined
 ): boolean {
+  if (!eventVisibility || eventVisibility === 'all') return true;
   const caps = getFlatCapabilities(userTierId);
-  return caps.accessibleEventTiers.includes(eventVisibility || 'free');
+  return caps.accessibleEventTiers.includes(eventVisibility);
 }
 
 export function getUserBadge(
@@ -182,12 +185,11 @@ export const CAPABILITY_REGISTRY: CapabilityMeta[] = [
   { key: 'canCityBrowse', label: 'Browse events in any city', type: 'boolean', category: 'boolean', description: 'Search events outside nearby area' },
   { key: 'canUseVibeSchedule', label: 'Vibe Schedule', type: 'boolean', category: 'boolean', description: 'Access the Vibe Schedule feature' },
   { key: 'canSuggestDate', label: 'Suggest a Date', type: 'boolean', category: 'boolean', description: 'Send date suggestions in chat' },
-  { key: 'canAccessPremiumEvents', label: 'Premium events', type: 'boolean', category: 'boolean', description: 'See and register for premium-tier events' },
-  { key: 'canAccessVipEvents', label: 'VIP events', type: 'boolean', category: 'boolean', description: 'See and register for VIP-tier events' },
   { key: 'hasBadge', label: 'Profile badge', type: 'boolean', category: 'boolean', description: 'Show a tier badge on profile' },
   { key: 'dailySwipeLimit', label: 'Daily swipe limit', type: 'number_or_null', category: 'quota', description: 'Max swipes per day (empty = unlimited)' },
   { key: 'monthlyEventJoins', label: 'Monthly event joins', type: 'number_or_null', category: 'quota', description: 'Max event registrations per month (empty = unlimited)' },
-  { key: 'monthlyVideoDateCredits', label: 'Monthly video credits', type: 'number_or_null', category: 'quota', description: 'Extra video-date credits per month (cron replenishes on the 1st; empty = unlimited when used that way)' },
+  { key: 'monthlyExtraTimeCredits', label: 'Monthly extra-time credits', type: 'number', category: 'quota', description: 'Extra-time video-date credits granted on the 1st of each UTC month' },
+  { key: 'monthlyExtendedVibeCredits', label: 'Monthly extended-vibe credits', type: 'number', category: 'quota', description: 'Extended-vibe credits granted on the 1st of each UTC month' },
   { key: 'maxActiveConversations', label: 'Max conversations', type: 'number_or_null', category: 'quota', description: 'Max active conversations (empty = unlimited)' },
   { key: 'dailyDropPriority', label: 'Daily Drop priority', type: 'number', category: 'quota', description: 'Priority weight for Daily Drop (higher = matched first)' },
   { key: 'accessibleEventTiers', label: 'Event tier access', type: 'string_array', category: 'access', description: 'Which event visibility levels accessible' },
@@ -199,20 +201,20 @@ export function coerceOverrideValue(meta: CapabilityMeta, raw: unknown): unknown
   switch (meta.type) {
     case 'boolean': return raw === true || raw === 'true';
     case 'number': {
-      if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
+      if (typeof raw === 'number' && !Number.isNaN(raw)) return Math.min(TIER_CONFIG_MAX_INTEGER, Math.max(0, Math.trunc(raw)));
       if (typeof raw === 'string' && raw.trim() !== '') {
         const n = Number(raw);
-        return Number.isNaN(n) ? 0 : n;
+        return Number.isNaN(n) ? 0 : Math.min(TIER_CONFIG_MAX_INTEGER, Math.max(0, Math.trunc(n)));
       }
       return 0;
     }
     case 'number_or_null':
       if (raw === null || raw === undefined) return null;
-      if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
+      if (typeof raw === 'number' && !Number.isNaN(raw)) return Math.min(TIER_CONFIG_MAX_INTEGER, Math.max(0, Math.trunc(raw)));
       if (typeof raw === 'string') {
         if (raw.trim() === '') return null;
         const n = Number(raw);
-        return Number.isNaN(n) ? null : n;
+        return Number.isNaN(n) ? null : Math.min(TIER_CONFIG_MAX_INTEGER, Math.max(0, Math.trunc(n)));
       }
       return null;
     case 'string_array':
@@ -246,6 +248,9 @@ export function mergeTierWithOverrides(
   }
   const out = merged as unknown as FlatCapabilities;
   out.isPremium = out.tierId !== 'free';
+  out.canAccessPremiumEvents = Array.isArray(out.accessibleEventTiers) && out.accessibleEventTiers.includes('premium');
+  out.canAccessVipEvents = Array.isArray(out.accessibleEventTiers) && out.accessibleEventTiers.includes('vip');
+  out.badgeType = out.hasBadge ? getTierDefinition(tid).badgeType : null;
   return out;
 }
 

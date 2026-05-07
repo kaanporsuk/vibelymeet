@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import {
-  mergeTierWithOverrides,
+  getFlatCapabilities,
   type FlatCapabilities,
-  type TierConfigOverride,
 } from "@shared/tiers";
 
 type EntitlementsContextValue = FlatCapabilities & {
   isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
   refetch: () => Promise<void>;
 };
 
@@ -24,20 +25,19 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
     queryKey: ["entitlements", userId],
     enabled: !!userId,
     staleTime: 60_000,
-    queryFn: async () => {
+    queryFn: async (): Promise<FlatCapabilities> => {
       if (!userId) {
-        return { tier: "free", overrides: [] as TierConfigOverride[] };
+        return getFlatCapabilities("free");
       }
 
-      const [tierRes, overrideRes] = await Promise.all([
-        supabase.from("profiles").select("subscription_tier").eq("id", userId).maybeSingle(),
-        supabase.from("tier_config_overrides").select("tier_id, capability_key, value"),
-      ]);
-
-      return {
-        tier: tierRes.data?.subscription_tier || "free",
-        overrides: overrideRes.error ? [] : ((overrideRes.data || []) as TierConfigOverride[]),
-      };
+      const { data, error } = await supabase.rpc("get_user_tier_capabilities", {
+        p_user_id: userId,
+      });
+      if (error) throw error;
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Entitlement capabilities were not returned by the backend");
+      }
+      return data as unknown as FlatCapabilities;
     },
   });
 
@@ -71,6 +71,7 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
         },
         () => {
           void queryClient.invalidateQueries({ queryKey: ["entitlements"] });
+          void queryClient.invalidateQueries({ queryKey: ["tier-capabilities"] });
         }
       )
       .subscribe();
@@ -82,17 +83,42 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   }, [queryClient, userId]);
 
   const value = useMemo<EntitlementsContextValue>(() => {
-    const capabilities = mergeTierWithOverrides(query.data?.tier ?? "free", query.data?.overrides ?? []);
+    const capabilities = query.data ?? getFlatCapabilities("free");
     return {
       ...capabilities,
       isLoading: !!userId && query.isLoading,
+      isError: query.isError,
+      error: query.error instanceof Error ? query.error : null,
       refetch: async () => {
         await query.refetch();
       },
     };
   }, [query, userId]);
 
-  return <EntitlementsContext.Provider value={value}>{children}</EntitlementsContext.Provider>;
+  const showEntitlementsError = !!userId && query.isError;
+
+  return (
+    <EntitlementsContext.Provider value={value}>
+      {children}
+      {showEntitlementsError ? (
+        <div
+          role="alert"
+          className="fixed inset-x-4 bottom-4 z-[1000] mx-auto flex max-w-xl items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-background/95 px-4 py-3 text-sm text-foreground shadow-lg backdrop-blur"
+        >
+          <span>Tier benefits could not be verified. Premium gates are using safe defaults.</span>
+          <button
+            type="button"
+            className="shrink-0 rounded-md border border-border px-3 py-1 text-xs font-medium hover:bg-secondary"
+            onClick={() => {
+              void query.refetch();
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+    </EntitlementsContext.Provider>
+  );
 }
 
 export function useEntitlementsContext(): EntitlementsContextValue {

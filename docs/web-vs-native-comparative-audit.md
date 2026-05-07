@@ -74,7 +74,7 @@
 | useEventNotifications | *(removed — PR #143)* | — | — | Was web-only; deleted |
 | useVideoCall | src/hooks/useVideoCall.ts | Yes (different API) | apps/mobile/lib/videoDateApi.ts | Native: useVideoDateSession, getDailyRoomToken, enterHandshake, endVideoDate |
 | useEventStatus | src/hooks/useEventStatus.ts | **MISSING** | — | Web: lobby status; native lobby uses deck + ready gate only |
-| useAdminActivityLog | src/hooks/useAdminActivityLog.ts | **MISSING** | — | No admin in native |
+| useAdminActivityLog | *(deleted — AdminActivityLog calls admin_search_admin_audit_logs directly)* | — | — | No admin in native |
 | useSchedule | src/hooks/useSchedule.ts | Partial | useDateProposals.ts, useDateReminders.ts | Native has date proposals/reminders, no full schedule (time blocks, mutual availability) |
 | useDeleteAccount | src/hooks/useDeleteAccount.ts | **MISSING** | — | Native: link to web for delete |
 | useDailyDrop | src/hooks/useDailyDrop.ts | Yes | apps/mobile/lib/dailyDropApi.ts | useDailyDrop in both |

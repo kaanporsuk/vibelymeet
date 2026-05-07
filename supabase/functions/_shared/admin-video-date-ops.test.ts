@@ -4,6 +4,7 @@ import {
   VIDEO_DATE_OPS_WINDOWS,
   classifyHigherIsBetter,
   classifyLowerIsBetter,
+  dedupeEarliestRowsBySessionActor,
   extractVideoDateTimelineTraceIds,
   hasVideoDateTimelineRole,
   isValidUuid,
@@ -58,21 +59,85 @@ test("swipe recovery treats already_matched with session id as recovered", () =>
   assert.equal(summary.recovery_rate, 1 / 3);
 });
 
-test("queue drain summaries aggregate non-success reason counts", () => {
+test("queue drain summaries separate no-ops, blocked attempts, and true failures", () => {
   const summary = summarizeQueueDrain([
     { outcome: "success", reason_code: "promoted" },
+    { outcome: "no_op", reason_code: "no_queued_session" },
     { outcome: "blocked", reason_code: "partner_not_present" },
     { outcome: "error", reason_code: "rpc_error" },
     { outcome: "error", reason_code: "rpc_error" },
   ]);
 
-  assert.equal(summary.attempts, 4);
-  assert.equal(summary.failures, 3);
-  assert.equal(summary.failure_rate, 0.75);
+  assert.equal(summary.attempts, 5);
+  assert.equal(summary.successes, 1);
+  assert.equal(summary.no_ops, 1);
+  assert.equal(summary.blocked, 1);
+  assert.equal(summary.failures, 2);
+  assert.equal(summary.failure_rate, 0.4);
+  assert.equal(summary.non_success_rate, 0.8);
   assert.deepEqual(summary.top_failure_reasons, [
     { reason: "rpc_error", count: 2 },
+  ]);
+  assert.deepEqual(summary.top_no_op_reasons, [
+    { reason: "no_queued_session", count: 1 },
+  ]);
+  assert.deepEqual(summary.top_blocked_reasons, [
     { reason: "partner_not_present", count: 1 },
   ]);
+});
+
+test("queue drain expected no-op reasons are not failures even on legacy outcomes", () => {
+  const summary = summarizeQueueDrain([
+    { outcome: "success", reason_code: "no_queued_session" },
+    { outcome: "blocked", reason_code: "no_queued_session" },
+    { outcome: "error", reason_code: "session_not_promotable" },
+  ]);
+
+  assert.equal(summary.successes, 0);
+  assert.equal(summary.no_ops, 3);
+  assert.equal(summary.failures, 0);
+  assert.equal(summary.failure_rate, 0);
+});
+
+test("first-frame dedupe keeps the earliest sample per session and actor", () => {
+  const rows = [
+    {
+      session_id: "session-a",
+      actor_id: "actor-1",
+      created_at: "2026-05-07T09:42:55.000Z",
+      latency_ms: 55_000,
+      source: "playing",
+    },
+    {
+      session_id: "session-a",
+      actor_id: "actor-1",
+      created_at: "2026-05-07T09:42:12.000Z",
+      latency_ms: 12_000,
+      source: "loadeddata",
+    },
+    {
+      session_id: "session-a",
+      actor_id: "actor-2",
+      created_at: "2026-05-07T09:42:13.000Z",
+      latency_ms: 13_000,
+      source: "loadeddata",
+    },
+    {
+      session_id: "session-a",
+      actor_id: "actor-2",
+      created_at: "2026-05-07T09:42:43.000Z",
+      latency_ms: 43_000,
+      source: "playing",
+    },
+  ];
+
+  assert.deepEqual(
+    dedupeEarliestRowsBySessionActor(rows).map((row) => [row.actor_id, row.latency_ms, row.source]),
+    [
+      ["actor-1", 12_000, "loadeddata"],
+      ["actor-2", 13_000, "loadeddata"],
+    ],
+  );
 });
 
 test("status classifiers keep threshold semantics explicit", () => {

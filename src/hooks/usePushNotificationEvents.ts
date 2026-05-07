@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
 
 export type NotificationPlatform = "web" | "ios" | "android" | "pwa";
 export type NotificationStatus = "queued" | "sending" | "sent" | "delivered" | "opened" | "clicked" | "failed" | "bounced";
@@ -39,24 +39,36 @@ export interface NotificationStats {
   byPlatform: Record<NotificationPlatform, number>;
 }
 
-type PushNotificationEventRow = {
-  id?: string | number | null;
-  campaign_id?: string | null;
-  user_id?: string | null;
-  device_token?: string | null;
-  platform?: NotificationPlatform | string | null;
-  status?: NotificationStatus | string | null;
-  fcm_message_id?: string | null;
-  apns_message_id?: string | null;
-  error_code?: string | null;
-  error_message?: string | null;
-  queued_at?: string | null;
-  sent_at?: string | null;
-  delivered_at?: string | null;
-  opened_at?: string | null;
-  clicked_at?: string | null;
-  created_at?: string | null;
+type PushCampaignTitlesPayload = AdminRpcPayload & {
+  campaigns?: Array<{
+    id: string;
+    title: string;
+  }>;
 };
+
+const EMPTY_NOTIFICATION_STATS: NotificationStats = {
+  total: 0,
+  queued: 0,
+  sending: 0,
+  sent: 0,
+  delivered: 0,
+  opened: 0,
+  clicked: 0,
+  failed: 0,
+  bounced: 0,
+  byPlatform: { web: 0, ios: 0, android: 0, pwa: 0 },
+};
+
+function emptyNotificationStats(): NotificationStats {
+  return {
+    ...EMPTY_NOTIFICATION_STATS,
+    byPlatform: { ...EMPTY_NOTIFICATION_STATS.byPlatform },
+  };
+}
+
+function isNotificationPlatform(value: string): value is NotificationPlatform {
+  return value === "web" || value === "ios" || value === "android" || value === "pwa";
+}
 
 function isNotificationStatus(value: string): value is NotificationStatus {
   return (
@@ -71,67 +83,92 @@ function isNotificationStatus(value: string): value is NotificationStatus {
   );
 }
 
+function calculateNotificationStats(eventList: PushNotificationEvent[]): NotificationStats {
+  const nextStats = emptyNotificationStats();
+  nextStats.total = eventList.length;
+
+  eventList.forEach((event) => {
+    nextStats[event.status]++;
+    nextStats.byPlatform[event.platform]++;
+  });
+
+  return nextStats;
+}
+
 export function usePushNotificationEvents(limit: number = 50) {
   const [events, setEvents] = useState<PushNotificationEvent[]>([]);
-  const [stats, setStats] = useState<NotificationStats>({
-    total: 0,
-    queued: 0,
-    sending: 0,
-    sent: 0,
-    delivered: 0,
-    opened: 0,
-    clicked: 0,
-    failed: 0,
-    bounced: 0,
-    byPlatform: { web: 0, ios: 0, android: 0, pwa: 0 },
-  });
+  const [stats, setStats] = useState<NotificationStats>(() => emptyNotificationStats());
   const [isLoading, setIsLoading] = useState(true);
   const [isLive, setIsLive] = useState(true);
-  const queryClient = useQueryClient();
 
-  // Fetch initial events using the secure admin view (masks device tokens)
   const fetchEvents = useCallback(async () => {
     try {
-      // Fetch events from the secure admin view that masks sensitive device tokens
       const { data: eventsData, error: eventsError } = await supabase
         .from("push_notification_events_admin")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(limit);
 
-      // Fetch campaign titles separately since views don't support joins
+      if (eventsError) {
+        console.error("Error fetching push events:", eventsError);
+        setEvents([]);
+        setStats(emptyNotificationStats());
+        return;
+      }
+
+      // Fetch campaign titles through the governed admin read model; the browser
+      // should not select directly from push campaign tables.
       const rawCampaignIds = eventsData?.map((e) => e.campaign_id) ?? [];
       const campaignIds = [...new Set(rawCampaignIds.filter((id): id is string => !!id))];
-      const { data: campaigns } =
-        campaignIds.length > 0
-          ? await supabase
-              .from("push_campaigns")
-              .select("id, title")
-              .in("id", campaignIds)
-          : { data: [] as { id: string; title: string }[] };
-      
+      let campaigns: PushCampaignTitlesPayload["campaigns"] = [];
+      if (campaignIds.length > 0) {
+        try {
+          const campaignsPayload = await callAdminRpc<PushCampaignTitlesPayload>("admin_get_push_campaigns_read_model", {});
+          const wantedCampaignIds = new Set(campaignIds);
+          campaigns = (campaignsPayload.campaigns ?? []).filter((campaign) => wantedCampaignIds.has(campaign.id));
+        } catch (error) {
+          console.error("Error fetching push campaign titles:", error);
+        }
+      }
+
       const campaignMap = new Map<string, string>(
         (campaigns || []).map(c => [c.id, c.title] as [string, string])
       );
 
-      if (eventsError) {
-        console.error("Error fetching push events:", eventsError);
-        return;
-      }
-
       // Fetch user names for events
       const rawUserIds = eventsData?.map((e) => e.user_id) ?? [];
       const userIds = [...new Set(rawUserIds.filter((id): id is string => !!id))];
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, name")
-        .in("id", userIds);
+      const { data: profiles } =
+        userIds.length > 0
+          ? await supabase
+              .from("profiles")
+              .select("id, name")
+              .in("id", userIds)
+          : { data: [] as { id: string; name: string | null }[] };
 
-      const profileMap = new Map(profiles?.map(p => [p.id, p.name]) || []);
+      const profileMap = new Map<string, string | null>(
+        (profiles || []).map((p) => [p.id, p.name] as [string, string | null])
+      );
 
       const transformedEvents: PushNotificationEvent[] = (eventsData || [])
-        .filter((event): event is typeof event & { id: string; user_id: string; queued_at: string; created_at: string } => {
-          return Boolean(event.id && event.user_id && event.queued_at && event.created_at);
+        .filter((event): event is typeof event & {
+          id: string;
+          user_id: string;
+          queued_at: string;
+          created_at: string;
+          platform: NotificationPlatform;
+          status: NotificationStatus;
+        } => {
+          return Boolean(
+            event.id &&
+            event.user_id &&
+            event.queued_at &&
+            event.created_at &&
+            typeof event.platform === "string" &&
+            isNotificationPlatform(event.platform) &&
+            typeof event.status === "string" &&
+            isNotificationStatus(event.status)
+          );
         })
         .map((event) => ({
           id: event.id,
@@ -139,8 +176,8 @@ export function usePushNotificationEvents(limit: number = 50) {
           user_id: event.user_id,
           user_name: profileMap.get(event.user_id) || "Unknown User",
           device_token: event.device_token,
-          platform: event.platform as NotificationPlatform,
-          status: event.status as NotificationStatus,
+          platform: event.platform,
+          status: event.status,
           fcm_message_id: event.fcm_message_id,
           apns_message_id: event.apns_message_id,
           error_code: event.error_code,
@@ -152,166 +189,41 @@ export function usePushNotificationEvents(limit: number = 50) {
           clicked_at: event.clicked_at,
           created_at: event.created_at,
           campaign_title: event.campaign_id
-            ? campaignMap.get(event.campaign_id) || "Direct Notification"
+            ? campaignMap.get(event.campaign_id) || "Campaign telemetry"
             : "Direct Notification",
         }));
 
       setEvents(transformedEvents);
-      calculateStats(transformedEvents);
+      setStats(calculateNotificationStats(transformedEvents));
     } catch (error) {
       console.error("Failed to fetch events:", error);
+      setEvents([]);
+      setStats(emptyNotificationStats());
     } finally {
       setIsLoading(false);
     }
   }, [limit]);
 
-  // Calculate stats from events
-  const calculateStats = (eventList: PushNotificationEvent[]) => {
-    const newStats: NotificationStats = {
-      total: eventList.length,
-      queued: 0,
-      sending: 0,
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      failed: 0,
-      bounced: 0,
-      byPlatform: { web: 0, ios: 0, android: 0, pwa: 0 },
-    };
-
-    eventList.forEach(event => {
-      // Count by status
-      if (isNotificationStatus(event.status)) {
-        newStats[event.status]++;
-      }
-      // Count by platform
-      if (event.platform in newStats.byPlatform) {
-        newStats.byPlatform[event.platform]++;
-      }
-    });
-
-    setStats(newStats);
-  };
-
-  // Real-time subscription
+  // Poll the redacted admin telemetry view. Avoid subscribing to the raw table:
+  // database change-feed payloads are not the admin redaction boundary.
   useEffect(() => {
-    if (!isLive) return;
+    void fetchEvents();
+  }, [fetchEvents]);
 
-    fetchEvents();
+  useEffect(() => {
+    if (!isLive) return undefined;
 
-    const channel = supabase
-      .channel("push-notification-events-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "push_notification_events",
-        },
-        async (payload) => {
-          console.log("Push notification event update:", payload);
+    const refreshInterval = window.setInterval(() => {
+      void fetchEvents();
+    }, 15_000);
 
-          if (payload.eventType === "INSERT") {
-            const newEvent = payload.new as PushNotificationEventRow;
-            if (!newEvent.id || !newEvent.user_id || !newEvent.queued_at || !newEvent.created_at) {
-              return;
-            }
-            
-            // Fetch user name
-            const { data: profile } = await supabase
-              .from("profiles")
-              .select("name")
-              .eq("id", newEvent.user_id)
-              .single();
-
-            // Fetch campaign title if exists
-            let campaignTitle = "Direct Notification";
-            if (newEvent.campaign_id) {
-              const { data: campaign } = await supabase
-                .from("push_campaigns")
-                .select("title")
-                .eq("id", newEvent.campaign_id)
-                .single();
-              campaignTitle = campaign?.title || campaignTitle;
-            }
-
-            const transformedEvent: PushNotificationEvent = {
-              id: String(newEvent.id),
-              campaign_id: newEvent.campaign_id ?? null,
-              user_id: String(newEvent.user_id),
-              user_name: profile?.name || "Unknown User",
-              device_token: newEvent.device_token ?? null,
-              platform: newEvent.platform as NotificationPlatform,
-              status: newEvent.status as NotificationStatus,
-              fcm_message_id: newEvent.fcm_message_id ?? null,
-              apns_message_id: newEvent.apns_message_id ?? null,
-              error_code: newEvent.error_code ?? null,
-              error_message: newEvent.error_message ?? null,
-              queued_at: newEvent.queued_at,
-              sent_at: newEvent.sent_at ?? null,
-              delivered_at: newEvent.delivered_at ?? null,
-              opened_at: newEvent.opened_at ?? null,
-              clicked_at: newEvent.clicked_at ?? null,
-              created_at: newEvent.created_at,
-              campaign_title: campaignTitle,
-            };
-
-            setEvents(prev => {
-              const updated = [transformedEvent, ...prev].slice(0, limit);
-              calculateStats(updated);
-              return updated;
-            });
-          } else if (payload.eventType === "UPDATE") {
-            const updatedEvent = payload.new as PushNotificationEventRow;
-            if (!updatedEvent.id) return;
-            
-            setEvents(prev => {
-              const updated = prev.map(e => {
-                if (e.id === String(updatedEvent.id)) {
-                  return {
-                    ...e,
-                    status: (updatedEvent.status ?? e.status) as NotificationStatus,
-                    sent_at: updatedEvent.sent_at ?? null,
-                    delivered_at: updatedEvent.delivered_at ?? null,
-                    opened_at: updatedEvent.opened_at ?? null,
-                    clicked_at: updatedEvent.clicked_at ?? null,
-                    error_code: updatedEvent.error_code ?? null,
-                    error_message: updatedEvent.error_message ?? null,
-                  };
-                }
-                return e;
-              });
-              calculateStats(updated);
-              return updated;
-            });
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log("Push events realtime subscription:", status);
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [isLive, fetchEvents, limit]);
+    return () => window.clearInterval(refreshInterval);
+  }, [isLive, fetchEvents]);
 
   // Reset events
   const resetEvents = useCallback(() => {
     setEvents([]);
-    setStats({
-      total: 0,
-      queued: 0,
-      sending: 0,
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      failed: 0,
-      bounced: 0,
-      byPlatform: { web: 0, ios: 0, android: 0, pwa: 0 },
-    });
+    setStats(emptyNotificationStats());
   }, []);
 
   return {

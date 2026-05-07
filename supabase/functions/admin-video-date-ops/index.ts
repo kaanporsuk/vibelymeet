@@ -4,6 +4,7 @@ import {
   VIDEO_DATE_OPS_WINDOWS,
   classifyHigherIsBetter,
   classifyLowerIsBetter,
+  dedupeEarliestRowsBySessionActor,
   hasVideoDateTimelineRole,
   isValidUuid,
   safeVideoDateTimelineRows,
@@ -395,6 +396,7 @@ async function getReadyTapToFirstRemoteFrameLatency(
       p50_ms: null,
       p95_ms: null,
       max_ms: null,
+      raw_sample_count: 0,
       segment_breakdown: [] as SegmentLatencySummary[],
       cohort_breakdown: [] as CohortLatencySummary[],
       slowest_sessions: [] as SlowLaunchSessionSummary[],
@@ -415,7 +417,8 @@ async function getReadyTapToFirstRemoteFrameLatency(
     }
   }
 
-  const firstFrameRows = result.rows.filter((row) => row.reason_code === "first_remote_frame");
+  const rawFirstFrameRows = result.rows.filter((row) => row.reason_code === "first_remote_frame");
+  const firstFrameRows = dedupeEarliestRowsBySessionActor(rawFirstFrameRows);
 
   const latencies = firstFrameRows.flatMap((row) => {
     const latencyMs =
@@ -495,6 +498,7 @@ async function getReadyTapToFirstRemoteFrameLatency(
   const summary = summarizeLatencyMs(latencies);
   return {
     ...summary,
+    raw_sample_count: rawFirstFrameRows.length,
     segment_breakdown: segmentBreakdown,
     cohort_breakdown: cohortBreakdown,
     slowest_sessions: slowestSessions,
@@ -693,9 +697,15 @@ async function getQueueDrainFailures(
   if (result.error) {
     return {
       attempts: 0,
+      successes: 0,
+      no_ops: 0,
+      blocked: 0,
       failures: 0,
       failure_rate: null,
+      non_success_rate: null,
       top_failure_reasons: [],
+      top_no_op_reasons: [],
+      top_blocked_reasons: [],
       status: "unknown" as MetricStatus,
       source_error: result.error,
       truncated: result.truncated,

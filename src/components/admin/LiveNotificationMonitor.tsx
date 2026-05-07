@@ -110,6 +110,8 @@ const LiveNotificationMonitor = () => {
     return new Date(timestamp).toLocaleTimeString();
   };
 
+  const hasProviderIdentifier = (value: string | null) => Boolean(value && value !== "[REDACTED]");
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -122,16 +124,16 @@ const LiveNotificationMonitor = () => {
             )}
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Live Delivery Monitor</h3>
+            <h3 className="text-lg font-semibold text-foreground">Admin Telemetry Monitor</h3>
             <p className="text-sm text-muted-foreground">
-              Real-time notification pipeline with FCM/APNs webhooks
+              Latest admin telemetry events. This is not proof of every transactional push send.
             </p>
           </div>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Label htmlFor="live-toggle" className="text-sm text-muted-foreground">
-              Live Updates
+              Auto Refresh
             </Label>
             <Switch
               id="live-toggle"
@@ -159,10 +161,10 @@ const LiveNotificationMonitor = () => {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-yellow-400" />
-            <span className="text-sm font-medium text-foreground">Real-time Stats</span>
+            <span className="text-sm font-medium text-foreground">Latest Telemetry Stats</span>
           </div>
           <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30">
-            {stats.total} events tracked
+            {stats.total} telemetry rows tracked
           </Badge>
         </div>
 
@@ -198,21 +200,21 @@ const LiveNotificationMonitor = () => {
         <div className="grid grid-cols-3 gap-4">
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-muted-foreground">Delivery Rate</span>
+              <span className="text-muted-foreground">Telemetry Delivery</span>
               <span className="text-accent font-medium">{deliveryRate}%</span>
             </div>
             <Progress value={deliveryRate} className="h-2" />
           </div>
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-muted-foreground">Open Rate</span>
+              <span className="text-muted-foreground">Telemetry Opens</span>
               <span className="text-green-400 font-medium">{openRate}%</span>
             </div>
             <Progress value={openRate} className="h-2" />
           </div>
           <div>
             <div className="flex justify-between text-xs mb-1">
-              <span className="text-muted-foreground">Click-Through</span>
+              <span className="text-muted-foreground">Telemetry Clicks</span>
               <span className="text-blue-400 font-medium">{clickRate}%</span>
             </div>
             <Progress value={clickRate} className="h-2" />
@@ -232,7 +234,7 @@ const LiveNotificationMonitor = () => {
               <div className="text-2xl font-bold text-foreground">
                 {stats.byPlatform[platform]}
               </div>
-              <div className="text-xs text-muted-foreground">notifications</div>
+              <div className="text-xs text-muted-foreground">telemetry rows</div>
             </CardContent>
           </Card>
         ))}
@@ -244,7 +246,7 @@ const LiveNotificationMonitor = () => {
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${isLive ? "bg-green-400 animate-pulse" : "bg-muted-foreground"}`} />
-              Live Event Feed
+              Telemetry Feed
             </CardTitle>
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="h-8">
@@ -290,12 +292,12 @@ const LiveNotificationMonitor = () => {
                             {getDeviceIcon(event.platform)}
                             {getPlatformLabel(event.platform)}
                           </Badge>
-                          {event.fcm_message_id && (
+                          {hasProviderIdentifier(event.fcm_message_id) && (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-orange-500/10 text-orange-400 border-orange-500/30">
                               FCM
                             </Badge>
                           )}
-                          {event.apns_message_id && (
+                          {hasProviderIdentifier(event.apns_message_id) && (
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-400 border-blue-500/30">
                               APNs
                             </Badge>
@@ -329,8 +331,8 @@ const LiveNotificationMonitor = () => {
                 {filteredEvents.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-[300px] text-muted-foreground">
                     <Radio className="w-8 h-8 mb-2 opacity-50" />
-                    <p className="text-sm">No events yet</p>
-                    <p className="text-xs">Webhook events will appear here in real-time</p>
+                    <p className="text-sm">No telemetry rows yet</p>
+                    <p className="text-xs">Webhook or campaign telemetry rows will appear here when present.</p>
                   </div>
                 )}
               </AnimatePresence>
@@ -342,7 +344,7 @@ const LiveNotificationMonitor = () => {
       {/* Pipeline Visualization */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Notification Pipeline</CardTitle>
+          <CardTitle className="text-sm font-medium">Telemetry Status Flow</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between overflow-x-auto pb-2">
@@ -391,7 +393,7 @@ const LiveNotificationMonitor = () => {
       {/* Webhook Setup Info */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Webhook Endpoints</CardTitle>
+          <CardTitle className="text-sm font-medium">Provider/Webhook Telemetry Endpoints</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="p-3 rounded-lg bg-secondary/30 border border-border">

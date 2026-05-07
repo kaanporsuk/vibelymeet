@@ -74,8 +74,8 @@ Important nuance: `user_disabled` is used for both the master `push_enabled` tog
 - `push_campaigns` and `push_notification_events` are campaign/admin telemetry tables, not the transactional `send-notification` ledger.
 - `push_notification_events_admin` redacts FCM/APNs/device token fields for admin reads.
 - `src/components/admin/AdminLiveEventMetrics.tsx` queries `notification_log` by `data->>event_id` for event lifecycle diagnostics.
-- `src/hooks/usePushNotificationEvents.ts` and `src/hooks/usePushAnalytics.ts` visualize `push_notification_events`, but those rows are not populated by normal `send-notification` sends.
-- `src/components/admin/AdminPushCampaignsPanel.tsx` creates `push_campaigns` rows and inserts `push_notification_events` rows with `status='queued'`, but the inspected code does not send OneSignal pushes for those campaign rows.
+- `src/hooks/usePushNotificationEvents.ts` visualizes the redacted `push_notification_events_admin` view and polls it without raw table realtime payloads; `src/hooks/usePushAnalytics.ts` reads the `admin_get_push_delivery_metrics` RPC selected-window summary.
+- `src/components/admin/AdminPushCampaignsPanel.tsx` saves draft `push_campaigns` rows through admin RPCs only. It does not enqueue `push_notification_events` rows or send OneSignal pushes for those campaign rows.
 - `notification_outbox` appears in generated Supabase types and prior docs, but current repo searches did not find active Edge Function usage in the delivery path.
 
 ### 7. Provider/Webhook Telemetry

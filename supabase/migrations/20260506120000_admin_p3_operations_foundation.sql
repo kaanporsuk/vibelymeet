@@ -968,10 +968,10 @@ BEGIN
       al.created_at
     FROM filtered al
     LEFT JOIN public.profiles admin_profile ON admin_profile.id = al.admin_id
-    ORDER BY al.created_at DESC
+    ORDER BY al.created_at DESC, al.id DESC
     LIMIT v_limit OFFSET v_offset
   )
-  SELECT COALESCE(jsonb_agg(to_jsonb(page)), '[]'::jsonb)
+  SELECT COALESCE(jsonb_agg(to_jsonb(page) ORDER BY page.created_at DESC, page.id DESC), '[]'::jsonb)
   INTO v_rows
   FROM page;
 

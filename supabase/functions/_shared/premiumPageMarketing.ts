@@ -31,17 +31,17 @@ export function getPremiumTierMarketingBullets(): string[] {
   if (p.boolean.canCityBrowse) {
     lines.push("Browse and filter events by city — not only near you");
   }
-  if (p.boolean.canAccessPremiumEvents) {
+  if (p.access.accessibleEventTiers.includes("premium")) {
     lines.push("Register for Premium-tier events");
   }
   if (p.boolean.hasBadge) {
     lines.push("Premium badge on your profile");
   }
 
-  const credits = p.quotas.monthlyVideoDateCredits;
-  if (typeof credits === "number" && credits > 0) {
+  const credits = p.quotas.monthlyExtraTimeCredits;
+  if (credits > 0) {
     lines.push(
-      `${credits} video date credits per replenishment cycle (monthly on the standard Premium tier)`,
+      `${credits} extra-time video date credits per replenishment cycle (monthly on the standard Premium tier)`,
     );
   }
 

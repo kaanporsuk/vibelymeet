@@ -50,6 +50,7 @@ type PhotoVerificationRow = {
   selfie_url: string | null;
   status: string;
   created_at: string;
+  reviewed_at: string | null;
   client_confidence_score: number | null;
   client_match_result: boolean | null;
   rejection_reason: string | null;
@@ -418,6 +419,8 @@ const AdminPhotoVerificationPanel = () => {
           {verifications.map((v) => {
             const profile = profileMap[v.user_id];
             const urls = resolvedUrls[v.id];
+            const timestampLabel = activeTab === "pending" ? "Submitted" : "Reviewed";
+            const timestampValue = activeTab === "pending" ? v.created_at : v.reviewed_at ?? v.created_at;
             return (
               <div key={v.id} className="glass-card p-4 space-y-3">
                 {/* Side-by-side images */}
@@ -466,7 +469,7 @@ const AdminPhotoVerificationPanel = () => {
                       {profile?.name || "Unknown"}{profile?.age ? `, ${profile.age}` : ""}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Submitted {timeAgo(v.created_at)}
+                      {timestampLabel} {timeAgo(timestampValue)}
                     </p>
                   </div>
                   <div className="text-right">

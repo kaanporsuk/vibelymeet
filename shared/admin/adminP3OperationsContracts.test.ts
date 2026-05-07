@@ -7,8 +7,12 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260506120000_admin_p3_operations_foundation.sql");
+const auditStableOrderingClassificationMigration = read(
+  "supabase/migrations/20260507162000_admin_audit_log_stable_ordering_classification.sql",
+);
 const validation = read("supabase/validation/admin_p3_operations_foundation.sql");
 const operationsCenter = read("src/components/admin/AdminOperationsCenter.tsx");
+const activityLog = read("src/components/admin/AdminActivityLog.tsx");
 const dashboard = read("src/pages/admin/AdminDashboard.tsx");
 const sidebar = read("src/components/admin/AdminSidebar.tsx");
 const packageJson = read("package.json");
@@ -125,6 +129,64 @@ test("P3 Operations Center has no direct writes or browser-side provider calls",
   assert.doesNotMatch(operationsCenter, /\bfetch\(/);
   assert.doesNotMatch(operationsCenter, /STRIPE|BUNNY|DAILY_API|ONESIGNAL|RESEND|TWILIO/);
   assert.doesNotMatch(operationsCenter, /secret|api[_-]?key/i);
+});
+
+test("Activity Log tab uses the governed audit RPC instead of direct table reads", () => {
+  assert.match(activityLog, /callAdminRpc<AdminActivityLogPayload>\("admin_search_admin_audit_logs"/);
+  assert.doesNotMatch(activityLog, /\.from\(["']admin_activity_logs["']\)/);
+  assert.doesNotMatch(activityLog, /\.from\([^)]*\)[\s\S]{0,300}\.(insert|update|upsert|delete)\(/);
+  assert.match(activityLog, /p_action_type: filterAction === "all" \? null : filterAction/);
+  assert.match(activityLog, /p_target_type: filterTarget === "all" \? null : filterTarget/);
+  assert.match(activityLog, /p_from: fromBoundary/);
+  assert.match(activityLog, /p_to: toBoundary/);
+  assert.match(activityLog, /p_limit: ACTIVITY_LOG_PAGE_SIZE/);
+  assert.match(activityLog, /p_offset: pageIndex \* ACTIVITY_LOG_PAGE_SIZE/);
+  assert.match(activityLog, /enabled: !hasInvalidDateRange/);
+  assert.match(activityLog, /sanitizeAdminRpcErrorMessage\(error\)/);
+  assert.match(activityLog, /Array\.isArray\(activityPayload\?\.rows\)/);
+  assert.match(activityLog, /Number\.isFinite\(reportedTotalCount\)/);
+  assert.match(fnSection("admin_search_admin_audit_logs"), /ORDER BY al\.created_at DESC, al\.id DESC/);
+  assert.match(fnSection("admin_search_admin_audit_logs"), /jsonb_agg\(to_jsonb\(page\) ORDER BY page\.created_at DESC, page\.id DESC\)/);
+  assert.match(auditStableOrderingClassificationMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(auditStableOrderingClassificationMigration, /'20260507155000'/);
+  assert.match(auditStableOrderingClassificationMigration, /'20260507162000'/);
+  assert.match(auditStableOrderingClassificationMigration, /'schema-only'/);
+});
+
+test("Activity Log tab presents current dotted actions, legacy fallbacks, and pagination states", () => {
+  assert.match(activityLog, /"event\.delete"/);
+  assert.match(activityLog, /"event\.create"/);
+  assert.match(activityLog, /"event\.end"/);
+  assert.match(activityLog, /"credit\.adjust"/);
+  assert.match(activityLog, /"moderation\.user_suspended"/);
+  assert.match(activityLog, /"report\.dismiss"/);
+  assert.match(activityLog, /"notification\.mark_read"/);
+  assert.match(activityLog, /"support\.exception_create"/);
+  assert.match(activityLog, /"compliance\.export_queued"/);
+  assert.match(activityLog, /"premium\.correct_history"/);
+  assert.match(activityLog, /"report\.policy_context_attached"/);
+  assert.match(activityLog, /"experiment\.status_update"/);
+  assert.match(activityLog, /"trust\.recommendation_decision"/);
+  assert.match(activityLog, /"event_registration\.mark_attendance"/);
+  assert.match(activityLog, /"event_registration\.remove"/);
+  assert.match(activityLog, /event_registration/);
+  assert.match(activityLog, /media_jobs_requeue_stale/);
+  assert.match(activityLog, /media_jobs_retry_failed/);
+  assert.match(activityLog, /media_retention_setting_updated/);
+  assert.match(activityLog, /media_retention_chat_policy_updated/);
+  assert.match(activityLog, /media_retention_settings/);
+  assert.match(activityLog, /create_event_payment_exception/);
+  assert.match(activityLog, /transition_event_payment_exception/);
+  assert.match(activityLog, /delete_event/);
+  assert.match(activityLog, /formatUnknownActionLabel/);
+  assert.match(activityLog, /formatDetailsSummary/);
+  assert.match(activityLog, /boundary\.setDate\(boundary\.getDate\(\) \+ 1\)/);
+  assert.match(activityLog, /Start date must be before the end date/);
+  assert.match(activityLog, /Showing \{firstVisibleLog\}-\{lastVisibleLog\} of \{totalCount\} logs/);
+  assert.match(activityLog, /Previous/);
+  assert.match(activityLog, /Next/);
+  assert.match(activityLog, /Refresh/);
+  assert.match(activityLog, /Unable to read activity logs from admin_search_admin_audit_logs/);
 });
 
 test("package exposes P3 source-contract test script", () => {

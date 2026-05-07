@@ -42,10 +42,21 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
   }, [queryClient]);
 
+  const invalidateSupport = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-support-thread"] });
+  }, [queryClient]);
+
   const invalidateReports = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["admin-reports"] });
     invalidateOverview();
   }, [invalidateOverview, queryClient]);
+
+  const invalidatePhotoVerifications = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["admin-photo-verifications"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-verification-stats"] });
+  }, [queryClient]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -128,7 +139,25 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "support_tickets" },
-        invalidateBadges
+        invalidateSupport
+      )
+      .subscribe();
+
+    const supportRepliesChannel = supabase
+      .channel("admin-support-replies-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_ticket_replies" },
+        invalidateSupport
+      )
+      .subscribe();
+
+    const supportEventsChannel = supabase
+      .channel("admin-support-events-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "support_ticket_events" },
+        invalidateSupport
       )
       .subscribe();
 
@@ -138,6 +167,15 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
         "postgres_changes",
         { event: "*", schema: "public", table: "feedback" },
         invalidateBadges
+      )
+      .subscribe();
+
+    const photoVerificationsChannel = supabase
+      .channel("admin-photo-verifications-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "photo_verifications" },
+        invalidatePhotoVerifications
       )
       .subscribe();
 
@@ -160,7 +198,10 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
       supabase.removeChannel(notificationsChannel);
       supabase.removeChannel(reportsChannel);
       supabase.removeChannel(supportTicketsChannel);
+      supabase.removeChannel(supportRepliesChannel);
+      supabase.removeChannel(supportEventsChannel);
       supabase.removeChannel(feedbackChannel);
+      supabase.removeChannel(photoVerificationsChannel);
       supabase.removeChannel(messagesChannel);
     };
   }, [
@@ -172,6 +213,8 @@ export const useAdminRealtime = ({ enabled = true }: UseAdminRealtimeOptions = {
     invalidateNotifications,
     invalidateReports,
     invalidateBadges,
+    invalidateSupport,
+    invalidatePhotoVerifications,
     queryClient,
   ]);
 

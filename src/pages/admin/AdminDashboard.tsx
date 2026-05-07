@@ -135,7 +135,7 @@ const AdminDashboard = () => {
                   {activePanel === 'users' && 'Manage all user profiles and activity'}
                   {activePanel === 'events' && 'Create and manage events'}
                   {activePanel === 'reports' && 'Review and act on user reports'}
-                  {activePanel === 'export' && 'Queue audited exports or run legacy CSV/printable HTML'}
+                  {activePanel === 'export' && 'Queue governed audited exports'}
                   {activePanel === 'event-analytics' && 'Registration trends, attendance rates, and revenue'}
                   {activePanel === 'video-date-timeline' && 'Inspect a session timeline by video session UUID'}
                   {activePanel === 'activity-log' && 'Track all admin moderation actions'}

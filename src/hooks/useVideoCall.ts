@@ -562,6 +562,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const optionsRef = useRef(options);
   const firstRemoteObservedRef = useRef(false);
   const localVideoReadyTrackedRef = useRef(false);
+  const remoteFirstFrameTrackedRef = useRef(false);
   const lastLocalTrackIdsRef = useRef<string>("");
   const lastLocalStreamRef = useRef<MediaStream | null>(null);
   const lastRemoteTrackIdsRef = useRef<string>("");
@@ -674,10 +675,6 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   }, [isConnected, isConnecting]);
 
   const markRemoteFirstFrameRendered = useCallback((source: string) => {
-    const nowMs = Date.now();
-    const entry = activePreparedEntryCacheRef.current;
-    const bothReadyToFirstRemoteFrameMs =
-      entry?.bothReadyObservedAtMs == null ? null : Math.max(0, nowMs - entry.bothReadyObservedAtMs);
     setRemotePlayback((prev) => {
       if (prev.firstFrameRendered) return prev;
       return {
@@ -687,6 +684,16 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         firstFrameRendered: true,
       };
     });
+
+    const currentOptions = optionsRef.current;
+    if (remoteFirstFrameTrackedRef.current || !currentOptions?.roomId) return;
+    const sessionId = currentOptions.roomId;
+    remoteFirstFrameTrackedRef.current = true;
+
+    const nowMs = Date.now();
+    const entry = activePreparedEntryCacheRef.current;
+    const bothReadyToFirstRemoteFrameMs =
+      entry?.bothReadyObservedAtMs == null ? null : Math.max(0, nowMs - entry.bothReadyObservedAtMs);
     vdbg("daily_remote_first_frame_rendered", {
       sessionId: optionsRef.current?.roomId ?? null,
       eventId: optionsRef.current?.eventId ?? null,
@@ -694,33 +701,31 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       source,
       bothReadyToFirstRemoteFrameMs,
     });
-    if (optionsRef.current?.roomId) {
-      const latencyContext = recordReadyGateToDateLatencyCheckpoint({
-        sessionId: optionsRef.current.roomId,
-        platform: "web",
-        eventId: optionsRef.current.eventId ?? null,
-        sourceSurface: "video_date_daily",
+    const latencyContext = recordReadyGateToDateLatencyCheckpoint({
+      sessionId,
+      platform: "web",
+      eventId: currentOptions.eventId ?? null,
+      sourceSurface: "video_date_daily",
+      checkpoint: "first_remote_frame",
+      nowMs,
+      entryAttemptId: entry?.entryAttemptId ?? entry?.value.entry_attempt_id ?? null,
+      videoDateTraceId: entry?.value.video_date_trace_id ?? entry?.entryAttemptId ?? null,
+      cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
+    });
+    trackEvent(
+      LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+      buildReadyGateToDateLatencyPayload({
+        context: latencyContext,
         checkpoint: "first_remote_frame",
-        nowMs,
-        entryAttemptId: entry?.entryAttemptId ?? entry?.value.entry_attempt_id ?? null,
-        videoDateTraceId: entry?.value.video_date_trace_id ?? entry?.entryAttemptId ?? null,
-        cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
-      });
-      trackEvent(
-        LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
-        buildReadyGateToDateLatencyPayload({
-          context: latencyContext,
-          checkpoint: "first_remote_frame",
-          sourceAction: source,
-          outcome: "success",
-          durationMs: bothReadyToFirstRemoteFrameMs,
-        }),
-      );
-    }
+        sourceAction: source,
+        outcome: "success",
+        durationMs: bothReadyToFirstRemoteFrameMs,
+      }),
+    );
     trackEvent(LobbyPostDateEvents.VIDEO_DATE_FIRST_REMOTE_FRAME, {
       platform: "web",
-      session_id: optionsRef.current?.roomId ?? null,
-      event_id: optionsRef.current?.eventId ?? null,
+      session_id: sessionId,
+      event_id: currentOptions.eventId ?? null,
       source_surface: "video_date_daily",
       source_action: source,
       source,
@@ -1892,6 +1897,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       activePreparedEntryCacheRef.current = null;
       dailyJoinStartedAtMsRef.current = null;
       localVideoReadyTrackedRef.current = false;
+      remoteFirstFrameTrackedRef.current = false;
       setDailyReconnectState("connected");
       setReconnectGraceTimeLeft(0);
       firstRemoteObservedRef.current = false;
@@ -2225,6 +2231,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       setRemotePlayback(createRemotePlaybackState());
       setPeerMissing({ terminal: false });
       firstRemoteObservedRef.current = false;
+      remoteFirstFrameTrackedRef.current = false;
       playbackBlockedRef.current = false;
       activePreparedEntryCacheHitRef.current = null;
       clearFirstRemoteWatchdog();

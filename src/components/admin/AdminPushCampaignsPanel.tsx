@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
@@ -18,6 +18,7 @@ import {
   ChevronUp,
   BarChart3,
   FileText,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,8 @@ interface TargetSegment {
   dropResponseStatus?: 'all' | 'responded' | 'unresponded';
 }
 
+type TargetGenderValue = "man" | "woman" | "non-binary";
+
 type CampaignStats = {
   total: number;
   queued: number;
@@ -97,11 +100,21 @@ type PushCampaignsReadModelPayload = AdminRpcPayload & {
   aggregate_stats?: Partial<CampaignStats>;
 };
 
-const DEFAULT_TARGET_SEGMENT: TargetSegment = {
-  gender: [],
-  ageRange: [18, 50],
-  isVerified: undefined,
-};
+const DEFAULT_AGE_RANGE: [number, number] = [18, 99];
+
+const GENDER_TARGET_OPTIONS: Array<{ label: string; value: TargetGenderValue }> = [
+  { label: "Man", value: "man" },
+  { label: "Woman", value: "woman" },
+  { label: "Non-binary", value: "non-binary" },
+];
+
+function createDefaultTargetSegment(): TargetSegment {
+  return {
+    gender: [],
+    ageRange: [DEFAULT_AGE_RANGE[0], DEFAULT_AGE_RANGE[1]],
+    isVerified: undefined,
+  };
+}
 
 const emptyCampaignStats = (): CampaignStats => ({
   total: 0,
@@ -131,6 +144,25 @@ const UNSUPPORTED_TARGETING_LABELS: Record<string, string> = {
   dropResponseStatus: "drop response",
 };
 
+function normalizeGenderValue(value: string): TargetGenderValue | null {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "man" || normalized === "male" || normalized === "men") return "man";
+  if (normalized === "woman" || normalized === "female" || normalized === "women") return "woman";
+  if (normalized === "non-binary" || normalized === "non_binary" || normalized === "nonbinary") return "non-binary";
+  return null;
+}
+
+function displayGenderValue(value: string): string {
+  const normalized = normalizeGenderValue(value);
+  return GENDER_TARGET_OPTIONS.find((option) => option.value === normalized)?.label ?? value;
+}
+
+function clampAgeValue(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.min(Math.max(Math.round(numeric), DEFAULT_AGE_RANGE[0]), DEFAULT_AGE_RANGE[1]);
+}
+
 function parseTargetSegment(raw: string | null): TargetSegment {
   if (!raw || raw === "all") return {};
   try {
@@ -142,11 +174,20 @@ function parseTargetSegment(raw: string | null): TargetSegment {
 }
 
 function normalizeSupportedSegment(segment: TargetSegment): TargetSegment {
+  const gender = Array.isArray(segment.gender)
+    ? Array.from(new Set(segment.gender.map(normalizeGenderValue).filter((value): value is TargetGenderValue => value !== null)))
+    : [];
+
+  const ageRange = Array.isArray(segment.ageRange) && segment.ageRange.length === 2
+    ? ([
+        clampAgeValue(segment.ageRange[0], DEFAULT_AGE_RANGE[0]),
+        clampAgeValue(segment.ageRange[1], DEFAULT_AGE_RANGE[1]),
+      ] as [number, number])
+    : [DEFAULT_AGE_RANGE[0], DEFAULT_AGE_RANGE[1]];
+
   return {
-    gender: Array.isArray(segment.gender) ? segment.gender : [],
-    ageRange: Array.isArray(segment.ageRange) && segment.ageRange.length === 2
-      ? [segment.ageRange[0], segment.ageRange[1]]
-      : [18, 50],
+    gender,
+    ageRange: [Math.min(ageRange[0], ageRange[1]), Math.max(ageRange[0], ageRange[1])],
     isVerified: segment.isVerified === true ? true : undefined,
   };
 }
@@ -168,6 +209,7 @@ const AdminPushCampaignsPanel = () => {
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
+  const [isSavingCampaign, setIsSavingCampaign] = useState(false);
   
   const { data: campaignsReadModel, isError: campaignsReadError } = useQuery({
     queryKey: ['push-campaigns'],
@@ -191,9 +233,10 @@ const AdminPushCampaignsPanel = () => {
     },
   });
 
+  const campaignsLoading = !campaignsReadModel && !campaignsReadError;
   const campaigns = campaignsReadModel?.campaigns ?? EMPTY_CAMPAIGNS;
   const aggregateStats = campaignsReadModel?.aggregateStats ?? emptyCampaignStats();
-  const aggregateStatLabel = (value: number) => campaignsReadError ? "—" : value.toLocaleString();
+  const aggregateStatLabel = (value: number) => campaignsReadError || campaignsLoading ? "—" : value.toLocaleString();
   
   // Create form state
   const [formData, setFormData] = useState({
@@ -201,7 +244,7 @@ const AdminPushCampaignsPanel = () => {
     body: '',
   });
   
-  const [segment, setSegment] = useState<TargetSegment>(DEFAULT_TARGET_SEGMENT);
+  const [segment, setSegment] = useState<TargetSegment>(() => createDefaultTargetSegment());
 
   // Load editing campaign data into form
   useEffect(() => {
@@ -210,7 +253,7 @@ const AdminPushCampaignsPanel = () => {
         title: editingCampaign.title,
         body: editingCampaign.body,
       });
-      setSegment(normalizeSupportedSegment(editingCampaign.targetSegment || DEFAULT_TARGET_SEGMENT));
+      setSegment(normalizeSupportedSegment(editingCampaign.targetSegment || createDefaultTargetSegment()));
       setShowCreateForm(true);
     }
   }, [editingCampaign]);
@@ -247,11 +290,16 @@ const AdminPushCampaignsPanel = () => {
     setShowCreateForm(false);
     setEditingCampaign(null);
     setFormData({ title: '', body: '' });
-    setSegment(DEFAULT_TARGET_SEGMENT);
+    setSegment(createDefaultTargetSegment());
   };
 
   const handleSaveCampaign = async () => {
-    if (!formData.title || !formData.body) {
+    if (isSavingCampaign) return;
+
+    const title = formData.title.trim();
+    const body = formData.body.trim();
+
+    if (!title || !body) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -261,14 +309,15 @@ const AdminPushCampaignsPanel = () => {
       return;
     }
 
+    setIsSavingCampaign(true);
     try {
       const isEditing = !!editingCampaign;
       const supportedSegment = normalizeSupportedSegment(segment);
 
       await callAdminRpc("admin_upsert_push_campaign_draft", {
         p_campaign_id: editingCampaign?.id ?? null,
-        p_title: formData.title,
-        p_body: formData.body,
+        p_title: title,
+        p_body: body,
         p_target_segment: supportedSegment,
         p_idempotency_key: createAdminIdempotencyKey("admin_upsert_push_campaign_draft"),
       });
@@ -285,10 +334,14 @@ const AdminPushCampaignsPanel = () => {
     } catch (error) {
       console.error('Campaign error:', error);
       toast.error('Failed to save campaign');
+    } finally {
+      setIsSavingCampaign(false);
     }
   };
 
   const handleDeleteCampaign = async (id: string) => {
+    if (isDeletingCampaign) return;
+
     const campaign = campaigns.find((candidate) => candidate.id === id);
     if (campaign?.status !== 'draft') {
       toast.error('Only draft campaigns can be deleted');
@@ -362,6 +415,8 @@ const AdminPushCampaignsPanel = () => {
   };
 
   const handleSelectTemplate = (template: CampaignTemplate) => {
+    setEditingCampaign(null);
+    setSegment(createDefaultTargetSegment());
     setFormData({
       title: template.title,
       body: template.body,
@@ -466,7 +521,7 @@ const AdminPushCampaignsPanel = () => {
                   <span className="text-xs">Drafts</span>
                 </div>
                 <p className="text-2xl font-bold text-muted-foreground">
-                  {campaignsReadError ? "—" : campaigns.filter(c => c.status === 'draft').length}
+                  {campaignsReadError || campaignsLoading ? "—" : campaigns.filter(c => c.status === 'draft').length}
                 </p>
               </CardContent>
             </Card>
@@ -474,6 +529,25 @@ const AdminPushCampaignsPanel = () => {
 
           {/* Campaign List */}
           <div className="space-y-4">
+            {campaignsLoading && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-8 text-center">
+                  <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-primary" />
+                  <p className="font-medium text-foreground">Loading campaign drafts...</p>
+                </CardContent>
+              </Card>
+            )}
+            {!campaignsLoading && !campaignsReadError && campaigns.length === 0 && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-8 text-center">
+                  <FileText className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
+                  <p className="font-medium text-foreground">No campaign drafts yet.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Create a draft to save campaign copy and supported targeting. No sends are queued from this tab.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
             {campaigns.map((campaign) => {
               const unsupportedLabels = unsupportedTargetingLabels(campaign.targetSegment);
               const stats = campaignStats.get(campaign.id);
@@ -525,6 +599,7 @@ const AdminPushCampaignsPanel = () => {
                         size="icon"
                         onClick={() => setEditingCampaign(campaign)}
                         disabled={!isDraft}
+                        aria-label={isDraft ? "Edit draft campaign" : "Only draft campaigns can be edited"}
                         title={isDraft ? "Edit draft campaign" : "Only draft campaigns can be edited"}
                       >
                         <Edit className="w-4 h-4" />
@@ -534,6 +609,7 @@ const AdminPushCampaignsPanel = () => {
                         size="icon"
                         onClick={() => setCampaignToDelete(campaign)}
                         disabled={!isDraft}
+                        aria-label={isDraft ? "Delete draft campaign" : "Only draft campaigns can be deleted"}
                         title={isDraft ? "Delete draft campaign" : "Only draft campaigns can be deleted"}
                       >
                         <Trash2 className="w-4 h-4 text-destructive" />
@@ -545,7 +621,7 @@ const AdminPushCampaignsPanel = () => {
                     {supportedSegment.gender?.length ? (
                       <Badge variant="outline" className="gap-1">
                         <Users className="w-3 h-3" />
-                        {supportedSegment.gender.join(", ")}
+                        {supportedSegment.gender.map(displayGenderValue).join(", ")}
                       </Badge>
                     ) : null}
                     {supportedSegment.isVerified && (
@@ -554,7 +630,7 @@ const AdminPushCampaignsPanel = () => {
                         Verified only
                       </Badge>
                     )}
-                    {supportedSegment.ageRange && (supportedSegment.ageRange[0] !== 18 || supportedSegment.ageRange[1] !== 50) && (
+                    {supportedSegment.ageRange && (supportedSegment.ageRange[0] !== DEFAULT_AGE_RANGE[0] || supportedSegment.ageRange[1] !== DEFAULT_AGE_RANGE[1]) && (
                       <Badge variant="outline" className="gap-1">
                         <Target className="w-3 h-3" />
                         Ages {supportedSegment.ageRange[0]}-{supportedSegment.ageRange[1]}
@@ -628,7 +704,13 @@ const AdminPushCampaignsPanel = () => {
                     New campaigns save as drafts. Sending and scheduling require a backend dispatcher.
                   </p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={resetCampaignForm}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={resetCampaignForm}
+                  disabled={isSavingCampaign}
+                  aria-label="Close campaign form"
+                >
                   <XCircle className="w-5 h-5" />
                 </Button>
               </div>
@@ -647,8 +729,9 @@ const AdminPushCampaignsPanel = () => {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
-                      <Label>Notification Title</Label>
+                      <Label htmlFor="push-campaign-title">Notification Title</Label>
                       <Input
+                        id="push-campaign-title"
                         value={formData.title}
                         onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
                         placeholder="e.g., Your daily vibe is waiting! 💫"
@@ -656,8 +739,9 @@ const AdminPushCampaignsPanel = () => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Notification Body</Label>
+                      <Label htmlFor="push-campaign-body">Notification Body</Label>
                       <Textarea
+                        id="push-campaign-body"
                         value={formData.body}
                         onChange={(e) => setFormData(prev => ({ ...prev, body: e.target.value }))}
                         placeholder="e.g., You haven't checked your daily drop in a while..."
@@ -689,20 +773,20 @@ const AdminPushCampaignsPanel = () => {
                         <div className="space-y-2">
                           <Label>Gender</Label>
                           <div className="flex gap-2">
-                            {['Male', 'Female', 'Non-binary'].map((g) => (
+                            {GENDER_TARGET_OPTIONS.map((option) => (
                               <Button
-                                key={g}
+                                key={option.value}
                                 type="button"
                                 size="sm"
-                                variant={segment.gender?.includes(g) ? 'default' : 'outline'}
+                                variant={segment.gender?.includes(option.value) ? 'default' : 'outline'}
                                 onClick={() => setSegment(prev => ({
                                   ...prev,
-                                  gender: prev.gender?.includes(g)
-                                    ? prev.gender.filter(x => x !== g)
-                                    : [...(prev.gender || []), g]
+                                  gender: prev.gender?.includes(option.value)
+                                    ? prev.gender.filter(x => x !== option.value)
+                                    : [...(prev.gender || []), option.value]
                                 }))}
                               >
-                                {g}
+                                {option.label}
                               </Button>
                             ))}
                           </div>
@@ -713,7 +797,7 @@ const AdminPushCampaignsPanel = () => {
                             value={segment.ageRange}
                             onValueChange={(v) => setSegment(prev => ({ ...prev, ageRange: v as [number, number] }))}
                             min={18}
-                            max={65}
+                            max={99}
                             step={1}
                           />
                         </div>
@@ -724,8 +808,9 @@ const AdminPushCampaignsPanel = () => {
                     <SegmentSection title="Engagement" icon={TrendingUp} sectionKey="engagement">
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                          <Label>Verified Users Only</Label>
+                          <Label htmlFor="push-campaign-verified-only">Verified Users Only</Label>
                           <Switch
+                            id="push-campaign-verified-only"
                             checked={segment.isVerified === true}
                             onCheckedChange={(checked) => setSegment(prev => ({ ...prev, isVerified: checked ? true : undefined }))}
                           />
@@ -745,12 +830,20 @@ const AdminPushCampaignsPanel = () => {
                   Draft reach preview: <span className="text-foreground font-medium">{estimatedReachLabel}</span>{isReachError ? "" : " users"}
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" onClick={resetCampaignForm}>
+                  <Button variant="outline" onClick={resetCampaignForm} disabled={isSavingCampaign}>
                     Cancel
                   </Button>
-                  <Button onClick={handleSaveCampaign} className="gap-2">
-                    <FileText className="w-4 h-4" />
-                    {editingCampaign ? 'Update Campaign' : 'Save Draft'}
+                  <Button
+                    onClick={handleSaveCampaign}
+                    disabled={isSavingCampaign || !formData.title.trim() || !formData.body.trim()}
+                    className="gap-2"
+                  >
+                    {isSavingCampaign ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FileText className="w-4 h-4" />
+                    )}
+                    {isSavingCampaign ? 'Saving...' : editingCampaign ? 'Update Campaign' : 'Save Draft'}
                   </Button>
                 </div>
               </div>
