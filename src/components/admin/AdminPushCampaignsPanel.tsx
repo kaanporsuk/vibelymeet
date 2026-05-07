@@ -35,14 +35,13 @@ import {
 } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import PushAnalyticsDashboard from "./PushAnalyticsDashboard";
 import CampaignTemplatesLibrary, { CampaignTemplate } from "./CampaignTemplatesLibrary";
 import LiveNotificationMonitor from "./LiveNotificationMonitor";
 import AdminConfirmDialog from "./AdminConfirmDialog";
-import { callAdminRpc, type AdminRpcPayload } from "@/lib/adminRpc";
+import { callAdminRpc, createAdminIdempotencyKey, type AdminRpcPayload } from "@/lib/adminRpc";
 
 interface Campaign {
   id: string;
@@ -53,6 +52,7 @@ interface Campaign {
   scheduledAt?: string;
   sentAt?: string;
   createdAt: string;
+  stats: CampaignStats;
 }
 
 interface TargetSegment {
@@ -78,13 +78,23 @@ type CampaignStats = {
   failed: number;
 };
 
-type PushEventRow = {
-  campaign_id: string | null;
-  status: string | null;
-};
-
 type PushCampaignReachPayload = AdminRpcPayload & {
   estimated_reach?: number;
+};
+
+type PushCampaignsReadModelPayload = AdminRpcPayload & {
+  campaigns?: Array<{
+    id: string;
+    title: string;
+    body: string;
+    status: Campaign["status"];
+    target_segment: string | null;
+    scheduled_at: string | null;
+    sent_at: string | null;
+    created_at: string;
+    stats?: Partial<CampaignStats>;
+  }>;
+  aggregate_stats?: Partial<CampaignStats>;
 };
 
 const DEFAULT_TARGET_SEGMENT: TargetSegment = {
@@ -92,6 +102,23 @@ const DEFAULT_TARGET_SEGMENT: TargetSegment = {
   ageRange: [18, 50],
   isVerified: undefined,
 };
+
+const emptyCampaignStats = (): CampaignStats => ({
+  total: 0,
+  queued: 0,
+  sent: 0,
+  delivered: 0,
+  opened: 0,
+  clicked: 0,
+  failed: 0,
+});
+
+function normalizeCampaignStats(stats?: Partial<CampaignStats>): CampaignStats {
+  return {
+    ...emptyCampaignStats(),
+    ...stats,
+  };
+}
 
 const UNSUPPORTED_TARGETING_LABELS: Record<string, string> = {
   activityLevel: "activity",
@@ -140,19 +167,13 @@ const AdminPushCampaignsPanel = () => {
   const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
   const [isDeletingCampaign, setIsDeletingCampaign] = useState(false);
   
-  // Fetch campaigns from database
-  const { data: campaigns = [] } = useQuery({
+  const { data: campaignsReadModel, isError: campaignsReadError } = useQuery({
     queryKey: ['push-campaigns'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('push_campaigns')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      
-      // Transform to our Campaign interface
-      return (data || []).map(c => ({
+      const payload = await callAdminRpc<PushCampaignsReadModelPayload>("admin_get_push_campaigns_read_model", {});
+
+      return {
+        campaigns: (payload.campaigns ?? []).map((c) => ({
         id: c.id,
         title: c.title,
         body: c.body,
@@ -161,20 +182,15 @@ const AdminPushCampaignsPanel = () => {
         scheduledAt: c.scheduled_at || undefined,
         sentAt: c.sent_at || undefined,
         createdAt: c.created_at,
-      }));
+        stats: normalizeCampaignStats(c.stats),
+      })),
+        aggregateStats: normalizeCampaignStats(payload.aggregate_stats),
+      };
     },
   });
 
-  const { data: pushEventRows = [] } = useQuery({
-    queryKey: ['push-campaign-event-stats'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('push_notification_events_admin')
-        .select('campaign_id, status');
-      if (error) throw error;
-      return (data || []) as PushEventRow[];
-    },
-  });
+  const campaigns = campaignsReadModel?.campaigns ?? [];
+  const aggregateStats = campaignsReadModel?.aggregateStats ?? emptyCampaignStats();
   
   // Create form state
   const [formData, setFormData] = useState({
@@ -219,76 +235,10 @@ const AdminPushCampaignsPanel = () => {
       ? estimatedReach.toLocaleString()
       : "—";
 
-  const campaignStats = useMemo(() => {
-    const statsByCampaign = new Map<string, CampaignStats>();
-    const emptyStats = (): CampaignStats => ({
-      total: 0,
-      queued: 0,
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      failed: 0,
-    });
-
-    for (const row of pushEventRows) {
-      if (!row.campaign_id) continue;
-      const stats = statsByCampaign.get(row.campaign_id) ?? emptyStats();
-      stats.total += 1;
-      switch (row.status) {
-        case "queued":
-          stats.queued += 1;
-          break;
-        case "sent":
-          stats.sent += 1;
-          break;
-        case "delivered":
-          stats.sent += 1;
-          stats.delivered += 1;
-          break;
-        case "opened":
-          stats.sent += 1;
-          stats.delivered += 1;
-          stats.opened += 1;
-          break;
-        case "clicked":
-          stats.sent += 1;
-          stats.delivered += 1;
-          stats.opened += 1;
-          stats.clicked += 1;
-          break;
-        case "failed":
-        case "bounced":
-          stats.failed += 1;
-          break;
-      }
-      statsByCampaign.set(row.campaign_id, stats);
-    }
-
-    return statsByCampaign;
-  }, [pushEventRows]);
-
-  const aggregateStats = useMemo(() => {
-    const totals: CampaignStats = {
-      total: 0,
-      queued: 0,
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      failed: 0,
-    };
-    for (const stats of campaignStats.values()) {
-      totals.total += stats.total;
-      totals.queued += stats.queued;
-      totals.sent += stats.sent;
-      totals.delivered += stats.delivered;
-      totals.opened += stats.opened;
-      totals.clicked += stats.clicked;
-      totals.failed += stats.failed;
-    }
-    return totals;
-  }, [campaignStats]);
+  const campaignStats = useMemo(
+    () => new Map(campaigns.map((campaign) => [campaign.id, campaign.stats])),
+    [campaigns]
+  );
 
   const resetCampaignForm = () => {
     setShowCreateForm(false);
@@ -304,42 +254,22 @@ const AdminPushCampaignsPanel = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
       const isEditing = !!editingCampaign;
       const supportedSegment = normalizeSupportedSegment(segment);
-      
-      const campaignData = {
-        title: formData.title,
-        body: formData.body,
-        target_segment: JSON.stringify(supportedSegment),
-      };
 
-      if (isEditing) {
-        // Update existing campaign
-        const { error } = await supabase
-          .from('push_campaigns')
-          .update(campaignData)
-          .eq('id', editingCampaign.id);
-        
-        if (error) throw error;
-        toast.success('Campaign updated successfully.');
-      } else {
-        // Create new campaign
-        const { error } = await supabase
-          .from('push_campaigns')
-          .insert({
-            ...campaignData,
-            status: 'draft',
-            scheduled_at: null,
-            sent_at: null,
-            created_by: user.id,
-          });
-        
-        if (error) throw error;
-        toast.success('Campaign draft saved. Delivery is disabled until the backend dispatcher is implemented.');
-      }
+      await callAdminRpc("admin_upsert_push_campaign_draft", {
+        p_campaign_id: editingCampaign?.id ?? null,
+        p_title: formData.title,
+        p_body: formData.body,
+        p_target_segment: supportedSegment,
+        p_idempotency_key: createAdminIdempotencyKey("admin_upsert_push_campaign_draft"),
+      });
+
+      toast.success(
+        isEditing
+          ? 'Campaign updated successfully.'
+          : 'Campaign draft saved. Delivery is disabled until the backend dispatcher is implemented.'
+      );
 
       // Refresh campaigns list
       queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
@@ -353,12 +283,10 @@ const AdminPushCampaignsPanel = () => {
   const handleDeleteCampaign = async (id: string) => {
     setIsDeletingCampaign(true);
     try {
-      const { error } = await supabase
-        .from('push_campaigns')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
+      await callAdminRpc("admin_delete_push_campaign_draft", {
+        p_campaign_id: id,
+        p_idempotency_key: createAdminIdempotencyKey("admin_delete_push_campaign_draft"),
+      });
       
       queryClient.invalidateQueries({ queryKey: ['push-campaigns'] });
       toast.success('Campaign deleted');
@@ -472,6 +400,12 @@ const AdminPushCampaignsPanel = () => {
         </TabsList>
 
         <TabsContent value="campaigns" className="space-y-6">
+          {campaignsReadError && (
+            <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+              Push campaign data unavailable.
+            </div>
+          )}
+
           {/* Stats Overview */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Card className="bg-card border-border">
