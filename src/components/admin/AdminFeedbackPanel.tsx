@@ -112,7 +112,7 @@ const AdminFeedbackPanel = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-feedback"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-new-feedback-count"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
       toast.success("Status updated");
     },
     onError: () => toast.error("Failed to update status"),

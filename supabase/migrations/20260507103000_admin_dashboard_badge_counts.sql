@@ -33,7 +33,7 @@ BEGIN
   SELECT count(*)::integer
   INTO v_open_support_tickets
   FROM public.support_tickets
-  WHERE status IN ('submitted', 'in_review');
+  WHERE status IN ('submitted', 'in_review', 'waiting_on_user');
 
   SELECT count(*)::integer
   INTO v_new_feedback

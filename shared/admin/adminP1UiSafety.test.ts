@@ -26,6 +26,7 @@ const adminEvents = read("src/components/admin/AdminEventsPanel.tsx");
 const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
 const adminPhotoVerification = read("src/components/admin/AdminPhotoVerificationPanel.tsx");
 const supportInbox = read("src/components/admin/SupportInbox.tsx");
+const adminFeedback = read("src/components/admin/AdminFeedbackPanel.tsx");
 const adminPremium = read("src/components/admin/AdminPremiumModal.tsx");
 const adminTierConfig = read("src/components/admin/AdminTierConfigPanel.tsx");
 const adminMediaLifecycle = read("src/components/admin/AdminMediaLifecyclePanel.tsx");
@@ -235,6 +236,16 @@ test("notifications copy is scoped to the latest 100 and broad actions say so", 
   assert.match(adminNotifications, /one admin_notifications row/);
   assert.match(adminNotifications, /selected loaded admin notification rows/);
   assert.match(adminNotifications, /This is a fetch failure, not proof that no notifications exist/);
+  assert.match(adminNotifications, /admin-dashboard-badge-counts/);
+});
+
+test("admin badge mutations invalidate the centralized dashboard badge count", () => {
+  assert.doesNotMatch(adminNotifications, /admin-unread-notifications/);
+  assert.doesNotMatch(adminFeedback, /admin-new-feedback-count/);
+  assert.doesNotMatch(supportInbox, /admin-support-open-count/);
+  assert.match(adminNotifications, /admin-dashboard-badge-counts/);
+  assert.match(adminFeedback, /admin-dashboard-badge-counts/);
+  assert.match(supportInbox, /admin-dashboard-badge-counts/);
 });
 
 test("password reset is visibly unavailable instead of toast-only fake action", () => {

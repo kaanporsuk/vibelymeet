@@ -249,6 +249,7 @@ test("dashboard badge counts are backend RPC based and avoid direct HEAD counts"
   assert.match(badgeCounts, /public\.has_role\(v_admin_id, 'admin'::public\.app_role\)/);
   assert.match(badgeCounts, /public\.admin_notifications/);
   assert.match(badgeCounts, /public\.support_tickets/);
+  assert.match(badgeCounts, /status IN \('submitted', 'in_review', 'waiting_on_user'\)/);
   assert.match(badgeCounts, /public\.feedback/);
   assert.match(badgeCountsMigration, /REVOKE ALL ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) FROM PUBLIC/);
   assert.match(badgeCountsMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_dashboard_badge_counts\(\) TO authenticated/);

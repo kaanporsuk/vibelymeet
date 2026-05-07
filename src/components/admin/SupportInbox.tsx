@@ -271,6 +271,7 @@ export default function SupportInbox() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-support-tickets"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-dashboard-badge-counts"] });
       toast.success("Updated");
     },
     onError: () => toast.error("Update failed"),

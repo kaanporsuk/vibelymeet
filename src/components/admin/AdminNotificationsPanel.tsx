@@ -181,6 +181,11 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
   const isAllSelected = filteredNotifications.length > 0 && 
     filteredNotifications.every(n => selectedIds.has(n.id));
 
+  const invalidateNotificationViews = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-dashboard-badge-counts'] });
+  };
+
   // Mark as read mutation
   const markAsRead = useMutation({
     mutationFn: async (id: string) => {
@@ -192,7 +197,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+      invalidateNotificationViews();
     },
   });
 
@@ -207,7 +212,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+      invalidateNotificationViews();
       setSelectedIds(new Set());
       toast.success('Selected notifications marked as read');
     },
@@ -224,7 +229,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+      invalidateNotificationViews();
       toast.success('All notifications marked as read');
     },
   });
@@ -240,7 +245,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+      invalidateNotificationViews();
     },
   });
 
@@ -255,7 +260,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+      invalidateNotificationViews();
       setSelectedIds(new Set());
       toast.success('Selected notifications deleted');
     },
@@ -272,7 +277,7 @@ const AdminNotificationsPanel = ({ isOpen, onClose }: AdminNotificationsPanelPro
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-notifications'] });
+      invalidateNotificationViews();
       toast.success('All notifications cleared');
     },
   });
