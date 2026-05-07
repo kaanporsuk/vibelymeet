@@ -963,6 +963,16 @@ test("photo verification hardening constrains user submissions and pending uniqu
   assert.match(photoVerificationHardeningMigration, /rejection_reason IS NULL/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_final_review_metadata_present/);
   assert.match(photoVerificationHardeningMigration, /ADD CONSTRAINT photo_verifications_rejected_reason_not_blank/);
+  assert.match(photoVerificationHardeningMigration, /WITH ranked_pending AS/);
+  assert.match(photoVerificationHardeningMigration, /row_number\(\) OVER \(/);
+  assert.match(photoVerificationHardeningMigration, /PARTITION BY user_id/);
+  assert.match(photoVerificationHardeningMigration, /ORDER BY created_at DESC, id DESC/);
+  assert.match(photoVerificationHardeningMigration, /DELETE FROM public\.photo_verifications pv/);
+  assert.ok(
+    photoVerificationHardeningMigration.indexOf("WITH ranked_pending AS") <
+      photoVerificationHardeningMigration.indexOf("CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_verifications_one_pending_per_user"),
+    "duplicate pending rows must be collapsed before adding pending-per-user uniqueness",
+  );
   assert.match(photoVerificationHardeningMigration, /CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_verifications_one_pending_per_user/);
   assert.match(photoVerificationHardeningMigration, /WHERE status = 'pending'/);
   assert.match(photoVerificationHardeningMigration, /DROP POLICY IF EXISTS "Users can submit verifications"/);

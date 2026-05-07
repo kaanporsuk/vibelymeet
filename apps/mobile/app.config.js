@@ -37,6 +37,7 @@ module.exports = () => {
     },
   ]);
   ensurePlugin(plugins, './plugins/withIosNativeBuildSettings');
+  ensurePlugin(plugins, './plugins/withDedupedOneSignalEasExtension');
   ensurePlugin(plugins, '@react-native-community/datetimepicker');
   ensurePlugin(plugins, [
     'expo-location',

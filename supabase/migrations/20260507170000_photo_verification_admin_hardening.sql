@@ -59,6 +59,21 @@ ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_p
 ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_final_review_metadata_present;
 ALTER TABLE public.photo_verifications VALIDATE CONSTRAINT photo_verifications_rejected_reason_not_blank;
 
+WITH ranked_pending AS (
+  SELECT
+    id,
+    row_number() OVER (
+      PARTITION BY user_id
+      ORDER BY created_at DESC, id DESC
+    ) AS pending_rank
+  FROM public.photo_verifications
+  WHERE status = 'pending'
+)
+DELETE FROM public.photo_verifications pv
+USING ranked_pending rp
+WHERE pv.id = rp.id
+  AND rp.pending_rank > 1;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_photo_verifications_one_pending_per_user
   ON public.photo_verifications (user_id)
   WHERE status = 'pending';
@@ -214,7 +229,7 @@ VALUES (
   '20260507170000',
   'Photo Verification admin hardening',
   'schema+policy',
-  'Adds constraints and a stricter user insert policy for photo_verifications, enrolls the table in realtime when needed, and replaces the admin list read model to expose reviewed_at and sort reviewed rows by review time. No data rewrite is performed.',
+  'Adds constraints and a stricter user insert policy for photo_verifications, collapses duplicate pending submissions before the unique index, enrolls the table in realtime when needed, and replaces the admin list read model to expose reviewed_at and sort reviewed rows by review time.',
   false
 )
 ON CONFLICT (migration_version) DO UPDATE
