@@ -177,7 +177,8 @@ Generated/local files must not be mistaken for product changes.
 
 Never auto-recover stash code that touches:
 
-- `apps/mobile/app.json`
+- `apps/mobile/app.config.js`
+- `apps/mobile/app.base.json`
 - `apps/mobile/eas.json`
 - `apps/mobile/package.json`
 - `apps/mobile/package-lock.json`

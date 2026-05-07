@@ -47,7 +47,7 @@ The following must be done in RevenueCat and Supabase before TestFlight/Play or 
 ### 2.1 RevenueCat dashboard
 
 - [ ] **Project:** Create or use existing RevenueCat project.
-- [ ] **Apps:** Add iOS app (bundle ID must match Expo `app.json` / EAS). Add Android app (package name must match).
+- [ ] **Apps:** Add iOS app (bundle ID must match resolved Expo config / EAS). Add Android app (package name must match).
 - [ ] **Products:** In App Store Connect create In-App Purchase subscription products (e.g. monthly, annual). In Play Console create subscription products. In RevenueCat → Products, link these (product IDs must match).
 - [ ] **Entitlements:** Create entitlement (e.g. `premium`) and attach to the products.
 - [ ] **Offerings:** Create at least one Offering (e.g. "default"); add packages (monthly, annual) to that offering. The app calls `Purchases.getOfferings()` and uses `offerings.current.availablePackages`; if empty, the premium screen shows "No offerings available."
@@ -124,7 +124,7 @@ App code is ready: init, request permission, login(userId), get subscription ID,
 ### 3.2 OneSignal dashboard (iOS)
 
 - [ ] **OneSignal project:** Use same project as web or create; note App ID.
-- [ ] **iOS app:** Add iOS app in OneSignal; bundle ID must match `com.vibelymeet.vibely` (from app.json).
+- [ ] **iOS app:** Add iOS app in OneSignal; bundle ID must match `com.vibelymeet.vibely` (from resolved Expo config).
 - [ ] **APNs:** Upload APNs key (.p8) or certificate. For TestFlight/Store use **production** APNs; for dev use **development**. OneSignal docs describe how to add key in Apple Developer and in OneSignal.
 
 ### 3.3 OneSignal dashboard (Android)
@@ -159,9 +159,9 @@ App code is ready: init, request permission, login(userId), get subscription ID,
 
 ## 5. Expo / EAS (for TestFlight / Play internal)
 
-**Config readiness (Sprint 6):** Bundle ID and package are `com.vibelymeet.vibely` (app.json). OneSignal mode is set by `app.config.js` from `EAS_BUILD_PROFILE` (production for preview/production). No repo config is missing for builds; EAS secrets and provider dashboards must be completed by Kaan before builds will have working push and IAP.
+**Config readiness (Sprint 6):** Bundle ID and package are `com.vibelymeet.vibely` (resolved Expo config). OneSignal mode is set by `app.config.js` from `EAS_BUILD_PROFILE` (production for preview/production). No repo config is missing for builds; EAS secrets and provider dashboards must be completed by Kaan before builds will have working push and IAP.
 
-- [ ] EAS project linked: `eas init` or existing project (`app.json` → `extra.eas.projectId`).
+- [ ] EAS project linked: `eas init` or existing project (resolved Expo config → `extra.eas.projectId`).
 - [ ] `eas.json` build profiles: **development** (dev client, internal), **preview** (internal distribution), **production** (store). Use `preview` or `production` for real-device push/IAP validation so OneSignal uses production APNs.
 - [ ] Credentials: iOS (distribution cert, provisioning profile), Android (keystore). EAS can manage these via `eas credentials`.
 - [ ] **EAS secrets** (set per profile or globally): `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` (or `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), `EXPO_PUBLIC_ONESIGNAL_APP_ID`, `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY` (or `EXPO_PUBLIC_REVENUECAT_API_KEY`). Optional: `EXPO_PUBLIC_BUNNY_CDN_HOSTNAME`, `EXPO_PUBLIC_BUNNY_STREAM_CDN_HOSTNAME` for media.
@@ -174,7 +174,7 @@ App code is ready: init, request permission, login(userId), get subscription ID,
 | **Local Android** | `npx expo prebuild` then run `android/` in Android Studio, or `eas build --profile development` and install the built APK. |
 | **EAS iOS (TestFlight-style)** | `eas build --profile preview` or `--profile production` for iOS. Ensure EAS secrets are set for that profile. OneSignal plugin will use production APNs for preview/production (see §3). Upload to TestFlight via `eas submit` or EAS dashboard. |
 | **EAS Android (internal track)** | `eas build --profile preview` or `--profile production` for Android. Set Android secrets. Upload to Play internal testing track. |
-| **Missing config** | All required permissions and plugins are in `app.json` / `app.config.js`: camera, mic, photo library, notifications, OneSignal NSE (iOS). No known build blockers from repo; any failure is likely credentials or env. |
+| **Missing config** | All required permissions and plugins are in resolved Expo config (`app.config.js` + `app.base.json`): camera, mic, photo library, notifications, OneSignal NSE (iOS). No known build blockers from repo; any failure is likely credentials or env. |
 
 ---
 

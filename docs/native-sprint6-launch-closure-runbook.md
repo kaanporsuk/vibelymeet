@@ -120,7 +120,7 @@ Operator runbook for executing launch closure with dashboards and real devices. 
 |------|-------------------|
 | iOS bundle ID | `com.vibelymeet.vibely` |
 | Android package | `com.vibelymeet.vibely` |
-| EAS project ID | `5c6f619c-3eea-4cbc-82f8-52b3875e0bf9` (app.json extra.eas.projectId) |
+| EAS project ID | `5c6f619c-3eea-4cbc-82f8-52b3875e0bf9` (resolved Expo config `extra.eas.projectId`) |
 | RevenueCat webhook URL | `https://<YOUR_SUPABASE_PROJECT_REF>.supabase.co/functions/v1/revenuecat-webhook` |
 | OneSignal NSE bundle ID | `com.vibelymeet.vibely.OneSignalNotificationServiceExtension` |
 
@@ -134,9 +134,9 @@ Verify from repo before starting dashboard/build work:
 
 | Check | Source | Status |
 |-------|--------|--------|
-| **iOS bundle ID** | `app.json` → `expo.ios.bundleIdentifier` | `com.vibelymeet.vibely` |
-| **Android package** | `app.json` → `expo.android.package` | `com.vibelymeet.vibely` |
-| **EAS project ID** | `app.json` → `expo.extra.eas.projectId` | `5c6f619c-3eea-4cbc-82f8-52b3875e0bf9` |
+| **iOS bundle ID** | Resolved Expo config → `ios.bundleIdentifier` | `com.vibelymeet.vibely` |
+| **Android package** | Resolved Expo config → `android.package` | `com.vibelymeet.vibely` |
+| **EAS project ID** | Resolved Expo config → `extra.eas.projectId` | `5c6f619c-3eea-4cbc-82f8-52b3875e0bf9` |
 | **OneSignal plugin** | `app.config.js` | Mode = production for `preview`/`production`; development otherwise. |
 | **RevenueCat keys** | `lib/revenuecat.ts` | Reads `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`, `_ANDROID_`, or `EXPO_PUBLIC_REVENUECAT_API_KEY`. |
 | **Required env (local)** | `apps/mobile/.env.example` | `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; for push: `EXPO_PUBLIC_ONESIGNAL_APP_ID`; for IAP: RevenueCat keys. |

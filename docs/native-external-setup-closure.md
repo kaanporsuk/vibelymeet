@@ -21,7 +21,8 @@ Audited sources:
 
 - `docs/native-external-setup-checklist.md`
 - `docs/active-doc-map.md`
-- `apps/mobile/app.json`
+- `apps/mobile/app.config.js`
+- `apps/mobile/app.base.json`
 - `apps/mobile/app.config.js`
 - `apps/mobile/eas.json`
 - `apps/mobile/package.json`
@@ -34,7 +35,7 @@ Repo-verified:
 
 - iOS bundle ID, Android package, and Expo scheme are all `com.vibelymeet.vibely`.
 - Apple Team ID is recorded as `W38S57AM55`.
-- EAS project ID is recorded in `apps/mobile/app.json`.
+- EAS project ID is recorded in resolved Expo config (`apps/mobile/app.base.json` via `apps/mobile/app.config.js`).
 - EAS build profiles exist for `development`, `preview`, and `production`.
 - `app.config.js` switches OneSignal mode to `production` for EAS `preview` and `production`.
 - Daily, OneSignal, RevenueCat, Sentry, PostHog, Bunny media, and `expo-video` dependencies/config hooks are present.
@@ -48,8 +49,8 @@ Still manual:
 
 | Area | Repo truth | Provider/dashboard closure |
 | --- | --- | --- |
-| iOS bundle ID | `com.vibelymeet.vibely` in `apps/mobile/app.json` | Apple Developer + App Store Connect app record must use the same bundle ID. |
-| Android package | `com.vibelymeet.vibely` in `apps/mobile/app.json` | Google Play Console app and Firebase/FCM setup must use the same package. |
+| iOS bundle ID | `com.vibelymeet.vibely` in resolved Expo config | Apple Developer + App Store Connect app record must use the same bundle ID. |
+| Android package | `com.vibelymeet.vibely` in resolved Expo config | Google Play Console app and Firebase/FCM setup must use the same package. |
 | Expo scheme | `com.vibelymeet.vibely` | Deep-link handling should be validated on installed builds. |
 | Apple Team ID | `W38S57AM55` | Confirm team owns bundle ID and provisioning profiles. |
 | OneSignal NSE bundle | `com.vibelymeet.vibely.OneSignalNotificationServiceExtension` | Confirm extension signing/capabilities in EAS/Xcode. |
@@ -59,8 +60,8 @@ Still manual:
 Repo-declared iOS capabilities/permissions:
 
 - Apple Sign In: `usesAppleSignIn: true`
-- Push entitlement: `aps-environment` currently set to `development` in `app.json`
-- OneSignal mode: overridden by `app.config.js` to `production` for EAS `preview` and `production`
+- Push entitlement: `aps-environment` is owned by `onesignal-expo-plugin` during native generation.
+- OneSignal mode: `app.config.js` sets `development` locally and `production` for EAS `preview` and `production`.
 - Background modes: `remote-notification`, `voip`
 - Camera, microphone, photo library, and location usage descriptions
 - OneSignal Notification Service Extension with app group `group.com.vibelymeet.vibely.onesignal`

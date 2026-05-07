@@ -16,7 +16,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | Area | Done (code/config) | Proven (real evidence) | Partially proven | Not yet proven |
 |------|--------------------|------------------------|------------------|----------------|
 | **Android** | Build path and runtime code paths in place; auth race and Settings crash fixed. | — | Prebuild and run:android path documented; no device run in Phase 7. | Full cold start → tabs → dashboard → profile → events → matches → chat → premium → push on real device. |
-| **iOS** | Prebuild succeeded; run:ios compiles (Pods observed). Bundle ID, entitlements, OneSignal NSE in app.json. | — | Prebuild + compilation in progress observed; full run:ios not seen to completion in automation. | First launch on simulator/device; full runtime checklist; signing on physical device. |
+| **iOS** | Prebuild succeeded; run:ios compiles (Pods observed). Bundle ID, entitlements, OneSignal NSE in resolved Expo config. | — | Prebuild + compilation in progress observed; full run:ios not seen to completion in automation. | First launch on simulator/device; full runtime checklist; signing on physical device. |
 | **RevenueCat** | SDK init, logIn, offerings fetch (post–logIn), purchase, restore, backend refetch; premium UI states; webhook + trigger in repo. | — | Code and design validated in Phase 7 Stage 2; offerings refetch fix applied. | Real-device sandbox purchase + restore; webhook delivery to Supabase; DB sync. |
 | **OneSignal (mobile)** | Init, permission, login(userId), upsert notification_preferences; logout on sign out; app.config.js APNs mode. | — | Code path validated in Phase 7 Stage 3. | Real-device push receive; dashboard → device delivery; APNs/FCM configured. |
 | **OneSignal (web)** | Web SDK and notification_preferences; send-notification targets web + mobile. | Production worker + authenticated subscribed browser session + `notification_preferences` sync (see `docs/browser-auth-runtime-proof-results.md`). | Interactive permission prompt + delivered-notification tap (manual-only; automation cannot own). | Residual: confirm dashboard origin / service-worker paths still match production after deploys (quick operator audit). |
@@ -109,7 +109,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | Item | Status |
 |------|--------|
 | **Documented** | native-external-setup-checklist.md: Supabase, RevenueCat, OneSignal, Daily, EAS, env vars, store. |
-| **Repo** | app.json bundle/package, plugins, infoPlist, entitlements; app.config.js OneSignal mode; eas.json profiles. |
+| **Repo** | Resolved Expo config bundle/package, plugins, infoPlist, entitlements; app.config.js OneSignal mode; eas.json profiles. |
 | **Secrets** | EAS secrets and Supabase secrets must be set by operator; not in repo. |
 | **Missing** | No repo config missing for builds; failures are typically credentials or env. |
 
@@ -121,7 +121,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 
 | Item | Status |
 |------|--------|
-| **App identity** | Bundle ID / package `com.vibelymeet.vibely` in app.json. |
+| **App identity** | Bundle ID / package `com.vibelymeet.vibely` in resolved Expo config. |
 | **EAS** | development, preview, production profiles; submit production. |
 | **Store listing** | Not in repo: App Store Connect / Play Console app records, screenshots, descriptions, privacy, IAP products, agreements. |
 | **Submission** | TestFlight / Play internal: EAS submit or dashboard upload after successful build. |
@@ -194,7 +194,7 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
 | **Secrets** | Supabase: REVENUECAT_WEBHOOK_AUTHORIZATION | Set via Supabase CLI/dashboard. |
 | **Provider** | RevenueCat: webhook URL + auth header, products, offerings | RevenueCat dashboard. |
 | **Provider** | OneSignal: iOS app (APNs), Android app (FCM), web origin/service-worker for production | OneSignal dashboard. |
-| **Repo** | None | Bundle ID, package, plugins, entitlements, EAS profiles are in app.json / eas.json. |
+| **Repo** | None | Bundle ID, package, plugins, entitlements, EAS profiles are in resolved Expo config / eas.json. |
 
 ---
 
@@ -241,4 +241,4 @@ Close remaining release-readiness and metadata gaps, update docs/checklists to c
   - native-external-setup-checklist.md: OneSignal web (production service-worker / origin) note added.  
   - **Phase 7 closure:** `docs/phase7-closure-typecheck-and-repo-ready.md` (typecheck fixes, repo-ready status, remaining blockers, Kaan step-by-step).
 
-- **Config:** No app.json or eas.json or env schema changes in Phase 7 Stage 5 or closure. OneSignal web and rebuild rehearsal are documented as known risks and next actions.
+- **Config:** No Expo config, eas.json, or env schema changes in Phase 7 Stage 5 or closure. OneSignal web and rebuild rehearsal are documented as known risks and next actions.
