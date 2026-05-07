@@ -607,6 +607,8 @@ export default function EventDetailScreen() {
     : eventLive || bookingChangesClosed
       ? 'Waitlist changes are closed'
       : "We'll confirm you if a spot opens";
+  const canViewTicket =
+    hasAdmission && (canSelfCancelRegistration || (isConfirmed && eventLive && !eventClosedForBookingCopy));
 
   const tags = (event as { tags?: string[] | null }).tags ?? [];
   const coverHeight = Math.min(280, Dimensions.get('window').height * 0.4);
@@ -1067,7 +1069,7 @@ export default function EventDetailScreen() {
       />
 
       <TicketStub
-        visible={showTicket && (canSelfCancelRegistration || (isConfirmed && eventLive && !eventClosedForBookingCopy))}
+        visible={showTicket && canViewTicket}
         onClose={() => setShowTicket(false)}
         eventTitle={event.title}
         eventDate={dateStr}
