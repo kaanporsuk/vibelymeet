@@ -320,7 +320,11 @@ const AdminLiveEventMetrics = () => {
   const [selectedEventId, setSelectedEventId] = useState<string>("");
 
   // Fetch all events for selector
-  const { data: events = [] } = useQuery({
+  const {
+    data: events = [],
+    error: eventsError,
+    isLoading: eventsLoading,
+  } = useQuery({
     queryKey: ["admin-events-list"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -333,12 +337,19 @@ const AdminLiveEventMetrics = () => {
     },
   });
 
-  const eventId = selectedEventId || events[0]?.id || "";
-  const selectedEvent = events.find((event) => event.id === eventId) ?? events[0] ?? null;
+  const selectedEvent =
+    (selectedEventId ? events.find((event) => event.id === selectedEventId) : undefined) ??
+    events[0] ??
+    null;
+  const eventId = selectedEvent?.id ?? "";
   const selectedEventPhase = computeEventPhase(selectedEvent);
 
   // Live metrics — poll every 10s
-  const { data: metrics } = useQuery({
+  const {
+    data: metrics,
+    error: metricsError,
+    isLoading: metricsLoading,
+  } = useQuery({
     queryKey: ["admin-live-metrics", eventId],
     queryFn: async () => {
       if (!eventId) return null;
@@ -451,7 +462,7 @@ const AdminLiveEventMetrics = () => {
   });
 
   // Post-event metrics
-  const { data: postMetrics } = useQuery({
+  const { data: postMetrics, error: postMetricsError } = useQuery({
     queryKey: ["admin-post-event-metrics", eventId],
     queryFn: async () => {
       if (!eventId) return null;
@@ -551,7 +562,7 @@ const AdminLiveEventMetrics = () => {
     refetchInterval: 15000,
   });
 
-  const { data: paymentExceptions = [] } = useQuery({
+  const { data: paymentExceptions = [], error: paymentExceptionsError } = useQuery({
     queryKey: ["admin-event-payment-exceptions", eventId],
     queryFn: async () => {
       if (!eventId) return [];
@@ -620,6 +631,42 @@ const AdminLiveEventMetrics = () => {
           )}
         </div>
       </div>
+
+      {eventsError && (
+        <div className="glass-card p-6 rounded-2xl">
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+            Unable to load the Event Analytics event selector.
+            <span className="mt-1 block text-xs">
+              {sanitizeAdminRpcErrorMessage(eventsError)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {eventsLoading && !events.length && (
+        <div className="glass-card p-6 rounded-2xl text-sm text-muted-foreground">
+          Loading events...
+        </div>
+      )}
+
+      {metricsError && (
+        <div className="glass-card p-6 rounded-2xl">
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+            Unable to load Event Analytics metrics for the selected event.
+            <span className="mt-1 block text-xs">
+              {sanitizeAdminRpcErrorMessage(metricsError)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {metricsLoading && eventId && !metrics && !metricsError && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 12 }).map((_, index) => (
+            <div key={index} className="h-28 rounded-2xl bg-secondary/50 animate-pulse" />
+          ))}
+        </div>
+      )}
 
       {metrics && (
         <>
@@ -979,6 +1026,15 @@ const AdminLiveEventMetrics = () => {
               </p>
             </div>
 
+            {paymentExceptionsError && (
+              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+                Payment exception cases are unavailable.
+                <span className="mt-1 block text-xs">
+                  {sanitizeAdminRpcErrorMessage(paymentExceptionsError)}
+                </span>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2">
               <Badge className="bg-secondary text-foreground border-white/10">
                 total: {paymentExceptions.length}
@@ -1013,6 +1069,17 @@ const AdminLiveEventMetrics = () => {
             </div>
           </div>
         </>
+      )}
+
+      {postMetricsError && (
+        <div className="glass-card p-6 rounded-2xl">
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+            Post-event feedback metrics are unavailable.
+            <span className="mt-1 block text-xs">
+              {sanitizeAdminRpcErrorMessage(postMetricsError)}
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Post-Event Metrics */}
@@ -1105,7 +1172,7 @@ const AdminLiveEventMetrics = () => {
         </div>
       )}
 
-      {!metrics && !events.length && (
+      {!metrics && !metricsLoading && !eventsError && !events.length && (
         <div className="glass-card p-12 rounded-2xl text-center text-muted-foreground">
           No events found
         </div>

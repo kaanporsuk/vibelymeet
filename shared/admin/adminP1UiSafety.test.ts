@@ -174,7 +174,11 @@ test("overview metrics and event analytics labels match query semantics", () => 
   assert.match(adminLiveEventMetrics, /computed: \{selectedEventPhase\.label\}/);
   assert.match(adminLiveEventMetrics, /Queue drain health/);
   assert.match(adminLiveEventMetrics, /deduped first-frame samples/);
+  assert.match(adminLiveEventMetrics, /Unable to load Event Analytics metrics for the selected event/);
+  assert.match(adminLiveEventMetrics, /Unable to load the Event Analytics event selector/);
   assert.match(adminLiveEventMetrics, /Backend lifecycle read model unavailable/);
+  assert.match(adminLiveEventMetrics, /Payment exception cases are unavailable/);
+  assert.match(adminLiveEventMetrics, /Post-event feedback metrics are unavailable/);
   assert.match(adminLiveEventMetrics, /session: \{session\.session_id \? "linked" : "-"\}/);
   assert.match(adminLiveEventMetrics, /profile_ref: \{item\.profile_id \? "present" : "-"\}/);
   assert.doesNotMatch(adminLiveEventMetrics, /exception_id: \{item\.id\}/);

@@ -7,6 +7,9 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const migration = read("supabase/migrations/20260506120000_admin_p3_operations_foundation.sql");
+const auditStableOrderingClassificationMigration = read(
+  "supabase/migrations/20260507162000_admin_audit_log_stable_ordering_classification.sql",
+);
 const validation = read("supabase/validation/admin_p3_operations_foundation.sql");
 const operationsCenter = read("src/components/admin/AdminOperationsCenter.tsx");
 const activityLog = read("src/components/admin/AdminActivityLog.tsx");
@@ -144,6 +147,10 @@ test("Activity Log tab uses the governed audit RPC instead of direct table reads
   assert.match(activityLog, /Number\.isFinite\(reportedTotalCount\)/);
   assert.match(fnSection("admin_search_admin_audit_logs"), /ORDER BY al\.created_at DESC, al\.id DESC/);
   assert.match(fnSection("admin_search_admin_audit_logs"), /jsonb_agg\(to_jsonb\(page\) ORDER BY page\.created_at DESC, page\.id DESC\)/);
+  assert.match(auditStableOrderingClassificationMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(auditStableOrderingClassificationMigration, /'20260507155000'/);
+  assert.match(auditStableOrderingClassificationMigration, /'20260507162000'/);
+  assert.match(auditStableOrderingClassificationMigration, /'schema-only'/);
 });
 
 test("Activity Log tab presents current dotted actions, legacy fallbacks, and pagination states", () => {
