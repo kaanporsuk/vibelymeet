@@ -30,12 +30,12 @@ export async function callAdminRpc<T extends AdminRpcPayload = AdminRpcPayload>(
   fn: string,
   args: RpcArgs,
 ): Promise<T> {
-  const rpc = supabase.rpc as unknown as (
-    functionName: string,
-    args?: RpcArgs,
-  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  const result = await supabase.rpc(fn as never, args as never);
+  const { data, error } = result as {
+    data: unknown;
+    error: { message?: string } | null;
+  };
 
-  const { data, error } = await rpc(fn, args);
   if (error) throw new Error(error.message || `${fn} failed`);
 
   const payload = data as T | null;

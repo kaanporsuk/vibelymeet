@@ -156,6 +156,12 @@ test("browser mutation surfaces call semantic admin RPCs", () => {
   assert.match(pushAnalytics, /callAdminRpc\("admin_get_push_delivery_metrics"/);
 });
 
+test("admin RPC helper preserves Supabase client binding", () => {
+  assert.doesNotMatch(adminRpc, /const\s+rpc\s*=\s*supabase\.rpc\b(?!\.bind)/);
+  assert.doesNotMatch(adminRpc, /await\s+rpc\(/);
+  assert.match(adminRpc, /supabase\.rpc\(|supabase\.rpc\.bind\(supabase\)/);
+});
+
 test("covered admin UI no longer performs known multi-step browser writes", () => {
   const coveredSources = [
     grantCredits,
