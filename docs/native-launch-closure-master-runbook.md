@@ -14,10 +14,10 @@ This is the **single canonical execution order** for moving from **current No-Go
 
 | Field | Value | Source |
 |-------|--------|--------|
-| iOS bundle ID | `com.vibelymeet.vibely` | `apps/mobile/app.json` |
-| Android application ID | `com.vibelymeet.vibely` | `apps/mobile/app.json` |
-| Expo scheme | `com.vibelymeet.vibely` | `apps/mobile/app.json` |
-| Apple Team ID | `W38S57AM55` | `apps/mobile/app.json` |
+| iOS bundle ID | `com.vibelymeet.vibely` | `apps/mobile/app.base.json` via `apps/mobile/app.config.js` |
+| Android application ID | `com.vibelymeet.vibely` | `apps/mobile/app.base.json` via `apps/mobile/app.config.js` |
+| Expo scheme | `com.vibelymeet.vibely` | `apps/mobile/app.base.json` via `apps/mobile/app.config.js` |
+| Apple Team ID | `W38S57AM55` | `apps/mobile/app.base.json` via `apps/mobile/app.config.js` |
 
 ---
 
@@ -25,7 +25,7 @@ This is the **single canonical execution order** for moving from **current No-Go
 
 | Step | Action | Pass | Fail |
 |------|--------|------|------|
-| 0.1 | From repo root: `npm run launch:preflight` | JSON `"ok": true` | Fix reported missing files/config; if app.json/eas drift, stop and reconcile |
+| 0.1 | From repo root: `npm run launch:preflight` | JSON `"ok": true` | Fix reported missing files/config; if Expo config/EAS drift, stop and reconcile |
 | 0.2 | `npm run typecheck` | Exits 0 | Fix TypeScript before shipping native builds |
 
 **Nothing in Stage 0 requires dashboards or devices.** If preflight passes, repo-side config/docs are aligned for Kaan to start provider work.
@@ -63,7 +63,7 @@ Strict matrix: `docs/phase7-stage5-release-readiness-and-go-nogo.md`.
 
 | Stage | Pass | Fail |
 |-------|------|------|
-| Preflight | `launch:preflight` ok | Missing app.json / eas.json / required launch docs |
+| Preflight | `launch:preflight` ok | Missing Expo config / eas.json / required launch docs |
 | RevenueCat dashboard | Offering shows packages; public API keys copied | "No offerings" in app; wrong or empty product IDs |
 | Webhook + purchase | Sandbox/test purchase; `subscriptions` + `profiles.is_premium` updated | 401 on webhook; DB stale; deploy/secret mismatch |
 | OneSignal mobile | `notification_preferences` mobile player id; test push **received** | No player row; push never arrives |

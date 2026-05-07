@@ -42,19 +42,64 @@ function readText(path) {
   return readFileSync(path, "utf8");
 }
 
+function readResolvedExpoConfig(errors, profile) {
+  const appBasePath = join(MOBILE, "app.base.json");
+  const appConfigPath = join(MOBILE, "app.config.js");
+
+  if (!existsSync(appBasePath)) {
+    errors.push(`Missing ${appBasePath}`);
+  }
+  if (!existsSync(appConfigPath)) {
+    errors.push(`Missing ${appConfigPath}`);
+  }
+  if (!existsSync(appBasePath) || !existsSync(appConfigPath)) {
+    return null;
+  }
+
+  try {
+    const env = { ...process.env };
+    if (profile) {
+      env.EAS_BUILD_PROFILE = profile;
+    } else {
+      delete env.EAS_BUILD_PROFILE;
+    }
+    const raw = execFileSync("npx", ["expo", "config", "--json"], {
+      cwd: MOBILE,
+      env,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return JSON.parse(raw);
+  } catch (error) {
+    const stderr =
+      typeof error?.stderr === "string"
+        ? error.stderr
+        : error?.stderr?.toString?.("utf8");
+    const detail = stderr?.trim() || error?.message || "unknown error";
+    const label = profile ? `${profile} Expo config` : "default Expo config";
+    errors.push(`Unable to resolve ${label} via "npx expo config --json": ${detail}`);
+    return null;
+  }
+}
+
+function pluginOptions(app, name) {
+  const plugin = (app?.plugins || []).find((entry) => (
+    Array.isArray(entry) ? entry[0] === name : entry === name
+  ));
+  return Array.isArray(plugin) ? plugin[1] || {} : {};
+}
+
 function main() {
   const errors = [];
   const warnings = [];
   const info = [];
 
-  const appJsonPath = join(MOBILE, "app.json");
-  if (!existsSync(appJsonPath)) {
-    errors.push(`Missing ${appJsonPath}`);
-  } else {
-    const app = readJson(appJsonPath);
-    const iosId = app?.expo?.ios?.bundleIdentifier;
-    const androidPkg = app?.expo?.android?.package;
-    const scheme = app?.expo?.scheme;
+  const app = readResolvedExpoConfig(errors);
+  const productionApp = readResolvedExpoConfig(errors, "production");
+  if (app) {
+    const iosId = app?.ios?.bundleIdentifier;
+    const androidPkg = app?.android?.package;
+    const scheme = app?.scheme;
     const expected = "com.vibelymeet.vibely";
     if (iosId !== expected) {
       errors.push(`ios.bundleIdentifier expected ${expected}, got ${iosId}`);
@@ -70,22 +115,31 @@ function main() {
         `expo.scheme is "${scheme}" (often matches app id for deep links; verify intent filters / universal links).`,
       );
     }
-    const aps = app?.expo?.ios?.entitlements?.["aps-environment"];
+    const aps = app?.ios?.entitlements?.["aps-environment"];
     if (aps === "development") {
       info.push(
-        "app.json entitlements aps-environment is development; EAS preview/production builds still use OneSignal production APNs via app.config.js — confirm with docs/kaan-launch-closure-execution-sheet.md § OneSignal.",
+        "Resolved Expo config entitlements aps-environment is development; EAS preview/production builds still use OneSignal production APNs via app.config.js — confirm with docs/kaan-launch-closure-execution-sheet.md § OneSignal.",
       );
     }
-    const appGroups = app?.expo?.ios?.entitlements?.["com.apple.security.application-groups"];
+    const appGroups = app?.ios?.entitlements?.["com.apple.security.application-groups"];
     if (!Array.isArray(appGroups) || !appGroups.includes(ONESIGNAL_APP_GROUP)) {
-      errors.push(`app.json ios.entitlements must include OneSignal app group ${ONESIGNAL_APP_GROUP}`);
+      errors.push(`Expo config ios.entitlements must include OneSignal app group ${ONESIGNAL_APP_GROUP}`);
+    }
+    const oneSignalExtensions =
+      app?.extra?.eas?.build?.experimental?.ios?.appExtensions?.filter(
+        (extension) => extension?.bundleIdentifier === `${expected}.OneSignalNotificationServiceExtension`,
+      ) || [];
+    if (oneSignalExtensions.length !== 1) {
+      errors.push(`Resolved Expo config should contain exactly one OneSignal extension, got ${oneSignalExtensions.length}`);
     }
     const extensionGroups =
-      app?.expo?.extra?.eas?.build?.experimental?.ios?.appExtensions?.find(
-        (extension) => extension?.bundleIdentifier === `${expected}.OneSignalNotificationServiceExtension`,
-      )?.entitlements?.["com.apple.security.application-groups"];
+      oneSignalExtensions[0]?.entitlements?.["com.apple.security.application-groups"];
     if (!Array.isArray(extensionGroups) || !extensionGroups.includes(ONESIGNAL_APP_GROUP)) {
-      errors.push(`OneSignal extension entitlements must include app group ${ONESIGNAL_APP_GROUP}`);
+      errors.push(`Resolved OneSignal extension entitlements must include app group ${ONESIGNAL_APP_GROUP}`);
+    }
+    const localOneSignalMode = pluginOptions(app, "onesignal-expo-plugin").mode;
+    if (localOneSignalMode !== "development") {
+      errors.push(`Default OneSignal plugin mode expected development, got ${localOneSignalMode}`);
     }
     const generatedMainEntitlements = join(MOBILE, "ios", "Vibely", "Vibely.entitlements");
     if (existsSync(generatedMainEntitlements)) {
@@ -106,11 +160,18 @@ function main() {
         errors.push(`Generated OneSignal extension entitlements is missing ${ONESIGNAL_APP_GROUP}`);
       }
     }
-    const sceneManifest = app?.expo?.ios?.infoPlist?.UIApplicationSceneManifest;
+    const sceneManifest = app?.ios?.infoPlist?.UIApplicationSceneManifest;
     if (sceneManifest && !sceneManifest.UISceneConfigurations) {
       info.push(
         "UIScene manifest is currently single-scene only; keep the Apple UIScene lifecycle migration tracked for the next native-template pass.",
       );
+    }
+  }
+
+  if (productionApp) {
+    const productionOneSignalMode = pluginOptions(productionApp, "onesignal-expo-plugin").mode;
+    if (productionOneSignalMode !== "production") {
+      errors.push(`Production OneSignal plugin mode expected production, got ${productionOneSignalMode}`);
     }
   }
 

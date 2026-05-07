@@ -62,11 +62,14 @@ test("native handshake CTA emits visibility, final-ten, and timeout context tele
 });
 
 test("OneSignal app group is explicit in source config and native preflight", () => {
-  const appJson = read("apps/mobile/app.json");
+  const appBase = read("apps/mobile/app.base.json");
   const preflight = read("scripts/native-launch-preflight.mjs");
 
-  assert.match(appJson, /"com\.apple\.security\.application-groups"/);
-  assert.match(appJson, /"group\.com\.vibelymeet\.vibely\.onesignal"/);
+  assert.match(appBase, /"com\.apple\.security\.application-groups"/);
+  assert.match(appBase, /"group\.com\.vibelymeet\.vibely\.onesignal"/);
+  assert.match(preflight, /"expo", "config", "--json"/);
+  assert.match(preflight, /Production OneSignal plugin mode expected production/);
+  assert.match(preflight, /exactly one OneSignal extension/);
   assert.match(preflight, /const ONESIGNAL_APP_GROUP = "group\.com\.vibelymeet\.vibely\.onesignal"/);
   assert.match(preflight, /Generated Vibely\.entitlements is missing/);
   assert.match(preflight, /Generated OneSignal extension entitlements is missing/);

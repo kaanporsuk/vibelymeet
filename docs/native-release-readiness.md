@@ -16,7 +16,7 @@ Scope: App and provider/build closure prep. Reflects Sprints 1–6 and **Phase 7
 - **Profile photo upload:** In v1; native image picker → upload-image EF → profiles.photos update; implemented in Sprint 1.
 - **Vibe video:** In v1; native record → create-video-upload → tus upload → video-webhook; state (none/uploading/processing/ready/failed) and delete via delete-vibe-video; implemented in Sprint 1.
 - **Dead-end cleanup:** Profile preview, schedule, and settings rows wired to navigation or explicit web handoff (see `docs/native-web-handoff-burndown.md`).
-- **Branding config:** `app.json` — name "Vibely", icon, splash, Android adaptive icons and favicon referenced. All referenced assets exist in repo.
+- **Branding config:** resolved Expo config from `app.config.js` + `app.base.json` — name "Vibely", icon, splash, Android adaptive icons and favicon referenced. All referenced assets exist in repo.
 - **Backend contracts:** Same Supabase project, RPCs, Edge Functions as web; no native-only business logic.
 - **Platform adapters:** OneSignal (push; APNs mode via `app.config.js` for preview/production), RevenueCat (entitlements), Daily (video date) wired; env and closure checklists in `docs/native-external-setup-checklist.md`.
 

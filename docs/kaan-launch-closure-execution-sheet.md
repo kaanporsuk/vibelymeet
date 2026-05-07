@@ -11,7 +11,7 @@
 
 **Before anything:** repo root → `npm run launch:preflight` (must be `"ok": true`) → `npm run typecheck`. **CF** only if these fail for non-env reasons.
 
-**Repo truth:** iOS bundle ID + Android package = `com.vibelymeet.vibely` (`apps/mobile/app.json`). EAS project id in `app.json` → `extra.eas.projectId`.
+**Repo truth:** iOS bundle ID + Android package = `com.vibelymeet.vibely` (`apps/mobile/app.base.json` resolved through `apps/mobile/app.config.js`). EAS project id lives in resolved Expo config → `extra.eas.projectId`.
 
 ---
 
