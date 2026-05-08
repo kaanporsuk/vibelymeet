@@ -39,7 +39,10 @@ import { recordUserAction } from "@/lib/browserDiagnostics";
 import { preloadRoute } from "@/lib/routePreload";
 import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
-import { getDashboardEventRailHeading } from "@clientShared/eventTimingBuckets";
+import {
+  getDashboardAmbientEventLine,
+  getDashboardEventRailHeading,
+} from "@clientShared/eventTimingBuckets";
 import {
   normalizeReadyGateTransitionActiveSessionTruth,
   readyGateTransitionResultHasDateCapableTruth,
@@ -334,6 +337,12 @@ const Dashboard = () => {
   const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [profileReadinessDismissed, setProfileReadinessDismissed] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const raw = localStorage.getItem(PROFILE_READINESS_DISMISS_KEY);
@@ -353,8 +362,8 @@ const Dashboard = () => {
 
   const hoursUntilNext = useMemo(() => {
     if (!nextEvent?.eventDate) return Number.POSITIVE_INFINITY;
-    return (nextEvent.eventDate.getTime() - Date.now()) / 36e5;
-  }, [nextEvent?.eventDate]);
+    return (nextEvent.eventDate.getTime() - nowMs) / 36e5;
+  }, [nextEvent?.eventDate, nowMs]);
 
   const startingSoonWithin2h = useMemo(() => {
     return (
@@ -394,21 +403,29 @@ const Dashboard = () => {
   }, [visibleEventsRaw]);
 
   /** Home rail: same window as `get_visible_events` (effective end + 6h). */
-  const upcomingEvents = useMemo(
+  const homeRailEvents = useMemo(
     () =>
       events.filter((e) =>
-        isWithinDiscoverHomeGraceWindow({
-          status: e.status,
-          eventDate: e.eventDate,
-          durationMinutes: e.duration_minutes,
-        })
+        isWithinDiscoverHomeGraceWindow(
+          {
+            status: e.status,
+            eventDate: e.eventDate,
+            durationMinutes: e.duration_minutes,
+          },
+          nowMs,
+        )
       ),
-    [events],
+    [events, nowMs],
   );
 
   const eventSectionTitle = useMemo(
-    () => getDashboardEventRailHeading(upcomingEvents),
-    [upcomingEvents],
+    () => getDashboardEventRailHeading(homeRailEvents, new Date(nowMs)),
+    [homeRailEvents, nowMs],
+  );
+
+  const ambientEventLine = useMemo(
+    () => getDashboardAmbientEventLine(homeRailEvents, new Date(nowMs)),
+    [homeRailEvents, nowMs],
   );
 
   const handleRefresh = useCallback(async () => {
@@ -579,10 +596,7 @@ const Dashboard = () => {
 
   function AmbientPulse() {
     const lines: string[] = [];
-    if (upcomingEvents.length > 0)
-      lines.push(
-        `${upcomingEvents.length} event${upcomingEvents.length > 1 ? "s" : ""} coming up this week`,
-      );
+    if (ambientEventLine) lines.push(ambientEventLine);
     if (unreadMessageCount > 0)
       lines.push(
         `${unreadMessageCount} conversation${unreadMessageCount > 1 ? "s" : ""} need your reply`,
@@ -1018,8 +1032,8 @@ const Dashboard = () => {
                     <EventCardSkeleton />
                   </div>
                 ))
-            ) : upcomingEvents.length > 0 ? (
-              upcomingEvents.slice(0, 5).map((event) => (
+            ) : homeRailEvents.length > 0 ? (
+              homeRailEvents.slice(0, 5).map((event) => (
                 <div
                   key={event.id}
                   className="min-w-[260px] glass-card overflow-hidden cursor-pointer shrink-0 border border-white/10 rounded-2xl"

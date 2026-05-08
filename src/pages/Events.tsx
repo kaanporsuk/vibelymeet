@@ -253,13 +253,10 @@ const Events = () => {
   }, [user?.id, entitlementsLoading, canCityBrowse, serverEventPrefs]);
 
   useEffect(() => {
-    if (!canCityBrowse) {
-      if (locationMode !== "nearby" || selectedCity) {
-        setLocationMode("nearby");
-        setSelectedCity(null);
-      }
+    if (!canCityBrowse && selectedCity) {
+      setSelectedCity(null);
     }
-  }, [canCityBrowse, locationMode, selectedCity]);
+  }, [canCityBrowse, selectedCity]);
 
   const visibleOpts = useMemo((): UseVisibleEventsOptions => {
     const mode: "nearby" | "city" = !canCityBrowse ? "nearby" : locationMode;

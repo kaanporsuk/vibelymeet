@@ -71,6 +71,7 @@ import { deriveEventPhase, getCountdownParts } from '@/lib/eventPhase';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   classifyEventTimingHeading,
+  getDashboardAmbientEventLine,
   getDashboardEventRailHeading,
 } from '@clientShared/eventTimingBuckets';
 import {
@@ -285,8 +286,8 @@ export default function DashboardScreen() {
   const nextEventDurationMin = nextEvent?.duration_minutes;
 
   useEffect(() => {
-    if (nextEventId == null || !hasEventAdmissionForNext) return;
-    const timer = setInterval(() => setLiveClockMs(Date.now()), 1000);
+    const intervalMs = nextEventId != null && hasEventAdmissionForNext ? 1000 : 60_000;
+    const timer = setInterval(() => setLiveClockMs(Date.now()), intervalMs);
     return () => clearInterval(timer);
   }, [nextEventId, hasEventAdmissionForNext]);
 
@@ -310,21 +311,29 @@ export default function DashboardScreen() {
   }, [nextEventPhase]);
 
   /** Home rail: same window as `get_visible_events` (effective end + 6h). */
-  const upcomingEvents = useMemo(
+  const homeRailEvents = useMemo(
     () =>
       events.filter((e) =>
-        isWithinDiscoverHomeGraceWindow({
-          status: e.status,
-          eventDate: e.eventDate,
-          durationMinutes: e.duration_minutes,
-        })
+        isWithinDiscoverHomeGraceWindow(
+          {
+            status: e.status,
+            eventDate: e.eventDate,
+            durationMinutes: e.duration_minutes,
+          },
+          liveClockMs,
+        )
       ),
-    [events],
+    [events, liveClockMs],
   );
 
   const eventSectionTitle = useMemo(
-    () => getDashboardEventRailHeading(upcomingEvents),
-    [upcomingEvents],
+    () => getDashboardEventRailHeading(homeRailEvents, new Date(liveClockMs)),
+    [homeRailEvents, liveClockMs],
+  );
+
+  const ambientEventLine = useMemo(
+    () => getDashboardAmbientEventLine(homeRailEvents, new Date(liveClockMs)),
+    [homeRailEvents, liveClockMs],
   );
 
   const nextRegisteredTimingHeading = useMemo(() => {
@@ -921,10 +930,9 @@ export default function DashboardScreen() {
   }
 
   function AmbientPulse() {
-    const eventCount = upcomingEvents.length;
     const hasConversations = unreadMessageCount > 0;
     const lines: string[] = [];
-    if (eventCount > 0) lines.push(`${eventCount} event${eventCount > 1 ? 's' : ''} coming up this week`);
+    if (ambientEventLine) lines.push(ambientEventLine);
     if (hasConversations)
       lines.push(`${unreadMessageCount} conversation${unreadMessageCount > 1 ? 's' : ''} need your reply`);
     if (newMatchCount > 0) lines.push(`${newMatchCount} new connection${newMatchCount > 1 ? 's' : ''} this week`);
@@ -1148,9 +1156,9 @@ export default function DashboardScreen() {
                 <DiscoverCardSkeleton />
                 <DiscoverCardSkeleton />
               </View>
-            ) : upcomingEvents.length > 0 ? (
+            ) : homeRailEvents.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.eventRail}>
-                {upcomingEvents.slice(0, 5).map((event) => (
+                {homeRailEvents.slice(0, 5).map((event) => (
                   <Pressable
                     key={event.id}
                     onPress={() => router.push(`/events/${event.id}` as const)}

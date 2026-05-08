@@ -154,11 +154,48 @@ export type DashboardTimingEvent = {
   status?: string | null;
 };
 
-function isNotEndedOrIsLive(e: DashboardTimingEvent, now: Date): boolean {
-  if (e.status === "live") return true;
+function normalizeEventStatus(status: string | null | undefined): string {
+  return (status ?? "").toLowerCase();
+}
+
+function hasValidDashboardEventStart(e: DashboardTimingEvent): boolean {
+  return Number.isFinite(e.eventDate.getTime());
+}
+
+function dashboardEventEndMs(e: DashboardTimingEvent): number {
   const durationMinutes = e.duration_minutes ?? 60;
-  const endMs = e.eventDate.getTime() + Math.max(1, durationMinutes) * 60 * 1000;
-  return endMs > now.getTime();
+  return e.eventDate.getTime() + Math.max(1, durationMinutes) * 60 * 1000;
+}
+
+function isDashboardEventSuppressed(e: DashboardTimingEvent): boolean {
+  if (!hasValidDashboardEventStart(e)) return true;
+  const status = normalizeEventStatus(e.status);
+  return status === "cancelled" || status === "draft" || status === "archived";
+}
+
+function hasDashboardEventEndedByTime(e: DashboardTimingEvent, now: Date): boolean {
+  const endMs = dashboardEventEndMs(e);
+  return Number.isFinite(endMs) && now.getTime() >= endMs;
+}
+
+function isDashboardEventEnded(e: DashboardTimingEvent, now: Date): boolean {
+  const status = normalizeEventStatus(e.status);
+  if (status === "ended" || status === "completed") return true;
+  return hasDashboardEventEndedByTime(e, now);
+}
+
+function isDashboardEventLive(e: DashboardTimingEvent, now: Date): boolean {
+  return isEventLiveAt({
+    eventStart: e.eventDate,
+    durationMinutes: e.duration_minutes,
+    now,
+    statusIsLive: false,
+  });
+}
+
+function isDashboardEventActionable(e: DashboardTimingEvent, now: Date): boolean {
+  if (isDashboardEventSuppressed(e)) return false;
+  return isDashboardEventLive(e, now) || !isDashboardEventEnded(e, now);
 }
 
 /**
@@ -170,16 +207,48 @@ export function getDashboardEventRailHeading(
 ): EventTimingHeading {
   const n = now ?? new Date();
   const first = [...events]
-    .filter((e) => e.status !== "cancelled")
-    .filter((e) => isNotEndedOrIsLive(e, n))
+    .filter((e) => isDashboardEventActionable(e, n))
     .sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime())[0];
-  if (!first) return events.some((e) => e.status === "ended") ? "Recently Ended" : "Upcoming";
+  if (!first) {
+    return events.some((e) => !isDashboardEventSuppressed(e) && isDashboardEventEnded(e, n))
+      ? "Recently Ended"
+      : "Upcoming";
+  }
   return classifyEventTimingHeading({
     eventStart: first.eventDate,
     durationMinutes: first.duration_minutes,
     now: n,
-    statusIsLive: first.status === "live",
+    statusIsLive: isDashboardEventLive(first, n),
   });
+}
+
+/**
+ * Bottom dashboard pulse copy. Counts only actionable live/future events, never ended grace rows.
+ */
+export function getDashboardAmbientEventLine(
+  events: DashboardTimingEvent[],
+  now?: Date,
+): string | null {
+  const n = now ?? new Date();
+  const actionable = events.filter((e) => isDashboardEventActionable(e, n));
+  const liveCount = actionable.filter((e) => isDashboardEventLive(e, n)).length;
+
+  if (liveCount > 0) {
+    return `${liveCount} event${liveCount === 1 ? "" : "s"} live now`;
+  }
+
+  const futureEvents = actionable.filter((e) => {
+    const startMs = e.eventDate.getTime();
+    return Number.isFinite(startMs) && startMs > n.getTime();
+  });
+  if (futureEvents.length === 0) return null;
+
+  const currentWeekCount = futureEvents.filter((e) => isInCurrentLocalWeek(e.eventDate, n)).length;
+  if (currentWeekCount > 0) {
+    return `${currentWeekCount} event${currentWeekCount === 1 ? "" : "s"} coming up this week`;
+  }
+
+  return `${futureEvents.length} upcoming event${futureEvents.length === 1 ? "" : "s"}`;
 }
 
 /**

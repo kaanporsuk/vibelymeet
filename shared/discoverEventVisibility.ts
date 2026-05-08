@@ -19,7 +19,7 @@ export function scheduledEventEndMs(
 
 /**
  * True while the event is still in the discover/home visibility window (before effective end + 6h).
- * Excludes cancelled/draft only; `ended` computed status may still be true during the grace window.
+ * Excludes cancelled/draft/archived only; `ended` computed status may still be true during the grace window.
  */
 export function isWithinDiscoverHomeGraceWindow(
   args: {
@@ -29,8 +29,8 @@ export function isWithinDiscoverHomeGraceWindow(
   },
   nowMs: number = Date.now()
 ): boolean {
-  const st = args.status ?? "";
-  if (st === "cancelled" || st === "draft") return false;
+  const st = (args.status ?? "").toLowerCase();
+  if (st === "cancelled" || st === "draft" || st === "archived") return false;
   const visibilityCapMs = scheduledEventEndMs(args.eventDate, args.durationMinutes) + DISCOVER_POST_END_GRACE_MS;
   return nowMs < visibilityCapMs;
 }
