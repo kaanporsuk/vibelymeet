@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import Papa from "papaparse";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 
 interface BatchEventImportModalProps {
   onClose: () => void;
@@ -60,6 +61,7 @@ interface ParsedEvent {
   status?: string;
   visibility?: string;
   tags?: string[];
+  category_keys?: string[];
   vibe_tags?: string[];
 }
 
@@ -261,6 +263,7 @@ function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
   }
 
   const tags = stringArrayValue(ev.tags);
+  const explicitCategoryKeys = stringArrayValue(ev.category_keys);
   const vibes = stringArrayValue(ev.vibe_tags);
 
   return {
@@ -286,6 +289,9 @@ function validateEvent(ev: RawImportEvent, index: number): ValidatedEvent {
     status,
     visibility,
     tags,
+    category_keys: explicitCategoryKeys.length > 0
+      ? explicitCategoryKeys
+      : inferEventCategoryKeysFromLegacyTags(tags),
     vibe_tags: vibes,
     _index: index,
     _valid: errors.length === 0,
@@ -372,6 +378,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         TEMPLATE_EVENTS.map((e) => ({
           ...e,
           tags: JSON.stringify(e.tags),
+          category_keys: JSON.stringify(e.category_keys),
           vibe_tags: JSON.stringify(e.vibe_tags),
         }))
       );
@@ -417,6 +424,7 @@ const BatchEventImportModal = ({ onClose }: BatchEventImportModalProps) => {
         status: ev.status || "upcoming",
         visibility: ev.visibility || "all",
         tags: ev.tags || [],
+        category_keys: ev.category_keys || inferEventCategoryKeysFromLegacyTags(ev.tags || []),
         vibes: ev.vibe_tags || [],
       }));
 

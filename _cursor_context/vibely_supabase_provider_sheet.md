@@ -99,13 +99,13 @@ From the frozen baseline and generated types, Supabase owns:
 Legacy / Bunny-migrated (not active Supabase buckets): `profile-photos`, `vibe-videos`, `event-covers`, `voice-messages`. Treat as legacy for rebuild; image/event/voice/vibe media are on Bunny.
 
 ## C. Edge Function layer
-Deployable functions: **53**
+Deployable functions: **54**
 
 Shared helper directory:
 - `_shared`
 
 ### Function config (post-hardening)
-All 53 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 33 functions. Public-but-protected (verify_jwt false): 20 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `record-growth-attribution`, `generate-daily-drops`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
+All 54 deployable functions are listed in `supabase/config.toml`. No config gaps. JWT-at-gateway: 34 functions. Public-but-protected (verify_jwt false): 20 functions, including external/provider/cron endpoints such as `push-webhook`, `video-webhook`, `stripe-webhook`, `revenuecat-webhook`, `event-reminders`, `send-email`, `request-account-deletion`, `record-growth-attribution`, `generate-daily-drops`, `get-chat-media-url`, and scheduled cleanup/drainer functions.
 
 ## D. Secrets/runtime layer
 Supabase stores and exposes runtime secrets used by Edge Functions.
@@ -175,7 +175,7 @@ Verify:
 
 ## D. Edge Function parity
 Verify:
-- all 53 deployable functions are present and listed in config.toml
+- all 54 deployable functions are present and listed in config.toml
 - `_shared` compiles into dependents correctly
 - 33 functions deployed with JWT enforced; 20 public-but-protected with correct secrets/tokens set
 
@@ -229,7 +229,7 @@ Do not assume the checked-in root `.env` covers this set. It does not.
 ## 8. Supabase function deployment sheet (post-hardening)
 
 ### Function count
-- 53 deployable functions; all listed in `supabase/config.toml`.
+- 54 deployable functions; all listed in `supabase/config.toml`.
 
 ### JWT-at-gateway (`verify_jwt = true`)
 daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, admin-data-export, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.

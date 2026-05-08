@@ -80,6 +80,28 @@ assert.equal(
   'unsupported',
 );
 
+assert.equal(
+  resolvePushDeliveryHealth({
+    ...base,
+    backendPlayerId: 'player-web',
+    backendSubscribed: true,
+    localPlayerId: 'player-web',
+    preferencesEnabled: false,
+  }).status,
+  'preferences_disabled',
+);
+
+assert.equal(
+  resolvePushDeliveryHealth({
+    ...base,
+    backendPlayerId: 'player-web',
+    backendSubscribed: true,
+    localPlayerId: 'player-web',
+    pausedUntil: new Date(Date.now() + 60_000).toISOString(),
+  }).status,
+  'paused',
+);
+
 const sendNotificationSource = readFileSync(
   join(process.cwd(), 'supabase/functions/send-notification/index.ts'),
   'utf8',

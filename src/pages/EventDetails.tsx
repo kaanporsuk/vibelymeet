@@ -42,6 +42,7 @@ import { trackEvent } from "@/lib/analytics";
 import { PremiumUpsellDialog } from "@/components/premium/PremiumUpsellDialog";
 import { PREMIUM_ENTRY_SURFACE } from "@shared/premiumFunnel";
 import { buildEventShareUrl } from "@/lib/inviteLinks";
+import { captureBrowserReferral } from "@/lib/referrals";
 import { isWebShareAbortError } from "@/lib/webShare";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import { resolveEventBookingEditability } from "@clientShared/eventBookingEditability";
@@ -75,14 +76,7 @@ const EventDetails = () => {
 
   // Shared links like /events/:id?ref= — keep referral for signup (Auth also reads ?ref= on /auth).
   useEffect(() => {
-    const ref = searchParams.get("ref");
-    if (ref) {
-      try {
-        localStorage.setItem("vibely_referrer_id", ref);
-      } catch {
-        /* quota / private mode */
-      }
-    }
+    captureBrowserReferral(searchParams);
   }, [searchParams]);
 
   // Next event in series (for recurring indicator)
@@ -591,9 +585,12 @@ const EventDetails = () => {
           </div>
         )}
 
-        {/* Tags */}
+        {/* Categories */}
         <div className="flex gap-2 flex-wrap">
-          {event.tags.map((tag) => (
+          {(event.categories.length > 0
+            ? event.categories.map((category) => `${category.emoji} ${category.label}`)
+            : event.tags
+          ).map((tag) => (
             <span
               key={tag}
               className="px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-sm font-medium text-primary"

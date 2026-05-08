@@ -336,6 +336,9 @@ const Events = () => {
       time: new Date(e.event_date).toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }),
       attendees: e.current_attendees,
       tags: e.tags || [],
+      category_keys: e.category_keys || [],
+      categories: e.categories || [],
+      vibes: e.vibes || [],
       status: e.computed_status,
       eventDate: new Date(e.event_date),
       event_date_raw: e.event_date,
@@ -390,7 +393,10 @@ const Events = () => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(e =>
-        e.title.toLowerCase().includes(q) || e.tags.some(t => t.toLowerCase().includes(q))
+        e.title.toLowerCase().includes(q) ||
+        e.tags.some(t => t.toLowerCase().includes(q)) ||
+        e.vibes.some(v => v.toLowerCase().includes(q)) ||
+        e.categories.some(c => c.label.toLowerCase().includes(q))
       );
     }
 
@@ -409,7 +415,7 @@ const Events = () => {
           (activeFilters.includes("This Week") && matchesThisWeekTimeFilter(ed, now)) ||
           (activeFilters.includes("Upcoming") && ed > now);
         const interestMatch = interestFilterNames.length === 0 ||
-          event.tags.some(t => interestFilterNames.includes(t));
+          event.category_keys.some(key => interestFilterNames.includes(key));
 
         const hasDateFilter = activeFilters.some(f => dateFilterNames.includes(f));
         if (!hasDateFilter) return interestMatch;
@@ -506,6 +512,7 @@ const Events = () => {
                       <EventCardPremium id={event.id} title={event.title} image={event.image}
                         date={event.date} time={event.time} attendees={event.attendees}
                         tags={event.tags} status={event.status}
+                        categories={event.categories}
                         scope={event.scope} city={event.city}
                         country={event.country} distanceKm={event.distance_km}
                         eventDateRaw={event.event_date_raw}
@@ -535,6 +542,7 @@ const Events = () => {
                   description={featuredEvent.description} image={featuredEvent.image}
                   eventDate={featuredEvent.eventDate} attendees={featuredEvent.attendees}
                   tags={featuredEvent.tags} status={featuredEvent.status}
+                  categories={featuredEvent.categories}
                   durationMinutes={featuredEvent.duration_minutes}
                   language={featuredEvent.language} />
               </div>

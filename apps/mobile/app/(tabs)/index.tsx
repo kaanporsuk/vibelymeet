@@ -52,6 +52,9 @@ import { DeletionRecoveryBanner } from '@/components/settings/DeletionRecoveryBa
 import { usePushPermission } from '@/lib/usePushPermission';
 import { usePushDeliveryHealth } from '@/lib/usePushDeliveryHealth';
 import { PushPermissionPrompt } from '@/components/notifications/PushPermissionPrompt';
+import { NotificationBell } from '@/components/notifications/NotificationBell';
+import { NotificationCenterSheet } from '@/components/notifications/NotificationCenterSheet';
+import { useNotificationInbox } from '@/lib/useNotificationInbox';
 import {
   isDashboardPushOsPermissionRequestInFlight,
   logDashboardPushPrepromptSuppressed,
@@ -65,6 +68,7 @@ import { PhoneVerificationNudge } from '@/components/PhoneVerificationNudge';
 import { PhoneVerificationFlow } from '@/components/verification/PhoneVerificationFlow';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { withAlpha } from '@/lib/colorUtils';
+import { trackEvent } from '@/lib/analytics';
 import { useDailyDropTabBadge } from '@/lib/useDailyDropTabBadge';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 import { deriveEventPhase, getCountdownParts } from '@/lib/eventPhase';
@@ -162,7 +166,9 @@ export default function DashboardScreen() {
     refresh: refreshPushPermission,
   } = usePushPermission();
   const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth(user?.id);
+  const notificationInbox = useNotificationInbox(user?.id);
   const [showPushPermissionPrompt, setShowPushPermissionPrompt] = useState(false);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
   const pushPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prepromptScheduledThisSessionRef = useRef(false);
   const prepromptVisibleRef = useRef(false);
@@ -540,8 +546,14 @@ export default function DashboardScreen() {
   }, [refetchNextEvent, refetchEvents, refetchMatches, refetchActiveSession, refetchHomeProfile, refetchUnread]);
 
   const handleNotificationPress = useCallback(() => {
-    router.push('/settings/notifications');
-  }, []);
+    trackEvent('notification_bell_clicked', {
+      source_screen: 'dashboard',
+      push_state: pushDeliveryHealth.status,
+      unseen_count: notificationInbox.unseenCount,
+      urgent_unseen_count: notificationInbox.urgentUnseenCount,
+    });
+    setNotificationCenterOpen(true);
+  }, [notificationInbox.unseenCount, notificationInbox.urgentUnseenCount, pushDeliveryHealth.status]);
 
   const handleCancelDeletion = useCallback(async () => {
     await cancelDeletion();
@@ -962,18 +974,12 @@ export default function DashboardScreen() {
             {nextReminder && nextReminder.urgency !== 'none' && (
               <MiniDateCountdown reminder={nextReminder} onPress={() => router.push('/schedule' as Href)} />
             )}
-            <Pressable
+            <NotificationBell
+              unseenCount={notificationInbox.unseenCount}
+              urgentUnseenCount={notificationInbox.urgentUnseenCount}
+              pushSetupNeeded={!pushDeliveryHealth.backendDeliverable && pushDeliveryHealth.status !== 'unsupported'}
               onPress={handleNotificationPress}
-              style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.8 }]}
-              accessibilityLabel="Notifications"
-            >
-              <View style={styles.notifWrap}>
-                <Ionicons name="notifications-outline" size={22} color={theme.text} />
-                {unreadMessageCount > 0 ? (
-                  <View style={[styles.notifDot, { backgroundColor: theme.accent }]} />
-                ) : null}
-              </View>
-            </Pressable>
+            />
             <Pressable
               onPress={() => router.push('/profile' as Href)}
               style={({ pressed }) => [styles.avatarBtn, pressed && { opacity: 0.8 }]}
@@ -1039,6 +1045,13 @@ export default function DashboardScreen() {
               void refreshPushPermission('dashboard_prompt_completed');
               void refreshPushDeliveryHealth();
             }}
+          />
+          <NotificationCenterSheet
+            visible={notificationCenterOpen}
+            onClose={() => setNotificationCenterOpen(false)}
+            inbox={notificationInbox}
+            pushHealth={pushDeliveryHealth}
+            onRequestPushSetup={() => setShowPushPermissionPrompt(true)}
           />
 
           {phoneNudgeChecked && showPhoneNudge && (

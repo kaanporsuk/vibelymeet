@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { eventCoverThumbUrl } from "@/utils/imageUrl";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -29,6 +30,7 @@ import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
 import { supabase } from "@/integrations/supabase/client";
+import { useEventCategories, type EventCategory } from "@/hooks/useEventCategories";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,9 @@ type AdminEventRow = {
   parent_event_id?: string | null;
   occurrence_number?: number | null;
   recurrence_type?: "weekly" | "biweekly" | "monthly_day" | "monthly_weekday" | "yearly" | null;
+  category_keys?: string[] | null;
+  tags?: string[] | null;
+  vibes?: string[] | null;
 };
 
 type AdminEventsPayload = {
@@ -133,10 +138,167 @@ const getRecurrenceSummary = (event: AdminEventRow): string => {
   }
 };
 
+type CategoryUpdateInput = {
+  categoryKey: string;
+  label?: string;
+  emoji?: string;
+  active?: boolean;
+  sortOrder?: number;
+};
+
+type AdminEventCategoryRowProps = {
+  category: EventCategory;
+  isPending: boolean;
+  onSave: (input: CategoryUpdateInput) => void;
+  onToggleActive: (category: EventCategory) => void;
+};
+
+const AdminEventCategoryRow = ({
+  category,
+  isPending,
+  onSave,
+  onToggleActive,
+}: AdminEventCategoryRowProps) => {
+  const [emoji, setEmoji] = useState(category.emoji);
+  const [label, setLabel] = useState(category.label);
+  const [sortOrder, setSortOrder] = useState(String(category.sort_order ?? ""));
+
+  useEffect(() => {
+    setEmoji(category.emoji);
+    setLabel(category.label);
+    setSortOrder(String(category.sort_order ?? ""));
+  }, [category.emoji, category.label, category.sort_order]);
+
+  const parsedSortOrder = sortOrder.trim() === "" ? undefined : Number.parseInt(sortOrder, 10);
+  const normalizedSortOrder = Number.isFinite(parsedSortOrder) ? parsedSortOrder : undefined;
+  const isDirty =
+    emoji.trim() !== category.emoji ||
+    label.trim() !== category.label ||
+    normalizedSortOrder !== (category.sort_order ?? undefined);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[72px_minmax(180px,1fr)_96px_120px_92px] gap-2 items-center rounded-lg border border-border/60 bg-secondary/20 p-2">
+      <Input
+        value={emoji}
+        onChange={(event) => setEmoji(event.target.value)}
+        className="h-9 bg-background/70 text-center"
+        aria-label={`${category.label} emoji`}
+        maxLength={8}
+      />
+      <Input
+        value={label}
+        onChange={(event) => setLabel(event.target.value)}
+        className="h-9 bg-background/70"
+        aria-label={`${category.label} label`}
+      />
+      <Input
+        type="number"
+        value={sortOrder}
+        onChange={(event) => setSortOrder(event.target.value)}
+        className="h-9 bg-background/70"
+        aria-label={`${category.label} sort order`}
+      />
+      <div className="flex items-center gap-2">
+        <Switch
+          checked={category.active !== false}
+          onCheckedChange={() => onToggleActive(category)}
+          disabled={isPending}
+          aria-label={`${category.active === false ? "Activate" : "Deactivate"} ${category.label}`}
+        />
+        <span className="text-xs text-muted-foreground">
+          {category.active === false ? "Inactive" : "Active"}
+        </span>
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={!isDirty || isPending || !label.trim() || !emoji.trim()}
+        onClick={() => onSave({
+          categoryKey: category.key,
+          label: label.trim(),
+          emoji: emoji.trim(),
+          sortOrder: normalizedSortOrder,
+        })}
+      >
+        Save
+      </Button>
+    </div>
+  );
+};
+
+const AdminEventCategoryManager = () => {
+  const queryClient = useQueryClient();
+  const { data: categories = [], isLoading } = useEventCategories({ includeInactive: true });
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+
+  const updateCategory = useMutation({
+    mutationFn: async (input: CategoryUpdateInput) => {
+      setPendingKey(input.categoryKey);
+      return callAdminRpc("admin_update_event_category", {
+        p_category_key: input.categoryKey,
+        p_label: input.label ?? null,
+        p_emoji: input.emoji ?? null,
+        p_active: input.active ?? null,
+        p_sort_order: input.sortOrder ?? null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["event-categories"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-events"] });
+      queryClient.invalidateQueries({ queryKey: ["visible-events"] });
+      queryClient.invalidateQueries({ queryKey: ["events-discover"] });
+      toast.success("Category updated");
+    },
+    onError: (error: unknown) => {
+      toast.error(errorMessage(error, "Failed to update category"));
+    },
+    onSettled: () => setPendingKey(null),
+  });
+
+  return (
+    <div className="rounded-2xl border border-border bg-secondary/10 p-4 space-y-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Event Categories</h3>
+          <p className="text-xs text-muted-foreground">
+            Active categories appear in user filters and the admin event form. Existing events keep inactive category keys for history.
+          </p>
+        </div>
+        <Badge variant="outline" className="w-fit border-border">
+          {categories.filter((category) => category.active !== false).length} active
+        </Badge>
+      </div>
+
+      {isLoading ? (
+        <div className="h-20 rounded-lg bg-secondary/40 animate-pulse" />
+      ) : categories.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No categories found. Create one from the event form.</p>
+      ) : (
+        <div className="space-y-2">
+          {categories.map((category) => (
+            <AdminEventCategoryRow
+              key={category.key}
+              category={category}
+              isPending={updateCategory.isPending && pendingKey === category.key}
+              onSave={(input) => updateCategory.mutate(input)}
+              onToggleActive={(item) => updateCategory.mutate({
+                categoryKey: item.key,
+                active: item.active === false,
+              })}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const AdminEventsPanel = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showBatchImport, setShowBatchImport] = useState(false);
@@ -164,6 +326,16 @@ const AdminEventsPanel = () => {
     const intervalId = window.setInterval(() => setLifecycleNowMs(Date.now()), 30_000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("create") !== "event") return;
+    setShowCreateModal(true);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("create");
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const broadcastEventEnded = (eventId: string) => {
     const channel = supabase.channel(`event-status-${eventId}`);
@@ -771,6 +943,8 @@ const AdminEventsPanel = () => {
           </Button>
         </div>
       </div>
+
+      <AdminEventCategoryManager />
 
       {/* Filter bar */}
       <div className="flex flex-wrap gap-3 items-center p-3 rounded-xl bg-secondary/20 border border-border">

@@ -25,6 +25,8 @@ const ALLOWED_PUSH_TELEMETRY_PROPS = new Set([
   'backend_player_present',
   'local_player_present',
   'backend_subscribed',
+  'preferences_enabled',
+  'paused',
   'deeplink_url_present',
   'deeplink_url_kind',
   'deeplink_route_class',

@@ -52,6 +52,7 @@ import EventFilterSheet, {
   DEFAULT_FILTERS,
   countActiveFilters,
 } from '@/components/events/EventFilterSheet';
+import { useEventCategories } from '@/lib/useEventCategories';
 import { useLocationPermission } from '@/lib/useLocationPermission';
 import {
   captureCurrentDeviceLocation,
@@ -295,9 +296,9 @@ function FeaturedEventCard({
             </Text>
           </View>
         )}
-        {event.tags.length > 0 && (
+        {(event.categories.length > 0 || event.tags.length > 0) && (
           <View style={featuredStyles.tags}>
-            {event.tags.slice(0, 3).map((tag) => (
+            {(event.categories.length > 0 ? event.categories.map((category) => `${category.emoji} ${category.label}`) : event.tags).slice(0, 3).map((tag) => (
               <View key={tag} style={[featuredStyles.tag, { backgroundColor: theme.tintSoft, borderColor: theme.tint }]}>
                 <Text style={[featuredStyles.tagText, { color: theme.tint }]}>{tag}</Text>
               </View>
@@ -539,11 +540,11 @@ function EventRailCard({
             <Text style={[railCardStyles.endedText, { color: theme.textSecondary }]}>Ended</Text>
           </View>
         )}
-        {event.tags.length > 0 && (
+        {(event.categories.length > 0 || event.tags.length > 0) && (
           <View style={railCardStyles.tags}>
-            {event.tags.slice(0, 2).map((tag) => (
+            {(event.categories.length > 0 ? event.categories.map((category) => `${category.emoji} ${category.label}`) : event.tags).slice(0, 2).map((tag) => (
               <View key={tag} style={railCardStyles.tag}>
-                <Text style={railCardStyles.tagText}>✨ {tag}</Text>
+                <Text style={railCardStyles.tagText}>{tag}</Text>
               </View>
             ))}
           </View>
@@ -758,6 +759,11 @@ export default function EventsListScreen() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [locationDismissed, setLocationDismissed] = useState(false);
   const [locationEnableLoading, setLocationEnableLoading] = useState(false);
+  const {
+    data: eventCategories = [],
+    isSuccess: categoriesLoaded,
+    isPlaceholderData: usingPlaceholderCategories,
+  } = useEventCategories();
   const locationPermission = useLocationPermission();
   const { data: profileLocation } = useQuery({
     queryKey: ['profile-location', user?.id],
@@ -812,6 +818,16 @@ export default function EventsListScreen() {
       return next;
     });
   }, [user?.id, entitlementsLoading, canCityBrowse, serverEventPrefs]);
+
+  useEffect(() => {
+    if (!categoriesLoaded || usingPlaceholderCategories) return;
+    const activeCategoryKeys = new Set(eventCategories.map((category) => category.key));
+    setFilters((current) => {
+      const nextCategories = current.categories.filter((key) => activeCategoryKeys.has(key));
+      if (nextCategories.length === current.categories.length) return current;
+      return { ...current, categories: nextCategories };
+    });
+  }, [categoriesLoaded, eventCategories, usingPlaceholderCategories]);
 
   const handleEnableProfileLocation = useCallback(async () => {
     if (!user?.id || locationEnableLoading) return;
@@ -952,7 +968,9 @@ export default function EventsListScreen() {
       list = list.filter(
         (e) =>
           e.title.toLowerCase().includes(q) ||
-          (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
+          (e.tags ?? []).some((t) => t.toLowerCase().includes(q)) ||
+          (e.vibes ?? []).some((v) => v.toLowerCase().includes(q)) ||
+          (e.categories ?? []).some((c) => c.label.toLowerCase().includes(q))
       );
     }
 
@@ -974,11 +992,11 @@ export default function EventsListScreen() {
       });
     }
 
-    // 4. Category filter (match against event tags)
+    // 4. Category filter (match against canonical event categories)
     if (filters.categories.length > 0) {
-      const cats = new Set(filters.categories.map(c => c.toLowerCase()));
+      const cats = new Set(filters.categories);
       list = list.filter(e =>
-        (e.tags ?? []).some(t => cats.has(t.toLowerCase()))
+        (e.category_keys ?? []).some(key => cats.has(key))
       );
     }
 

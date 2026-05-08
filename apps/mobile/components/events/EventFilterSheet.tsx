@@ -19,11 +19,7 @@ import { supabase } from '@/lib/supabase';
 import { useLocationPermission } from '@/lib/useLocationPermission';
 import { saveCurrentDeviceLocationToProfile, type SaveProfileLocationResult } from '@/lib/locationProfileUpdate';
 import { useQueryClient } from '@tanstack/react-query';
-
-const CATEGORIES = [
-  'Music', 'Tech', 'Art', 'Gaming', 'Food',
-  'Wellness', 'Outdoor', 'Sports', 'Social', 'Dating',
-] as const;
+import { useEventCategories } from '@/lib/useEventCategories';
 
 const DISTANCE_OPTIONS = [
   { km: 10, label: '10 km' },
@@ -85,6 +81,7 @@ export default function EventFilterSheet({
   const queryClient = useQueryClient();
   const locationPermission = useLocationPermission();
   const { refresh: refreshLocationPermission } = locationPermission;
+  const { data: eventCategories = [] } = useEventCategories();
 
   const [draft, setDraft] = useState<EventFilters>(filters);
   const [locationActionLoading, setLocationActionLoading] = useState(false);
@@ -308,12 +305,12 @@ export default function EventFilterSheet({
             {/* ── Categories ── */}
             <Text style={[s.sectionTitle, { color: theme.text }]}>Categories</Text>
             <View style={s.chipWrap}>
-              {CATEGORIES.map(cat => {
-                const active = draft.categories.includes(cat);
+              {eventCategories.map(cat => {
+                const active = draft.categories.includes(cat.key);
                 return (
                   <Pressable
-                    key={cat}
-                    onPress={() => toggleCategory(cat)}
+                    key={cat.key}
+                    onPress={() => toggleCategory(cat.key)}
                     style={[
                       s.chip,
                       active
@@ -322,7 +319,7 @@ export default function EventFilterSheet({
                     ]}
                   >
                     <Text style={[s.chipText, { color: active ? '#fff' : theme.textSecondary }]}>
-                      {cat}
+                      {cat.emoji} {cat.label}
                     </Text>
                   </Pressable>
                 );

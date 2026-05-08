@@ -9,6 +9,7 @@ import { getLanguageLabel } from "@/lib/eventLanguages";
 import { useUserRegistrations } from "@/hooks/useRegistrations";
 import { isEventExpired } from "@/utils/eventUtils";
 import { eventCoverCardUrl } from "@/utils/imageUrl";
+import type { EventCategory } from "@clientShared/eventCategories";
 
 interface EventCardPremiumProps {
   id: string;
@@ -18,6 +19,7 @@ interface EventCardPremiumProps {
   time: string;
   attendees: number;
   tags: string[];
+  categories?: EventCategory[];
   vibeMatch?: number;
   status?: string;
   scope?: string;
@@ -51,6 +53,7 @@ export const EventCardPremium = ({
   time,
   attendees,
   tags,
+  categories = [],
   vibeMatch = Math.floor(Math.random() * 20) + 80,
   status,
   scope,
@@ -157,12 +160,12 @@ export const EventCardPremium = ({
 
         {/* Tags */}
         <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5">
-          {tags.slice(0, 2).map((tag) => (
+          {(categories.length > 0 ? categories : tags.map((tag) => ({ key: tag, label: tag, emoji: tagEmojis[tag] || "✨" }))).slice(0, 2).map((category) => (
             <span
-              key={tag}
+              key={category.key}
               className="px-2.5 py-1 text-xs font-medium rounded-full bg-background/50 backdrop-blur-sm text-foreground border border-white/10"
             >
-              {tagEmojis[tag] || "✨"} {tag}
+              {category.emoji} {category.label}
             </span>
           ))}
         </div>

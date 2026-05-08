@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -65,6 +65,7 @@ const FeedbackDrawer = lazy(() =>
 
 const Settings = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useUserProfile();
   const { handleLogout } = useLogout();
   const { deleteAccount, isDeleting } = useDeleteAccount();
@@ -96,6 +97,17 @@ const Settings = () => {
       setShowFeedback(true);
     }
   }, [deepLinkTicketId]);
+
+  useEffect(() => {
+    if (searchParams.get("drawer") === "notifications") {
+      setActiveDrawer("notifications");
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("drawer");
+        return next;
+      }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const onLogoutConfirm = async () => {
     setShowLogoutDialog(false);

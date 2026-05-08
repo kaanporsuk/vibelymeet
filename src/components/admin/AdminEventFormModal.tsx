@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   X, Calendar, Clock, Users, Image, Save, Sparkles, MapPin, DollarSign,
   Eye, Crown, UserCircle, ChevronDown, ChevronUp, Upload, Loader2,
-  Globe, Flag, RefreshCw, Search,
+  Globe, Flag, RefreshCw, Search, Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,20 +21,13 @@ import { format } from "date-fns";
 import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import React from "react";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { useEventCategories } from "@/hooks/useEventCategories";
+import { inferEventCategoryKeysFromLegacyTags } from "@clientShared/eventCategories";
 
 interface AdminEventFormModalProps {
   event?: AdminEventFormEvent | null;
   onClose: () => void;
 }
-
-const eventThemes = [
-  { id: "tech", label: "Tech Founders", emoji: "💻" },
-  { id: "travel", label: "Travel Lovers", emoji: "✈️" },
-  { id: "foodies", label: "Foodies", emoji: "🍷" },
-  { id: "creatives", label: "Creatives", emoji: "🎨" },
-  { id: "fitness", label: "Fitness & Wellness", emoji: "💪" },
-  { id: "music", label: "Music & Nightlife", emoji: "🎵" },
-];
 
 const currencies = [
   { id: "EUR", label: "Euro", symbol: "€" },
@@ -65,6 +58,7 @@ type AdminEventFormEvent = {
   event_date?: string | null;
   duration_minutes?: number | null;
   tags?: string[] | null;
+  category_keys?: string[] | null;
   vibes?: string[] | null;
   max_male_attendees?: number | null;
   max_female_attendees?: number | null;
@@ -94,6 +88,7 @@ type EventSavePayload = {
   duration_minutes: number;
   max_attendees: number;
   tags: string[];
+  category_keys: string[];
   vibes: string[];
   max_male_attendees: number | null;
   max_female_attendees: number | null;
@@ -195,6 +190,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       return data || [];
     },
   });
+  const { data: eventCategories = [] } = useEventCategories({ includeInactive: true });
 
   // ── Basic Info ──
   const [title, setTitle] = useState(event?.title || "");
@@ -208,8 +204,16 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     event?.event_date ? format(new Date(event.event_date), "HH:mm") : ""
   );
   const [duration, setDuration] = useState(String(event?.duration_minutes || 60));
-  const [selectedTags, setSelectedTags] = useState<string[]>(event?.tags || []);
+  const [selectedTags] = useState<string[]>(event?.tags || []);
+  const [selectedCategoryKeys, setSelectedCategoryKeys] = useState<string[]>(
+    event?.category_keys?.length
+      ? event.category_keys
+      : inferEventCategoryKeysFromLegacyTags(event?.tags || [])
+  );
   const [selectedVibes, setSelectedVibes] = useState<string[]>(event?.vibes || []);
+  const [newCategoryEmoji, setNewCategoryEmoji] = useState("✨");
+  const [newCategoryLabel, setNewCategoryLabel] = useState("");
+  const [showNewCategory, setShowNewCategory] = useState(false);
 
   // ── Capacity ──
   const [maxMaleAttendees, setMaxMaleAttendees] = useState(String(event?.max_male_attendees || ""));
@@ -391,6 +395,7 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
         duration_minutes: parseInt(duration, 10),
         max_attendees: totalCapacity || 50,
         tags: selectedTags,
+        category_keys: selectedCategoryKeys,
         vibes: selectedVibes,
         max_male_attendees: maxMaleAttendees ? parseInt(maxMaleAttendees, 10) : null,
         max_female_attendees: maxFemaleAttendees ? parseInt(maxFemaleAttendees, 10) : null,
@@ -459,6 +464,8 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
       }
 
       queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      queryClient.invalidateQueries({ queryKey: ['visible-events'] });
+      queryClient.invalidateQueries({ queryKey: ['events-discover'] });
       onClose();
     },
     onError: (error) => {
@@ -466,9 +473,32 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
     },
   });
 
-  const toggleTag = (tagId: string) => setSelectedTags(prev => prev.includes(tagId) ? prev.filter(t => t !== tagId) : [...prev, tagId]);
+  const toggleCategory = (categoryKey: string) => setSelectedCategoryKeys(prev => prev.includes(categoryKey) ? prev.filter(t => t !== categoryKey) : [...prev, categoryKey]);
   const toggleVibe = (vibeLabel: string) => setSelectedVibes(prev => prev.includes(vibeLabel) ? prev.filter(v => v !== vibeLabel) : [...prev, vibeLabel]);
   const toggleDay = (d: number) => setSelectedDays(prev => prev.includes(d) ? (prev.length > 1 ? prev.filter(x => x !== d) : prev) : [...prev, d]);
+
+  const createCategory = useMutation({
+    mutationFn: async () => {
+      return callAdminRpc<{ category: { key: string; label: string; emoji: string } }>("admin_create_event_category", {
+        p_label: newCategoryLabel,
+        p_emoji: newCategoryEmoji,
+      });
+    },
+    onSuccess: async (payload) => {
+      const key = payload.category?.key;
+      if (key) {
+        setSelectedCategoryKeys(prev => prev.includes(key) ? prev : [...prev, key]);
+      }
+      setNewCategoryLabel("");
+      setNewCategoryEmoji("✨");
+      setShowNewCategory(false);
+      await queryClient.invalidateQueries({ queryKey: ["event-categories"] });
+      toast.success("Category created");
+    },
+    onError: (error) => {
+      toast.error("Failed to create category", { description: error instanceof Error ? error.message : undefined });
+    },
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1022,21 +1052,64 @@ const AdminEventFormModal = ({ event, onClose }: AdminEventFormModalProps) => {
             </div>
           </CollapsibleSection>
 
-          {/* Themes */}
-          <CollapsibleSection title="Event Themes" icon={Sparkles} isOpen={openSections.themes}
+          {/* Categories */}
+          <CollapsibleSection title="Categories" icon={Sparkles} isOpen={openSections.themes}
             onToggle={() => toggleSection('themes')}
-            badge={selectedTags.length > 0 ? `${selectedTags.length} selected` : undefined}>
+            badge={selectedCategoryKeys.length > 0 ? `${selectedCategoryKeys.length} selected` : undefined}>
             <div className="flex flex-wrap gap-2">
-              {eventThemes.map((theme) => (
-                <motion.button key={theme.id} type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                  onClick={() => toggleTag(theme.id)}
-                  className={`px-3 py-2 rounded-full border transition-all text-sm ${selectedTags.includes(theme.id)
+              {eventCategories
+                .filter((category) => category.active !== false || selectedCategoryKeys.includes(category.key))
+                .map((category) => (
+                <motion.button key={category.key} type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                  onClick={() => toggleCategory(category.key)}
+                  className={`px-3 py-2 rounded-full border transition-all text-sm ${selectedCategoryKeys.includes(category.key)
                     ? 'border-primary bg-primary/20 text-foreground'
-                    : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'}`}>
-                  <span className="mr-1">{theme.emoji}</span>{theme.label}
+                    : 'border-border bg-secondary/30 text-muted-foreground hover:border-primary/50'} ${category.active === false ? 'opacity-60' : ''}`}>
+                  <span className="mr-1">{category.emoji}</span>{category.label}
+                  {category.active === false && <span className="ml-1 text-xs">(inactive)</span>}
                 </motion.button>
               ))}
             </div>
+            {showNewCategory ? (
+              <div className="rounded-xl border border-border bg-secondary/20 p-3 space-y-3">
+                <div className="grid grid-cols-[80px_1fr_auto] gap-2 items-end">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Icon</Label>
+                    <Input
+                      value={newCategoryEmoji}
+                      onChange={(e) => setNewCategoryEmoji(e.target.value)}
+                      maxLength={8}
+                      className="bg-secondary/50 text-center text-lg"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Category name</Label>
+                    <Input
+                      value={newCategoryLabel}
+                      onChange={(e) => setNewCategoryLabel(e.target.value)}
+                      placeholder="e.g., Theater Night"
+                      className="bg-secondary/50"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={createCategory.isPending || !newCategoryLabel.trim() || !newCategoryEmoji.trim()}
+                    onClick={() => createCategory.mutate()}
+                    className="gap-2"
+                  >
+                    {createCategory.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Save
+                  </Button>
+                </div>
+                <div className="inline-flex items-center rounded-full border border-primary/40 bg-primary/15 px-3 py-1.5 text-sm">
+                  <span className="mr-1.5">{newCategoryEmoji || "✨"}</span>{newCategoryLabel.trim() || "New category"}
+                </div>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowNewCategory(true)} className="gap-2">
+                <Plus className="w-4 h-4" />New category
+              </Button>
+            )}
           </CollapsibleSection>
         </form>
       </div>

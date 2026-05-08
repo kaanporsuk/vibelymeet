@@ -1360,10 +1360,50 @@ export type Database = {
           },
         ]
       }
+      event_categories: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          emoji: string
+          id: string
+          key: string
+          label: string
+          sort_order: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          emoji: string
+          id?: string
+          key: string
+          label: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          emoji?: string
+          id?: string
+          key?: string
+          label?: string
+          sort_order?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           archived_at: string | null
           archived_by: string | null
+          category_keys: string[]
           city: string | null
           country: string | null
           cover_image: string
@@ -1406,6 +1446,7 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           archived_by?: string | null
+          category_keys?: string[]
           city?: string | null
           country?: string | null
           cover_image: string
@@ -1448,6 +1489,7 @@ export type Database = {
         Update: {
           archived_at?: string | null
           archived_by?: string | null
+          category_keys?: string[]
           city?: string | null
           country?: string | null
           cover_image?: string
@@ -2297,6 +2339,90 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      user_notifications: {
+        Row: {
+          action: Json
+          actor_id: string | null
+          body: string | null
+          category: string
+          created_at: string
+          data: Json
+          dedupe_key: string | null
+          dismissed_at: string | null
+          expires_at: string | null
+          group_count: number
+          group_key: string | null
+          id: string
+          image_url: string | null
+          opened_at: string | null
+          priority: string
+          read_at: string | null
+          seen_at: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action?: Json
+          actor_id?: string | null
+          body?: string | null
+          category: string
+          created_at?: string
+          data?: Json
+          dedupe_key?: string | null
+          dismissed_at?: string | null
+          expires_at?: string | null
+          group_count?: number
+          group_key?: string | null
+          id?: string
+          image_url?: string | null
+          opened_at?: string | null
+          priority?: string
+          read_at?: string | null
+          seen_at?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action?: Json
+          actor_id?: string | null
+          body?: string | null
+          category?: string
+          created_at?: string
+          data?: Json
+          dedupe_key?: string | null
+          dismissed_at?: string | null
+          expires_at?: string | null
+          group_count?: number
+          group_key?: string | null
+          id?: string
+          image_url?: string | null
+          opened_at?: string | null
+          priority?: string
+          read_at?: string | null
+          seen_at?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_notifications_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       onboarding_drafts: {
         Row: {
@@ -4684,6 +4810,14 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_create_event_category: {
+        Args: {
+          p_emoji: string
+          p_label: string
+          p_sort_order?: number
+        }
+        Returns: Json
+      }
       admin_create_event: {
         Args: { p_idempotency_key?: string; p_payload: Json }
         Returns: Json
@@ -4891,6 +5025,16 @@ export type Database = {
           p_idempotency_key?: string
           p_profile_id: string
           p_reason?: string
+        }
+        Returns: Json
+      }
+      admin_update_event_category: {
+        Args: {
+          p_active?: boolean
+          p_category_key: string
+          p_emoji?: string
+          p_label?: string
+          p_sort_order?: number
         }
         Returns: Json
       }
@@ -5251,6 +5395,10 @@ export type Database = {
       delete_chat_for_current_user: {
         Args: { p_match_id: string }
         Returns: Json
+      }
+      dismiss_notification: {
+        Args: { notification_id: string }
+        Returns: boolean
       }
       detect_ghost_bootstrap_accounts: {
         Args: { days_old_threshold?: number; min_activity_threshold?: number }
@@ -5663,6 +5811,8 @@ export type Database = {
           p_user_lng?: number
         }
         Returns: {
+          categories: Json
+          category_keys: string[]
           city: string
           computed_status: string
           country: string
@@ -5686,6 +5836,7 @@ export type Database = {
           status: string
           tags: string[]
           title: string
+          vibes: string[]
         }[]
       }
       handle_swipe: {
@@ -5811,6 +5962,7 @@ export type Database = {
         Args: { p_event_id: string }
         Returns: undefined
       }
+      mark_all_notifications_read: { Args: never; Returns: number }
       mark_match_messages_read: {
         Args: { p_match_id: string }
         Returns: undefined
@@ -5820,6 +5972,18 @@ export type Database = {
         Returns: Json
       }
       mark_my_activity_seen: { Args: never; Returns: boolean }
+      mark_notification_opened: {
+        Args: { notification_id: string }
+        Returns: boolean
+      }
+      mark_notification_read: {
+        Args: { notification_id: string }
+        Returns: boolean
+      }
+      mark_notifications_seen: {
+        Args: { notification_ids: string[] }
+        Returns: number
+      }
       mark_photo_deleted: {
         Args: { p_storage_path: string; p_user_id: string }
         Returns: Json

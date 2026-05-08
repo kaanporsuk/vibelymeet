@@ -62,7 +62,7 @@ test("web player-id and subscription sync writes notification_preferences safely
   assert.match(webPushSync, /onesignal_player_id:\s*playerId/);
   assert.match(webPushSync, /onesignal_subscribed:\s*subscribed/);
   assert.match(webPushSync, /push_enabled:\s*true/);
-  assert.match(webPushHealth, /\.select\(["']onesignal_player_id, onesignal_subscribed["']\)/);
+  assert.match(webPushHealth, /\.select\(["']onesignal_player_id, onesignal_subscribed, push_enabled, paused_until["']\)/);
   assert.match(webPushHealth, /vibely-onesignal-subscription-changed/);
   assert.match(pushPermissionPrompt, /requestWebPushPermissionAndSync\(user\.id\)/);
   assert.match(notificationsDrawer, /requestWebPushPermissionAndSync\(user\.id\)/);
