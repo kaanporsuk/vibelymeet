@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus, Search, Edit, Trash2, Calendar, Users, Clock, Eye, MoreHorizontal,
   UserCheck, Upload, Archive, RotateCcw, RefreshCw, CheckSquare, Square,
-  Ban,
+  Ban, StopCircle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import BatchEventImportModal from "./BatchEventImportModal";
 import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { supabase } from "@/integrations/supabase/client";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ type PendingEventPanelAction =
   | { kind: "archive"; event: AdminEventRow }
   | { kind: "unarchive"; event: AdminEventRow }
   | { kind: "archive-series"; event: AdminEventRow; childCount: number }
+  | { kind: "finalize-repair"; event: AdminEventRow }
   | { kind: "bulk-archive"; count: number }
   | null;
 
@@ -71,14 +73,15 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-const getComputedStatus = (event: AdminEventRow, nowMs = Date.now()): string => {
+const getLifecycleSnapshot = (event: AdminEventRow, nowMs = Date.now()) => {
   return resolveEventLifecycle({
     status: event.status,
     event_date: event.event_date,
     duration_minutes: event.duration_minutes,
     ended_at: event.ended_at,
+    archived_at: event.archived_at,
     nowMs,
-  }).lifecycle;
+  });
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -88,6 +91,22 @@ const STATUS_STYLES: Record<string, string> = {
   ended:     'bg-orange-500/10 text-orange-400 border-orange-500/30',
   completed: 'bg-muted/50 text-muted-foreground border-border',
   cancelled: 'bg-destructive/10 text-destructive border-destructive/30',
+  wrap_up_grace: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+  needs_finalization_repair: 'bg-red-500/10 text-red-300 border-red-500/30',
+};
+
+const getAdminStatusDisplay = (event: AdminEventRow, nowMs = Date.now()): string => {
+  const lifecycle = getLifecycleSnapshot(event, nowMs);
+  if (lifecycle.needsFinalizationRepair) return "needs_finalization_repair";
+  if (lifecycle.isInFinalizationGrace) return "wrap_up_grace";
+  return lifecycle.lifecycle;
+};
+
+const formatStatusFilterLabel = (status: string): string => {
+  if (status === "all") return "All Statuses";
+  if (status === "wrap_up_grace") return "Wrap-up";
+  if (status === "needs_finalization_repair") return "Needs repair";
+  return status;
 };
 
 const SCOPE_BADGE: Record<string, string> = {
@@ -143,6 +162,20 @@ const AdminEventsPanel = () => {
     return () => window.clearInterval(intervalId);
   }, []);
 
+  const broadcastEventEnded = (eventId: string) => {
+    const channel = supabase.channel(`event-status-${eventId}`);
+    void channel
+      .send({
+        type: "broadcast",
+        event: "event_ended",
+        payload: { eventId },
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        void supabase.removeChannel(channel);
+      });
+  };
+
   // Fetch events
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['admin-events', searchQuery, showArchived],
@@ -169,8 +202,8 @@ const AdminEventsPanel = () => {
   // Filtered events
   const filteredEvents = useMemo(() => {
     return events.filter(event => {
-      const computed = getComputedStatus(event, lifecycleNowMs);
-      if (statusFilter !== 'all' && computed !== statusFilter) return false;
+      const statusDisplay = getAdminStatusDisplay(event, lifecycleNowMs);
+      if (statusFilter !== 'all' && statusDisplay !== statusFilter) return false;
       if (scopeFilter !== 'all' && (event.scope || 'global') !== scopeFilter) return false;
       if (cityFilter !== 'all' && event.city !== cityFilter) return false;
       if (dateFrom && new Date(event.event_date) < new Date(dateFrom)) return false;
@@ -268,6 +301,25 @@ const AdminEventsPanel = () => {
     onError: (err: unknown) => toast.error(errorMessage(err, 'Failed to cancel event')),
   });
 
+  const finalizeRepairEvent = useMutation({
+    mutationFn: async (event: AdminEventRow) => {
+      await callAdminRpc("admin_end_event", {
+        p_event_id: event.id,
+        p_reason: "Finalization repair from /kaan dashboard",
+        p_idempotency_key: createAdminIdempotencyKey("admin_end_event"),
+      });
+      return event;
+    },
+    onSuccess: (event) => {
+      broadcastEventEnded(event.id);
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['visible-events'] });
+      toast.success(`Finalized "${event.title}"`);
+    },
+    onError: (err: unknown) => toast.error(errorMessage(err, "Failed to finalize event")),
+  });
+
   // Archive entire series
   const archiveSeries = useMutation({
     mutationFn: async (parentId: string) => {
@@ -349,6 +401,13 @@ const AdminEventsPanel = () => {
           confirmLabel: "Archive Series",
           variant: "destructive" as const,
         };
+      case "finalize-repair":
+        return {
+          title: `Finalize "${pendingEventAction.event.title}" now?`,
+          description: "This is a repair action for an event whose scheduled end plus the 10 minute grace has passed but ended_at is still missing. It calls admin_end_event and records the lifecycle finalization.",
+          confirmLabel: "Finalize now",
+          variant: "destructive" as const,
+        };
       case "bulk-archive":
         return {
           title: `Archive ${pendingEventAction.count} selected event${pendingEventAction.count === 1 ? "" : "s"}?`,
@@ -375,6 +434,9 @@ const AdminEventsPanel = () => {
     if (pendingEventAction.kind === "archive-series") {
       return archiveSeries.mutateAsync(pendingEventAction.event.id);
     }
+    if (pendingEventAction.kind === "finalize-repair") {
+      return finalizeRepairEvent.mutateAsync(pendingEventAction.event);
+    }
     return bulkArchive();
   };
 
@@ -393,11 +455,27 @@ const AdminEventsPanel = () => {
   };
 
   const renderEventRow = (event: AdminEventRow, isChild = false): ReactNode => {
-    const computed = getComputedStatus(event, lifecycleNowMs);
+    const lifecycle = getLifecycleSnapshot(event, lifecycleNowMs);
+    const computed = lifecycle.lifecycle;
+    const statusDisplay = lifecycle.needsFinalizationRepair
+      ? "needs_finalization_repair"
+      : lifecycle.isInFinalizationGrace
+        ? "wrap_up_grace"
+        : computed;
+    const statusLabel = statusDisplay === "needs_finalization_repair"
+      ? "needs repair"
+      : statusDisplay === "wrap_up_grace"
+        ? "wrap-up"
+        : computed;
     const isParent = event.is_recurring;
     const children = isParent ? getChildrenOf(event.id) : [];
     const isExpanded = expandedParents.has(event.id);
     const rawStatus = event.status?.toLowerCase() || '';
+    const canEdit =
+      !event.archived_at &&
+      !event.ended_at &&
+      !lifecycle.isEnded &&
+      !['ended', 'completed'].includes(rawStatus);
     const canCancel =
       !event.archived_at &&
       !event.ended_at &&
@@ -448,6 +526,8 @@ const AdminEventsPanel = () => {
                   computedStatus={computed}
                   endedAt={event.ended_at}
                   archivedAt={event.archived_at}
+                  isInFinalizationGrace={lifecycle.isInFinalizationGrace}
+                  autoFinalizeAt={lifecycle.autoFinalizeAt}
                 />
               </div>
             </div>
@@ -497,9 +577,24 @@ const AdminEventsPanel = () => {
 
           {/* Status */}
           <TableCell>
-            <Badge variant="outline" className={`text-xs ${STATUS_STYLES[computed] || STATUS_STYLES.upcoming}`}>
-              {computed}
+            <Badge variant="outline" className={`text-xs ${STATUS_STYLES[statusDisplay] || STATUS_STYLES.upcoming}`}>
+              {statusLabel}
             </Badge>
+            {event.ended_at && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Finalized {format(new Date(event.ended_at), 'MMM d, h:mm a')}
+              </p>
+            )}
+            {!event.ended_at && lifecycle.isInFinalizationGrace && lifecycle.autoFinalizeAt && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Auto-finalizes {format(lifecycle.autoFinalizeAt, 'h:mm a')}
+              </p>
+            )}
+            {!event.ended_at && lifecycle.needsFinalizationRepair && (
+              <p className="mt-1 text-[10px] text-red-300">
+                Missing ended_at
+              </p>
+            )}
           </TableCell>
 
           {/* Actions */}
@@ -509,15 +604,31 @@ const AdminEventsPanel = () => {
                 <Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="bg-card border-border">
-                <DropdownMenuItem onClick={() => setEditingEvent(event)} className="gap-2">
-                  <Edit className="w-4 h-4" />Edit
-                </DropdownMenuItem>
+                {canEdit && (
+                  <DropdownMenuItem onClick={() => setEditingEvent(event)} className="gap-2">
+                    <Edit className="w-4 h-4" />Edit
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setViewingAttendeesEvent(event)} className="gap-2">
                   <UserCheck className="w-4 h-4" />Attendees
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => window.open(`/events/${event.id}`, '_blank')} className="gap-2">
                   <Eye className="w-4 h-4" />View
                 </DropdownMenuItem>
+
+                {lifecycle.needsFinalizationRepair && !event.ended_at && !event.archived_at && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setPendingEventAction({ kind: "finalize-repair", event })}
+                      disabled={finalizeRepairEvent.isPending}
+                      className="gap-2 text-red-300 focus:text-red-300"
+                    >
+                      <StopCircle className="w-4 h-4" />
+                      Finalize now
+                    </DropdownMenuItem>
+                  </>
+                )}
 
                 {canCancel && (
                   <>
@@ -636,7 +747,7 @@ const AdminEventsPanel = () => {
 
   const pendingActionCopy = getPendingActionCopy();
   const isPanelActionPending =
-    archiveEvent.isPending || archiveSeries.isPending || isBulkArchiving || isGeneratingOccurrences;
+    archiveEvent.isPending || archiveSeries.isPending || finalizeRepairEvent.isPending || isBulkArchiving || isGeneratingOccurrences;
 
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -662,8 +773,8 @@ const AdminEventsPanel = () => {
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-32 h-8 text-xs bg-secondary/50"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
-            {['all','live','upcoming','ended','cancelled','draft'].map(s => (
-              <SelectItem key={s} value={s}>{s === 'all' ? 'All Statuses' : s}</SelectItem>
+            {['all','live','upcoming','wrap_up_grace','needs_finalization_repair','ended','cancelled','draft'].map(s => (
+              <SelectItem key={s} value={s}>{formatStatusFilterLabel(s)}</SelectItem>
             ))}
           </SelectContent>
         </Select>

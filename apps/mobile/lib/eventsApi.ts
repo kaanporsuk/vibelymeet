@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
-import { getCachedSession, getCachedUserId } from '@/lib/nativeAuthSession';
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from '@/lib/supabase';
+import { getCachedUserId, getFreshCachedAccessToken } from '@/lib/nativeAuthSession';
 import { trackEvent } from '@/lib/analytics';
 import type { DrainMatchQueueResult, SwipeSessionStageResult } from '@shared/matching/videoSessionFlow';
 import type { SelectedCity } from '@/components/events/EventFilterSheet';
@@ -593,14 +593,44 @@ export type SwipeResult = SwipeSessionStageResult;
 
 export type { DrainMatchQueueResult };
 
+function unauthorizedSwipeResult(): SwipeResult {
+  return {
+    success: false,
+    result: 'unauthorized',
+    outcome: 'unauthorized',
+    error: 'unauthorized',
+    message: 'Sign in again to keep swiping.',
+    notification_suppressed: true,
+  };
+}
+
 export async function swipe(eventId: string, targetId: string, swipeType: 'vibe' | 'pass' | 'super_vibe'): Promise<SwipeResult | null> {
-  const session = await getCachedSession();
-  if (!session) return null;
-  const { data, error } = await supabase.functions.invoke('swipe-actions', {
-    body: { event_id: eventId, target_id: targetId, swipe_type: swipeType },
-  });
-  if (error) return null;
-  return data as SwipeResult;
+  const accessToken = await getFreshCachedAccessToken();
+  if (!accessToken) return unauthorizedSwipeResult();
+
+  const swipeActionsUrl = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/swipe-actions`;
+  let response: Response;
+  try {
+    response = await fetch(swipeActionsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ event_id: eventId, target_id: targetId, swipe_type: swipeType }),
+    });
+  } catch {
+    return null;
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (response.status === 401) return unauthorizedSwipeResult();
+    return null;
+  }
+  if (!payload || typeof payload !== 'object') return null;
+  return payload as SwipeResult;
 }
 
 const SUPER_VIBE_LIMIT_PER_EVENT = 3;

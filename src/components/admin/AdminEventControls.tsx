@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import AdminConfirmDialog from "./AdminConfirmDialog";
 import { callAdminRpc, createAdminIdempotencyKey } from "@/lib/adminRpc";
+import { format } from "date-fns";
 
 interface AdminEventControlsProps {
   eventId: string;
@@ -15,12 +16,13 @@ interface AdminEventControlsProps {
   computedStatus: string;
   endedAt?: string | null;
   archivedAt?: string | null;
+  isInFinalizationGrace?: boolean;
+  autoFinalizeAt?: Date | null;
 }
 
 type PendingEventControlAction =
   | { kind: "go-live" }
   | { kind: "end" }
-  | { kind: "finalize-end" }
   | { kind: "extend"; minutes: number }
   | { kind: "reminder" }
   | null;
@@ -32,6 +34,8 @@ const AdminEventControls = ({
   computedStatus,
   endedAt,
   archivedAt,
+  isInFinalizationGrace = false,
+  autoFinalizeAt,
 }: AdminEventControlsProps) => {
   const queryClient = useQueryClient();
   const [pendingAction, setPendingAction] = useState<PendingEventControlAction>(null);
@@ -98,9 +102,10 @@ const AdminEventControls = ({
   const isComputedEnded = normalizedComputedStatus === "ended";
   const isUpcoming = normalizedComputedStatus === "upcoming";
   const isLive = normalizedComputedStatus === "live";
-  const showFinalizeEnd = isComputedEnded && !endedAt;
+  const showWrapUpGrace = isComputedEnded && isInFinalizationGrace && !endedAt;
   const showGoLive = normalizedComputedStatus === "live" && normalizedRawStatus !== "live";
   const reminderCooldown = reminderSentAt && Date.now() - reminderSentAt < 15 * 60 * 1000;
+  const autoFinalizeLabel = autoFinalizeAt ? format(autoFinalizeAt, "h:mm a") : null;
 
   const handleGoLive = async () => {
     setIsGoingLive(true);
@@ -148,6 +153,7 @@ const AdminEventControls = ({
   };
 
   if (isArchived || isDraft || isCancelled || isCompleted || endedAt) return null;
+  if (!showGoLive && !showWrapUpGrace && !isLive && !isUpcoming) return null;
 
   const getPendingActionCopy = () => {
     switch (pendingAction?.kind) {
@@ -165,18 +171,11 @@ const AdminEventControls = ({
             "This calls admin_end_event. The backend writes events.status = ended and ended_at, audits the action, then the client broadcasts the local event-ended signal.",
           confirmLabel: "End Event",
         };
-      case "finalize-end":
-        return {
-          title: `Finalize end for "${eventTitle}"?`,
-          description:
-            "This calls admin_end_event for a row whose computed window has already ended but has no ended_at timestamp yet. The backend writes the terminal lifecycle fields and audits the action.",
-          confirmLabel: "Finalize End",
-        };
       case "extend":
         return {
           title: `Extend "${eventTitle}" by ${pendingAction.minutes} minutes?`,
           description:
-            "This calls admin_extend_event. The backend validates the transition, updates events.duration_minutes, and audits the action.",
+            "This calls admin_extend_event. The backend allows extension only during the live window or the 10 minute finalization grace, updates events.duration_minutes, and audits the action.",
           confirmLabel: `Extend +${pendingAction.minutes}`,
         };
       case "reminder":
@@ -194,7 +193,7 @@ const AdminEventControls = ({
   const handleConfirmAction = async () => {
     if (!pendingAction) return;
     if (pendingAction.kind === "go-live") return handleGoLive();
-    if (pendingAction.kind === "end" || pendingAction.kind === "finalize-end") return endEvent.mutateAsync();
+    if (pendingAction.kind === "end") return endEvent.mutateAsync();
     if (pendingAction.kind === "extend") return extendEvent.mutateAsync(pendingAction.minutes);
     return handleSendReminder();
   };
@@ -221,17 +220,35 @@ const AdminEventControls = ({
             Go Live
           </Button>
         )}
-        {showFinalizeEnd && (
-          <Button
-            size="sm"
-            variant="destructive"
-            className="gap-1.5"
-            onClick={() => setPendingAction({ kind: "finalize-end" })}
-            disabled={endEvent.isPending}
-          >
-            <StopCircle className="w-3.5 h-3.5" />
-            Finalize End
-          </Button>
+        {showWrapUpGrace && (
+          <>
+            <span
+              className="inline-flex items-center rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-300"
+              title="The scheduled window has ended. Users are closed out; operators can extend during the 10 minute grace."
+            >
+              Wrap-up{autoFinalizeLabel ? ` · auto-finalizes ${autoFinalizeLabel}` : ""}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={() => setPendingAction({ kind: "extend", minutes: 15 })}
+              disabled={extendEvent.isPending}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              +15 min
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="gap-1.5"
+              onClick={() => setPendingAction({ kind: "end" })}
+              disabled={endEvent.isPending}
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              End now
+            </Button>
+          </>
         )}
         {isLive && (
           <>

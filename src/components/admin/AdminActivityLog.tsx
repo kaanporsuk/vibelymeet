@@ -101,6 +101,7 @@ const actionPresentations: Record<string, ActionPresentation> = {
   "event.create": { label: "Event Created", icon: Calendar, className: toneClasses.positive },
   "event.update": { label: "Event Updated", icon: Edit, className: toneClasses.info },
   "event.end": { label: "Event Ended", icon: Clock, className: toneClasses.warning },
+  "event.auto_finalize": { label: "Event Auto-Finalized", icon: Clock, className: toneClasses.warning },
   "event.extend": { label: "Event Extended", icon: Clock, className: toneClasses.info },
   "event.go_live": { label: "Event Went Live", icon: PlayCircle, className: toneClasses.positive },
   "event.cancel": { label: "Event Cancelled", icon: XCircle, className: toneClasses.destructive },
@@ -145,6 +146,7 @@ const actionFilterOptions: SelectOption[] = [
   { value: "event.create", label: "Event Created" },
   { value: "event.update", label: "Event Updated" },
   { value: "event.end", label: "Event Ended" },
+  { value: "event.auto_finalize", label: "Event Auto-Finalized" },
   { value: "event.extend", label: "Event Extended" },
   { value: "event.go_live", label: "Event Live" },
   { value: "event.cancel", label: "Event Cancelled" },
@@ -223,6 +225,9 @@ const DETAIL_PRIORITY_KEYS = [
   "minutes",
   "scope",
   "rows_deleted",
+  "scheduled_end",
+  "auto_finalize_at",
+  "grace_minutes",
   "generated_count",
   "requested_count",
   "row_count_estimate",
@@ -490,6 +495,9 @@ const AdminActivityLog = () => {
                 const presentation = presentationForAction(log.action_type);
                 const Icon = presentation.icon;
                 const details = formatDetailsSummary(log.details);
+                const actorLabel = log.details?.actor_type === "system"
+                  ? "System"
+                  : log.admin_name || log.admin_id || "Unknown admin";
 
                 return (
                   <motion.div
@@ -520,7 +528,7 @@ const AdminActivityLog = () => {
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="font-medium text-foreground">{log.admin_name || log.admin_id || "Unknown admin"}</span>
+                        <span className="font-medium text-foreground">{actorLabel}</span>
                         <span className="text-muted-foreground">performed</span>
                         <span className="font-medium text-foreground" title={log.action_type}>
                           {presentation.label}

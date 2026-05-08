@@ -101,7 +101,7 @@ PASS: Both functions are explicitly represented in config.
 
 - `supabase/config.toml` contains `[functions.forward-geocode]` with `verify_jwt = true`.
 - `supabase/config.toml` contains `[functions.push-webhook]` with `verify_jwt = false`.
-- Repo inspection found 51 deployable function directories and 51 config entries.
+- Repo inspection found 53 deployable function directories and 53 config entries.
 
 PASS: `forward-geocode` role and auth posture are intentional.
 
@@ -175,7 +175,7 @@ PASS: External dependency ledger is aligned with current final posture.
 
 WARN: Rebuild runbook is partially contradicted by newer release artifacts.
 
-- Current authoritative sources say 51 deployable functions and 51 config entries.
+- Current authoritative sources say 53 deployable functions and 53 config entries.
 - The runbook retains an older historical deploy list and counts.
 - Repair recommended: replace that section with the current 51-function inventory and point to the config-backed manifest as source of truth.
 

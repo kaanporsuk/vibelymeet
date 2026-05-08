@@ -1,122 +1,149 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveEventLifecycle } from "./eventLifecycle";
+import {
+  EVENT_FINALIZATION_GRACE_MINUTES,
+  resolveEventLifecycle,
+} from "./eventLifecycle";
 
-const nowMs = Date.parse("2026-05-02T08:59:30.000Z");
-const startsAt = "2026-05-02T08:58:00.000Z";
+const start = "2026-05-08T18:00:00.000Z";
+const startMs = Date.parse(start);
+const durationMinutes = 30;
+const endMs = startMs + durationMinutes * 60_000;
 
-test("scheduled event inside scheduled window resolves live", () => {
-  const result = resolveEventLifecycle({
-    status: "scheduled",
-    event_date: startsAt,
-    duration_minutes: 15,
-    nowMs,
+test("event lifecycle exposes upcoming, live, ended, and finalization metadata", () => {
+  const upcoming = resolveEventLifecycle({
+    status: "upcoming",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    nowMs: startMs - 60_000,
   });
 
-  assert.equal(result.lifecycle, "live");
-  assert.equal(result.isLive, true);
-  assert.equal(result.isEnded, false);
-  assert.equal(result.startsAt?.toISOString(), startsAt);
-  assert.equal(result.endsAt?.toISOString(), "2026-05-02T09:13:00.000Z");
-  assert.equal(result.timeRemainingMs, 13.5 * 60_000);
-});
-
-test("raw live inside scheduled window resolves live", () => {
+  assert.equal(upcoming.lifecycle, "upcoming");
+  assert.equal(upcoming.isFinalized, false);
+  assert.equal(upcoming.isInFinalizationGrace, false);
+  assert.equal(upcoming.needsFinalizationRepair, false);
+  assert.equal(upcoming.scheduledEndAt?.toISOString(), new Date(endMs).toISOString());
   assert.equal(
-    resolveEventLifecycle({
-      status: "live",
-      event_date: startsAt,
-      duration_minutes: 15,
-      nowMs,
-    }).lifecycle,
-    "live",
+    upcoming.autoFinalizeAt?.toISOString(),
+    new Date(endMs + EVENT_FINALIZATION_GRACE_MINUTES * 60_000).toISOString(),
   );
+
+  const live = resolveEventLifecycle({
+    status: "live",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    nowMs: startMs + 5 * 60_000,
+  });
+
+  assert.equal(live.lifecycle, "live");
+  assert.equal(live.isLive, true);
+  assert.equal(live.isInFinalizationGrace, false);
+  assert.equal(live.needsFinalizationRepair, false);
 });
 
-test("stale raw ended without ended_at inside scheduled window resolves live", () => {
-  const result = resolveEventLifecycle({
+test("stale raw ended without ended_at still follows scheduled window", () => {
+  const live = resolveEventLifecycle({
     status: "ended",
-    event_date: startsAt,
-    duration_minutes: 15,
+    event_date: start,
+    duration_minutes: durationMinutes,
     ended_at: null,
-    nowMs,
+    nowMs: startMs + 5 * 60_000,
   });
 
-  assert.equal(result.lifecycle, "live");
-  assert.equal(result.isLive, true);
-});
+  assert.equal(live.lifecycle, "live");
+  assert.equal(live.isLive, true);
 
-test("ended_at is terminal even inside scheduled window", () => {
-  const result = resolveEventLifecycle({
+  const upcoming = resolveEventLifecycle({
     status: "ended",
-    event_date: startsAt,
-    duration_minutes: 15,
-    ended_at: "2026-05-02T08:59:00.000Z",
-    nowMs,
-  });
-
-  assert.equal(result.lifecycle, "ended");
-  assert.equal(result.isLive, false);
-  assert.equal(result.isEnded, true);
-});
-
-test("after computed end resolves ended", () => {
-  assert.equal(
-    resolveEventLifecycle({
-      status: "live",
-      event_date: startsAt,
-      duration_minutes: 1,
-      ended_at: null,
-      nowMs,
-    }).lifecycle,
-    "ended",
-  );
-});
-
-test("before event_date resolves upcoming", () => {
-  const result = resolveEventLifecycle({
-    status: "ended",
-    event_date: "2026-05-02T09:30:00.000Z",
-    duration_minutes: 15,
+    event_date: start,
+    duration_minutes: durationMinutes,
     ended_at: null,
-    nowMs,
+    nowMs: startMs - 60_000,
   });
 
-  assert.equal(result.lifecycle, "upcoming");
-  assert.equal(result.isLive, false);
+  assert.equal(upcoming.lifecycle, "upcoming");
+  assert.equal(upcoming.isLive, false);
 });
 
 test("timezone-safe ISO/timestamptz parsing resolves the same instant", () => {
-  const result = resolveEventLifecycle({
+  const lifecycle = resolveEventLifecycle({
     status: "scheduled",
-    event_date: "2026-05-02T11:58:00+03:00",
-    duration_minutes: 15,
-    ended_at: null,
-    nowMs,
+    event_date: "2026-05-08T21:00:00+03:00",
+    duration_minutes: durationMinutes,
+    nowMs: startMs + 5 * 60_000,
   });
 
-  assert.equal(result.lifecycle, "live");
-  assert.equal(result.startsAt?.toISOString(), "2026-05-02T08:58:00.000Z");
+  assert.equal(lifecycle.lifecycle, "live");
+  assert.equal(lifecycle.startsAt?.toISOString(), start);
 });
 
-test("draft and cancelled remain terminal product states", () => {
-  assert.equal(
-    resolveEventLifecycle({
-      status: "draft",
-      event_date: startsAt,
-      duration_minutes: 15,
-      nowMs,
-    }).lifecycle,
-    "draft",
-  );
-  assert.equal(
-    resolveEventLifecycle({
-      status: "cancelled",
-      event_date: startsAt,
-      duration_minutes: 15,
-      nowMs,
-    }).lifecycle,
-    "cancelled",
-  );
+test("scheduled end enters admin grace before repair state", () => {
+  const inGrace = resolveEventLifecycle({
+    status: "live",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    nowMs: endMs + 5 * 60_000,
+  });
+
+  assert.equal(inGrace.lifecycle, "ended");
+  assert.equal(inGrace.isEnded, true);
+  assert.equal(inGrace.isFinalized, false);
+  assert.equal(inGrace.isInFinalizationGrace, true);
+  assert.equal(inGrace.needsFinalizationRepair, false);
+
+  const needsRepair = resolveEventLifecycle({
+    status: "live",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    nowMs: endMs + 10 * 60_000,
+  });
+
+  assert.equal(needsRepair.lifecycle, "ended");
+  assert.equal(needsRepair.isFinalized, false);
+  assert.equal(needsRepair.isInFinalizationGrace, false);
+  assert.equal(needsRepair.needsFinalizationRepair, true);
 });
 
+test("ended_at is terminal finalized truth", () => {
+  const finalized = resolveEventLifecycle({
+    status: "live",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    ended_at: "2026-05-08T18:20:00.000Z",
+    nowMs: startMs + 25 * 60_000,
+  });
+
+  assert.equal(finalized.lifecycle, "ended");
+  assert.equal(finalized.isFinalized, true);
+  assert.equal(finalized.isInFinalizationGrace, false);
+  assert.equal(finalized.needsFinalizationRepair, false);
+});
+
+test("draft and cancelled rows do not request finalization repair", () => {
+  for (const status of ["draft", "cancelled"]) {
+    const lifecycle = resolveEventLifecycle({
+      status,
+      event_date: start,
+      duration_minutes: durationMinutes,
+      nowMs: endMs + 30 * 60_000,
+    });
+
+    assert.equal(lifecycle.lifecycle, status);
+    assert.equal(lifecycle.needsFinalizationRepair, false);
+  }
+});
+
+test("archived rows expose archive metadata without requesting repair", () => {
+  const lifecycle = resolveEventLifecycle({
+    status: "upcoming",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    archived_at: "2026-05-08T18:40:00.000Z",
+    nowMs: endMs + 30 * 60_000,
+  });
+
+  assert.equal(lifecycle.isArchived, true);
+  assert.equal(lifecycle.isFinalized, false);
+  assert.equal(lifecycle.isInFinalizationGrace, false);
+  assert.equal(lifecycle.needsFinalizationRepair, false);
+});

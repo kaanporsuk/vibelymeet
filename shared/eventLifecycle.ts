@@ -8,6 +8,8 @@ export type EventLifecycleInput = {
   duration_minutes?: number | null;
   endedAt?: Date | string | number | null;
   ended_at?: Date | string | number | null;
+  archivedAt?: Date | string | number | null;
+  archived_at?: Date | string | number | null;
   nowMs?: number;
 };
 
@@ -15,12 +17,20 @@ export type EventLifecycleSnapshot = {
   lifecycle: EventLifecycle;
   isLive: boolean;
   isEnded: boolean;
+  isFinalized: boolean;
+  isArchived: boolean;
+  isInFinalizationGrace: boolean;
+  needsFinalizationRepair: boolean;
   startsAt: Date | null;
   endsAt: Date | null;
+  scheduledEndAt: Date | null;
+  autoFinalizeAt: Date | null;
   timeRemainingMs: number | null;
 };
 
 const DEFAULT_EVENT_DURATION_MINUTES = 60;
+export const EVENT_FINALIZATION_GRACE_MINUTES = 10;
+export const EVENT_FINALIZATION_GRACE_MS = EVENT_FINALIZATION_GRACE_MINUTES * 60_000;
 
 function toTimestampMs(value: Date | string | number | null | undefined): number {
   if (value == null) return Number.NaN;
@@ -47,15 +57,33 @@ export function resolveEventLifecycle(input: EventLifecycleInput): EventLifecycl
     ? startsAtMs + durationMinutes * 60_000
     : Number.NaN;
   const endedAtMs = toTimestampMs(input.endedAt ?? input.ended_at);
+  const archivedAtMs = toTimestampMs(input.archivedAt ?? input.archived_at);
   const startsAt = toDate(startsAtMs);
   const endsAt = toDate(endsAtMs);
+  const autoFinalizeAtMs = Number.isFinite(endsAtMs) ? endsAtMs + EVENT_FINALIZATION_GRACE_MS : Number.NaN;
+  const autoFinalizeAt = toDate(autoFinalizeAtMs);
+  const isFinalized = Number.isFinite(endedAtMs);
+  const isArchived = Number.isFinite(archivedAtMs) || rawStatus === "archived";
+  const isInFinalizationGrace =
+    !isArchived &&
+    !isFinalized &&
+    Number.isFinite(endsAtMs) &&
+    nowMs >= endsAtMs &&
+    nowMs < autoFinalizeAtMs;
+  const needsFinalizationRepair =
+    !isArchived &&
+    !isFinalized &&
+    Number.isFinite(autoFinalizeAtMs) &&
+    nowMs >= autoFinalizeAtMs &&
+    rawStatus !== "draft" &&
+    rawStatus !== "cancelled";
 
   let lifecycle: EventLifecycle;
   if (rawStatus === "draft") {
     lifecycle = "draft";
   } else if (rawStatus === "cancelled") {
     lifecycle = "cancelled";
-  } else if (Number.isFinite(endedAtMs)) {
+  } else if (isFinalized) {
     lifecycle = "ended";
   } else if (Number.isFinite(startsAtMs) && Number.isFinite(endsAtMs) && nowMs >= startsAtMs && nowMs < endsAtMs) {
     lifecycle = "live";
@@ -78,9 +106,14 @@ export function resolveEventLifecycle(input: EventLifecycleInput): EventLifecycl
     lifecycle,
     isLive: lifecycle === "live",
     isEnded: lifecycle === "ended",
+    isFinalized,
+    isArchived,
+    isInFinalizationGrace,
+    needsFinalizationRepair,
     startsAt,
     endsAt,
+    scheduledEndAt: endsAt,
+    autoFinalizeAt,
     timeRemainingMs,
   };
 }
-

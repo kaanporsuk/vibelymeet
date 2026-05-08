@@ -115,7 +115,7 @@ Native:
 Client-owned business logic check:
 
 - No app calls to `supabase.rpc('handle_swipe')`.
-- Event Lobby swipes go through `supabase.functions.invoke('swipe-actions')`.
+- Event Lobby swipes go through `swipe-actions` with explicit user `Authorization` and `apikey` headers.
 - Client reads of `event_swipes` remain count-only Super Vibe display helpers; no client inserts into `event_swipes` or `video_sessions` were found in Event Lobby paths.
 - Session creation, queue promotion, Ready Gate transitions, and notification side effects remain backend/Edge-owned.
 

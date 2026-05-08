@@ -30,14 +30,14 @@ function priceToCents(value: unknown): number | null {
   return Math.round(n * 100)
 }
 
-function eventHasEnded(eventDate: unknown, durationMinutes: unknown): boolean {
-  if (typeof eventDate !== 'string' || !eventDate) return false
+function eventIsClosedBySchedule(eventDate: unknown, durationMinutes: unknown): boolean {
+  if (typeof eventDate !== 'string' || !eventDate) return true
   const startsAt = new Date(eventDate).getTime()
-  if (!Number.isFinite(startsAt)) return false
+  if (!Number.isFinite(startsAt)) return true
   const duration = typeof durationMinutes === 'number' && Number.isFinite(durationMinutes)
     ? durationMinutes
     : 60
-  return Date.now() > startsAt + duration * 60_000
+  return Date.now() >= startsAt + duration * 60_000
 }
 
 function errorMessage(error: unknown): string {
@@ -104,8 +104,8 @@ Deno.serve(async (req) => {
     }
 
     const status = typeof eventData.status === 'string' ? eventData.status.toLowerCase() : null
-    const closedByStatus = status === 'draft' || status === 'cancelled' || status === 'ended'
-    if (eventData.archived_at || eventData.ended_at || closedByStatus || eventHasEnded(eventData.event_date, eventData.duration_minutes)) {
+    const closedByStatus = status === 'draft' || status === 'cancelled'
+    if (eventData.archived_at || eventData.ended_at || closedByStatus || eventIsClosedBySchedule(eventData.event_date, eventData.duration_minutes)) {
       return jsonResponse(req, { success: false, error: 'Event is no longer available' }, { status: 409 })
     }
 

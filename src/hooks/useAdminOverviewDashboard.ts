@@ -29,6 +29,12 @@ export type AdminOverviewEventFillRow = {
   status: string | null;
   archived: boolean;
   ended: boolean;
+  lifecycle_status?: string | null;
+  scheduled_end_at?: string | null;
+  auto_finalize_at?: string | null;
+  is_finalized?: boolean;
+  is_in_finalization_grace?: boolean;
+  needs_finalization_repair?: boolean;
 };
 
 export type AdminOverviewGenderRow = {
@@ -70,6 +76,8 @@ export type AdminOverviewDashboardPayload = AdminRpcPayload & {
       cancelled: number;
       archived: number;
       ended: number;
+      wrap_up_grace?: number;
+      needs_finalization_repair?: number;
     };
   };
   quick_actions: {
