@@ -85,8 +85,11 @@ export const VibeSyncModal = ({
             {/* Header */}
             <div className="relative p-6 border-b border-border/50">
               <button
+                type="button"
                 onClick={onClose}
                 className="absolute right-4 top-4 p-2 rounded-full bg-muted/50 hover:bg-muted transition-colors"
+                aria-label="Close Vibe Sync"
+                title="Close"
               >
                 <X className="w-5 h-5 text-muted-foreground" />
               </button>
@@ -151,10 +154,13 @@ export const VibeSyncModal = ({
                       <div className="grid grid-cols-2 gap-2">
                         {slots.map((slot) => (
                           <motion.button
+                            type="button"
                             key={`${format(slot.date, "yyyy-MM-dd")}-${slot.block}`}
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             onClick={() => handleSlotClick(slot)}
+                            aria-label={`Select ${formatDateLabel(slot.date)} ${getTimeBlockInfo(slot.block).label}`}
+                            title={getTimeBlockInfo(slot.block).label}
                             className={cn(
                               "p-4 rounded-xl transition-all text-left",
                               slot.type === "golden"

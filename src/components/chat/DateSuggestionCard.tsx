@@ -13,7 +13,7 @@ import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData"
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { Calendar, Check, Sparkles, Share2 } from "lucide-react";
+import { Calendar, Check, Loader2, Sparkles, Share2 } from "lucide-react";
 import type { DateCardThreadUi } from "../../../shared/chat/threadPresentation";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -46,8 +46,12 @@ function formatWhen(r: {
 }
 
 function placeLine(r: { place_mode_key: string; venue_text: string | null }): string {
-  if (r.place_mode_key === "custom_venue" && r.venue_text) return r.venue_text;
+  if (r.place_mode_key === "custom_venue" && r.venue_text) return tidyDateDisplayText(r.venue_text);
   return labelForPlaceMode(r.place_mode_key);
+}
+
+function tidyDateDisplayText(value: string): string {
+  return value.replace(/^\[(?:fresh|smoke|test|debug|bootstrap)[^\]]*]\s*/i, "").trim();
 }
 
 type Props = {
@@ -78,6 +82,7 @@ export function DateSuggestionCard({
   const queryClient = useQueryClient();
   const cancelInFlightRef = useRef(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "share" | "complete" | null>(null);
   const markedRef = useRef(false);
   const revs = suggestion.revisions;
   const current = useMemo(() => {
@@ -109,34 +114,47 @@ export function DateSuggestionCard({
   }, [suggestion.id, status, authorOfCurrent, current]);
 
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
-  const optionalNote = current?.optional_message?.trim() ?? "";
+  const optionalNote = current?.optional_message ? tidyDateDisplayText(current.optional_message) : "";
+  const actionBusy = cancelBusy || busyAction !== null;
 
   const handleAccept = async () => {
+    if (actionBusy) return;
+    setBusyAction("accept");
     try {
       await dateSuggestionApply("accept", { suggestion_id: suggestion.id });
       toast.success("It's a date!");
       onUpdated();
     } catch {
       toast.error("Could not accept");
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const handleDecline = async () => {
+    if (actionBusy) return;
+    setBusyAction("decline");
     try {
       await dateSuggestionApply("decline", { suggestion_id: suggestion.id });
       toast.info("Declined");
       onUpdated();
     } catch {
       toast.error("Could not decline");
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const handleNotNow = async () => {
+    if (actionBusy) return;
+    setBusyAction("not_now");
     try {
       await dateSuggestionApply("not_now", { suggestion_id: suggestion.id });
       onUpdated();
     } catch {
       toast.error("Could not update");
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -188,7 +206,9 @@ export function DateSuggestionCard({
   }, [onUpdated, queryClient, suggestion.id, suggestion.match_id]);
 
   const handleShare = async () => {
+    if (actionBusy) return;
     if (!current) return;
+    setBusyAction("share");
     const first = partnerName.split(/\s+/)[0] || "Match";
     const body = buildShareDateText({
       partnerFirstName: first,
@@ -205,14 +225,25 @@ export function DateSuggestionCard({
         toast.success("Copied to clipboard");
       }
     } catch {
-      await navigator.clipboard.writeText(body);
-      toast.success("Copied to clipboard");
+      try {
+        await navigator.clipboard.writeText(body);
+        toast.success("Copied to clipboard");
+      } catch {
+        toast.error("Could not share this date");
+      }
+    } finally {
+      setBusyAction(null);
     }
   };
 
   const handleMarkComplete = async () => {
+    if (actionBusy) return;
     const planId = suggestion.date_plan_id;
-    if (!planId) return;
+    if (!planId) {
+      toast.message("This date plan is still syncing.");
+      return;
+    }
+    setBusyAction("complete");
     try {
       await dateSuggestionApply("plan_mark_complete", { plan_id: planId });
       toast.success("Thanks for letting us know");
@@ -224,6 +255,8 @@ export function DateSuggestionCard({
       } else {
         toast.error("Could not update");
       }
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -243,14 +276,14 @@ export function DateSuggestionCard({
         : "";
     if (threadUi === "quiet_stale") {
       return (
-        <div className="max-w-[min(92%,252px)] rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] leading-snug text-muted-foreground/70">
+        <div className="w-full rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] leading-snug text-muted-foreground/70">
           <span className="font-medium text-muted-foreground/80">{STATUS_LABEL[status] ?? status}</span>
           {summary ? <span className="text-muted-foreground/60"> · {summary}</span> : null}
         </div>
       );
     }
     return (
-      <div className="max-w-[min(92%,252px)] rounded-xl border border-border/40 bg-muted/10 px-2.5 py-1.5 text-xs">
+      <div className="w-full rounded-xl border border-border/40 bg-muted/10 px-2.5 py-1.5 text-xs">
         <div className="flex items-center justify-between gap-2">
           <span className="text-muted-foreground font-medium shrink-0">{STATUS_LABEL[status] ?? status}</span>
           <Button
@@ -259,6 +292,8 @@ export function DateSuggestionCard({
             size="sm"
             className="h-auto py-0 px-1 text-[10px] shrink-0 text-primary"
             onClick={() => onOpenComposer({ mode: "new" })}
+            aria-label="Create a new date suggestion"
+            title="Create a new date suggestion"
           >
             New
           </Button>
@@ -277,7 +312,7 @@ export function DateSuggestionCard({
           ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
           : "";
       return (
-        <div className="max-w-[min(92%,252px)] rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] text-muted-foreground/70 flex items-center gap-1.5">
+        <div className="w-full rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] text-muted-foreground/70 flex items-center gap-1.5">
           <Check className="h-3 w-3 text-emerald-600/70 shrink-0" />
           <span className="truncate">
             Date marked complete
@@ -287,7 +322,7 @@ export function DateSuggestionCard({
       );
     }
     return (
-      <div className="max-w-[min(92%,252px)] rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-1.5 text-xs">
+      <div className="w-full rounded-xl border border-emerald-500/25 bg-emerald-500/[0.06] px-2.5 py-1.5 text-xs">
         <div className="flex items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-muted-foreground min-w-0 text-[12px]">
             <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
@@ -299,6 +334,8 @@ export function DateSuggestionCard({
             size="sm"
             className="h-auto py-0 px-1 text-[10px] shrink-0 text-primary"
             onClick={() => onOpenComposer({ mode: "new" })}
+            aria-label="Create a new date suggestion"
+            title="Create a new date suggestion"
           >
             New
           </Button>
@@ -314,7 +351,7 @@ export function DateSuggestionCard({
   return (
     <div
       className={cn(
-        "max-w-[min(92%,252px)] rounded-xl border px-2.5 py-1.5 text-sm shadow-sm",
+        "w-full rounded-xl border px-3 py-2 text-sm shadow-sm",
         showCelebration
           ? "border-primary/40 bg-gradient-to-br from-primary/15 to-transparent"
           : "border-border/60 bg-card/80 backdrop-blur-sm",
@@ -416,8 +453,10 @@ export function DateSuggestionCard({
         {status === "draft" && isProposer && (
           <>
             <Button
+              type="button"
               size="sm"
               variant="secondary"
+              disabled={actionBusy}
               onClick={() =>
                 onOpenComposer({
                   mode: "editDraft",
@@ -425,10 +464,21 @@ export function DateSuggestionCard({
                   draftPayload: suggestion.draft_payload,
                 })
               }
+              aria-label="Continue date draft"
+              title="Continue date draft"
             >
               Continue draft
             </Button>
-            <Button size="sm" variant="outline" onClick={handleCancel} disabled={cancelBusy}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleCancel}
+              disabled={actionBusy}
+              aria-label="Discard date draft"
+              title="Discard date draft"
+            >
+              {cancelBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               Discard
             </Button>
           </>
@@ -436,12 +486,22 @@ export function DateSuggestionCard({
 
         {["proposed", "viewed", "countered"].includes(status) && !authorOfCurrent && (
           <>
-            <Button size="sm" onClick={handleAccept}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleAccept}
+              disabled={actionBusy}
+              aria-label="Accept date suggestion"
+              title="Accept date suggestion"
+            >
+              {busyAction === "accept" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               Accept
             </Button>
             <Button
+              type="button"
               size="sm"
               variant="secondary"
+              disabled={actionBusy}
               onClick={() =>
                 current &&
                 onOpenComposer({
@@ -449,14 +509,34 @@ export function DateSuggestionCard({
                   counter: { suggestionId: suggestion.id, previousRevision: current },
                 })
               }
+              aria-label="Counter date suggestion"
+              title="Counter date suggestion"
             >
               Counter
             </Button>
-            <Button size="sm" variant="outline" onClick={handleNotNow}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleNotNow}
+              disabled={actionBusy}
+              aria-label="Respond not now"
+              title="Not now"
+            >
+              {busyAction === "not_now" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               Not now
             </Button>
             {originalRecipient && (
-              <Button size="sm" variant="ghost" onClick={handleDecline}>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleDecline}
+                disabled={actionBusy}
+                aria-label="Decline date suggestion"
+                title="Decline date suggestion"
+              >
+                {busyAction === "decline" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                 Decline
               </Button>
             )}
@@ -464,18 +544,45 @@ export function DateSuggestionCard({
         )}
 
         {["proposed", "viewed", "countered", "draft"].includes(status) && isProposer && (
-          <Button size="sm" variant="outline" onClick={handleCancel} disabled={cancelBusy}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleCancel}
+            disabled={actionBusy}
+            aria-label="Cancel date suggestion"
+            title="Cancel date suggestion"
+          >
+            {cancelBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             Cancel
           </Button>
         )}
 
         {status === "accepted" && (
           <>
-            <Button size="sm" variant="secondary" onClick={handleShare} className="gap-1">
-              <Share2 className="h-3.5 w-3.5" />
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={handleShare}
+              disabled={actionBusy}
+              className="gap-1"
+              aria-label="Share the accepted date"
+              title="Share the date"
+            >
+              {busyAction === "share" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
               Share the date
             </Button>
-            <Button size="sm" variant="outline" onClick={handleMarkComplete}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleMarkComplete}
+              disabled={actionBusy}
+              aria-label="Mark date complete"
+              title="Mark complete"
+            >
+              {busyAction === "complete" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               Mark complete
             </Button>
           </>

@@ -4,7 +4,6 @@
 
 import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   Pressable,
@@ -15,6 +14,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 import { spacing, radius, typography } from '@/constants/theme';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -73,93 +73,91 @@ export function InCallSafetySheet({ visible, onClose, reportedUserId, onEndAfter
   const disabled = !reportedUserId || busy !== 'idle';
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.title, { color: theme.text }]}>Safety</Text>
-          <Text style={[styles.sub, { color: theme.mutedForeground }]}>
-            Report inappropriate behavior. You can stay on the call or end it after reporting.
-          </Text>
+    <KeyboardAwareBottomSheetModal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      backdropColor="rgba(0,0,0,0.6)"
+      maxHeightRatio={0.88}
+      sheetStyle={[styles.sheet, { backgroundColor: theme.surface, borderColor: theme.border }]}
+    >
+      <Text style={[styles.title, { color: theme.text }]}>Safety</Text>
+      <Text style={[styles.sub, { color: theme.mutedForeground }]}>
+        Report inappropriate behavior. You can stay on the call or end it after reporting.
+      </Text>
 
-          <Text style={[styles.label, { color: theme.text }]}>Reason</Text>
-          <ScrollView style={styles.reasonList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-            {REPORT_REASONS.map((r) => (
-              <Pressable
-                key={r.id}
-                onPress={() => setReason(r.id)}
-                style={[
-                  styles.reasonRow,
-                  { borderColor: theme.border },
-                  reason === r.id && { backgroundColor: theme.muted },
-                ]}
-              >
-                <Text style={{ color: theme.text }}>{r.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          <Text style={[styles.label, { color: theme.text }]}>Details (optional)</Text>
-          <TextInput
-            style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-            placeholder="What happened?"
-            placeholderTextColor={theme.mutedForeground}
-            value={details}
-            onChangeText={setDetails}
-            multiline
-            editable={!disabled}
-          />
-
-          <View style={styles.row}>
-            <Text style={{ color: theme.text, flex: 1 }}>Also block this person</Text>
-            <Switch value={alsoBlock} onValueChange={setAlsoBlock} disabled={disabled} />
-          </View>
-
-          <View style={styles.actions}>
-            <Pressable
-              style={[styles.btn, { backgroundColor: theme.muted }]}
-              disabled={disabled}
-              onPress={() => void submit('report')}
-            >
-              {busy === 'report' ? (
-                <ActivityIndicator color={theme.text} />
-              ) : (
-                <Text style={[styles.btnText, { color: theme.text }]}>Report</Text>
-              )}
-            </Pressable>
-            <Pressable
-              style={[styles.btn, { backgroundColor: theme.danger }]}
-              disabled={disabled}
-              onPress={() => void submit('end')}
-            >
-              {busy === 'end' ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={[styles.btnText, { color: '#fff' }]}>End & report</Text>
-              )}
-            </Pressable>
-          </View>
-
-          <Pressable onPress={onClose} style={styles.cancel}>
-            <Text style={{ color: theme.mutedForeground }}>Cancel</Text>
+      <Text style={[styles.label, { color: theme.text }]}>Reason</Text>
+      <ScrollView style={styles.reasonList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        {REPORT_REASONS.map((r) => (
+          <Pressable
+            key={r.id}
+            onPress={() => setReason(r.id)}
+            style={[
+              styles.reasonRow,
+              { borderColor: theme.border },
+              reason === r.id && { backgroundColor: theme.muted },
+            ]}
+          >
+            <Text style={{ color: theme.text }}>{r.label}</Text>
           </Pressable>
-        </View>
+        ))}
+      </ScrollView>
+
+      <Text style={[styles.label, { color: theme.text }]}>Details (optional)</Text>
+      <TextInput
+        style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+        placeholder="What happened?"
+        placeholderTextColor={theme.mutedForeground}
+        value={details}
+        onChangeText={setDetails}
+        multiline
+        editable={!disabled}
+      />
+
+      <View style={styles.row}>
+        <Text style={{ color: theme.text, flex: 1 }}>Also block this person</Text>
+        <Switch value={alsoBlock} onValueChange={setAlsoBlock} disabled={disabled} />
       </View>
-    </Modal>
+
+      <View style={styles.actions}>
+        <Pressable
+          style={[styles.btn, { backgroundColor: theme.muted }]}
+          disabled={disabled}
+          onPress={() => void submit('report')}
+        >
+          {busy === 'report' ? (
+            <ActivityIndicator color={theme.text} />
+          ) : (
+            <Text style={[styles.btnText, { color: theme.text }]}>Report</Text>
+          )}
+        </Pressable>
+        <Pressable
+          style={[styles.btn, { backgroundColor: theme.danger }]}
+          disabled={disabled}
+          onPress={() => void submit('end')}
+        >
+          {busy === 'end' ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={[styles.btnText, { color: '#fff' }]}>End & report</Text>
+          )}
+        </Pressable>
+      </View>
+
+      <Pressable onPress={onClose} style={styles.cancel}>
+        <Text style={{ color: theme.mutedForeground }}>Cancel</Text>
+      </Pressable>
+    </KeyboardAwareBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
   sheet: {
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    padding: spacing.lg,
-    maxHeight: '88%',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
   },
   title: {
     ...typography.titleMD,

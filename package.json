@@ -26,6 +26,7 @@
     "test:daily-room-contract": "tsx supabase/functions/daily-room/dailyRoomContracts.test.ts",
     "test:browser-diagnostics": "tsx scripts/browser-diagnostics.test.ts && tsx scripts/browser-deploy-contract.test.ts",
     "test:request-reduction-contract": "tsx scripts/request-reduction-contract.test.ts",
+    "test:chat-media-cache": "tsx scripts/chat-media-resolver-cache.test.ts",
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
     "test:admin-events-p0": "tsx shared/admin/adminEventsP0ReadSafety.test.ts && tsx shared/admin/eventLifecycleAutoFinalization.test.ts",
     "test:admin-p1-ui-safety": "tsx shared/admin/adminP1UiSafety.test.ts",
