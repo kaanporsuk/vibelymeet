@@ -681,11 +681,17 @@ export default function AdminMediaLifecyclePanel() {
         body: { action: "repair_orphan_event_covers", limit: 50 },
       });
       if (error || !data?.success) throw new Error(data?.error || error?.message || "Repair failed");
-      return data as { repaired_count: number } & AuditAwareResponse;
+      return data as {
+        repaired_count: number;
+        synced_events: number;
+        soft_deleted_assets: number;
+      } & AuditAwareResponse;
     },
     onSuccess: (result) => {
       warnIfAuditMissing(result);
-      toast.success(`Soft-deleted ${result.repaired_count} orphan event cover${result.repaired_count === 1 ? "" : "s"}`);
+      toast.success(`Repaired ${result.repaired_count} event cover lifecycle issue${result.repaired_count === 1 ? "" : "s"}`, {
+        description: `${result.synced_events} synced, ${result.soft_deleted_assets} soft-deleted.`,
+      });
       void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not repair event covers"),
@@ -957,7 +963,7 @@ export default function AdminMediaLifecyclePanel() {
                   <div>
                     <p className="font-medium text-foreground">Event cover repair</p>
                     <p className="text-muted-foreground">
-                      {eventCoverOrphanLike} active event cover{eventCoverOrphanLike === 1 ? "" : "s"} have no event reference.
+                      {eventCoverOrphanLike} active event cover{eventCoverOrphanLike === 1 ? "" : "s"} need lifecycle repair.
                     </p>
                   </div>
                   <Button
@@ -966,8 +972,8 @@ export default function AdminMediaLifecyclePanel() {
                     className="gap-2 border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
                     disabled={mediaMutationPending}
                     onClick={() => setConfirmation({
-                      title: "Soft-delete orphan event covers?",
-                      description: "Only active event_cover assets with no active reference and no matching events.cover_image will be moved into the normal soft-delete retention window.",
+                      title: "Repair event cover lifecycle?",
+                      description: "This first restores missing event cover references for active events, then moves only genuinely orphaned event_cover assets into the normal soft-delete retention window.",
                       confirmLabel: "Repair Covers",
                       variant: "default",
                       onConfirm: () => repairOrphanEventCoversMutation.mutateAsync(),

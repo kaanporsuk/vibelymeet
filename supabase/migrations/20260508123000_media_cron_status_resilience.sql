@@ -2,14 +2,9 @@
 --
 -- The admin dashboard must be able to prove the scheduler row is active even
 -- when cron.job_run_details is slow or unavailable. Keep the fast cron.job read
--- separate from best-effort run history, and index run history by job.
-
-DO $$
-BEGIN
-  IF to_regclass('cron.job_run_details') IS NOT NULL THEN
-    EXECUTE 'CREATE INDEX IF NOT EXISTS job_run_details_jobid_runid_desc_idx ON cron.job_run_details (jobid, runid DESC)';
-  END IF;
-END $$;
+-- separate from best-effort run history. cron.job_run_details belongs to the
+-- pg_cron extension owner, so this migration avoids extension-table DDL and
+-- reads a bounded recent window over the existing runid primary key instead.
 
 CREATE OR REPLACE FUNCTION public.get_media_worker_cron_job_status(
   p_job_name text DEFAULT 'media-delete-worker-every-15m'
@@ -70,6 +65,7 @@ DECLARE
   v_job_id     bigint;
   v_runs_arr   jsonb := '[]'::jsonb;
   v_run_limit  integer := COALESCE(p_run_limit, 10);
+  v_run_scan_limit integer;
   v_runid      bigint;
   v_run_status text;
   v_run_start  timestamptz;
@@ -104,10 +100,32 @@ BEGIN
     );
   END IF;
 
+  IF v_run_limit = 0 THEN
+    RETURN jsonb_build_object(
+      'found', true,
+      'status', 'found',
+      'job_id', v_job_id,
+      'jobname', p_job_name,
+      'recent_runs', '[]'::jsonb,
+      'recent_runs_error', NULL,
+      'last_succeeded_at', NULL,
+      'last_failed_at', NULL,
+      'consecutive_failures', 0
+    );
+  END IF;
+
+  v_run_scan_limit := LEAST(GREATEST(v_run_limit * 500, 5000), 50000);
+
   BEGIN
     FOR v_runid, v_run_status, v_run_start, v_run_end IN
+      WITH recent AS (
+        SELECT runid, jobid, status, start_time, end_time
+        FROM cron.job_run_details
+        ORDER BY runid DESC
+        LIMIT v_run_scan_limit
+      )
       SELECT runid, status, start_time, end_time
-      FROM cron.job_run_details
+      FROM recent
       WHERE jobid = v_job_id
       ORDER BY runid DESC
       LIMIT v_run_limit
@@ -517,3 +535,58 @@ $$;
 
 REVOKE ALL ON FUNCTION public.soft_delete_orphan_event_cover_assets(integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.soft_delete_orphan_event_cover_assets(integer) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.repair_event_cover_media_lifecycle(
+  p_limit integer DEFAULT 50
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_event_id uuid;
+  v_limit integer := COALESCE(p_limit, 50);
+  v_synced_events integer := 0;
+  v_soft_deleted_assets integer := 0;
+BEGIN
+  IF v_limit < 1 OR v_limit > 500 THEN
+    RAISE EXCEPTION 'p_limit must be between 1 and 500';
+  END IF;
+
+  FOR v_event_id IN
+    SELECT e.id
+    FROM public.events e
+    WHERE public.normalize_event_cover_provider_path(e.cover_image) IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM public.media_references r
+        JOIN public.media_assets a ON a.id = r.asset_id
+        WHERE r.ref_type = 'event_cover'
+          AND r.ref_table = 'events'
+          AND r.ref_id = e.id::text
+          AND r.ref_key = 'cover_image'
+          AND r.is_active = true
+          AND a.provider = 'bunny_storage'
+          AND a.provider_path = public.normalize_event_cover_provider_path(e.cover_image)
+      )
+    ORDER BY e.id
+    LIMIT v_limit
+  LOOP
+    PERFORM public.sync_event_cover_media_lifecycle(v_event_id);
+    v_synced_events := v_synced_events + 1;
+  END LOOP;
+
+  SELECT public.soft_delete_orphan_event_cover_assets(v_limit)
+  INTO v_soft_deleted_assets;
+
+  RETURN jsonb_build_object(
+    'synced_events', v_synced_events,
+    'soft_deleted_assets', v_soft_deleted_assets,
+    'repaired_count', v_synced_events + v_soft_deleted_assets
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.repair_event_cover_media_lifecycle(integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.repair_event_cover_media_lifecycle(integer) TO service_role;

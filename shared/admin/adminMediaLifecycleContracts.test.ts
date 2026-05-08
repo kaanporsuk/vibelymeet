@@ -60,14 +60,19 @@ test("cron status exposes structured states and stable run ids", () => {
 });
 
 test("cron scheduler row is read separately from best-effort run history", () => {
-  assert.match(cronResilienceMigration, /CREATE INDEX IF NOT EXISTS job_run_details_jobid_runid_desc_idx/);
+  assert.doesNotMatch(cronResilienceMigration, /CREATE INDEX IF NOT EXISTS job_run_details_jobid_runid_desc_idx/);
+  assert.match(cronResilienceMigration, /avoids extension-table DDL/);
   assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.get_media_worker_cron_job_status/);
   assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.get_media_worker_cron_run_history/);
   assert.match(cronResilienceMigration, /v_run_limit\s+integer := COALESCE\(p_run_limit, 10\)/);
+  assert.match(cronResilienceMigration, /v_run_scan_limit := LEAST\(GREATEST\(v_run_limit \* 500, 5000\), 50000\)/);
+  assert.match(cronResilienceMigration, /WITH recent AS \(\s+SELECT runid, jobid, status, start_time, end_time\s+FROM cron\.job_run_details\s+ORDER BY runid DESC\s+LIMIT v_run_scan_limit/);
   assert.match(cronResilienceMigration, /p_job_name is required/);
   assert.match(adminFunction, /admin\.rpc\("get_media_worker_cron_job_status"\)/);
   assert.match(adminFunction, /admin\.rpc\("get_media_worker_cron_run_history"\)/);
   assert.match(adminFunction, /admin\.rpc\("get_media_worker_cron_status"\)/);
+  assert.match(adminFunction, /const \[healthResult, cronJobResult\] = await Promise\.all/);
+  assert.doesNotMatch(adminFunction, /const \[healthResult, cronJobResult, runsResult\] = await Promise\.all/);
   assert.match(adminFunction, /legacy cron status RPC failed/);
   assert.match(adminFunction, /runsUnavailable/);
   assert.match(adminFunction, /recent_runs_unavailable/);
@@ -82,11 +87,15 @@ test("event cover lifecycle repairs staged uploads and orphan active assets", ()
   assert.match(cronResilienceMigration, /CREATE TRIGGER trg_events_cover_media_lifecycle/);
   assert.match(cronResilienceMigration, /PERFORM public\.sync_event_cover_media_lifecycle\(v_event_id\)/);
   assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.soft_delete_orphan_event_cover_assets/);
+  assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.repair_event_cover_media_lifecycle/);
+  assert.match(cronResilienceMigration, /SELECT public\.soft_delete_orphan_event_cover_assets\(v_limit\)/);
   assert.match(cronResilienceMigration, /v_limit\s+integer := COALESCE\(p_limit, 50\)/);
   assert.match(adminFunction, /action === "repair_orphan_event_covers"/);
-  assert.match(adminFunction, /media_orphan_event_covers_soft_deleted/);
+  assert.match(adminFunction, /repair_event_cover_media_lifecycle/);
+  assert.match(adminFunction, /media_orphan_event_covers_repaired/);
   assert.match(panel, /repair_orphan_event_covers/);
   assert.match(panel, /Event cover repair/);
+  assert.match(panel, /restores missing event cover references/);
 });
 
 test("media lifecycle validation failures are surfaced as operator-safe 400s", () => {
@@ -113,6 +122,7 @@ test("service-role media lifecycle RPC grants are not inherited through PUBLIC",
     "get_media_worker_cron_status\\(text, integer\\)",
     "sync_event_cover_media_lifecycle\\(uuid\\)",
     "soft_delete_orphan_event_cover_assets\\(integer\\)",
+    "repair_event_cover_media_lifecycle\\(integer\\)",
   ]) {
     assert.match(
       mediaLifecycleMigrations,
