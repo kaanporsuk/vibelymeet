@@ -19,6 +19,59 @@ export type PostDateContinuityDecision = {
   tone: PostDateContinuityTone;
 };
 
+export type ServerPostDateNextSurfaceAction =
+  | "survey"
+  | "ready_gate"
+  | "video_date"
+  | "lobby"
+  | "wrap_up"
+  | "chat"
+  | "home";
+
+export type ServerPostDateNextSurface = {
+  success: boolean;
+  action: ServerPostDateNextSurfaceAction;
+  route?: string | null;
+  sessionId?: string | null;
+  nextSessionId?: string | null;
+  eventId?: string | null;
+  targetId?: string | null;
+  matchId?: string | null;
+  reason?: string | null;
+  secondsUntilEventEnd?: number | null;
+};
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function normalizeServerPostDateNextSurface(value: unknown): ServerPostDateNextSurface | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.success !== true || typeof raw.action !== "string") return null;
+  const action = raw.action as ServerPostDateNextSurfaceAction;
+  if (!["survey", "ready_gate", "video_date", "lobby", "wrap_up", "chat", "home"].includes(action)) {
+    return null;
+  }
+
+  return {
+    success: true,
+    action,
+    route: stringOrNull(raw.route),
+    sessionId: stringOrNull(raw.session_id),
+    nextSessionId: stringOrNull(raw.next_session_id),
+    eventId: stringOrNull(raw.event_id),
+    targetId: stringOrNull(raw.target_id),
+    matchId: stringOrNull(raw.match_id),
+    reason: stringOrNull(raw.reason),
+    secondsUntilEventEnd: numberOrNull(raw.seconds_until_event_end),
+  };
+}
+
 export function secondsUntilPostDateEventEnd(
   eventEndsAt: Date | string | number | null | undefined,
   nowMs = Date.now(),

@@ -858,8 +858,8 @@ test("daily-room supports room-only warmup without token issuance or entry trans
   assert.doesNotMatch(warmupBlock, /createMeetingToken/);
   assert.doesNotMatch(warmupBlock, /p_action: "prepare_entry"/);
   assert.doesNotMatch(warmupBlock, /confirmVideoDateEntryPrepared/);
-  assert.match(warmupBlock, /"ready_a", "ready_b", "both_ready"/);
-  assert.doesNotMatch(warmupBlock, /"ready", "ready_a"/);
+  assert.match(warmupBlock, /"ready"[\s\S]*"ready_a"[\s\S]*"ready_b"[\s\S]*"both_ready"/);
+  assert.doesNotMatch(warmupBlock, /"queued"/);
 });
 
 test("daily-room solo prejoin is token-only and never route-confirms the session", () => {

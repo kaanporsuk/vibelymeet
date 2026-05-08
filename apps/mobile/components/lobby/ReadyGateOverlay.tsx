@@ -304,7 +304,11 @@ export function ReadyGateOverlay({
     (source: string, readyGateStatus?: string | null) => {
       if (!videoDateRoomWarmupAfterReadyEnabled()) return;
       if (roomWarmupStartedRef.current || dateNavigationStartedRef.current || closedRef.current) return;
-      if (readyGateStatus && !['ready_a', 'ready_b', 'both_ready'].includes(readyGateStatus)) return;
+      // 'ready' is the freshly-minted mutual-swipe state. Pre-creating the
+      // room here removes the room create/verify roundtrip from the ready-tap path.
+      if (readyGateStatus && !['ready', 'ready_a', 'ready_b', 'both_ready'].includes(readyGateStatus)) {
+        return;
+      }
       if (readyGateStatus === 'both_ready' && prepareEntryHandoffStartedRef.current) return;
       roomWarmupStartedRef.current = true;
       const readyGateKey = activeReadyGateKey;
@@ -820,6 +824,17 @@ export function ReadyGateOverlay({
         phase: vs?.phase ?? null,
       });
 
+      const readyGateStatus = vs?.ready_gate_status ?? null;
+      if (
+        readyGateStatus === 'ready' &&
+        !vs?.ended_at &&
+        !roomWarmupStartedRef.current &&
+        !dateNavigationStartedRef.current &&
+        !closedRef.current
+      ) {
+        startRoomWarmupAfterReady('mutual_swipe_pre_create', readyGateStatus);
+      }
+
       if (canAttemptDaily || decision === 'navigate_date') {
         closedRef.current = false;
         startPrepareEntryHandoff(source);
@@ -842,7 +857,7 @@ export function ReadyGateOverlay({
 
       return false;
     },
-    [eventId, onClose, onLobbyUserMessage, sessionId, startPrepareEntryHandoff, userId]
+    [eventId, onClose, onLobbyUserMessage, sessionId, startPrepareEntryHandoff, startRoomWarmupAfterReady, userId]
   );
 
   const handleBothReady = useCallback((
@@ -1128,6 +1143,16 @@ export function ReadyGateOverlay({
       ]);
       const reg = regResult.data;
       if (cancelled) return;
+      const readyGateStatus = vs?.ready_gate_status ?? null;
+      if (
+        readyGateStatus === 'ready' &&
+        !vs?.ended_at &&
+        !roomWarmupStartedRef.current &&
+        !dateNavigationStartedRef.current &&
+        !closedRef.current
+      ) {
+        startRoomWarmupAfterReady('mutual_swipe_pre_create', readyGateStatus);
+      }
       const decision = decideVideoSessionRouteFromTruth(vs);
       const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
       if (canAttemptDaily) {
@@ -1161,7 +1186,7 @@ export function ReadyGateOverlay({
     return () => {
       cancelled = true;
     };
-  }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, userId]);
+  }, [eventId, onClose, onLobbyUserMessage, reconcileFromCanonicalTruth, sessionId, startRoomWarmupAfterReady, userId]);
 
   const handleSkip = useCallback(async (reason: 'skip' = 'skip') => {
     if (dateNavigationStartedRef.current || closedRef.current || terminalActionInFlightRef.current) return;

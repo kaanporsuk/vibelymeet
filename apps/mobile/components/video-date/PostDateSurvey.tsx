@@ -31,6 +31,7 @@ import { videoSessionIdFromDrainPayload } from '@shared/matching/videoSessionFlo
 import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
+  normalizeServerPostDateNextSurface,
   secondsUntilPostDateEventEnd,
   type PostDateContinuityDecision,
 } from '@clientShared/matching/postDateContinuity';
@@ -54,6 +55,7 @@ type Props = {
   onMutualMatch: () => void;
   onStartChatting?: (otherProfileId?: string) => void;
   onQueuedVideoSessionReady?: (videoSessionId: string) => void;
+  onVideoDateReady?: (videoSessionId: string) => void;
   onDone: () => void;
 };
 
@@ -203,6 +205,7 @@ export function PostDateSurvey({
   onMutualMatch,
   onStartChatting,
   onQueuedVideoSessionReady,
+  onVideoDateReady,
   onDone,
 }: Props) {
   const colorScheme = useColorScheme();
@@ -472,11 +475,129 @@ export function PostDateSurvey({
         event_id: eventId,
         destination: eventId ? 'lobby' : 'home',
       });
-      if (eventId) {
-        if (isDrainingQueue) {
-          await new Promise((resolve) => setTimeout(resolve, 1800));
-          if (queuedNavigationStartedRef.current) return;
+      if (isDrainingQueue) {
+        await new Promise((resolve) => setTimeout(resolve, 1800));
+        if (queuedNavigationStartedRef.current) return;
+      }
+
+      const { data: nextData, error: nextError } = await supabase.rpc('resolve_post_date_next_surface', {
+        p_session_id: sessionId,
+      });
+      const serverNext = normalizeServerPostDateNextSurface(nextData);
+      if (!nextError && serverNext) {
+        const nextEventId = serverNext.eventId ?? eventId;
+        const nextSessionId = serverNext.nextSessionId ?? serverNext.sessionId ?? sessionId;
+        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: nextEventId,
+          action: serverNext.action,
+          source: 'survey_finish_server_continuity',
+          reason_code: serverNext.reason,
+          next_session_id: serverNext.nextSessionId,
+          match_id: serverNext.matchId,
+          seconds_until_event_end: serverNext.secondsUntilEventEnd,
+        });
+        trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+          platform: 'native',
+          session_id: sessionId,
+          event_id: nextEventId,
+          source_surface: 'post_date_survey',
+          source_action: 'survey_finish_server_continuity',
+          outcome: 'success',
+          reason_code: serverNext.reason ?? serverNext.action,
+          next_session_id: serverNext.nextSessionId,
+        });
+
+        if (serverNext.action === 'ready_gate' && nextSessionId && onQueuedVideoSessionReady) {
+          queuedNavigationStartedRef.current = true;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: 'ready_gate',
+            route: 'event_lobby_pending_ready_gate',
+            video_session_id: nextSessionId,
+          });
+          onQueuedVideoSessionReady(nextSessionId);
+          return;
         }
+
+        if (serverNext.action === 'video_date' && nextSessionId) {
+          queuedNavigationStartedRef.current = true;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: 'video_date',
+            route: 'date',
+            video_session_id: nextSessionId,
+          });
+          if (onVideoDateReady) {
+            onVideoDateReady(nextSessionId);
+          } else {
+            onQueuedVideoSessionReady?.(nextSessionId);
+          }
+          return;
+        }
+
+        if (serverNext.action === 'survey') {
+          setStep('verdict');
+          return;
+        }
+
+        if (serverNext.action === 'chat') {
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: 'chat',
+            route: 'chat',
+            match_id: serverNext.matchId,
+          });
+          if (onStartChatting) {
+            onStartChatting(serverNext.targetId ?? partnerId);
+          } else {
+            onMutualMatch();
+          }
+          return;
+        }
+
+        if (serverNext.action === 'lobby') {
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: 'lobby',
+            route: 'event_lobby',
+            seconds_until_event_end: serverNext.secondsUntilEventEnd,
+          });
+          if (nextEventId) await updateParticipantStatus(nextEventId, 'browsing');
+          onDone();
+          return;
+        }
+
+        if (serverNext.action === 'wrap_up') {
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: 'native',
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: 'event_ended',
+            route: 'event_ended_alert',
+            reason_code: serverNext.reason,
+          });
+          if (nextEventId) await updateParticipantStatus(nextEventId, 'offline');
+          Alert.alert('Event ended', 'This event has ended.', [{ text: 'OK', onPress: onDone }]);
+          return;
+        }
+
+        if (serverNext.action === 'home') {
+          onDone();
+          return;
+        }
+      }
+
+      if (eventId) {
         const continuation = await getEventContinuationSnapshot(eventId);
         setEventContinuation(continuation);
         const active = continuation.active;
@@ -563,7 +684,12 @@ export function PostDateSurvey({
   }, [
     eventId,
     onDone,
+    onMutualMatch,
+    onQueuedVideoSessionReady,
+    onVideoDateReady,
+    onStartChatting,
     logJourney,
+    partnerId,
     sessionId,
     isDrainingQueue,
     continuityDecision.action,
@@ -697,29 +823,27 @@ export function PostDateSurvey({
   const persistHighlights = async () => {
     const conversationFlow =
       flow === 'Naturally' ? 'natural' : flow === 'Took effort' ? 'effort' : flow === 'One-sided' ? 'one_sided' : null;
-    await supabase
-      .from('date_feedback')
-      .update({
+    await supabase.rpc('update_post_date_feedback_details', {
+      p_session_id: sessionId,
+      p_patch: {
         tag_chemistry: tagSel.tagChemistry,
         tag_fun: tagSel.tagFun,
         tag_smart: tagSel.tagSmart,
         tag_respectful: tagSel.tagRespectful,
         energy: energy?.toLowerCase() || null,
         conversation_flow: conversationFlow,
-      })
-      .eq('session_id', sessionId)
-      .eq('user_id', userId);
+      },
+    });
   };
 
   const persistSafety = async () => {
-    await supabase
-      .from('date_feedback')
-      .update({
+    await supabase.rpc('update_post_date_feedback_details', {
+      p_session_id: sessionId,
+      p_patch: {
         photo_accurate: photoAccurate,
         honest_representation: honest,
-      })
-      .eq('session_id', sessionId)
-      .eq('user_id', userId);
+      },
+    });
   };
 
   const handleHighlightsSubmit = async () => {

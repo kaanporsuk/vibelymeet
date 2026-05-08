@@ -28,13 +28,13 @@ const prepareEntryMetadataMigration = read("supabase/migrations/20260505153000_v
 const preserveAfterReadyWarmupMigration = read("supabase/migrations/20260505154500_ready_gate_preserve_after_ready_room_warmup.sql");
 const validation = read("supabase/validation/ready_gate_pre_ready_room_metadata_repair.sql");
 
-test("web Ready Gate overlay warms the Daily room only after successful ready", () => {
+test("web Ready Gate overlay warms the Daily room at fresh ready and after successful ready", () => {
+  assert.match(webOverlay, /startRoomWarmupAfterReady\("mutual_swipe_pre_create", readyGateStatus\)/);
   assert.match(webOverlay, /startRoomWarmupAfterReady\("ready_tap_mark_ready_success", result\.status \?\? null\)/);
   assert.match(webOverlay, /const result = await markReady\(\)[\s\S]*if \(!result\.ok\)[\s\S]*startRoomWarmupAfterReady/);
   assert.match(webOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
   assert.match(webOverlay, /roomWarmupStartedRef/);
-  assert.match(webOverlay, /\["ready_a", "ready_b", "both_ready"\]/);
-  assert.doesNotMatch(webOverlay, /\["ready", "ready_a", "ready_b", "both_ready"\]/);
+  assert.match(webOverlay, /\["ready", "ready_a", "ready_b", "both_ready"\]/);
   assert.match(webOverlay, /const readyGateKey = activeReadyGateKey/);
   assert.match(webOverlay, /activeReadyGateKeyRef\.current !== readyGateKey/);
   assert.match(webOverlay, /roomWarmupStartedRef\.current = false/);
@@ -47,13 +47,13 @@ test("web Ready Gate overlay warms the Daily room only after successful ready", 
   assert.match(webOverlay, /preAuthWebVideoDateDailyPrewarm/);
 });
 
-test("native Ready Gate overlay warms the Daily room only after successful ready", () => {
+test("native Ready Gate overlay warms the Daily room at fresh ready and after successful ready", () => {
+  assert.match(nativeOverlay, /startRoomWarmupAfterReady\('mutual_swipe_pre_create', readyGateStatus\)/);
   assert.match(nativeOverlay, /startRoomWarmupAfterReady\('ready_tap_mark_ready_success', result\.status \?\? null\)/);
   assert.match(nativeOverlay, /const result = await markReady\(\)[\s\S]*if \(!result\.ok\)[\s\S]*startRoomWarmupAfterReady/);
   assert.match(nativeOverlay, /videoDateRoomWarmupAfterReadyEnabled\(\)/);
   assert.match(nativeOverlay, /roomWarmupStartedRef/);
-  assert.match(nativeOverlay, /\['ready_a', 'ready_b', 'both_ready'\]/);
-  assert.doesNotMatch(nativeOverlay, /\['ready', 'ready_a', 'ready_b', 'both_ready'\]/);
+  assert.match(nativeOverlay, /\['ready', 'ready_a', 'ready_b', 'both_ready'\]/);
   assert.match(nativeOverlay, /const activeReadyGateKey = `\$\{sessionId\}:\$\{eventId\}`/);
   assert.match(nativeOverlay, /const readyGateKey = activeReadyGateKey/);
   assert.match(nativeOverlay, /activeReadyGateKeyRef\.current !== readyGateKey/);

@@ -24,6 +24,7 @@ import { buildEventLobbyPendingSessionUrl } from "@shared/matching/videoSessionF
 import {
   getPostDateSurveyContinuityDecision,
   isPostDateEventNearlyOver,
+  normalizeServerPostDateNextSurface,
   secondsUntilPostDateEventEnd,
   shouldEnablePostDateSurveyQueueDrain,
   type PostDateContinuityDecision,
@@ -355,6 +356,126 @@ export const PostDateSurvey = ({
         if (queuedNavigationStartedRef.current) return;
       }
 
+      const { data: nextData, error: nextError } = await supabase.rpc("resolve_post_date_next_surface", {
+        p_session_id: sessionId,
+      });
+      const serverNext = normalizeServerPostDateNextSurface(nextData);
+      if (!nextError && serverNext) {
+        const nextEventId = serverNext.eventId ?? eventId;
+        const nextSessionId = serverNext.nextSessionId ?? serverNext.sessionId ?? sessionId;
+        trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_NEXT_ACTION_DECIDED, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: nextEventId,
+          action: serverNext.action,
+          source: "survey_finish_server_continuity",
+          reason_code: serverNext.reason,
+          next_session_id: serverNext.nextSessionId,
+          match_id: serverNext.matchId,
+          seconds_until_event_end: serverNext.secondsUntilEventEnd,
+        });
+        trackEvent(LobbyPostDateEvents.SURVEY_NEXT_GATE_CHECK_RESULT, {
+          platform: "web",
+          session_id: sessionId,
+          event_id: nextEventId,
+          source_surface: "post_date_survey",
+          source_action: "survey_finish_server_continuity",
+          outcome: "success",
+          reason_code: serverNext.reason ?? serverNext.action,
+          next_session_id: serverNext.nextSessionId,
+        });
+
+        if (serverNext.action === "ready_gate" && nextEventId && nextSessionId) {
+          queuedNavigationStartedRef.current = true;
+          const target = `${buildEventLobbyPendingSessionUrl(nextEventId, nextSessionId)}&postSurveyComplete=1`;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: "ready_gate",
+            route: "event_lobby_pending_ready_gate",
+            video_session_id: nextSessionId,
+          });
+          vdbgRedirect(target, "survey_finish_server_ready_gate", { sessionId, eventId: nextEventId, nextSessionId });
+          navigate(target);
+          return;
+        }
+
+        if (serverNext.action === "survey") {
+          setStep("verdict");
+          return;
+        }
+
+        if (serverNext.action === "video_date" && nextSessionId) {
+          const target = `/date/${nextSessionId}`;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: "video_date",
+            route: "date",
+            video_session_id: nextSessionId,
+          });
+          vdbgRedirect(target, "survey_finish_server_video_date", { sessionId, eventId: nextEventId, nextSessionId });
+          navigate(target);
+          return;
+        }
+
+        if (serverNext.action === "chat") {
+          const target = `/chat/${serverNext.targetId ?? partnerId}`;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: "chat",
+            route: "chat",
+            match_id: serverNext.matchId,
+          });
+          vdbgRedirect(target, "survey_finish_server_chat", { sessionId, eventId: nextEventId, matchId: serverNext.matchId });
+          navigate(target);
+          return;
+        }
+
+        if (serverNext.action === "lobby" && nextEventId) {
+          logJourney("survey_completed", { source: "finish_survey_server_lobby" }, "survey_completed");
+          setStatus("browsing");
+          setSurveyStatus("browsing");
+          toast("You're back in the lobby — keep browsing 💚", { duration: 2000 });
+          const target = `/event/${nextEventId}/lobby?postSurveyComplete=1`;
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: "lobby",
+            route: "event_lobby",
+            seconds_until_event_end: serverNext.secondsUntilEventEnd,
+          });
+          vdbgRedirect(target, "survey_finish_server_lobby", { sessionId, eventId: nextEventId, lobbyRefresh: true });
+          navigate(target, { state: { lobbyRefresh: true } });
+          return;
+        }
+
+        if (serverNext.action === "wrap_up") {
+          trackEvent(LobbyPostDateEvents.POST_DATE_CONTINUITY_ROUTE_TAKEN, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: nextEventId,
+            action: "event_ended",
+            route: "event_ended_modal",
+            reason_code: serverNext.reason,
+          });
+          setStatus("offline");
+          setShowEventEnded(true);
+          return;
+        }
+
+        if (serverNext.action === "home") {
+          vdbgRedirect("/home", "survey_finish_server_home", { sessionId });
+          navigate("/home");
+          return;
+        }
+      }
+
       const active = await checkEventActive();
       if (queuedNavigationStartedRef.current) return;
 
@@ -467,6 +588,7 @@ export const PostDateSurvey = ({
     navigate,
     eventId,
     sessionId,
+    partnerId,
     setStatus,
     checkEventActive,
     logJourney,
@@ -636,18 +758,17 @@ export const PostDateSurvey = ({
       if (!user?.id) return;
 
       try {
-        await supabase
-          .from("date_feedback")
-          .update({
+        await supabase.rpc("update_post_date_feedback_details", {
+          p_session_id: sessionId,
+          p_patch: {
             tag_chemistry: data.tagChemistry,
             tag_fun: data.tagFun,
             tag_smart: data.tagSmart,
             tag_respectful: data.tagRespectful,
             energy: data.energy,
             conversation_flow: data.conversationFlow,
-          })
-          .eq("session_id", sessionId)
-          .eq("user_id", user.id);
+          },
+        });
       } catch (err) {
         console.error("Error saving highlights:", err);
       }
@@ -671,14 +792,13 @@ export const PostDateSurvey = ({
       }
 
       try {
-        await supabase
-          .from("date_feedback")
-          .update({
+        await supabase.rpc("update_post_date_feedback_details", {
+          p_session_id: sessionId,
+          p_patch: {
             photo_accurate: data.photoAccurate,
             honest_representation: data.honestRepresentation,
-          })
-          .eq("session_id", sessionId)
-          .eq("user_id", user.id);
+          },
+        });
       } catch (err) {
         console.error("Error saving safety data:", err);
       }
