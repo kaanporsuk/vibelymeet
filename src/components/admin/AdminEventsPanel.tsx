@@ -474,20 +474,21 @@ const AdminEventsPanel = () => {
     const children = isParent ? getChildrenOf(event.id) : [];
     const isExpanded = expandedParents.has(event.id);
     const rawStatus = event.status?.toLowerCase() || '';
+    const isArchived = lifecycle.isArchived;
     const canEdit =
-      !event.archived_at &&
+      !isArchived &&
       !event.ended_at &&
       !lifecycle.isEnded &&
       !['ended', 'completed'].includes(rawStatus);
     const canCancel =
-      !event.archived_at &&
+      !isArchived &&
       !event.ended_at &&
       computed !== 'ended' &&
       !['cancelled', 'draft', 'completed'].includes(rawStatus);
 
     return (
       <>
-        <TableRow key={event.id} className={`border-border/50 hover:bg-secondary/30 ${event.archived_at ? 'opacity-60' : ''} ${isChild ? 'bg-secondary/10' : ''}`}>
+        <TableRow key={event.id} className={`border-border/50 hover:bg-secondary/30 ${isArchived ? 'opacity-60' : ''} ${isChild ? 'bg-secondary/10' : ''}`}>
           {/* Checkbox */}
           <TableCell className="w-10">
             <button type="button" onClick={() => toggleSelect(event.id)}>
@@ -508,7 +509,7 @@ const AdminEventsPanel = () => {
                   <p className="font-medium text-foreground text-sm truncate max-w-[180px]">{event.title}</p>
                   {isParent && <Badge variant="secondary" className="text-[10px] shrink-0">🔁 Recurring</Badge>}
                   {event.parent_event_id && <span className="text-[10px] text-muted-foreground">#{event.occurrence_number}</span>}
-                  {event.archived_at && <Badge variant="outline" className="text-[10px] border-orange-500/30 text-orange-400">Archived</Badge>}
+                  {isArchived && <Badge variant="outline" className="text-[10px] border-orange-500/30 text-orange-400">Archived</Badge>}
                 </div>
                 {isParent && (
                   <p className="text-xs text-muted-foreground">{getRecurrenceSummary(event)}</p>
@@ -619,7 +620,7 @@ const AdminEventsPanel = () => {
                   <Eye className="w-4 h-4" />View
                 </DropdownMenuItem>
 
-                {lifecycle.needsFinalizationRepair && !event.ended_at && !event.archived_at && (
+                {lifecycle.needsFinalizationRepair && !event.ended_at && !isArchived && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -672,11 +673,13 @@ const AdminEventsPanel = () => {
 
                 <DropdownMenuSeparator />
 
-                {event.archived_at ? (
+                {isArchived ? (
                   <>
-                    <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "unarchive", event })} className="gap-2">
-                      <RotateCcw className="w-4 h-4" />Unarchive
-                    </DropdownMenuItem>
+                    {event.archived_at && (
+                      <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "unarchive", event })} className="gap-2">
+                        <RotateCcw className="w-4 h-4" />Unarchive
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       onClick={() => {
                         if (
