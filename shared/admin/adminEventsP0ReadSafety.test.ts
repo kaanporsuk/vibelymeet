@@ -25,6 +25,10 @@ const eventLifecycleAutoFinalizationMigration = readFileSync(
   join(root, "supabase/migrations/20260508114500_event_lifecycle_archived_status_guards.sql"),
   "utf8"
 );
+const unarchiveStatusOnlyRepairMigration = readFileSync(
+  join(root, "supabase/migrations/20260508131000_admin_unarchive_status_only_archived_repair.sql"),
+  "utf8"
+);
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -116,8 +120,16 @@ test("admin Events UI moves finalization into grace and repair states", () => {
   assert.match(adminEventsPanel, /Finalize now/);
   assert.match(adminEventsPanel, /Finalization repair from \/kaan dashboard/);
   assert.match(adminEventsPanel, /lifecycle\.needsFinalizationRepair && !event\.ended_at && !isArchived/);
-  assert.match(adminEventsPanel, /\{event\.archived_at && \(/);
+  assert.match(adminEventsPanel, /kind: "unarchive"/);
+  assert.doesNotMatch(adminEventsPanel, /\{event\.archived_at && \(/);
   assert.doesNotMatch(adminEventsPanel, /Finalize End/);
+});
+
+test("admin event unarchive remains reachable for status-only archived rows", () => {
+  assert.match(adminEventsPanel, /kind: "unarchive"/);
+  assert.doesNotMatch(adminEventsPanel, /\{event\.archived_at && \(/);
+  assert.match(unarchiveStatusOnlyRepairMigration, /CREATE OR REPLACE FUNCTION public\.admin_unarchive_event/);
+  assert.match(unarchiveStatusOnlyRepairMigration, /lower\(COALESCE\(status, ''\)\) = 'archived' THEN NULL/);
 });
 
 test("event lifecycle auto-finalization backend contract is cron-safe and closes user access at scheduled end", () => {

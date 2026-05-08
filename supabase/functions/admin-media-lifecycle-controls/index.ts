@@ -191,6 +191,7 @@ function buildActivationRecommendation(
       found: boolean;
       jobname: string;
       message?: string | null;
+      recent_runs_unavailable?: boolean;
     } | null;
     cron_job: { active: boolean } | null;
   },
@@ -225,8 +226,6 @@ function buildActivationRecommendation(
     issues.push("cron status RPC unavailable");
   } else if (cronStatus === "inactive") {
     issues.push("cron job paused");
-  } else if (cronStatus === "recent_runs_unavailable") {
-    issues.push("cron run history unavailable");
   } else if (opsStatus.cron_job?.active !== true) {
     issues.push("cron job not active");
   }
@@ -316,10 +315,10 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
 
   const runsUnavailable = Boolean(runsError) || runsRaw?.status === "recent_runs_unavailable";
   const recentRuns = runsUnavailable ? [] : ((runsRaw?.recent_runs as CronRunRow[] | null) ?? []);
-  const baseCronStatus = (cronRaw.status as CronStatusCode | undefined) ?? ((cronRaw.active as boolean) ? "found" : "inactive");
-  const cronStatus = baseCronStatus === "found" && runsUnavailable
-    ? "recent_runs_unavailable"
-    : baseCronStatus;
+  const rawCronStatus = (cronRaw.status as CronStatusCode | undefined) ?? ((cronRaw.active as boolean) ? "found" : "inactive");
+  const baseCronStatus = rawCronStatus === "recent_runs_unavailable" && (cronRaw.active as boolean)
+    ? "found"
+    : rawCronStatus;
   const runHistoryMessage = runsError?.message
     ?? (runsRaw?.recent_runs_error as string | null)
     ?? null;
@@ -327,10 +326,11 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
   return {
     health,
     cron_status: {
-      status: cronStatus,
+      status: baseCronStatus,
       found: true,
       jobname: cronRaw.jobname as string,
       message: runHistoryMessage,
+      recent_runs_unavailable: runsUnavailable,
     },
     cron_job: {
       job_id: cronRaw.job_id as number,

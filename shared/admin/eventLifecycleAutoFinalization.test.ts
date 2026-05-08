@@ -137,7 +137,8 @@ test("admin Events UI shows grace controls, hides normal finalization, and keeps
   assert.match(adminEvents, /Finalize now/);
   assert.match(adminEvents, /const isArchived = lifecycle\.isArchived/);
   assert.match(adminEvents, /lifecycle\.needsFinalizationRepair && !event\.ended_at && !isArchived/);
-  assert.match(adminEvents, /\{event\.archived_at && \(/);
+  assert.match(adminEvents, /kind: "unarchive"/);
+  assert.doesNotMatch(adminEvents, /\{event\.archived_at && \(/);
   assert.match(adminEvents, /Finalization repair from \/kaan dashboard/);
 });
 
