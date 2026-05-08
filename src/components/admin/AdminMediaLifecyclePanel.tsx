@@ -74,6 +74,7 @@ type CronStatusInfo = {
   found: boolean;
   jobname: string;
   message: string | null;
+  recent_runs_unavailable?: boolean;
 };
 
 type CronRun = {
@@ -303,7 +304,7 @@ function CronStatusCard({
             </div>
           </div>
         )}
-        {cronStatus?.status === "recent_runs_unavailable" && (
+        {(cronStatus?.recent_runs_unavailable || cronStatus?.status === "recent_runs_unavailable") && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-600">
             Recent run history is unavailable. {cronStatus.message ?? ""}
           </div>
@@ -725,9 +726,7 @@ export default function AdminMediaLifecyclePanel() {
       ? "paused"
       : cronStatus?.status === "missing_job"
         ? "missing"
-        : cronStatus?.status === "recent_runs_unavailable"
-          ? "runs unknown"
-          : "unavailable";
+        : "unavailable";
   const healthOk = opsHealth?.healthy === true && orphanLikeTotal === 0 && cronHealthy;
 
   if (isLoading) {

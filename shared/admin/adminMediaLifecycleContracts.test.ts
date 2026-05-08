@@ -75,8 +75,11 @@ test("cron scheduler row is read separately from best-effort run history", () =>
   assert.doesNotMatch(adminFunction, /const \[healthResult, cronJobResult, runsResult\] = await Promise\.all/);
   assert.match(adminFunction, /legacy cron status RPC failed/);
   assert.match(adminFunction, /runsUnavailable/);
+  assert.match(adminFunction, /rawCronStatus === "recent_runs_unavailable" && \(cronRaw\.active as boolean\)/);
+  assert.match(adminFunction, /recent_runs_unavailable: runsUnavailable/);
+  assert.doesNotMatch(adminFunction, /baseCronStatus === "found" && runsUnavailable/);
   assert.match(adminFunction, /recent_runs_unavailable/);
-  assert.match(panel, /runs unknown/);
+  assert.match(panel, /cronStatus\?\.recent_runs_unavailable/);
 });
 
 test("event cover lifecycle repairs staged uploads and orphan active assets", () => {

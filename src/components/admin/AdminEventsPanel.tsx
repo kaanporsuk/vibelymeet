@@ -393,7 +393,7 @@ const AdminEventsPanel = () => {
       case "unarchive":
         return {
           title: `Unarchive "${pendingEventAction.event.title}"?`,
-          description: "This calls admin_unarchive_event. The backend clears archived_at/archived_by and writes an admin audit log.",
+          description: "This calls admin_unarchive_event. The backend clears archived_at/archived_by, repairs legacy status-only archived rows, and writes an admin audit log.",
           confirmLabel: "Unarchive Event",
           variant: "default" as const,
         };
@@ -675,11 +675,9 @@ const AdminEventsPanel = () => {
 
                 {isArchived ? (
                   <>
-                    {event.archived_at && (
-                      <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "unarchive", event })} className="gap-2">
-                        <RotateCcw className="w-4 h-4" />Unarchive
-                      </DropdownMenuItem>
-                    )}
+                    <DropdownMenuItem onClick={() => setPendingEventAction({ kind: "unarchive", event })} className="gap-2">
+                      <RotateCcw className="w-4 h-4" />Unarchive
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => {
                         if (
