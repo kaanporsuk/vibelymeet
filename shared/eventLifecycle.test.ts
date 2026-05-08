@@ -134,7 +134,7 @@ test("draft and cancelled rows do not request finalization repair", () => {
 });
 
 test("archived rows expose archive metadata without requesting repair", () => {
-  const lifecycle = resolveEventLifecycle({
+  const archivedAtLifecycle = resolveEventLifecycle({
     status: "upcoming",
     event_date: start,
     duration_minutes: durationMinutes,
@@ -142,8 +142,19 @@ test("archived rows expose archive metadata without requesting repair", () => {
     nowMs: endMs + 30 * 60_000,
   });
 
-  assert.equal(lifecycle.isArchived, true);
-  assert.equal(lifecycle.isFinalized, false);
-  assert.equal(lifecycle.isInFinalizationGrace, false);
-  assert.equal(lifecycle.needsFinalizationRepair, false);
+  assert.equal(archivedAtLifecycle.isArchived, true);
+  assert.equal(archivedAtLifecycle.isFinalized, false);
+  assert.equal(archivedAtLifecycle.isInFinalizationGrace, false);
+  assert.equal(archivedAtLifecycle.needsFinalizationRepair, false);
+
+  const rawArchivedLifecycle = resolveEventLifecycle({
+    status: "archived",
+    event_date: start,
+    duration_minutes: durationMinutes,
+    nowMs: endMs + 30 * 60_000,
+  });
+
+  assert.equal(rawArchivedLifecycle.isArchived, true);
+  assert.equal(rawArchivedLifecycle.isInFinalizationGrace, false);
+  assert.equal(rawArchivedLifecycle.needsFinalizationRepair, false);
 });

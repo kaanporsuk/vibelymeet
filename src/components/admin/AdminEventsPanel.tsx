@@ -91,12 +91,14 @@ const STATUS_STYLES: Record<string, string> = {
   ended:     'bg-orange-500/10 text-orange-400 border-orange-500/30',
   completed: 'bg-muted/50 text-muted-foreground border-border',
   cancelled: 'bg-destructive/10 text-destructive border-destructive/30',
+  archived: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
   wrap_up_grace: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
   needs_finalization_repair: 'bg-red-500/10 text-red-300 border-red-500/30',
 };
 
 const getAdminStatusDisplay = (event: AdminEventRow, nowMs = Date.now()): string => {
   const lifecycle = getLifecycleSnapshot(event, nowMs);
+  if (lifecycle.isArchived) return "archived";
   if (lifecycle.needsFinalizationRepair) return "needs_finalization_repair";
   if (lifecycle.isInFinalizationGrace) return "wrap_up_grace";
   return lifecycle.lifecycle;
@@ -106,6 +108,7 @@ const formatStatusFilterLabel = (status: string): string => {
   if (status === "all") return "All Statuses";
   if (status === "wrap_up_grace") return "Wrap-up";
   if (status === "needs_finalization_repair") return "Needs repair";
+  if (status === "archived") return "Archived";
   return status;
 };
 
@@ -773,7 +776,7 @@ const AdminEventsPanel = () => {
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-32 h-8 text-xs bg-secondary/50"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
-            {['all','live','upcoming','wrap_up_grace','needs_finalization_repair','ended','cancelled','draft'].map(s => (
+            {['all','live','upcoming','wrap_up_grace','needs_finalization_repair','ended','cancelled','draft','archived'].map(s => (
               <SelectItem key={s} value={s}>{formatStatusFilterLabel(s)}</SelectItem>
             ))}
           </SelectContent>

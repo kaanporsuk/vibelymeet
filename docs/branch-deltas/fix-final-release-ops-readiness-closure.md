@@ -7,7 +7,7 @@
 ## Findings Addressed
 
 - Refreshed the stale operator runbook Edge Function inventory in `_cursor_context/vibely_rebuild_runbook.md` Section 13.
-- Replaced the historical 30-function baseline and stale JWT counts with the current 51-function repo inventory.
+- Replaced the historical 30-function baseline and stale JWT counts with the current 53-function repo inventory.
 - Added static proof that the runbook function list and JWT counts match `supabase/config.toml` and the actual `supabase/functions` directories.
 
 ## Findings Deferred
@@ -26,9 +26,9 @@
 
 - Updated Section 13 of the rebuild runbook to record:
   - 53 deployable function directories excluding `_shared`
-  - 51 `[functions.<slug>]` entries in `supabase/config.toml`
-  - 32 `verify_jwt = true` functions
-  - 19 `verify_jwt = false` functions
+  - 53 `[functions.<slug>]` entries in `supabase/config.toml`
+  - 33 `verify_jwt = true` functions
+  - 20 `verify_jwt = false` functions
   - canonical production project ref `schdyxcunwcvddlcshwd / MVP_Vibe`
   - targeted deploy guidance for scoped repairs
   - full rebuild deploy guidance only for planned rebuild/cutover work
@@ -41,7 +41,7 @@
 The closure test checks:
 
 - the investigation report and this branch delta exist
-- runbook Section 13 uses the current 51-function inventory
+- runbook Section 13 uses the current 53-function inventory
 - runbook Section 13 no longer carries stale historical function guidance
 - function inventory and JWT counts match `supabase/config.toml` and the function directories
 - no migration, validation SQL, or Edge Function artifact was added

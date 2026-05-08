@@ -96,7 +96,7 @@ It carries:
 ### Rebuild-critical notes (post-hardening)
 - the frozen migration history is not clean schema-only history
 - generated types expose at least two objects not created in the preserved migration set: `feedback`, `premium_history`
-- all 51 deployable functions are in `supabase/config.toml`; 32 JWT-at-gateway, 19 public-but-protected
+- all 53 deployable functions are in `supabase/config.toml`; 33 JWT-at-gateway, 20 public-but-protected
 - Stream 19 posture lock: `forward-geocode` is gateway-JWT protected and internally user-gated/rate-limited before OpenStreetMap Nominatim calls; `push-webhook` is gateway-public for provider callbacks but secret-gated with `PUSH_WEBHOOK_SECRET` / `x-webhook-secret`
 - live Supabase storage buckets (project inventory): historically documented as `chat-videos` and `proof-selfies` among others; **inline chat / Vibe Clip video uploads** in current app code use **`upload-chat-video` → Bunny Storage** (path prefix `chat-videos/…`), not a Supabase upload for that pipeline — see `vibely_bunny_provider_sheet.md` §4
 - required secrets: `PUSH_WEBHOOK_SECRET`, `UNSUB_HMAC_SECRET`, `CRON_SECRET`, `BUNNY_VIDEO_WEBHOOK_TOKEN` (plus existing)
@@ -104,7 +104,7 @@ It carries:
 ### Verification tasks during rebuild
 - confirm linked project ref is correct
 - confirm all required secrets exist (including hardening secrets above)
-- confirm all 49 Edge Functions are deployed with correct verify_jwt
+- confirm all 53 Edge Functions are deployed with correct verify_jwt
 - confirm live buckets still match project policy (e.g. `proof-selfies`); separately confirm **`upload-chat-video`** Bunny secrets/CDN for chat video sends
 - run migration parity check before any remote migration operations:
   - `./scripts/check_migration_parity.sh`

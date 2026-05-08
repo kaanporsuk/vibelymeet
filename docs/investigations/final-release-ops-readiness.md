@@ -10,7 +10,7 @@ WARN.
 
 Streams 17, 19, and 20 are closed in the repo and their primary artifacts/tests are present. The RevenueCat/native entitlement posture is correctly represented as code-ready but still provider/dashboard/device-proof dependent. `forward-geocode` and `push-webhook` are explicitly represented in `supabase/config.toml` with the intended auth posture, and the final rehearsal records the no-Docker/no-local-Supabase operating model, provider gates, rollback notes, and go/no-go recommendation.
 
-The release posture is not FAIL because no active code/config defect was found and all validations passed. It is WARN because `_cursor_context/vibely_rebuild_runbook.md` still contains an older historical Edge Function deploy section with a 30-function baseline, stale `23`/`7` JWT counts, and obsolete function names. That section does include a caveat telling operators to prefer current repo inventory, but it still contradicts the current 51-function manifest/rehearsal enough to deserve a repair stream before the runbook is used as the primary rebuild checklist.
+The release posture is not FAIL because no active code/config defect was found and all validations passed. It is WARN because `_cursor_context/vibely_rebuild_runbook.md` still contains an older historical Edge Function deploy section with a 30-function baseline, stale `23`/`7` JWT counts, and obsolete function names. That section does include a caveat telling operators to prefer current repo inventory, but it still contradicts the current 53-function manifest/rehearsal enough to deserve a repair stream before the runbook is used as the primary rebuild checklist.
 
 NOT READY markers: none for Streams 17, 19, or 20.
 
@@ -171,13 +171,13 @@ WARN: Rebuild runbook has stale historical Edge Function inventory text.
 
 PASS: External dependency ledger is aligned with current final posture.
 
-- `_cursor_context/vibely_external_dependency_ledger.md` records 51 functions, Stream 19 posture, provider secret names by name only, and manual provider gates.
+- `_cursor_context/vibely_external_dependency_ledger.md` records 53 functions, Stream 19 posture, provider secret names by name only, and manual provider gates.
 
 WARN: Rebuild runbook is partially contradicted by newer release artifacts.
 
 - Current authoritative sources say 53 deployable functions and 53 config entries.
 - The runbook retains an older historical deploy list and counts.
-- Repair recommended: replace that section with the current 51-function inventory and point to the config-backed manifest as source of truth.
+- Repair recommended: replace that section with the current 53-function inventory and point to the config-backed manifest as source of truth.
 
 PASS: Function manifest no longer has unresolved `forward-geocode` / `push-webhook` ambiguity.
 
@@ -254,7 +254,7 @@ Build note:
 
 ## Repair Recommendations
 
-1. Refresh `_cursor_context/vibely_rebuild_runbook.md` Section 13 so it uses the current 51-function inventory, current JWT counts, and no obsolete function names.
+1. Refresh `_cursor_context/vibely_rebuild_runbook.md` Section 13 so it uses the current 53-function inventory, current JWT counts, and no obsolete function names.
 2. Keep the machine-readable inventory and Edge Function manifest as the canonical source for future rebuild function deploy lists.
 3. Add a small static test for the rebuild runbook's function count/JWT count if the runbook remains an operator-facing source of truth.
 4. Execute and log the manual provider/device/screenshot release gates before broad public release.
