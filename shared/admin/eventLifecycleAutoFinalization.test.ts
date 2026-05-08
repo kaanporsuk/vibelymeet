@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-const migration = read("supabase/migrations/20260508103000_event_lifecycle_auto_finalization.sql");
+const migration = read("supabase/migrations/20260508114500_event_lifecycle_archived_status_guards.sql");
 const adminEvents = read("src/components/admin/AdminEventsPanel.tsx");
 const adminEventControls = read("src/components/admin/AdminEventControls.tsx");
 const adminActivityLog = read("src/components/admin/AdminActivityLog.tsx");
@@ -33,7 +33,7 @@ test("finalize_due_events is idempotent, lock-safe, audited, and cron scheduled"
   assert.match(source, /p_now timestamptz DEFAULT now\(\)/);
   assert.match(source, /e\.archived_at IS NULL/);
   assert.match(source, /e\.ended_at IS NULL/);
-  assert.match(source, /lower\(COALESCE\(e\.status, 'upcoming'\)\) NOT IN \('draft', 'cancelled'\)/);
+  assert.match(source, /lower\(COALESCE\(e\.status, 'upcoming'\)\) NOT IN \('draft', 'cancelled', 'archived'\)/);
   assert.match(source, /interval '10 minutes' <= v_now/);
   assert.match(source, /FOR UPDATE SKIP LOCKED/);
   assert.match(source, /ended_at = candidates\.scheduled_end/);
@@ -60,13 +60,13 @@ test("admin mutations enforce the scheduled-end and terminal-ended-at contract",
   const updateEvent = fnSection("admin_update_event");
 
   assert.match(endEvent, /v_before\.ended_at IS NOT NULL/);
-  assert.match(endEvent, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('draft', 'cancelled'\)/);
+  assert.match(endEvent, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('draft', 'cancelled', 'archived'\)/);
   assert.doesNotMatch(endEvent, /'completed', 'cancelled'/);
   assert.match(endEvent, /WHEN v_scheduled_end IS NOT NULL AND v_now >= v_scheduled_end THEN v_scheduled_end/);
   assert.match(endEvent, /ELSE v_now/);
 
   assert.match(extendEvent, /v_before\.ended_at IS NOT NULL/);
-  assert.match(extendEvent, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('draft', 'completed', 'cancelled'\)/);
+  assert.match(extendEvent, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('draft', 'completed', 'cancelled', 'archived'\)/);
   assert.match(extendEvent, /v_now >= v_scheduled_end \+ interval '10 minutes'/);
   assert.match(extendEvent, /v_extended_end <= v_now/);
   assert.match(extendEvent, /Extension must move the scheduled event end into the future/);
@@ -74,12 +74,12 @@ test("admin mutations enforce the scheduled-end and terminal-ended-at contract",
   assert.match(extendEvent, /scheduled_end_after/);
 
   assert.match(goLive, /v_before\.ended_at IS NOT NULL/);
-  assert.match(goLive, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('draft', 'cancelled', 'completed'\)/);
+  assert.match(goLive, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('draft', 'cancelled', 'completed', 'archived'\)/);
   assert.doesNotMatch(goLive, /'cancelled', 'ended', 'completed'/);
   assert.match(goLive, /v_now < v_before\.event_date OR v_now >= v_scheduled_end/);
 
   assert.match(cancel, /v_before\.ended_at IS NOT NULL/);
-  assert.match(cancel, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('cancelled', 'completed'\)/);
+  assert.match(cancel, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('cancelled', 'completed', 'archived'\)/);
   assert.match(cancel, /Events cannot be cancelled after their scheduled end/);
   assert.match(cancel, /now\(\) >= v_scheduled_end/);
 
@@ -100,7 +100,7 @@ test("registration, paid checkout settlement, checkout creation, and lobby gates
 
   assert.match(register, /v_ended_at IS NOT NULL/);
   assert.match(register, /now\(\) >= v_event_date \+ COALESCE\(v_duration_minutes, 60\) \* interval '1 minute'/);
-  assert.match(register, /lower\(COALESCE\(v_status, ''\)\) IN \('draft', 'cancelled'\)/);
+  assert.match(register, /lower\(COALESCE\(v_status, ''\)\) IN \('draft', 'cancelled', 'archived'\)/);
 
   assert.match(settle, /v_ended_at IS NOT NULL/);
   assert.match(settle, /now\(\) >= v_event_date \+ COALESCE\(v_duration_minutes, 60\) \* interval '1 minute'/);
@@ -110,7 +110,7 @@ test("registration, paid checkout settlement, checkout creation, and lobby gates
   assert.match(checkout, /typeof eventDate !== 'string' \|\| !eventDate\) return true/);
   assert.match(checkout, /!Number\.isFinite\(startsAt\)\) return true/);
   assert.match(checkout, /Date\.now\(\) >= startsAt \+ duration \* 60_000/);
-  assert.match(checkout, /status === 'draft' \|\| status === 'cancelled'/);
+  assert.match(checkout, /status === 'draft' \|\| status === 'cancelled' \|\| status === 'archived'/);
   assert.doesNotMatch(checkout, /status === 'ended'/);
 
   assert.match(lobbyGate, /resolveEventLifecycle/);

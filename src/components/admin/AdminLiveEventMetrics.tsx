@@ -305,7 +305,7 @@ const computeEventPhase = (event: AdminEventSelectorItem | null | undefined) => 
   });
   const endIso = lifecycle.scheduledEndAt?.toISOString() ?? null;
 
-  if (event.archived_at) return { label: "archived", tone: "ended" as const, endIso };
+  if (event.archived_at || status === "archived") return { label: "archived", tone: "ended" as const, endIso };
   if (status === "cancelled") return { label: "cancelled", tone: "ended" as const, endIso };
   if (lifecycle.isFinalized) return { label: "finalized", tone: "ended" as const, endIso };
   if (lifecycle.needsFinalizationRepair) return { label: "needs repair", tone: "warning" as const, endIso };

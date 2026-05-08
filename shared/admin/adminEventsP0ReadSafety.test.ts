@@ -22,7 +22,7 @@ const adminEventNonLocalScopeFollowupMigration = readFileSync(
   "utf8"
 );
 const eventLifecycleAutoFinalizationMigration = readFileSync(
-  join(root, "supabase/migrations/20260508103000_event_lifecycle_auto_finalization.sql"),
+  join(root, "supabase/migrations/20260508114500_event_lifecycle_archived_status_guards.sql"),
   "utf8"
 );
 
@@ -121,7 +121,7 @@ test("event lifecycle auto-finalization backend contract is cron-safe and closes
   assert.match(eventLifecycleAutoFinalizationMigration, /FOR UPDATE SKIP LOCKED/);
   assert.match(eventLifecycleAutoFinalizationMigration, /e\.ended_at IS NULL/);
   assert.match(eventLifecycleAutoFinalizationMigration, /e\.archived_at IS NULL/);
-  assert.match(eventLifecycleAutoFinalizationMigration, /NOT IN \('draft', 'cancelled'\)/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /NOT IN \('draft', 'cancelled', 'archived'\)/);
   assert.match(eventLifecycleAutoFinalizationMigration, /ended_at = candidates\.scheduled_end/);
   assert.match(eventLifecycleAutoFinalizationMigration, /'event\.auto_finalize'/);
   assert.match(eventLifecycleAutoFinalizationMigration, /'actor_type', 'system'/);
