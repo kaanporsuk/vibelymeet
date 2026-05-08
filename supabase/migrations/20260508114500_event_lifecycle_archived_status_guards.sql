@@ -374,6 +374,8 @@ BEGIN
   END IF;
 
   IF v_before.ended_at IS NOT NULL
+     OR v_before.archived_at IS NOT NULL
+     OR lower(COALESCE(v_before.status, '')) = 'archived'
      OR lower(COALESCE(v_before.status, '')) IN ('ended', 'completed')
      OR (
        v_before.event_date IS NOT NULL

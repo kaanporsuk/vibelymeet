@@ -95,7 +95,7 @@ const AdminEventControls = ({
 
   const normalizedRawStatus = rawStatus?.toLowerCase() || "";
   const normalizedComputedStatus = computedStatus.toLowerCase();
-  const isArchived = Boolean(archivedAt);
+  const isArchived = Boolean(archivedAt) || normalizedRawStatus === "archived";
   const isDraft = normalizedRawStatus === "draft";
   const isCancelled = normalizedRawStatus === "cancelled";
   const isCompleted = normalizedRawStatus === "completed";

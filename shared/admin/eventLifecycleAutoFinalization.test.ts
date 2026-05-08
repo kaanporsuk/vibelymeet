@@ -88,6 +88,8 @@ test("admin mutations enforce the scheduled-end and terminal-ended-at contract",
   assert.match(reminder, /Reminders cannot be sent after the scheduled event end/);
 
   assert.match(updateEvent, /v_before\.ended_at IS NOT NULL/);
+  assert.match(updateEvent, /v_before\.archived_at IS NOT NULL/);
+  assert.match(updateEvent, /lower\(COALESCE\(v_before\.status, ''\)\) = 'archived'/);
   assert.match(updateEvent, /lower\(COALESCE\(v_before\.status, ''\)\) IN \('ended', 'completed'\)/);
   assert.match(updateEvent, /now\(\) >= v_before\.event_date \+ COALESCE\(v_before\.duration_minutes, 60\) \* interval '1 minute'/);
   assert.match(updateEvent, /WHERE key NOT IN \('title', 'description', 'cover_image', 'language', 'tags', 'vibes'\)/);
@@ -120,6 +122,7 @@ test("registration, paid checkout settlement, checkout creation, and lobby gates
 
 test("admin Events UI shows grace controls, hides normal finalization, and keeps repair in overflow", () => {
   assert.match(adminEventControls, /showWrapUpGrace/);
+  assert.match(adminEventControls, /Boolean\(archivedAt\) \|\| normalizedRawStatus === "archived"/);
   assert.match(adminEventControls, /Wrap-up\{autoFinalizeLabel/);
   assert.match(adminEventControls, /\+15 min/);
   assert.match(adminEventControls, /End now/);
@@ -132,6 +135,9 @@ test("admin Events UI shows grace controls, hides normal finalization, and keeps
   assert.match(adminEvents, /Missing ended_at/);
   assert.match(adminEvents, /kind: "finalize-repair"/);
   assert.match(adminEvents, /Finalize now/);
+  assert.match(adminEvents, /const isArchived = lifecycle\.isArchived/);
+  assert.match(adminEvents, /lifecycle\.needsFinalizationRepair && !event\.ended_at && !isArchived/);
+  assert.match(adminEvents, /\{event\.archived_at && \(/);
   assert.match(adminEvents, /Finalization repair from \/kaan dashboard/);
 });
 

@@ -78,6 +78,7 @@ test("admin event controls receive raw and computed lifecycle state", () => {
   assert.match(adminEventControls, /autoFinalizeAt\?: Date \| null/);
   assert.match(adminEventControls, /normalizedComputedStatus === "ended"/);
   assert.match(adminEventControls, /normalizedComputedStatus === "live" && normalizedRawStatus !== "live"/);
+  assert.match(adminEventControls, /Boolean\(archivedAt\) \|\| normalizedRawStatus === "archived"/);
   assert.match(adminEventControls, /isArchived \|\| isDraft \|\| isCancelled \|\| isCompleted \|\| endedAt/);
   assert.match(adminEventControls, /const showWrapUpGrace = isComputedEnded && isInFinalizationGrace && !endedAt/);
   assert.match(adminEventControls, /Wrap-up\{autoFinalizeLabel/);
@@ -99,6 +100,8 @@ test("admin event computed lifecycle refreshes while the panel stays open", () =
 test("expired computed events cannot be cancelled from the row menu", () => {
   const rowRender = section(adminEventsPanel, "const renderEventRow", "return (");
 
+  assert.match(rowRender, /const isArchived = lifecycle\.isArchived/);
+  assert.match(rowRender, /!isArchived/);
   assert.match(rowRender, /computed !== 'ended'/);
   assert.match(rowRender, /!event\.ended_at/);
   assert.match(rowRender, /!\['cancelled', 'draft', 'completed'\]\.includes\(rawStatus\)/);
@@ -112,7 +115,8 @@ test("admin Events UI moves finalization into grace and repair states", () => {
   assert.match(adminEventsPanel, /kind: "finalize-repair"/);
   assert.match(adminEventsPanel, /Finalize now/);
   assert.match(adminEventsPanel, /Finalization repair from \/kaan dashboard/);
-  assert.match(adminEventsPanel, /lifecycle\.needsFinalizationRepair && !event\.ended_at && !event\.archived_at/);
+  assert.match(adminEventsPanel, /lifecycle\.needsFinalizationRepair && !event\.ended_at && !isArchived/);
+  assert.match(adminEventsPanel, /\{event\.archived_at && \(/);
   assert.doesNotMatch(adminEventsPanel, /Finalize End/);
 });
 
