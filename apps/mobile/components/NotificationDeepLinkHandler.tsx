@@ -33,6 +33,7 @@ import {
   takePendingNotificationDeepLinkPath,
 } from '@/lib/pendingNotificationDeepLink';
 import { classifyPushDeepLink, recordPushDeliveryTelemetry } from '@/lib/pushDeliveryTelemetry';
+import { resolveNotificationActionRoute } from '@/lib/notificationActions';
 
 /**
  * Matches `EntryStateRouteGate`: only then is expo-router allowed to show protected stacks
@@ -89,7 +90,8 @@ function resolveNotificationHref(
       ? additionalData.other_user_id
       : null;
   const base = hrefFromPayload(additionalData, launchURL);
-  if (!peer || typeof base !== 'string') return base;
+  if (!base || typeof base !== 'string') return resolveNotificationActionRoute(additionalData?.action);
+  if (!peer) return base;
   if (base.startsWith('/chat/')) {
     return `/chat/${peer}` as Href;
   }

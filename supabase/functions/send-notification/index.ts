@@ -100,6 +100,168 @@ function skipsPerBucketPreferenceCheck(category: string): boolean {
   return CATEGORY_PREFERENCE_BYPASS[category] === true
 }
 
+type NotificationChannel = 'in_app' | 'push'
+type NotificationPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+const DEFAULT_CHANNELS: NotificationChannel[] = ['in_app', 'push']
+
+function normalizeChannels(value: unknown): NotificationChannel[] {
+  if (!Array.isArray(value)) return DEFAULT_CHANNELS
+  const channels = value.filter((item): item is NotificationChannel => item === 'in_app' || item === 'push')
+  return channels.length > 0 ? Array.from(new Set(channels)) : DEFAULT_CHANNELS
+}
+
+function normalizeInboxCategory(category: string): string {
+  if (category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call') {
+    return 'message'
+  }
+  if (category === 'mutual_vibe' || category === 'new_match' || category === 'who_liked_you') return 'new_match'
+  if (category === 'vibe_received' || category === 'someone_vibed_you') return 'someone_vibed_you'
+  if (category === 'partner_ready' || category === 'ready_gate') return 'ready_gate'
+  if (category === 'date_starting' || category === 'reconnection' || category === 'date_reminder' || category === 'post_date_feedback_reminder') return 'video_date'
+  if (category === 'event_live') return 'event_live'
+  if (isEventLifecycleCategory(category) || category === 'event_registered' || category === 'event_ended' || category === 'new_event_city' || category === 'event_almost_full') return 'event_reminder'
+  if (category === 'daily_drop' || category === 'drop_opener' || category === 'drop_reply' || category === 'drop_expiring') return 'daily_drop'
+  if (category === 'super_vibe') return 'super_vibe'
+  if (category === 'credits_subscription') return 'credits_subscription'
+  if (category === 'safety' || category === 'safety_alerts') return 'safety'
+  if (category === 'support_reply' || category === 'product_updates' || category === 'welcome' || category === 'profile_incomplete') return 'system'
+  if (category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) return 'message'
+  return 'system'
+}
+
+function priorityForInbox(category: string, requested: unknown): NotificationPriority {
+  if (requested === 'low' || requested === 'normal' || requested === 'high' || requested === 'urgent') return requested
+  if (category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection' || category === 'match_call') return 'urgent'
+  if (category === 'event_live' || category === 'new_match' || category === 'mutual_vibe' || category === 'daily_drop' || category === 'drop_expiring' || category === 'super_vibe') return 'high'
+  if (category === 'safety' || category === 'safety_alerts') return 'high'
+  return 'normal'
+}
+
+function actionObject(kind: string, fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return { kind, ...fields }
+}
+
+function normalizeActionFromRequest(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const kind = (value as Record<string, unknown>).kind
+  if (typeof kind !== 'string' || kind.trim().length === 0) return null
+  return value as Record<string, unknown>
+}
+
+function deriveNotificationAction(category: string, data: any, webPath?: string | null): Record<string, unknown> {
+  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call' || category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) && (data?.match_id || data?.sender_id || data?.other_user_id)) {
+    return actionObject('open_chat', {
+      matchId: data?.match_id,
+      userId: data?.sender_id ?? data?.other_user_id,
+      otherUserId: data?.sender_id ?? data?.other_user_id,
+    })
+  }
+  if (category === 'new_match' || category === 'mutual_vibe') {
+    return actionObject('open_chat', {
+      matchId: data?.match_id,
+      userId: data?.other_user_id ?? data?.partner_id ?? data?.sender_id,
+      otherUserId: data?.other_user_id ?? data?.partner_id ?? data?.sender_id,
+    })
+  }
+  if (category === 'event_live' && getEventId(data)) {
+    return actionObject('open_event_lobby', { eventId: getEventId(data) })
+  }
+  if (isEventLifecycleCategory(category) && getEventId(data)) {
+    return actionObject(category === 'event_live' ? 'open_event_lobby' : 'open_event', { eventId: getEventId(data) })
+  }
+  if ((category === 'ready_gate' || category === 'partner_ready') && getSessionId(data)) {
+    return actionObject('open_ready_gate', { sessionId: getSessionId(data), eventId: getEventId(data) ?? undefined })
+  }
+  if ((category === 'date_starting' || category === 'reconnection' || category === 'date_reminder') && getSessionId(data)) {
+    return actionObject('open_video_date', { sessionId: getSessionId(data) })
+  }
+  if (category === 'daily_drop' || category === 'drop_opener' || category === 'drop_reply' || category === 'drop_expiring') {
+    return actionObject('open_daily_drop', { dropId: data?.drop_id })
+  }
+  if (category === 'credits_subscription') return actionObject('open_credits')
+  if (category === 'support_reply' && typeof data?.ticket_id === 'string') {
+    return actionObject('none', { url: `/settings/ticket/${data.ticket_id}` })
+  }
+  if (category === 'profile_incomplete') return actionObject('open_profile', { userId: data?.user_id })
+  if (webPath && webPath.startsWith('/settings')) return actionObject('open_notification_settings')
+  return actionObject('none')
+}
+
+function pathFromAction(action: Record<string, unknown>): string | null {
+  const kind = typeof action.kind === 'string' ? action.kind : 'none'
+  const eventId = typeof action.eventId === 'string' ? action.eventId : typeof action.event_id === 'string' ? action.event_id : null
+  const sessionId =
+    typeof action.sessionId === 'string'
+      ? action.sessionId
+      : typeof action.session_id === 'string'
+        ? action.session_id
+        : typeof action.video_session_id === 'string'
+          ? action.video_session_id
+          : null
+  const peerId =
+    typeof action.otherUserId === 'string'
+      ? action.otherUserId
+      : typeof action.userId === 'string'
+        ? action.userId
+        : typeof action.matchId === 'string'
+          ? action.matchId
+          : null
+  switch (kind) {
+    case 'open_chat':
+      return peerId ? `/chat/${peerId}` : null
+    case 'open_event':
+      return eventId ? `/events/${eventId}` : null
+    case 'open_event_lobby':
+      return eventId ? `/event/${eventId}/lobby` : null
+    case 'open_ready_gate':
+      return sessionId ? `/ready/${sessionId}` : null
+    case 'open_video_date':
+      return sessionId ? `/date/${sessionId}` : null
+    case 'open_daily_drop':
+      return '/matches'
+    case 'open_profile':
+      return typeof action.userId === 'string' ? `/user/${action.userId}` : '/profile'
+    case 'open_credits':
+      return '/credits'
+    case 'open_subscription':
+      return '/premium'
+    case 'open_verification':
+      return '/profile'
+    case 'open_notification_settings':
+      return '/settings'
+    default:
+      return typeof action.url === 'string' && action.url.startsWith('/') ? action.url : null
+  }
+}
+
+function defaultInboxDedupeKey(category: string, data: any): string | null {
+  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call' || category.startsWith('date_suggestion_') || category.startsWith('date_proposal_')) && data?.match_id) {
+    return `message:${data.match_id}`
+  }
+  if ((category === 'new_match' || category === 'mutual_vibe') && data?.match_id) return `new_match:${data.match_id}`
+  if ((category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection') && getSessionId(data)) {
+    return `${normalizeInboxCategory(category)}:${getSessionId(data)}`
+  }
+  if (isEventLifecycleCategory(category) && getEventId(data)) {
+    return `${normalizeInboxCategory(category)}:${category}:${getEventId(data)}`
+  }
+  if ((category === 'daily_drop' || category === 'drop_opener' || category === 'drop_reply' || category === 'drop_expiring') && (data?.drop_id || data?.drop_date)) {
+    return `daily_drop:${data.drop_id ?? data.drop_date}`
+  }
+  if (category === 'support_reply' && data?.ticket_id) return `support_reply:${data.ticket_id}`
+  return null
+}
+
+function defaultInboxGroupKey(category: string, data: any): string | null {
+  if ((category === 'messages' || category === 'new_message' || category === 'voice_message' || category === 'video_message' || category === 'message_reaction' || category === 'match_call') && data?.match_id) {
+    return `message:${data.match_id}`
+  }
+  if (isEventLifecycleCategory(category) && getEventId(data)) return `event:${getEventId(data)}`
+  if ((category === 'ready_gate' || category === 'partner_ready' || category === 'date_starting' || category === 'reconnection') && getSessionId(data)) return `session:${getSessionId(data)}`
+  return null
+}
+
 // Categories that bypass quiet hours (time-critical / safety / support)
 const BYPASS_QUIET_HOURS = ['ready_gate', 'safety_alerts', 'safety', 'support_reply', 'match_call']
 
@@ -228,6 +390,53 @@ async function isPairBlocked(userA: string, userB: string): Promise<boolean> {
 
   if (blockBError) throw blockBError
   return Boolean(blockB?.id)
+}
+
+async function validateClientNotificationRequest(
+  authUserId: string | null,
+  recipientId: string,
+  category: string,
+  data: any,
+): Promise<string | null> {
+  if (!authUserId) return 'missing_auth_user'
+
+  // Browser push setup sends a self-addressed confirmation after the OS/browser grant.
+  if (category === 'safety_alerts' && recipientId === authUserId) {
+    return null
+  }
+
+  const actorId = firstPayloadUuid(data, ['actor_id', 'sender_id', 'from_user_id'])
+  if (actorId !== authUserId) return 'actor_mismatch'
+
+  const clientVibeCategories = new Set(['someone_vibed_you', 'vibe_received', 'mutual_vibe', 'super_vibe'])
+  const eventId = getEventId(data)
+  if (!clientVibeCategories.has(category) || !eventId || recipientId === authUserId) {
+    return 'client_category_not_allowed'
+  }
+
+  const { data: sentVibe, error: sentVibeError } = await supabase
+    .from('event_vibes')
+    .select('id')
+    .eq('event_id', eventId)
+    .eq('sender_id', authUserId)
+    .eq('receiver_id', recipientId)
+    .maybeSingle()
+  if (sentVibeError) throw sentVibeError
+  if (!sentVibe?.id) return 'event_vibe_missing'
+
+  if (category === 'mutual_vibe') {
+    const { data: reciprocalVibe, error: reciprocalVibeError } = await supabase
+      .from('event_vibes')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('sender_id', recipientId)
+      .eq('receiver_id', authUserId)
+      .maybeSingle()
+    if (reciprocalVibeError) throw reciprocalVibeError
+    if (!reciprocalVibe?.id) return 'mutual_vibe_missing'
+  }
+
+  return null
 }
 
 function shouldLogLifecycle(category: string, data: any): boolean {
@@ -555,6 +764,90 @@ async function logNotification(
   })
 }
 
+async function createOrUpdateUserNotification(args: {
+  userId: string
+  category: string
+  title: string
+  body: string
+  data: any
+  action: Record<string, unknown>
+  priority: NotificationPriority
+  imageUrl?: string | null
+  actorId?: string | null
+  dedupeKey?: string | null
+  groupKey?: string | null
+  expiresAt?: string | null
+}) {
+  const normalizedCategory = normalizeInboxCategory(args.category)
+  const safeData = args.data && typeof args.data === 'object' && !Array.isArray(args.data)
+    ? args.data
+    : {}
+  const dedupeKey = args.dedupeKey ?? defaultInboxDedupeKey(args.category, safeData)
+  const groupKey = args.groupKey ?? defaultInboxGroupKey(args.category, safeData)
+  const nowIso = new Date().toISOString()
+
+  if (dedupeKey) {
+    const { data: existing } = await supabase
+      .from('user_notifications')
+      .select('id, group_count')
+      .eq('user_id', args.userId)
+      .eq('dedupe_key', dedupeKey)
+      .maybeSingle()
+
+    if (existing?.id) {
+      const shouldIncrementGroup = groupKey != null && normalizedCategory === 'message'
+      const nextCount = shouldIncrementGroup ? Math.max(1, Number(existing.group_count ?? 1) + 1) : Math.max(1, Number(existing.group_count ?? 1))
+      const { data: updated, error } = await supabase
+        .from('user_notifications')
+        .update({
+          category: normalizedCategory,
+          title: args.title,
+          body: args.body,
+          priority: args.priority,
+          action: args.action,
+          data: safeData,
+          actor_id: args.actorId ?? null,
+          image_url: args.imageUrl ?? null,
+          group_key: groupKey,
+          group_count: nextCount,
+          seen_at: null,
+          read_at: null,
+          opened_at: null,
+          dismissed_at: null,
+          expires_at: args.expiresAt ?? null,
+          created_at: nowIso,
+        })
+        .eq('id', existing.id)
+        .select('id')
+        .maybeSingle()
+      if (error) throw error
+      return updated?.id ?? existing.id
+    }
+  }
+
+  const { data: inserted, error } = await supabase
+    .from('user_notifications')
+    .insert({
+      user_id: args.userId,
+      category: normalizedCategory,
+      title: args.title,
+      body: args.body,
+      priority: args.priority,
+      action: args.action,
+      data: safeData,
+      actor_id: args.actorId ?? null,
+      image_url: args.imageUrl ?? null,
+      group_key: groupKey,
+      group_count: 1,
+      dedupe_key: dedupeKey,
+      expires_at: args.expiresAt ?? null,
+    })
+    .select('id')
+    .maybeSingle()
+  if (error) throw error
+  return inserted?.id ?? null
+}
+
 /** Parse HH:MM or HH:MM:SS from Postgres TIME / text. */
 function timePartsMinutes(timeStr: string): number {
   const parts = timeStr.trim().split(':').map((p) => parseInt(p, 10))
@@ -648,6 +941,7 @@ Deno.serve(async (req) => {
     // String equality can fail across key rotations / API vs runtime representations; role claim is stable.
     const isServiceRole =
       token === serviceKey || jwtPayloadRole(token) === 'service_role'
+    let authUserId: string | null = null
 
     if (!isServiceRole) {
       // Validate as user JWT
@@ -662,11 +956,34 @@ Deno.serve(async (req) => {
           status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
+      authUserId = claims.claims.sub
     }
 
     const requestBody = await req.json()
-    const { user_id, category, data, image_url, bypass_preferences } = requestBody
+    let {
+      user_id,
+      category,
+    } = requestBody
+    const {
+      image_url,
+      bypass_preferences,
+      action,
+      priority,
+      dedupe_key,
+      group_key,
+      expires_at,
+      actor_id,
+    } = requestBody
+    const data = requestBody.data && typeof requestBody.data === 'object' && !Array.isArray(requestBody.data)
+      ? requestBody.data
+      : {}
     let { title, body } = requestBody
+    const channels = normalizeChannels(requestBody.channels)
+    const wantsInApp = channels.includes('in_app')
+    const wantsPush = channels.includes('push')
+    const requestedAction = normalizeActionFromRequest(action)
+    let inAppNotificationId: string | null = null
+    let resolvedActorId: string | null = typeof actor_id === 'string' && actor_id.trim() ? actor_id.trim() : null
 
     lifecycleContext = {
       shouldLog: shouldLogLifecycle(typeof category === 'string' ? category : '', data),
@@ -678,12 +995,25 @@ Deno.serve(async (req) => {
       category: typeof category === 'string' ? category : null,
     }
 
-    if (!user_id || !category) {
+    if (typeof user_id !== 'string' || !user_id.trim() || typeof category !== 'string' || !category.trim()) {
       emitLifecycle('rejected', 'invalid_request')
       return new Response(
         JSON.stringify({ success: false, error: 'user_id and category required' }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
+    }
+    user_id = user_id.trim()
+    category = category.trim()
+
+    if (!isServiceRole) {
+      const clientValidationError = await validateClientNotificationRequest(authUserId, user_id, category, data)
+      if (clientValidationError) {
+        emitLifecycle('rejected', clientValidationError)
+        return new Response(
+          JSON.stringify({ success: false, error: 'Forbidden', reason: clientValidationError }),
+          { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        )
+      }
     }
 
     // Apply templates when title or body not provided
@@ -713,8 +1043,40 @@ Deno.serve(async (req) => {
       ...overrides,
     })
 
+    const ensureInAppNotification = async (
+      notificationTitle: string,
+      notificationBody: string,
+      deepLink?: string | null,
+    ) => {
+      if (!wantsInApp || inAppNotificationId) return inAppNotificationId
+      try {
+        if (!resolvedActorId) {
+          resolvedActorId = await resolveActorId(user_id, category, data)
+        }
+        const notificationAction = requestedAction ?? deriveNotificationAction(category, data, deepLink)
+        inAppNotificationId = await createOrUpdateUserNotification({
+          userId: user_id,
+          category,
+          title: notificationTitle,
+          body: notificationBody,
+          data,
+          action: notificationAction,
+          priority: priorityForInbox(category, priority),
+          imageUrl: typeof image_url === 'string' ? image_url : null,
+          actorId: resolvedActorId,
+          dedupeKey: typeof dedupe_key === 'string' && dedupe_key.trim() ? dedupe_key.trim() : null,
+          groupKey: typeof group_key === 'string' && group_key.trim() ? group_key.trim() : null,
+          expiresAt: typeof expires_at === 'string' && expires_at.trim() ? expires_at.trim() : null,
+        })
+      } catch (error) {
+        console.error('user_notification_upsert_failed:', error instanceof Error ? error.message : String(error))
+      }
+      return inAppNotificationId
+    }
+
     if (!skipsPerBucketPreferenceCheck(category)) {
-      const actorId = await resolveActorId(user_id, category, data)
+      const actorId = resolvedActorId ?? await resolveActorId(user_id, category, data)
+      resolvedActorId = actorId
       if (actorId && await isPairBlocked(user_id, actorId)) {
         console.log('send_notification_suppressed_blocked_pair', JSON.stringify({
           user_id,
@@ -758,6 +1120,13 @@ Deno.serve(async (req) => {
         suppressionReason: 'no_preferences',
         suppressionGate: 'no_preferences',
       }))
+      await ensureInAppNotification(title, body)
+      if (!wantsPush) {
+        emitLifecycle('in_app_only', 'no_preferences')
+        return new Response(JSON.stringify({ success: true, in_app_notification_id: inAppNotificationId, push_skipped: true }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
       emitLifecycle('suppressed', 'no_preferences')
       return new Response(JSON.stringify({ success: false, reason: 'no_preferences' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -801,12 +1170,13 @@ Deno.serve(async (req) => {
     }
 
     // 5. Check notification-prefs pause (paused_until on notification_preferences)
-    if (!skipsPerBucketPreferenceCheck(category) && prefs.paused_until) {
+    if (wantsPush && !skipsPerBucketPreferenceCheck(category) && prefs.paused_until) {
       if (new Date(prefs.paused_until) > new Date()) {
         await logNotification(user_id, category, title, body, data, false, 'paused', diagnostic({
           suppressionReason: 'paused',
           suppressionGate: 'notification_pause',
         }))
+        await ensureInAppNotification(title, body)
         emitLifecycle('suppressed', 'paused')
         return new Response(JSON.stringify({ success: false, reason: 'paused' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -815,11 +1185,12 @@ Deno.serve(async (req) => {
     }
 
     // 6. Check master toggle
-    if (!prefs.push_enabled && !bypass_preferences) {
+    if (wantsPush && !prefs.push_enabled && !bypass_preferences) {
       await logNotification(user_id, category, title, body, data, false, 'user_disabled', diagnostic({
         suppressionReason: 'user_disabled',
         suppressionGate: 'master_push_disabled',
       }))
+      await ensureInAppNotification(title, body)
       emitLifecycle('suppressed', 'user_disabled')
       return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -827,15 +1198,16 @@ Deno.serve(async (req) => {
     }
 
     // 7. Check category toggle (notify_* columns only — matches settings UI)
-    if (!skipsPerBucketPreferenceCheck(category)) {
+    if (wantsPush && !skipsPerBucketPreferenceCheck(category)) {
       const col = CATEGORY_TO_COLUMN[category]
       if (!col) {
         await logNotification(user_id, category, title, body, data, false, 'unknown_category', diagnostic({
           suppressionReason: 'unknown_category',
           suppressionGate: 'unknown_category',
         }))
+        await ensureInAppNotification(title, body)
         emitLifecycle('suppressed', 'unknown_category')
-        return new Response(JSON.stringify({ success: false, reason: 'unknown_category' }), {
+        return new Response(JSON.stringify({ success: false, reason: 'unknown_category', in_app_notification_id: inAppNotificationId }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -845,6 +1217,7 @@ Deno.serve(async (req) => {
           suppressionGate: 'category_disabled',
           preferenceColumn: col,
         }))
+        await ensureInAppNotification(title, body)
         emitLifecycle('suppressed', 'user_disabled')
         return new Response(JSON.stringify({ success: false, reason: 'user_disabled' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -884,7 +1257,7 @@ Deno.serve(async (req) => {
     }
 
     // 8. Check quiet hours
-    if (prefs.quiet_hours_enabled && !BYPASS_QUIET_HOURS.includes(category)) {
+    if (wantsPush && prefs.quiet_hours_enabled && !BYPASS_QUIET_HOURS.includes(category)) {
       const inQuiet = isInQuietHours(
         prefs.quiet_hours_start || '22:00',
         prefs.quiet_hours_end || '08:00',
@@ -895,6 +1268,7 @@ Deno.serve(async (req) => {
           suppressionReason: 'quiet_hours',
           suppressionGate: 'quiet_hours',
         }))
+        await ensureInAppNotification(title, body)
         emitLifecycle('suppressed', 'quiet_hours')
         return new Response(JSON.stringify({ success: false, reason: 'quiet_hours' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -924,6 +1298,14 @@ Deno.serve(async (req) => {
       }
     }
 
+    await ensureInAppNotification(finalTitle, finalBody)
+    if (!wantsPush) {
+      emitLifecycle('in_app_only', null)
+      return new Response(JSON.stringify({ success: true, in_app_notification_id: inAppNotificationId, push_skipped: true }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
     // 10. Collect all player IDs (web + mobile) for multi-device delivery
     const playerIds: string[] = []
     if (prefs.onesignal_player_id && prefs.onesignal_subscribed) {
@@ -937,6 +1319,7 @@ Deno.serve(async (req) => {
         suppressionReason: 'no_player_id',
         suppressionGate: 'no_player_id',
       }))
+      await ensureInAppNotification(finalTitle, finalBody)
       emitLifecycle('suppressed', 'no_player_id')
       return new Response(JSON.stringify({ success: false, reason: 'no_player_id' }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -952,6 +1335,8 @@ Deno.serve(async (req) => {
     let webPath = '/'
     const admissionStatus = getAdmissionStatus(data)
     const osData: Record<string, unknown> = { ...(data || {}), category }
+    const baseAction = requestedAction ?? deriveNotificationAction(category, data)
+    osData.action = baseAction
     if (
       category === 'match_call' &&
       data?.match_id &&
@@ -980,8 +1365,10 @@ Deno.serve(async (req) => {
       webPath = chatPath
     } else {
       const eventLink = isEventLifecycleCategory(category) ? eventDeepLink(category, data) : null
+      const actionLink = pathFromAction(baseAction)
       const deepLink =
         eventLink ||
+        actionLink ||
         (data && typeof data.url === 'string'
           ? data.url
           : data && typeof data.deep_link === 'string'
@@ -1118,14 +1505,15 @@ Deno.serve(async (req) => {
     }))
 
     return new Response(
-      JSON.stringify({ success: true, onesignal_id: notificationId ?? null }),
+      JSON.stringify({ success: true, onesignal_id: notificationId ?? null, in_app_notification_id: inAppNotificationId }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (error) {
-    emitLifecycle('error', error?.message || 'internal_error')
+    const message = error instanceof Error ? error.message : String(error)
+    emitLifecycle('error', message || 'internal_error')
     console.error('send-notification error:', error)
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, error: message }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }

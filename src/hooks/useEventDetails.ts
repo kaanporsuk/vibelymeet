@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format, addMinutes } from "date-fns";
 import { calculateVibeScoreStable } from "@/utils/vibeScoreUtils";
 import { useUserProfile } from "@/contexts/AuthContext";
+import type { EventCategory } from "@clientShared/eventCategories";
 
 export interface EventDetails {
   id: string;
@@ -28,6 +29,8 @@ export interface EventDetails {
   archivedAt: Date | null;
   endedAt: Date | null;
   tags: string[];
+  categoryKeys: string[];
+  categories: EventCategory[];
   isFree: boolean;
   eventVibes: string[];
   // New geo/series fields
@@ -85,8 +88,25 @@ export const useEventDetails = (eventId: string | undefined) => {
       // Determine category from vibes/tags
       const vibes = data.vibes || [];
       const tags = data.tags || [];
+      const categoryKeys: string[] = data.category_keys || [];
+      let categories: EventCategory[] = [];
+      if (categoryKeys.length > 0) {
+        const { data: categoryRows, error: categoryError } = await supabase
+          .from("event_categories")
+          .select("key,label,emoji,active,sort_order")
+          .in("key", categoryKeys);
+
+        if (!categoryError && categoryRows) {
+          const byKey = new Map(categoryRows.map((category) => [category.key, category as EventCategory]));
+          categories = categoryKeys
+            .map((key) => byKey.get(key))
+            .filter(Boolean) as EventCategory[];
+        }
+      }
       const category =
-        vibes.length > 0
+        categories.length > 0
+          ? `${categories[0].emoji} ${categories[0].label}`
+          : vibes.length > 0
           ? `🎯 ${vibes[0]}`
           : tags.length > 0
             ? tags[0]
@@ -148,6 +168,8 @@ export const useEventDetails = (eventId: string | undefined) => {
           if (t.includes("Food") || t.includes("Drink")) return "🍸 " + t;
           return t;
         }),
+        categoryKeys,
+        categories,
         isFree: data.is_free || false,
         eventVibes: eventVibeLabels,
         parentEventId: data.parent_event_id ?? null,

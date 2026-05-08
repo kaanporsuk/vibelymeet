@@ -17,11 +17,15 @@ import {
 type BackendPushRow = {
   playerId: string | null;
   subscribed: boolean | null;
+  pushEnabled: boolean | null;
+  pausedUntil: string | null;
 };
 
 const EMPTY_BACKEND_ROW: BackendPushRow = {
   playerId: null,
   subscribed: false,
+  pushEnabled: true,
+  pausedUntil: null,
 };
 
 function permissionToHealth(permission: NotificationPermission, supported: boolean): PushPermissionHealth {
@@ -59,7 +63,7 @@ export function usePushDeliveryHealth() {
     }
     const { data, error } = await supabase
       .from("notification_preferences")
-      .select("onesignal_player_id, onesignal_subscribed")
+      .select("onesignal_player_id, onesignal_subscribed, push_enabled, paused_until")
       .eq("user_id", user.id)
       .maybeSingle();
     if (error) {
@@ -70,6 +74,8 @@ export function usePushDeliveryHealth() {
     setBackend({
       playerId: data?.onesignal_player_id ?? null,
       subscribed: data?.onesignal_subscribed ?? false,
+      pushEnabled: data?.push_enabled ?? true,
+      pausedUntil: data?.paused_until ?? null,
     });
   }, [user?.id]);
 
@@ -135,11 +141,15 @@ export function usePushDeliveryHealth() {
       localPlayerId,
       backendPlayerId: backend.playerId,
       backendSubscribed: backend.subscribed,
+      preferencesEnabled: backend.pushEnabled,
+      pausedUntil: backend.pausedUntil,
       syncInFlight,
       lastSyncResultCode,
     });
   }, [
     backend.playerId,
+    backend.pausedUntil,
+    backend.pushEnabled,
     backend.subscribed,
     isOneSignalSubscribed,
     isSupported,
@@ -158,6 +168,8 @@ export function usePushDeliveryHealth() {
       Boolean(health.localPlayerId),
       Boolean(health.backendPlayerId),
       health.backendSubscribed === true,
+      health.preferencesEnabled !== false,
+      health.pausedUntil ?? "none",
     ].join("|");
     if (lastObservedHealthRef.current === signature) return;
     lastObservedHealthRef.current = signature;
@@ -171,6 +183,8 @@ export function usePushDeliveryHealth() {
       local_player_present: Boolean(health.localPlayerId),
       backend_player_present: Boolean(health.backendPlayerId),
       backend_subscribed: health.backendSubscribed === true,
+      preferences_enabled: health.preferencesEnabled !== false,
+      paused: Boolean(health.pausedUntil && new Date(health.pausedUntil).getTime() > Date.now()),
     });
   }, [health]);
 

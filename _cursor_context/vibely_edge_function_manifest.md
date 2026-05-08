@@ -30,13 +30,13 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Current-state addendum (2026-05-01)
 
-- Current repo inventory is **53** deployable function directories and **53** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
+- Current repo inventory is **54** deployable function directories and **54** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
 - **`forward-geocode`:** Explicitly configured with `verify_jwt = true`. It also resolves the Supabase user in code, permits admin/premium users plus onboarding city search, rate-limits by user, and then queries OpenStreetMap Nominatim.
 - **`push-webhook`:** Explicitly configured with `verify_jwt = false` because provider callbacks cannot present a Supabase JWT. It fail-closes unless `PUSH_WEBHOOK_SECRET` is set and the request sends the matching `x-webhook-secret` header. Repo evidence treats it as generic FCM/APNs/web receipt telemetry; OneSignal receipt dashboard wiring is not proven from source.
 
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **53** deployable functions as of 2026-05-08 — see §2):
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **54** deployable functions as of 2026-05-09 — see §2):
 
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
@@ -87,8 +87,8 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 | Item | Count |
 |------|------:|
-| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **53** |
-| `[functions.<name>]` entries in `supabase/config.toml` | **53** |
+| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **54** |
+| `[functions.<name>]` entries in `supabase/config.toml` | **54** |
 
 The `_shared` directory is shared Deno helpers only — **not** a deployable function slug.
 
@@ -96,7 +96,7 @@ For a machine-readable list, regenerate `_cursor_context/vibely_machine_readable
 
 ### Historical baseline (frozen golden; superseded)
 
-The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, or **51** while the repo grew. **None of those older counts matches the current tree.** Use **53** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
+The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, or **53** while the repo grew. **None of those older counts matches the current tree.** Use **54** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
 
 ### Gateway JWT posture from config (post-hardening)
 

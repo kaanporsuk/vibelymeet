@@ -10,6 +10,7 @@ import { useEventAttendees } from "@/hooks/useEventAttendees";
 import { isEventExpired } from "@/utils/eventUtils";
 import { eventCoverHeroUrl, getImageUrl } from "@/utils/imageUrl";
 import { getLanguageLabel } from "@/lib/eventLanguages";
+import type { EventCategory } from "@clientShared/eventCategories";
 
 interface FeaturedEventCardProps {
   id: string;
@@ -19,6 +20,7 @@ interface FeaturedEventCardProps {
   eventDate: Date;
   attendees: number;
   tags: string[];
+  categories?: EventCategory[];
   status?: string;
   durationMinutes?: number;
   language?: string | null;
@@ -32,6 +34,7 @@ export const FeaturedEventCard = ({
   eventDate,
   attendees,
   tags,
+  categories = [],
   status,
   durationMinutes = 60,
   language,
@@ -185,15 +188,15 @@ export const FeaturedEventCard = ({
 
         {/* Tags */}
         <div className="flex flex-wrap gap-2 mb-4">
-          {tags.slice(0, 3).map((tag, index) => (
+          {(categories.length > 0 ? categories : tags.map((tag) => ({ key: tag, label: tag, emoji: "✨" }))).slice(0, 3).map((category, index) => (
             <motion.span
-              key={tag}
+              key={category.key}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 + index * 0.1 }}
               className="px-3 py-1.5 text-sm font-medium rounded-full bg-neon-violet/20 text-neon-violet border border-neon-violet/30 backdrop-blur-sm"
             >
-              {tag}
+              {category.emoji} {category.label}
             </motion.span>
           ))}
         </div>

@@ -20,7 +20,9 @@ import { EventCardSkeleton, MatchAvatarSkeleton } from "@/components/Skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { DateReminderCard, MiniDateCountdown } from "@/components/schedule/DateReminderCard";
-import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
+import { PushSetupFlow } from "@/components/notifications/PushSetupFlow";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { NotificationCenterSheet } from "@/components/notifications/NotificationCenterSheet";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { ActiveCallBanner } from "@/components/events/ActiveCallBanner";
 import { useNextRegisteredEvent, useRealtimeEvents } from "@/hooks/useEvents";
@@ -30,11 +32,12 @@ import { useDateReminders } from "@/hooks/useDateReminders";
 import { useScheduleHub } from "@/hooks/useScheduleHub";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
-import { useNotifications } from "@/contexts/NotificationContext";
+import { useNotificationInbox } from "@/hooks/useNotificationInbox";
 import { useSessionHydration } from "@/contexts/SessionHydrationContext";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission";
+import { trackEvent } from "@/lib/analytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
 import { preloadRoute } from "@/lib/routePreload";
 import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
@@ -126,6 +129,8 @@ const Dashboard = () => {
   const { isBrowserPermissionGranted, scheduleDateReminder, refreshSubscriptionState } =
     usePushNotifications();
   const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth();
+  const notificationInbox = useNotificationInbox(user?.id);
+  const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
@@ -266,7 +271,6 @@ const Dashboard = () => {
     setActiveSessionRoutePending(false);
   }, [activeSession?.sessionId, activeSession?.kind, activeSession?.queueStatus]);
 
-  const { unreadCount, markAllAsRead } = useNotifications();
   const { data: otherCities = [] } = useOtherCityEvents();
   const { data: unreadMessageCount = 0, refetch: refetchUnread } = useQuery({
     queryKey: ["unread-home", user?.id],
@@ -441,11 +445,17 @@ const Dashboard = () => {
   const handleNotificationClick = () => {
     recordUserAction("dashboard_notification_button_clicked", {
       surface: "dashboard",
-      unread_count: unreadCount,
+      unseen_count: notificationInbox.unseenCount,
       push_deliverable: pushDeliveryHealth.backendDeliverable,
+      push_state: pushDeliveryHealth.status,
     });
-    markAllAsRead();
-    setShowNotificationFlow(true);
+    trackEvent("notification_bell_clicked", {
+      source_screen: "dashboard",
+      push_state: pushDeliveryHealth.status,
+      unseen_count: notificationInbox.unseenCount,
+      urgent_unseen_count: notificationInbox.urgentUnseenCount,
+    });
+    setNotificationCenterOpen(true);
   };
 
   useEffect(() => {
@@ -622,10 +632,17 @@ const Dashboard = () => {
 
   return (
     <PullToRefresh onRefresh={handleRefresh} className="min-h-screen bg-background pb-[100px]">
-      <NotificationPermissionFlow
+      <PushSetupFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
         onRequestPermission={handleRequestOneSignalPermission}
+      />
+      <NotificationCenterSheet
+        open={notificationCenterOpen}
+        onOpenChange={setNotificationCenterOpen}
+        inbox={notificationInbox}
+        pushHealth={pushDeliveryHealth}
+        onRequestPushSetup={() => setShowNotificationFlow(true)}
       />
 
       <header className="sticky top-0 z-40 glass-card border-b border-white/10 px-4 py-4">
@@ -658,10 +675,11 @@ const Dashboard = () => {
                 }}
               />
             )}
-            <NotificationPermissionButton
-              isGranted={pushDeliveryHealth.backendDeliverable}
+            <NotificationBell
+              unseenCount={notificationInbox.unseenCount}
+              urgentUnseenCount={notificationInbox.urgentUnseenCount}
+              pushSetupNeeded={!pushDeliveryHealth.backendDeliverable && pushDeliveryHealth.status !== "unsupported"}
               onClick={handleNotificationClick}
-              unreadCount={unreadCount}
             />
             <button type="button" onClick={() => navigate("/profile")} className="w-8 h-8 shrink-0 rounded-full overflow-hidden">
               <ProfilePhoto

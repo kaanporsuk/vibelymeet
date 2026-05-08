@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserProfile } from "@/contexts/AuthContext";
 import type { SelectedCity } from "@/components/events/EventsFilterBar";
 import { fetchMyLocationData } from "@/services/myLocationData";
+import type { EventCategory } from "@clientShared/eventCategories";
 
 export interface VisibleEvent {
   id: string;
@@ -14,6 +15,9 @@ export interface VisibleEvent {
   max_attendees: number;
   current_attendees: number;
   tags: string[];
+  category_keys?: string[];
+  categories?: EventCategory[];
+  vibes?: string[];
   status: string;
   city: string | null;
   country: string | null;

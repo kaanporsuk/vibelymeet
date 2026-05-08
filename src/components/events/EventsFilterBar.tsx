@@ -4,6 +4,7 @@ import { Search, X, SlidersHorizontal, MapPin, ChevronDown, Globe, Lock, Loader2
 import { cn } from "@/lib/utils";
 import { EVENT_LANGUAGES } from "@/lib/eventLanguages";
 import { supabase } from "@/integrations/supabase/client";
+import { useEventCategories } from "@/hooks/useEventCategories";
 
 export interface SelectedCity {
   name: string;
@@ -35,7 +36,6 @@ interface EventsFilterBarProps {
 }
 
 const dateFilters = ["Later Today", "This Weekend", "This Week", "Upcoming"];
-const interestFilters = ["Music", "Tech", "Art", "Gaming", "Food", "Wellness", "Outdoor"];
 const distanceOptions = [
   { km: 10, label: "10 km" },
   { km: 25, label: "25 km" },
@@ -76,6 +76,11 @@ export const EventsFilterBar = ({
   const [showPanel, setShowPanel] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+  const {
+    data: eventCategories = [],
+    isSuccess: categoriesLoaded,
+    isPlaceholderData: usingPlaceholderCategories,
+  } = useEventCategories();
 
   // City search state
   const [cityQuery, setCityQuery] = useState('');
@@ -108,6 +113,17 @@ export const EventsFilterBar = ({
     if (langOpen) document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [langOpen]);
+
+  useEffect(() => {
+    if (!categoriesLoaded || usingPlaceholderCategories) return;
+    const activeCategoryKeys = new Set(eventCategories.map((category) => category.key));
+    const nextFilters = activeFilters.filter((filter) =>
+      dateFilters.includes(filter) || activeCategoryKeys.has(filter)
+    );
+    if (nextFilters.length !== activeFilters.length) {
+      onFiltersChange(nextFilters);
+    }
+  }, [activeFilters, categoriesLoaded, eventCategories, onFiltersChange, usingPlaceholderCategories]);
 
   const toggleFilter = (filter: string) => {
     if (activeFilters.includes(filter)) {
@@ -330,23 +346,23 @@ export const EventsFilterBar = ({
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Categories</p>
                   <div className="flex flex-wrap gap-2">
-                    {interestFilters.map((filter, index) => (
+                    {eventCategories.map((category, index) => (
                       <motion.button
-                        key={filter}
+                        key={category.key}
                         initial={{ opacity: 0, y: -10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.03 }}
                         whileTap={{ scale: 0.95 }}
-                        onClick={() => toggleFilter(filter)}
+                        onClick={() => toggleFilter(category.key)}
                         className={cn(
                           "px-4 py-2 rounded-full text-sm font-medium",
                           "border transition-all duration-200",
-                          activeFilters.includes(filter)
+                          activeFilters.includes(category.key)
                             ? "bg-neon-pink/20 border-neon-pink/50 text-neon-pink shadow-[0_0_10px_rgba(236,72,153,0.2)]"
                             : "bg-muted/30 border-border/30 text-muted-foreground hover:border-neon-pink/30"
                         )}
                       >
-                        {filter}
+                        <span className="mr-1.5">{category.emoji}</span>{category.label}
                       </motion.button>
                     ))}
                   </div>

@@ -20,11 +20,15 @@ import {
 type BackendPushRow = {
   playerId: string | null;
   subscribed: boolean | null;
+  pushEnabled: boolean | null;
+  pausedUntil: string | null;
 };
 
 const EMPTY_BACKEND_ROW: BackendPushRow = {
   playerId: null,
   subscribed: false,
+  pushEnabled: true,
+  pausedUntil: null,
 };
 
 function permissionToHealth(status: string): PushPermissionHealth {
@@ -59,7 +63,7 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
     }
     const { data, error } = await supabase
       .from('notification_preferences')
-      .select('mobile_onesignal_player_id, mobile_onesignal_subscribed')
+      .select('mobile_onesignal_player_id, mobile_onesignal_subscribed, push_enabled, paused_until')
       .eq('user_id', userId)
       .maybeSingle();
     if (error) {
@@ -70,6 +74,8 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
     setBackend({
       playerId: (data?.mobile_onesignal_player_id as string | null | undefined) ?? null,
       subscribed: (data?.mobile_onesignal_subscribed as boolean | null | undefined) ?? false,
+      pushEnabled: (data?.push_enabled as boolean | null | undefined) ?? true,
+      pausedUntil: (data?.paused_until as string | null | undefined) ?? null,
     });
   }, [userId]);
 
@@ -134,11 +140,15 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
       localPlayerId,
       backendPlayerId: backend.playerId,
       backendSubscribed: backend.subscribed,
+      preferencesEnabled: backend.pushEnabled,
+      pausedUntil: backend.pausedUntil,
       syncInFlight,
       lastSyncResultCode,
     });
   }, [
     backend.playerId,
+    backend.pausedUntil,
+    backend.pushEnabled,
     backend.subscribed,
     lastSyncResultCode,
     localPlayerId,
@@ -156,6 +166,8 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
       Boolean(health.localPlayerId),
       Boolean(health.backendPlayerId),
       health.backendSubscribed === true,
+      health.preferencesEnabled !== false,
+      health.pausedUntil ?? 'none',
     ].join('|');
     if (lastObservedHealthRef.current === signature) return;
     lastObservedHealthRef.current = signature;
@@ -169,6 +181,8 @@ export function usePushDeliveryHealth(userId: string | null | undefined) {
       local_player_present: Boolean(health.localPlayerId),
       backend_player_present: Boolean(health.backendPlayerId),
       backend_subscribed: health.backendSubscribed === true,
+      preferences_enabled: health.preferencesEnabled !== false,
+      paused: Boolean(health.pausedUntil && new Date(health.pausedUntil).getTime() > Date.now()),
     });
   }, [health]);
 

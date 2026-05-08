@@ -17,6 +17,7 @@ import {
   EventLobbyObservabilityEvents,
 } from '@clientShared/observability/eventLobbyObservability';
 import { resolveEventLifecycle } from '@clientShared/eventLifecycle';
+import type { EventCategory } from '@clientShared/eventCategories';
 
 function getEventEndTime(event_date: string, duration_minutes?: number | null): Date {
   const start = new Date(event_date);
@@ -58,6 +59,9 @@ export type EventRow = {
   duration_minutes: number | null;
   max_attendees: number | null;
   language?: string | null;
+  category_keys?: string[] | null;
+  categories?: EventCategory[] | null;
+  vibes?: string[] | null;
 };
 
 export type EventListItem = {
@@ -69,6 +73,9 @@ export type EventListItem = {
   time: string;
   attendees: number;
   tags: string[];
+  category_keys: string[];
+  categories: EventCategory[];
+  vibes: string[];
   status: string;
   eventDate: Date;
   duration_minutes: number;
@@ -89,6 +96,9 @@ type VisibleEventRpcRow = {
   max_attendees: number;
   current_attendees: number;
   tags: string[] | null;
+  category_keys?: string[] | null;
+  categories?: EventCategory[] | null;
+  vibes?: string[] | null;
   status: string;
   computed_status?: string | null;
   scope?: string | null;
@@ -115,6 +125,9 @@ function visibleRpcRowToListItem(row: VisibleEventRpcRow): EventListItem {
     time: formatEventTime(eventDate),
     attendees: row.current_attendees ?? 0,
     tags: Array.isArray(row.tags) ? row.tags : [],
+    category_keys: Array.isArray(row.category_keys) ? row.category_keys : [],
+    categories: Array.isArray(row.categories) ? row.categories : [],
+    vibes: Array.isArray(row.vibes) ? row.vibes : [],
     status: rawStatus,
     eventDate,
     duration_minutes: row.duration_minutes ?? 60,
@@ -473,6 +486,9 @@ function rowToEventListItem(
     time: formatEventTime(eventDate),
     attendees: e.current_attendees ?? 0,
     tags: e.tags ?? [],
+    category_keys: Array.isArray(e.category_keys) ? e.category_keys : [],
+    categories: Array.isArray(e.categories) ? e.categories : [],
+    vibes: Array.isArray(e.vibes) ? e.vibes : [],
     status: isLive ? 'live' : lifecycle.lifecycle,
     eventDate,
     duration_minutes: e.duration_minutes ?? 60,

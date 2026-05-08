@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { EventCardPremium } from "./EventCardPremium";
 import type { Event } from "@/hooks/useEvents";
+import type { EventCategory } from "@clientShared/eventCategories";
 
 interface ExtendedEvent extends Event {
   scope?: string;
@@ -10,6 +11,7 @@ interface ExtendedEvent extends Event {
   country?: string | null;
   distance_km?: number | null;
   language?: string | null;
+  categories?: EventCategory[];
 }
 
 interface EventsRailProps {
@@ -97,6 +99,7 @@ export const EventsRail = ({
               time={event.time}
               attendees={event.attendees}
               tags={event.tags}
+              categories={event.categories}
               status={event.status}
               scope={event.scope}
               city={event.city}
