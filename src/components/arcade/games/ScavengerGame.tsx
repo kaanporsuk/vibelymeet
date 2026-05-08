@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { ScavengerPayload } from "@/types/games";
 import { cn } from "@/lib/utils";
 import { Camera, Lock, Image } from "lucide-react";
@@ -30,7 +30,7 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
+        "w-full max-w-[min(100%,19rem)] rounded-xl overflow-hidden break-words",
         "bg-gradient-to-br from-green-500/20 to-emerald-600/20",
         "border border-green-500/30 backdrop-blur-sm"
       )}
@@ -98,6 +98,7 @@ export const ScavengerGame = ({ payload, isOwn, onUploadPhoto }: ScavengerGamePr
             </div>
           ) : !isOwn ? (
             <motion.button
+              type="button"
               whileTap={{ scale: 0.95 }}
               onClick={handleUploadPhoto}
               className="w-full h-full bg-secondary/50 hover:bg-green-500/20 flex flex-col items-center justify-center gap-2 transition-colors border-2 border-dashed border-green-500/30"

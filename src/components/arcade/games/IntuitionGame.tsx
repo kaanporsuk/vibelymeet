@@ -68,7 +68,7 @@ export const IntuitionGame = ({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
+        "w-full max-w-[min(100%,19rem)] rounded-xl overflow-hidden break-words",
         "bg-gradient-to-br from-indigo-500/20 to-blue-600/20",
         "border border-indigo-500/30 backdrop-blur-sm",
         isExpired && "opacity-50"
@@ -142,6 +142,7 @@ export const IntuitionGame = ({
             className="flex gap-1.5 px-2 pb-2"
           >
             <motion.button
+              type="button"
               whileTap={{ scale: 0.95 }}
               onClick={() => handleRespond("correct")}
               className="flex-1 py-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-400 font-medium text-xs transition-colors"
@@ -149,6 +150,7 @@ export const IntuitionGame = ({
               Correct
             </motion.button>
             <motion.button
+              type="button"
               whileTap={{ scale: 0.95 }}
               onClick={() => handleRespond("wrong")}
               className="flex-1 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400 font-medium text-xs transition-colors"
