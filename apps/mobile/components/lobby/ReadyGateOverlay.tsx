@@ -575,7 +575,23 @@ export function ReadyGateOverlay({
             });
             if (dateNavigationStartedRef.current || closedRef.current) return;
             if (result.ok === true) {
-              await preAuthNativeVideoDateDailyPrewarm({
+              const prewarm = startNativeVideoDateDailyPrewarm({
+                sessionId,
+                userId,
+                eventId,
+                roomName: result.data.room_name,
+                roomUrl: result.data.room_url,
+                source: 'ready_gate_prepare_success',
+              });
+              vdbg('ready_gate_daily_prewarm_prepare_success', {
+                sessionId,
+                eventId,
+                userId,
+                roomName: result.data.room_name,
+                ok: prewarm.ok,
+                reason: prewarm.ok === true ? null : prewarm.reason,
+              });
+              void preAuthNativeVideoDateDailyPrewarm({
                 sessionId,
                 userId,
                 eventId,
@@ -583,7 +599,7 @@ export function ReadyGateOverlay({
                 token: result.data.token,
                 source: 'ready_gate_prepare_success',
               });
-              await joinNativeVideoDateDailyPrewarm({
+              void joinNativeVideoDateDailyPrewarm({
                 sessionId,
                 userId,
                 eventId,

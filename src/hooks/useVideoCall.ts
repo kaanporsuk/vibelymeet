@@ -15,6 +15,7 @@ import {
   consumeWebVideoDateDailyPrewarm,
   markWebVideoDateDailyPrewarmFallback,
 } from "@/lib/videoDateDailyPrewarm";
+import { consumeWebVideoDateMediaHandoff } from "@/lib/videoDateMediaHandoff";
 import {
   consumePreparedVideoDateEntry,
   prepareVideoDateEntry,
@@ -671,6 +672,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
   const dailySdkUnresponsiveKeyRef = useRef<string | null>(null);
   const appAcquiredMediaRef = useRef<AppAcquiredVideoDateMedia | null>(null);
+  const lastMediaHandoffUsedRef = useRef(false);
+  const lastMediaHandoffMissReasonRef = useRef<string | null>(null);
+  const lastDailyPrewarmConsumedRef = useRef(false);
+  const lastPrewarmedJoinInFlightRef = useRef(false);
+  const lastPrewarmedAlreadyJoinedRef = useRef(false);
+  const lastProviderVerifySkippedRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -766,6 +773,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       entryAttemptId: entry?.entryAttemptId ?? entry?.value.entry_attempt_id ?? null,
       videoDateTraceId: entry?.value.video_date_trace_id ?? entry?.entryAttemptId ?? null,
       cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
+      providerVerifySkipped: entry?.value.provider_verify_skipped ?? lastProviderVerifySkippedRef.current,
     });
     trackEvent(
       LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -787,6 +795,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       bothReadyToFirstRemoteFrameMs,
       duration_ms: bothReadyToFirstRemoteFrameMs,
       latency_bucket: bucketVideoDateLatencyMs(bothReadyToFirstRemoteFrameMs),
+      media_handoff_used: lastMediaHandoffUsedRef.current,
+      media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+      daily_prewarm_consumed: lastDailyPrewarmConsumedRef.current,
+      prewarmed_join_in_flight: lastPrewarmedJoinInFlightRef.current,
+      prewarmed_already_joined: lastPrewarmedAlreadyJoinedRef.current,
+      provider_verify_skipped: entry?.value.provider_verify_skipped ?? lastProviderVerifySkippedRef.current,
     });
   }, []);
 
@@ -1691,6 +1705,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
   const preflightMediaPermission = useCallback(
     async (sessionId: string, eventId: string | null | undefined, userId: string | null | undefined) => {
       const permissionStartedAt = Date.now();
+      lastMediaHandoffUsedRef.current = false;
+      lastMediaHandoffMissReasonRef.current = null;
       const startedContext = recordReadyGateToDateLatencyCheckpoint({
         sessionId,
         platform: "web",
@@ -1727,6 +1743,94 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           reason: "media_devices_unavailable",
         });
         return false;
+      }
+
+      const mediaHandoff = userId
+        ? consumeWebVideoDateMediaHandoff({ sessionId, userId })
+        : { ok: false as const, reason: "missing_user" };
+      if (mediaHandoff.ok === true) {
+        releaseAppAcquiredMedia("media_handoff_stream_reused");
+        const videoTrack = firstLiveTrack(mediaHandoff.stream.getVideoTracks());
+        const audioTrack = firstLiveTrack(mediaHandoff.stream.getAudioTracks());
+        if (videoTrack) {
+          const videoTrackSettings = summarizeVideoTrackSettings(videoTrack);
+          lastMediaHandoffUsedRef.current = true;
+          lastMediaHandoffMissReasonRef.current = null;
+          captureProfileRef.current = mediaHandoff.captureProfile;
+          setCaptureProfile(mediaHandoff.captureProfile);
+          appAcquiredMediaRef.current = {
+            stream: mediaHandoff.stream,
+            captureProfile: mediaHandoff.captureProfile,
+            acquiredAtMs: mediaHandoff.acquiredAtMs,
+            consumedByDaily: false,
+          };
+          setHasPermission(true);
+          setMediaPermissionError(null);
+          const durationMs = Math.max(0, Date.now() - permissionStartedAt);
+          const successContext = recordReadyGateToDateLatencyCheckpoint({
+            sessionId,
+            platform: "web",
+            eventId: eventId ?? null,
+            sourceSurface: "video_date_daily",
+            checkpoint: "permission_check_success",
+            permissionHandoffUsed: true,
+          });
+          trackEvent(
+            LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+            buildReadyGateToDateLatencyPayload({
+              context: successContext,
+              checkpoint: "permission_check_success",
+              sourceAction: "media_handoff_stream",
+              outcome: "success",
+              durationMs,
+            }),
+          );
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_PERMISSION_CHECK_SUCCESS, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId ?? null,
+            source_surface: "video_date_daily",
+            source_action: "media_handoff_stream",
+            duration_ms: durationMs,
+            latency_bucket: bucketVideoDateLatencyMs(durationMs),
+            media_handoff_used: true,
+            media_handoff_miss_reason: null,
+          });
+          trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
+            platform: "web",
+            session_id: sessionId,
+            event_id: eventId ?? null,
+            source_surface: "video_date_daily",
+            source_action: "media_handoff_stream",
+            diagnostic_scope: "sender_capture",
+            capture_profile: mediaHandoff.captureProfile,
+            app_acquired_media: true,
+            media_handoff_used: true,
+            media_handoff_miss_reason: null,
+            media_handoff_source: mediaHandoff.source,
+            audio_track_present: Boolean(audioTrack),
+            video_track_present: true,
+            video_track_width: videoTrackSettings?.width ?? null,
+            video_track_height: videoTrackSettings?.height ?? null,
+            video_track_aspect_ratio: videoTrackSettings?.aspectRatio ?? null,
+            video_track_frame_rate: videoTrackSettings?.frameRate ?? null,
+            video_track_facing_mode: videoTrackSettings?.facingMode ?? null,
+            ...summarizeWebRuntime(),
+          });
+          vdbg("daily_media_handoff_stream_used", {
+            sessionId,
+            eventId: eventId ?? null,
+            userId,
+            captureProfile: mediaHandoff.captureProfile,
+            handoffSource: mediaHandoff.source,
+            videoTrack: videoTrackSettings,
+          });
+          return true;
+        }
+        stopMediaStreamTracks(mediaHandoff.stream);
+        lastMediaHandoffMissReasonRef.current = "missing_video_track";
+      } else {
+        lastMediaHandoffMissReasonRef.current = mediaHandoff.reason;
       }
 
       const permissionHandoff = userId ? getVideoDatePermissionHandoff(sessionId, userId) : null;
@@ -1778,6 +1882,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
               diagnostic_scope: "sender_capture",
               capture_profile: handoffCaptureProfile,
               app_acquired_media: true,
+              media_handoff_used: false,
+              media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
               audio_track_present: Boolean(audioTrack),
               video_track_present: true,
               video_track_width: videoTrackSettings?.width ?? null,
@@ -1830,12 +1936,15 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
             source_action: "permission_handoff",
             duration_ms: durationMs,
             latency_bucket: bucketVideoDateLatencyMs(durationMs),
+            media_handoff_used: false,
+            media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
           });
           vdbg("daily_media_permission_handoff_used", {
             sessionId,
             eventId: eventId ?? null,
             userId,
             handoffSource: permissionHandoff.source,
+            mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
           });
           return true;
         }
@@ -1844,6 +1953,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           eventId: eventId ?? null,
           userId,
           handoffSource: permissionHandoff.source,
+          mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
         });
       }
 
@@ -1927,6 +2037,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           source_action: "media_permission_preflight_succeeded",
           duration_ms: durationMs,
           latency_bucket: bucketVideoDateLatencyMs(durationMs),
+          media_handoff_used: false,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_SENDER_CAPTURE_DIAGNOSTIC, {
           platform: "web",
@@ -1937,6 +2049,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           diagnostic_scope: "sender_capture",
           capture_profile: nextCaptureProfile,
           app_acquired_media: true,
+          media_handoff_used: false,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
           audio_track_present: Boolean(audioTrack),
           video_track_present: Boolean(videoTrack),
           video_track_width: videoTrackSettings?.width ?? null,
@@ -1952,6 +2066,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           userId: userId ?? null,
           captureProfile: nextCaptureProfile,
           appAcquiredMedia: true,
+          mediaHandoffMissReason: lastMediaHandoffMissReasonRef.current,
           audioTrackPresent: Boolean(audioTrack),
           videoTrack: videoTrackSettings,
         });
@@ -2085,7 +2200,14 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       resetRemoteRenderRecoveryAttempts();
       lastRemoteRenderParticipantIdRef.current = null;
       activePreparedEntryCacheRef.current = null;
+      activePreparedEntryCacheHitRef.current = null;
       dailyJoinStartedAtMsRef.current = null;
+      lastMediaHandoffUsedRef.current = false;
+      lastMediaHandoffMissReasonRef.current = null;
+      lastDailyPrewarmConsumedRef.current = false;
+      lastPrewarmedJoinInFlightRef.current = false;
+      lastPrewarmedAlreadyJoinedRef.current = false;
+      lastProviderVerifySkippedRef.current = null;
       localVideoReadyTrackedRef.current = false;
       remoteFirstFrameTrackedRef.current = false;
       setDailyReconnectState("connected");
@@ -2431,6 +2553,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
       remoteFirstFrameTrackedRef.current = false;
       playbackBlockedRef.current = false;
       activePreparedEntryCacheHitRef.current = null;
+      lastMediaHandoffUsedRef.current = false;
+      lastMediaHandoffMissReasonRef.current = null;
+      lastDailyPrewarmConsumedRef.current = false;
+      lastPrewarmedJoinInFlightRef.current = false;
+      lastPrewarmedAlreadyJoinedRef.current = false;
+      lastProviderVerifySkippedRef.current = null;
       clearFirstRemoteWatchdog();
       startAttemptNonceRef.current += 1;
       const startNonce = startAttemptNonceRef.current;
@@ -2524,6 +2652,7 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         const roomData = roomResult.roomData;
         activePreparedEntryCacheRef.current = roomResult.cacheEntry;
         activePreparedEntryCacheHitRef.current = roomResult.cached;
+        lastProviderVerifySkippedRef.current = roomData.provider_verify_skipped ?? null;
         const entryAttemptId = roomData.entry_attempt_id ?? roomResult.cacheEntry.entryAttemptId ?? null;
         const videoDateTraceId = roomData.video_date_trace_id ?? entryAttemptId;
 
@@ -2662,6 +2791,9 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
         }
         const prewarmedAlreadyJoined = prewarmedCall.ok === true && prewarmedCall.entry.joined;
         const prewarmedJoinPromise = prewarmedCall.ok === true ? prewarmedCall.entry.joinPromise : null;
+        lastDailyPrewarmConsumedRef.current = prewarmedCall.ok === true;
+        lastPrewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
+        lastPrewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined);
         const acquiredMedia = appAcquiredMediaRef.current;
         const appAcquiredMediaForCall =
           acquiredMedia && acquiredMedia.captureProfile === captureProfileForCall
@@ -3399,6 +3531,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           cached_prepare_entry: roomResult.cached,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
+          media_handoff_used: lastMediaHandoffUsedRef.current,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+          daily_prewarm_consumed: prewarmedCall.ok === true,
+          prewarmed_join_in_flight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+          prewarmed_already_joined: prewarmedAlreadyJoined,
+          provider_verify_skipped: roomData.provider_verify_skipped ?? null,
         });
         if (prewarmedAlreadyJoined) {
           vdbg("daily_join_skipped_prewarmed_already_joined", {
@@ -3475,6 +3613,12 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           cached_prepare_entry: roomResult.cached,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
+          media_handoff_used: lastMediaHandoffUsedRef.current,
+          media_handoff_miss_reason: lastMediaHandoffMissReasonRef.current,
+          daily_prewarm_consumed: prewarmedCall.ok === true,
+          prewarmed_join_in_flight: Boolean(prewarmedJoinPromise && !prewarmedAlreadyJoined),
+          prewarmed_already_joined: prewarmedAlreadyJoined,
+          provider_verify_skipped: roomData.provider_verify_skipped ?? null,
         });
         trackEvent(LobbyPostDateEvents.VIDEO_DATE_DAILY_JOINED, {
           platform: "web",
@@ -3483,6 +3627,8 @@ export const useVideoCall = (options?: UseVideoCallOptions) => {
           capture_profile: captureProfileForCall,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
+          media_handoff_used: lastMediaHandoffUsedRef.current,
+          daily_prewarm_consumed: prewarmedCall.ok === true,
         });
 
         const joinedArgs = { p_session_id: sessionId };

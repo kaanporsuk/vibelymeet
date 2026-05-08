@@ -939,6 +939,10 @@ export default function VideoDateScreen() {
   const activePreparedEntryCacheRef = useRef<ReturnType<typeof getPreparedVideoDateEntry> | null>(null);
   const activePreparedEntryCacheHitRef = useRef<boolean | null>(null);
   const dailyJoinStartedAtMsRef = useRef<number | null>(null);
+  const dailyPrewarmConsumedForJoinRef = useRef(false);
+  const prewarmedAlreadyJoinedRef = useRef(false);
+  const prewarmedJoinInFlightRef = useRef(false);
+  const providerVerifySkippedRef = useRef<boolean | null>(null);
   const preparedJoinRetryUsedRef = useRef(false);
   const firstIceConnectedLoggedRef = useRef(false);
   const firstRemoteParticipantTimedRef = useRef(false);
@@ -2041,6 +2045,10 @@ export default function VideoDateScreen() {
     activePreparedEntryCacheRef.current = null;
     activePreparedEntryCacheHitRef.current = null;
     dailyJoinStartedAtMsRef.current = null;
+    dailyPrewarmConsumedForJoinRef.current = false;
+    prewarmedAlreadyJoinedRef.current = false;
+    prewarmedJoinInFlightRef.current = false;
+    providerVerifySkippedRef.current = null;
     preparedJoinRetryUsedRef.current = false;
     firstIceConnectedLoggedRef.current = false;
     firstRemoteParticipantTimedRef.current = false;
@@ -2897,7 +2905,8 @@ export default function VideoDateScreen() {
             activePreparedEntryCacheRef.current?.entryAttemptId ??
             null,
           cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
-          providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
+          providerVerifySkipped:
+            activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? providerVerifySkippedRef.current,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -2920,6 +2929,11 @@ export default function VideoDateScreen() {
         bothReadyToFirstRemoteFrameMs,
         duration_ms: bothReadyToFirstRemoteFrameMs,
         latency_bucket: bucketVideoDateLatencyMs(bothReadyToFirstRemoteFrameMs),
+        daily_prewarm_consumed: dailyPrewarmConsumedForJoinRef.current,
+        prewarmed_join_in_flight: prewarmedJoinInFlightRef.current,
+        prewarmed_already_joined: prewarmedAlreadyJoinedRef.current,
+        provider_verify_skipped:
+          activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? providerVerifySkippedRef.current,
       });
     }
     videoDateDailyDiagnostic('remote_track_mounted', {
@@ -4270,6 +4284,10 @@ export default function VideoDateScreen() {
 
     const attemptId = prejoinAttemptSeqRef.current + 1;
     prejoinAttemptSeqRef.current = attemptId;
+    dailyPrewarmConsumedForJoinRef.current = false;
+    prewarmedAlreadyJoinedRef.current = false;
+    prewarmedJoinInFlightRef.current = false;
+    providerVerifySkippedRef.current = null;
     const attemptState: PrejoinAttemptState = {
       attemptId,
       sessionId,
@@ -5366,6 +5384,7 @@ export default function VideoDateScreen() {
       activePreparedEntryCacheRef.current =
         activePreparedEntryCacheRef.current ?? getPreparedVideoDateEntry(sessionId, user.id);
       activePreparedEntryCacheHitRef.current = tokenResult.cached_prepare_entry === true;
+      providerVerifySkippedRef.current = tokenResult.provider_verify_skipped ?? null;
       const entryAttemptId = tokenResult.entry_attempt_id ?? activePreparedEntryCacheRef.current?.entryAttemptId ?? null;
       const videoDateTraceId =
         tokenResult.video_date_trace_id ??
@@ -5446,6 +5465,9 @@ export default function VideoDateScreen() {
               if (!ok) throw new Error('daily_prewarm_join_failed');
             })
           : null;
+      dailyPrewarmConsumedForJoinRef.current = prewarmedCall.ok === true;
+      prewarmedAlreadyJoinedRef.current = prewarmedAlreadyJoined;
+      prewarmedJoinInFlightRef.current = Boolean(prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined);
       const installDailyCall = (
         profile: NativeVideoDateCaptureProfile,
         prewarmed?: VideoDateDailyCallObject | null,
@@ -5533,7 +5555,8 @@ export default function VideoDateScreen() {
           entryAttemptId,
           videoDateTraceId,
           cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
-          providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
+          providerVerifySkipped:
+            activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? providerVerifySkippedRef.current,
         });
         trackEvent(
           LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
@@ -5568,6 +5591,10 @@ export default function VideoDateScreen() {
           cached_prepare_entry: activePreparedEntryCacheHitRef.current,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
+          daily_prewarm_consumed: dailyPrewarmConsumedForJoin,
+          prewarmed_join_in_flight: Boolean(prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined),
+          prewarmed_already_joined: prewarmedAlreadyJoined,
+          provider_verify_skipped: tokenResult.provider_verify_skipped ?? null,
         });
         videoDateDailyDiagnostic('daily_call_join_start', {
           session_id: sessionId,
@@ -5716,7 +5743,8 @@ export default function VideoDateScreen() {
           entryAttemptId,
           videoDateTraceId,
           cachedPrepareEntry: activePreparedEntryCacheHitRef.current,
-          providerVerifySkipped: activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? null,
+          providerVerifySkipped:
+            activePreparedEntryCacheRef.current?.value.provider_verify_skipped ?? providerVerifySkippedRef.current,
         });
         const joinSuccessPayload = buildReadyGateToDateLatencyPayload({
           context: joinSuccessLatencyContext,
@@ -5743,6 +5771,10 @@ export default function VideoDateScreen() {
           cached_prepare_entry: activePreparedEntryCacheHitRef.current,
           entry_attempt_id: entryAttemptId,
           video_date_trace_id: videoDateTraceId,
+          daily_prewarm_consumed: dailyPrewarmConsumedForJoin,
+          prewarmed_join_in_flight: Boolean(prewarmedJoinPromiseForShared && !prewarmedAlreadyJoined),
+          prewarmed_already_joined: prewarmedAlreadyJoined,
+          provider_verify_skipped: tokenResult.provider_verify_skipped ?? null,
         });
         const participants = call.participants();
         const allIds = participants
@@ -6037,6 +6069,10 @@ export default function VideoDateScreen() {
           callRef.current = null;
           activePreparedEntryCacheRef.current = null;
           activePreparedEntryCacheHitRef.current = null;
+          dailyPrewarmConsumedForJoinRef.current = false;
+          prewarmedAlreadyJoinedRef.current = false;
+          prewarmedJoinInFlightRef.current = false;
+          providerVerifySkippedRef.current = null;
           hasStartedJoinRef.current = false;
           setJoining(false);
           setIsConnecting(false);

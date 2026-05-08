@@ -385,6 +385,8 @@ export default function EventLobbyScreen() {
   const deckLoadedTrackedRef = useRef(false);
   const deckEmptyTrackedRef = useRef(false);
   const deckErrorTrackedRef = useRef(false);
+  const deckRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lobbyRefreshBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Dedupe queued-TTL expiry dialog per `video_sessions.id` for this screen. */
   const queuedTtlExpiryNotifiedIdsRef = useRef<Set<string>>(new Set());
   /** Dedupe informational drain-reason toasts per user/event/reason for this screen. */
@@ -843,8 +845,36 @@ export default function EventLobbyScreen() {
     return true;
   }, []);
 
+  const scheduleDeckRefresh = useCallback(
+    (source: string, delayMs = 180) => {
+      if (!id || !user?.id) return;
+      if (deckRefreshBurstTimerRef.current) {
+        vdbg('lobby_deck_refresh_coalesced', { eventId: id, source });
+        return;
+      }
+      deckRefreshBurstTimerRef.current = setTimeout(() => {
+        deckRefreshBurstTimerRef.current = null;
+        void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
+      }, delayMs);
+    },
+    [id, queryClient, user?.id],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (deckRefreshBurstTimerRef.current) {
+        clearTimeout(deckRefreshBurstTimerRef.current);
+        deckRefreshBurstTimerRef.current = null;
+      }
+      if (lobbyRefreshBurstTimerRef.current) {
+        clearTimeout(lobbyRefreshBurstTimerRef.current);
+        lobbyRefreshBurstTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const openReadyGateWithSession = useCallback(
-    async (sessionId: string, trigger = 'unknown') => {
+    (sessionId: string, trigger = 'unknown') => {
       if (lastOpenedSessionRef.current === sessionId) return;
       if (isReadyGateManualExitSuppressed(sessionId)) {
         rcBreadcrumb(RC_CATEGORY.readyGate, 'ready_gate_open_suppressed_after_manual_exit', {
@@ -855,9 +885,7 @@ export default function EventLobbyScreen() {
         return;
       }
       lastOpenedSessionRef.current = sessionId;
-      if (user?.id) {
-        void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
-      }
+      scheduleDeckRefresh(`ready_gate_open_${trigger}`);
       logVdbgSessionStage('ready_gate_open', sessionId, {
         trigger,
         eventId: id,
@@ -866,65 +894,86 @@ export default function EventLobbyScreen() {
       setActiveSessionPartnerName(null);
       setActiveSessionPartnerImage(null);
       if (!user?.id) return;
-      const { data: session } = await supabase
-        .from('video_sessions')
-        .select('participant_1_id, participant_2_id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url')
-        .eq('id', sessionId)
-        .maybeSingle();
-      vdbg('ready_gate_open_loaded_session', {
-        sessionId,
-        trigger,
-        eventId: id,
-        row: session ?? null,
-      });
-      if (!session) return;
-      const decision = decideVideoSessionRouteFromTruth(session);
-      const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session);
-      if (canAttemptDaily) {
-        rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
-          session_id: sessionId,
-          event_id: id,
-          decision,
-          can_attempt_daily: canAttemptDaily,
-          reason: null,
-          ready_gate_status: session.ready_gate_status ?? null,
-          ready_gate_expires_at:
-            session.ready_gate_expires_at == null ? null : String(session.ready_gate_expires_at),
-          vs_state: session.state ?? null,
-          vs_phase: session.phase ?? null,
-          routed_to: 'date',
-          source: `ready_gate_open_${trigger}`,
-        });
-        vdbg('lobby_date_route_decision', {
-          trigger: `ready_gate_open_${trigger}`,
-          eventId: id,
-          sessionId,
-          decision,
-          canAttemptDaily,
-          readyGateStatus: session.ready_gate_status ?? null,
-          readyGateExpiresAt: session.ready_gate_expires_at ?? null,
-          vsState: session.state ?? null,
-          vsPhase: session.phase ?? null,
-          routed_to: 'date',
-        });
-        navigateToDateSession(sessionId, `ready_gate_open_${trigger}`, 'replace');
-        return;
-      }
-      const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
-      const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
-        p_target_id: partnerId,
-      });
-      const p = profile as { name?: string | null; avatar_url?: string | null; photos?: string[] | null } | null;
-      if (p) {
-        setActiveSessionPartnerName(p.name ?? null);
-        const img = resolvePrimaryProfilePhotoPath({
-          photos: p.photos ?? undefined,
-          avatar_url: p.avatar_url ?? undefined,
-        });
-        setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
-      }
+      void (async () => {
+        try {
+          const { data: session } = await supabase
+            .from('video_sessions')
+            .select('participant_1_id, participant_2_id, event_id, ready_gate_status, state, phase, handshake_started_at, ended_at, ready_gate_expires_at, daily_room_name, daily_room_url')
+            .eq('id', sessionId)
+            .maybeSingle();
+          vdbg('ready_gate_open_loaded_session', {
+            sessionId,
+            trigger,
+            eventId: id,
+            row: session ?? null,
+          });
+          if (!session) return;
+          const decision = decideVideoSessionRouteFromTruth(session);
+          const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(session);
+          if (canAttemptDaily) {
+            if (lastOpenedSessionRef.current !== sessionId) {
+              vdbg('lobby_date_route_decision_suppressed_stale_ready_gate_open', {
+                trigger: `ready_gate_open_${trigger}`,
+                eventId: id,
+                sessionId,
+                activeSessionId: lastOpenedSessionRef.current,
+              });
+              return;
+            }
+            rcBreadcrumb(RC_CATEGORY.lobbyDateEntry, 'date_route_decision', {
+              session_id: sessionId,
+              event_id: id,
+              decision,
+              can_attempt_daily: canAttemptDaily,
+              reason: null,
+              ready_gate_status: session.ready_gate_status ?? null,
+              ready_gate_expires_at:
+                session.ready_gate_expires_at == null ? null : String(session.ready_gate_expires_at),
+              vs_state: session.state ?? null,
+              vs_phase: session.phase ?? null,
+              routed_to: 'date',
+              source: `ready_gate_open_${trigger}`,
+            });
+            vdbg('lobby_date_route_decision', {
+              trigger: `ready_gate_open_${trigger}`,
+              eventId: id,
+              sessionId,
+              decision,
+              canAttemptDaily,
+              readyGateStatus: session.ready_gate_status ?? null,
+              readyGateExpiresAt: session.ready_gate_expires_at ?? null,
+              vsState: session.state ?? null,
+              vsPhase: session.phase ?? null,
+              routed_to: 'date',
+            });
+            navigateToDateSession(sessionId, `ready_gate_open_${trigger}`, 'replace');
+            return;
+          }
+          const partnerId = session.participant_1_id === user.id ? session.participant_2_id : session.participant_1_id;
+          const { data: profile } = await supabase.rpc('get_profile_for_viewer', {
+            p_target_id: partnerId,
+          });
+          if (lastOpenedSessionRef.current !== sessionId) return;
+          const p = profile as { name?: string | null; avatar_url?: string | null; photos?: string[] | null } | null;
+          if (p) {
+            setActiveSessionPartnerName(p.name ?? null);
+            const img = resolvePrimaryProfilePhotoPath({
+              photos: p.photos ?? undefined,
+              avatar_url: p.avatar_url ?? undefined,
+            });
+            setActiveSessionPartnerImage(img ? avatarUrl(img) : null);
+          }
+        } catch (error) {
+          vdbg('ready_gate_open_background_enrichment_failed', {
+            error: error instanceof Error ? error.message : String(error),
+            eventId: id,
+            sessionId,
+            trigger,
+          });
+        }
+      })();
     },
-    [id, isReadyGateManualExitSuppressed, navigateToDateSession, queryClient, user?.id]
+    [id, isReadyGateManualExitSuppressed, navigateToDateSession, scheduleDeckRefresh, user?.id]
   );
 
   const suppressReadyGateAfterManualExit = useCallback((sessionId: string) => {
@@ -954,6 +1003,21 @@ export default function EventLobbyScreen() {
     void refetchActiveSession();
   }, [id, user?.id, lobbySideEffectsEnabled, refetchActiveSession]);
 
+  const scheduleLobbyRefreshBurst = useCallback(
+    (source: string, delayMs = 180) => {
+      if (lobbyRefreshBurstTimerRef.current) {
+        vdbg('lobby_refresh_burst_coalesced', { eventId: id, source });
+        return;
+      }
+      lobbyRefreshBurstTimerRef.current = setTimeout(() => {
+        lobbyRefreshBurstTimerRef.current = null;
+        void refetchDeck();
+        void refreshQueueAndSuperVibe();
+      }, delayMs);
+    },
+    [id, refetchDeck, refreshQueueAndSuperVibe],
+  );
+
   useEffect(() => {
     if (!id || !user?.id || !lobbySideEffectsEnabled || !isLobbyFocused || appState !== 'active') return;
     void refreshQueueAndSuperVibe();
@@ -981,7 +1045,7 @@ export default function EventLobbyScreen() {
       return;
     }
     if (sameEventActiveSession?.kind === 'ready_gate') {
-      void openReadyGateWithSession(sameEventActiveSession.sessionId, 'active_session_hydration');
+      openReadyGateWithSession(sameEventActiveSession.sessionId, 'active_session_hydration');
     }
   }, [sessionHydrated, id, sameEventActiveSession, openReadyGateWithSession, navigateToDateSession]);
 
@@ -1006,12 +1070,12 @@ export default function EventLobbyScreen() {
       const result = await drainMatchQueue(id, user.id);
       const promotedSessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && promotedSessionId) {
-        await openReadyGateWithSession(promotedSessionId, 'queue_drain_interval');
+        openReadyGateWithSession(promotedSessionId, 'queue_drain_interval');
       } else {
         if (cancelled) return;
         showDrainReasonInfoOnce(result);
       }
-      await refreshQueueAndSuperVibe();
+      scheduleLobbyRefreshBurst('queue_drain_interval');
       if (cancelled) return;
       const elapsed = Date.now() - startedAt;
       const delay = nextConvergenceDelayMs(elapsed);
@@ -1036,7 +1100,7 @@ export default function EventLobbyScreen() {
     activeSessionId,
     sameEventActiveSession?.kind,
     openReadyGateWithSession,
-    refreshQueueAndSuperVibe,
+    scheduleLobbyRefreshBurst,
     showDrainReasonInfoOnce,
   ]);
 
@@ -1047,18 +1111,18 @@ export default function EventLobbyScreen() {
       const result = await drainMatchQueue(id, user.id);
       const sessionId = videoSessionIdFromDrainPayload(result ?? undefined);
       if (result?.found && sessionId) {
-        await openReadyGateWithSession(sessionId, 'queue_drain_initial');
+        openReadyGateWithSession(sessionId, 'queue_drain_initial');
       } else {
         if (cancelled) return;
         showDrainReasonInfoOnce(result);
       }
-      await refreshQueueAndSuperVibe();
+      scheduleLobbyRefreshBurst('queue_drain_initial');
     };
     run();
     return () => {
       cancelled = true;
     };
-  }, [id, user?.id, lobbySideEffectsEnabled, openReadyGateWithSession, refreshQueueAndSuperVibe, showDrainReasonInfoOnce]);
+  }, [id, user?.id, lobbySideEffectsEnabled, openReadyGateWithSession, scheduleLobbyRefreshBurst, showDrainReasonInfoOnce]);
 
   useEffect(() => {
     if (!id) return;
@@ -1066,13 +1130,13 @@ export default function EventLobbyScreen() {
     const b = Array.isArray(pendingMatch) ? pendingMatch[0] : pendingMatch;
     const pending = typeof a === 'string' && a ? a : typeof b === 'string' && b ? b : undefined;
     if (pending) {
-      void openReadyGateWithSession(pending, 'pending_deep_link');
+      openReadyGateWithSession(pending, 'pending_deep_link');
     }
   }, [id, pendingVideoSession, pendingMatch, openReadyGateWithSession]);
 
   useEffect(() => {
-    if (id && user?.id && lobbySideEffectsEnabled) refreshQueueAndSuperVibe();
-  }, [id, user?.id, lobbySideEffectsEnabled, refreshQueueAndSuperVibe]);
+    if (id && user?.id && lobbySideEffectsEnabled) scheduleLobbyRefreshBurst('lobby_side_effects_enabled', 0);
+  }, [id, user?.id, lobbySideEffectsEnabled, scheduleLobbyRefreshBurst]);
 
   useEffect(() => {
     if (!user?.id || !id) return;
@@ -1094,7 +1158,7 @@ export default function EventLobbyScreen() {
             return;
           }
           if (queueStatus === 'in_ready_gate' && currentRoomId) {
-            await openReadyGateWithSession(currentRoomId, 'registration_realtime');
+            openReadyGateWithSession(currentRoomId, 'registration_realtime');
             return;
           }
           if (
@@ -1117,7 +1181,7 @@ export default function EventLobbyScreen() {
               return;
             }
             if (latestReg?.queue_status === 'in_ready_gate' && latestReg.current_room_id) {
-              await openReadyGateWithSession(latestReg.current_room_id, 'registration_realtime_refetch');
+              openReadyGateWithSession(latestReg.current_room_id, 'registration_realtime_refetch');
             }
           }
         }
@@ -1153,8 +1217,7 @@ export default function EventLobbyScreen() {
           primaryAction: { label: 'OK', onPress: () => {} },
         });
       }
-      void refetchDeck();
-      void refreshQueueAndSuperVibe();
+      scheduleLobbyRefreshBurst('video_session_update');
       if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
         navigateToDateSession(session.id as string, 'video_session_update_both_ready', 'replace');
         return;
@@ -1165,7 +1228,7 @@ export default function EventLobbyScreen() {
         READY_GATE_ACTIVE_STATUSES.has(newStatus) &&
         (!oldStatus || !READY_GATE_ACTIVE_STATUSES.has(oldStatus));
       if (becameReadyGateActive) {
-        await openReadyGateWithSession(session.id as string, 'video_session_update');
+        openReadyGateWithSession(session.id as string, 'video_session_update');
         return;
       }
       // If this participant's session has already moved into provider-confirmed
@@ -1180,8 +1243,7 @@ export default function EventLobbyScreen() {
       if (session.event_id !== id) return;
       const isParticipant = session.participant_1_id === user.id || session.participant_2_id === user.id;
       if (!isParticipant) return;
-      void refetchDeck();
-      void refreshQueueAndSuperVibe();
+      scheduleLobbyRefreshBurst('video_session_insert');
       const status = session.ready_gate_status as string;
       const sid = session.id as string;
       if (canAttemptDailyRoomFromVideoSessionTruth(session)) {
@@ -1192,15 +1254,15 @@ export default function EventLobbyScreen() {
         const drainResult = await drainMatchQueue(id, user.id);
         const promotedId = videoSessionIdFromDrainPayload(drainResult ?? undefined);
         if (drainResult?.found && promotedId) {
-          await openReadyGateWithSession(promotedId, 'video_session_insert_queue_drain');
+          openReadyGateWithSession(promotedId, 'video_session_insert_queue_drain');
         } else {
           showDrainReasonInfoOnce(drainResult);
         }
-        await refreshQueueAndSuperVibe();
+        scheduleLobbyRefreshBurst('video_session_insert_queue_drain');
         return;
       }
       if (READY_GATE_ACTIVE_STATUSES.has(status)) {
-        await openReadyGateWithSession(sid, 'video_session_insert');
+        openReadyGateWithSession(sid, 'video_session_insert');
         return;
       }
       if (decideVideoSessionRouteFromTruth(session) === 'navigate_date') {
@@ -1228,7 +1290,7 @@ export default function EventLobbyScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [id, user?.id, openReadyGateWithSession, refreshQueueAndSuperVibe, refetchDeck, show, showDrainReasonInfoOnce, navigateToDateSession]);
+  }, [id, user?.id, openReadyGateWithSession, scheduleLobbyRefreshBurst, show, showDrainReasonInfoOnce, navigateToDateSession]);
 
   const timeRemaining = useCountdown(eventEndTime);
 
@@ -1276,7 +1338,7 @@ export default function EventLobbyScreen() {
   const { findMysteryMatch, cancelSearch, isSearching, isWaiting } = useMysteryMatch({
     eventId: id,
     onMatchFound: (sessionId) => {
-      void openReadyGateWithSession(sessionId, 'mystery_match');
+      openReadyGateWithSession(sessionId, 'mystery_match');
     },
     enabled: mysteryMatchEnabled,
   });
@@ -1947,10 +2009,10 @@ export default function EventLobbyScreen() {
         if (shouldAdvanceLobbyDeckAfterSwipe(failureOutcome)) {
           seenProfileIdsRef.current.add(targetId);
           setDeckNonce((n) => n + 1);
-          void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
+          scheduleDeckRefresh('swipe_failure_advance_deck');
           const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id)).length;
           if (remainingVisible === 0) {
-            void refetchDeck();
+            scheduleDeckRefresh('swipe_failure_visible_deck_empty', 0);
           }
         }
         return;
@@ -2105,12 +2167,12 @@ export default function EventLobbyScreen() {
             outcome: 'success',
           });
         }
-        refetchDeck();
+        scheduleDeckRefresh('swipe_ready_gate_open');
       }
 
       showSwipeToast(outcome, { openingReadyGate });
       if (outcome === 'super_vibe_sent' || outcome === 'limit_reached' || outcome === 'match_queued') {
-        refreshQueueAndSuperVibe();
+        scheduleLobbyRefreshBurst('swipe_result_counts');
       }
 
       const shouldAdvanceDeck = shouldAdvanceLobbyDeckAfterSwipe(outcome);
@@ -2120,10 +2182,10 @@ export default function EventLobbyScreen() {
 
       seenProfileIdsRef.current.add(targetId);
       setDeckNonce((n) => n + 1);
-      void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user?.id] });
+      scheduleDeckRefresh('swipe_advance_deck');
       const remainingVisible = profiles.filter((p) => !seenProfileIdsRef.current.has(p.id)).length;
       if (remainingVisible === 0) {
-        void refetchDeck();
+        scheduleDeckRefresh('swipe_visible_deck_empty', 0);
       }
     } catch (error) {
       trackEvent(EventLobbyObservabilityEvents.LOBBY_SWIPE_RESULT, {
@@ -2554,9 +2616,8 @@ export default function EventLobbyScreen() {
             setActiveSessionId(null);
             setActiveSessionPartnerName(null);
             setActiveSessionPartnerImage(null);
-            if (user?.id) {
-              void queryClient.invalidateQueries({ queryKey: ['event-deck', id, user.id] });
-            }
+            scheduleDeckRefresh('ready_gate_overlay_close');
+            scheduleLobbyRefreshBurst('ready_gate_overlay_close');
           }}
           onLobbyUserMessage={onReadyGateLobbyMessage}
         />
