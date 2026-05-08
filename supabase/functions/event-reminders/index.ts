@@ -1,7 +1,16 @@
 /**
  * Event reminders: process event_reminder_queue (30min + 5min before event).
  * Invoke every minute via external cron or Supabase scheduled invocations (CRON_SECRET).
- * Claims rows atomically (sent_at) then sends; unclaims on failure for retry.
+ *
+ * Crash-recovery contract (definitive, paired with migration 20260508141000):
+ *   - claim_due_event_reminder_queue_rows() does an atomic SKIP LOCKED claim and
+ *     ALWAYS sweeps stale claims first, so a worker that crashed mid-batch
+ *     cannot strand reminders.
+ *   - mark_event_reminder_queue_row_delivered() is the only success terminal.
+ *   - release_event_reminder_queue_row_on_failure() unclaims immediately on
+ *     any upstream failure so the row is eligible for the next worker tick
+ *     without waiting for the sweeper threshold.
+ *   - All three RPCs are SECURITY DEFINER + service_role-only.
  */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -22,6 +31,19 @@ const BODY = (eventTitle: string, type: string): string =>
     ? `${eventTitle} starts soon. Get ready to join the lobby.`
     : `${eventTitle} is about to begin. Tap through to the lobby.`;
 
+const STALE_CLAIM_THRESHOLD_SECONDS = 120;
+const CLAIM_BATCH_SIZE = 100;
+
+type ClaimedRow = {
+  id: string;
+  profile_id: string;
+  event_id: string;
+  event_title: string;
+  reminder_type: string;
+  delivery_attempts: number | null;
+  last_error_reason: string | null;
+};
+
 function logLifecycle(payload: {
   event_id: string | null;
   session_id?: string | null;
@@ -31,6 +53,7 @@ function logLifecycle(payload: {
   category: string;
   result: string;
   error_reason?: string | null;
+  delivery_attempts?: number | null;
 }) {
   console.log("lifecycle.event_reminders", JSON.stringify(payload));
 }
@@ -54,17 +77,16 @@ serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceKey);
 
   try {
-    const claimTime = new Date().toISOString();
-    const { data: rows, error } = await supabase
-      .from("event_reminder_queue")
-      .update({ sent_at: claimTime })
-      .is("sent_at", null)
-      .order("created_at", { ascending: true })
-      .limit(100)
-      .select("id, profile_id, event_id, event_title, reminder_type");
+    const { data: claimedData, error: claimError } = await supabase.rpc(
+      "claim_due_event_reminder_queue_rows",
+      {
+        p_limit: CLAIM_BATCH_SIZE,
+        p_stale_after_seconds: STALE_CLAIM_THRESHOLD_SECONDS,
+      },
+    );
 
-    if (error) {
-      console.error("event-reminders claim error:", error);
+    if (claimError) {
+      console.error("event-reminders claim error:", claimError);
       logLifecycle({
         event_id: null,
         user_id: null,
@@ -72,16 +94,26 @@ serve(async (req) => {
         queue_id: null,
         category: "event_reminder",
         result: "claim_error",
-        error_reason: error.message,
+        error_reason: claimError.message,
       });
       return new Response(
-        JSON.stringify({ success: false, error: error.message }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        JSON.stringify({ success: false, error: claimError.message }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
       );
     }
 
+    const rows = (Array.isArray(claimedData) ? claimedData : []) as ClaimedRow[];
+
     let processed = 0;
-    for (const row of rows || []) {
+    let failed = 0;
+    for (const row of rows) {
+      const attemptCount = typeof row.delivery_attempts === "number"
+        ? row.delivery_attempts
+        : null;
+
       try {
         const { data: reg } = await supabase
           .from("event_registrations")
@@ -129,11 +161,10 @@ serve(async (req) => {
             category: row.reminder_type,
             result: "delivery_error",
             error_reason: invokeError.message,
+            delivery_attempts: attemptCount,
           });
-          await supabase
-            .from("event_reminder_queue")
-            .update({ sent_at: null })
-            .eq("id", row.id);
+          await releaseClaim(supabase, row.id, invokeError.message ?? "transport_error");
+          failed++;
           continue;
         }
 
@@ -161,11 +192,40 @@ serve(async (req) => {
             category: row.reminder_type,
             result: "delivery_error",
             error_reason: reason,
+            delivery_attempts: attemptCount,
           });
-          await supabase
-            .from("event_reminder_queue")
-            .update({ sent_at: null })
-            .eq("id", row.id);
+          await releaseClaim(supabase, row.id, reason);
+          failed++;
+          continue;
+        }
+
+        const { error: deliverError } = await supabase.rpc(
+          "mark_event_reminder_queue_row_delivered",
+          { p_id: row.id },
+        );
+
+        if (deliverError) {
+          // The notification did go out upstream but we could not mark
+          // delivery. Release the claim so the next tick can re-check; the
+          // upstream provider is responsible for de-duping repeat sends, and
+          // the alternative (silently leaving claimed_at set) is worse.
+          console.error(
+            "mark_delivered failed for",
+            row.id,
+            deliverError,
+          );
+          logLifecycle({
+            event_id: row.event_id,
+            user_id: row.profile_id,
+            admission_status: admissionStatus,
+            queue_id: row.id,
+            category: row.reminder_type,
+            result: "delivery_persist_error",
+            error_reason: deliverError.message,
+            delivery_attempts: attemptCount,
+          });
+          await releaseClaim(supabase, row.id, `mark_delivered_error:${deliverError.message}`);
+          failed++;
           continue;
         }
 
@@ -177,9 +237,11 @@ serve(async (req) => {
           category: row.reminder_type,
           result: "sent",
           error_reason: null,
+          delivery_attempts: attemptCount,
         });
         processed++;
       } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
         console.error("send-notification threw for", row.id, e);
         logLifecycle({
           event_id: row.event_id,
@@ -188,12 +250,11 @@ serve(async (req) => {
           queue_id: row.id,
           category: row.reminder_type,
           result: "delivery_error",
-          error_reason: e instanceof Error ? e.message : String(e),
+          error_reason: errorMessage,
+          delivery_attempts: attemptCount,
         });
-        await supabase
-          .from("event_reminder_queue")
-          .update({ sent_at: null })
-          .eq("id", row.id);
+        await releaseClaim(supabase, row.id, errorMessage);
+        failed++;
         continue;
       }
     }
@@ -202,7 +263,8 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         processed,
-        claimed: (rows ?? []).length,
+        failed,
+        claimed: rows.length,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
@@ -223,3 +285,21 @@ serve(async (req) => {
     );
   }
 });
+
+async function releaseClaim(
+  supabase: ReturnType<typeof createClient>,
+  rowId: string,
+  reason: string,
+) {
+  try {
+    const { error } = await supabase.rpc(
+      "release_event_reminder_queue_row_on_failure",
+      { p_id: rowId, p_error_reason: reason },
+    );
+    if (error) {
+      console.error("release_claim failed for", rowId, error);
+    }
+  } catch (releaseError) {
+    console.error("release_claim threw for", rowId, releaseError);
+  }
+}
