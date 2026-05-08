@@ -1104,6 +1104,8 @@ const styles = StyleSheet.create({
   },
   searchOverlayLead: {
     fontSize: 14,
+    lineHeight: 14,
+    includeFontPadding: false,
     flexShrink: 0,
   },
   searchOverlayHint: {
@@ -1111,7 +1113,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     minWidth: 0,
     fontSize: 10,
-    lineHeight: 13,
+    lineHeight: 10,
+    includeFontPadding: false,
   },
   sortIconButton: {
     width: 44,

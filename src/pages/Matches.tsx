@@ -402,10 +402,10 @@ const Matches = () => {
                       className="pointer-events-none absolute inset-y-0 left-10 right-3 z-[2] flex min-w-0 items-center gap-1 peer-focus:hidden"
                       aria-hidden
                     >
-                      <span className="shrink-0 text-sm text-muted-foreground">
+                      <span className="shrink-0 text-sm leading-none text-muted-foreground">
                         {MATCHES_SEARCH_LEAD}
                       </span>
-                      <span className="min-w-0 truncate text-[10px] leading-snug text-muted-foreground sm:text-[11px]">
+                      <span className="min-w-0 truncate text-[10px] leading-none text-muted-foreground sm:text-[11px]">
                         {MATCHES_SEARCH_HINT}
                       </span>
                     </div>
