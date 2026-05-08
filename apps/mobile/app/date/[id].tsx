@@ -7351,6 +7351,16 @@ export default function VideoDateScreen() {
     router.replace(target);
   }, [eventId, sessionId]);
 
+  const handleSurveyVideoDateReady = useCallback((videoSessionId: string) => {
+    const target = `/date/${videoSessionId}` as const;
+    vdbgRedirect(target, 'survey_active_video_date_ready', {
+      sessionId: sessionId ?? null,
+      eventId: eventId ?? null,
+      videoSessionId,
+    });
+    router.replace(target);
+  }, [eventId, sessionId]);
+
   const surveyPartnerId =
     partnerId ||
     (session && user?.id
@@ -7374,6 +7384,7 @@ export default function VideoDateScreen() {
           onMutualMatch={handleSurveyMutualMatch}
           onStartChatting={handleSurveyStartChatting}
           onQueuedVideoSessionReady={handleSurveyQueuedVideoSessionReady}
+          onVideoDateReady={handleSurveyVideoDateReady}
           onDone={handleSurveyDone}
         />
         {warmupChoiceNotice ? (

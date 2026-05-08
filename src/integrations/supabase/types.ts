@@ -5140,6 +5140,14 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      audit_active_video_date_surface_conflicts: {
+        Args: never
+        Returns: {
+          active_session_count: number
+          profile_id: string
+          session_ids: string[]
+        }[]
+      }
       claim_post_date_pending_verdict_reminders: {
         Args: { p_limit?: number }
         Returns: {
@@ -5150,6 +5158,16 @@ export type Database = {
           session_id: string
           submitted_by: string
         }[]
+      }
+      claim_video_date_surface: {
+        Args: {
+          p_client_instance_id: string
+          p_session_id: string
+          p_surface: string
+          p_takeover?: boolean
+          p_ttl_seconds?: number
+        }
+        Returns: Json
       }
       classify_stale_vibe_video_uploads: {
         Args: { p_limit?: number; p_stale_minutes?: number }
@@ -6040,6 +6058,10 @@ export type Database = {
         Args: { p_reference_id: string; p_released_by?: string }
         Returns: Json
       }
+      release_video_date_surface_claim: {
+        Args: { p_client_instance_id: string; p_session_id: string }
+        Returns: Json
+      }
       repair_stale_video_date_prepare_entries: {
         Args: { p_limit?: number }
         Returns: number
@@ -6062,6 +6084,10 @@ export type Database = {
         Returns: Json
       }
       resolve_entry_state: { Args: never; Returns: Json }
+      resolve_post_date_next_surface: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
       restore_chat_match_participant: {
         Args: { p_match_id: string; p_user_id: string }
         Returns: Json
@@ -6192,6 +6218,10 @@ export type Database = {
         Args: { p_event_id: string; p_status: string }
         Returns: undefined
       }
+      update_post_date_feedback_details: {
+        Args: { p_patch: Json; p_session_id: string }
+        Returns: Json
+      }
       update_profile_location: {
         Args: {
           p_country: string
@@ -6263,6 +6293,14 @@ export type Database = {
           p_ended_reason: string
           p_participant_1_joined_at: string
           p_participant_2_joined_at: string
+          p_phase: string
+          p_state: string
+        }
+        Returns: boolean
+      }
+      video_date_session_is_active_surface: {
+        Args: {
+          p_ended_at: string
           p_phase: string
           p_state: string
         }

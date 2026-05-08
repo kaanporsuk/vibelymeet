@@ -804,7 +804,15 @@ const ReadyGateOverlay = ({
     (source: string, readyGateStatus?: string | null) => {
       if (!videoDateRoomWarmupAfterReadyEnabled()) return;
       if (roomWarmupStartedRef.current || dateNavigationStartedRef.current || closedRef.current) return;
-      if (readyGateStatus && !["ready_a", "ready_b", "both_ready"].includes(readyGateStatus)) return;
+      // 'ready' is the freshly-minted mutual-swipe state. Pre-creating the
+      // room here (item #1 of the latency punch list) shaves the
+      // room_create_or_verify roundtrip off the post-ready-tap path.
+      if (
+        readyGateStatus &&
+        !["ready", "ready_a", "ready_b", "both_ready"].includes(readyGateStatus)
+      ) {
+        return;
+      }
       if (readyGateStatus === "both_ready" && prepareEntryHandoffStartedRef.current) return;
       const userId = user?.id;
       if (!userId) return;
@@ -1485,6 +1493,22 @@ const ReadyGateOverlay = ({
       const queueStatus = reg?.queue_status ?? null;
       const readyGateStatus = (vs?.ready_gate_status as string | null | undefined) ?? null;
       const isParticipant = vs?.participant_1_id === user.id || vs?.participant_2_id === user.id;
+
+      // Item #1 of the latency punch list: pre-create the Daily room as
+      // soon as we observe a freshly-minted mutual swipe (status='ready'),
+      // not after the first ready tap. Idempotent under the existing
+      // roomWarmupStartedRef mutex; subsequent post-ready-tap calls become
+      // no-ops because the room is already verified.
+      if (
+        isParticipant &&
+        readyGateStatus === "ready" &&
+        !vs?.ended_at &&
+        !roomWarmupStartedRef.current &&
+        !dateNavigationStartedRef.current &&
+        !closedRef.current
+      ) {
+        startRoomWarmupAfterReady("mutual_swipe_pre_create", readyGateStatus);
+      }
       const decision = decideVideoSessionRouteFromTruth(vs);
       const canAttemptDaily = canAttemptDailyRoomFromVideoSessionTruth(vs);
       const routedTo =
@@ -1555,7 +1579,17 @@ const ReadyGateOverlay = ({
 
       void refetchSession();
     },
-    [sessionId, eventId, user?.id, handleBothReady, closeAsStale, refetchSession, syncSession, markRealtimeDegraded]
+    [
+      sessionId,
+      eventId,
+      user?.id,
+      handleBothReady,
+      closeAsStale,
+      refetchSession,
+      syncSession,
+      markRealtimeDegraded,
+      startRoomWarmupAfterReady,
+    ]
   );
 
   useEffect(() => {

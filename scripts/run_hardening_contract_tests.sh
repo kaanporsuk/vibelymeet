@@ -30,6 +30,8 @@ run_step npx tsx shared/observability/eventLobbyObservability.test.ts
 run_step npx tsx shared/matching/realtimeSubscriptionTightening.test.ts
 run_step npx tsx shared/matching/premiumCreditsObservability.test.ts
 run_step npx tsx shared/matching/nativeVideoDateContractRecovery.test.ts
+run_step npx tsx shared/matching/readyGatePreReadyRoomWarmup.test.ts
+run_step npx tsx shared/matching/videoDateSurfaceContinuityHardening.test.ts
 run_step npx tsx shared/matching/onesignalProviderOperationalQa.test.ts
 run_step npx tsx shared/matching/dailyProviderOperationalQa.test.ts
 run_step npx tsx shared/matching/nativeVideoDateLogFollowup.test.ts

@@ -2156,7 +2156,21 @@ serve(async (req) => {
           });
         }
 
-        const warmupEligibleStatuses = new Set(["ready_a", "ready_b", "both_ready"]);
+        // Pre-create eligibility:
+        //   * 'ready' is the freshly-minted mutual-swipe state (item #1 of the
+        //     latency punch list). Pre-creating the room here shaves the
+        //     room_create_or_verify roundtrip off the post-ready-tap path.
+        //   * 'ready_a' / 'ready_b' / 'both_ready' continue to be eligible for
+        //     the existing post-ready-tap warmup behaviour.
+        // Sessions in 'queued' or terminal states still reject so we never
+        // create rooms for matches that have not yet promoted out of the
+        // matchmaking queue.
+        const warmupEligibleStatuses = new Set([
+          "ready",
+          "ready_a",
+          "ready_b",
+          "both_ready",
+        ]);
         if (!warmupEligibleStatuses.has(String(session.ready_gate_status ?? ""))) {
           return createDateRoomRejectResponse({
             action: actionName,
