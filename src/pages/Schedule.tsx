@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { VibeSchedule } from "@/components/schedule/VibeSchedule";
 import { MyDatesSection } from "@/components/schedule/MyDatesSection";
 import { DateReminderCard } from "@/components/schedule/DateReminderCard";
-import { NotificationPermissionFlow, NotificationPermissionButton } from "@/components/notifications/NotificationPermissionFlow";
+import { PushSetupButton, PushSetupFlow } from "@/components/notifications/PushSetupFlow";
 import { BottomNav } from "@/components/BottomNav";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
@@ -121,7 +121,7 @@ const SchedulePage = () => {
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col pb-[100px]">
       {/* Notification Permission Flow */}
-      <NotificationPermissionFlow
+      <PushSetupFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}
         onRequestPermission={handleRequestOneSignalPermission}
@@ -142,7 +142,7 @@ const SchedulePage = () => {
             My Schedule
           </h1>
         </div>
-        <NotificationPermissionButton
+        <PushSetupButton
           isGranted={pushDeliveryHealth.backendDeliverable}
           onClick={() => setShowNotificationFlow(true)}
         />

@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { format } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSchedule, SCHEDULE_QUERY_KEY, type ScheduleTimeBucket } from '@/lib/useSchedule';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -78,19 +78,6 @@ export default function ScheduleScreen() {
   const insets = useSafeAreaInsets();
   const qc = useQueryClient();
   const { user } = useAuth();
-  const { data: unreadCount = 0 } = useQuery({
-    queryKey: ['unread-message-count', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return 0;
-      const { count } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .neq('sender_id', user.id)
-        .is('read_at', null);
-      return count ?? 0;
-    },
-    enabled: !!user?.id,
-  });
   const {
     days,
     isLoading: scheduleLoading,
@@ -201,10 +188,16 @@ export default function ScheduleScreen() {
         <Pressable
           onPress={() => router.push('/settings/notifications')}
           style={({ pressed }) => [styles.bellWrap, pressed && { opacity: 0.8 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open notification settings"
         >
-          <View style={styles.bellCircle}>
-            <Ionicons name={pushDeliveryHealth.backendDeliverable ? 'notifications' : 'notifications-outline'} size={20} color="#FFFFFF" />
-            {unreadCount > 0 && <View style={styles.bellBadge} />}
+          <View style={[styles.bellCircle, !pushDeliveryHealth.backendDeliverable && styles.bellCircleSetup]}>
+            <Ionicons
+              name={pushDeliveryHealth.backendDeliverable ? 'notifications' : 'notifications-outline'}
+              size={20}
+              color={pushDeliveryHealth.backendDeliverable ? '#FFFFFF' : '#FBBF24'}
+            />
+            {!pushDeliveryHealth.backendDeliverable && <View style={styles.bellSetupDot} />}
           </View>
         </Pressable>
       </View>
@@ -498,14 +491,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bellBadge: {
+  bellCircleSetup: {
+    backgroundColor: 'rgba(251, 191, 36, 0.14)',
+  },
+  bellSetupDot: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
+    top: 7,
+    right: 7,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: BG,
+    backgroundColor: '#FBBF24',
   },
 
   scroll: { flex: 1 },
