@@ -16,6 +16,7 @@ import { useActiveSession } from "@/hooks/useActiveSession";
 import { useEventActiveSession } from "@/contexts/SessionHydrationContext";
 import { supabase } from "@/integrations/supabase/client";
 import { prepareVideoDateEntry } from "@/lib/videoDatePrepareEntry";
+import { preloadRoute, preloadRouteOnIdle } from "@/lib/routePreload";
 import { toast } from "sonner";
 import { differenceInSeconds } from "date-fns";
 import LobbyProfileCard from "@/components/lobby/LobbyProfileCard";
@@ -209,6 +210,8 @@ const EventLobby = () => {
   const dateNavigationSessionIdRef = useRef<string | null>(null);
   const prepareNavigationInFlightRef = useRef<Set<string>>(new Set());
   const readyGateManualExitSuppressUntilRef = useRef<Map<string, number>>(new Map());
+  const lobbyConvergenceRefreshTimersRef = useRef<Map<string, number>>(new Map());
+  const deferredLobbyWorkTimersRef = useRef<Set<number>>(new Set());
   const lobbyEnteredEventRef = useRef<string | null>(null);
   const postSurveyRouteTrackedRef = useRef<string | null>(null);
   const deckLoadedTrackedRef = useRef<string | null>(null);
@@ -227,6 +230,49 @@ const EventLobby = () => {
   useEffect(() => {
     activeServerSessionRef.current = scopedSessionId ?? activeSessionId ?? null;
   }, [scopedSessionId, activeSessionId]);
+
+  const scheduleLobbyConvergenceRefresh = useCallback(
+    (sessionId: string | null, source: string, delayMs = 180) => {
+      const key = sessionId ?? "event";
+      if (lobbyConvergenceRefreshTimersRef.current.has(key)) {
+        lobbyDebug("lobby convergence refresh coalesced", { sessionId, source });
+        return;
+      }
+      const timer = window.setTimeout(() => {
+        lobbyConvergenceRefreshTimersRef.current.delete(key);
+        void refetchScopedSession();
+      }, delayMs);
+      lobbyConvergenceRefreshTimersRef.current.set(key, timer);
+    },
+    [refetchScopedSession],
+  );
+
+  const scheduleDeferredLobbyWork = useCallback(
+    (source: string, work: () => void, delayMs = 180) => {
+      const timer = window.setTimeout(() => {
+        deferredLobbyWorkTimersRef.current.delete(timer);
+        work();
+      }, delayMs);
+      deferredLobbyWorkTimersRef.current.add(timer);
+      lobbyDebug("lobby deferred work scheduled", { source, delayMs });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const lobbyConvergenceTimers = lobbyConvergenceRefreshTimersRef.current;
+    const deferredLobbyWorkTimers = deferredLobbyWorkTimersRef.current;
+    return () => {
+      for (const timer of lobbyConvergenceTimers.values()) {
+        clearTimeout(timer);
+      }
+      lobbyConvergenceTimers.clear();
+      for (const timer of deferredLobbyWorkTimers.values()) {
+        clearTimeout(timer);
+      }
+      deferredLobbyWorkTimers.clear();
+    };
+  }, []);
 
   const isReadyGateManualExitSuppressed = useCallback((sessionId: string): boolean => {
     const suppressUntil = readyGateManualExitSuppressUntilRef.current.get(sessionId);
@@ -272,7 +318,7 @@ const EventLobby = () => {
     if (!sessionId || dateNavigationSessionIdRef.current) return;
     if (isReadyGateManualExitSuppressed(sessionId)) {
       lobbyDebug("ready gate open suppressed after manual exit", { sessionId, source });
-      void refetchScopedSession();
+      scheduleLobbyConvergenceRefresh(sessionId, `${source}_manual_exit_suppressed`, 0);
       return;
     }
     const isBackendHydratedSession = scopedSessionId === sessionId;
@@ -282,7 +328,7 @@ const EventLobby = () => {
         source,
         gate: lobbyGate.kind,
       });
-      void refetchScopedSession();
+      scheduleLobbyConvergenceRefresh(sessionId, `${source}_lobby_gate_suppressed`, 0);
       return;
     }
     if (activeSessionIdRef.current !== sessionId) {
@@ -301,7 +347,7 @@ const EventLobby = () => {
     isReadyGateManualExitSuppressed,
     lobbyActionsEnabled,
     lobbyGate.kind,
-    refetchScopedSession,
+    scheduleLobbyConvergenceRefresh,
     scopedSessionId,
   ]);
 
@@ -552,9 +598,9 @@ const EventLobby = () => {
       nextParams.delete("pendingVideoSession");
       nextParams.delete("pendingMatch");
       setSearchParams(nextParams, { replace: true });
-      void refetchScopedSession();
+      scheduleLobbyConvergenceRefresh(pending, "pending_video_session", 0);
     }
-  }, [searchParams, setSearchParams, refetchScopedSession]);
+  }, [searchParams, setSearchParams, scheduleLobbyConvergenceRefresh]);
 
   // Track seen profile IDs to prevent duplicates on refetch (bump deckNonce when this changes).
   const seenProfileIds = useRef<Set<string>>(new Set());
@@ -573,6 +619,14 @@ const EventLobby = () => {
     activeSessionIdRef.current = null;
     dateNavigationSessionIdRef.current = null;
     prepareNavigationInFlightRef.current.clear();
+    for (const timer of lobbyConvergenceRefreshTimersRef.current.values()) {
+      clearTimeout(timer);
+    }
+    lobbyConvergenceRefreshTimersRef.current.clear();
+    for (const timer of deferredLobbyWorkTimersRef.current.values()) {
+      clearTimeout(timer);
+    }
+    deferredLobbyWorkTimersRef.current.clear();
     setActiveSessionId(null);
     setDateNavigationSessionId(null);
     setShowEventEndedModal(false);
@@ -595,7 +649,7 @@ const EventLobby = () => {
     eventId: eventId || "",
     onVideoSessionReady: (videoSessionId) => {
       openReadyGateSession(videoSessionId, "swipe_result");
-      void refetchScopedSession();
+      scheduleLobbyConvergenceRefresh(videoSessionId, "swipe_result");
     },
     onVideoSessionQueued: () => {
       // Toast already handled by useSwipeAction
@@ -608,12 +662,18 @@ const EventLobby = () => {
     currentStatus: currentStatus || "browsing",
     enabled: lobbySideEffectsEnabled,
     onVideoSessionReady: () => {
-      void refetchScopedSession();
+      scheduleLobbyConvergenceRefresh(null, "match_queue");
     },
     onQueuedSessionExpired: () => {
       toast.info(QUEUED_MATCH_TIMED_OUT_USER_MESSAGE, { duration: 4200 });
     },
   });
+
+  useEffect(() => {
+    if (!eventId || !lobbySideEffectsEnabled) return;
+    if (!sessionHydrated && profiles.length === 0) return;
+    preloadRouteOnIdle("videoDate");
+  }, [eventId, lobbySideEffectsEnabled, profiles.length, sessionHydrated]);
 
   // Timer state
   const [timeRemaining, setTimeRemaining] = useState("");
@@ -892,20 +952,20 @@ const EventLobby = () => {
               sessionId: currentRoomId,
               queueStatus,
             });
-            void refetchScopedSession();
+            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_active_date");
             prepareAndNavigateToDateSession(currentRoomId, "registration_realtime");
             return;
           }
 
           if (queueStatus === "in_ready_gate" && currentRoomId) {
             lobbyDebug("ready gate detected from registration realtime", { sessionId: currentRoomId });
-            void refetchScopedSession();
             openReadyGateSession(currentRoomId, "registration_realtime");
+            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_ready_gate");
             return;
           }
 
           if (queueStatus === "in_ready_gate" || isActiveDateQueueStatus(queueStatus) || currentRoomId) {
-            void refetchScopedSession();
+            scheduleLobbyConvergenceRefresh(currentRoomId, "registration_realtime_ambiguous");
             lobbyDebug("ambiguous active registration realtime (useActiveSession reconciles)", {
               queueStatus,
               currentRoomId,
@@ -917,7 +977,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, refetchScopedSession]);
+  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, scheduleLobbyConvergenceRefresh]);
 
   useEffect(() => {
     if (!user?.id || !eventId) return;
@@ -941,15 +1001,15 @@ const EventLobby = () => {
           readyGateStatus: session.ready_gate_status,
           readyGateExpiresAt: session.ready_gate_expires_at,
         });
-        void refetchScopedSession();
+        scheduleLobbyConvergenceRefresh(sessionId, `${source}_active_date`);
         prepareAndNavigateToDateSession(sessionId, source);
         return;
       }
 
       const status = session.ready_gate_status;
       if (typeof status === "string" && READY_GATE_ACTIVE_STATUSES.has(status)) {
-        void refetchScopedSession();
         openReadyGateSession(sessionId, source);
+        scheduleLobbyConvergenceRefresh(sessionId, source);
       }
     };
 
@@ -984,7 +1044,7 @@ const EventLobby = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, refetchScopedSession]);
+  }, [user?.id, eventId, prepareAndNavigateToDateSession, openReadyGateSession, scheduleLobbyConvergenceRefresh]);
 
   // Event countdown timer
   useEffect(() => {
@@ -1146,13 +1206,16 @@ const EventLobby = () => {
     (targetId: string) => {
       seenProfileIds.current.add(targetId);
       setDeckNonce((n) => n + 1);
-      void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+      scheduleDeferredLobbyWork("deck_invalidate_after_swipe", () => {
+        void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user?.id] });
+      });
     },
-    [queryClient, eventId, user?.id]
+    [eventId, queryClient, scheduleDeferredLobbyWork, user?.id]
   );
 
   const handleVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
+    void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     recordUserAction("event_lobby_swipe_clicked", {
       surface: "event_lobby",
@@ -1190,6 +1253,7 @@ const EventLobby = () => {
 
   const handlePass = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
+    void preloadRoute("videoDate");
     const targetId = currentProfile.id;
     recordUserAction("event_lobby_swipe_clicked", {
       surface: "event_lobby",
@@ -1221,6 +1285,7 @@ const EventLobby = () => {
 
   const handleSuperVibe = useCallback(async () => {
     if (!currentProfile || isProcessing || !lobbyActionsEnabled) return;
+    void preloadRoute("videoDate");
     haptics.light();
     const targetId = currentProfile.id;
     recordUserAction("event_lobby_swipe_clicked", {
@@ -1691,9 +1756,11 @@ const EventLobby = () => {
             onManualExitConfirmed={suppressReadyGateSessionAfterManualExit}
             onClose={() => {
               clearReadyGateSession("ready_gate_overlay_close");
-              void refetchScopedSession();
+              scheduleLobbyConvergenceRefresh(activeSessionId, "ready_gate_overlay_close");
               if (eventId && user?.id) {
-                void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+                scheduleDeferredLobbyWork("ready_gate_overlay_close_deck_refresh", () => {
+                  void queryClient.invalidateQueries({ queryKey: ["event-deck", eventId, user.id] });
+                });
               }
             }}
           />

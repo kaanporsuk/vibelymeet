@@ -105,12 +105,16 @@ test("native overlay maps terminal recovery and observes duplicate side effects"
 test("native overlay gates date navigation behind prepareVideoDateEntry success", () => {
   const prepareIndex = nativeReadyGateOverlay.indexOf("const result = await prepareVideoDateEntry(sessionId");
   const successIndex = nativeReadyGateOverlay.indexOf("if (result.ok === true)", prepareIndex);
-  const preAuthIndex = nativeReadyGateOverlay.indexOf("await preAuthNativeVideoDateDailyPrewarm", successIndex);
-  const navigateIndex = nativeReadyGateOverlay.indexOf("navigateWithLatency(`${source}_prepare_success`)", preAuthIndex);
+  const startPrewarmIndex = nativeReadyGateOverlay.indexOf("startNativeVideoDateDailyPrewarm", successIndex);
+  const preAuthIndex = nativeReadyGateOverlay.indexOf("void preAuthNativeVideoDateDailyPrewarm", startPrewarmIndex);
+  const joinIndex = nativeReadyGateOverlay.indexOf("void joinNativeVideoDateDailyPrewarm", preAuthIndex);
+  const navigateIndex = nativeReadyGateOverlay.indexOf("navigateWithLatency(`${source}_prepare_success`)", joinIndex);
   assert.ok(prepareIndex >= 0, "native overlay should call prepareVideoDateEntry before date navigation");
   assert.ok(successIndex > prepareIndex, "native overlay should branch on prepare-entry success");
-  assert.ok(preAuthIndex > successIndex, "native overlay should preauth any Daily prewarm before navigation");
-  assert.ok(navigateIndex > preAuthIndex, "native overlay should navigate only after prepare-entry/preauth success");
+  assert.ok(startPrewarmIndex > successIndex, "native overlay should ensure Daily prewarm exists before navigation");
+  assert.ok(preAuthIndex > startPrewarmIndex, "native overlay should start preauth before navigation");
+  assert.ok(joinIndex > preAuthIndex, "native overlay should start join prewarm before navigation");
+  assert.ok(navigateIndex > joinIndex, "native overlay should navigate only after prepare-entry success and prewarm start");
   assert.doesNotMatch(nativeReadyGateOverlay, /isBothReady[\s\S]{0,120}onNavigateToDate\(sessionId\)/);
 });
 

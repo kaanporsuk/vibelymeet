@@ -990,7 +990,7 @@ test("web lobby opens returned swipe session id immediately", () => {
   assert.match(webSwipeActionHook, /onVideoSessionReady\?\.\(sessionId\)/);
   assert.match(
     eventLobby,
-    /onVideoSessionReady:\s*\(videoSessionId\)\s*=>\s*\{[\s\S]*openReadyGateSession\(videoSessionId, "swipe_result"\)[\s\S]*refetchScopedSession\(\)/,
+    /onVideoSessionReady:\s*\(videoSessionId\)\s*=>\s*\{[\s\S]*openReadyGateSession\(videoSessionId, "swipe_result"\)[\s\S]*scheduleLobbyConvergenceRefresh\(videoSessionId, "swipe_result"\)/,
   );
 });
 
