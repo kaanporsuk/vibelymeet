@@ -13,6 +13,12 @@ import { VideoDateControls } from "@/components/video-date/VideoDateControls";
 import { SelfViewPIP } from "@/components/video-date/SelfViewPIP";
 import { ConnectionOverlay } from "@/components/video-date/ConnectionOverlay";
 import { PartnerProfileSheet } from "@/components/video-date/PartnerProfileSheet";
+import { AudioOutputPicker } from "@/components/video-date/AudioOutputPicker";
+import {
+  applyStoredAudioOutputPreference,
+  isAudioDeviceEnumerationSupported,
+  isSetSinkIdSupported,
+} from "@/lib/videoDateAudioOutput";
 import { PostDateSurvey } from "@/components/video-date/PostDateSurvey";
 import { UrgentBorderEffect } from "@/components/video-date/UrgentBorderEffect";
 import { VibeCheckButton } from "@/components/video-date/VibeCheckButton";
@@ -365,6 +371,7 @@ const VideoDate = () => {
   const [callStarted, setCallStarted] = useState(false);
   const [callStartFailure, setCallStartFailure] = useState<VideoCallStartFailure | null>(null);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [showAudioOutputPicker, setShowAudioOutputPicker] = useState(false);
   const [showIceBreaker, setShowIceBreaker] = useState(true);
   const [showMutualToast, setShowMutualToast] = useState(false);
   const [showInCallSafety, setShowInCallSafety] = useState(false);
@@ -1920,6 +1927,31 @@ const VideoDate = () => {
       });
     }
   }, [isConnected, id]);
+
+  // Apply the user's stored audio output preference whenever we connect or
+  // when the remote `<video>` element gets its first track. Browsers without
+  // setSinkId silently no-op via the helper.
+  useEffect(() => {
+    if (!isConnected) return;
+    if (!isSetSinkIdSupported()) return;
+    let cancelled = false;
+    void (async () => {
+      const element = remoteVideoRef.current;
+      if (!element) return;
+      const result = await applyStoredAudioOutputPreference(element);
+      if (cancelled) return;
+      if (!result.ok && result.reason !== "unsupported_browser" && result.reason !== "no_device_id") {
+        trackEvent("video_date_audio_output_apply_failed", {
+          surface: "video_date",
+          session_id: id,
+          reason: result.reason,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isConnected, id, remoteVideoRef]);
 
   useEffect(() => {
     if (!isConnected || blurAmount !== 0 || remoteReadableTrackedRef.current || !id) return;
@@ -3729,6 +3761,19 @@ const VideoDate = () => {
                 }
               : undefined
           }
+          onAudioSettings={
+            isConnected && !showFeedback &&
+              (isSetSinkIdSupported() || isAudioDeviceEnumerationSupported())
+              ? () => {
+                  recordUserAction("video_date_control_clicked", {
+                    surface: "video_date",
+                    session_id: id,
+                    control: "audio_settings",
+                  });
+                  setShowAudioOutputPicker(true);
+                }
+              : undefined
+          }
         />
       </div>
       </div>
@@ -3767,6 +3812,25 @@ const VideoDate = () => {
         isOpen={showProfileSheet}
         onClose={() => setShowProfileSheet(false)}
         partner={partner}
+      />
+
+      {/* ─── Audio Output Picker ─── */}
+      <AudioOutputPicker
+        isOpen={showAudioOutputPicker}
+        onClose={() => setShowAudioOutputPicker(false)}
+        remoteMediaElement={remoteVideoRef.current}
+        onDeviceChanged={(deviceId) => {
+          trackEvent("video_date_audio_output_changed", {
+            surface: "video_date",
+            session_id: id,
+            device_id_kind:
+              deviceId === "default"
+                ? "default"
+                : deviceId === "communications"
+                  ? "communications"
+                  : "specific",
+          });
+        }}
       />
 
       <InCallSafetyModal

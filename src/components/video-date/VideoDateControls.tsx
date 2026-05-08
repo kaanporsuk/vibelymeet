@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import {
+  Headphones,
   Mic,
   MicOff,
   Video,
@@ -19,6 +20,8 @@ interface VideoDateControlsProps {
   onViewProfile: () => void;
   /** In-call safety report (canonical `submit_user_report`); omit when not in active call. */
   onSafety?: () => void;
+  /** Open the audio output picker; omit on platforms that don't expose audio sink selection. */
+  onAudioSettings?: () => void;
   isLeaving?: boolean;
 }
 
@@ -30,6 +33,7 @@ export const VideoDateControls = ({
   onLeave,
   onViewProfile,
   onSafety,
+  onAudioSettings,
   isLeaving = false,
 }: VideoDateControlsProps) => {
   const controlBtn =
@@ -47,18 +51,34 @@ export const VideoDateControls = ({
       transition={{ delay: 0.4, type: "spring", stiffness: 220, damping: 22 }}
       className={`mx-auto flex w-full max-w-[560px] items-center justify-between rounded-[2rem] border border-white/10 bg-black/40 shadow-[0_22px_70px_rgba(0,0,0,0.46),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-2xl ${dockPadding}`}
     >
-      {/* Left: Profile */}
-      <motion.div whileTap={{ scale: 0.9 }}>
-        <Button
-          variant="secondary"
-          size="icon"
-          aria-label="View profile"
-          className={`${controlBtn} ${quietBtn}`}
-          onClick={onViewProfile}
-        >
-          <User className="w-5 h-5 text-foreground" />
-        </Button>
-      </motion.div>
+      {/* Left: Profile + audio settings */}
+      <div className="flex items-center gap-[clamp(0.25rem,1.6vw,0.5rem)]">
+        <motion.div whileTap={{ scale: 0.9 }}>
+          <Button
+            variant="secondary"
+            size="icon"
+            aria-label="View profile"
+            className={`${controlBtn} ${quietBtn}`}
+            onClick={onViewProfile}
+          >
+            <User className="w-5 h-5 text-foreground" />
+          </Button>
+        </motion.div>
+        {onAudioSettings && (
+          <motion.div whileTap={{ scale: 0.9 }}>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              aria-label="Audio output settings"
+              className={`${controlBtn} ${quietBtn}`}
+              onClick={onAudioSettings}
+            >
+              <Headphones className="w-5 h-5 text-foreground" />
+            </Button>
+          </motion.div>
+        )}
+      </div>
 
       {/* Center: Core controls */}
       <div className={`flex items-center ${centerGap}`}>
