@@ -220,6 +220,7 @@ test("Activity Log tab presents current dotted actions, legacy fallbacks, and pa
   assert.match(activityLog, /"event\.delete"/);
   assert.match(activityLog, /"event\.create"/);
   assert.match(activityLog, /"event\.end"/);
+  assert.match(activityLog, /"event\.auto_finalize"/);
   assert.match(activityLog, /"credit\.adjust"/);
   assert.match(activityLog, /"moderation\.user_suspended"/);
   assert.match(activityLog, /"report\.dismiss"/);
@@ -243,6 +244,7 @@ test("Activity Log tab presents current dotted actions, legacy fallbacks, and pa
   assert.match(activityLog, /delete_event/);
   assert.match(activityLog, /formatUnknownActionLabel/);
   assert.match(activityLog, /formatDetailsSummary/);
+  assert.match(activityLog, /actorLabel = log\.details\?\.actor_type === "system"/);
   assert.match(activityLog, /boundary\.setDate\(boundary\.getDate\(\) \+ 1\)/);
   assert.match(activityLog, /Start date must be before the end date/);
   assert.match(activityLog, /Showing \{firstVisibleLog\}-\{lastVisibleLog\} of \{totalCount\} logs/);

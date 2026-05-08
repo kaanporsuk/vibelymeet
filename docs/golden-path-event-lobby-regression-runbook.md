@@ -47,6 +47,7 @@ The default harness runs source/static contract tests for:
 - queue promotion inactive rejection
 - block/report exclusion plus paused, suspended, and deleted candidate exclusion markers
 - simultaneous mutual swipes creating one session
+- web, mobile web, and native swipe submissions sending an explicit user JWT to `swipe-actions`
 - duplicate swipes creating one row and suppressing duplicate notification side effects
 - Super Vibe per-event limit and retry behavior
 - active-session collision during queue promotion
@@ -85,6 +86,20 @@ Expected observability:
 - `ready_gate_shown`
 - `ready_gate_transition`
 - `date_entered_from_lobby`
+
+### Swipe 401 Guard
+
+1. Use signed-in fixture users on web desktop, mobile web, and native.
+2. Open the same live confirmed Event Lobby surface on each client.
+3. Submit Pass, Vibe, and Super Vibe where fixture state allows it.
+4. Inspect the `swipe-actions` request headers and response.
+
+Expected result:
+
+- every client sends `Authorization: Bearer <user access token>`, not a Supabase public key fallback
+- every client sends the public `apikey` header
+- `swipe-actions` returns `200` with a normal swipe envelope, or a handled `success: false` envelope
+- signed-out or expired-session smoke returns the coarse `unauthorized` envelope and does not issue a public-key fallback request
 
 ### Three-User Queued Match
 

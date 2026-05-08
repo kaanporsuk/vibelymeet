@@ -16,10 +16,29 @@ import {
   Cell,
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Users, Heart, Calendar, TrendingUp } from "lucide-react";
 import { useAdminOverviewDashboard } from "@/hooks/useAdminOverviewDashboard";
 
 const COLORS = ['hsl(var(--primary))', 'hsl(var(--accent))', '#22d3ee', '#f472b6', '#a78bfa'];
+
+const eventLifecycleLabel = (status: string | null | undefined) =>
+  (status || "unknown").replace(/_/g, " ");
+
+const eventLifecycleBadgeClass = (status: string | null | undefined) => {
+  switch (status) {
+    case "live":
+      return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+    case "wrap_up_grace":
+      return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+    case "needs_finalization_repair":
+      return "bg-red-500/15 text-red-300 border-red-500/30";
+    case "finalized":
+      return "bg-orange-500/15 text-orange-300 border-orange-500/30";
+    default:
+      return "bg-secondary text-muted-foreground border-white/10";
+  }
+};
 
 const AdminAnalyticsCharts = () => {
   const {
@@ -235,6 +254,18 @@ const AdminAnalyticsCharts = () => {
               <Bar dataKey="capacity" fill="hsl(var(--muted))" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {latestEventRows.slice(0, 6).map((row) => (
+            <Badge
+              key={row.id}
+              variant="outline"
+              className={`max-w-full truncate text-[10px] ${eventLifecycleBadgeClass(row.lifecycle_status)}`}
+              title={`${row.title}: ${eventLifecycleLabel(row.lifecycle_status)}`}
+            >
+              {row.name}: {eventLifecycleLabel(row.lifecycle_status)}
+            </Badge>
+          ))}
         </div>
       </motion.div>
 

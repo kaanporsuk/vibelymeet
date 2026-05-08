@@ -145,8 +145,8 @@ Code search found no direct app calls to `supabase.rpc('handle_swipe')` in `src`
 
 Verified app call paths:
 
-- Web: `src/hooks/useSwipeAction.ts` invokes `supabase.functions.invoke("swipe-actions", ...)`
-- Native: `apps/mobile/lib/eventsApi.ts` invokes `supabase.functions.invoke('swipe-actions', ...)`
+- Web: `src/hooks/useSwipeAction.ts` posts to `swipe-actions` with explicit user `Authorization` and `apikey` headers.
+- Native: `apps/mobile/lib/eventsApi.ts` posts to `swipe-actions` with explicit user `Authorization` and `apikey` headers.
 - Edge: `supabase/functions/swipe-actions/index.ts` invokes `userClient.rpc("handle_swipe", ...)`
 
 Verdict: web and native use `swipe-actions`; `handle_swipe` remains the backend RPC called by the Edge Function.

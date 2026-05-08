@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { useUserProfile } from "@/contexts/AuthContext";
+import type { Session } from "@supabase/supabase-js";
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL, supabase } from "@/integrations/supabase/client";
+import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { trackEvent } from "@/lib/analytics";
@@ -20,6 +21,106 @@ import {
   shouldTrackQueuedSwipeSession,
   videoSessionIdFromSwipePayload,
 } from "@shared/matching/videoSessionFlow";
+
+type SwipeType = "vibe" | "pass" | "super_vibe";
+
+const SWIPE_AUTH_REFRESH_WINDOW_MS = 60_000;
+const SWIPE_AUTH_EXPIRED_SKEW_MS = 5_000;
+
+function sessionExpiresAtMs(session: Session | null | undefined): number | null {
+  return typeof session?.expires_at === "number" ? session.expires_at * 1000 : null;
+}
+
+function isSessionExpiredForSwipe(session: Session | null | undefined): boolean {
+  const expiresAtMs = sessionExpiresAtMs(session);
+  return expiresAtMs != null && expiresAtMs <= Date.now() + SWIPE_AUTH_EXPIRED_SKEW_MS;
+}
+
+function shouldRefreshSessionForSwipe(session: Session | null | undefined): boolean {
+  const expiresAtMs = sessionExpiresAtMs(session);
+  return expiresAtMs != null && expiresAtMs <= Date.now() + SWIPE_AUTH_REFRESH_WINDOW_MS;
+}
+
+function unauthorizedSwipeResult(): SwipeSessionStageResult {
+  return {
+    success: false,
+    result: "unauthorized",
+    outcome: "unauthorized",
+    error: "unauthorized",
+    message: "Sign in again to keep swiping.",
+    notification_suppressed: true,
+  };
+}
+
+async function resolveWebSwipeAccessToken(preferredSession: Session | null): Promise<string | null> {
+  let activeSession = preferredSession;
+
+  if (!activeSession?.access_token) {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
+    activeSession = data.session;
+  }
+
+  if (!activeSession?.access_token) return null;
+
+  if (shouldRefreshSessionForSwipe(activeSession)) {
+    const { data, error } = await supabase.auth.refreshSession(activeSession);
+    if (!error && data.session?.access_token) {
+      activeSession = data.session;
+    } else if (isSessionExpiredForSwipe(activeSession)) {
+      return null;
+    }
+  }
+
+  return isSessionExpiredForSwipe(activeSession) ? null : activeSession.access_token;
+}
+
+async function postSwipeAction(
+  accessToken: string,
+  eventId: string,
+  targetId: string,
+  swipeType: SwipeType,
+): Promise<{ data: SwipeSessionStageResult | null; error: Error | null }> {
+  const swipeActionsUrl = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/swipe-actions`;
+  let response: Response;
+  try {
+    response = await fetch(swipeActionsUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        event_id: eventId,
+        target_id: targetId,
+        swipe_type: swipeType,
+      }),
+    });
+  } catch (cause) {
+    return {
+      data: null,
+      error: cause instanceof Error ? cause : new Error("swipe-actions network request failed"),
+    };
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    if (response.status === 401) {
+      return { data: unauthorizedSwipeResult(), error: null };
+    }
+    return {
+      data: null,
+      error: new Error(`swipe-actions returned HTTP ${response.status}`),
+    };
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return { data: null, error: new Error("swipe-actions returned an invalid response") };
+  }
+
+  return { data: payload as SwipeSessionStageResult, error: null };
+}
 
 interface UseSwipeActionOptions {
   eventId: string;
@@ -52,10 +153,11 @@ export const useSwipeAction = ({
   onVideoSessionQueued,
 }: UseSwipeActionOptions) => {
   const { user } = useUserProfile();
+  const { session } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
 
   const swipe = useCallback(
-    async (targetId: string, swipeType: "vibe" | "pass" | "super_vibe"): Promise<SwipeSessionStageResult | null> => {
+    async (targetId: string, swipeType: SwipeType): Promise<SwipeSessionStageResult | null> => {
       if (!user?.id || !eventId) return null;
       if (!navigator.onLine) {
         toast.error("You're offline — swipes need a connection");
@@ -75,13 +177,10 @@ export const useSwipeAction = ({
           level: "info",
           data: { event_id: eventId, swipe_type: swipeType },
         });
-        const { data, error } = await supabase.functions.invoke("swipe-actions", {
-          body: {
-            event_id: eventId,
-            target_id: targetId,
-            swipe_type: swipeType,
-          },
-        });
+        const accessToken = await resolveWebSwipeAccessToken(session);
+        const { data, error } = accessToken
+          ? await postSwipeAction(accessToken, eventId, targetId, swipeType)
+          : { data: unauthorizedSwipeResult(), error: null };
 
         if (error) {
           console.error("Swipe error:", error);
@@ -103,7 +202,7 @@ export const useSwipeAction = ({
           return null;
         }
 
-        const raw = data as unknown as SwipeSessionStageResult;
+        const raw = data as SwipeSessionStageResult;
         if (raw && typeof raw === "object" && raw.success === false) {
           const failureCode = raw.result ?? raw.outcome ?? raw.error;
           const failureMessage = getSwipeFailureUserMessage(raw);
@@ -324,7 +423,7 @@ export const useSwipeAction = ({
         setIsProcessing(false);
       }
     },
-    [user?.id, eventId, onMatch, onVideoSessionReady, onMatchQueued, onVideoSessionQueued]
+    [user?.id, eventId, session, onMatch, onVideoSessionReady, onMatchQueued, onVideoSessionQueued]
   );
 
   return { swipe, isProcessing };

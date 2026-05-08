@@ -25,7 +25,7 @@
 ## Exact Implementation
 
 - Updated Section 13 of the rebuild runbook to record:
-  - 51 deployable function directories excluding `_shared`
+  - 53 deployable function directories excluding `_shared`
   - 51 `[functions.<slug>]` entries in `supabase/config.toml`
   - 32 `verify_jwt = true` functions
   - 19 `verify_jwt = false` functions

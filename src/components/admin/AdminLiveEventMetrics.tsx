@@ -35,6 +35,7 @@ import {
   Legend,
 } from "recharts";
 import { useNavigate } from "react-router-dom";
+import { resolveEventLifecycle } from "@/lib/eventLifecycle";
 
 const COLORS = ["#ec4899", "#8b5cf6", "#06b6d4", "#f97316", "#22c55e"];
 
@@ -295,27 +296,26 @@ const computeEventPhase = (event: AdminEventSelectorItem | null | undefined) => 
   if (!event) return { label: "unknown", tone: "unknown" as const, endIso: null as string | null };
 
   const status = (event.status || "unknown").toLowerCase();
-  const startMs = new Date(event.event_date ?? "").getTime();
-  const durationMinutes =
-    typeof event.duration_minutes === "number" && Number.isFinite(event.duration_minutes)
-      ? event.duration_minutes
-      : 60;
-  const endMs = Number.isFinite(startMs) ? startMs + durationMinutes * 60_000 : Number.NaN;
-  const endIso = Number.isFinite(endMs) ? new Date(endMs).toISOString() : null;
+  const lifecycle = resolveEventLifecycle({
+    status: event.status,
+    event_date: event.event_date,
+    duration_minutes: event.duration_minutes,
+    ended_at: event.ended_at,
+    archived_at: event.archived_at,
+  });
+  const endIso = lifecycle.scheduledEndAt?.toISOString() ?? null;
 
   if (event.archived_at) return { label: "archived", tone: "ended" as const, endIso };
   if (status === "cancelled") return { label: "cancelled", tone: "ended" as const, endIso };
-  if (event.ended_at || status === "ended" || status === "completed") {
-    return { label: "ended", tone: "ended" as const, endIso };
-  }
+  if (lifecycle.isFinalized) return { label: "finalized", tone: "ended" as const, endIso };
+  if (lifecycle.needsFinalizationRepair) return { label: "needs repair", tone: "warning" as const, endIso };
+  if (lifecycle.isInFinalizationGrace) return { label: "wrap-up grace", tone: "warning" as const, endIso };
   if (status === "draft") return { label: "draft", tone: "unknown" as const, endIso };
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+  if (!lifecycle.startsAt || !lifecycle.scheduledEndAt) {
     return { label: status, tone: "unknown" as const, endIso };
   }
-
-  const nowMs = Date.now();
-  if (nowMs < startMs) return { label: "upcoming", tone: "upcoming" as const, endIso };
-  if (nowMs <= endMs) return { label: "live by time", tone: "live" as const, endIso };
+  if (lifecycle.lifecycle === "upcoming") return { label: "upcoming", tone: "upcoming" as const, endIso };
+  if (lifecycle.lifecycle === "live") return { label: "live by time", tone: "live" as const, endIso };
   return { label: "ended by time", tone: "ended" as const, endIso };
 };
 
@@ -597,7 +597,7 @@ const AdminLiveEventMetrics = () => {
                     ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                     : selectedEventPhase.tone === "upcoming"
                       ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
-                      : selectedEventPhase.tone === "ended"
+                      : selectedEventPhase.tone === "ended" || selectedEventPhase.tone === "warning"
                         ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
                         : "bg-secondary text-muted-foreground border-white/10"
                 }

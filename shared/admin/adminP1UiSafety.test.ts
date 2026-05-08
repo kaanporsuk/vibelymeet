@@ -44,6 +44,7 @@ const adminMatchMessages = read("src/components/admin/AdminMatchMessagesDrawer.t
 const adminEventForm = read("src/components/admin/AdminEventFormModal.tsx");
 const adminOverviewDashboardMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const adminOverviewOperationalTruthMigration = read("supabase/migrations/20260507211000_admin_overview_operational_truth.sql");
+const eventLifecycleAutoFinalizationMigration = read("supabase/migrations/20260508103000_event_lifecycle_auto_finalization.sql");
 const proofSelfieUrl = read("src/lib/proofSelfieUrl.ts");
 const adminProofSelfieSign = read("supabase/functions/admin-proof-selfie-sign/index.ts");
 const simplePhotoVerification = read("src/components/verification/SimplePhotoVerification.tsx");
@@ -268,6 +269,12 @@ test("quick actions show only actionable upcoming events", () => {
   assert.doesNotMatch(adminQuickActions, /admin-upcoming-events/);
   assert.match(adminOverviewDashboardMigration, /lower\(COALESCE\(status, 'upcoming'\)\) NOT IN \('draft', 'cancelled', 'completed', 'ended'\)/);
   assert.match(adminOverviewOperationalTruthMigration, /COALESCE\(p_now, now\(\)\)/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'wrap_up_grace'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'needs_finalization_repair'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'lifecycle_status'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'auto_finalize_at'/);
+  assert.match(adminOverviewHook, /wrap_up_grace/);
+  assert.match(adminOverviewHook, /needs_finalization_repair/);
 });
 
 test("overview charts and Daily Drop read from the backend overview surface", () => {

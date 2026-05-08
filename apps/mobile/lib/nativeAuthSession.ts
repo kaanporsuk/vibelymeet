@@ -26,17 +26,37 @@ import {
 import type { Session } from '@supabase/supabase-js';
 
 const TTL_MS = 30_000; // 30 s — short enough that a refresh will have landed
+const SWIPE_AUTH_REFRESH_WINDOW_MS = 60_000;
+const SWIPE_AUTH_EXPIRED_SKEW_MS = 5_000;
 
 let cached: { session: Session | null; expiresAt: number } | null = null;
 let inFlight: Promise<Session | null> | null = null;
+let refreshInFlight: Promise<Session | null> | null = null;
+let cacheVersion = 0;
 
 function nowMs(): number {
   return Date.now();
 }
 
 function invalidate(): void {
+  cacheVersion += 1;
   cached = null;
   inFlight = null;
+  refreshInFlight = null;
+}
+
+function sessionExpiresAtMs(session: Session | null | undefined): number | null {
+  return typeof session?.expires_at === 'number' ? session.expires_at * 1000 : null;
+}
+
+function isSessionExpiredForSwipe(session: Session | null | undefined): boolean {
+  const expiresAtMs = sessionExpiresAtMs(session);
+  return expiresAtMs != null && expiresAtMs <= nowMs() + SWIPE_AUTH_EXPIRED_SKEW_MS;
+}
+
+function shouldRefreshSessionForSwipe(session: Session | null | undefined): boolean {
+  const expiresAtMs = sessionExpiresAtMs(session);
+  return expiresAtMs != null && expiresAtMs <= nowMs() + SWIPE_AUTH_REFRESH_WINDOW_MS;
 }
 
 /**
@@ -56,6 +76,7 @@ export async function getCachedSession(): Promise<Session | null> {
   // Coalesce concurrent callers.
   if (inFlight) return inFlight;
 
+  const requestVersion = cacheVersion;
   inFlight = (async (): Promise<Session | null> => {
     try {
       const { data, error } = await supabase.auth.getSession();
@@ -68,6 +89,7 @@ export async function getCachedSession(): Promise<Session | null> {
         invalidate();
         return null;
       }
+      if (cacheVersion !== requestVersion) return null;
       cached = { session: data.session, expiresAt: nowMs() + TTL_MS };
       return data.session;
     } catch (e) {
@@ -79,7 +101,9 @@ export async function getCachedSession(): Promise<Session | null> {
       invalidate();
       return null;
     } finally {
-      inFlight = null;
+      if (cacheVersion === requestVersion) {
+        inFlight = null;
+      }
     }
   })();
 
@@ -93,6 +117,73 @@ export async function getCachedSession(): Promise<Session | null> {
  */
 export async function getCachedAccessToken(): Promise<string | null> {
   const session = await getCachedSession();
+  return session?.access_token ?? null;
+}
+
+/**
+ * Returns a cached session that is safe for strict Edge Function JWT checks.
+ * It reuses the normal cached session, but refreshes when the access token is
+ * close to expiry so callers never fall back to Supabase's public-key auth.
+ */
+export async function getFreshCachedSession(): Promise<Session | null> {
+  const session = await getCachedSession();
+  if (!session?.access_token) return null;
+  if (!shouldRefreshSessionForSwipe(session)) return session;
+
+  if (refreshInFlight) return refreshInFlight;
+
+  const requestVersion = cacheVersion;
+  refreshInFlight = (async (): Promise<Session | null> => {
+    try {
+      const { data, error } = await supabase.auth.refreshSession(session);
+      if (error) {
+        if (isRecoverableNativeAuthError(error)) {
+          await recoverNativeAuthSession('cached-session', error);
+          invalidate();
+          return null;
+        }
+        if (__DEV__) {
+          console.warn('[nativeAuthSession] refreshSession error:', error.message);
+        }
+        if (isSessionExpiredForSwipe(session)) {
+          invalidate();
+          return null;
+        }
+        return session;
+      }
+
+      if (cacheVersion !== requestVersion) return null;
+      cached = { session: data.session, expiresAt: nowMs() + TTL_MS };
+      return data.session;
+    } catch (e) {
+      if (isRecoverableNativeAuthError(e)) {
+        await recoverNativeAuthSession('cached-session', e);
+        invalidate();
+        return null;
+      }
+      if (__DEV__) {
+        console.warn('[nativeAuthSession] refreshSession threw:', e);
+      }
+      if (isSessionExpiredForSwipe(session)) {
+        invalidate();
+        return null;
+      }
+      return session;
+    } finally {
+      if (cacheVersion === requestVersion) {
+        refreshInFlight = null;
+      }
+    }
+  })();
+
+  return refreshInFlight;
+}
+
+/**
+ * Convenience for strict Edge Function calls that must send a real user JWT.
+ */
+export async function getFreshCachedAccessToken(): Promise<string | null> {
+  const session = await getFreshCachedSession();
   return session?.access_token ?? null;
 }
 

@@ -66,6 +66,7 @@ const runbook = read(runbookPath);
 const section13 = extractSection(runbook, "## 13. Edge Function inventory to deploy", "## 14. Optional local function serving");
 
 const jwtTrueFunctions = [
+  "admin-data-export",
   "admin-media-lifecycle-controls",
   "admin-proof-selfie-sign",
   "admin-review-verification",
@@ -114,6 +115,7 @@ const jwtFalseFunctions = [
   "process-media-delete-jobs",
   "process-waitlist-promotion-notify-queue",
   "push-webhook",
+  "record-growth-attribution",
   "request-account-deletion",
   "revenuecat-webhook",
   "send-email",
@@ -133,10 +135,10 @@ test("closure addresses the final release-ops investigation finding", () => {
 });
 
 test("runbook section 13 uses the current function inventory and JWT counts", () => {
-  assert.match(section13, /51 deployable function directories/);
-  assert.match(section13, /51 matching `\[functions\.<slug>\]` entries/);
-  assert.match(section13, /32 functions\*\* have `verify_jwt = true`/);
-  assert.match(section13, /19 functions\*\* have `verify_jwt = false`/);
+  assert.match(section13, /53 deployable function directories/);
+  assert.match(section13, /53 matching `\[functions\.<slug>\]` entries/);
+  assert.match(section13, /33 functions\*\* have `verify_jwt = true`/);
+  assert.match(section13, /20 functions\*\* have `verify_jwt = false`/);
   assert.match(section13, /schdyxcunwcvddlcshwd \/ MVP_Vibe/);
   for (const slug of [...jwtTrueFunctions, ...jwtFalseFunctions]) {
     assert.match(section13, new RegExp(`\\\`${slug}\\\``), `${slug} should be listed in Section 13`);
@@ -155,8 +157,8 @@ test("runbook section 13 no longer carries stale historical function guidance", 
 test("runbook Section 13 inventory matches config and function directories", () => {
   const dirs = functionDirs();
   const config = configJwtEntries();
-  assert.equal(dirs.length, 51);
-  assert.equal(config.size, 51);
+  assert.equal(dirs.length, 53);
+  assert.equal(config.size, 53);
   assert.deepEqual([...config.keys()].sort(), dirs);
   assert.deepEqual(
     [...config.entries()]

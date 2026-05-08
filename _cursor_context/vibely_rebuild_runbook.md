@@ -454,8 +454,8 @@ supabase secrets list
 
 Current repo state:
 
-- 51 deployable function directories exist under `supabase/functions`, excluding `_shared`.
-- 51 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- 53 deployable function directories exist under `supabase/functions`, excluding `_shared`.
+- 53 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
 - Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
 - Source-of-truth inventory files are `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md`; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 
@@ -483,10 +483,11 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 
 ### JWT behavior
 
-`supabase/config.toml` configures all 51 current function entries.
+`supabase/config.toml` configures all 53 current function entries.
 
-**32 functions** have `verify_jwt = true`:
+**33 functions** have `verify_jwt = true`:
 
+- `admin-data-export`
 - `admin-media-lifecycle-controls`
 - `admin-proof-selfie-sign`
 - `admin-review-verification`
@@ -520,7 +521,7 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 - `upload-voice`
 - `verify-admin`
 
-**19 functions** have `verify_jwt = false`:
+**20 functions** have `verify_jwt = false`:
 
 - `create-credits-checkout`
 - `credit-replenish`
@@ -535,6 +536,7 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 - `process-media-delete-jobs`
 - `process-waitlist-promotion-notify-queue`
 - `push-webhook`
+- `record-growth-attribution`
 - `request-account-deletion`
 - `revenuecat-webhook`
 - `send-email`

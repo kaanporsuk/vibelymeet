@@ -27,7 +27,7 @@
     "test:browser-diagnostics": "tsx scripts/browser-diagnostics.test.ts && tsx scripts/browser-deploy-contract.test.ts",
     "test:request-reduction-contract": "tsx scripts/request-reduction-contract.test.ts",
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
-    "test:admin-events-p0": "tsx shared/admin/adminEventsP0ReadSafety.test.ts",
+    "test:admin-events-p0": "tsx shared/admin/adminEventsP0ReadSafety.test.ts && tsx shared/admin/eventLifecycleAutoFinalization.test.ts",
     "test:admin-p1-ui-safety": "tsx shared/admin/adminP1UiSafety.test.ts",
     "test:admin-p2-backend-contracts": "tsx shared/admin/adminP2BackendContracts.test.ts",
     "test:admin-p3-operations": "tsx shared/admin/adminP3OperationsContracts.test.ts",

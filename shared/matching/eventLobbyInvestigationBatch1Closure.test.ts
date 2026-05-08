@@ -105,17 +105,23 @@ test("active-event and swipe idempotency contracts remain visible in source arti
   assert.match(flow, /"swipe_already_recorded"/);
 });
 
-test("web and native clients remain swipe-actions consumers without direct handle_swipe calls", () => {
+test("web and native clients remain authenticated swipe-actions consumers without direct handle_swipe calls", () => {
   const webSwipe = read("src/hooks/useSwipeAction.ts");
   const nativeEventsApi = read("apps/mobile/lib/eventsApi.ts");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
 
-  assert.match(webSwipe, /functions\.invoke\(["']swipe-actions["']/);
+  assert.match(webSwipe, /functions\/v1\/swipe-actions/);
+  assert.match(webSwipe, /Authorization:\s*`Bearer \$\{accessToken\}`/);
+  assert.match(webSwipe, /apikey:\s*SUPABASE_PUBLISHABLE_KEY/);
+  assert.doesNotMatch(webSwipe, /functions\.invoke\(["']swipe-actions["']/);
   assert.doesNotMatch(webSwipe, /\.rpc\(["']handle_swipe["']/);
   assert.match(webSwipe, /case "already_swiped"/);
   assert.match(webSwipe, /case "participant_has_active_session_conflict"/);
 
-  assert.match(nativeEventsApi, /functions\.invoke\(['"]swipe-actions['"]/);
+  assert.match(nativeEventsApi, /functions\/v1\/swipe-actions/);
+  assert.match(nativeEventsApi, /Authorization:\s*`Bearer \$\{accessToken\}`/);
+  assert.match(nativeEventsApi, /apikey:\s*SUPABASE_PUBLISHABLE_KEY/);
+  assert.doesNotMatch(nativeEventsApi, /functions\.invoke\(['"]swipe-actions['"]/);
   assert.doesNotMatch(nativeEventsApi, /\.rpc\(['"]handle_swipe['"]/);
   assert.match(nativeLobby, /case 'already_swiped'/);
   assert.match(nativeLobby, /case 'swipe_already_recorded'/);

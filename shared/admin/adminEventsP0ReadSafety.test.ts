@@ -21,6 +21,10 @@ const adminEventNonLocalScopeFollowupMigration = readFileSync(
   join(root, "supabase/migrations/20260507210000_admin_event_non_local_scope_force_legacy_flag.sql"),
   "utf8"
 );
+const eventLifecycleAutoFinalizationMigration = readFileSync(
+  join(root, "supabase/migrations/20260508103000_event_lifecycle_auto_finalization.sql"),
+  "utf8"
+);
 
 function section(source: string, startMarker: string, endMarker: string): string {
   const start = source.indexOf(startMarker);
@@ -63,16 +67,24 @@ test("admin event controls receive raw and computed lifecycle state", () => {
   assert.match(adminEventsPanel, /computedStatus=\{computed\}/);
   assert.match(adminEventsPanel, /endedAt=\{event\.ended_at\}/);
   assert.match(adminEventsPanel, /archivedAt=\{event\.archived_at\}/);
+  assert.match(adminEventsPanel, /isInFinalizationGrace=\{lifecycle\.isInFinalizationGrace\}/);
+  assert.match(adminEventsPanel, /autoFinalizeAt=\{lifecycle\.autoFinalizeAt\}/);
 
   assert.match(adminEventControls, /rawStatus: string \| null/);
   assert.match(adminEventControls, /computedStatus: string/);
   assert.match(adminEventControls, /endedAt\?: string \| null/);
   assert.match(adminEventControls, /archivedAt\?: string \| null/);
+  assert.match(adminEventControls, /isInFinalizationGrace\?: boolean/);
+  assert.match(adminEventControls, /autoFinalizeAt\?: Date \| null/);
   assert.match(adminEventControls, /normalizedComputedStatus === "ended"/);
   assert.match(adminEventControls, /normalizedComputedStatus === "live" && normalizedRawStatus !== "live"/);
   assert.match(adminEventControls, /isArchived \|\| isDraft \|\| isCancelled \|\| isCompleted \|\| endedAt/);
-  assert.match(adminEventControls, /const showFinalizeEnd = isComputedEnded && !endedAt/);
-  assert.match(adminEventControls, /kind: "finalize-end"/);
+  assert.match(adminEventControls, /const showWrapUpGrace = isComputedEnded && isInFinalizationGrace && !endedAt/);
+  assert.match(adminEventControls, /Wrap-up\{autoFinalizeLabel/);
+  assert.match(adminEventControls, /\+15 min/);
+  assert.match(adminEventControls, /End now/);
+  assert.doesNotMatch(adminEventControls, /Finalize End/);
+  assert.doesNotMatch(adminEventControls, /kind: "finalize-end"/);
   assert.match(adminEventControls, /\{isLive && \(/);
   assert.match(adminEventControls, /\{\(isLive \|\| isUpcoming\) && \(/);
 });
@@ -80,7 +92,7 @@ test("admin event controls receive raw and computed lifecycle state", () => {
 test("admin event computed lifecycle refreshes while the panel stays open", () => {
   assert.match(adminEventsPanel, /const \[lifecycleNowMs, setLifecycleNowMs\] = useState\(\(\) => Date\.now\(\)\)/);
   assert.match(adminEventsPanel, /window\.setInterval\(\(\) => setLifecycleNowMs\(Date\.now\(\)\), 30_000\)/);
-  assert.match(adminEventsPanel, /getComputedStatus\(event, lifecycleNowMs\)/);
+  assert.match(adminEventsPanel, /getAdminStatusDisplay\(event, lifecycleNowMs\)/);
   assert.match(adminEventsPanel, /\[events, lifecycleNowMs, statusFilter, scopeFilter, cityFilter, dateFrom, dateTo\]/);
 });
 
@@ -90,6 +102,42 @@ test("expired computed events cannot be cancelled from the row menu", () => {
   assert.match(rowRender, /computed !== 'ended'/);
   assert.match(rowRender, /!event\.ended_at/);
   assert.match(rowRender, /!\['cancelled', 'draft', 'completed'\]\.includes\(rawStatus\)/);
+});
+
+test("admin Events UI moves finalization into grace and repair states", () => {
+  assert.match(adminEventsPanel, /wrap_up_grace/);
+  assert.match(adminEventsPanel, /needs_finalization_repair/);
+  assert.match(adminEventsPanel, /Auto-finalizes/);
+  assert.match(adminEventsPanel, /Missing ended_at/);
+  assert.match(adminEventsPanel, /kind: "finalize-repair"/);
+  assert.match(adminEventsPanel, /Finalize now/);
+  assert.match(adminEventsPanel, /Finalization repair from \/kaan dashboard/);
+  assert.match(adminEventsPanel, /lifecycle\.needsFinalizationRepair && !event\.ended_at && !event\.archived_at/);
+  assert.doesNotMatch(adminEventsPanel, /Finalize End/);
+});
+
+test("event lifecycle auto-finalization backend contract is cron-safe and closes user access at scheduled end", () => {
+  assert.match(eventLifecycleAutoFinalizationMigration, /CREATE OR REPLACE FUNCTION public\.finalize_due_events/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /FOR UPDATE SKIP LOCKED/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /e\.ended_at IS NULL/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /e\.archived_at IS NULL/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /NOT IN \('draft', 'cancelled'\)/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /ended_at = candidates\.scheduled_end/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'event\.auto_finalize'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'actor_type', 'system'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /cron\.schedule\(\s*'event-lifecycle-auto-finalize'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /'\* \* \* \* \*'/);
+
+  assert.match(eventLifecycleAutoFinalizationMigration, /CREATE OR REPLACE FUNCTION public\.admin_extend_event/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /v_before\.ended_at IS NOT NULL/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /v_now >= v_scheduled_end \+ interval '10 minutes'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /v_extended_end <= v_now/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /CREATE OR REPLACE FUNCTION public\.admin_send_event_reminder/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /now\(\) >= v_scheduled_end/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /CREATE OR REPLACE FUNCTION public\.register_for_event/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /now\(\) >= v_event_date \+ COALESCE\(v_duration_minutes, 60\) \* interval '1 minute'/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /CREATE OR REPLACE FUNCTION public\.settle_event_ticket_checkout/);
+  assert.match(eventLifecycleAutoFinalizationMigration, /code', 'EVENT_CLOSED'/);
 });
 
 test("batch import emits only database-valid event statuses", () => {
