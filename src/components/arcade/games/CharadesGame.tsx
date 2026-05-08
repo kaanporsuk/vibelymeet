@@ -79,7 +79,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
+        "w-full max-w-[min(100%,19rem)] rounded-xl overflow-hidden break-words",
         "bg-gradient-to-br from-purple-500/20 to-violet-600/20",
         "border border-purple-500/30 backdrop-blur-sm",
         isExpired && "opacity-50"
@@ -149,7 +149,7 @@ export const CharadesGame = ({ payload, isOwn, sessionCreatedAt, onGuess }: Char
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 placeholder="Guess the movie..."
                 className={cn(
-                  "w-full px-3 py-1.5 rounded-lg text-sm",
+                  "w-full rounded-lg px-3 py-1.5 pr-20 text-sm",
                   "bg-secondary/50 border border-border/50",
                   "focus:outline-none focus:border-purple-500/50",
                   "placeholder:text-muted-foreground",

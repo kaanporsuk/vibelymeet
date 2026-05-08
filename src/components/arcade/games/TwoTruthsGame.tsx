@@ -73,7 +73,7 @@ export const TwoTruthsGame = ({
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={cn(
-        "w-full max-w-[min(100%,252px)] rounded-xl overflow-hidden",
+        "w-full max-w-[min(100%,19rem)] rounded-xl overflow-hidden break-words",
         "bg-gradient-to-br from-pink-500/20 to-rose-600/20",
         "border border-pink-500/30 backdrop-blur-sm",
         isExpired && "opacity-50"
@@ -98,6 +98,7 @@ export const TwoTruthsGame = ({
           return (
             <motion.button
               key={index}
+              type="button"
               whileTap={!isOwn && !isCompleted && !hasGuess && !isExpired ? { scale: 0.98 } : undefined}
               onClick={() => handleGuess(index)}
               disabled={isOwn || isCompleted || hasGuess || isExpired}
