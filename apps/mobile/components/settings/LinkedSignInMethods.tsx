@@ -39,17 +39,14 @@ import {
   ActivityIndicator,
   Platform,
   StyleSheet,
-  Modal,
   TextInput,
-  KeyboardAvoidingView,
-  ScrollView,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useIdentityLinking, type ProviderType } from '../../hooks/useIdentityLinking';
 import { withAlpha } from '@/lib/colorUtils';
 import { PASSWORD_MIN_LENGTH, validatePasswordPolicy, passwordPolicyMessage } from '@clientShared/passwordPolicy';
+import { KeyboardAwareBottomSheetModal } from '@/components/keyboard/KeyboardAwareBottomSheetModal';
 
 // ---------- types ----------
 
@@ -437,210 +434,204 @@ export function LinkedSignInMethods({ theme }: LinkedSignInMethodsProps) {
       </View>
 
       {/* ── Email modal ── */}
-      <Modal
+      <KeyboardAwareBottomSheetModal
         visible={emailMode !== null}
         animationType="slide"
-        presentationStyle="pageSheet"
         onRequestClose={resetEmailModal}
+        maxHeightRatio={0.94}
+        sheetStyle={[styles.modalSheet, { backgroundColor: theme.background, borderColor: theme.border }]}
       >
-        <SafeAreaView style={[styles.modalSafe, { backgroundColor: theme.background }]}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-            <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
-                  {emailMode === 'add_password' ? 'Add password sign-in' : 'Add email sign-in'}
-                </Text>
-                <Pressable onPress={resetEmailModal} hitSlop={12}>
-                  <Ionicons name="close" size={22} color={theme.mutedForeground} />
-                </Pressable>
-              </View>
+        <View style={styles.modalScroll}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              {emailMode === 'add_password' ? 'Add password sign-in' : 'Add email sign-in'}
+            </Text>
+            <Pressable onPress={resetEmailModal} hitSlop={12}>
+              <Ionicons name="close" size={22} color={theme.mutedForeground} />
+            </Pressable>
+          </View>
 
-              {displayError ? (
-                <View style={[styles.errorBox, { backgroundColor: withAlpha(theme.danger, 0.1), borderColor: withAlpha(theme.danger, 0.3), marginBottom: 12 }]}>
-                  <Ionicons name="alert-circle" size={16} color={theme.danger} style={{ marginRight: 8 }} />
-                  <Text style={[styles.errorText, { color: theme.danger }]}>{displayError}</Text>
-                </View>
-              ) : null}
+          {displayError ? (
+            <View style={[styles.errorBox, { backgroundColor: withAlpha(theme.danger, 0.1), borderColor: withAlpha(theme.danger, 0.3), marginBottom: 12 }]}>
+              <Ionicons name="alert-circle" size={16} color={theme.danger} style={{ marginRight: 8 }} />
+              <Text style={[styles.errorText, { color: theme.danger }]}>{displayError}</Text>
+            </View>
+          ) : null}
 
-              {emailMode === 'add_password' && (
-                <>
-                  <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
-                    Set a password so you can sign in with{' '}
-                    <Text style={{ color: theme.text }}>{sessionEmail}</Text>
-                    {' '}and a password. Takes effect immediately — no confirmation email.
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
-                    placeholder={`New password (min ${PASSWORD_MIN_LENGTH} characters)`}
-                    placeholderTextColor={theme.mutedForeground}
-                    value={passwordInput}
-                    onChangeText={setPasswordInput}
-                    secureTextEntry
-                    autoComplete="new-password"
-                  />
-                  <Pressable
-                    onPress={handleAddPassword}
-                    disabled={passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy}
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      { backgroundColor: theme.tint, opacity: (passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy || pressed) ? 0.6 : 1 },
-                    ]}
-                  >
-                    {emailBusy
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <Text style={styles.primaryBtnText}>Set password</Text>}
-                  </Pressable>
-                </>
-              )}
+          {emailMode === 'add_password' && (
+            <>
+              <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
+                Set a password so you can sign in with{' '}
+                <Text style={{ color: theme.text }}>{sessionEmail}</Text>
+                {' '}and a password. Takes effect immediately — no confirmation email.
+              </Text>
+              <TextInput
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+                placeholder={`New password (min ${PASSWORD_MIN_LENGTH} characters)`}
+                placeholderTextColor={theme.mutedForeground}
+                value={passwordInput}
+                onChangeText={setPasswordInput}
+                secureTextEntry
+                autoComplete="new-password"
+              />
+              <Pressable
+                onPress={handleAddPassword}
+                disabled={passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  { backgroundColor: theme.tint, opacity: (passwordInput.length < PASSWORD_MIN_LENGTH || emailBusy || pressed) ? 0.6 : 1 },
+                ]}
+              >
+                {emailBusy
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.primaryBtnText}>Set password</Text>}
+              </Pressable>
+            </>
+          )}
 
-              {emailMode === 'add_email' && (
-                <>
-                  <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
-                    Add an email address. A confirmation link will be sent — click it to activate
-                    email sign-in. You can set a password afterwards.
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
-                    placeholder="Email address"
-                    placeholderTextColor={theme.mutedForeground}
-                    value={emailInput}
-                    onChangeText={setEmailInput}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="email"
-                  />
-                  <Pressable
-                    onPress={handleAddEmail}
-                    disabled={!emailInput.trim() || emailBusy}
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      { backgroundColor: theme.tint, opacity: (!emailInput.trim() || emailBusy || pressed) ? 0.6 : 1 },
-                    ]}
-                  >
-                    {emailBusy
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <Text style={styles.primaryBtnText}>Send confirmation</Text>}
-                  </Pressable>
-                </>
-              )}
+          {emailMode === 'add_email' && (
+            <>
+              <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
+                Add an email address. A confirmation link will be sent — click it to activate
+                email sign-in. You can set a password afterwards.
+              </Text>
+              <TextInput
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+                placeholder="Email address"
+                placeholderTextColor={theme.mutedForeground}
+                value={emailInput}
+                onChangeText={setEmailInput}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+              />
+              <Pressable
+                onPress={handleAddEmail}
+                disabled={!emailInput.trim() || emailBusy}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  { backgroundColor: theme.tint, opacity: (!emailInput.trim() || emailBusy || pressed) ? 0.6 : 1 },
+                ]}
+              >
+                {emailBusy
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.primaryBtnText}>Send confirmation</Text>}
+              </Pressable>
+            </>
+          )}
 
-              {emailMode === 'email_pending' && (
-                <View style={styles.pendingBox}>
-                  <Ionicons name="mail" size={36} color={theme.success} style={{ marginBottom: 12 }} />
-                  <Text style={[styles.pendingTitle, { color: theme.text }]}>Check your inbox</Text>
-                  <Text style={[styles.pendingBody, { color: theme.mutedForeground }]}>
-                    Confirmation sent to{' '}
-                    <Text style={{ color: theme.text }}>{emailInput}</Text>.
-                    Tap the link to activate email sign-in.
-                  </Text>
-                  <Pressable
-                    onPress={resetEmailModal}
-                    style={[styles.primaryBtn, { backgroundColor: theme.tint }]}
-                  >
-                    <Text style={styles.primaryBtnText}>Done</Text>
-                  </Pressable>
-                </View>
-              )}
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
+          {emailMode === 'email_pending' && (
+            <View style={styles.pendingBox}>
+              <Ionicons name="mail" size={36} color={theme.success} style={{ marginBottom: 12 }} />
+              <Text style={[styles.pendingTitle, { color: theme.text }]}>Check your inbox</Text>
+              <Text style={[styles.pendingBody, { color: theme.mutedForeground }]}>
+                Confirmation sent to{' '}
+                <Text style={{ color: theme.text }}>{emailInput}</Text>.
+                Tap the link to activate email sign-in.
+              </Text>
+              <Pressable
+                onPress={resetEmailModal}
+                style={[styles.primaryBtn, { backgroundColor: theme.tint }]}
+              >
+                <Text style={styles.primaryBtnText}>Done</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </KeyboardAwareBottomSheetModal>
 
       {/* ── Phone modal ── */}
-      <Modal
+      <KeyboardAwareBottomSheetModal
         visible={phoneStep !== null}
         animationType="slide"
-        presentationStyle="pageSheet"
         onRequestClose={resetPhoneModal}
+        maxHeightRatio={0.94}
+        sheetStyle={[styles.modalSheet, { backgroundColor: theme.background, borderColor: theme.border }]}
       >
-        <SafeAreaView style={[styles.modalSafe, { backgroundColor: theme.background }]}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-            <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              <View style={styles.modalHeader}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
-                  {phoneStep === 'otp' ? 'Verify your number' : 'Add phone sign-in'}
+        <View style={styles.modalScroll}>
+          <View style={styles.modalHeader}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              {phoneStep === 'otp' ? 'Verify your number' : 'Add phone sign-in'}
+            </Text>
+            <Pressable onPress={resetPhoneModal} hitSlop={12}>
+              <Ionicons name="close" size={22} color={theme.mutedForeground} />
+            </Pressable>
+          </View>
+
+          {displayError ? (
+            <View style={[styles.errorBox, { backgroundColor: withAlpha(theme.danger, 0.1), borderColor: withAlpha(theme.danger, 0.3), marginBottom: 12 }]}>
+              <Ionicons name="alert-circle" size={16} color={theme.danger} style={{ marginRight: 8 }} />
+              <Text style={[styles.errorText, { color: theme.danger }]}>{displayError}</Text>
+            </View>
+          ) : null}
+
+          {phoneStep === 'phone' && (
+            <>
+              <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
+                Enter your number in international format (e.g. +447911123456).
+                Phone sign-in uses one-time SMS codes — there is no phone+password option.
+              </Text>
+              <TextInput
+                style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+                placeholder="+447911123456"
+                placeholderTextColor={theme.mutedForeground}
+                value={phoneInput}
+                onChangeText={setPhoneInput}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+              />
+              <Pressable
+                onPress={handleSendPhoneOtp}
+                disabled={!phoneInput.trim() || phoneBusy}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  { backgroundColor: theme.tint, opacity: (!phoneInput.trim() || phoneBusy || pressed) ? 0.6 : 1 },
+                ]}
+              >
+                {phoneBusy
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.primaryBtnText}>Send code</Text>}
+              </Pressable>
+            </>
+          )}
+
+          {phoneStep === 'otp' && (
+            <>
+              <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
+                Enter the code sent to{' '}
+                <Text style={{ color: theme.text }}>{linkedPhoneRef.current}</Text>.
+              </Text>
+              <TextInput
+                style={[styles.input, styles.otpInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
+                placeholder="123456"
+                placeholderTextColor={theme.mutedForeground}
+                value={otpInput}
+                onChangeText={v => setOtpInput(v.replace(/\D/g, '').slice(0, 6))}
+                keyboardType="number-pad"
+                maxLength={6}
+              />
+              <Pressable
+                onPress={handleVerifyPhone}
+                disabled={otpInput.length < 4 || phoneBusy}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  { backgroundColor: theme.tint, opacity: (otpInput.length < 4 || phoneBusy || pressed) ? 0.6 : 1 },
+                ]}
+              >
+                {phoneBusy
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.primaryBtnText}>Verify</Text>}
+              </Pressable>
+              <Pressable onPress={resetPhoneModal} style={{ alignSelf: 'center', marginTop: 12 }}>
+                <Text style={[styles.noteText, { color: theme.mutedForeground }]}>
+                  Wrong number? Start over
                 </Text>
-                <Pressable onPress={resetPhoneModal} hitSlop={12}>
-                  <Ionicons name="close" size={22} color={theme.mutedForeground} />
-                </Pressable>
-              </View>
-
-              {displayError ? (
-                <View style={[styles.errorBox, { backgroundColor: withAlpha(theme.danger, 0.1), borderColor: withAlpha(theme.danger, 0.3), marginBottom: 12 }]}>
-                  <Ionicons name="alert-circle" size={16} color={theme.danger} style={{ marginRight: 8 }} />
-                  <Text style={[styles.errorText, { color: theme.danger }]}>{displayError}</Text>
-                </View>
-              ) : null}
-
-              {phoneStep === 'phone' && (
-                <>
-                  <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
-                    Enter your number in international format (e.g. +447911123456).
-                    Phone sign-in uses one-time SMS codes — there is no phone+password option.
-                  </Text>
-                  <TextInput
-                    style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
-                    placeholder="+447911123456"
-                    placeholderTextColor={theme.mutedForeground}
-                    value={phoneInput}
-                    onChangeText={setPhoneInput}
-                    keyboardType="phone-pad"
-                    autoComplete="tel"
-                  />
-                  <Pressable
-                    onPress={handleSendPhoneOtp}
-                    disabled={!phoneInput.trim() || phoneBusy}
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      { backgroundColor: theme.tint, opacity: (!phoneInput.trim() || phoneBusy || pressed) ? 0.6 : 1 },
-                    ]}
-                  >
-                    {phoneBusy
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <Text style={styles.primaryBtnText}>Send code</Text>}
-                  </Pressable>
-                </>
-              )}
-
-              {phoneStep === 'otp' && (
-                <>
-                  <Text style={[styles.modalHint, { color: theme.mutedForeground }]}>
-                    Enter the code sent to{' '}
-                    <Text style={{ color: theme.text }}>{linkedPhoneRef.current}</Text>.
-                  </Text>
-                  <TextInput
-                    style={[styles.input, styles.otpInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.surface }]}
-                    placeholder="123456"
-                    placeholderTextColor={theme.mutedForeground}
-                    value={otpInput}
-                    onChangeText={v => setOtpInput(v.replace(/\D/g, '').slice(0, 6))}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                  />
-                  <Pressable
-                    onPress={handleVerifyPhone}
-                    disabled={otpInput.length < 4 || phoneBusy}
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      { backgroundColor: theme.tint, opacity: (otpInput.length < 4 || phoneBusy || pressed) ? 0.6 : 1 },
-                    ]}
-                  >
-                    {phoneBusy
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <Text style={styles.primaryBtnText}>Verify</Text>}
-                  </Pressable>
-                  <Pressable onPress={resetPhoneModal} style={{ alignSelf: 'center', marginTop: 12 }}>
-                    <Text style={[styles.noteText, { color: theme.mutedForeground }]}>
-                      Wrong number? Start over
-                    </Text>
-                  </Pressable>
-                </>
-              )}
-            </ScrollView>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
+              </Pressable>
+            </>
+          )}
+        </View>
+      </KeyboardAwareBottomSheetModal>
     </View>
   );
 }
@@ -679,7 +670,7 @@ const styles = StyleSheet.create({
   noteBox: { marginHorizontal: 16, marginBottom: 12, marginTop: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10 },
   noteText: { fontSize: 11, lineHeight: 15 },
   // modal
-  modalSafe: { flex: 1 },
+  modalSheet: { paddingHorizontal: 0 },
   modalScroll: { padding: 24, flexGrow: 1 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: '700' },

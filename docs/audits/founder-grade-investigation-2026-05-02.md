@@ -215,7 +215,7 @@
 - **Evidence:** Every Edge Function I read declares `corsHeaders["Access-Control-Allow-Origin"] = "*"`. This means any origin can invoke the function (with the user's bearer token, which is the actual security boundary).
 - **Scenario:** A malicious site loaded by a logged-in user could invoke `swipe-actions`, `send-message`, etc. on the user's behalf. The Bearer token is needed but Supabase auth cookie is shared cross-tab, so a logged-in user visiting evil.com could be CSRF'd.
 - **Mitigation in place:** Auth Bearer token is required and is in localStorage (not auto-sent like a cookie), so a vanilla CSRF doesn't work — evil.com would need to read the token from another origin's localStorage, which the browser blocks.
-- **Fix:** Tighten ACAO to an allowlist of `https://www.vibelymeet.com`, `https://vibelymeet.com`, `https://*.vibelymeet.com`, the staging origin, and `capacitor://localhost`/`http://localhost:5173` for dev. Move logic into `_shared/cors.ts` and import everywhere.
+- **Fix:** Tighten ACAO to an allowlist of canonical `https://www.vibelymeet.com`, approved subdomain/staging origins, and `capacitor://localhost`/`http://localhost:5173` for dev. Move logic into `_shared/cors.ts` and import everywhere.
 - **Effort:** M
 
 ---

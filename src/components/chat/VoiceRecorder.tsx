@@ -7,10 +7,12 @@ import { toast } from 'sonner';
 interface VoiceRecorderProps {
   onRecordingComplete: (audioBlob: Blob, duration: number) => void;
   onCancel?: () => void;
+  disabled?: boolean;
+  onUnavailable?: () => void;
   className?: string;
 }
 
-const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecorderProps) => {
+const VoiceRecorder = ({ onRecordingComplete, onCancel, disabled = false, onUnavailable, className }: VoiceRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -32,8 +34,8 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
     if ('wakeLock' in navigator) {
       try {
         wakeLockRef.current = await navigator.wakeLock.request('screen');
-      } catch (err) {
-        console.log('Wake lock not available');
+      } catch {
+        // Wake lock is optional; recording still works when the browser denies it.
       }
     }
   };
@@ -68,6 +70,10 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
 
   // Start recording (AbortError/NotSupportedError are expected when user denies or browser limits)
   const startRecording = async () => {
+    if (disabled) {
+      onUnavailable?.();
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -262,10 +268,15 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, className }: VoiceRecord
   if (!isRecording) {
     return (
       <motion.button
+        type="button"
         whileTap={{ scale: 0.9 }}
         onPointerDown={startRecording}
+        disabled={disabled}
+        aria-label="Record voice message"
+        title="Record voice message"
         className={cn(
           "shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg cursor-pointer select-none touch-none",
+          disabled && "opacity-45 cursor-not-allowed",
           className
         )}
       >

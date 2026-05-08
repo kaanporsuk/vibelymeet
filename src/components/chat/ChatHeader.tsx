@@ -169,8 +169,10 @@ export const ChatHeader = ({
       <header className="relative z-40 glass-card border-b border-border/40 px-3 py-2 shrink-0">
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={onBack}
             className="p-1.5 -ml-1 rounded-lg hover:bg-secondary/80 transition-colors"
+            aria-label="Back to matches"
           >
             <ArrowLeft className="w-5 h-5 text-foreground" />
           </button>
@@ -187,7 +189,12 @@ export const ChatHeader = ({
             showActions={false}
             mode="match"
             trigger={
-              <div className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity">
+              <button
+                type="button"
+                className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                aria-label={`Open ${user.name}'s profile`}
+                title={`Open ${user.name}'s profile`}
+              >
                 <div className="relative shrink-0">
                   <ProfilePhoto
                     avatarUrl={user.avatar_url}
@@ -306,7 +313,7 @@ export const ChatHeader = ({
                     </AnimatePresence>
                   </div>
                 </div>
-              </div>
+              </button>
             }
             onMessage={onFocusInput}
             onVideoCall={handleVideoCall}
@@ -319,7 +326,9 @@ export const ChatHeader = ({
                 size="icon"
                 className="rounded-lg h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-secondary/80"
                 onClick={handleVoiceCall}
+                disabled={!matchId}
                 aria-label="Voice call"
+                title="Voice call"
               >
                 <Phone className="w-[18px] h-[18px]" />
               </Button>
@@ -328,7 +337,9 @@ export const ChatHeader = ({
                 size="icon"
                 className="rounded-lg h-9 w-9 text-foreground/80 hover:text-foreground hover:bg-secondary/80"
                 onClick={handleVideoCall}
+                disabled={!matchId}
                 aria-label="Video call"
+                title="Video call"
               >
                 <Video className="w-[18px] h-[18px]" />
               </Button>
@@ -348,12 +359,12 @@ export const ChatHeader = ({
                 <DropdownMenuItem onClick={handleViewProfile}>
                   View Profile
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setShowArchiveDialog(true)}>
+                <DropdownMenuItem onClick={() => setShowArchiveDialog(true)} disabled={!matchId}>
                   <Archive className="w-4 h-4 mr-2" />
                   Archive Chat
                 </DropdownMenuItem>
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
+                  <DropdownMenuSubTrigger disabled={!matchId}>
                     {isMuted ? (
                       <>
                         <Bell className="w-4 h-4 mr-2" />
@@ -412,6 +423,7 @@ export const ChatHeader = ({
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={() => setShowUnmatchDialog(true)}
+                  disabled={!matchId}
                 >
                   <UserX className="w-4 h-4 mr-2" />
                   Unmatch

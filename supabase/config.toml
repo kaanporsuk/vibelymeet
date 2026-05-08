@@ -97,6 +97,9 @@ verify_jwt = true
 [functions.send-message]
 verify_jwt = true
 
+[functions.chat-thread-page]
+verify_jwt = true
+
 [functions.send-game-event]
 verify_jwt = true
 

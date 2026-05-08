@@ -1,4 +1,3 @@
-import { parseVibeGameEnvelopeFromStructuredPayload } from "../vibely-games/parse";
 import type { VibeGameMessageEnvelopeV1 } from "../vibely-games/types";
 
 export type GameSessionCollapseRow = {
@@ -13,13 +12,32 @@ type RowEnvelope<TRow extends GameSessionCollapseRow> = {
   envelope: VibeGameMessageEnvelopeV1;
 };
 
+// Keep this parser local so shared/chat can run without a runtime dependency on
+// the vibely-games package boundary; the stronger fold still happens downstream.
+function parseGameEnvelope(structuredPayload: unknown): VibeGameMessageEnvelopeV1 | null {
+  if (!structuredPayload || typeof structuredPayload !== "object" || Array.isArray(structuredPayload)) {
+    return null;
+  }
+  const payload = structuredPayload as Record<string, unknown>;
+  if (payload.schema !== "vibely.game_event" || payload.version !== 1) return null;
+  if (typeof payload.game_session_id !== "string" || !payload.game_session_id) return null;
+  if (typeof payload.event_id !== "string" || !payload.event_id) return null;
+  if (typeof payload.event_index !== "number" || !Number.isFinite(payload.event_index)) return null;
+  if (typeof payload.event_type !== "string" || !payload.event_type) return null;
+  if (typeof payload.game_type !== "string" || !payload.game_type) return null;
+  if (typeof payload.actor_id !== "string" || !payload.actor_id) return null;
+  if (typeof payload.emitted_at !== "string" || !payload.emitted_at) return null;
+  if (!payload.payload || typeof payload.payload !== "object" || Array.isArray(payload.payload)) return null;
+  return payload as unknown as VibeGameMessageEnvelopeV1;
+}
+
 function collectSessionGroups<TRow extends GameSessionCollapseRow>(rows: TRow[]) {
   const groups = new Map<string, RowEnvelope<TRow>[]>();
   const emitIndexBySession = new Map<string, number>();
 
   rows.forEach((row, index) => {
     if (row.message_kind !== "vibe_game") return;
-    const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
+    const envelope = parseGameEnvelope(row.structured_payload);
     if (!envelope) return;
     const sid = envelope.game_session_id;
     if (!groups.has(sid)) groups.set(sid, []);
@@ -71,7 +89,7 @@ export function collapseGameSessionRows<TRow extends GameSessionCollapseRow, TVi
       continue;
     }
 
-    const envelope = parseVibeGameEnvelopeFromStructuredPayload(row.structured_payload);
+    const envelope = parseGameEnvelope(row.structured_payload);
     if (!envelope) {
       out.push(mapRegularRow(row));
       continue;

@@ -9,8 +9,19 @@ export type ChatMediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbna
 type ResolverResponse = {
   success?: boolean;
   url?: string;
+  expiresInSeconds?: number;
   error?: string;
 };
+
+type CachedMediaUrl = {
+  url: string;
+  expiresAtMs: number;
+};
+
+const DEFAULT_SIGNED_MEDIA_TTL_MS = 4 * 60 * 1000;
+const SIGNED_MEDIA_TTL_SAFETY_MS = 15 * 1000;
+const mediaUrlCache = new Map<string, CachedMediaUrl>();
+let testMediaUrlIssuer: ((messageId: string, mediaKind: ChatMediaKind) => Promise<ResolverResponse | null>) | null = null;
 
 function isLocalPreviewRef(value: string): boolean {
   return value.startsWith("blob:") || value.startsWith("file:") || value.startsWith("data:");
@@ -28,12 +39,58 @@ async function resolveChatMediaUrl(
   if (!rawRef) return null;
   if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
 
-  const { data, error } = await supabase.functions.invoke("get-chat-media-url", {
-    body: { messageId, mediaKind },
+  return getCachedChatMediaUrl(messageId, mediaKind, rawRef);
+}
+
+export async function getCachedChatMediaUrl(
+  messageId: string,
+  mediaKind: ChatMediaKind,
+  rawRef: string | null | undefined,
+): Promise<string | null> {
+  if (!rawRef) return null;
+  if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
+
+  const cacheKey = `${messageId}:${mediaKind}:${rawRef}`;
+  const cached = mediaUrlCache.get(cacheKey);
+  if (cached && cached.expiresAtMs > Date.now()) return cached.url;
+  mediaUrlCache.delete(cacheKey);
+
+  const payload = testMediaUrlIssuer
+    ? await testMediaUrlIssuer(messageId, mediaKind)
+    : await (async () => {
+        const { data, error } = await supabase.functions.invoke("get-chat-media-url", {
+          body: { messageId, mediaKind },
+        });
+        if (error) return null;
+        return data as ResolverResponse | null;
+      })();
+  if (!payload?.success || typeof payload.url !== "string" || !payload.url) return null;
+
+  const expiresInMs =
+    typeof payload.expiresInSeconds === "number" &&
+    Number.isFinite(payload.expiresInSeconds) &&
+    payload.expiresInSeconds > 0
+      ? Math.max(1_000, payload.expiresInSeconds * 1000 - SIGNED_MEDIA_TTL_SAFETY_MS)
+      : DEFAULT_SIGNED_MEDIA_TTL_MS;
+  mediaUrlCache.set(cacheKey, {
+    url: payload.url,
+    expiresAtMs: Date.now() + expiresInMs,
   });
-  if (error) return null;
-  const payload = data as ResolverResponse | null;
-  return payload?.success && typeof payload.url === "string" && payload.url ? payload.url : null;
+  return payload.url;
+}
+
+export function __clearChatMediaUrlCacheForTests() {
+  mediaUrlCache.clear();
+}
+
+export function __chatMediaUrlCacheSizeForTests() {
+  return mediaUrlCache.size;
+}
+
+export function __setChatMediaUrlIssuerForTests(
+  issuer: ((messageId: string, mediaKind: ChatMediaKind) => Promise<ResolverResponse | null>) | null,
+) {
+  testMediaUrlIssuer = issuer;
 }
 
 export async function resolveChatMessageMediaForDisplay<

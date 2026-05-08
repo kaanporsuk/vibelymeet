@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,19 +13,17 @@ import {
   CalendarPlus,
   Gamepad2,
   ChevronDown,
+  Plus,
+  X,
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader, type ChatHeaderActivityLine } from "@/components/chat/ChatHeader";
 import { ChatThreadSkeleton } from "@/components/chat/ChatThreadSkeleton";
-import VoiceRecorder from "@/components/chat/VoiceRecorder";
-import VideoMessageRecorder from "@/components/chat/VideoMessageRecorder";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
 import { VibeClipBubble } from "@/components/chat/VibeClipBubble";
-import { ChatPhotoLightbox } from "@/components/chat/ChatPhotoLightbox";
-import { ChatVideoLightbox } from "@/components/chat/ChatVideoLightbox";
 import { MessageStatus } from "@/components/chat/MessageStatus";
 import {
   formatChatImageMessageContent,
@@ -36,20 +34,11 @@ import { extractVibeClipMeta } from "../../shared/chat/messageRouting";
 import { clientRequestIdFromStructured } from "../../shared/chat/clientRequestId";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { VibeSyncModal } from "@/components/schedule/VibeSyncModal";
-import { DateSuggestionComposer } from "@/components/chat/DateSuggestionComposer";
 import { DateSuggestionCard } from "@/components/chat/DateSuggestionCard";
 import { useMatchDateSuggestions } from "@/hooks/useDateSuggestionData";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
 import type { WizardState } from "@/components/chat/DateSuggestionComposer";
-import { VibeArcadeMenu } from "@/components/arcade/VibeArcadeMenu";
 import { GameBubbleRenderer } from "@/components/arcade/GameBubbleRenderer";
-import { TwoTruthsCreator } from "@/components/arcade/creators/TwoTruthsCreator";
-import { WouldRatherCreator } from "@/components/arcade/creators/WouldRatherCreator";
-import { CharadesCreator } from "@/components/arcade/creators/CharadesCreator";
-import { ScavengerCreator } from "@/components/arcade/creators/ScavengerCreator";
-import { RouletteCreator } from "@/components/arcade/creators/RouletteCreator";
-import { IntuitionCreator } from "@/components/arcade/creators/IntuitionCreator";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
 import { useTypingBroadcast } from "@/hooks/useTypingBroadcast";
@@ -90,6 +79,42 @@ type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
+
+const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
+const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
+const ChatPhotoLightbox = lazy(() =>
+  import("@/components/chat/ChatPhotoLightbox").then((mod) => ({ default: mod.ChatPhotoLightbox })),
+);
+const ChatVideoLightbox = lazy(() =>
+  import("@/components/chat/ChatVideoLightbox").then((mod) => ({ default: mod.ChatVideoLightbox })),
+);
+const VibeSyncModal = lazy(() =>
+  import("@/components/schedule/VibeSyncModal").then((mod) => ({ default: mod.VibeSyncModal })),
+);
+const DateSuggestionComposer = lazy(() =>
+  import("@/components/chat/DateSuggestionComposer").then((mod) => ({ default: mod.DateSuggestionComposer })),
+);
+const VibeArcadeMenu = lazy(() =>
+  import("@/components/arcade/VibeArcadeMenu").then((mod) => ({ default: mod.VibeArcadeMenu })),
+);
+const TwoTruthsCreator = lazy(() =>
+  import("@/components/arcade/creators/TwoTruthsCreator").then((mod) => ({ default: mod.TwoTruthsCreator })),
+);
+const WouldRatherCreator = lazy(() =>
+  import("@/components/arcade/creators/WouldRatherCreator").then((mod) => ({ default: mod.WouldRatherCreator })),
+);
+const CharadesCreator = lazy(() =>
+  import("@/components/arcade/creators/CharadesCreator").then((mod) => ({ default: mod.CharadesCreator })),
+);
+const ScavengerCreator = lazy(() =>
+  import("@/components/arcade/creators/ScavengerCreator").then((mod) => ({ default: mod.ScavengerCreator })),
+);
+const RouletteCreator = lazy(() =>
+  import("@/components/arcade/creators/RouletteCreator").then((mod) => ({ default: mod.RouletteCreator })),
+);
+const IntuitionCreator = lazy(() =>
+  import("@/components/arcade/creators/IntuitionCreator").then((mod) => ({ default: mod.IntuitionCreator })),
+);
 
 interface ChatMessage {
   id: string;
@@ -230,7 +255,13 @@ const Chat = () => {
   const currentUserId = user?.id || "";
   const queryClient = useQueryClient();
   
-  const { data: chatData, isLoading: isLoadingChat } = useMessages(id || "", currentUserId);
+  const {
+    data: chatData,
+    isLoading: isLoadingChat,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useMessages(id || "", currentUserId);
   const webOutbox = useWebChatOutbox();
   const { data: dateSuggestions = [], refetch: refetchDateSuggestions } = useMatchDateSuggestions(
     chatData?.matchId,
@@ -244,6 +275,7 @@ const Chat = () => {
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const [showVibeSync, setShowVibeSync] = useState(false);
+  const [showAttachmentTray, setShowAttachmentTray] = useState(false);
   const [showDateComposer, setShowDateComposer] = useState(false);
   const [dateComposerLaunchSource, setDateComposerLaunchSource] =
     useState<DateComposerLaunchSource>("default");
@@ -265,6 +297,7 @@ const Chat = () => {
   /** True until we have applied the first bottom snap for this thread (avoids onScroll racing before scrollToBottom). */
   const pendingThreadBottomSnapRef = useRef(false);
   const lastThreadCountRef = useRef(0);
+  const olderPageScrollSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [newBelowCue, setNewBelowCue] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -799,7 +832,11 @@ const Chat = () => {
     stickToBottomRef.current = atBottom;
     setAwayFromBottom(distanceFromBottom > 140);
     if (atBottom) setNewBelowCue(false);
-  }, []);
+    if (scrollTop < 96 && hasNextPage && !isFetchingNextPage) {
+      olderPageScrollSnapshotRef.current = { scrollHeight, scrollTop };
+      void fetchNextPage();
+    }
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   useEffect(() => {
     const lowerMessage = newMessage.toLowerCase();
@@ -887,6 +924,15 @@ const Chat = () => {
     setNewBelowCue(false);
     messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
   }, [id, isLoadingChat, displayMessages.length, rowsWithLayout]);
+
+  useLayoutEffect(() => {
+    if (isFetchingNextPage) return;
+    const snapshot = olderPageScrollSnapshotRef.current;
+    const el = mainScrollRef.current;
+    if (!snapshot || !el) return;
+    olderPageScrollSnapshotRef.current = null;
+    el.scrollTop = el.scrollHeight - snapshot.scrollHeight + snapshot.scrollTop;
+  }, [isFetchingNextPage, rowsWithLayout]);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
@@ -1025,6 +1071,10 @@ const Chat = () => {
   };
 
   const handleOpenDateComposerFromChip = () => {
+    if (!chatData?.matchId || !id) {
+      toast.error("No active conversation found");
+      return;
+    }
     recordUserAction("chat_date_suggestion_open_clicked", {
       surface: "chat_thread",
       match_id: chatData?.matchId ?? id,
@@ -1207,11 +1257,62 @@ const Chat = () => {
   );
 
   const hasText = newMessage.trim().length > 0;
+  const hasActiveConversation = Boolean(chatData?.matchId && id && currentUserId);
   const composerMediaLocked = sendingPhoto || isRecordingVideo;
 
+  const guardActiveConversation = useCallback((message = "No active conversation found") => {
+    if (hasActiveConversation) return true;
+    toast.error(message);
+    return false;
+  }, [hasActiveConversation]);
+
+  const openArcade = useCallback(() => {
+    if (!guardActiveConversation()) return;
+    setShowArcade(true);
+  }, [guardActiveConversation]);
+
+  const openVibeSync = useCallback(() => {
+    if (!guardActiveConversation()) return;
+    setShowVibeSync(true);
+    setShowAttachmentTray(false);
+  }, [guardActiveConversation]);
+
+  const openPhotoPicker = useCallback(() => {
+    if (composerMediaLocked) return;
+    if (!guardActiveConversation("Cannot send photo right now")) return;
+    if (!navigator.onLine) {
+      toast.error("You're offline — try again when connected");
+      return;
+    }
+    recordUserAction("chat_photo_add_clicked", {
+      surface: "chat_thread",
+      match_id: chatData?.matchId,
+    });
+    setShowAttachmentTray(false);
+    photoInputRef.current?.click();
+  }, [chatData?.matchId, composerMediaLocked, guardActiveConversation]);
+
+  const openVibeClipRecorder = useCallback(() => {
+    if (composerMediaLocked) return;
+    if (!guardActiveConversation("Cannot record a Vibe Clip right now")) return;
+    recordUserAction("chat_vibe_clip_record_clicked", {
+      surface: "chat_thread",
+      match_id: chatData?.matchId ?? id,
+    });
+    trackVibeClipEvent("clip_entry_opened", {
+      thread_bucket: threadBucketFromCount(displayMessages.length),
+      is_sender: true,
+      launched_from: "chat",
+    });
+    setShowAttachmentTray(false);
+    setIsRecordingVideo(true);
+  }, [chatData?.matchId, composerMediaLocked, displayMessages.length, guardActiveConversation, id]);
+
   return (
-    <div className="h-[100dvh] bg-background flex flex-col relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-radial from-primary/5 via-transparent to-transparent pointer-events-none" />
+    <div className="h-[100dvh] bg-[#050508] flex justify-center relative overflow-hidden lg:px-4 lg:py-3">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />
+      <section className="relative z-10 flex h-full w-full max-w-6xl overflow-hidden bg-background/96 shadow-2xl shadow-black/35 ring-1 ring-border/45 lg:rounded-[1.75rem]">
+        <div className="min-w-0 flex flex-1 flex-col">
 
       <ChatHeader
         user={otherUser}
@@ -1266,6 +1367,7 @@ const Chat = () => {
               You both vibed! Say hi before the momentum fades 💬
             </p>
             <button
+              type="button"
               onClick={() => {
                 if (!chatData?.matchId || !threadInvalidateScope || !id) return;
                 webOutbox.enqueue({
@@ -1276,13 +1378,31 @@ const Chat = () => {
                   invalidateScope: threadInvalidateScope,
                 });
               }}
-              className="px-6 py-2.5 rounded-full bg-gradient-primary text-primary-foreground font-medium text-sm shadow-lg hover:opacity-90 transition-opacity"
+              disabled={!hasActiveConversation}
+              aria-label={`Send a wave to ${otherUser.name}`}
+              title="Send a wave"
+              className="px-6 py-2.5 rounded-full bg-gradient-primary text-primary-foreground font-medium text-sm shadow-lg hover:opacity-90 transition-opacity disabled:pointer-events-none disabled:opacity-45"
             >
               Send a Wave 👋
             </button>
           </motion.div>
         ) : (
           <div ref={threadContentRef} className="w-full max-w-2xl mx-auto space-y-0 px-0.5 sm:px-0">
+            {hasNextPage ? (
+              <div className="flex justify-center py-2">
+                <button
+                  type="button"
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/45 bg-secondary/25 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+                  aria-label="Load older messages"
+                  title="Load older messages"
+                >
+                  {isFetchingNextPage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {isFetchingNextPage ? "Loading older" : "Load older messages"}
+                </button>
+              </div>
+            ) : null}
             {rowsWithLayout.map(({ row, isFirstInGroup, isLastInGroup, showAvatar }) => {
               if (row.type === "pending_games_summary") {
                 return (
@@ -1294,6 +1414,8 @@ const Chat = () => {
                       type="button"
                       className="rounded-full border border-border/30 bg-muted/20 px-3 py-1.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/35 transition-colors"
                       onClick={() => setExpandedPendingClusterKey(row.clusterKey)}
+                      aria-label={`Show ${row.hidden.length} earlier open game${row.hidden.length === 1 ? "" : "s"}`}
+                      title="Show earlier games"
                     >
                       {row.hidden.length} earlier open game{row.hidden.length === 1 ? "" : "s"} · Show
                     </button>
@@ -1307,6 +1429,8 @@ const Chat = () => {
                       type="button"
                       className="text-[10px] font-medium text-muted-foreground underline-offset-2 hover:underline"
                       onClick={() => setExpandedPendingClusterKey(null)}
+                      aria-label="Collapse earlier games"
+                      title="Collapse earlier games"
                     >
                       Collapse earlier games
                     </button>
@@ -1595,6 +1719,8 @@ const Chat = () => {
             type="button"
             onClick={() => scrollToBottom()}
             className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/92 backdrop-blur-md px-3.5 py-1.5 text-xs font-medium text-foreground shadow-lg shadow-black/10 hover:bg-background transition-colors"
+            aria-label={newBelowCue ? "Jump to new messages" : "Jump to latest message"}
+            title={newBelowCue ? "New below" : "Latest"}
           >
             <ChevronDown className="w-3.5 h-3.5 opacity-80" aria-hidden />
             {newBelowCue ? "New below" : "Latest"}
@@ -1617,8 +1743,10 @@ const Chat = () => {
               type="button"
               whileTap={{ scale: 0.98 }}
               onClick={handleOpenDateComposerFromChip}
-              className="flex-1 min-w-0 h-7 px-2 rounded-full border border-border/40 bg-secondary/25 text-foreground/90 hover:bg-secondary/40 transition-colors inline-flex items-center justify-center gap-1"
+              disabled={!hasActiveConversation}
+              className="flex-1 min-w-0 h-7 px-2 rounded-full border border-border/40 bg-secondary/25 text-foreground/90 hover:bg-secondary/40 transition-colors inline-flex items-center justify-center gap-1 disabled:pointer-events-none disabled:opacity-45"
               aria-label="Suggest a Date"
+              title="Suggest a date"
             >
               <CalendarPlus className="w-3 h-3 shrink-0 text-rose-400/95" />
               <span className="text-[11px] font-medium truncate tracking-tight">Date</span>
@@ -1626,15 +1754,64 @@ const Chat = () => {
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
-              onClick={() => setShowArcade(true)}
-              className="flex-1 min-w-0 h-7 px-2 rounded-full border border-border/40 bg-secondary/25 text-foreground/90 hover:bg-secondary/40 transition-colors inline-flex items-center justify-center gap-1"
+              onClick={openArcade}
+              disabled={!hasActiveConversation}
+              className="flex-1 min-w-0 h-7 px-2 rounded-full border border-border/40 bg-secondary/25 text-foreground/90 hover:bg-secondary/40 transition-colors inline-flex items-center justify-center gap-1 disabled:pointer-events-none disabled:opacity-45"
               aria-label="Open Games"
+              title="Open games"
             >
               <Gamepad2 className="w-3 h-3 shrink-0 text-cyan-400/90" />
               <span className="text-[11px] font-medium truncate tracking-tight">Games</span>
             </motion.button>
           </div>
         </div>
+
+        <AnimatePresence>
+          {showAttachmentTray ? (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              className="px-2 py-1"
+            >
+              <div className="max-w-2xl mx-auto grid grid-cols-3 gap-1.5 rounded-2xl border border-border/40 bg-background/92 p-1.5 shadow-lg shadow-black/15 backdrop-blur-md">
+                <button
+                  type="button"
+                  onClick={openPhotoPicker}
+                  disabled={composerMediaLocked || !hasActiveConversation}
+                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
+                  aria-label="Add photo"
+                  title="Add photo"
+                >
+                  {sendingPhoto ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                  Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={openVibeClipRecorder}
+                  disabled={composerMediaLocked || !hasActiveConversation}
+                  className="h-9 rounded-xl bg-violet-500/14 text-xs font-medium text-violet-100 transition-colors hover:bg-violet-500/24 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
+                  aria-label={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
+                  title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
+                >
+                  <Film className="h-3.5 w-3.5" />
+                  Clip
+                </button>
+                <button
+                  type="button"
+                  onClick={openVibeSync}
+                  disabled={!hasActiveConversation}
+                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
+                  aria-label="Vibely schedule"
+                  title="Vibely schedule"
+                >
+                  <CalendarDays className="h-3.5 w-3.5 text-cyan-300" />
+                  Schedule
+                </button>
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {/* Input bar */}
         <div className="glass-card border-t border-border/35 px-2 py-1 pb-safe">
@@ -1652,98 +1829,19 @@ const Chat = () => {
             <div className="flex items-center gap-0.5 shrink-0">
               <motion.button
                 type="button"
-                whileTap={{ scale: composerMediaLocked ? 1 : 0.9 }}
-                disabled={composerMediaLocked || !chatData?.matchId}
-                onClick={() => {
-                  if (composerMediaLocked || !chatData?.matchId) return;
-                  if (!navigator.onLine) {
-                    toast.error("You're offline — try again when connected");
-                    return;
-                  }
-                  recordUserAction("chat_photo_add_clicked", {
-                    surface: "chat_thread",
-                    match_id: chatData.matchId,
-                  });
-                  photoInputRef.current?.click();
-                }}
+                whileTap={{ scale: 0.9 }}
+                disabled={!hasActiveConversation}
+                onClick={() => setShowAttachmentTray((open) => !open)}
                 className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
                   "bg-secondary/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                   "disabled:opacity-45 disabled:pointer-events-none"
                 )}
-                aria-label="Add photo"
-                title="Add photo"
+                aria-label={showAttachmentTray ? "Close attachments" : "Open attachments"}
+                aria-expanded={showAttachmentTray}
+                title={showAttachmentTray ? "Close attachments" : "Attachments"}
               >
-                {sendingPhoto ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Camera className="w-3.5 h-3.5" aria-hidden />
-                )}
-              </motion.button>
-              <motion.button
-                whileTap={{ scale: composerMediaLocked ? 1 : 0.9 }}
-                disabled={composerMediaLocked}
-                onClick={() => {
-                  if (composerMediaLocked) return;
-                  recordUserAction("chat_vibe_clip_record_clicked", {
-                    surface: "chat_thread",
-                    match_id: chatData?.matchId ?? id,
-                  });
-                  trackVibeClipEvent("clip_entry_opened", {
-                    thread_bucket: threadBucketFromCount(displayMessages.length),
-                    is_sender: true,
-                    launched_from: "chat",
-                  });
-                  setIsRecordingVideo(true);
-                }}
-                className="w-8 h-8 rounded-full bg-violet-500/12 text-violet-300 hover:bg-violet-500/22 flex items-center justify-center transition-colors disabled:opacity-45 disabled:pointer-events-none"
-                title={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
-              >
-                <Film className="w-3.5 h-3.5" />
-              </motion.button>
-
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setShowVibeSync(true)}
-                className="hidden xs:flex w-8 h-8 rounded-full bg-secondary/35 items-center justify-center text-muted-foreground hover:text-neon-cyan hover:bg-secondary/50 transition-colors"
-                aria-label="Vibely schedule"
-              >
-                <CalendarDays className="w-3.5 h-3.5" />
-              </motion.button>
-
-              <motion.button
-                type="button"
-                whileTap={{ scale: 0.9 }}
-                onClick={() => {
-                  recordUserAction("chat_date_suggestion_open_clicked", {
-                    surface: "chat_thread",
-                    match_id: chatData?.matchId ?? id,
-                    source: "composer_button",
-                  });
-                  if (matchHasOpenDateSuggestion(dateSuggestions)) {
-                    toast.message(
-                      "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
-                    );
-                    return;
-                  }
-                  setComposerCounter(null);
-                  setComposerDraftId(null);
-                  setComposerDraftPayload(null);
-                  setDateComposerLaunchSource("default");
-                  setShowDateComposer(true);
-                }}
-                className="hidden xs:flex w-8 h-8 rounded-full bg-secondary/35 items-center justify-center text-muted-foreground hover:text-rose-400 hover:bg-secondary/50 transition-colors"
-                aria-label="Suggest a date"
-              >
-                <CalendarPlus className="w-3.5 h-3.5" />
-              </motion.button>
-
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={() => setShowArcade(true)}
-                className="hidden xs:flex w-8 h-8 rounded-full bg-secondary/35 items-center justify-center text-muted-foreground hover:text-primary hover:bg-secondary/50 transition-colors"
-              >
-                <Gamepad2 className="w-3.5 h-3.5" />
+                {showAttachmentTray ? <X className="w-3.5 h-3.5" aria-hidden /> : <Plus className="w-3.5 h-3.5" aria-hidden />}
               </motion.button>
             </div>
 
@@ -1755,8 +1853,11 @@ const Chat = () => {
                 value={newMessage}
                 onChange={(e) => handleComposerChange(e.target.value)}
                 onKeyPress={handleKeyPress}
+                disabled={!hasActiveConversation}
+                aria-label="Message"
+                title={hasActiveConversation ? "Message" : "No active conversation"}
                 rows={1}
-                className="w-full text-[15px] leading-snug px-3 py-2 rounded-2xl border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32"
+                className="w-full text-[15px] leading-snug px-3 py-2 rounded-2xl border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32 disabled:opacity-55"
                 style={{
                   height: "auto",
                   minHeight: "38px",
@@ -1767,9 +1868,13 @@ const Chat = () => {
             {/* Send / Mic button */}
             {hasText ? (
               <motion.button
+                type="button"
                 whileTap={{ scale: 0.9 }}
                 onClick={handleSend}
-                className="shrink-0 w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-md"
+                disabled={!hasActiveConversation}
+                className="shrink-0 w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-md disabled:opacity-45 disabled:pointer-events-none"
+                aria-label="Send message"
+                title="Send"
               >
                 <motion.div
                   initial={{ scale: 0, rotate: -90 }}
@@ -1780,157 +1885,236 @@ const Chat = () => {
                 </motion.div>
               </motion.button>
             ) : (
-              <VoiceRecorder
-                onRecordingComplete={handleVoiceRecordingComplete}
-                onCancel={() => setIsRecording(false)}
-              />
+              <Suspense
+                fallback={
+                  <button
+                    type="button"
+                    disabled
+                    className="shrink-0 w-10 h-10 rounded-full bg-secondary/45 flex items-center justify-center text-muted-foreground"
+                    aria-label="Voice message loading"
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  </button>
+                }
+              >
+                <VoiceRecorder
+                  disabled={!hasActiveConversation}
+                  onUnavailable={() => toast.error("No active conversation found")}
+                  onRecordingComplete={handleVoiceRecordingComplete}
+                  onCancel={() => setIsRecording(false)}
+                />
+              </Suspense>
             )}
           </div>
         </div>
       </div>
+        </div>
 
-      {/* Video recording overlay */}
-      <AnimatePresence>
-        {isRecordingVideo && (
-          <VideoMessageRecorder
-            promptSeed={chatData?.matchId ?? id ?? ""}
-            onRecordingComplete={handleVideoRecordingComplete}
-            onCancel={() => setIsRecordingVideo(false)}
+        <aside className="hidden w-72 shrink-0 border-l border-border/35 bg-[#09090d]/72 px-4 py-4 xl:flex xl:flex-col">
+          <div className="flex items-center gap-3">
+            <img
+              src={otherUser.avatar_url}
+              alt=""
+              className="h-14 w-14 rounded-full object-cover ring-2 ring-primary/25"
+              loading="eager"
+            />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">
+                {otherUser.name}{otherUser.age ? `, ${otherUser.age}` : ""}
+              </p>
+              <p className={cn("text-xs", otherUser.isOnline ? "text-green-500" : "text-muted-foreground")}>
+                {otherUser.isOnline ? "Active now" : threadAnchorLabel ?? "Private chat"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-4 text-sm">
+            <div className="border-t border-border/30 pt-4">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Conversation</p>
+              <p className="mt-1 text-foreground/90">{threadAnchorLabel ?? "Private chat"}</p>
+              {hasNextPage ? (
+                <button
+                  type="button"
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                  className="mt-2 text-xs font-medium text-primary underline-offset-4 hover:underline disabled:opacity-50"
+                  aria-label="Load earlier messages"
+                  title="Load earlier messages"
+                >
+                  {isFetchingNextPage ? "Loading..." : "Earlier messages"}
+                </button>
+              ) : null}
+            </div>
+            <div className="border-t border-border/30 pt-4">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Quick Actions</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.focus()}
+                  disabled={!hasActiveConversation}
+                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 hover:bg-secondary/70 disabled:opacity-45"
+                  aria-label="Focus message composer"
+                  title="Message"
+                >
+                  Message
+                </button>
+                <button
+                  type="button"
+                  onClick={openPhotoPicker}
+                  disabled={composerMediaLocked || !hasActiveConversation}
+                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 hover:bg-secondary/70 disabled:opacity-45"
+                  aria-label="Add photo"
+                  title="Add photo"
+                >
+                  Photo
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <Suspense fallback={null}>
+        {/* Video recording overlay */}
+        <AnimatePresence>
+          {isRecordingVideo && (
+            <VideoMessageRecorder
+              promptSeed={chatData?.matchId ?? id ?? ""}
+              onRecordingComplete={handleVideoRecordingComplete}
+              onCancel={() => setIsRecordingVideo(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        {chatData?.matchId && currentUserId && (
+          <DateSuggestionComposer
+            open={showDateComposer}
+            onClose={closeDateComposer}
+            matchId={chatData.matchId}
+            currentUserId={currentUserId}
+            partnerUserId={chatData.otherUser?.id ?? id ?? ""}
+            partnerName={otherUser.name}
+            draftSuggestionId={composerDraftId}
+            draftFromParent={
+              composerDraftPayload &&
+              typeof composerDraftPayload === "object" &&
+              ("wizard" in composerDraftPayload || "step" in composerDraftPayload)
+                ? {
+                    wizard: (composerDraftPayload as { wizard?: Partial<WizardState> }).wizard,
+                    step: (composerDraftPayload as { step?: number }).step,
+                  }
+                : null
+            }
+            counterContext={
+              composerCounter
+                ? {
+                    suggestionId: composerCounter.suggestionId,
+                    previousRevision: composerCounter.previousRevision,
+                  }
+                : null
+            }
+            onSuccess={() => {
+              void refetchDateSuggestions();
+              if (id && currentUserId) {
+                queryClient.invalidateQueries({
+                  queryKey: threadMessagesQueryKey(id, currentUserId),
+                  exact: true,
+                });
+              }
+            }}
+            launchSource={dateComposerLaunchSource}
+            threadMessageCount={displayMessages.length}
           />
         )}
-      </AnimatePresence>
 
-      {chatData?.matchId && currentUserId && (
-        <DateSuggestionComposer
-          open={showDateComposer}
-          onClose={closeDateComposer}
-          matchId={chatData.matchId}
-          currentUserId={currentUserId}
-          partnerUserId={chatData.otherUser?.id ?? id ?? ""}
-          partnerName={otherUser.name}
-          draftSuggestionId={composerDraftId}
-          draftFromParent={
-            composerDraftPayload &&
-            typeof composerDraftPayload === "object" &&
-            ("wizard" in composerDraftPayload || "step" in composerDraftPayload)
-              ? {
-                  wizard: (composerDraftPayload as { wizard?: Partial<WizardState> }).wizard,
-                  step: (composerDraftPayload as { step?: number }).step,
-                }
-              : null
-          }
-          counterContext={
-            composerCounter
-              ? {
-                  suggestionId: composerCounter.suggestionId,
-                  previousRevision: composerCounter.previousRevision,
-                }
-              : null
-          }
-          onSuccess={() => {
-            void refetchDateSuggestions();
-            if (id && currentUserId) {
-              queryClient.invalidateQueries({
-                queryKey: threadMessagesQueryKey(id, currentUserId),
-                exact: true,
-              });
-            }
-          }}
-          launchSource={dateComposerLaunchSource}
-          threadMessageCount={displayMessages.length}
+        <VibeSyncModal
+          isOpen={showVibeSync}
+          onClose={() => setShowVibeSync(false)}
+          matchName={otherUser.name}
+          matchAvatar={otherUser.avatar_url}
+          matchId={chatData?.matchId ?? ""}
         />
-      )}
 
-      {/* Vibe Sync Modal */}
-      <VibeSyncModal
-        isOpen={showVibeSync}
-        onClose={() => setShowVibeSync(false)}
-        matchName={otherUser.name}
-        matchAvatar={otherUser.avatar_url}
-        matchId={otherUser.id}
-      />
+        <VibeArcadeMenu
+          isOpen={showArcade}
+          onClose={() => setShowArcade(false)}
+          onSelectGame={handleGameSelect}
+        />
 
-      {/* Vibe Arcade Menu */}
-      <VibeArcadeMenu
-        isOpen={showArcade}
-        onClose={() => setShowArcade(false)}
-        onSelectGame={handleGameSelect}
-      />
-
-      {/* Game Creators */}
-      <TwoTruthsCreator
-        isOpen={activeGameCreator === "2truths"}
-        onClose={() => setActiveGameCreator(null)}
-        onSubmit={(statements, lieIndex) =>
-          submitGameStart({ gameType: "2truths", step: "active", data: { statements, lieIndex } })
-        }
-      />
-      <WouldRatherCreator
-        isOpen={activeGameCreator === "would_rather"}
-        onClose={() => setActiveGameCreator(null)}
-        onSubmit={(optionA, optionB, vote) =>
-          submitGameStart({ gameType: "would_rather", step: "active", data: { optionA, optionB, senderVote: vote } })
-        }
-      />
-      <CharadesCreator
-        isOpen={activeGameCreator === "charades"}
-        onClose={() => setActiveGameCreator(null)}
-        onSubmit={(answer, emojis) =>
-          submitGameStart({ gameType: "charades", step: "active", data: { answer, emojis, guesses: [] } })
-        }
-      />
-      <ScavengerCreator
-        isOpen={activeGameCreator === "scavenger"}
-        onClose={() => setActiveGameCreator(null)}
-        onSubmit={(prompt, photoUrl) =>
-          submitGameStart({
-            gameType: "scavenger",
-            step: "active",
-            data: { prompt, senderPhotoUrl: photoUrl, isUnlocked: false },
-          })
-        }
-      />
-      <RouletteCreator
-        isOpen={activeGameCreator === "roulette"}
-        onClose={() => setActiveGameCreator(null)}
-        onSubmit={(question, answer) =>
-          submitGameStart({
-            gameType: "roulette",
-            step: "active",
-            data: { question, senderAnswer: answer, isUnlocked: false },
-          })
-        }
-      />
-      <IntuitionCreator
-        isOpen={activeGameCreator === "intuition"}
-        onClose={() => setActiveGameCreator(null)}
-        onSubmit={(options, prediction) =>
-          submitGameStart({
-            gameType: "intuition",
-            step: "active",
-            data: { prediction: options[prediction], options, senderChoice: prediction },
-          })
-        }
-        matchName={otherUser.name}
-      />
-      <AnimatePresence>
-        {photoLightboxInitialId && chatPhotoLightboxItems.length > 0 ? (
-          <ChatPhotoLightbox
-            key="chat-photo-lightbox"
-            items={chatPhotoLightboxItems}
-            initialId={photoLightboxInitialId}
-            onClose={() => setPhotoLightboxInitialId(null)}
-          />
-        ) : null}
-        {videoLightbox ? (
-          <ChatVideoLightbox
-            key="chat-video-lightbox"
-            videoUrl={videoLightbox.url}
-            posterUrl={videoLightbox.posterUrl}
-            onClose={() => setVideoLightbox(null)}
-          />
-        ) : null}
-      </AnimatePresence>
+        <TwoTruthsCreator
+          isOpen={activeGameCreator === "2truths"}
+          onClose={() => setActiveGameCreator(null)}
+          onSubmit={(statements, lieIndex) =>
+            submitGameStart({ gameType: "2truths", step: "active", data: { statements, lieIndex } })
+          }
+        />
+        <WouldRatherCreator
+          isOpen={activeGameCreator === "would_rather"}
+          onClose={() => setActiveGameCreator(null)}
+          onSubmit={(optionA, optionB, vote) =>
+            submitGameStart({ gameType: "would_rather", step: "active", data: { optionA, optionB, senderVote: vote } })
+          }
+        />
+        <CharadesCreator
+          isOpen={activeGameCreator === "charades"}
+          onClose={() => setActiveGameCreator(null)}
+          onSubmit={(answer, emojis) =>
+            submitGameStart({ gameType: "charades", step: "active", data: { answer, emojis, guesses: [] } })
+          }
+        />
+        <ScavengerCreator
+          isOpen={activeGameCreator === "scavenger"}
+          onClose={() => setActiveGameCreator(null)}
+          onSubmit={(prompt, photoUrl) =>
+            submitGameStart({
+              gameType: "scavenger",
+              step: "active",
+              data: { prompt, senderPhotoUrl: photoUrl, isUnlocked: false },
+            })
+          }
+        />
+        <RouletteCreator
+          isOpen={activeGameCreator === "roulette"}
+          onClose={() => setActiveGameCreator(null)}
+          onSubmit={(question, answer) =>
+            submitGameStart({
+              gameType: "roulette",
+              step: "active",
+              data: { question, senderAnswer: answer, isUnlocked: false },
+            })
+          }
+        />
+        <IntuitionCreator
+          isOpen={activeGameCreator === "intuition"}
+          onClose={() => setActiveGameCreator(null)}
+          onSubmit={(options, prediction) =>
+            submitGameStart({
+              gameType: "intuition",
+              step: "active",
+              data: { prediction: options[prediction], options, senderChoice: prediction },
+            })
+          }
+          matchName={otherUser.name}
+        />
+        <AnimatePresence>
+          {photoLightboxInitialId && chatPhotoLightboxItems.length > 0 ? (
+            <ChatPhotoLightbox
+              key="chat-photo-lightbox"
+              items={chatPhotoLightboxItems}
+              initialId={photoLightboxInitialId}
+              onClose={() => setPhotoLightboxInitialId(null)}
+            />
+          ) : null}
+          {videoLightbox ? (
+            <ChatVideoLightbox
+              key="chat-video-lightbox"
+              videoUrl={videoLightbox.url}
+              posterUrl={videoLightbox.posterUrl}
+              onClose={() => setVideoLightbox(null)}
+            />
+          ) : null}
+        </AnimatePresence>
+      </Suspense>
     </div>
   );
 };

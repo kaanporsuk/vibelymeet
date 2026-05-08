@@ -9,7 +9,7 @@ Status: **blocked for deployed-artifact confirmation** until web and native arti
 The latest production web deployment visible from Vercel was built from `main` at commit `10db35b`:
 
 - Deployment URL: `https://vibelymeet-ceafbqpky-okp805.vercel.app`
-- Production aliases: `https://www.vibelymeet.com`, `https://vibelymeet.com`, `https://vibelymeet.vercel.app`
+- Production aliases: `https://www.vibelymeet.com`, apex redirect host (`vibelymeet.com`), `https://vibelymeet.vercel.app`
 - Vercel target/status: `production` / `READY`
 - Created: `2026-05-07T10:35:29.503Z` (`2026-05-07 13:35:29 +0300`)
 - Build log source: `github.com/kaanporsuk/vibelymeet`, branch `main`, commit `10db35b`

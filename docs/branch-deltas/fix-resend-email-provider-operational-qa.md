@@ -32,7 +32,7 @@ Streams 1-13 closed backend contract, Ready Gate, swipe, realtime, payment, nati
 - `supabase functions list --project-ref schdyxcunwcvddlcshwd`: `email-verification`, `event-notifications`, `send-email`, and `send-support-reply` are active. `email-drip` and `unsubscribe` are not active.
 - `supabase secrets list --project-ref schdyxcunwcvddlcshwd`: secret names `RESEND_API_KEY`, `EMAIL_VERIFICATION_OTP_SECRET`, `CRON_SECRET`, and `UNSUB_HMAC_SECRET` are present. Only names and digests were viewed; no secret values were printed.
 - `curl -I -L https://www.vibelymeet.com/`: HTTP 200 from Vercel.
-- `curl -I -L https://vibelymeet.com/`: HTTP 307 to `https://www.vibelymeet.com/`, then HTTP 200.
+- `curl -I -L` against the apex host (`vibelymeet.com/`): HTTP 307 to `https://www.vibelymeet.com/`, then HTTP 200.
 - `curl -I -L https://www.vibelymeet.com/events`: HTTP 200 from Vercel app shell.
 
 No production email was sent.

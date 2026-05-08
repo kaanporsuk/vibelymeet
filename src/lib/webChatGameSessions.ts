@@ -78,6 +78,9 @@ function buildSessionView(gameSessionId: string, items: RowEnv[]): WebHydratedGa
     if (!items.length) return null;
     const envelopes = items.map((i) => i.envelope);
     const { snapshot, warnings } = foldVibeGameSession(envelopes);
+    if (!envelopes.some((e) => e.event_type === "session_start") || snapshot.game_type === null) {
+      return null;
+    }
     const rows = [...items.map((i) => i.row)].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     );
@@ -120,6 +123,8 @@ export function collapseVibeGameRowsForWeb(rows: WebChatMessageRow[]): Collapsed
     buildSessionView,
     mapCollapsedRow: ({ view, anchorRow }) => ({
       ...anchorRow,
+      id: `vibe-game-session:${view.gameSessionId}`,
+      ref_id: view.gameSessionId,
       message_kind: "vibe_game_session",
       structured_payload: null,
       game_session_view: view,

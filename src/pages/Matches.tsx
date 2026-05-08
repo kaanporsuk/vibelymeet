@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, SlidersHorizontal, MessageCircle, Droplet, X } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
@@ -63,9 +64,11 @@ import {
 } from "../../shared/matches/spotlightResolver";
 import { trackEvent } from "@/lib/analytics";
 import { preloadRoute } from "@/lib/routePreload";
+import { prefetchChatThread } from "@/hooks/useMessages";
 
 const Matches = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useUserProfile();
   const { data: matches = [], isLoading, refetch } = useMatches();
   const { canSeeLikedYou } = useEntitlements();
@@ -312,6 +315,16 @@ const Matches = () => {
     if (match) setViewProfileMatch(match);
   };
 
+  const preheatChat = useCallback(
+    (otherUserId: string) => {
+      preloadRoute("chat");
+      if (user?.id) {
+        void prefetchChatThread(queryClient, otherUserId, user.id);
+      }
+    },
+    [queryClient, user?.id],
+  );
+
   const handleViewDropProfile = (dropId: string) => {
     toast.info("Viewing profile...");
   };
@@ -500,8 +513,9 @@ const Matches = () => {
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0, x: -100 }}
                               transition={{ delay: index * 0.03 }}
-                              onMouseEnter={() => preloadRoute("chat")}
-                              onFocus={() => preloadRoute("chat")}
+                              onMouseEnter={() => preheatChat(match.id)}
+                              onFocus={() => preheatChat(match.id)}
+                              onTouchStart={() => preheatChat(match.id)}
                             >
                               <SwipeableMatchCard
                                 {...match}
