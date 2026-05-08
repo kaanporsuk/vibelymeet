@@ -36,6 +36,8 @@ export const useRealtimeEvents = () => {
         { event: "*", schema: "public", table: "events" },
         () => {
           queryClient.invalidateQueries({ queryKey: ["events"] });
+          queryClient.invalidateQueries({ queryKey: ["visible-events"] });
+          queryClient.invalidateQueries({ queryKey: ["other-city-events"] });
           queryClient.invalidateQueries({ queryKey: ["next-event"] });
           queryClient.invalidateQueries({ queryKey: ["next-registered-event"] });
           queryClient.invalidateQueries({ queryKey: ["event-details"] });
@@ -46,6 +48,8 @@ export const useRealtimeEvents = () => {
         { event: "*", schema: "public", table: "event_registrations" },
         () => {
           queryClient.invalidateQueries({ queryKey: ["events"] });
+          queryClient.invalidateQueries({ queryKey: ["visible-events"] });
+          queryClient.invalidateQueries({ queryKey: ["other-city-events"] });
           queryClient.invalidateQueries({ queryKey: ["user-registrations"] });
           queryClient.invalidateQueries({ queryKey: ["next-registered-event"] });
           queryClient.invalidateQueries({ queryKey: ["event-attendees"] });
