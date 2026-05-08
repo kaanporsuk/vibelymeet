@@ -247,33 +247,50 @@ function buildActivationRecommendation(
 // The cron schema (cron.job, cron.job_run_details) is NOT exposed through
 // PostgREST regardless of key. Calling .schema("cron").from("job") always
 // returns an error that was previously swallowed, producing cron_job: null.
-// The fix: get_media_worker_cron_status() is a SECURITY DEFINER RPC that
-// queries cron.* directly in SQL and returns everything as JSONB.
+// Keep the fast cron.job read separate from best-effort run history so an
+// expensive cron.job_run_details read cannot make an active scheduler look down.
 
 async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
-  const [healthResult, cronResult] = await Promise.all([
+  const [healthResult, cronJobResult, runsResult] = await Promise.all([
     admin.rpc("summarize_media_lifecycle_health"),
-    admin.rpc("get_media_worker_cron_status"),
+    admin.rpc("get_media_worker_cron_job_status"),
+    admin.rpc("get_media_worker_cron_run_history"),
   ]);
 
   if (healthResult.error) {
     console.error("[admin-media-lifecycle-controls] health RPC failed:", healthResult.error.message);
   }
-  if (cronResult.error) {
-    console.error("[admin-media-lifecycle-controls] cron status RPC failed:", cronResult.error.message);
+  if (cronJobResult.error) {
+    console.error("[admin-media-lifecycle-controls] cron job status RPC failed:", cronJobResult.error.message);
+  }
+  if (runsResult.error) {
+    console.error("[admin-media-lifecycle-controls] cron run history RPC failed:", runsResult.error.message);
   }
 
   const health = healthResult.data as unknown as Record<string, unknown> | null;
-  const cronRaw = cronResult.data as unknown as Record<string, unknown> | null;
+  let cronRaw = cronJobResult.data as unknown as Record<string, unknown> | null;
+  let runsRaw = runsResult.data as unknown as Record<string, unknown> | null;
+  let runsError = runsResult.error;
 
-  if (cronResult.error) {
+  if (cronJobResult.error) {
+    const legacyResult = await admin.rpc("get_media_worker_cron_status");
+    if (!legacyResult.error) {
+      cronRaw = legacyResult.data as unknown as Record<string, unknown> | null;
+      runsRaw = legacyResult.data as unknown as Record<string, unknown> | null;
+      runsError = null;
+    } else {
+      console.error("[admin-media-lifecycle-controls] legacy cron status RPC failed:", legacyResult.error.message);
+    }
+  }
+
+  if (cronJobResult.error && !cronRaw) {
     return {
       health,
       cron_status: {
         status: "rpc_error" as CronStatusCode,
         found: false,
         jobname: MEDIA_WORKER_JOB_NAME,
-        message: cronResult.error.message,
+        message: cronJobResult.error.message,
       },
       cron_job: null,
       recent_runs: [] as CronRunRow[],
@@ -294,8 +311,15 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
     };
   }
 
-  const recentRuns = (cronRaw.recent_runs as CronRunRow[] | null) ?? [];
-  const cronStatus = (cronRaw.status as CronStatusCode | undefined) ?? ((cronRaw.active as boolean) ? "found" : "inactive");
+  const runsUnavailable = Boolean(runsError) || runsRaw?.status === "recent_runs_unavailable";
+  const recentRuns = runsUnavailable ? [] : ((runsRaw?.recent_runs as CronRunRow[] | null) ?? []);
+  const baseCronStatus = (cronRaw.status as CronStatusCode | undefined) ?? ((cronRaw.active as boolean) ? "found" : "inactive");
+  const cronStatus = baseCronStatus === "found" && runsUnavailable
+    ? "recent_runs_unavailable"
+    : baseCronStatus;
+  const runHistoryMessage = runsError?.message
+    ?? (runsRaw?.recent_runs_error as string | null)
+    ?? null;
 
   return {
     health,
@@ -303,16 +327,16 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
       status: cronStatus,
       found: true,
       jobname: cronRaw.jobname as string,
-      message: (cronRaw.recent_runs_error as string | null) ?? null,
+      message: runHistoryMessage,
     },
     cron_job: {
       job_id: cronRaw.job_id as number,
       jobname: cronRaw.jobname as string,
       schedule: cronRaw.schedule as string,
       active: cronRaw.active as boolean,
-      last_succeeded_at: (cronRaw.last_succeeded_at as string | null) ?? null,
-      last_failed_at: (cronRaw.last_failed_at as string | null) ?? null,
-      consecutive_failures: (cronRaw.consecutive_failures as number) ?? 0,
+      last_succeeded_at: (runsRaw?.last_succeeded_at as string | null) ?? null,
+      last_failed_at: (runsRaw?.last_failed_at as string | null) ?? null,
+      consecutive_failures: (runsRaw?.consecutive_failures as number) ?? 0,
     },
     recent_runs: recentRuns.map((r, index) => ({
       runid: r.runid ?? index,
@@ -578,6 +602,32 @@ Deno.serve(async (req) => {
 
       console.log(`[admin-media-lifecycle-controls] retry_failed: retried=${retriedCount} family=${family ?? "all"} status=${status ?? "all"} reset_attempts=${resetAttempts} admin=${auth.userId}`);
       return json({ success: true, retried_count: retriedCount, ...audit });
+    }
+
+    // ── Mutation: repair_orphan_event_covers ────────────────────────────────
+
+    if (action === "repair_orphan_event_covers") {
+      const limit = typeof body.limit === "number" ? body.limit : 50;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return json({ success: false, error: "limit must be an integer between 1 and 500" }, 400);
+      }
+
+      const { data: repairedCount, error: repairError } = await auth.admin
+        .rpc("soft_delete_orphan_event_cover_assets", { p_limit: limit });
+
+      if (repairError) {
+        console.error("repair_orphan_event_covers RPC failed:", repairError.message);
+        return json({ success: false, error: repairError.message }, 500);
+      }
+
+      const audit = await logAdminAction(auth.admin, auth.userId, "media_orphan_event_covers_soft_deleted", "media_assets", null, {
+        limit,
+        repaired_count: repairedCount,
+      });
+
+      const snapshot = await fetchSnapshot(auth.admin);
+      console.log(`[admin-media-lifecycle-controls] repair_orphan_event_covers: repaired=${repairedCount} limit=${limit} admin=${auth.userId}`);
+      return json({ success: true, repaired_count: repairedCount, ...audit, ...snapshot });
     }
 
     // ── Mutation: update_family ───────────────────────────────────────────────

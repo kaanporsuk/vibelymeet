@@ -7,6 +7,8 @@ const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const hardeningMigration = read("supabase/migrations/20260507213000_media_lifecycle_admin_hardening.sql");
+const cronResilienceMigration = read("supabase/migrations/20260508123000_media_cron_status_resilience.sql");
+const mediaLifecycleMigrations = `${hardeningMigration}\n${cronResilienceMigration}`;
 const adminFunction = read("supabase/functions/admin-media-lifecycle-controls/index.ts");
 const workerFunction = read("supabase/functions/process-media-delete-jobs/index.ts");
 const panel = read("src/components/admin/AdminMediaLifecyclePanel.tsx");
@@ -43,10 +45,10 @@ test("media lifecycle audit logs do not write string keys into UUID target_id", 
 });
 
 test("cron status exposes structured states and stable run ids", () => {
-  assert.match(hardeningMigration, /'status', 'missing_job'/);
-  assert.match(hardeningMigration, /'recent_runs_unavailable'/);
-  assert.match(hardeningMigration, /'runid',\s+v_runid/);
-  assert.match(hardeningMigration, /SET search_path = public, pg_catalog/);
+  assert.match(mediaLifecycleMigrations, /'status', 'missing_job'/);
+  assert.match(mediaLifecycleMigrations, /'recent_runs_unavailable'/);
+  assert.match(mediaLifecycleMigrations, /'runid',\s+v_runid/);
+  assert.match(mediaLifecycleMigrations, /SET search_path = public, pg_catalog/);
   assert.match(adminFunction, /status: "rpc_error" as CronStatusCode/);
   assert.match(adminFunction, /buildActivationRecommendation/);
   assert.match(adminFunction, /cron job missing/);
@@ -55,6 +57,36 @@ test("cron status exposes structured states and stable run ids", () => {
   assert.match(panel, /const cronHealthy = cronStatus\?\.status === "found"/);
   assert.match(panel, /opsHealth\?\.healthy === true/);
   assert.match(panel, /Cron status RPC failed/);
+});
+
+test("cron scheduler row is read separately from best-effort run history", () => {
+  assert.match(cronResilienceMigration, /CREATE INDEX IF NOT EXISTS job_run_details_jobid_runid_desc_idx/);
+  assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.get_media_worker_cron_job_status/);
+  assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.get_media_worker_cron_run_history/);
+  assert.match(cronResilienceMigration, /v_run_limit\s+integer := COALESCE\(p_run_limit, 10\)/);
+  assert.match(cronResilienceMigration, /p_job_name is required/);
+  assert.match(adminFunction, /admin\.rpc\("get_media_worker_cron_job_status"\)/);
+  assert.match(adminFunction, /admin\.rpc\("get_media_worker_cron_run_history"\)/);
+  assert.match(adminFunction, /admin\.rpc\("get_media_worker_cron_status"\)/);
+  assert.match(adminFunction, /legacy cron status RPC failed/);
+  assert.match(adminFunction, /runsUnavailable/);
+  assert.match(adminFunction, /recent_runs_unavailable/);
+  assert.match(panel, /runs unknown/);
+});
+
+test("event cover lifecycle repairs staged uploads and orphan active assets", () => {
+  assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.normalize_event_cover_provider_path/);
+  assert.match(cronResilienceMigration, /v_value LIKE 'events\/%'/);
+  assert.doesNotMatch(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.normalize_media_provider_path[\s\S]+events\/%/);
+  assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.sync_event_cover_media_lifecycle/);
+  assert.match(cronResilienceMigration, /CREATE TRIGGER trg_events_cover_media_lifecycle/);
+  assert.match(cronResilienceMigration, /PERFORM public\.sync_event_cover_media_lifecycle\(v_event_id\)/);
+  assert.match(cronResilienceMigration, /CREATE OR REPLACE FUNCTION public\.soft_delete_orphan_event_cover_assets/);
+  assert.match(cronResilienceMigration, /v_limit\s+integer := COALESCE\(p_limit, 50\)/);
+  assert.match(adminFunction, /action === "repair_orphan_event_covers"/);
+  assert.match(adminFunction, /media_orphan_event_covers_soft_deleted/);
+  assert.match(panel, /repair_orphan_event_covers/);
+  assert.match(panel, /Event cover repair/);
 });
 
 test("media lifecycle validation failures are surfaced as operator-safe 400s", () => {
@@ -75,14 +107,19 @@ test("service-role media lifecycle RPC grants are not inherited through PUBLIC",
     "summarize_media_lifecycle_snapshot\\(\\)",
     "promote_purgeable_assets\\(integer, text\\)",
     "retry_failed_media_delete_jobs\\(text, integer, boolean, text\\)",
+    "normalize_event_cover_provider_path\\(text\\)",
+    "get_media_worker_cron_job_status\\(text\\)",
+    "get_media_worker_cron_run_history\\(text, integer\\)",
     "get_media_worker_cron_status\\(text, integer\\)",
+    "sync_event_cover_media_lifecycle\\(uuid\\)",
+    "soft_delete_orphan_event_cover_assets\\(integer\\)",
   ]) {
     assert.match(
-      hardeningMigration,
+      mediaLifecycleMigrations,
       new RegExp(`REVOKE ALL ON FUNCTION public\\.${signature} FROM PUBLIC, anon, authenticated;`),
     );
     assert.match(
-      hardeningMigration,
+      mediaLifecycleMigrations,
       new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${signature} TO service_role;`),
     );
   }

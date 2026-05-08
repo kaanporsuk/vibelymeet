@@ -675,11 +675,28 @@ export default function AdminMediaLifecyclePanel() {
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not requeue stale jobs"),
   });
 
+  const repairOrphanEventCoversMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("admin-media-lifecycle-controls", {
+        body: { action: "repair_orphan_event_covers", limit: 50 },
+      });
+      if (error || !data?.success) throw new Error(data?.error || error?.message || "Repair failed");
+      return data as { repaired_count: number } & AuditAwareResponse;
+    },
+    onSuccess: (result) => {
+      warnIfAuditMissing(result);
+      toast.success(`Soft-deleted ${result.repaired_count} orphan event cover${result.repaired_count === 1 ? "" : "s"}`);
+      void qc.invalidateQueries({ queryKey: ["admin-media-lifecycle-controls"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not repair event covers"),
+  });
+
   const mediaMutationPending =
     saveFamilyMutation.isPending ||
     saveChatMutation.isPending ||
     retryFailedMutation.isPending ||
-    requeueStaleMutation.isPending;
+    requeueStaleMutation.isPending ||
+    repairOrphanEventCoversMutation.isPending;
 
   const assetStatusRows = useMemo(() => data?.readiness.asset_status_counts ?? [], [data]);
   const jobStatusRows = useMemo(() => data?.readiness.job_status_counts ?? [], [data]);
@@ -691,6 +708,9 @@ export default function AdminMediaLifecyclePanel() {
   const failedJobs = data?.ops?.failed_jobs ?? [];
   const staleJobs = data?.ops?.stale_claimed_jobs ?? [];
   const orphanLikeTotal = data?.readiness.orphan_like_total ?? data?.readiness.orphan_like_counts.reduce((s, r) => s + r.count, 0) ?? 0;
+  const eventCoverOrphanLike = data?.readiness.orphan_like_counts.find((row) =>
+    row.bucket === "active_without_refs" && row.media_family === "event_cover"
+  )?.count ?? 0;
 
   const cronHealthy = cronStatus?.status === "found" && cronJob?.active === true;
   const cronHealthLabel = cronHealthy
@@ -931,6 +951,34 @@ export default function AdminMediaLifecyclePanel() {
               <p className="font-medium text-foreground mb-1">Retry behavior</p>
               <p className="text-muted-foreground">{data?.recommended_activation.retry_behavior}</p>
             </div>
+            {eventCoverOrphanLike > 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-medium text-foreground">Event cover repair</p>
+                    <p className="text-muted-foreground">
+                      {eventCoverOrphanLike} active event cover{eventCoverOrphanLike === 1 ? "" : "s"} have no event reference.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 border-amber-500/40 text-amber-500 hover:bg-amber-500/10"
+                    disabled={mediaMutationPending}
+                    onClick={() => setConfirmation({
+                      title: "Soft-delete orphan event covers?",
+                      description: "Only active event_cover assets with no active reference and no matching events.cover_image will be moved into the normal soft-delete retention window.",
+                      confirmLabel: "Repair Covers",
+                      variant: "default",
+                      onConfirm: () => repairOrphanEventCoversMutation.mutateAsync(),
+                    })}
+                  >
+                    {repairOrphanEventCoversMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                    Repair
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="rounded-xl border border-border/50 bg-secondary/20 px-4 py-3">
               <p className="font-medium text-foreground mb-1">Locked policy</p>
               <p className="text-muted-foreground">
