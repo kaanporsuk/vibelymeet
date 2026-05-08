@@ -78,10 +78,10 @@ type SnapshotSummary = {
 
 type CronRunRow = {
   runid: number;
-  jobid: number;
   status: string;
   start_time: string;
   end_time: string | null;
+  duration_ms?: number | null;
 };
 
 type CronStatusCode = "found" | "missing_job" | "rpc_error" | "inactive" | "recent_runs_unavailable";
@@ -169,8 +169,8 @@ function buildSnapshotFromSummary(settings: SettingsRow[], summary: SnapshotSumm
   };
 }
 
-function numericHealthValue(health: Record<string, unknown> | null, key: string) {
-  const value = health?.[key];
+function numericRecordValue(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -209,7 +209,7 @@ function buildActivationRecommendation(
   if (!opsStatus.health) {
     issues.push("media lifecycle health RPC unavailable");
   } else {
-    const staleClaimed = numericHealthValue(opsStatus.health, "stale_claimed_count");
+    const staleClaimed = numericRecordValue(opsStatus.health, "stale_claimed_count");
     if (staleClaimed > 0) {
       issues.push(`${staleClaimed} stale claimed job${staleClaimed === 1 ? "" : "s"}`);
     }
@@ -251,26 +251,19 @@ function buildActivationRecommendation(
 // expensive cron.job_run_details read cannot make an active scheduler look down.
 
 async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
-  const [healthResult, cronJobResult, runsResult] = await Promise.all([
+  const [healthResult, cronJobResult] = await Promise.all([
     admin.rpc("summarize_media_lifecycle_health"),
     admin.rpc("get_media_worker_cron_job_status"),
-    admin.rpc("get_media_worker_cron_run_history"),
   ]);
 
   if (healthResult.error) {
     console.error("[admin-media-lifecycle-controls] health RPC failed:", healthResult.error.message);
   }
-  if (cronJobResult.error) {
-    console.error("[admin-media-lifecycle-controls] cron job status RPC failed:", cronJobResult.error.message);
-  }
-  if (runsResult.error) {
-    console.error("[admin-media-lifecycle-controls] cron run history RPC failed:", runsResult.error.message);
-  }
 
   const health = healthResult.data as unknown as Record<string, unknown> | null;
   let cronRaw = cronJobResult.data as unknown as Record<string, unknown> | null;
-  let runsRaw = runsResult.data as unknown as Record<string, unknown> | null;
-  let runsError = runsResult.error;
+  let runsRaw: Record<string, unknown> | null = null;
+  let runsError: { message: string } | null = null;
 
   if (cronJobResult.error) {
     const legacyResult = await admin.rpc("get_media_worker_cron_status");
@@ -279,6 +272,7 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
       runsRaw = legacyResult.data as unknown as Record<string, unknown> | null;
       runsError = null;
     } else {
+      console.error("[admin-media-lifecycle-controls] cron job status RPC failed:", cronJobResult.error.message);
       console.error("[admin-media-lifecycle-controls] legacy cron status RPC failed:", legacyResult.error.message);
     }
   }
@@ -309,6 +303,15 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
       cron_job: null,
       recent_runs: [] as CronRunRow[],
     };
+  }
+
+  if (!cronJobResult.error) {
+    const runsResult = await admin.rpc("get_media_worker_cron_run_history");
+    if (runsResult.error) {
+      console.error("[admin-media-lifecycle-controls] cron run history RPC failed:", runsResult.error.message);
+    }
+    runsRaw = runsResult.data as unknown as Record<string, unknown> | null;
+    runsError = runsResult.error;
   }
 
   const runsUnavailable = Boolean(runsError) || runsRaw?.status === "recent_runs_unavailable";
@@ -343,7 +346,7 @@ async function fetchCronStatusViaSQL(admin: ReturnType<typeof createClient>) {
       status: r.status,
       start_time: r.start_time,
       end_time: r.end_time ?? null,
-      duration_ms: (r as unknown as Record<string, unknown>).duration_ms as number | null ?? null,
+      duration_ms: r.duration_ms ?? null,
     })),
   };
 }
@@ -612,22 +615,36 @@ Deno.serve(async (req) => {
         return json({ success: false, error: "limit must be an integer between 1 and 500" }, 400);
       }
 
-      const { data: repairedCount, error: repairError } = await auth.admin
-        .rpc("soft_delete_orphan_event_cover_assets", { p_limit: limit });
+      const { data: repairResult, error: repairError } = await auth.admin
+        .rpc("repair_event_cover_media_lifecycle", { p_limit: limit });
 
       if (repairError) {
         console.error("repair_orphan_event_covers RPC failed:", repairError.message);
         return json({ success: false, error: repairError.message }, 500);
       }
 
-      const audit = await logAdminAction(auth.admin, auth.userId, "media_orphan_event_covers_soft_deleted", "media_assets", null, {
+      const repairSummary = (repairResult ?? {}) as Record<string, unknown>;
+      const syncedEvents = numericRecordValue(repairSummary, "synced_events");
+      const softDeletedAssets = numericRecordValue(repairSummary, "soft_deleted_assets");
+      const repairedCount = numericRecordValue(repairSummary, "repaired_count") || syncedEvents + softDeletedAssets;
+
+      const audit = await logAdminAction(auth.admin, auth.userId, "media_orphan_event_covers_repaired", "media_assets", null, {
         limit,
         repaired_count: repairedCount,
+        synced_events: syncedEvents,
+        soft_deleted_assets: softDeletedAssets,
       });
 
       const snapshot = await fetchSnapshot(auth.admin);
-      console.log(`[admin-media-lifecycle-controls] repair_orphan_event_covers: repaired=${repairedCount} limit=${limit} admin=${auth.userId}`);
-      return json({ success: true, repaired_count: repairedCount, ...audit, ...snapshot });
+      console.log(`[admin-media-lifecycle-controls] repair_orphan_event_covers: repaired=${repairedCount} synced_events=${syncedEvents} soft_deleted_assets=${softDeletedAssets} limit=${limit} admin=${auth.userId}`);
+      return json({
+        success: true,
+        repaired_count: repairedCount,
+        synced_events: syncedEvents,
+        soft_deleted_assets: softDeletedAssets,
+        ...audit,
+        ...snapshot,
+      });
     }
 
     // ── Mutation: update_family ───────────────────────────────────────────────
