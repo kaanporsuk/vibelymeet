@@ -19,6 +19,9 @@ test("chat overflow actions use server-owned archive, mute, and unmatch contract
   const lockdownMigration = read(
     "supabase/migrations/20260510001000_chat_overflow_rls_write_lockdown_followup.sql",
   );
+  const conversationCountMigration = read(
+    "supabase/migrations/20260510020000_fix_daily_drop_and_conversation_count_contracts.sql",
+  );
 
   assert.match(migration, /CREATE TABLE IF NOT EXISTS public\.match_archives/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.set_match_archive_state/);
@@ -47,6 +50,9 @@ test("chat overflow actions use server-owned archive, mute, and unmatch contract
   assert.doesNotMatch(lockdownMigration, /CREATE POLICY "Users can update own match notification mutes"/);
   assert.doesNotMatch(lockdownMigration, /CREATE POLICY "Users can delete own match notification mutes"/);
   assert.equal(exists("src/utils/notificationHelpers.ts"), false);
+  assert.match(conversationCountMigration, /CREATE OR REPLACE FUNCTION public\._user_active_conversation_count_unchecked/);
+  assert.match(conversationCountMigration, /FROM public\.match_archives ma/);
+  assert.doesNotMatch(conversationCountMigration, /m\.archived_at IS NULL/);
 
   for (const source of [webArchive, nativeArchive]) {
     assert.match(source, /set_match_archive_state/);

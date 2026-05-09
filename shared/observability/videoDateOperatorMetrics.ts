@@ -163,6 +163,7 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "token_created"
   | "navigation_started"
   | "date_route_entered"
+  | "date_route_module_preloaded"
   | "video_stage_shell_visible"
   | "permission_check_started"
   | "permission_check_success"
@@ -332,6 +333,8 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
       return "navigationStartedAtMs";
     case "date_route_entered":
       return "dateRouteEnteredAtMs";
+    case "date_route_module_preloaded":
+      return "videoDateRoutePreloadCompletedAtMs";
     case "video_stage_shell_visible":
       return "videoStageShellVisibleAtMs";
     case "permission_check_started":

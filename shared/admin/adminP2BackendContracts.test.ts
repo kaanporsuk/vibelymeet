@@ -15,6 +15,9 @@ const dailyDropCronObservabilityMigration = read(
 const dailyDropCooldownAndExpireMigration = read(
   "supabase/migrations/20260509220000_daily_drop_cooldown_and_expire_rpcs.sql",
 );
+const codexDailyDropSelectionFollowupMigration = read(
+  "supabase/migrations/20260510030000_codex_review_followup_daily_drop_selection.sql",
+);
 const rewireGucCronsToVaultMigration = read(
   "supabase/migrations/20260509230000_rewire_guc_crons_to_vault.sql",
 );
@@ -1011,6 +1014,9 @@ test("Daily Drop generation exposes operational run truth and admin audit", () =
   assert.match(dailyDropCooldownAndExpireMigration, /GREATEST\(daily_drop_cooldowns\.cooldown_until, EXCLUDED\.cooldown_until\)/);
   assert.match(dailyDropCooldownAndExpireMigration, /CREATE OR REPLACE FUNCTION public\.expire_pending_daily_drops/);
   assert.match(dailyDropCooldownAndExpireMigration, /CREATE OR REPLACE FUNCTION public\.select_pending_cooldown_pairs/);
+  assert.match(codexDailyDropSelectionFollowupMigration, /CREATE OR REPLACE FUNCTION public\.select_pending_cooldown_pairs/);
+  assert.match(codexDailyDropSelectionFollowupMigration, /d\.drop_date > c\.cooldown_until/);
+  assert.doesNotMatch(codexDailyDropSelectionFollowupMigration, /c\.cooldown_until\s*<\s*(?:now|NOW)\s*\(/);
   assert.match(rewireGucCronsToVaultMigration, /where name = 'cron_secret'/);
   assert.match(rewireGucCronsToVaultMigration, /daily-drop-health-alert/);
   assert.match(rewireGucCronsToVaultMigration, /DROP FUNCTION IF EXISTS public\._rewire_vault_cron/);
