@@ -8,6 +8,10 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 const edgeFunction = read("supabase/functions/date-suggestion-actions/index.ts");
 const migration = read("supabase/migrations/20260510000000_date_suggestion_counter_response_authority.sql");
+const webActionClient = read("src/hooks/useDateSuggestionActions.ts");
+const nativeActionClient = read("apps/mobile/lib/dateSuggestionApply.ts");
+const webSchedule = read("src/pages/Schedule.tsx");
+const nativeSchedule = read("apps/mobile/app/schedule.tsx");
 
 function quotedItemsFromArray(source: string, arrayName: string): string[] {
   const match = source.match(new RegExp(`const ${arrayName} = \\[([\\s\\S]*?)\\]\\.includes\\(p_action\\)`));
@@ -42,4 +46,32 @@ test("public callers must enter through hardened v2 response checks", () => {
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.date_suggestion_apply\(text, jsonb\) FROM authenticated/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.date_suggestion_apply_v2\(text, jsonb\) TO authenticated/);
   assert.match(migration, /recipient_id', v_rev\.proposed_by/);
+});
+
+test("web and native clients route date actions through the server-owned Edge function", () => {
+  for (const [name, source] of [
+    ["web action client", webActionClient],
+    ["native action client", nativeActionClient],
+  ] as const) {
+    assert.match(source, /functions\.invoke\(["']date-suggestion-actions["']/, `${name} must use Edge function`);
+    assert.doesNotMatch(source, /\.rpc\(["']date_suggestion_apply/, `${name} must not call date_suggestion_apply directly`);
+  }
+
+  assert.match(webSchedule, /dateSuggestionApply\("accept"/);
+  assert.match(nativeSchedule, /dateSuggestionApply\(action/);
+});
+
+test("response actions are participant checked before latest-author transitions", () => {
+  const responseActions = ["mark_viewed", "counter", "accept", "decline", "not_now"];
+  for (const action of responseActions) {
+    assert.match(migration, new RegExp(`p_action = '${action}'`), `${action} branch must exist`);
+  }
+
+  assert.match(migration, /v_suggestion\.proposer_id <> v_uid AND v_suggestion\.recipient_id <> v_uid[\s\S]*'forbidden'/);
+  assert.match(migration, /v_suggestion\.recipient_id <> v_uid[\s\S]*'forbidden'/);
+  assert.match(migration, /author_cannot_mark_viewed/);
+  assert.match(migration, /cannot_counter_own_revision/);
+  assert.match(migration, /author_cannot_accept_own_revision/);
+  assert.match(migration, /author_cannot_decline_own_revision/);
+  assert.match(migration, /author_cannot_not_now_own_revision/);
 });
