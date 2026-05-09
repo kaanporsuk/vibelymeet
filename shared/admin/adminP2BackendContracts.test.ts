@@ -9,6 +9,15 @@ const read = (path: string) => readFileSync(join(root, path), "utf8");
 const migration = read("supabase/migrations/20260506103000_admin_p2_backend_authoritative_hardening.sql");
 const overviewMigration = read("supabase/migrations/20260506135000_admin_overview_dashboard_read_model.sql");
 const overviewOperationalTruthMigration = read("supabase/migrations/20260507211000_admin_overview_operational_truth.sql");
+const dailyDropCronObservabilityMigration = read(
+  "supabase/migrations/20260509210000_daily_drop_cron_observability.sql",
+);
+const dailyDropCooldownAndExpireMigration = read(
+  "supabase/migrations/20260509220000_daily_drop_cooldown_and_expire_rpcs.sql",
+);
+const rewireGucCronsToVaultMigration = read(
+  "supabase/migrations/20260509230000_rewire_guc_crons_to_vault.sql",
+);
 const adminPostPublishGrantsAndCancelCutoffMigration = read(
   "supabase/migrations/20260508094500_admin_post_publish_grants_and_live_cancel_cutoff.sql",
 );
@@ -975,11 +984,17 @@ test("Daily Drop generation exposes operational run truth and admin audit", () =
   assert.match(generateDailyDropsFunction, /database_step_failed/);
   assert.match(generateDailyDropsFunction, /count_existing_today_drops/);
   assert.match(generateDailyDropsFunction, /delete_existing_today_drops/);
+  assert.match(generateDailyDropsFunction, /expire_pending_daily_drops/);
+  assert.match(generateDailyDropsFunction, /select_pending_cooldown_pairs/);
+  assert.match(generateDailyDropsFunction, /apply_drop_cooldown/);
   assert.match(generateDailyDropsFunction, /select_existing_matches/);
   assert.match(generateDailyDropsFunction, /select_blocked_users/);
   assert.match(generateDailyDropsFunction, /select_user_reports/);
   assert.match(generateDailyDropsFunction, /select_active_cooldowns/);
-  assert.match(generateDailyDropsFunction, /\[drop\.user_a_id, drop\.user_b_id\]\.sort\(\)/);
+  assert.match(generateDailyDropsFunction, /ELIGIBLE_FILTER_CHUNK_SIZE = 100/);
+  assert.match(generateDailyDropsFunction, /selectEligiblePairRows/);
+  assert.doesNotMatch(generateDailyDropsFunction, /const eligibleIdsCsv = eligibleUserIds\.join/);
+  assert.match(generateDailyDropsFunction, /p_user_a: drop\.user_a_id/);
   assert.match(generateDailyDropsFunction, /\[c\.user_a_id, c\.user_b_id\]\.sort\(\)\.join\(":"\)/);
   assert.match(generateDailyDropsFunction, /notificationFailures/);
   assert.match(generateDailyDropsFunction, /notification_failures/);
@@ -988,6 +1003,17 @@ test("Daily Drop generation exposes operational run truth and admin audit", () =
   assert.match(generateDailyDropsFunction, /status: "partial"/);
   assert.match(generateDailyDropsFunction, /status: "skipped"/);
   assert.match(generateDailyDropsFunction, /source: generationSource/);
+  assert.match(dailyDropCronObservabilityMigration, /CREATE OR REPLACE FUNCTION public\.daily_drop_cron_health/);
+  assert.match(dailyDropCronObservabilityMigration, /date_suggestion_cron_secret/);
+  assert.match(dailyDropCronObservabilityMigration, /generate-daily-drops-retry/);
+  assert.match(dailyDropCronObservabilityMigration, /EXECUTE \$sql\$/);
+  assert.match(dailyDropCooldownAndExpireMigration, /CREATE OR REPLACE FUNCTION public\.apply_drop_cooldown/);
+  assert.match(dailyDropCooldownAndExpireMigration, /GREATEST\(daily_drop_cooldowns\.cooldown_until, EXCLUDED\.cooldown_until\)/);
+  assert.match(dailyDropCooldownAndExpireMigration, /CREATE OR REPLACE FUNCTION public\.expire_pending_daily_drops/);
+  assert.match(dailyDropCooldownAndExpireMigration, /CREATE OR REPLACE FUNCTION public\.select_pending_cooldown_pairs/);
+  assert.match(rewireGucCronsToVaultMigration, /where name = 'cron_secret'/);
+  assert.match(rewireGucCronsToVaultMigration, /daily-drop-health-alert/);
+  assert.match(rewireGucCronsToVaultMigration, /DROP FUNCTION IF EXISTS public\._rewire_vault_cron/);
 });
 
 test("admin panel count read RPCs are security definer, admin checked, ACL pinned, and read-only", () => {

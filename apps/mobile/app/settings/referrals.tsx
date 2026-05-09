@@ -28,13 +28,15 @@ export default function ReferralSettingsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
-  const { user } = useAuth();
+  const { session, user } = useAuth();
   const [status, setStatus] = useState<ReferralStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
 
-  const inviteLink = useMemo(() => buildInviteLandingUrl(user?.id ?? null), [user?.id]);
+  const userId = session?.user?.id ?? user?.id ?? null;
+  const inviteReady = Boolean(userId);
+  const inviteLink = useMemo(() => buildInviteLandingUrl(userId), [userId]);
 
   useEffect(() => {
     trackEvent('invite_hub_viewed', { platform: 'native' });
@@ -44,7 +46,7 @@ export default function ReferralSettingsScreen() {
     let cancelled = false;
 
     const loadStatus = async () => {
-      if (!user?.id) {
+      if (!userId) {
         setStatus(null);
         setStatusLoading(false);
         return;
@@ -54,7 +56,7 @@ export default function ReferralSettingsScreen() {
       const { data, error } = await supabase
         .from('profiles')
         .select('referred_by')
-        .eq('id', user.id)
+        .eq('id', userId)
         .maybeSingle();
 
       if (cancelled) return;
@@ -94,7 +96,7 @@ export default function ReferralSettingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [userId]);
 
   const showFeedback = (message: string) => {
     setFeedback(message);
@@ -102,6 +104,10 @@ export default function ReferralSettingsScreen() {
   };
 
   const handleShare = async () => {
+    if (!inviteReady) {
+      showFeedback('Your invite link is still loading');
+      return;
+    }
     const shareBody = `${SHARE_MESSAGE}\n\n${inviteLink}`;
     const result = await Share.share({
       title: SHARE_TITLE,
@@ -116,6 +122,10 @@ export default function ReferralSettingsScreen() {
   };
 
   const handleCopy = async () => {
+    if (!inviteReady) {
+      showFeedback('Your invite link is still loading');
+      return;
+    }
     await Clipboard.setStringAsync(inviteLink);
     trackEvent('invite_link_copied', { surface: 'referrals_hub', channel: 'clipboard' });
     showFeedback('Invite link copied');
@@ -127,13 +137,17 @@ export default function ReferralSettingsScreen() {
       ? status.referredByName
         ? `You joined from ${status.referredByName}'s invite`
         : "You joined from a friend's invite"
-      : 'No invite linked yet';
+      : 'No friend invite connected';
 
   const statusBody = statusLoading
     ? 'Loading the current referral attribution on your account.'
     : status?.referredById
       ? 'Your account already has an inviter linked, and your own shares keep using your personal Vibely link.'
-      : 'Share your personal Vibely link. If a friend lands on Vibely through it, we preserve your referral id for signup attribution.';
+      : 'You can still invite friends with your personal link. If they sign up from it, Vibely connects the signup to your account once.';
+  const inviteTitle = inviteReady ? 'Your invite link is ready' : 'Preparing your invite link';
+  const inviteBody = inviteReady
+    ? 'Share your Vibely invite. Friends can open it in their browser and create an account from your link.'
+    : 'Hang tight while Vibely loads your account. Your personal link will appear here in a moment.';
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -167,11 +181,10 @@ export default function ReferralSettingsScreen() {
               <Ionicons name="people-outline" size={22} color={theme.tint} />
             </View>
             <VibelyText variant="titleMD" style={[styles.cardTitle, { color: theme.text }]}>
-              Your referral link is ready
+              {inviteTitle}
             </VibelyText>
             <VibelyText variant="body" style={[styles.cardBody, { color: theme.textSecondary }]}>
-              Share one canonical Vibely link for signup attribution. Friends land on the existing
-              invite flow and keep your ref attached.
+              {inviteBody}
             </VibelyText>
 
             <View style={[styles.linkBox, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
@@ -179,17 +192,23 @@ export default function ReferralSettingsScreen() {
                 Invite link
               </VibelyText>
               <VibelyText variant="body" style={[styles.linkValue, { color: theme.text }]}>
-                {inviteLink}
+                {inviteReady ? inviteLink : 'Loading your personal link...'}
               </VibelyText>
             </View>
 
             <View style={styles.actionsRow}>
-              <VibelyButton label="Share" onPress={() => void handleShare()} style={styles.actionBtn} />
+              <VibelyButton
+                label="Share"
+                onPress={() => void handleShare()}
+                style={styles.actionBtn}
+                disabled={!inviteReady}
+              />
               <VibelyButton
                 label="Copy link"
                 variant="secondary"
                 onPress={() => void handleCopy()}
                 style={styles.actionBtn}
+                disabled={!inviteReady}
               />
             </View>
 
@@ -215,13 +234,6 @@ export default function ReferralSettingsScreen() {
                 </VibelyText>
               </View>
             </View>
-            {status?.referredById ? (
-              <View style={[styles.metaPill, { backgroundColor: theme.surfaceSubtle, borderColor: theme.border }]}>
-                <VibelyText variant="caption" style={[styles.metaText, { color: theme.textSecondary }]}>
-                  Existing referred_by: {status.referredById}
-                </VibelyText>
-              </View>
-            ) : null}
           </Card>
 
           <Card variant="glass" style={styles.statusCard}>
@@ -231,11 +243,11 @@ export default function ReferralSettingsScreen() {
               </View>
               <View style={styles.statusCopy}>
                 <VibelyText variant="titleMD" style={[styles.cardTitle, { color: theme.text }]}>
-                  What this foundation covers
+                  How it works
                 </VibelyText>
                 <VibelyText variant="body" style={[styles.cardBody, { color: theme.textSecondary }]}>
-                  Vibely keeps the existing invite URLs, real share flow, and backend referred_by linkage
-                  without adding a new reward or campaign system.
+                  A friend can use your invite when joining Vibely. There are no rewards to track right now;
+                  this simply helps Vibely understand who invited whom.
                 </VibelyText>
               </View>
             </View>
@@ -355,15 +367,6 @@ const styles = StyleSheet.create({
   statusCopy: {
     flex: 1,
     gap: spacing.xs,
-  },
-  metaPill: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  metaText: {
-    fontSize: 12,
   },
   feedbackWrap: {
     position: 'absolute',

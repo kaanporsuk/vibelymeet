@@ -75,10 +75,10 @@ test("all deployable functions are explicitly represented in supabase config", (
   const functionDirs = listFunctionDirs();
   const configured = listConfiguredFunctions(supabaseConfig);
   assert.deepEqual(configured, functionDirs);
-  assert.equal(functionDirs.length, 54);
-  assert.match(edgeManifest, /\*\*54\*\* deployable function directories and \*\*54\*\* matching/);
-  assert.match(providerSheet, /Deployable functions: \*\*54\*\*/);
-  assert.match(dependencyLedger, /all 54 deployable functions are in `supabase\/config\.toml`/);
+  assert.equal(functionDirs.length, 55);
+  assert.match(edgeManifest, /\*\*55\*\* deployable function directories and \*\*55\*\* matching/);
+  assert.match(providerSheet, /Deployable functions: \*\*55\*\*/);
+  assert.match(dependencyLedger, /all 55 deployable functions are in `supabase\/config\.toml`/);
 });
 
 test("intended gateway JWT posture is explicit and documented", () => {

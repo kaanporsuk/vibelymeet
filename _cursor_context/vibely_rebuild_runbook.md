@@ -454,8 +454,8 @@ supabase secrets list
 
 Current repo state:
 
-- 53 deployable function directories exist under `supabase/functions`, excluding `_shared`.
-- 53 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
+- 55 deployable function directories exist under `supabase/functions`, excluding `_shared`.
+- 55 matching `[functions.<slug>]` entries exist in `supabase/config.toml`.
 - Canonical project ref for production rebuilds is `schdyxcunwcvddlcshwd / MVP_Vibe`.
 - Source-of-truth inventory files are `supabase/config.toml` and `_cursor_context/vibely_edge_function_manifest.md`; `_cursor_context/vibely_machine_readable_inventory.json` is historical unless regenerated.
 
@@ -483,9 +483,9 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 
 ### JWT behavior
 
-`supabase/config.toml` configures all 53 current function entries.
+`supabase/config.toml` configures all 55 current function entries.
 
-**33 functions** have `verify_jwt = true`:
+**34 functions** have `verify_jwt = true`:
 
 - `admin-data-export`
 - `admin-media-lifecycle-controls`
@@ -493,6 +493,7 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 - `admin-review-verification`
 - `admin-video-date-ops`
 - `cancel-deletion`
+- `chat-thread-page`
 - `create-checkout-session`
 - `create-event-checkout`
 - `create-portal-session`
@@ -521,8 +522,9 @@ Do not deploy all functions for a scoped repair unless the release plan explicit
 - `upload-voice`
 - `verify-admin`
 
-**20 functions** have `verify_jwt = false`:
+**21 functions** have `verify_jwt = false`:
 
+- `check-daily-drop-health`
 - `create-credits-checkout`
 - `credit-replenish`
 - `date-reminder-cron`

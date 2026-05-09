@@ -89,14 +89,14 @@ test("no-Docker and no-local-Supabase operating model is recorded", () => {
 test("Supabase project ref and current function inventory are recorded", () => {
   assert.match(supabaseConfig, /project_id = "schdyxcunwcvddlcshwd"/);
   assert.match(rehearsal, /schdyxcunwcvddlcshwd \/ MVP_Vibe/);
-  assert.match(rehearsal, /53 deployable function directories/);
-  assert.match(rehearsal, /53 `\[functions\.<slug>\]` entries|53 `\[functions\.<slug>\]` entries/);
+  assert.match(rehearsal, /55 deployable function directories/);
+  assert.match(rehearsal, /55 `\[functions\.<slug>\]` entries|55 `\[functions\.<slug>\]` entries/);
   assert.equal(
     readdirSync(join(root, "supabase/functions"))
       .filter((name) => name !== "_shared")
       .filter((name) => statSync(join(root, "supabase/functions", name)).isDirectory())
       .length,
-    53,
+    55,
   );
 });
 

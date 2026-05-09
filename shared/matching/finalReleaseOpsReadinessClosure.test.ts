@@ -72,6 +72,7 @@ const jwtTrueFunctions = [
   "admin-review-verification",
   "admin-video-date-ops",
   "cancel-deletion",
+  "chat-thread-page",
   "create-checkout-session",
   "create-event-checkout",
   "create-portal-session",
@@ -102,6 +103,7 @@ const jwtTrueFunctions = [
 ].sort();
 
 const jwtFalseFunctions = [
+  "check-daily-drop-health",
   "create-credits-checkout",
   "credit-replenish",
   "date-reminder-cron",
@@ -135,10 +137,10 @@ test("closure addresses the final release-ops investigation finding", () => {
 });
 
 test("runbook section 13 uses the current function inventory and JWT counts", () => {
-  assert.match(section13, /53 deployable function directories/);
-  assert.match(section13, /53 matching `\[functions\.<slug>\]` entries/);
-  assert.match(section13, /33 functions\*\* have `verify_jwt = true`/);
-  assert.match(section13, /20 functions\*\* have `verify_jwt = false`/);
+  assert.match(section13, /55 deployable function directories/);
+  assert.match(section13, /55 matching `\[functions\.<slug>\]` entries/);
+  assert.match(section13, /34 functions\*\* have `verify_jwt = true`/);
+  assert.match(section13, /21 functions\*\* have `verify_jwt = false`/);
   assert.match(section13, /schdyxcunwcvddlcshwd \/ MVP_Vibe/);
   for (const slug of [...jwtTrueFunctions, ...jwtFalseFunctions]) {
     assert.match(section13, new RegExp(`\\\`${slug}\\\``), `${slug} should be listed in Section 13`);
@@ -157,8 +159,8 @@ test("runbook section 13 no longer carries stale historical function guidance", 
 test("runbook Section 13 inventory matches config and function directories", () => {
   const dirs = functionDirs();
   const config = configJwtEntries();
-  assert.equal(dirs.length, 53);
-  assert.equal(config.size, 53);
+  assert.equal(dirs.length, 55);
+  assert.equal(config.size, 55);
   assert.deepEqual([...config.keys()].sort(), dirs);
   assert.deepEqual(
     [...config.entries()]

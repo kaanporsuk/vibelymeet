@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -109,6 +109,7 @@ function sourceControlledFiles() {
   return output
     .split("\0")
     .filter(Boolean)
+    .filter((file) => existsSync(file))
     .filter((file) => !EXCLUDED_PATH_PREFIXES.some((prefix) => file.startsWith(prefix)))
     .filter((file) => !BINARY_EXTENSIONS.has(path.extname(file).toLowerCase()));
 }
