@@ -676,12 +676,11 @@ export function DateSuggestionComposer({
               </button>
             ))}
             {w.placeModeKey === "custom_venue" && (
-              <input
-                type="text"
+              <Input
                 placeholder="Venue name"
                 value={w.venueText}
                 onChange={(e) => setW((p) => ({ ...p, venueText: e.target.value }))}
-                className="mt-2 w-full rounded-lg border border-border px-3 py-2 text-sm"
+                className="mt-2 rounded-lg text-sm h-auto min-h-10 py-2.5"
               />
             )}
           </div>
@@ -711,7 +710,7 @@ export function DateSuggestionComposer({
               value={w.optionalMessage}
               onChange={(e) => setW((p) => ({ ...p, optionalMessage: e.target.value }))}
               rows={4}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
             />
           </div>
         )}
