@@ -26,7 +26,7 @@ COMMENT ON FUNCTION public._user_active_conversation_count_unchecked(uuid) IS
   'Counts active matches for a user excluding matches they have archived in match_archives.';
 
 -- 2) select_pending_cooldown_pairs:
---    Return only expired/passed drops that have never had a cooldown row created.
+--    Return expired/passed drops that do not have an active cooldown row yet.
 CREATE OR REPLACE FUNCTION public.select_pending_cooldown_pairs()
 RETURNS TABLE (
   user_a_id uuid,
@@ -49,11 +49,14 @@ AS $$
     ON c.user_a_id = LEAST(d.user_a_id, d.user_b_id)
    AND c.user_b_id = GREATEST(d.user_a_id, d.user_b_id)
   WHERE d.status IN ('expired_no_action', 'expired_no_reply', 'passed')
-    AND c.user_a_id IS NULL;
+    AND (
+      c.cooldown_until IS NULL
+      OR c.cooldown_until < (now() AT TIME ZONE 'UTC')::date
+    );
 $$;
 
 COMMENT ON FUNCTION public.select_pending_cooldown_pairs() IS
-  'Returns expired/passed daily_drops pairs that have never received a cooldown row.';
+  'Returns expired/passed daily_drops pairs that do not currently have an active cooldown.';
 
 INSERT INTO public.migration_classifications (
   migration_version,

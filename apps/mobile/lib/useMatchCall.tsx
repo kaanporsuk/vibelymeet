@@ -623,11 +623,16 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
         const payload = result.data;
         const callId = payload.call_id;
+        const roomName = payload.room_name;
         if (!isCurrentStartCallAttempt()) {
+          await transitionMatchCall(callId, "join_failed").catch(() => {});
+          if (roomName) {
+            await deleteMatchCallRoom(roomName);
+          }
           return;
         }
         createdCallId = callId;
-        createdRoomName = payload.room_name;
+        createdRoomName = roomName;
         trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
         clearTimeout(startWatchdogId);

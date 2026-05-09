@@ -724,11 +724,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }
 
         const callId = data.call_id as string;
+        const roomName = data.room_name as string | null;
         if (!isCurrentStartCallAttempt()) {
+          await transitionCall(callId, "join_failed").catch(() => {});
+          await deleteRoom(roomName);
           return;
         }
         createdCallId = callId;
-        createdRoomName = data.room_name;
+        createdRoomName = roomName;
         trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
         clearTimeout(startWatchdogId);
