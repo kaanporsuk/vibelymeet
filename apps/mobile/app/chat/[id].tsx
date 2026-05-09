@@ -15,6 +15,7 @@ import {
   useWindowDimensions,
   AppState,
   BackHandler,
+  InteractionManager,
   type AppStateStatus,
   type DimensionValue,
   type NativeSyntheticEvent,
@@ -732,6 +733,11 @@ export default function ChatThreadScreen() {
       setTimeout(guardedReplace, 150),
       setTimeout(guardedReplace, 400),
     );
+
+    /** After transitions complete, repeat replace if navigation state still points at this chat URL. */
+    InteractionManager.runAfterInteractions(() => {
+      guardedReplace();
+    });
   }, [otherUserId, clearGoToMatchesScheduled]);
 
   useFocusEffect(
