@@ -12,6 +12,7 @@ import {
   VIBE_CLIP_MAX_UPLOAD_BYTES,
   VIBE_CLIP_UPLOAD_EMPTY_FILE,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
+  vibeClipMultipartFitsEdgeLimit,
 } from '../../../shared/chat/vibeClipCaptureCopy';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -70,11 +71,13 @@ export async function uploadChatVideoMessage(
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
   }
 
+  let videoSizeBytes = 0;
   try {
     const info = await FileSystem.getInfoAsync(videoUri);
-    if (info.exists && !info.isDirectory) {
+    if (info.exists && !info.isDirectory && typeof info.size === 'number') {
       if (info.size <= 0) throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
       if (info.size > VIBE_CLIP_MAX_UPLOAD_BYTES) throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      videoSizeBytes = info.size;
     }
   } catch (error) {
     if (error instanceof Error && (error.message === VIBE_CLIP_UPLOAD_EMPTY_FILE || error.message === VIBE_CLIP_UPLOAD_TOO_LARGE())) {
@@ -107,15 +110,20 @@ export async function uploadChatVideoMessage(
       name: `chat-video.${ext}`,
     } as unknown as Blob
   );
-  if (tempThumbUri) {
-    formData.append(
-      'thumbnail',
-      {
-        uri: tempThumbUri,
-        type: 'image/jpeg',
-        name: 'chat-video-thumb.jpg',
-      } as unknown as Blob
-    );
+  if (tempThumbUri && videoSizeBytes > 0) {
+    const thumbInfo = await FileSystem.getInfoAsync(tempThumbUri);
+    const thumbSize =
+      thumbInfo.exists && !thumbInfo.isDirectory && typeof thumbInfo.size === 'number' ? thumbInfo.size : 0;
+    if (thumbSize > 0 && vibeClipMultipartFitsEdgeLimit(videoSizeBytes, thumbSize)) {
+      formData.append(
+        'thumbnail',
+        {
+          uri: tempThumbUri,
+          type: 'image/jpeg',
+          name: 'chat-video-thumb.jpg',
+        } as unknown as Blob
+      );
+    }
   }
 
   let res: Response;

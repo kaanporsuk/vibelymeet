@@ -24,9 +24,10 @@ const sendMessage = read("supabase/functions/send-message/index.ts");
 
 test("shared Vibe Clip upload limits stay aligned across clients", () => {
   assert.match(copy, /export const VIBE_CLIP_MAX_DURATION_SEC = 30/);
-  assert.match(copy, /hosted request body limit is 10MB/);
-  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_BYTES = 9 \* 1024 \* 1024/);
-  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_MB = 9/);
+  assert.match(copy, /HOSTED_EDGE_FUNCTION_BODY_LIMIT_BYTES = 10 \* 1024 \* 1024/);
+  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_MB = 8/);
+  assert.match(copy, /vibeClipMultipartFitsEdgeLimit/);
   assert.match(copy, /VIBE_CLIP_UPLOAD_TOO_LONG/);
   assert.match(copy, /VIBE_CLIP_UPLOAD_TOO_LARGE/);
   assert.match(copy, /VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE/);
@@ -67,6 +68,7 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webChat, /aspectRatio: meta\?\.aspectRatio \?\? null/);
   assert.match(webUpload, /videoBlob\.size <= 0/);
   assert.match(webUpload, /videoBlob\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
+  assert.match(webUpload, /vibeClipMultipartFitsEdgeLimit/);
   assert.match(webUpload, /function videoMimeTypeForBlob/);
   assert.match(webUpload, /video_metadata_timeout/);
   assert.match(webUpload, /baseType === "video\/quicktime"\) return "mov"/);
@@ -116,6 +118,7 @@ test("native upload and cache keep mobile video formats intact", () => {
   assert.match(nativeUpload, /FileSystem\.getInfoAsync\(videoUri\)/);
   assert.match(nativeUpload, /info\.size <= 0/);
   assert.match(nativeUpload, /info\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
+  assert.match(nativeUpload, /vibeClipMultipartFitsEdgeLimit/);
   assert.match(nativeUpload, /mimeType\.includes\('quicktime'\)[\s\S]{0,80}'mov'/);
   assert.match(nativeUpload, /mimeType\.includes\('x-m4v'\)[\s\S]{0,80}'m4v'/);
   assert.match(nativeUpload, /mimeType\.includes\('webm'\)[\s\S]{0,80}'webm'/);
@@ -124,9 +127,9 @@ test("native upload and cache keep mobile video formats intact", () => {
 });
 
 test("server upload and publish paths enforce final Vibe Clip limits", () => {
-  assert.match(uploadChatVideo, /const CHAT_VIDEO_MAX_UPLOAD_BYTES = 9 \* 1024 \* 1024/);
-  assert.match(uploadChatVideo, /hosted Supabase Edge Function 10MB request-body cap/);
-  assert.match(uploadChatVideo, /Maximum 9MB/);
+  assert.match(uploadChatVideo, /const CHAT_VIDEO_MAX_UPLOAD_BYTES = 8 \* 1024 \* 1024/);
+  assert.match(uploadChatVideo, /Supabase Edge Function ~10MB request-body cap/);
+  assert.match(uploadChatVideo, /Maximum 8MB/);
   assert.match(uploadChatVideo, /file\.size <= 0/);
   assert.match(uploadChatVideo, /file\.size > CHAT_VIDEO_MAX_UPLOAD_BYTES/);
   assert.match(uploadChatVideo, /"video\/quicktime": "mov"/);

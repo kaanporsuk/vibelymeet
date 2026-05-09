@@ -20,7 +20,7 @@ import {
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
-import { useLocalSearchParams, router } from 'expo-router';
+import { useLocalSearchParams, router, usePathname } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -678,6 +678,21 @@ export default function ChatThreadScreen() {
   const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
   const listRef = useRef<FlatList<ChatListRow>>(null);
   const inputRef = useRef<TextInput>(null);
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+  const goToMatchesTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const goToMatchesRafRef = useRef<number | null>(null);
+
+  const clearGoToMatchesScheduled = useCallback(() => {
+    for (const t of goToMatchesTimersRef.current) clearTimeout(t);
+    goToMatchesTimersRef.current = [];
+    if (goToMatchesRafRef.current != null) {
+      cancelAnimationFrame(goToMatchesRafRef.current);
+      goToMatchesRafRef.current = null;
+    }
+  }, []);
+
   const stickToBottomRef = useRef(true);
   const userScrollIntentUntilRef = useRef(0);
   /** Until first content-size snap for this thread, ignore scroll race that clears stickToBottom before scrollToEnd. */
@@ -695,10 +710,28 @@ export default function ChatThreadScreen() {
       /* dismissTo can fail when matches tab was not in the navigation stack (e.g. cold deep link). */
     }
     router.replace(MATCHES_TAB_HREF);
-    requestAnimationFrame(() => router.replace(MATCHES_TAB_HREF));
-    setTimeout(() => router.replace(MATCHES_TAB_HREF), 150);
-    setTimeout(() => router.replace(MATCHES_TAB_HREF), 400);
-  }, []);
+
+    clearGoToMatchesScheduled();
+
+    const expectedPath = otherUserId ? `/chat/${otherUserId}` : null;
+    const guardedReplace = () => {
+      if (!expectedPath || pathnameRef.current !== expectedPath) return;
+      try {
+        router.replace(MATCHES_TAB_HREF);
+      } catch {
+        /* replace can fail during rapid transitions */
+      }
+    };
+
+    goToMatchesRafRef.current = requestAnimationFrame(() => {
+      goToMatchesRafRef.current = null;
+      guardedReplace();
+    });
+    goToMatchesTimersRef.current.push(
+      setTimeout(guardedReplace, 150),
+      setTimeout(guardedReplace, 400),
+    );
+  }, [otherUserId, clearGoToMatchesScheduled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -706,8 +739,11 @@ export default function ChatThreadScreen() {
         goToMatches();
         return true;
       });
-      return () => subscription.remove();
-    }, [goToMatches])
+      return () => {
+        subscription.remove();
+        clearGoToMatchesScheduled();
+      };
+    }, [goToMatches, clearGoToMatchesScheduled])
   );
 
   const outboxForMatch = useMemo(() => {
