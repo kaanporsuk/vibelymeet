@@ -7,9 +7,9 @@
 export const VIBE_CLIP_MAX_DURATION_SEC = 30;
 
 /** Upload cap enforced by upload-chat-video for chat Vibe Clips. */
-export const VIBE_CLIP_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+export const VIBE_CLIP_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
-export const VIBE_CLIP_MAX_UPLOAD_MB = 20;
+export const VIBE_CLIP_MAX_UPLOAD_MB = 50;
 
 /** Web chat composer — film control `title` (accessibility + hover). */
 export const VIBE_CLIP_CHAT_FILM_BUTTON_TITLE = `Vibe Clip — record a short front-camera video (up to ${VIBE_CLIP_MAX_DURATION_SEC}s)`;

@@ -24,7 +24,8 @@ const sendMessage = read("supabase/functions/send-message/index.ts");
 
 test("shared Vibe Clip upload limits stay aligned across clients", () => {
   assert.match(copy, /export const VIBE_CLIP_MAX_DURATION_SEC = 30/);
-  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_BYTES = 20 \* 1024 \* 1024/);
+  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_BYTES = 50 \* 1024 \* 1024/);
+  assert.match(copy, /export const VIBE_CLIP_MAX_UPLOAD_MB = 50/);
   assert.match(copy, /VIBE_CLIP_UPLOAD_TOO_LONG/);
   assert.match(copy, /VIBE_CLIP_UPLOAD_TOO_LARGE/);
   assert.match(copy, /VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE/);
@@ -122,7 +123,8 @@ test("native upload and cache keep mobile video formats intact", () => {
 });
 
 test("server upload and publish paths enforce final Vibe Clip limits", () => {
-  assert.match(uploadChatVideo, /const CHAT_VIDEO_MAX_UPLOAD_BYTES = 20 \* 1024 \* 1024/);
+  assert.match(uploadChatVideo, /const CHAT_VIDEO_MAX_UPLOAD_BYTES = 50 \* 1024 \* 1024/);
+  assert.match(uploadChatVideo, /Maximum 50MB/);
   assert.match(uploadChatVideo, /file\.size <= 0/);
   assert.match(uploadChatVideo, /file\.size > CHAT_VIDEO_MAX_UPLOAD_BYTES/);
   assert.match(uploadChatVideo, /"video\/quicktime": "mov"/);

@@ -8,7 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CHAT_VIDEO_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const CHAT_VIDEO_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -95,10 +95,10 @@ serve(async (req) => {
       );
     }
 
-    // Max 20MB for chat video clips
+    // Max 50MB for chat video clips
     if (file.size > CHAT_VIDEO_MAX_UPLOAD_BYTES) {
       return new Response(
-        JSON.stringify({ success: false, error: "File too large. Maximum 20MB." }),
+        JSON.stringify({ success: false, error: "File too large. Maximum 50MB." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
