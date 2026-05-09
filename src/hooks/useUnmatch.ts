@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -53,12 +53,24 @@ export const useUnmatch = () => {
 
 // Undo-able unmatch with 5-second delay
 interface UndoableUnmatchOptions {
-  onUnmatchComplete?: () => void;
+  /** `matchId` is always passed so callers need not close over screen state. */
+  onUnmatchComplete?: (matchId: string) => void;
   onUndo?: () => void;
 }
 
 export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
   const queryClient = useQueryClient();
+  const mountedRef = useRef(true);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const pendingUnmatchRef = useRef<{
     matchId: string;
     timeoutId: NodeJS.Timeout;
@@ -69,46 +81,47 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
     try {
       await unmatchViaRpc(matchId);
 
-      // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
 
-      options?.onUnmatchComplete?.();
+      if (mountedRef.current) {
+        optionsRef.current?.onUnmatchComplete?.(matchId);
+      }
     } catch (error) {
       console.error("Unmatch error:", error);
-      toast.error("Failed to unmatch", {
-        description: "Please try again later",
-      });
+      if (mountedRef.current) {
+        toast.error("Failed to unmatch", {
+          description: "Please try again later",
+        });
+      }
     }
-  }, [queryClient, options]);
+  }, [queryClient]);
 
   const undoUnmatch = useCallback(() => {
     if (pendingUnmatchRef.current) {
       clearTimeout(pendingUnmatchRef.current.timeoutId);
       toast.dismiss(pendingUnmatchRef.current.toastId);
       pendingUnmatchRef.current = null;
-      
-      // Restore UI by invalidating queries
+
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
-      
-      toast.success("Unmatch cancelled", {
-        description: "Your match has been restored",
-        duration: 2000,
-      });
-      
-      options?.onUndo?.();
+
+      if (mountedRef.current) {
+        toast.success("Unmatch cancelled", {
+          description: "Your match has been restored",
+          duration: 2000,
+        });
+        optionsRef.current?.onUndo?.();
+      }
     }
-  }, [queryClient, options]);
+  }, [queryClient]);
 
   const initiateUnmatch = useCallback((matchId: string, userName: string) => {
-    // Cancel any existing pending unmatch
     if (pendingUnmatchRef.current) {
       clearTimeout(pendingUnmatchRef.current.timeoutId);
       toast.dismiss(pendingUnmatchRef.current.toastId);
     }
 
-    // Show toast with undo button
     const toastId = toast(`Unmatched with ${userName}`, {
       description: "This action will complete in 5 seconds",
       duration: 5000,
@@ -123,10 +136,10 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
       },
     });
 
-    // Set timeout to perform actual deletion
     const timeoutId = setTimeout(() => {
-      performUnmatch(matchId);
-      pendingUnmatchRef.current = null;
+      void performUnmatch(matchId).finally(() => {
+        pendingUnmatchRef.current = null;
+      });
     }, 5000);
 
     pendingUnmatchRef.current = {
@@ -135,7 +148,6 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
       toastId,
     };
 
-    // Return immediately - the unmatch will happen after 5 seconds
     return true;
   }, [performUnmatch, undoUnmatch]);
 

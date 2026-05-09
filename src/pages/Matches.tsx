@@ -118,14 +118,12 @@ const Matches = () => {
   const [pendingUnmatchIds, setPendingUnmatchIds] = useState<Set<string>>(new Set());
   
   const { initiateUnmatch } = useUndoableUnmatch({
-    onUnmatchComplete: () => {
-      if (unmatchTarget) {
-        setPendingUnmatchIds(prev => {
-          const next = new Set(prev);
-          next.delete(unmatchTarget.matchId);
-          return next;
-        });
-      }
+    onUnmatchComplete: (completedMatchId) => {
+      setPendingUnmatchIds((prev) => {
+        const next = new Set(prev);
+        next.delete(completedMatchId);
+        return next;
+      });
     },
     onUndo: () => {
       setPendingUnmatchIds(new Set());

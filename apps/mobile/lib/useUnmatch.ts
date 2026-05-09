@@ -2,7 +2,7 @@
  * Unmatch through the server-owned atomic cleanup RPC. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -39,7 +39,8 @@ export function useUnmatch() {
 }
 
 export type UndoableUnmatchOptions = {
-  onUnmatchComplete?: () => void;
+  /** `matchId` is always passed so callers need not close over screen state. */
+  onUnmatchComplete?: (matchId: string) => void;
   onUndo?: () => void;
 };
 
@@ -47,30 +48,43 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const queryClient = useQueryClient();
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
   const [hasPendingUnmatch, setHasPendingUnmatch] = useState(false);
+  const mountedRef = useRef(true);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
-  const performUnmatch = useCallback(
-    async (matchId: string) => {
-      try {
-        await unmatchViaRpc(matchId);
-        queryClient.invalidateQueries({ queryKey: ['matches'] });
-        queryClient.invalidateQueries({ queryKey: ['messages'] });
-        options?.onUnmatchComplete?.();
-      } catch (err) {
-        if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const performUnmatch = useCallback(async (matchId: string) => {
+    try {
+      await unmatchViaRpc(matchId);
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      if (mountedRef.current) {
+        optionsRef.current?.onUnmatchComplete?.(matchId);
       }
-    },
-    [queryClient, options]
-  );
+    } catch (err) {
+      if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);
+    }
+  }, [queryClient]);
 
   const cancelPending = useCallback(() => {
     if (pendingRef.current) {
       clearTimeout(pendingRef.current.timeoutId);
       pendingRef.current = null;
     }
-    setHasPendingUnmatch(false);
+    if (mountedRef.current) {
+      setHasPendingUnmatch(false);
+    }
     queryClient.invalidateQueries({ queryKey: ['matches'] });
-    options?.onUndo?.();
-  }, [queryClient, options]);
+    if (mountedRef.current) {
+      optionsRef.current?.onUndo?.();
+    }
+  }, [queryClient]);
 
   const initiateUnmatch = useCallback(
     (matchId: string) => {
@@ -78,9 +92,12 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
         clearTimeout(pendingRef.current.timeoutId);
       }
       const timeoutId = setTimeout(() => {
-        performUnmatch(matchId);
         pendingRef.current = null;
-        setHasPendingUnmatch(false);
+        void performUnmatch(matchId).finally(() => {
+          if (mountedRef.current) {
+            setHasPendingUnmatch(false);
+          }
+        });
       }, 5000);
       pendingRef.current = { matchId, timeoutId };
       setHasPendingUnmatch(true);
