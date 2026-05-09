@@ -60,7 +60,7 @@ Checks performed:
 - backup/duplicate search: only the intentional historical archive duplicate and third-party iOS Pods files appeared
 - static surface inventory: 0 orphan pages, 0 orphan hooks, 41 orphan components, all still caveated as triage candidates rather than a deletion manifest
 
-The 41 orphan component candidates are mostly UI, wizard, safety, and older component surfaces already described by `docs/audits/surface-inventory-candidates-2026-04-14.md`. They are not safe to delete without product/route-level proof because the inventory script does not analyze dynamic import, Vite glob, or runtime string loading.
+The 41 orphan component candidates are mostly UI, wizard, safety, and older component surfaces already described by `docs/audits/surface-inventory-candidates-2026-04-14.md`. They are not safe to delete without product/route-level proof because the inventory script still does not analyze computed dynamic imports, Vite glob, or runtime string loading.
 
 ### Documentation Tidy
 

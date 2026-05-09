@@ -4,7 +4,7 @@
 
 ## Method
 
-Static import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientShared/*`, and relative imports.
+Import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientShared/*`, relative imports, and literal dynamic `import()` calls.
 
 ## Summary
 
@@ -70,7 +70,7 @@ _None._
 
 ## Caveats
 
-- Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, and relative imports.
+- Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, relative imports, and literal dynamic import() calls.
 - Literal dynamic import() paths are analyzed; computed dynamic paths are not.
 - Files only loaded by Vite glob or runtime strings may false-positive as orphans.
 
