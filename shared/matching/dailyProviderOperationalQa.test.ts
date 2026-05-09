@@ -276,9 +276,17 @@ test("existing match-call paths remain present on web and native", () => {
     assert.match(source, /join_match_call|joinMatchCall/);
     assert.match(source, /delete_room|deleteMatchCallRoom/);
     assert.match(source, /startCallAttemptRef/);
+    assert.match(source, /startCallLockRef/);
+    assert.match(source, /runSingleJoinFlow/);
+    assert.match(source, /joiningCallIdRef/);
+    assert.match(source, /joinPromiseRef/);
+    assert.match(source, /queueReconcileCallRow/);
     assert.match(source, /start_call_watchdog_fired/);
-    assert.match(source, /if \(!isCurrentStartCallAttempt\(\)\) \{\s*await (transitionCall|transitionMatchCall)\(callId, ["']join_failed["']\)/);
-    assert.match(source, /deleteRoom\(roomName\)|deleteMatchCallRoom\(roomName\)/);
+    assert.match(source, /start_call_stale_success_ignored/);
+    assert.doesNotMatch(
+      source,
+      /if \(!isCurrentStartCallAttempt\(\)\) \{\s*await (transitionCall|transitionMatchCall)\(callId, ["']join_failed["']\)/,
+    );
     assert.match(source, /participant-joined/);
     assert.match(source, /participant-left/);
   }
@@ -286,6 +294,17 @@ test("existing match-call paths remain present on web and native", () => {
   assert.match(nativeMatchCallApi, /body:\s*\{ action: 'answer_match_call', callId \}/);
   assert.match(nativeMatchCallApi, /body:\s*\{ action: 'join_match_call', callId \}/);
   assert.match(nativeMatchCallApi, /body:\s*\{ action: 'delete_room', roomName \}/);
+});
+
+test("match_call_transition keeps duplicate answer and decline idempotent", () => {
+  const amendment = read(
+    "supabase/migrations/20260510150000_match_call_transition_idempotent_duplicate_events.sql",
+  );
+  assert.match(
+    amendment,
+    /p_action IN \('end', 'mark_missed', 'join_failed'\)\s+OR \(p_action = 'decline' AND v_call.status = 'declined'\)/,
+  );
+  assert.match(amendment, /IF v_call.status = 'active' THEN[\s\S]*'idempotent', true/s);
 });
 
 test("Daily operational QA adds no env vars, migrations, native modules, expo-av, or unrelated provider changes", () => {

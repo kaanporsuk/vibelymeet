@@ -220,6 +220,11 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const trackedCallIdRef = useRef<string | null>(null);
   const roomNameRef = useRef<string | null>(null);
   const startCallAttemptRef = useRef(0);
+  const startCallLockRef = useRef(false);
+  const joiningCallIdRef = useRef<string | null>(null);
+  const joinPromiseRef = useRef<Promise<void> | null>(null);
+  const reconcileQueueRef = useRef(Promise.resolve());
+  const reconcileSignatureByCallIdRef = useRef(new Map<string, string>());
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -233,6 +238,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const callPhaseRef = useLatestRef(callPhase);
   const incomingCallRef = useLatestRef(incomingCall);
   const activePartnerRef = useLatestRef(activePartner);
+  const reconcileCallRowRef = useRef<(row: MatchCallRow) => Promise<void>>(async () => {});
 
   const clearRingingTimeout = useCallback(() => {
     if (ringingTimeoutRef.current) {
@@ -448,6 +454,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       const roomName = deleteRoomName ?? roomNameRef.current;
       trackedCallIdRef.current = null;
       roomNameRef.current = null;
+      startCallLockRef.current = false;
+      joiningCallIdRef.current = null;
+      joinPromiseRef.current = null;
+      reconcileSignatureByCallIdRef.current.clear();
       setCallPhase("idle");
       setIncomingCall(null);
       setActiveMatchId(null);
@@ -471,6 +481,35 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       stopDurationTimer,
       transitionCall,
     ],
+  );
+
+  const runSingleJoinFlow = useCallback(
+    async (callId: string, run: () => Promise<void>) => {
+      if (callObjectRef.current && trackedCallIdRef.current === callId) {
+        return;
+      }
+      if (joinPromiseRef.current) {
+        if (joiningCallIdRef.current === callId) {
+          await joinPromiseRef.current;
+        }
+        return;
+      }
+
+      joiningCallIdRef.current = callId;
+      const joinPromise = (async () => {
+        try {
+          await run();
+        } finally {
+          if (joiningCallIdRef.current === callId) {
+            joiningCallIdRef.current = null;
+            joinPromiseRef.current = null;
+          }
+        }
+      })();
+      joinPromiseRef.current = joinPromise;
+      await joinPromise;
+    },
+    [],
   );
 
   const endCall = useCallback(async () => {
@@ -605,28 +644,30 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       setIncomingCall(null);
       startDurationTimer();
 
-      const DailyIframe = await loadDailyIframe();
-      const callObject = DailyIframe.createCallObject(
-        dailyCallObjectOptions({
-          audioSource: true,
-          videoSource: pendingIncoming.callType === "video",
-        })
-      );
-      callObjectRef.current = callObject;
-      setupCallEvents(callObject, pendingIncoming.callType);
+      await runSingleJoinFlow(pendingIncoming.callId, async () => {
+        const DailyIframe = await loadDailyIframe();
+        const callObject = DailyIframe.createCallObject(
+          dailyCallObjectOptions({
+            audioSource: true,
+            videoSource: pendingIncoming.callType === "video",
+          })
+        );
+        callObjectRef.current = callObject;
+        setupCallEvents(callObject, pendingIncoming.callType);
 
-      await callObject.join({ url: data.room_url, token: data.token });
-      const localParticipant = callObject.participants().local;
-      if (localParticipant) {
-        attachTracks(localParticipant, localVideoRef.current, true);
-      }
-      await transitionCall(pendingIncoming.callId, "joined").catch((err) => {
-        logMatchCallDiag("answer_joined_transition_failed", {
-          call_id: pendingIncoming.callId,
-          message: err instanceof Error ? err.message : String(err),
+        await callObject.join({ url: data.room_url, token: data.token });
+        const localParticipant = callObject.participants().local;
+        if (localParticipant) {
+          attachTracks(localParticipant, localVideoRef.current, true);
+        }
+        await transitionCall(pendingIncoming.callId, "joined").catch((err) => {
+          logMatchCallDiag("answer_joined_transition_failed", {
+            call_id: pendingIncoming.callId,
+            message: err instanceof Error ? err.message : String(err),
+          });
         });
+        startHeartbeat();
       });
-      startHeartbeat();
     } catch (error) {
       console.error("[MatchCall] Answer error:", error);
       toast.error("Couldn't connect call");
@@ -646,6 +687,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     attachTracks,
     cleanupLocalCall,
     incomingCallRef,
+    runSingleJoinFlow,
     setupCallEvents,
     startDurationTimer,
     startHeartbeat,
@@ -659,10 +701,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (startCallLockRef.current) {
+        toast.error("Please wait for the current call request");
+        return;
+      }
       if (trackedCallIdRef.current || incomingCallRef.current || callPhaseRef.current !== "idle") {
         toast.error("Finish the current call before starting another one");
         return;
       }
+      startCallLockRef.current = true;
 
       logMatchCallDiag("start_call_invoked", { match_id: matchId, call_type: type });
       const startCallAttemptId = startCallAttemptRef.current + 1;
@@ -726,8 +773,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         const callId = data.call_id as string;
         const roomName = data.room_name as string | null;
         if (!isCurrentStartCallAttempt()) {
-          await transitionCall(callId, "join_failed").catch(() => {});
-          await deleteRoom(roomName);
+          logMatchCallDiag("start_call_stale_success_ignored", {
+            call_id: callId,
+            match_id: matchId,
+          });
           return;
         }
         createdCallId = callId;
@@ -736,28 +785,30 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         roomNameRef.current = createdRoomName;
         clearTimeout(startWatchdogId);
 
-        const DailyIframe = await loadDailyIframe();
-        const callObject = DailyIframe.createCallObject(
-          dailyCallObjectOptions({
-            audioSource: true,
-            videoSource: type === "video",
-          })
-        );
-        callObjectRef.current = callObject;
-        setupCallEvents(callObject, type);
+        await runSingleJoinFlow(callId, async () => {
+          const DailyIframe = await loadDailyIframe();
+          const callObject = DailyIframe.createCallObject(
+            dailyCallObjectOptions({
+              audioSource: true,
+              videoSource: type === "video",
+            })
+          );
+          callObjectRef.current = callObject;
+          setupCallEvents(callObject, type);
 
-        await callObject.join({ url: data.room_url, token: data.token });
-        const localParticipant = callObject.participants().local;
-        if (localParticipant) {
-          attachTracks(localParticipant, localVideoRef.current, true);
-        }
-        await transitionCall(callId, "joined").catch((err) => {
-          logMatchCallDiag("start_joined_transition_failed", {
-            call_id: callId,
-            message: err instanceof Error ? err.message : String(err),
+          await callObject.join({ url: data.room_url, token: data.token });
+          const localParticipant = callObject.participants().local;
+          if (localParticipant) {
+            attachTracks(localParticipant, localVideoRef.current, true);
+          }
+          await transitionCall(callId, "joined").catch((err) => {
+            logMatchCallDiag("start_joined_transition_failed", {
+              call_id: callId,
+              message: err instanceof Error ? err.message : String(err),
+            });
           });
+          startHeartbeat();
         });
-        startHeartbeat();
 
         clearRingingTimeout();
         ringingTimeoutRef.current = setTimeout(() => {
@@ -794,6 +845,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }
 
         await cleanupLocalCall({ deleteRoomName: createdRoomName, skipServerTransition: true });
+      } finally {
+        startCallLockRef.current = false;
       }
     },
     [
@@ -803,6 +856,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       clearRingingTimeout,
       incomingCallRef,
       setupCallEvents,
+      runSingleJoinFlow,
       startHeartbeat,
       transitionCall,
     ],
@@ -907,30 +961,32 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const DailyIframe = await loadDailyIframe();
-        const callObject = DailyIframe.createCallObject(
-          dailyCallObjectOptions({
-            audioSource: true,
-            videoSource: nextCallType === "video",
-          })
-        );
-        callObjectRef.current = callObject;
-        setupCallEvents(callObject, nextCallType);
-        setCallPhase("in_call");
-        startDurationTimer(row.started_at);
+        await runSingleJoinFlow(row.id, async () => {
+          const DailyIframe = await loadDailyIframe();
+          const callObject = DailyIframe.createCallObject(
+            dailyCallObjectOptions({
+              audioSource: true,
+              videoSource: nextCallType === "video",
+            })
+          );
+          callObjectRef.current = callObject;
+          setupCallEvents(callObject, nextCallType);
+          setCallPhase("in_call");
+          startDurationTimer(row.started_at);
 
-        await callObject.join({ url: data.room_url, token: data.token });
-        const localParticipant = callObject.participants().local;
-        if (localParticipant) {
-          attachTracks(localParticipant, localVideoRef.current, true);
-        }
-        await transitionCall(row.id, "joined").catch((err) => {
-          logMatchCallDiag("active_rejoin_joined_transition_failed", {
-            call_id: row.id,
-            message: err instanceof Error ? err.message : String(err),
+          await callObject.join({ url: data.room_url, token: data.token });
+          const localParticipant = callObject.participants().local;
+          if (localParticipant) {
+            attachTracks(localParticipant, localVideoRef.current, true);
+          }
+          await transitionCall(row.id, "joined").catch((err) => {
+            logMatchCallDiag("active_rejoin_joined_transition_failed", {
+              call_id: row.id,
+              message: err instanceof Error ? err.message : String(err),
+            });
           });
+          startHeartbeat();
         });
-        startHeartbeat();
       } catch (err) {
         logMatchCallDiag("active_rejoin_failed", {
           call_id: row.id,
@@ -954,6 +1010,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       clearRingingTimeout,
       currentUserId,
       fetchPartnerSummary,
+      runSingleJoinFlow,
       setupCallEvents,
       startDurationTimer,
       startHeartbeat,
@@ -1018,7 +1075,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           }
           break;
         case "active":
-          if (!callObjectRef.current) {
+          if (
+            !callObjectRef.current &&
+            !(joiningCallIdRef.current === row.id && joinPromiseRef.current)
+          ) {
             await joinActiveCall(row);
           } else {
             clearRingingTimeout();
@@ -1054,6 +1114,28 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    reconcileCallRowRef.current = reconcileCallRow;
+  }, [reconcileCallRow]);
+
+  const queueReconcileCallRow = useCallback((row: MatchCallRow) => {
+    const signature = `${row.status}:${row.started_at ?? ""}:${row.ended_at ?? ""}:${row.daily_room_name ?? ""}`;
+    if (reconcileSignatureByCallIdRef.current.get(row.id) === signature) {
+      return;
+    }
+    reconcileSignatureByCallIdRef.current.set(row.id, signature);
+    reconcileQueueRef.current = reconcileQueueRef.current
+      .then(async () => {
+        await reconcileCallRowRef.current(row);
+      })
+      .catch((err) => {
+        logMatchCallDiag("reconcile_queue_failed", {
+          call_id: row.id,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }, []);
+
+  useEffect(() => {
     if (!currentUserId) {
       void cleanupLocalCall();
       return;
@@ -1064,7 +1146,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     const handlePayload = (payload: { new: MatchCallRow | null; old: MatchCallRow | null }) => {
       const row = payload.new ?? payload.old;
       if (!row || cancelled) return;
-      void reconcileCallRow(row);
+      queueReconcileCallRow(row);
     };
 
     const channel = supabase.channel(`match-calls-global-${currentUserId}`);
@@ -1141,7 +1223,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
 
       if (row) {
-        await reconcileCallRow(row);
+        queueReconcileCallRow(row);
       }
     })();
 
@@ -1149,7 +1231,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [cleanupLocalCall, currentUserId, reconcileCallRow]);
+  }, [cleanupLocalCall, currentUserId, queueReconcileCallRow]);
 
   useEffect(() => {
     return () => {
