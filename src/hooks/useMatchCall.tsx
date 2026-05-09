@@ -219,6 +219,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const callObjectRef = useRef<DailyCall | null>(null);
   const trackedCallIdRef = useRef<string | null>(null);
   const roomNameRef = useRef<string | null>(null);
+  const startCallAttemptRef = useRef(0);
   const durationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -664,6 +665,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       }
 
       logMatchCallDiag("start_call_invoked", { match_id: matchId, call_type: type });
+      const startCallAttemptId = startCallAttemptRef.current + 1;
+      startCallAttemptRef.current = startCallAttemptId;
+      const isCurrentStartCallAttempt = () => startCallAttemptRef.current === startCallAttemptId;
+      const invalidateStartCallAttempt = () => {
+        if (startCallAttemptRef.current === startCallAttemptId) {
+          startCallAttemptRef.current += 1;
+        }
+      };
 
       setCallType(type);
       setCallPhase("ringing");
@@ -678,7 +687,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       let createdRoomName: string | null = null;
 
       const startWatchdogId = setTimeout(() => {
-        if (callPhaseRef.current === "ringing" && !trackedCallIdRef.current) {
+        if (
+          callPhaseRef.current === "ringing" &&
+          !trackedCallIdRef.current &&
+          isCurrentStartCallAttempt()
+        ) {
+          invalidateStartCallAttempt();
           logMatchCallDiag("start_call_watchdog_fired", { match_id: matchId, call_type: type });
           toast.error("Call didn't start — please try again");
           void cleanupLocalCall({ skipServerTransition: true });
@@ -699,6 +713,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         });
         if (error || !data?.token) {
           clearTimeout(startWatchdogId);
+          if (!isCurrentStartCallAttempt()) {
+            return;
+          }
           toast.error(
             messageForMatchCallEdgeCode(createEdgeCode) ?? "Couldn't start call",
           );
@@ -707,8 +724,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }
 
         const callId = data.call_id as string;
+        const roomName = data.room_name as string | null;
+        if (!isCurrentStartCallAttempt()) {
+          await transitionCall(callId, "join_failed").catch(() => {});
+          await deleteRoom(roomName);
+          return;
+        }
         createdCallId = callId;
-        createdRoomName = data.room_name;
+        createdRoomName = roomName;
         trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
         clearTimeout(startWatchdogId);
@@ -752,6 +775,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         }, 30000);
       } catch (error) {
         clearTimeout(startWatchdogId);
+        if (!isCurrentStartCallAttempt()) {
+          return;
+        }
         console.error("[MatchCall] Start error:", error);
         logMatchCallDiag("start_call_threw", {
           match_id: matchId,

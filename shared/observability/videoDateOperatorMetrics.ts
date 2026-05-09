@@ -147,6 +147,10 @@ export type ReadyGateToDateLatencyCheckpoint =
   | "ready_gate_transition_success"
   | "both_ready_observed"
   | "both_ready_observed_via_rpc_short_circuit"
+  | "mutual_swipe_observed"
+  | "room_pre_create_started"
+  | "room_pre_create_success"
+  | "room_pre_create_failure"
   | "room_warmup_started"
   | "room_warmup_success"
   | "room_warmup_failure"
@@ -242,6 +246,10 @@ export type ReadyGateToDateLatencyContext = {
   dailyPrewarmDestroyedAtMs?: number;
   videoDateRoutePreloadStartedAtMs?: number;
   videoDateRoutePreloadCompletedAtMs?: number;
+  mutualSwipeObservedAtMs?: number;
+  roomPreCreateStartedAtMs?: number;
+  roomPreCreateSuccessAtMs?: number;
+  roomPreCreateFailureAtMs?: number;
   attemptCount?: number;
 };
 
@@ -295,6 +303,14 @@ function checkpointField(checkpoint: ReadyGateToDateLatencyCheckpoint): keyof Re
     case "both_ready_observed":
     case "both_ready_observed_via_rpc_short_circuit":
       return "bothReadyObservedAtMs";
+    case "mutual_swipe_observed":
+      return "mutualSwipeObservedAtMs";
+    case "room_pre_create_started":
+      return "roomPreCreateStartedAtMs";
+    case "room_pre_create_success":
+      return "roomPreCreateSuccessAtMs";
+    case "room_pre_create_failure":
+      return "roomPreCreateFailureAtMs";
     case "room_warmup_started":
       return "roomWarmupStartedAtMs";
     case "room_warmup_success":
