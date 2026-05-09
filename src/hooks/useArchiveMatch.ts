@@ -55,21 +55,33 @@ export const useArchiveMatch = () => {
     },
   });
 
+  const showArchiveSuccessToast = (matchId: string, userName: string) => {
+    toast.success(`${userName} archived`, {
+      description: "You can find them in archived matches",
+      action: {
+        label: "Undo",
+        onClick: () => unarchiveMutation.mutate({ matchId }),
+      },
+    });
+  };
+
   const archiveMatch = (matchId: string, userName: string) => {
     archiveMutation.mutate({ matchId }, {
-      onSuccess: () => {
-        toast.success(`${userName} archived`, {
-          description: "You can find them in archived matches",
-          action: {
-            label: "Undo",
-            onClick: () => unarchiveMutation.mutate({ matchId }),
-          },
-        });
-      },
+      onSuccess: () => showArchiveSuccessToast(matchId, userName),
       onError: () => {
         toast.error("Failed to archive match");
       },
     });
+  };
+
+  const archiveMatchAsync = async (matchId: string, userName: string) => {
+    try {
+      await archiveMutation.mutateAsync({ matchId });
+      showArchiveSuccessToast(matchId, userName);
+    } catch (error) {
+      toast.error("Failed to archive match");
+      throw error;
+    }
   };
 
   const unarchiveMatch = (matchId: string, userName: string) => {
@@ -85,6 +97,7 @@ export const useArchiveMatch = () => {
 
   return {
     archiveMatch,
+    archiveMatchAsync,
     unarchiveMatch,
     isArchiving: archiveMutation.isPending,
     isUnarchiving: unarchiveMutation.isPending,

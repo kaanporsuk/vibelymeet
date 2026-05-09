@@ -94,8 +94,8 @@ export const ChatHeader = ({
   const [showProfileDrawer, setShowProfileDrawer] = useState(false);
 
   const { initiateUnmatch } = useUndoableUnmatch();
-  const { archiveMatch, isArchiving } = useArchiveMatch();
-  const { blockUser, isBlocking } = useBlockUser();
+  const { archiveMatchAsync, isArchiving } = useArchiveMatch();
+  const { blockUserAsync, isBlocking } = useBlockUser();
   const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch();
 
   const isMuted = matchId ? isMatchMuted(matchId) : false;
@@ -120,17 +120,25 @@ export const ChatHeader = ({
     }
   };
 
-  const handleArchive = () => {
+  const handleArchive = async () => {
     if (matchId) {
-      archiveMatch(matchId, user.name);
-      onBack();
+      try {
+        await archiveMatchAsync(matchId, user.name);
+        onBack();
+      } catch {
+        // Toast feedback is handled in hook.
+      }
     }
   };
 
-  const handleBlock = (reason?: string) => {
-    blockUser(user.id, user.name, reason, matchId);
-    setShowBlockDialog(false);
-    onBack();
+  const handleBlock = async (reason?: string) => {
+    try {
+      await blockUserAsync(user.id, user.name, reason, matchId);
+      setShowBlockDialog(false);
+      onBack();
+    } catch {
+      // Toast feedback is handled in hook.
+    }
   };
 
   const handleUnmatch = () => {

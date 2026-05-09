@@ -95,7 +95,7 @@ test("web and native chat action surfaces stay wired to shared UI contracts", ()
   assert.match(webChatHeader, /MATCH_MUTE_DURATIONS\.map/);
   assert.match(webChatHeader, /open=\{showProfileDrawer\}/);
   assert.match(webChatHeader, /onOpenChange=\{setShowProfileDrawer\}/);
-  assert.match(webChatHeader, /blockUser\(user\.id, user\.name, reason, matchId\)/);
+  assert.match(webChatHeader, /blockUserAsync\(user\.id, user\.name, reason, matchId\)/);
   assert.match(webChatHeader, /ReportWizard/);
   assert.match(webChatHeader, /preSelectedUser=\{\{/);
   assert.match(webSheet, /MATCH_MUTE_DURATIONS\.map/);

@@ -16,7 +16,7 @@ import { trackVibeVideoEvent, VIBE_VIDEO_EVENTS } from '@/lib/vibeVideoTelemetry
 type ReportFlowModalProps = {
   visible: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (result: { alsoBlock: boolean }) => void;
   reportedId: string;
   reportedName: string;
   reporterId: string;
@@ -89,7 +89,7 @@ export function ReportFlowModal({
       setStep('success');
       if (completionTimeoutRef.current !== null) clearTimeout(completionTimeoutRef.current);
       completionTimeoutRef.current = setTimeout(() => {
-        onSuccess();
+        onSuccess({ alsoBlock });
         handleRequestClose();
         completionTimeoutRef.current = null;
       }, 1500);

@@ -53,13 +53,14 @@ import { setMessageReaction } from '@/lib/messageReactions';
 import { reactionPairFromRows } from '../../../../shared/chat/messageReactionModel';
 import type { ReactionPair } from '../../../../shared/chat/messageReactionModel';
 import type { DateComposerLaunchSource } from '../../../../shared/dateSuggestions/dateComposerLaunch';
-import { useUnmatch } from '@/lib/useUnmatch';
+import { useUndoableUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
 import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
+import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
 import { MessageStatus } from '@/components/chat/MessageStatus';
 import { ReactionPicker } from '@/components/chat/ReactionPicker';
@@ -1153,7 +1154,23 @@ export default function ChatThreadScreen() {
   const otherUser = data?.otherUser ?? null;
   const [showActions, setShowActions] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const { mutateAsync: unmatch } = useUnmatch();
+  const [pendingUnmatchMatchId, setPendingUnmatchMatchId] = useState<string | null>(null);
+  const [pendingUnmatchName, setPendingUnmatchName] = useState('');
+  const undoableUnmatchCallbacks = useMemo(
+    () => ({
+      onUnmatchComplete: () => {
+        setPendingUnmatchMatchId(null);
+        setPendingUnmatchName('');
+        goToMatches();
+      },
+      onUndo: () => {
+        setPendingUnmatchMatchId(null);
+        setPendingUnmatchName('');
+      },
+    }),
+    [goToMatches],
+  );
+  const { initiateUnmatch, cancelPending } = useUndoableUnmatch(undoableUnmatchCallbacks);
   const { blockUser } = useBlockUser(user?.id);
   const { archiveMatch, unarchiveMatch } = useArchiveMatch(user?.id);
   const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch(user?.id);
@@ -2268,15 +2285,32 @@ export default function ChatThreadScreen() {
             onUnmatch={() => {
               showAppDialog({
                 title: 'Unmatch?',
-                message: `Remove ${matchForActions.name} from your matches? This can’t be undone.`,
+                message: `Remove ${matchForActions.name} from your matches? You’ll have a few seconds to undo.`,
                 variant: 'destructive',
                 primaryAction: {
                   label: 'Unmatch',
                   onPress: () => {
+                    setPendingUnmatchMatchId(matchForActions.matchId);
+                    setPendingUnmatchName(matchForActions.name);
+                    initiateUnmatch(matchForActions.matchId);
+                    setShowActions(false);
+                  },
+                },
+                secondaryAction: { label: 'Cancel', onPress: () => {} },
+              });
+            }}
+            onArchive={async () => {
+              showAppDialog({
+                title: 'Archive chat?',
+                message: `Hide ${matchForActions.name} from your main matches list. You can restore this chat anytime.`,
+                variant: 'info',
+                primaryAction: {
+                  label: 'Archive',
+                  onPress: () => {
                     void (async () => {
-                      setActionLoading('unmatch');
+                      setActionLoading('archive');
                       try {
-                        await unmatch({ matchId: matchForActions.matchId });
+                        await archiveMatch({ matchId: matchForActions.matchId });
                         setShowActions(false);
                         goToMatches();
                       } finally {
@@ -2287,16 +2321,6 @@ export default function ChatThreadScreen() {
                 },
                 secondaryAction: { label: 'Cancel', onPress: () => {} },
               });
-            }}
-            onArchive={async () => {
-              setActionLoading('archive');
-              try {
-                await archiveMatch({ matchId: matchForActions.matchId });
-                setShowActions(false);
-                goToMatches();
-              } finally {
-                setActionLoading(null);
-              }
             }}
             onBlock={() => {
               showAppDialog({
@@ -2348,7 +2372,16 @@ export default function ChatThreadScreen() {
           <ReportFlowModal
             visible={showReport}
             onClose={() => setShowReport(false)}
-            onSuccess={() => setShowReport(false)}
+            onSuccess={({ alsoBlock }) => {
+              setShowReport(false);
+              queryClient.invalidateQueries({ queryKey: ['matches'] });
+              queryClient.invalidateQueries({ queryKey: ['messages'] });
+              queryClient.invalidateQueries({ queryKey: ['match-mutes'] });
+              queryClient.invalidateQueries({ queryKey: ['blocked-users'] });
+              if (alsoBlock) {
+                goToMatches();
+              }
+            }}
             reportedId={matchForActions.id}
             reportedName={matchForActions.name}
             reporterId={user?.id ?? ''}
@@ -2357,6 +2390,15 @@ export default function ChatThreadScreen() {
               typeof matchForActions.bunnyVideoUid === 'string' &&
               matchForActions.bunnyVideoUid.trim().length > 0
             }
+          />
+          <UnmatchSnackbar
+            visible={!!pendingUnmatchMatchId}
+            name={pendingUnmatchName}
+            onUndo={() => {
+              cancelPending();
+              setPendingUnmatchMatchId(null);
+              setPendingUnmatchName('');
+            }}
           />
         </>
       )}
