@@ -10,6 +10,7 @@ import {
   Film,
   CalendarPlus,
   Heart,
+  Mic,
 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
@@ -377,6 +378,7 @@ export const VibeClipBubble = ({
                 <button
                   type="button"
                   onClick={toggleMute}
+                  aria-label={isMuted ? "Unmute clip" : "Mute clip"}
                   className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
                 >
                   {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -384,6 +386,7 @@ export const VibeClipBubble = ({
                 <button
                   type="button"
                   onClick={handleFullscreen}
+                  aria-label="Open clip full screen"
                   className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
                 >
                   <Maximize className="w-3 h-3" />
@@ -437,11 +440,7 @@ export const VibeClipBubble = ({
                   }}
                   className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
                 >
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
+                  <Mic className="w-3 h-3" />
                   Voice reply
                 </button>
               )}

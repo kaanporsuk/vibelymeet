@@ -322,6 +322,7 @@ export const VideoMessageBubble = ({
                   e.stopPropagation();
                   toggleMute(e);
                 }}
+                aria-label={isMuted ? "Unmute video" : "Mute video"}
                 className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
               >
                 {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -329,6 +330,7 @@ export const VideoMessageBubble = ({
               <button
                 type="button"
                 onClick={handleFullscreen}
+                aria-label="Open video full screen"
                 className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
               >
                 <Maximize className="w-3 h-3" />
