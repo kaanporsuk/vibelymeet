@@ -96,7 +96,7 @@ export const ChatHeader = ({
   const { initiateUnmatch } = useUndoableUnmatch();
   const { archiveMatch, isArchiving } = useArchiveMatch();
   const { blockUser, isBlocking } = useBlockUser();
-  const { muteMatch, unmuteMatch, isMatchMuted, getMuteExpiry } = useMuteMatch();
+  const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch();
 
   const isMuted = matchId ? isMatchMuted(matchId) : false;
   const partnerTierCapabilities = useTierCapabilities(user.subscription_tier);

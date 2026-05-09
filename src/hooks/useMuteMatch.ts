@@ -111,16 +111,10 @@ export const useMuteMatch = () => {
     return mutes.some((mute) => mute.match_id === matchId);
   };
 
-  const getMuteExpiry = (matchId: string): Date | null => {
-    const mute = mutes.find((m) => m.match_id === matchId);
-    return mute?.muted_until ? new Date(mute.muted_until) : null;
-  };
-
   return {
     muteMatch,
     unmuteMatch,
     isMatchMuted,
-    getMuteExpiry,
     mutes,
     isMuting: muteMutation.isPending,
     isUnmuting: unmuteMutation.isPending,

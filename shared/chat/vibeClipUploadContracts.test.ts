@@ -12,8 +12,11 @@ function read(path: string): string {
 const copy = read("shared/chat/vibeClipCaptureCopy.ts");
 const webRecorder = read("src/components/chat/VideoMessageRecorder.tsx");
 const webChat = read("src/pages/Chat.tsx");
+const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
+const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
 const webUpload = read("src/services/chatVideoUploadService.ts");
 const nativeChat = read("apps/mobile/app/chat/[id].tsx");
+const nativeVibeClipCard = read("apps/mobile/components/chat/VibeClipCard.tsx");
 const nativeUpload = read("apps/mobile/lib/chatMediaUpload.ts");
 const nativeMediaCache = read("apps/mobile/lib/chatOutbox/mediaCache.ts");
 const uploadChatVideo = read("supabase/functions/upload-chat-video/index.ts");
@@ -65,6 +68,33 @@ test("web queue and upload preserve validated library video metadata", () => {
   assert.match(webUpload, /function videoMimeTypeForBlob/);
   assert.match(webUpload, /video_metadata_timeout/);
   assert.match(webUpload, /baseType === "video\/quicktime"\) return "mov"/);
+});
+
+test("video bubbles remain adaptive and full-width across web and native chat", () => {
+  assert.match(webVibeClipBubble, /w-\[min\(17\.5rem,calc\(100vw-4rem\)\)\] max-w-full/);
+  assert.match(webVibeClipBubble, /Math\.max\(0\.5, Math\.min\(1\.2, meta\.aspectRatio\)\)/);
+  assert.match(webVibeClipBubble, /<AspectRatio ratio=\{clipAspectRatio\}>/);
+  assert.match(webVibeClipBubble, /w-full h-full object-cover bg-black/);
+  assert.match(webVibeClipBubble, /aria-label=\{isMuted \? "Unmute clip" : "Mute clip"\}/);
+  assert.match(webVibeClipBubble, /aria-label="Open clip full screen"/);
+
+  assert.match(webVideoBubble, /w-\[min\(17\.5rem,calc\(100vw-4rem\)\)\] max-w-full/);
+  assert.match(webVideoBubble, /<AspectRatio ratio=\{9 \/ 16\}>/);
+  assert.match(webVideoBubble, /w-full h-full object-cover bg-black/);
+  assert.match(webVideoBubble, /aria-label=\{isMuted \? "Unmute video" : "Mute video"\}/);
+  assert.match(webVideoBubble, /aria-label="Open video full screen"/);
+
+  assert.match(nativeChat, /const MEDIA_CARD_MIN_WIDTH = 150/);
+  assert.match(nativeChat, /const MEDIA_CARD_MAX_WIDTH = 280/);
+  assert.match(nativeChat, /function getAdaptiveChatMediaWidth/);
+  assert.match(nativeChat, /windowWidth - layout\.containerPadding \* 2 - 92/);
+  assert.match(nativeChat, /Math\.min\(MEDIA_CARD_MAX_WIDTH, Math\.floor\(availableThreadWidth \* 0\.92\)\)/);
+  assert.match(nativeChat, /styles\.mediaContentWrap, \{ width: mediaCardWidth \}/);
+
+  assert.match(nativeVibeClipCard, /width: '100%'/);
+  assert.match(nativeVibeClipCard, /Math\.max\(0\.5, Math\.min\(1\.2, meta\.aspectRatio\)\)/);
+  assert.match(nativeVibeClipCard, /style=\{\[styles\.videoWrap, \{ aspectRatio: cardAspectRatio \}\]\}/);
+  assert.match(nativeVibeClipCard, /contentFit="cover"/);
 });
 
 test("native chat validates library and camera video before enqueue", () => {
