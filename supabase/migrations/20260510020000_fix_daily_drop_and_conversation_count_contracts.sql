@@ -1,6 +1,6 @@
 -- Patch outstanding Codex follow-up contract mismatches:
 -- 1) Conversation capacity checks must honor per-user archival rows from match_archives.
--- 2) Daily-drop recovery should not reapply cooldowns once a pair already has a cooldown row.
+    -- 2) Daily-drop recovery should renew cooldowns only when they are not currently active.
 
 -- 1) _user_active_conversation_count_unchecked:
 --    Count active conversations per viewer by excluding only that viewer's archive row.
@@ -26,7 +26,7 @@ COMMENT ON FUNCTION public._user_active_conversation_count_unchecked(uuid) IS
   'Counts active matches for a user excluding matches they have archived in match_archives.';
 
 -- 2) select_pending_cooldown_pairs:
---    Return expired/passed drops that do not have any cooldown row yet.
+    --    Return expired/passed drops that do not currently have an active cooldown row.
 CREATE OR REPLACE FUNCTION public.select_pending_cooldown_pairs()
 RETURNS TABLE (
   user_a_id uuid,
@@ -49,11 +49,14 @@ AS $$
     ON c.user_a_id = LEAST(d.user_a_id, d.user_b_id)
    AND c.user_b_id = GREATEST(d.user_a_id, d.user_b_id)
   WHERE d.status IN ('expired_no_action', 'expired_no_reply', 'passed')
-    AND c.user_a_id IS NULL;
+    AND (
+      c.user_a_id IS NULL
+      OR c.cooldown_until < NOW()
+    );
 $$;
 
 COMMENT ON FUNCTION public.select_pending_cooldown_pairs() IS
-  'Returns expired/passed daily_drops pairs that do not have any cooldown row.';
+  'Returns expired/passed daily_drops pairs that do not currently have an active cooldown row.';
 
 INSERT INTO public.migration_classifications (
   migration_version,
@@ -66,7 +69,7 @@ VALUES (
   '20260510020000',
   'Fix active conversation counting and cooldown pair recovery',
   'schema-only',
-  'Aligns _user_active_conversation_count_unchecked with per-user archive state and updates select_pending_cooldown_pairs to avoid reapplying cooldowns for pairs already present in daily_drop_cooldowns.',
+  'Aligns _user_active_conversation_count_unchecked with per-user archive state and updates select_pending_cooldown_pairs to skip only active cooldowns while allowing cooldown renewals on expired pairs.',
   false
 )
 ON CONFLICT (migration_version) DO UPDATE
