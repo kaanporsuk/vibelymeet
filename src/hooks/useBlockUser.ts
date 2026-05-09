@@ -91,17 +91,29 @@ export const useBlockUser = () => {
     onSuccess: invalidateBlockEffects,
   });
 
+  const showBlockSuccessToast = (userName: string) => {
+    toast.success(`${userName} blocked`, {
+      description: "They won't be able to contact you or see your profile",
+    });
+  };
+
   const blockUser = (blockedId: string, userName: string, reason?: string, matchId?: string) => {
     blockMutation.mutate({ blockedId, reason, matchId }, {
-      onSuccess: () => {
-        toast.success(`${userName} blocked`, {
-          description: "They won't be able to contact you or see your profile",
-        });
-      },
+      onSuccess: () => showBlockSuccessToast(userName),
       onError: () => {
         toast.error("Failed to block user");
       },
     });
+  };
+
+  const blockUserAsync = async (blockedId: string, userName: string, reason?: string, matchId?: string) => {
+    try {
+      await blockMutation.mutateAsync({ blockedId, reason, matchId });
+      showBlockSuccessToast(userName);
+    } catch (error) {
+      toast.error("Failed to block user");
+      throw error;
+    }
   };
 
   const unblockUser = (blockedId: string, userName: string) => {
@@ -121,6 +133,7 @@ export const useBlockUser = () => {
 
   return {
     blockUser,
+    blockUserAsync,
     unblockUser,
     isUserBlocked,
     blockedUsers,
