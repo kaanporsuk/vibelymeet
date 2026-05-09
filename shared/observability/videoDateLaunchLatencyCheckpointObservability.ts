@@ -55,6 +55,7 @@ const ALLOWED_CHECKPOINTS = new Set<ReadyGateToDateLatencyCheckpoint>([
   "token_created",
   "navigation_started",
   "date_route_entered",
+  "date_route_module_preloaded",
   "video_stage_shell_visible",
   "permission_check_started",
   "permission_check_success",
@@ -227,6 +228,12 @@ function latencyMsForCheckpoint(
   checkpoint: ReadyGateToDateLatencyCheckpoint,
   payload: VideoDateLaunchLatencyPayload,
 ): number | null {
+  if (checkpoint === "room_pre_create_success" && typeof payload.mutual_swipe_to_room_ready_ms === "number") {
+    return payload.mutual_swipe_to_room_ready_ms;
+  }
+  if (checkpoint === "date_route_module_preloaded" && typeof payload.date_route_module_preload_ms === "number") {
+    return payload.date_route_module_preload_ms;
+  }
   if (checkpoint === "first_remote_frame" && typeof payload.ready_tap_to_first_remote_frame_ms === "number") {
     return payload.ready_tap_to_first_remote_frame_ms;
   }

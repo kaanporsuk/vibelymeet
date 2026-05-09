@@ -297,3 +297,44 @@ test("permission prewarm skip checkpoint is safe and allowlisted", async () => {
   assert.equal(capturedArgs?.p_checkpoint, "permission_check_skipped");
   assert.equal(capturedArgs?.p_latency_ms, null);
 });
+
+test("date route module preloaded checkpoint is safe and allowlisted", async () => {
+  const rawProperties = {
+    session_id: "5fd87bec-7088-41d0-a9f5-bc215510fda7",
+    checkpoint: "date_route_module_preloaded",
+    platform: "native",
+    source_surface: "ready_gate_overlay",
+    source_action: "route_preload_success",
+    outcome: "success",
+    date_route_module_preload_ms: 123,
+    mutual_swipe_to_room_ready_ms: 810,
+    eligible_pre_create_status: "warmup_ready",
+    token: "must_not_survive",
+  };
+
+  assert.deepEqual(sanitizeVideoDateLaunchLatencyPayload(rawProperties), {
+    platform: "native",
+    source_surface: "ready_gate_overlay",
+    source_action: "route_preload_success",
+    outcome: "success",
+    date_route_module_preload_ms: 123,
+    mutual_swipe_to_room_ready_ms: 810,
+    eligible_pre_create_status: "warmup_ready",
+  });
+
+  let capturedArgs: Record<string, unknown> | null = null;
+  const result = await emitVideoDateLaunchLatencyCheckpointObservability({
+    client: {
+      rpc: async (_fn, args) => {
+        capturedArgs = args;
+        return { data: { inserted: true }, error: null };
+      },
+    },
+    eventName: LobbyPostDateEvents.READY_GATE_TO_DATE_LATENCY_CHECKPOINT,
+    properties: rawProperties,
+  });
+
+  assert.deepEqual(result, { ok: true, inserted: true });
+  assert.equal(capturedArgs?.p_checkpoint, "date_route_module_preloaded");
+  assert.equal(capturedArgs?.p_latency_ms, 123);
+});

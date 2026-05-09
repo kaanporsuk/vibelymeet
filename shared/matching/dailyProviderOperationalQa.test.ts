@@ -275,6 +275,10 @@ test("existing match-call paths remain present on web and native", () => {
     assert.match(source, /answer_match_call|answerMatchCall/);
     assert.match(source, /join_match_call|joinMatchCall/);
     assert.match(source, /delete_room|deleteMatchCallRoom/);
+    assert.match(source, /startCallAttemptRef/);
+    assert.match(source, /start_call_watchdog_fired/);
+    assert.match(source, /if \(!isCurrentStartCallAttempt\(\)\) \{\s*await (transitionCall|transitionMatchCall)\(callId, ["']join_failed["']\)/);
+    assert.match(source, /deleteRoom\(roomName\)|deleteMatchCallRoom\(roomName\)/);
     assert.match(source, /participant-joined/);
     assert.match(source, /participant-left/);
   }
