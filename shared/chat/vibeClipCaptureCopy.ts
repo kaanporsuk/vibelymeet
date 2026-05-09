@@ -6,6 +6,11 @@
 /** Hard product cap for Vibe Clip length (seconds). */
 export const VIBE_CLIP_MAX_DURATION_SEC = 30;
 
+/** Upload cap enforced by upload-chat-video for chat Vibe Clips. */
+export const VIBE_CLIP_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+export const VIBE_CLIP_MAX_UPLOAD_MB = 20;
+
 /** Web chat composer — film control `title` (accessibility + hover). */
 export const VIBE_CLIP_CHAT_FILM_BUTTON_TITLE = `Vibe Clip — record a short front-camera video (up to ${VIBE_CLIP_MAX_DURATION_SEC}s)`;
 
@@ -67,6 +72,20 @@ export const VIBE_CLIP_TOAST_SEND_FAIL = "Couldn't send your clip — try again"
 
 export const VIBE_CLIP_TOAST_UPLOAD_FAIL = "Couldn't upload your clip — try again";
 
+/** Web/native saved-video upload validation */
+export const VIBE_CLIP_UPLOAD_INVALID_TYPE = "Please choose a video file.";
+
+export const VIBE_CLIP_UPLOAD_EMPTY_FILE = "That video file looks empty. Choose another clip.";
+
+export const VIBE_CLIP_UPLOAD_TOO_LARGE = () =>
+  `Video must be ${VIBE_CLIP_MAX_UPLOAD_MB}MB or smaller.`;
+
+export const VIBE_CLIP_UPLOAD_TOO_LONG = () =>
+  `Video must be ${VIBE_CLIP_MAX_DURATION_SEC} seconds or shorter.`;
+
+export const VIBE_CLIP_UPLOAD_DURATION_UNREADABLE =
+  "We couldn't read this video's duration. Choose a clip under 30s or record a new one.";
+
 /** Web recorder — camera errors */
 export const VIBE_CLIP_WEB_TOAST_CAMERA_DENIED =
   "We need camera access to record your Vibe Clip — or allow access in your browser settings.";
@@ -74,3 +93,6 @@ export const VIBE_CLIP_WEB_TOAST_CAMERA_DENIED =
 export const VIBE_CLIP_WEB_TOAST_UNSUPPORTED = "Recording isn't supported in this browser.";
 
 export const VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC = "We couldn't open your camera. Try again.";
+
+export const VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE =
+  "Camera switch is not available on this device.";

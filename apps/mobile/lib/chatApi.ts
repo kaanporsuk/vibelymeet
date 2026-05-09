@@ -31,6 +31,7 @@ type ChatMatchesProfileRow = {
   looking_for?: string | null;
   relationship_intent?: string | null;
   location?: string | null;
+  bunny_video_uid?: string | null;
 };
 
 function profileIntentForMatch(
@@ -113,9 +114,10 @@ export type MatchListItem = {
   /** True if matched within last 24h (web parity for "new" pill) */
   isNew: boolean;
   matchId: string;
-  /** When set, match is archived for the user who archived it (`archived_by`) */
+  /** Per-user archive state derived from `match_archives` for the current viewer. */
   archived_at: string | null;
   archived_by: string | null;
+  bunnyVideoUid?: string | null;
   /** Vibe labels from `profile_vibes` / `vibe_tags` (all tags for search; web list UI may show fewer). */
   vibes: string[];
   looking_for: string | null;
@@ -146,6 +148,9 @@ export function useMatches(userId: string | null | undefined) {
           queryClient.invalidateQueries({ queryKey: ['matches'] });
         }
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'match_archives', filter: `user_id=eq.${userId}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ['matches'] });
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [userId, queryClient]);
@@ -161,6 +166,7 @@ export function useMatches(userId: string | null | undefined) {
         .order('last_message_at', { ascending: false, nullsFirst: false });
       if (error) throw error;
       if (!matches?.length) return [];
+      const matchIds = matches.map((m) => m.id);
 
       const otherIds = matches.map((m) => (m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1));
       const profileIdsForFetch = [...otherIds, userId];
@@ -168,10 +174,10 @@ export function useMatches(userId: string | null | undefined) {
         .map((m) => (m as { event_id?: string | null }).event_id)
         .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-      const [profilesRes, vibesRes, messagesRes, eventsRes] = await Promise.all([
+      const [profilesRes, vibesRes, messagesRes, eventsRes, archivesRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, age, avatar_url, photos, looking_for, relationship_intent, location')
+          .select('id, name, age, avatar_url, photos, looking_for, relationship_intent, location, bunny_video_uid')
           .in('id', profileIdsForFetch),
         supabase.from('profile_vibes').select('profile_id, vibe_tags(label)').in('profile_id', profileIdsForFetch),
         supabase
@@ -179,16 +185,18 @@ export function useMatches(userId: string | null | undefined) {
           .select(
             'match_id, content, created_at, read_at, sender_id, message_kind, audio_url, video_url, structured_payload'
           )
-          .in('match_id', matches.map((m) => m.id))
+          .in('match_id', matchIds)
           .order('created_at', { ascending: false }),
         eventIds.length > 0
           ? supabase.from('events').select('id, title').in('id', eventIds)
           : Promise.resolve({ data: [] as { id: string; title: string }[] }),
+        supabase.from('match_archives').select('match_id, archived_at').eq('user_id', userId).in('match_id', matchIds),
       ]);
       if (profilesRes.error) throw profilesRes.error;
       if (vibesRes.error) throw vibesRes.error;
       if (messagesRes.error) throw messagesRes.error;
       if ('error' in eventsRes && eventsRes.error) throw eventsRes.error;
+      if (archivesRes.error) throw archivesRes.error;
 
       const profiles = (profilesRes.data || []) as ChatMatchesProfileRow[];
       const profileVibes = (vibesRes.data || []) as unknown as {
@@ -226,6 +234,10 @@ export function useMatches(userId: string | null | undefined) {
       const eventsById: Record<string, string> = {};
       events.forEach((e) => {
         eventsById[e.id] = e.title;
+      });
+      const archivedAtByMatch: Record<string, string> = {};
+      ((archivesRes.data || []) as { match_id: string; archived_at: string }[]).forEach((archive) => {
+        archivedAtByMatch[archive.match_id] = archive.archived_at;
       });
 
       const viewerProfile = profiles.find((p) => p.id === userId);
@@ -293,12 +305,13 @@ export function useMatches(userId: string | null | undefined) {
           unread: lastMsg ? !lastMsg.read_at && lastMsg.sender_id !== userId : false,
           isNew,
           matchId: match.id,
-          archived_at: (match as { archived_at?: string | null }).archived_at ?? null,
-          archived_by: (match as { archived_by?: string | null }).archived_by ?? null,
+          archived_at: archivedAtByMatch[match.id] ?? null,
+          archived_by: archivedAtByMatch[match.id] ? userId : null,
           vibes: otherVibes,
           looking_for: lookingFor,
           location,
           eventName: eventTitle,
+          bunnyVideoUid: profile?.bunny_video_uid ?? null,
           bestMatchScore,
           compatibilityPercent: compatPct,
         };
@@ -338,6 +351,7 @@ export type ChatOtherUser = {
   avatar_url: string | null;
   photos: string[] | null;
   last_seen_at: string | null;
+  bunny_video_uid?: string | null;
 };
 
 type ChatPresenceRow = {
@@ -366,12 +380,19 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           )
           .eq('match_id', match.id)
           .order('created_at', { ascending: true }),
-        supabase.from('profiles').select('id, name, age, avatar_url, photos').eq('id', otherUserId).maybeSingle(),
+        supabase.from('profiles').select('id, name, age, avatar_url, photos, bunny_video_uid').eq('id', otherUserId).maybeSingle(),
         supabase.rpc('get_chat_partner_presence', { p_match_id: match.id }).maybeSingle(),
       ]);
       if (messagesRes.error) throw messagesRes.error;
       const messages = messagesRes.data || [];
-      const otherRow = otherUserRes.data as { id: string; name?: string; age?: number; avatar_url?: string | null; photos?: string[] | null } | null;
+      const otherRow = otherUserRes.data as {
+        id: string;
+        name?: string;
+        age?: number;
+        avatar_url?: string | null;
+        photos?: string[] | null;
+        bunny_video_uid?: string | null;
+      } | null;
       const presenceData = presenceRes.data as ChatPresenceRow | null;
       const presence =
         !presenceRes.error && presenceData?.can_view_presence
@@ -389,6 +410,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
             }),
             photos: otherRow.photos ?? null,
             last_seen_at: presence?.last_seen_at ?? null,
+            bunny_video_uid: otherRow.bunny_video_uid ?? null,
           }
         : null;
 

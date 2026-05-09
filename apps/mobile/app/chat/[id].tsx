@@ -12,8 +12,9 @@ import {
   ActivityIndicator,
   Image,
   Vibration,
-  Dimensions,
+  useWindowDimensions,
   AppState,
+  BackHandler,
   type AppStateStatus,
   type DimensionValue,
   type NativeSyntheticEvent,
@@ -25,6 +26,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecordingPermissionsAsync } from 'expo-audio';
@@ -54,7 +56,7 @@ import type { DateComposerLaunchSource } from '../../../../shared/dateSuggestion
 import { useUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
-import { useMuteMatch } from '@/lib/useMuteMatch';
+import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
@@ -103,14 +105,20 @@ import {
 import { threadMessagesQueryKey } from '../../../../shared/chat/queryKeys';
 import { useChatOutbox } from '@/lib/chatOutbox/ChatOutboxContext';
 import type { ChatOutboxItem, ChatOutboxQueueState } from '@/lib/chatOutbox/types';
-import { copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
+import { cleanupOutboxCacheUri, copyUriToChatOutboxCache, extForPayload } from '@/lib/chatOutbox/mediaCache';
 import { matchHasOpenDateSuggestion } from '../../../../shared/dateSuggestions/openStatus';
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
+  VIBE_CLIP_MAX_UPLOAD_BYTES,
   VIBE_CLIP_PERM_CAMERA_MESSAGE,
   VIBE_CLIP_PERM_CAMERA_TITLE,
   VIBE_CLIP_PERM_LIBRARY_MESSAGE,
   VIBE_CLIP_PERM_LIBRARY_TITLE,
+  VIBE_CLIP_UPLOAD_DURATION_UNREADABLE,
+  VIBE_CLIP_UPLOAD_EMPTY_FILE,
+  VIBE_CLIP_UPLOAD_INVALID_TYPE,
+  VIBE_CLIP_UPLOAD_TOO_LARGE,
+  VIBE_CLIP_UPLOAD_TOO_LONG,
 } from '../../../../shared/chat/vibeClipCaptureCopy';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import { VibeClipSendOptionsSheet } from '@/components/chat/VibeClipSendOptionsSheet';
@@ -157,11 +165,57 @@ function ChatThreadSkeletonNative({ theme }: { theme: (typeof Colors)['light'] }
 
 /** Message list + chrome background (slightly lifted from pure black). */
 const CHAT_CANVAS_BG = 'hsl(240, 10%, 6%)';
-const MEDIA_CARD_SIZE = Math.max(
-  158,
-  Math.min(192, Math.floor((Dimensions.get('window').width - layout.containerPadding * 2 - 92) * 0.92))
-);
+const COMPOSER_CONTROL_SIZE = 40;
+const COMPOSER_GAP = 6;
+const COMPOSER_INPUT_MAX_HEIGHT = 120;
 const MEDIA_CARD_MIN_WIDTH = 150;
+const MEDIA_CARD_MAX_WIDTH = 280;
+
+function isPickedVideoAsset(asset: ImagePicker.ImagePickerAsset): boolean {
+  if (asset.type === 'video') return true;
+  if (asset.mimeType?.startsWith('video/')) return true;
+  return /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(asset.fileName ?? asset.uri);
+}
+
+function imagePickerDurationSeconds(asset: ImagePicker.ImagePickerAsset): number | null {
+  const durationMs = asset.duration;
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs <= 0) return null;
+  return durationMs / 1000;
+}
+
+function aspectRatioForVideoAsset(asset: ImagePicker.ImagePickerAsset): number | undefined {
+  return typeof asset.width === 'number' && typeof asset.height === 'number' && asset.height > 0
+    ? asset.width / asset.height
+    : undefined;
+}
+
+async function fileSizeBytesForVideoAsset(
+  asset: ImagePicker.ImagePickerAsset,
+  stableUri?: string,
+): Promise<number | null> {
+  if (typeof asset.fileSize === 'number' && Number.isFinite(asset.fileSize)) return asset.fileSize;
+  const candidates = [stableUri, asset.uri].filter((uri): uri is string => !!uri);
+  for (const uri of candidates) {
+    try {
+      const info = await FileSystem.getInfoAsync(uri);
+      if (info.exists && !info.isDirectory && typeof info.size === 'number') return info.size;
+    } catch {
+      // Best effort; upload-chat-video remains the final server-side guard.
+    }
+  }
+  return null;
+}
+
+function getAdaptiveChatMediaWidth(windowWidth: number): number {
+  const availableThreadWidth = Math.max(
+    MEDIA_CARD_MIN_WIDTH,
+    windowWidth - layout.containerPadding * 2 - 92
+  );
+  return Math.max(
+    MEDIA_CARD_MIN_WIDTH,
+    Math.min(MEDIA_CARD_MAX_WIDTH, Math.floor(availableThreadWidth * 0.92))
+  );
+}
 
 type LocalMediaSendPayload =
   | { kind: 'image'; uri: string; mimeType: string }
@@ -323,6 +377,10 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
     };
   }
   if (p.kind === 'video') {
+    const aspectRatio =
+      typeof p.aspectRatio === 'number' && Number.isFinite(p.aspectRatio) && p.aspectRatio > 0
+        ? p.aspectRatio
+        : null;
     return {
       id,
       text: '🎬 Vibe Clip',
@@ -333,6 +391,17 @@ function outboxItemToThreadMessage(item: ChatOutboxItem): ThreadMessage {
       video_url: p.uri,
       video_duration_seconds: Math.round(p.durationSeconds),
       messageKind: 'vibe_clip' as const,
+      structuredPayload: {
+        v: 2,
+        kind: 'vibe_clip',
+        client_request_id: item.id,
+        duration_ms: Math.round(p.durationSeconds * 1000),
+        thumbnail_url: null,
+        poster_source: 'first_frame',
+        aspect_ratio: aspectRatio,
+        processing_status: 'ready',
+        upload_provider: 'bunny',
+      },
       localMedia,
     };
   }
@@ -545,9 +614,14 @@ function normalizeRouteUserId(raw: string | string[] | undefined): string | unde
 export default function ChatThreadScreen() {
   const { id: routeChatId } = useLocalSearchParams<{ id: string | string[] }>();
   const otherUserId = normalizeRouteUserId(routeChatId);
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const theme = Colors[colorScheme];
+  const mediaCardWidth = useMemo(
+    () => getAdaptiveChatMediaWidth(windowWidth),
+    [windowWidth]
+  );
   const { user } = useAuth();
   const { data, isLoading, error, refetch } = useMessages(otherUserId ?? undefined, user?.id ?? null);
   const shellLoading = isLoading && !data;
@@ -604,6 +678,7 @@ export default function ChatThreadScreen() {
   const listRef = useRef<FlatList<ChatListRow>>(null);
   const inputRef = useRef<TextInput>(null);
   const stickToBottomRef = useRef(true);
+  const userScrollIntentUntilRef = useRef(0);
   /** Until first content-size snap for this thread, ignore scroll race that clears stickToBottom before scrollToEnd. */
   const pendingThreadBottomSnapRef = useRef(false);
   const lastThreadCountRef = useRef(0);
@@ -611,6 +686,20 @@ export default function ChatThreadScreen() {
   const [newBelowCue, setNewBelowCue] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
+
+  const goToMatches = useCallback(() => {
+    router.replace('/(tabs)/matches');
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+        goToMatches();
+        return true;
+      });
+      return () => subscription.remove();
+    }, [goToMatches])
+  );
 
   const outboxForMatch = useMemo(() => {
     if (!data?.matchId) return [];
@@ -719,9 +808,36 @@ export default function ChatThreadScreen() {
     return last ? `${displayMessages.length}:${last.id}` : '';
   }, [displayMessages]);
 
+  const isListUserScrollIntentActive = useCallback(() => {
+    return Date.now() < userScrollIntentUntilRef.current;
+  }, []);
+
+  const scrollListToEnd = useCallback((animated: boolean) => {
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated }));
+  }, []);
+
+  const markListUserScrollIntent = useCallback(() => {
+    userScrollIntentUntilRef.current = Date.now() + 1000;
+    stickToBottomRef.current = false;
+  }, []);
+
+  const settleListUserScrollIntent = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    const dist = Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
+    const atBottom = dist < 100;
+    stickToBottomRef.current = atBottom;
+    setAwayFromBottom(dist > 140);
+    if (atBottom) {
+      setNewBelowCue(false);
+      userScrollIntentUntilRef.current = 0;
+    } else {
+      userScrollIntentUntilRef.current = Date.now() + 450;
+    }
+  }, []);
+
   const listOnScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-    const dist = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    const dist = Math.max(0, contentSize.height - layoutMeasurement.height - contentOffset.y);
     const atBottom = dist < 100;
     stickToBottomRef.current = atBottom;
     setAwayFromBottom(dist > 140);
@@ -738,18 +854,21 @@ export default function ChatThreadScreen() {
       stickToBottomRef.current = true;
       setAwayFromBottom(false);
       setNewBelowCue(false);
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+      userScrollIntentUntilRef.current = 0;
+      scrollListToEnd(false);
       return;
     }
     if (!stickToBottomRef.current) return;
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
-  }, [displayMessages.length, shellLoading]);
+    if (isListUserScrollIntentActive()) return;
+    scrollListToEnd(false);
+  }, [displayMessages.length, isListUserScrollIntentActive, scrollListToEnd, shellLoading]);
 
   useEffect(() => {
     if (!scrollAnchorKey) return;
     if (!stickToBottomRef.current) return;
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-  }, [scrollAnchorKey]);
+    if (isListUserScrollIntentActive()) return;
+    scrollListToEnd(true);
+  }, [isListUserScrollIntentActive, scrollAnchorKey, scrollListToEnd]);
 
   useEffect(() => {
     const n = displayMessages.length;
@@ -765,6 +884,7 @@ export default function ChatThreadScreen() {
     setNewBelowCue(false);
     setAwayFromBottom(false);
     stickToBottomRef.current = true;
+    userScrollIntentUntilRef.current = 0;
     pendingThreadBottomSnapRef.current = true;
   }, [otherUserId]);
 
@@ -985,6 +1105,7 @@ export default function ChatThreadScreen() {
   useEffect(() => () => { if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current); }, []);
 
   const otherName = otherUserId ? (matches.find((m) => m.id === otherUserId)?.name ?? 'Chat') : 'Chat';
+  const otherUser = data?.otherUser ?? null;
   const [showActions, setShowActions] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const { mutateAsync: unmatch } = useUnmatch();
@@ -995,13 +1116,20 @@ export default function ChatThreadScreen() {
   const currentMatchRow = data?.matchId ? matches.find((m) => m.matchId === data.matchId) : null;
   const matchForActions =
     data?.matchId && otherUserId
-      ? { matchId: data.matchId, id: otherUserId, name: otherName, archived_at: currentMatchRow?.archived_at ?? null }
+      ? {
+          matchId: data.matchId,
+          id: otherUserId,
+          name: otherName,
+          archived_at: currentMatchRow?.archived_at ?? null,
+          bunnyVideoUid: data.otherUser?.bunny_video_uid ?? currentMatchRow?.bunnyVideoUid ?? null,
+        }
       : shellLoading && matchRowEarly && otherUserId
         ? {
             matchId: matchRowEarly.matchId,
             id: otherUserId,
             name: otherName,
             archived_at: matchRowEarly.archived_at ?? null,
+            bunnyVideoUid: currentMatchRow?.bunnyVideoUid ?? null,
           }
         : null;
 
@@ -1107,7 +1235,9 @@ export default function ChatThreadScreen() {
   };
 
   const armVoiceReply = () => {
-    listRef.current?.scrollToEnd({ animated: true });
+    stickToBottomRef.current = true;
+    userScrollIntentUntilRef.current = 0;
+    scrollListToEnd(true);
     setVoiceReplyHint(true);
     setTimeout(() => setVoiceReplyHint(false), 2200);
   };
@@ -1134,35 +1264,47 @@ export default function ChatThreadScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         quality: 0.7,
+        shouldDownloadFromNetwork: true,
         videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
-      const durationSec = asset.duration ?? 0;
+      if (!isPickedVideoAsset(asset)) throw new Error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
+      const durationSec = imagePickerDurationSeconds(asset);
+      if (durationSec == null) throw new Error(VIBE_CLIP_UPLOAD_DURATION_UNREADABLE);
+      if (durationSec > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
+        throw new Error(VIBE_CLIP_UPLOAD_TOO_LONG());
+      }
       trackVibeClipEvent('clip_record_completed', {
         capture_source: 'library',
-        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        duration_bucket: durationBucketFromSeconds(durationSec),
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
       });
       const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? undefined));
+      const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
+      if (sizeBytes === 0) {
+        await cleanupOutboxCacheUri(stable);
+        throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+      }
+      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+        await cleanupOutboxCacheUri(stable);
+        throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      }
       void enqueue({
         matchId: data.matchId,
         otherUserId: otherUserId ?? '',
         payload: {
           kind: 'video',
           uri: stable,
-          durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+          durationSeconds: Math.max(1, Math.round(durationSec)),
           mimeType: asset.mimeType ?? undefined,
-          aspectRatio:
-            typeof asset.width === 'number' && typeof asset.height === 'number' && asset.height > 0
-              ? asset.width / asset.height
-              : undefined,
+          aspectRatio: aspectRatioForVideoAsset(asset),
         },
       });
       trackVibeClipEvent('clip_send_attempted', {
         capture_source: 'library',
-        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        duration_bucket: durationBucketFromSeconds(durationSec),
         has_poster: false,
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
@@ -1205,35 +1347,46 @@ export default function ChatThreadScreen() {
       });
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        cameraType: ImagePicker.CameraType.front,
         videoMaxDuration: VIBE_CLIP_MAX_DURATION_SEC,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
-      const durationSec = asset.duration ?? 0;
+      if (!isPickedVideoAsset(asset)) throw new Error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
+      const durationSec = imagePickerDurationSeconds(asset);
+      if (durationSec != null && durationSec > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
+        throw new Error(VIBE_CLIP_UPLOAD_TOO_LONG());
+      }
       trackVibeClipEvent('clip_record_completed', {
         capture_source: 'camera',
-        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        duration_bucket: durationBucketFromSeconds(durationSec),
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
       });
       const stable = await copyUriToChatOutboxCache(asset.uri, extForPayload('video', asset.mimeType ?? 'video/mp4'));
+      const sizeBytes = await fileSizeBytesForVideoAsset(asset, stable);
+      if (sizeBytes === 0) {
+        await cleanupOutboxCacheUri(stable);
+        throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+      }
+      if (typeof sizeBytes === 'number' && sizeBytes > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+        await cleanupOutboxCacheUri(stable);
+        throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      }
       void enqueue({
         matchId: data.matchId,
         otherUserId: otherUserId ?? '',
         payload: {
           kind: 'video',
           uri: stable,
-          durationSeconds: durationSec > 0 ? Math.round(durationSec) : 1,
+          durationSeconds: durationSec != null ? Math.max(1, Math.round(durationSec)) : 1,
           mimeType: asset.mimeType ?? 'video/mp4',
-          aspectRatio:
-            typeof asset.width === 'number' && typeof asset.height === 'number' && asset.height > 0
-              ? asset.width / asset.height
-              : undefined,
+          aspectRatio: aspectRatioForVideoAsset(asset),
         },
       });
       trackVibeClipEvent('clip_send_attempted', {
         capture_source: 'camera',
-        duration_bucket: durationBucketFromSeconds(durationSec > 0 ? durationSec : null),
+        duration_bucket: durationBucketFromSeconds(durationSec),
         has_poster: false,
         thread_bucket: threadBucketFromCount(displayMessages.length),
         is_sender: true,
@@ -1475,7 +1628,7 @@ export default function ChatThreadScreen() {
             title="Invalid chat"
             message="This conversation could not be loaded."
             actionLabel="Go back"
-            onActionPress={() => router.back()}
+            onActionPress={goToMatches}
           />
         </View>
         {appDialog}
@@ -1507,7 +1660,7 @@ export default function ChatThreadScreen() {
             title="No conversation found"
             message="This match may have been removed."
             actionLabel="Go back"
-            onActionPress={() => router.back()}
+            onActionPress={goToMatches}
           />
         </View>
         {appDialog}
@@ -1515,7 +1668,6 @@ export default function ChatThreadScreen() {
     );
   }
 
-  const otherUser = data?.otherUser ?? null;
   const otherAvatarUri = otherUser
     ? (() => {
         const primaryPhotoPath = resolvePrimaryProfilePhotoPath({
@@ -1601,13 +1753,13 @@ export default function ChatThreadScreen() {
     );
     if (mediaKind === 'voice' && item.audio_url) {
       return (
-        <View style={styles.voiceContentWrap}>
+        <View style={[styles.voiceContentWrap, { width: mediaCardWidth }]}>
           <VoiceMessagePlayer
             uri={item.audio_url}
             durationSeconds={item.audio_duration_seconds}
             isMine={isMe}
             theme={theme}
-            wrapStyle={styles.voicePlayerWrap}
+            wrapStyle={[styles.voicePlayerWrap, { width: mediaCardWidth }]}
             footer={
               <View style={[styles.voiceMetaRow, isMe ? styles.voiceMetaRowMine : null]}>
                 {reaction ? <Text style={styles.voiceReactionBadge}>{reaction}</Text> : null}
@@ -1627,7 +1779,7 @@ export default function ChatThreadScreen() {
       });
       if (clipMeta) {
         return (
-          <View style={styles.mediaContentWrap}>
+          <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
             <VibeClipCard
               meta={clipMeta}
               isMine={isMe}
@@ -1664,7 +1816,7 @@ export default function ChatThreadScreen() {
     if ((mediaKind === 'video' || (mediaKind === 'vibe_clip' && item.video_url)) && item.video_url) {
       const videoUri = item.video_url;
       return (
-        <View style={styles.mediaContentWrap}>
+        <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
           <ChatVideoCard
             uri={videoUri}
             durationSec={item.video_duration_seconds ?? null}
@@ -1689,7 +1841,7 @@ export default function ChatThreadScreen() {
           : null;
     if (imageUrl) {
       return (
-        <View style={styles.mediaContentWrap}>
+        <View style={[styles.mediaContentWrap, { width: mediaCardWidth }]}>
           <ChatImageCard
             uri={imageUrl}
             isMine={isMe}
@@ -1930,14 +2082,14 @@ export default function ChatThreadScreen() {
     <View style={[styles.container, { backgroundColor: CHAT_CANVAS_BG }]}>
       <View style={[styles.headerOuter, { paddingTop: insets.top, backgroundColor: CHAT_CANVAS_BG }]}>
         <View style={[styles.headerCard, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
-            <Pressable
-              onPress={() => router.back()}
-              style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
-              accessibilityLabel="Back"
-            >
-              <Ionicons name="chevron-back" size={22} color={theme.text} />
-            </Pressable>
-            <Pressable
+          <Pressable
+            onPress={goToMatches}
+            style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.8 }]}
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="chevron-back" size={22} color={theme.text} />
+          </Pressable>
+          <Pressable
               onPress={() => setShowProfileSheet(true)}
               style={({ pressed }) => [styles.headerCenter, pressed && { opacity: 0.92 }]}
               accessibilityRole="button"
@@ -2081,7 +2233,7 @@ export default function ChatThreadScreen() {
                       try {
                         await unmatch({ matchId: matchForActions.matchId });
                         setShowActions(false);
-                        router.back();
+                        goToMatches();
                       } finally {
                         setActionLoading(null);
                       }
@@ -2096,6 +2248,7 @@ export default function ChatThreadScreen() {
               try {
                 await archiveMatch({ matchId: matchForActions.matchId });
                 setShowActions(false);
+                goToMatches();
               } finally {
                 setActionLoading(null);
               }
@@ -2113,7 +2266,7 @@ export default function ChatThreadScreen() {
                       try {
                         await blockUser({ blockedId: matchForActions.id, matchId: matchForActions.matchId });
                         setShowActions(false);
-                        router.back();
+                        goToMatches();
                       } finally {
                         setActionLoading(null);
                       }
@@ -2123,10 +2276,10 @@ export default function ChatThreadScreen() {
                 secondaryAction: { label: 'Cancel', onPress: () => {} },
               });
             }}
-            onMute={async () => {
+            onMute={async (duration: MuteDuration) => {
               setActionLoading('mute');
               try {
-                await muteMatch({ matchId: matchForActions.matchId, duration: '1day' });
+                await muteMatch({ matchId: matchForActions.matchId, duration });
                 setShowActions(false);
               } finally {
                 setActionLoading(null);
@@ -2154,6 +2307,11 @@ export default function ChatThreadScreen() {
             reportedId={matchForActions.id}
             reportedName={matchForActions.name}
             reporterId={user?.id ?? ''}
+            sourceSurface="native_chat"
+            reportedHasVibeVideo={
+              typeof matchForActions.bunnyVideoUid === 'string' &&
+              matchForActions.bunnyVideoUid.trim().length > 0
+            }
           />
         </>
       )}
@@ -2177,9 +2335,16 @@ export default function ChatThreadScreen() {
           }
           style={styles.messageList}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           onScroll={listOnScroll}
+          onScrollBeginDrag={markListUserScrollIntent}
+          onScrollEndDrag={settleListUserScrollIntent}
+          onMomentumScrollBegin={markListUserScrollIntent}
+          onMomentumScrollEnd={settleListUserScrollIntent}
           onContentSizeChange={listOnContentSizeChange}
           scrollEventThrottle={16}
+          alwaysBounceVertical
+          nestedScrollEnabled
           contentContainerStyle={[
             styles.list,
             displayMessages.length === 0 ? styles.listContentEmpty : null,
@@ -2210,9 +2375,10 @@ export default function ChatThreadScreen() {
             <Pressable
               onPress={() => {
                 stickToBottomRef.current = true;
+                userScrollIntentUntilRef.current = 0;
                 setAwayFromBottom(false);
                 setNewBelowCue(false);
-                requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+                scrollListToEnd(true);
               }}
               style={({ pressed }) => [
                 styles.jumpLatestPill,
@@ -2460,14 +2626,7 @@ export default function ChatThreadScreen() {
                 }
               : null
           }
-          counterContext={
-            composerCounter
-              ? {
-                  suggestionId: composerCounter.suggestionId,
-                  previousRevision: composerCounter.previousRevision,
-                }
-              : null
-          }
+          counterContext={composerCounter}
           onSuccess={() => {
             if (dateComposerLaunchSource === 'vibe_clip') {
               trackVibeClipEvent('clip_date_submitted_from_clip', {
@@ -2590,9 +2749,9 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 12, marginTop: 2, opacity: 0.95 },
   typingWrap: { paddingVertical: spacing.sm },
   reactionBadge: { fontSize: 14, marginTop: 4 },
-  mediaContentWrap: { width: MEDIA_CARD_SIZE, maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH },
+  mediaContentWrap: { maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH },
   mediaMetaBlock: { marginTop: 6, width: '100%', minWidth: 0, alignSelf: 'stretch' },
-  voiceContentWrap: { width: MEDIA_CARD_SIZE, maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH },
+  voiceContentWrap: { maxWidth: '100%', minWidth: MEDIA_CARD_MIN_WIDTH },
   voiceMetaRow: { marginTop: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minWidth: 0, gap: 8 },
   voiceMetaRowMine: { justifyContent: 'flex-end' },
   voiceReactionBadge: { fontSize: 14, flexShrink: 0 },
@@ -2727,7 +2886,7 @@ const styles = StyleSheet.create({
   composerDockRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 6,
+    gap: COMPOSER_GAP,
   },
   recordingHintRow: {
     alignItems: 'center',
@@ -2746,34 +2905,37 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   composerIconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: COMPOSER_CONTROL_SIZE,
+    height: COMPOSER_CONTROL_SIZE,
+    borderRadius: COMPOSER_CONTROL_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   inputDock: {
     flex: 1,
     borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: COMPOSER_CONTROL_SIZE / 2,
     paddingHorizontal: spacing.md,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    maxHeight: 120,
-    minHeight: 40,
+    paddingVertical: 9,
+    maxHeight: COMPOSER_INPUT_MAX_HEIGHT,
+    minHeight: COMPOSER_CONTROL_SIZE,
     fontSize: 15,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   sendFab: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: COMPOSER_CONTROL_SIZE,
+    height: COMPOSER_CONTROL_SIZE,
+    borderRadius: COMPOSER_CONTROL_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendBtnDisabled: { opacity: 0.45 },
-  voicePlayerWrap: { minWidth: MEDIA_CARD_MIN_WIDTH, width: '100%', maxWidth: MEDIA_CARD_SIZE },
+  voicePlayerWrap: { minWidth: MEDIA_CARD_MIN_WIDTH, width: '100%', maxWidth: '100%' },
   chatVideoCardOuter: {
     width: '100%',
-    maxWidth: MEDIA_CARD_SIZE,
+    maxWidth: '100%',
     minWidth: MEDIA_CARD_MIN_WIDTH,
     borderRadius: 16,
     overflow: 'hidden',
@@ -2856,7 +3018,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     width: '100%',
-    maxWidth: MEDIA_CARD_SIZE,
+    maxWidth: '100%',
     minWidth: MEDIA_CARD_MIN_WIDTH,
   },
   chatImage: { width: '100%', aspectRatio: 1, backgroundColor: 'rgba(0,0,0,0.2)' },

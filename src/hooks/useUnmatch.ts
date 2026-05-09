@@ -8,36 +8,35 @@ interface UnmatchParams {
   userId?: string;
 }
 
+type MatchActionRpcResult = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+};
+
+const assertMatchActionSucceeded = (result: unknown, fallback: string) => {
+  const payload = result as MatchActionRpcResult | null;
+  if (!payload?.success) {
+    throw new Error(payload?.error || payload?.code || fallback);
+  }
+};
+
+const unmatchViaRpc = async (matchId: string) => {
+  const { data, error } = await supabase.rpc("unmatch_match", {
+    p_match_id: matchId,
+  });
+
+  if (error) throw error;
+  assertMatchActionSucceeded(data, "Failed to unmatch");
+  return data;
+};
+
 // Standard unmatch mutation (immediate deletion)
 export const useUnmatch = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ matchId }: UnmatchParams) => {
-      // Delete messages first (due to foreign key constraint)
-      const { error: messagesError } = await supabase
-        .from("messages")
-        .delete()
-        .eq("match_id", matchId);
-
-      if (messagesError) {
-        console.error("Error deleting messages:", messagesError);
-        throw messagesError;
-      }
-
-      // Delete the match
-      const { error: matchError } = await supabase
-        .from("matches")
-        .delete()
-        .eq("id", matchId);
-
-      if (matchError) {
-        console.error("Error deleting match:", matchError);
-        throw matchError;
-      }
-
-      return { success: true };
-    },
+    mutationFn: async ({ matchId }: UnmatchParams) => unmatchViaRpc(matchId),
     onSuccess: () => {
       // Invalidate matches queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ["matches"] });
@@ -68,27 +67,7 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
 
   const performUnmatch = useCallback(async (matchId: string) => {
     try {
-      // Delete messages first
-      const { error: messagesError } = await supabase
-        .from("messages")
-        .delete()
-        .eq("match_id", matchId);
-
-      if (messagesError) {
-        console.error("Error deleting messages:", messagesError);
-        throw messagesError;
-      }
-
-      // Delete the match
-      const { error: matchError } = await supabase
-        .from("matches")
-        .delete()
-        .eq("id", matchId);
-
-      if (matchError) {
-        console.error("Error deleting match:", matchError);
-        throw matchError;
-      }
+      await unmatchViaRpc(matchId);
 
       // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ["matches"] });

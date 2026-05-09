@@ -10,6 +10,7 @@ import {
   Film,
   CalendarPlus,
   Heart,
+  Mic,
 } from "lucide-react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { EmojiBar, type ReactionEmoji } from "@/components/chat/EmojiBar";
@@ -25,6 +26,8 @@ import { cn } from "@/lib/utils";
 type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
 };
+
+const CLIP_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
 
 interface VibeClipBubbleProps {
   meta: VibeClipDisplayMeta;
@@ -222,7 +225,12 @@ export const VibeClipBubble = ({
 
   if (loadError) {
     return (
-      <div className="w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40">
+      <div
+        className={cn(
+          CLIP_BUBBLE_WIDTH_CLASS,
+          "rounded-xl overflow-hidden border border-violet-500/25 bg-gradient-to-b from-secondary/25 to-black/50 flex flex-col items-center justify-center py-5 px-3 gap-2 shadow-inner shadow-black/40",
+        )}
+      >
         <AlertCircle className="w-7 h-7 text-violet-400/90" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Clip unavailable</span>
         <button
@@ -246,7 +254,8 @@ export const VibeClipBubble = ({
   return (
     <div
       className={cn(
-        "w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden relative group transition-opacity duration-200",
+        CLIP_BUBBLE_WIDTH_CLASS,
+        "rounded-xl overflow-hidden relative group transition-opacity duration-200",
         isMine
           ? "ring-1 ring-violet-500/35 bg-violet-500/[0.04]"
           : "ring-1 ring-white/[0.08] bg-white/[0.025]",
@@ -369,6 +378,7 @@ export const VibeClipBubble = ({
                 <button
                   type="button"
                   onClick={toggleMute}
+                  aria-label={isMuted ? "Unmute clip" : "Mute clip"}
                   className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
                 >
                   {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -376,6 +386,7 @@ export const VibeClipBubble = ({
                 <button
                   type="button"
                   onClick={handleFullscreen}
+                  aria-label="Open clip full screen"
                   className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
                 >
                   <Maximize className="w-3 h-3" />
@@ -429,11 +440,7 @@ export const VibeClipBubble = ({
                   }}
                   className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 text-[10px] font-semibold text-violet-400 hover:bg-violet-500/20 transition-colors"
                 >
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                    <line x1="12" x2="12" y1="19" y2="22" />
-                  </svg>
+                  <Mic className="w-3 h-3" />
                   Voice reply
                 </button>
               )}

@@ -18,6 +18,8 @@ const CHAT_IMAGE_MESSAGE_PREFIX = "__IMAGE__|";
 
 /** Keep regex aligned with `shared/chat/conversationListPreview.ts` `HTTP_URL_IN_TEXT_RE`. */
 const HTTP_URL_IN_TEXT_RE = /https?:\/\/[^\s]+/gi;
+const VIBE_CLIP_MAX_DURATION_MS = 30_000;
+const VIBE_CLIP_DURATION_TOLERANCE_MS = 250;
 
 function stripEmbeddedHttpUrlsForPushBody(text: string): string {
   return text.replace(HTTP_URL_IN_TEXT_RE, " ").replace(/\s+/g, " ").trim();
@@ -148,7 +150,7 @@ serve(async (req) => {
 
     if (isVibeClip) {
       const videoUrl = body?.video_url as string | undefined;
-      const durationMs = body?.duration_ms as number | undefined;
+      const durationMs = body?.duration_ms;
       if (
         !match_id ||
         !videoUrl ||
@@ -157,6 +159,17 @@ serve(async (req) => {
       ) {
         return new Response(
           JSON.stringify({ success: false, error: "invalid_request" }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      if (
+        typeof durationMs !== "number" ||
+        !Number.isFinite(durationMs) ||
+        durationMs <= 0 ||
+        durationMs > VIBE_CLIP_MAX_DURATION_MS + VIBE_CLIP_DURATION_TOLERANCE_MS
+      ) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Video must be 30 seconds or shorter." }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
@@ -245,7 +258,7 @@ serve(async (req) => {
     // ── Vibe Clip canonical publish path ──
     if (isVibeClip) {
       const videoUrl = (body.video_url as string).trim();
-      const durationMs = typeof body.duration_ms === "number" ? Math.max(0, Math.round(body.duration_ms)) : 0;
+      const durationMs = Math.min(VIBE_CLIP_MAX_DURATION_MS, Math.max(1, Math.round(body.duration_ms as number)));
       const durationSec = Math.max(1, Math.round(durationMs / 1000));
       const thumbnailUrl = typeof body.thumbnail_url === "string" && body.thumbnail_url.trim()
         ? body.thumbnail_url.trim()

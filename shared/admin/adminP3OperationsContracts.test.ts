@@ -14,8 +14,12 @@ const auditStableOrderingClassificationMigration = read(
 const operationsGovernanceClosureMigration = read(
   "supabase/migrations/20260507203000_admin_operations_governance_closure.sql",
 );
+const missingFunctionCronCleanupMigration = read(
+  "supabase/migrations/20260509231000_unschedule_missing_function_crons.sql",
+);
 const validation = read("supabase/validation/admin_p3_operations_foundation.sql");
 const operationsGovernanceClosureValidation = read("supabase/validation/admin_operations_governance_closure.sql");
+const missingFunctionCronCleanupValidation = read("supabase/validation/missing_function_cron_cleanup.sql");
 const operationsCenter = read("src/components/admin/AdminOperationsCenter.tsx");
 const activityLog = read("src/components/admin/AdminActivityLog.tsx");
 const dashboard = read("src/pages/admin/AdminDashboard.tsx");
@@ -122,6 +126,23 @@ test("Operations governance closure extends rebuild status with coverage and deg
   assert.doesNotMatch(rebuildStatus, writeStatement, "admin_get_rebuild_status must remain read-only");
   assert.match(operationsGovernanceClosureMigration, /REVOKE ALL ON FUNCTION public\.admin_get_rebuild_status\(\) FROM PUBLIC/);
   assert.match(operationsGovernanceClosureMigration, /GRANT EXECUTE ON FUNCTION public\.admin_get_rebuild_status\(\) TO authenticated/);
+});
+
+test("missing-function cron cleanup unschedules retired HTTP cron targets only", () => {
+  assert.match(missingFunctionCronCleanupMigration, /pg_cron/);
+  assert.match(missingFunctionCronCleanupMigration, /cron\.unschedule\(v_job\.jobid\)/);
+  assert.match(missingFunctionCronCleanupMigration, /jobname = 'process-notification-outbox'/);
+  assert.match(missingFunctionCronCleanupMigration, /\/functions\/v1\/process-notification-outbox/);
+  assert.match(missingFunctionCronCleanupMigration, /jobname = 'email-drip-hourly'/);
+  assert.match(missingFunctionCronCleanupMigration, /\/functions\/v1\/email-drip/);
+  assert.match(missingFunctionCronCleanupMigration, /INSERT INTO public\.migration_classifications/);
+  assert.match(missingFunctionCronCleanupMigration, /'20260509231000'/);
+  assert.doesNotMatch(missingFunctionCronCleanupMigration, /cron\.schedule\(/);
+  assert.doesNotMatch(missingFunctionCronCleanupMigration, /DELETE FROM public\.notification_outbox/i);
+  assert.match(missingFunctionCronCleanupValidation, /missing_function_cron_cleanup_no_retired_jobs/);
+  assert.match(missingFunctionCronCleanupValidation, /process-notification-outbox/);
+  assert.match(missingFunctionCronCleanupValidation, /email-drip-hourly/);
+  assert.match(missingFunctionCronCleanupValidation, /missing_function_cron_cleanup_classified/);
 });
 
 test("P3 migration keeps P2 user search backend aligned with Users panel filters", () => {

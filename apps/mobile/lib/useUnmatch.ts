@@ -1,26 +1,36 @@
 /**
- * Unmatch — delete messages, notification mutes, and match. Parity with web useUnmatch.
+ * Unmatch through the server-owned atomic cleanup RPC. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
 import { useRef, useCallback, useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
-async function deleteMatchCascade(matchId: string) {
-  const { error: messagesError } = await supabase.from('messages').delete().eq('match_id', matchId);
-  if (messagesError) throw messagesError;
-  const { error: notifMutesError } = await supabase.from('match_notification_mutes').delete().eq('match_id', matchId);
-  if (notifMutesError) throw notifMutesError;
-  const { error: matchError } = await supabase.from('matches').delete().eq('id', matchId);
-  if (matchError) throw matchError;
-  return { success: true };
+type MatchActionRpcResult = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+};
+
+function assertMatchActionSucceeded(result: unknown, fallback: string) {
+  const payload = result as MatchActionRpcResult | null;
+  if (!payload?.success) {
+    throw new Error(payload?.error || payload?.code || fallback);
+  }
+}
+
+async function unmatchViaRpc(matchId: string) {
+  const { data, error } = await supabase.rpc('unmatch_match', { p_match_id: matchId });
+  if (error) throw error;
+  assertMatchActionSucceeded(data, 'Failed to unmatch');
+  return data;
 }
 
 export function useUnmatch() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ matchId }: { matchId: string }) => deleteMatchCascade(matchId),
+    mutationFn: async ({ matchId }: { matchId: string }) => unmatchViaRpc(matchId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
@@ -50,7 +60,7 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const performUnmatch = useCallback(
     async (matchId: string) => {
       try {
-        await deleteMatchCascade(matchId);
+        await unmatchViaRpc(matchId);
         queryClient.invalidateQueries({ queryKey: ['matches'] });
         queryClient.invalidateQueries({ queryKey: ['messages'] });
         options?.onUnmatchComplete?.();

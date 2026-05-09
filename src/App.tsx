@@ -225,7 +225,7 @@ function AnalyticsConsentBanner({ consent }: { consent: AnalyticsConsentState })
   };
 
   return (
-    <div className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-3xl rounded-md border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
+    <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+6rem)] z-50 mx-auto max-w-3xl rounded-md border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
           Allow privacy-conscious analytics so we can improve reliability and product quality.

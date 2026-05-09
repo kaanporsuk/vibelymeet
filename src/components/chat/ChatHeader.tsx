@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Crown, Star } from "lucide-react";
 import { getUserBadge, useTierCapabilities } from "@/hooks/useEntitlements";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Video,
@@ -41,7 +40,11 @@ import ReportWizard from "@/components/safety/ReportWizard";
 import { useUndoableUnmatch } from "@/hooks/useUnmatch";
 import { useArchiveMatch } from "@/hooks/useArchiveMatch";
 import { useBlockUser } from "@/hooks/useBlockUser";
-import { useMuteMatch, MuteDuration } from "@/hooks/useMuteMatch";
+import { useMuteMatch, type MuteDuration } from "@/hooks/useMuteMatch";
+import {
+  MATCH_MUTE_DURATIONS,
+  getMatchMuteDurationOptionLabel,
+} from "../../../shared/chat/matchMuteDurations";
 import { PhotoVerifiedMark } from "@/components/PhotoVerifiedMark";
 import { ProfilePhoto } from "@/components/ui/ProfilePhoto";
 
@@ -84,7 +87,6 @@ export const ChatHeader = ({
   onVideoCall,
   onFocusInput,
 }: ChatHeaderProps) => {
-  const navigate = useNavigate();
   const [showUnmatchDialog, setShowUnmatchDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const [showBlockDialog, setShowBlockDialog] = useState(false);
@@ -94,7 +96,7 @@ export const ChatHeader = ({
   const { initiateUnmatch } = useUndoableUnmatch();
   const { archiveMatch, isArchiving } = useArchiveMatch();
   const { blockUser, isBlocking } = useBlockUser();
-  const { muteMatch, unmuteMatch, isMatchMuted, getMuteExpiry } = useMuteMatch();
+  const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch();
 
   const isMuted = matchId ? isMatchMuted(matchId) : false;
   const partnerTierCapabilities = useTierCapabilities(user.subscription_tier);
@@ -121,26 +123,26 @@ export const ChatHeader = ({
   const handleArchive = () => {
     if (matchId) {
       archiveMatch(matchId, user.name);
-      navigate("/matches");
+      onBack();
     }
   };
 
   const handleBlock = (reason?: string) => {
     blockUser(user.id, user.name, reason, matchId);
     setShowBlockDialog(false);
-    navigate("/matches");
+    onBack();
   };
 
   const handleUnmatch = () => {
     setShowUnmatchDialog(false);
-    
+
     if (matchId) {
       // Use undoable unmatch with 5-second delay
       initiateUnmatch(matchId, user.name);
     }
-    
-    // Navigate back immediately - user can undo via toast
-    navigate("/matches");
+
+    // Exit chat immediately; user can undo via toast.
+    onBack();
   };
 
   const handleOpenReport = () => {
@@ -153,7 +155,7 @@ export const ChatHeader = ({
     toast.success("Report submitted", {
       description: "Our team will review it within 24 hours",
     });
-    navigate("/matches");
+    onBack();
   };
 
   const handleVoiceCall = () => {
@@ -188,6 +190,8 @@ export const ChatHeader = ({
             }}
             showActions={false}
             mode="match"
+            open={showProfileDrawer}
+            onOpenChange={setShowProfileDrawer}
             trigger={
               <button
                 type="button"
@@ -385,22 +389,16 @@ export const ChatHeader = ({
                       </DropdownMenuItem>
                     ) : (
                       <>
-                        <DropdownMenuItem onClick={() => handleMuteNotifications("1hour")}>
-                          <Clock className="w-4 h-4 mr-2" />
-                          1 hour
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleMuteNotifications("1day")}>
-                          <Clock className="w-4 h-4 mr-2" />
-                          1 day
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleMuteNotifications("1week")}>
-                          <Clock className="w-4 h-4 mr-2" />
-                          1 week
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleMuteNotifications("forever")}>
-                          <BellOff className="w-4 h-4 mr-2" />
-                          Until I turn it back on
-                        </DropdownMenuItem>
+                        {MATCH_MUTE_DURATIONS.map((duration) => (
+                          <DropdownMenuItem key={duration} onClick={() => handleMuteNotifications(duration)}>
+                            {duration === "forever" ? (
+                              <BellOff className="w-4 h-4 mr-2" />
+                            ) : (
+                              <Clock className="w-4 h-4 mr-2" />
+                            )}
+                            {getMatchMuteDurationOptionLabel(duration)}
+                          </DropdownMenuItem>
+                        ))}
                       </>
                     )}
                   </DropdownMenuSubContent>

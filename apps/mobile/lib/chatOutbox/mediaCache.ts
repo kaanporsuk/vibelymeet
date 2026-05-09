@@ -48,6 +48,8 @@ export function extForPayload(kind: 'image' | 'voice' | 'video', mime?: string):
   if (kind === 'voice') return 'm4a';
   if (kind === 'video') {
     if (mime?.includes('quicktime') || mime?.includes('mov')) return 'mov';
+    if (mime?.includes('x-m4v') || mime?.includes('m4v')) return 'm4v';
+    if (mime?.includes('webm')) return 'webm';
     return 'mp4';
   }
   if (mime?.includes('png')) return 'png';

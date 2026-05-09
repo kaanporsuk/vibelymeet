@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { addHours, addDays, addWeeks } from "date-fns";
 import { useUserProfile } from "@/contexts/AuthContext";
+import {
+  getMatchMuteDurationLabel,
+  type MatchMuteDuration,
+} from "../../shared/chat/matchMuteDurations";
 
-export type MuteDuration = "1hour" | "1day" | "1week" | "forever";
+export type MuteDuration = MatchMuteDuration;
 
 export interface MatchMute {
   id: string;
@@ -14,34 +17,16 @@ export interface MatchMute {
   created_at: string | null;
 }
 
-const getMutedUntilDate = (duration: MuteDuration): Date => {
-  const now = new Date();
-  switch (duration) {
-    case "1hour":
-      return addHours(now, 1);
-    case "1day":
-      return addDays(now, 1);
-    case "1week":
-      return addWeeks(now, 1);
-    case "forever":
-      return new Date(9999, 11, 31, 23, 59, 59);
-    default:
-      return addDays(now, 1);
-  }
+type MatchActionRpcResult = {
+  success?: boolean;
+  code?: string;
+  error?: string;
 };
 
-const getDurationLabel = (duration: MuteDuration): string => {
-  switch (duration) {
-    case "1hour":
-      return "1 hour";
-    case "1day":
-      return "1 day";
-    case "1week":
-      return "1 week";
-    case "forever":
-      return "indefinitely";
-    default:
-      return "1 day";
+const assertMatchActionSucceeded = (result: unknown, fallback: string) => {
+  const payload = result as MatchActionRpcResult | null;
+  if (!payload?.success) {
+    throw new Error(payload?.error || payload?.code || fallback);
   }
 };
 
@@ -58,7 +43,7 @@ export const useMuteMatch = () => {
         .from("match_notification_mutes")
         .select("*")
         .eq("user_id", userId)
-        .gt("muted_until", new Date().toISOString());
+        .or(`muted_until.is.null,muted_until.gt.${new Date().toISOString()}`);
 
       if (error) throw error;
       return (data || []) as MatchMute[];
@@ -69,37 +54,13 @@ export const useMuteMatch = () => {
   const muteMutation = useMutation({
     mutationFn: async ({ matchId, duration }: { matchId: string; duration: MuteDuration }) => {
       if (!userId) throw new Error("Not authenticated");
-      const mutedUntil = getMutedUntilDate(duration);
-      const mutedUntilIso = mutedUntil.toISOString();
+      const { data, error } = await supabase.rpc("set_match_notification_mute", {
+        p_match_id: matchId,
+        p_duration: duration,
+      });
 
-      const { error } = await supabase
-        .from("match_notification_mutes")
-        .upsert({
-          match_id: matchId,
-          user_id: userId,
-          muted_until: mutedUntilIso,
-        }, {
-          onConflict: "match_id,user_id",
-        });
-
-      if (error) {
-        await supabase
-          .from("match_notification_mutes")
-          .delete()
-          .eq("match_id", matchId)
-          .eq("user_id", userId);
-
-        const { error: insertError } = await supabase
-          .from("match_notification_mutes")
-          .insert({
-            match_id: matchId,
-            user_id: userId,
-            muted_until: mutedUntilIso,
-          });
-
-        if (insertError) throw insertError;
-      }
-
+      if (error) throw error;
+      assertMatchActionSucceeded(data, "Failed to mute notifications");
       return { duration };
     },
     onSuccess: () => {
@@ -110,13 +71,12 @@ export const useMuteMatch = () => {
   const unmuteMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("match_notification_mutes")
-        .delete()
-        .eq("match_id", matchId)
-        .eq("user_id", userId);
+      const { data, error } = await supabase.rpc("clear_match_notification_mute", {
+        p_match_id: matchId,
+      });
 
       if (error) throw error;
+      assertMatchActionSucceeded(data, "Failed to unmute notifications");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
@@ -126,7 +86,7 @@ export const useMuteMatch = () => {
   const muteMatch = (matchId: string, userName: string, duration: MuteDuration) => {
     muteMutation.mutate({ matchId, duration }, {
       onSuccess: () => {
-        toast.success(`${userName} muted for ${getDurationLabel(duration)}`, {
+        toast.success(`${userName} muted for ${getMatchMuteDurationLabel(duration)}`, {
           description: "You won't receive notifications from them",
         });
       },
@@ -151,16 +111,10 @@ export const useMuteMatch = () => {
     return mutes.some((mute) => mute.match_id === matchId);
   };
 
-  const getMuteExpiry = (matchId: string): Date | null => {
-    const mute = mutes.find((m) => m.match_id === matchId);
-    return mute?.muted_until ? new Date(mute.muted_until) : null;
-  };
-
   return {
     muteMatch,
     unmuteMatch,
     isMatchMuted,
-    getMuteExpiry,
     mutes,
     isMuting: muteMutation.isPending,
     isUnmuting: unmuteMutation.isPending,

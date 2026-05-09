@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Static import graph from src/App.tsx following relative + TS path aliases (@/, @shared/, @clientShared/).
+ * Import graph from src/App.tsx following relative imports, literal dynamic import() calls,
+ * and TS path aliases (@/, @shared/, @clientShared/).
  * Orphan = file under src/pages|hooks|components not in graph.
  *
  * Usage: node scripts/surface-inventory-audit.mjs
@@ -12,6 +13,10 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, "..");
 const SRC = path.join(ROOT, "src");
+const SHARED = path.join(ROOT, "shared");
+const SUPABASE_SHARED = path.join(ROOT, "supabase/functions/_shared");
+const AUDITED_ROOTS = [SRC, SHARED, SUPABASE_SHARED];
+const RESOLUTION_EXTENSIONS = ["", ".tsx", ".ts", ".jsx", ".js", "/index.tsx", "/index.ts"];
 
 function walk(dir, acc = []) {
   if (!fs.existsSync(dir)) return acc;
@@ -31,13 +36,16 @@ function resolveSpecifier(spec) {
   let base;
   if (spec.startsWith("@/")) base = path.join(SRC, spec.slice(2));
   else if (spec.startsWith("@shared/"))
-    base = path.join(ROOT, "supabase/functions/_shared", spec.slice("@shared/".length));
+    base = path.join(SUPABASE_SHARED, spec.slice("@shared/".length));
   else if (spec.startsWith("@clientShared/"))
-    base = path.join(ROOT, "shared", spec.slice("@clientShared/".length));
+    base = path.join(SHARED, spec.slice("@clientShared/".length));
   else return null;
 
-  const exts = ["", ".tsx", ".ts", ".jsx", ".js", "/index.tsx", "/index.ts"];
-  for (const ext of exts) {
+  return resolveWithExtensions(base);
+}
+
+function resolveWithExtensions(base) {
+  for (const ext of RESOLUTION_EXTENSIONS) {
     const tryPath = base + ext;
     if (fs.existsSync(tryPath) && fs.statSync(tryPath).isFile()) return path.normalize(tryPath);
   }
@@ -46,16 +54,47 @@ function resolveSpecifier(spec) {
 
 function resolveRelative(fromFile, spec) {
   const dir = path.dirname(fromFile);
-  let resolved = path.resolve(dir, spec);
-  const exts = ["", ".tsx", ".ts", ".jsx", ".js", "/index.tsx", "/index.ts"];
-  for (const ext of exts) {
-    const tryPath = resolved + ext;
-    if (fs.existsSync(tryPath) && fs.statSync(tryPath).isFile()) return path.normalize(tryPath);
+  return resolveWithExtensions(path.resolve(dir, spec));
+}
+
+function isUnderDir(file, dir) {
+  const relative = path.relative(dir, file);
+  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function isAuditedLocalPath(abs) {
+  return AUDITED_ROOTS.some((root) => isUnderDir(abs, root));
+}
+
+function resolveLocalImport(spec) {
+  if (
+    spec.startsWith("@/") ||
+    spec.startsWith("@shared/") ||
+    spec.startsWith("@clientShared/")
+  ) {
+    return resolveSpecifier(spec);
   }
   return null;
 }
 
-/** All static imports with resolvable local paths (src, shared, supabase _shared). */
+function maybeAddResolvedImport(out, fromFile, spec) {
+  if (!spec || spec.startsWith("node:")) return;
+
+  const aliased = resolveLocalImport(spec);
+  if (aliased) {
+    out.push(aliased);
+    return;
+  }
+
+  if (spec.startsWith(".")) {
+    const abs = resolveRelative(fromFile, spec);
+    if (abs && isAuditedLocalPath(abs)) {
+      out.push(abs);
+    }
+  }
+}
+
+/** All resolvable local imports (static imports plus literal dynamic import() paths). */
 function resolveImports(fromFile, source) {
   const out = [];
   const re =
@@ -63,26 +102,12 @@ function resolveImports(fromFile, source) {
   let m;
   while ((m = re.exec(source))) {
     const spec = m[1] || m[2];
-    if (!spec || spec.startsWith("node:")) continue;
-    if (
-      spec.startsWith("@/") ||
-      spec.startsWith("@shared/") ||
-      spec.startsWith("@clientShared/")
-    ) {
-      const abs = resolveSpecifier(spec);
-      if (abs) out.push(abs);
-      continue;
-    }
-    if (spec.startsWith(".")) {
-      const abs = resolveRelative(fromFile, spec);
-      if (
-        abs &&
-        (abs.startsWith(SRC) ||
-          abs.startsWith(path.join(ROOT, "shared")) ||
-          abs.startsWith(path.join(ROOT, "supabase/functions/_shared")))
-      )
-        out.push(abs);
-    }
+    maybeAddResolvedImport(out, fromFile, spec);
+  }
+
+  const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((m = dynamicRe.exec(source))) {
+    maybeAddResolvedImport(out, fromFile, m[1]);
   }
   return out;
 }
@@ -130,8 +155,8 @@ const report = {
   orphan_hooks: orphanHooks,
   orphan_components: orphanComponents,
   caveats: [
-    "Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, and relative imports.",
-    "Dynamic import() and string-based lazy() paths are not analyzed.",
+    "Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, relative imports, and literal dynamic import() calls.",
+    "Literal dynamic import() paths are analyzed; computed dynamic paths are not.",
     "Files only loaded by Vite glob or runtime strings may false-positive as orphans.",
   ],
 };
@@ -153,7 +178,7 @@ fs.writeFileSync(
 
 ## Method
 
-Static import graph from \`src/App.tsx\`, expanding \`@/*\`, \`@shared/*\`, \`@clientShared/*\`, and relative imports.
+Import graph from \`src/App.tsx\`, expanding \`@/*\`, \`@shared/*\`, \`@clientShared/*\`, relative imports, and literal dynamic \`import()\` calls.
 
 ## Summary
 

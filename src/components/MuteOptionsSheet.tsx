@@ -8,6 +8,11 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { MuteDuration } from "@/hooks/useMuteMatch";
+import {
+  MATCH_MUTE_DURATIONS,
+  getMatchMuteDurationDescription,
+  getMatchMuteDurationOptionLabel,
+} from "../../shared/chat/matchMuteDurations";
 
 interface MuteOption {
   value: MuteDuration;
@@ -16,32 +21,12 @@ interface MuteOption {
   icon: React.ReactNode;
 }
 
-const muteOptions: MuteOption[] = [
-  {
-    value: "1hour",
-    label: "1 Hour",
-    description: "Take a quick break",
-    icon: <Clock className="w-5 h-5" />,
-  },
-  {
-    value: "1day",
-    label: "1 Day",
-    description: "Silence for 24 hours",
-    icon: <Clock className="w-5 h-5" />,
-  },
-  {
-    value: "1week",
-    label: "1 Week",
-    description: "A longer pause",
-    icon: <Clock className="w-5 h-5" />,
-  },
-  {
-    value: "forever",
-    label: "Until I turn it back on",
-    description: "Mute indefinitely",
-    icon: <BellOff className="w-5 h-5" />,
-  },
-];
+const muteOptions: MuteOption[] = MATCH_MUTE_DURATIONS.map((value) => ({
+  value,
+  label: getMatchMuteDurationOptionLabel(value),
+  description: getMatchMuteDurationDescription(value),
+  icon: value === "forever" ? <BellOff className="w-5 h-5" /> : <Clock className="w-5 h-5" />,
+}));
 
 interface MuteOptionsSheetProps {
   isOpen: boolean;

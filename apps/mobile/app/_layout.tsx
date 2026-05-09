@@ -497,7 +497,7 @@ function RootLayoutNav() {
         <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="event/[eventId]/lobby" options={{ headerShown: false, title: 'Event Lobby' }} />
-        <Stack.Screen name="chat/[id]" options={{ headerShown: false, title: 'Chat' }} />
+        <Stack.Screen name="chat/[id]" options={{ headerShown: false, title: 'Chat', gestureEnabled: false }} />
         <Stack.Screen name="daily-drop" options={{ headerShown: false, title: 'Daily Drop' }} />
         <Stack.Screen name="ready/[id]" options={{ headerShown: false, title: 'Ready Gate' }} />
         <Stack.Screen name="date/[id]" options={{ headerShown: false, title: 'Video Date' }} />

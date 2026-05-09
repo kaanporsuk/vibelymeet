@@ -1,8 +1,21 @@
 /**
- * Archive / unarchive match — update matches.archived_at. Parity with web useArchiveMatch.
+ * Archive / unarchive match through the server-owned per-user archive contract.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+
+type MatchActionRpcResult = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+};
+
+function assertMatchActionSucceeded(result: unknown, fallback: string) {
+  const payload = result as MatchActionRpcResult | null;
+  if (!payload?.success) {
+    throw new Error(payload?.error || payload?.code || fallback);
+  }
+}
 
 export function useArchiveMatch(userId: string | null | undefined) {
   const queryClient = useQueryClient();
@@ -10,11 +23,12 @@ export function useArchiveMatch(userId: string | null | undefined) {
   const archiveMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error('Not authenticated');
-      const { error } = await supabase
-        .from('matches')
-        .update({ archived_at: new Date().toISOString(), archived_by: userId })
-        .eq('id', matchId);
+      const { data, error } = await supabase.rpc('set_match_archive_state', {
+        p_match_id: matchId,
+        p_archived: true,
+      });
       if (error) throw error;
+      assertMatchActionSucceeded(data, 'Failed to archive match');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
@@ -24,8 +38,12 @@ export function useArchiveMatch(userId: string | null | undefined) {
   const unarchiveMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error('Not authenticated');
-      const { error } = await supabase.from('matches').update({ archived_at: null, archived_by: null }).eq('id', matchId);
+      const { data, error } = await supabase.rpc('set_match_archive_state', {
+        p_match_id: matchId,
+        p_archived: false,
+      });
       if (error) throw error;
+      assertMatchActionSucceeded(data, 'Failed to unarchive match');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });

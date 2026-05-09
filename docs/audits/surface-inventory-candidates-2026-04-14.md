@@ -1,10 +1,10 @@
 # Surface inventory candidates (mechanical)
 
-**Generated:** 2026-05-01 via `node scripts/surface-inventory-audit.mjs`
+**Generated:** 2026-05-09 via `node scripts/surface-inventory-audit.mjs`
 
 ## Method
 
-Static import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientShared/*`, and relative imports.
+Import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientShared/*`, relative imports, and literal dynamic `import()` calls.
 
 ## Summary
 
@@ -13,7 +13,7 @@ Static import graph from `src/App.tsx`, expanding `@/*`, `@shared/*`, `@clientSh
 | `src/pages` | **0** |
 | `src/hooks` | **0** |
 | `src/components` | **41** |
-| Modules in graph | **500** |
+| Modules in graph | **547** |
 
 ## Orphan pages (0)
 
@@ -45,9 +45,9 @@ _None._
 - `src/components/safety/SafetyTipsCarousel.tsx`
 - `src/components/schedule/DateProposalTicket.tsx`
 - `src/components/ui/accordion.tsx`
-- `src/components/ui/alert.tsx`
 - `src/components/ui/breadcrumb.tsx`
 - `src/components/ui/carousel.tsx`
+- `src/components/ui/chart.tsx`
 - `src/components/ui/command.tsx`
 - `src/components/ui/context-menu.tsx`
 - `src/components/ui/form.tsx`
@@ -70,10 +70,10 @@ _None._
 
 ## Caveats
 
-- Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, and relative imports.
-- Dynamic import() and string-based lazy() paths are not analyzed.
+- Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, relative imports, and literal dynamic import() calls.
+- Literal dynamic import() paths are analyzed; computed dynamic paths are not.
 - Files only loaded by Vite glob or runtime strings may false-positive as orphans.
 
-## Interpretation (2026-05-01 audit refresh)
+## Interpretation (2026-05-09 audit refresh)
 
 Legacy **video-date checkpoint / unused survey** orphans were already removed — see `docs/audits/orphan-triage-2026-04-14.md`. The current candidate list still contains mostly shadcn `ui/*`, wizard, safety, and marketing-style components. Treat this file as a triage queue, not a deletion manifest; do not mass-delete without product or route-level proof.

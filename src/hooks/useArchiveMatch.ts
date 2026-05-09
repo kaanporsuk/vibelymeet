@@ -3,6 +3,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useUserProfile } from "@/contexts/AuthContext";
 
+type MatchActionRpcResult = {
+  success?: boolean;
+  code?: string;
+  error?: string;
+};
+
+const assertMatchActionSucceeded = (result: unknown, fallback: string) => {
+  const payload = result as MatchActionRpcResult | null;
+  if (!payload?.success) {
+    throw new Error(payload?.error || payload?.code || fallback);
+  }
+};
+
 export const useArchiveMatch = () => {
   const { user } = useUserProfile();
   const userId = user?.id;
@@ -11,15 +24,13 @@ export const useArchiveMatch = () => {
   const archiveMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
       if (!userId) throw new Error("Not authenticated");
-      const { error } = await supabase
-        .from("matches")
-        .update({ 
-          archived_at: new Date().toISOString(),
-          archived_by: userId 
-        })
-        .eq("id", matchId);
+      const { data, error } = await supabase.rpc("set_match_archive_state", {
+        p_match_id: matchId,
+        p_archived: true,
+      });
 
       if (error) throw error;
+      assertMatchActionSucceeded(data, "Failed to archive match");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["matches"] });
@@ -29,15 +40,14 @@ export const useArchiveMatch = () => {
 
   const unarchiveMutation = useMutation({
     mutationFn: async ({ matchId }: { matchId: string }) => {
-      const { error } = await supabase
-        .from("matches")
-        .update({ 
-          archived_at: null,
-          archived_by: null 
-        })
-        .eq("id", matchId);
+      if (!userId) throw new Error("Not authenticated");
+      const { data, error } = await supabase.rpc("set_match_archive_state", {
+        p_match_id: matchId,
+        p_archived: false,
+      });
 
       if (error) throw error;
+      assertMatchActionSucceeded(data, "Failed to unarchive match");
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["matches"] });

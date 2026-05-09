@@ -71,6 +71,11 @@ type MatchEventRow = {
   title: string;
 };
 
+type MatchArchiveRow = {
+  match_id: string;
+  archived_at: string;
+};
+
 export interface Match {
   id: string;
   name: string;
@@ -147,6 +152,19 @@ export const useMatches = () => {
           }
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "match_archives",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["matches"] });
+          queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+        }
+      )
       .subscribe();
 
     return () => {
@@ -177,6 +195,8 @@ export const useMatches = () => {
       if (error) throw error;
       if (!matches?.length) return [];
 
+      const matchIds = matches.map((m) => m.id);
+
       const otherProfileIds = matches.map((m) =>
         m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1
       );
@@ -187,7 +207,7 @@ export const useMatches = () => {
 
       const profileIdsForFetch = [...otherProfileIds, userId];
 
-      const [profilesResult, vibesResult, messagesResult, eventsResult] =
+      const [profilesResult, vibesResult, messagesResult, eventsResult, archivesResult] =
         await Promise.all([
           supabase
             .from("profiles")
@@ -206,7 +226,7 @@ export const useMatches = () => {
             )
             .in(
               "match_id",
-              matches.map((m) => m.id)
+              matchIds
             )
             .order("created_at", { ascending: false }),
           eventIds.length > 0
@@ -215,12 +235,28 @@ export const useMatches = () => {
                 .select("id, title")
                 .in("id", eventIds)
             : Promise.resolve({ data: [] }),
+          supabase
+            .from("match_archives")
+            .select("match_id, archived_at")
+            .eq("user_id", userId)
+            .in("match_id", matchIds),
         ]);
+
+      if (profilesResult.error) throw profilesResult.error;
+      if (vibesResult.error) throw vibesResult.error;
+      if (messagesResult.error) throw messagesResult.error;
+      if ("error" in eventsResult && eventsResult.error) throw eventsResult.error;
+      if (archivesResult.error) throw archivesResult.error;
 
       const profiles = (profilesResult.data || []) as MatchesListProfileRow[];
       const profileVibes = (vibesResult.data || []) as ProfileVibeRow[];
       const lastMessages = messagesResult.data || [];
       const events = (eventsResult.data || []) as MatchEventRow[];
+      const archives = (archivesResult.data || []) as MatchArchiveRow[];
+      const archivedAtByMatch: Record<string, string> = {};
+      archives.forEach((archive) => {
+        archivedAtByMatch[archive.match_id] = archive.archived_at;
+      });
 
       const messagesByMatch: Record<string, MatchLatestMessageRow> = {};
       lastMessages.forEach((msg) => {
@@ -278,8 +314,7 @@ export const useMatches = () => {
         const matchedAt = new Date(match.matched_at);
         const isNew =
           Date.now() - matchedAt.getTime() < 24 * 60 * 60 * 1000;
-        const isArchived =
-          match.archived_by === userId && match.archived_at !== null;
+        const isArchived = !!archivedAtByMatch[match.id];
 
         // Canonical precedence: first valid photos[] entry, then avatar_url.
         const photoArr = profile?.photos ?? undefined;
@@ -369,13 +404,24 @@ export const useDashboardMatches = () => {
         .from("matches")
         .select("id, matched_at, profile_id_1, profile_id_2")
         .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-        .order("matched_at", { ascending: false })
-        .limit(5);
+        .order("matched_at", { ascending: false });
 
       if (error) throw error;
       if (!matches?.length) return [];
 
-      const otherProfileIds = matches.map((m) =>
+      const matchIds = matches.map((m) => m.id);
+      const { data: archives, error: archivesError } = await supabase
+        .from("match_archives")
+        .select("match_id")
+        .eq("user_id", userId)
+        .in("match_id", matchIds);
+
+      if (archivesError) throw archivesError;
+      const archivedMatchIds = new Set((archives || []).map((row) => row.match_id));
+      const visibleMatches = matches.filter((match) => !archivedMatchIds.has(match.id));
+      if (!visibleMatches.length) return [];
+
+      const otherProfileIds = visibleMatches.map((m) =>
         m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1
       );
 
@@ -384,7 +430,7 @@ export const useDashboardMatches = () => {
         .select("id, name, avatar_url, photos")
         .in("id", otherProfileIds);
 
-      return matches.map((match) => {
+      return visibleMatches.slice(0, 5).map((match) => {
         const otherProfileId =
           match.profile_id_1 === userId
             ? match.profile_id_2

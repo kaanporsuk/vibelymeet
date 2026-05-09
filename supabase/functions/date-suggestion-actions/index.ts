@@ -1,5 +1,5 @@
 /**
- * Server-owned Date Suggestion transitions: calls date_suggestion_apply RPC (auth.uid()),
+ * Server-owned Date Suggestion transitions: calls date_suggestion_apply_v2 RPC (auth.uid()),
  * then fans out OneSignal via send-notification for allowed events.
  */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -107,7 +107,6 @@ serve(async (req) => {
       "create_draft",
       "update_draft",
       "send_proposal",
-      "counter",
     ].includes(p_action);
     const revision = isRecord(p_payload.revision) ? p_payload.revision : {};
     const shareRequested =
@@ -170,7 +169,7 @@ serve(async (req) => {
     );
 
     if (rpcError) {
-      console.error("date_suggestion_apply error:", rpcError);
+      console.error("date_suggestion_apply_v2 error:", rpcError);
       const rpcMessage = String(rpcError.message || "");
       const isActiveConflict =
         p_action === "send_proposal" &&

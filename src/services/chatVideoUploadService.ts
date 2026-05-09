@@ -1,3 +1,9 @@
+import {
+  VIBE_CLIP_MAX_UPLOAD_BYTES,
+  VIBE_CLIP_UPLOAD_EMPTY_FILE,
+  VIBE_CLIP_UPLOAD_TOO_LARGE,
+} from "../../shared/chat/vibeClipCaptureCopy";
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export type ChatVideoUploadResult = {
@@ -16,8 +22,15 @@ async function createWebVideoThumbnail(videoBlob: Blob): Promise<{ blob: Blob; a
   const objectUrl = URL.createObjectURL(videoBlob);
   try {
     await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("video_metadata_failed"));
+      const timer = window.setTimeout(() => reject(new Error("video_metadata_timeout")), 4500);
+      video.onloadedmetadata = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      video.onerror = () => {
+        window.clearTimeout(timer);
+        reject(new Error("video_metadata_failed"));
+      };
       video.src = objectUrl;
     });
     const ratio =
@@ -55,8 +68,30 @@ async function createWebVideoThumbnail(videoBlob: Blob): Promise<{ blob: Blob; a
   } catch {
     return null;
   } finally {
+    video.removeAttribute("src");
+    video.load();
     URL.revokeObjectURL(objectUrl);
   }
+}
+
+function videoMimeTypeForBlob(videoBlob: Blob): string {
+  if (videoBlob.type.startsWith("video/")) return videoBlob.type;
+  if (typeof File !== "undefined" && videoBlob instanceof File) {
+    const name = videoBlob.name.toLowerCase();
+    if (name.endsWith(".mov")) return "video/quicktime";
+    if (name.endsWith(".m4v")) return "video/x-m4v";
+    if (name.endsWith(".webm")) return "video/webm";
+    if (name.endsWith(".mp4")) return "video/mp4";
+  }
+  return "video/mp4";
+}
+
+function videoExtensionForMimeType(mimeType: string): string {
+  const baseType = mimeType.split(";")[0].trim();
+  if (baseType === "video/quicktime") return "mov";
+  if (baseType === "video/x-m4v") return "m4v";
+  if (baseType === "video/mp4") return "mp4";
+  return "webm";
 }
 
 export async function uploadChatVideoToBunny(
@@ -64,9 +99,16 @@ export async function uploadChatVideoToBunny(
   accessToken: string,
   matchId: string
 ): Promise<ChatVideoUploadResult> {
+  if (videoBlob.size <= 0) {
+    throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+  }
+  if (videoBlob.size > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+    throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+  }
+
   const formData = new FormData();
-  const mimeType = videoBlob.type || "video/webm";
-  const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+  const mimeType = videoMimeTypeForBlob(videoBlob);
+  const ext = videoExtensionForMimeType(mimeType);
   formData.append("file", videoBlob, `chat-video.${ext}`);
   formData.append("match_id", matchId);
   const thumb = await createWebVideoThumbnail(videoBlob);

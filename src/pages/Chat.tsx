@@ -56,6 +56,7 @@ import type { DateComposerLaunchSource } from "../../shared/dateSuggestions/date
 import { matchHasOpenDateSuggestion } from "../../shared/dateSuggestions/openStatus";
 import {
   VIBE_CLIP_CHAT_FILM_BUTTON_TITLE,
+  VIBE_CLIP_MAX_DURATION_SEC,
   VIBE_CLIP_TOAST_SEND_FAIL,
   VIBE_CLIP_TOAST_SENT,
   VIBE_CLIP_TOAST_UPLOAD_FAIL,
@@ -64,6 +65,7 @@ import {
   classifySendFailureMessage,
   durationBucketFromSeconds,
   threadBucketFromCount,
+  type CaptureSource,
 } from "../../shared/chat/vibeClipAnalytics";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { recordUserAction } from "@/lib/browserDiagnostics";
@@ -79,6 +81,7 @@ type MessageStatusType = "sending" | "sent" | "delivered" | "read";
 type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
+const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
@@ -294,6 +297,8 @@ const Chat = () => {
   const threadContentRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const stickToBottomRef = useRef(true);
+  const userScrollIntentUntilRef = useRef(0);
+  const lastTouchYRef = useRef<number | null>(null);
   /** True until we have applied the first bottom snap for this thread (avoids onScroll racing before scrollToBottom). */
   const pendingThreadBottomSnapRef = useRef(false);
   const lastThreadCountRef = useRef(0);
@@ -813,14 +818,35 @@ const Chat = () => {
     [chatData?.matchId, currentUserId, id, queryClient]
   );
 
+  const isUserScrollIntentActive = useCallback(() => {
+    return Date.now() < userScrollIntentUntilRef.current;
+  }, []);
+
+  const suspendAutoStickForUserScroll = useCallback(() => {
+    userScrollIntentUntilRef.current = Date.now() + 900;
+    stickToBottomRef.current = false;
+  }, []);
+
+  const updateBottomState = useCallback((distanceFromBottom: number) => {
+    const atBottom = distanceFromBottom < 120;
+    stickToBottomRef.current = atBottom;
+    setAwayFromBottom(distanceFromBottom > 140);
+    if (atBottom) setNewBelowCue(false);
+  }, []);
+
   const scrollToBottom = useCallback((opts?: { instant?: boolean }) => {
+    const el = mainScrollRef.current;
     stickToBottomRef.current = true;
     setAwayFromBottom(false);
     setNewBelowCue(false);
-    messagesEndRef.current?.scrollIntoView({
-      block: "end",
-      behavior: opts?.instant ? "auto" : "smooth",
-    });
+    if (el) {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: opts?.instant ? "auto" : "smooth",
+      });
+      return;
+    }
+    messagesEndRef.current?.scrollIntoView({ block: "end", behavior: opts?.instant ? "auto" : "smooth" });
   }, []);
 
   const onMainScroll = useCallback(() => {
@@ -828,15 +854,51 @@ const Chat = () => {
     if (!el) return;
     const { scrollTop, scrollHeight, clientHeight } = el;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const atBottom = distanceFromBottom < 120;
-    stickToBottomRef.current = atBottom;
-    setAwayFromBottom(distanceFromBottom > 140);
-    if (atBottom) setNewBelowCue(false);
+    updateBottomState(distanceFromBottom);
     if (scrollTop < 96 && hasNextPage && !isFetchingNextPage) {
       olderPageScrollSnapshotRef.current = { scrollHeight, scrollTop };
       void fetchNextPage();
     }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, updateBottomState]);
+
+  const onMainWheel = useCallback(
+    (event: React.WheelEvent<HTMLElement>) => {
+      if (Math.abs(event.deltaY) < 1) return;
+      if (event.deltaY < 0) {
+        suspendAutoStickForUserScroll();
+        return;
+      }
+      const el = mainScrollRef.current;
+      if (!el) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distanceFromBottom > 24) suspendAutoStickForUserScroll();
+    },
+    [suspendAutoStickForUserScroll],
+  );
+
+  const onMainTouchStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
+    lastTouchYRef.current = event.touches[0]?.clientY ?? null;
+  }, []);
+
+  const onMainTouchMove = useCallback(
+    (event: React.TouchEvent<HTMLElement>) => {
+      const nextY = event.touches[0]?.clientY ?? null;
+      const prevY = lastTouchYRef.current;
+      lastTouchYRef.current = nextY;
+      if (nextY == null || prevY == null) return;
+      if (Math.abs(nextY - prevY) < 3) return;
+      const el = mainScrollRef.current;
+      const distanceFromBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight : 0;
+      if (nextY > prevY || distanceFromBottom > 24) {
+        suspendAutoStickForUserScroll();
+      }
+    },
+    [suspendAutoStickForUserScroll],
+  );
+
+  const onMainTouchEnd = useCallback(() => {
+    lastTouchYRef.current = null;
+  }, []);
 
   useEffect(() => {
     const lowerMessage = newMessage.toLowerCase();
@@ -908,6 +970,7 @@ const Chat = () => {
     setNewBelowCue(false);
     setAwayFromBottom(false);
     stickToBottomRef.current = true;
+    userScrollIntentUntilRef.current = 0;
     pendingThreadBottomSnapRef.current = true;
   }, [id]);
 
@@ -922,8 +985,8 @@ const Chat = () => {
     stickToBottomRef.current = true;
     setAwayFromBottom(false);
     setNewBelowCue(false);
-    messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
-  }, [id, isLoadingChat, displayMessages.length, rowsWithLayout]);
+    scrollToBottom({ instant: true });
+  }, [id, isLoadingChat, displayMessages.length, rowsWithLayout, scrollToBottom]);
 
   useLayoutEffect(() => {
     if (isFetchingNextPage) return;
@@ -931,13 +994,15 @@ const Chat = () => {
     const el = mainScrollRef.current;
     if (!snapshot || !el) return;
     olderPageScrollSnapshotRef.current = null;
+    userScrollIntentUntilRef.current = Date.now() + 900;
     el.scrollTop = el.scrollHeight - snapshot.scrollHeight + snapshot.scrollTop;
   }, [isFetchingNextPage, rowsWithLayout]);
 
   useEffect(() => {
     if (!stickToBottomRef.current) return;
+    if (isUserScrollIntentActive()) return;
     scrollToBottom();
-  }, [rowsWithLayout, scrollToBottom]);
+  }, [rowsWithLayout, isUserScrollIntentActive, scrollToBottom]);
 
   useEffect(() => {
     const n = displayMessages.length;
@@ -953,11 +1018,12 @@ const Chat = () => {
     if (!node) return;
     const ro = new ResizeObserver(() => {
       if (!stickToBottomRef.current) return;
-      messagesEndRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+      if (isUserScrollIntentActive()) return;
+      scrollToBottom({ instant: true });
     });
     ro.observe(node);
     return () => ro.disconnect();
-  }, [id, isLoadingChat, displayMessages.length]);
+  }, [id, isLoadingChat, displayMessages.length, isUserScrollIntentActive, scrollToBottom]);
 
   useEffect(() => {
     setExpandedPendingClusterKey(null);
@@ -1186,7 +1252,11 @@ const Chat = () => {
     }
   };
 
-  const handleVideoRecordingComplete = async (videoBlob: Blob, duration: number) => {
+  const handleVideoRecordingComplete = async (
+    videoBlob: Blob,
+    duration: number,
+    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null },
+  ) => {
     setIsRecordingVideo(false);
 
     if (!chatData?.matchId || !user?.id || !id) {
@@ -1194,7 +1264,12 @@ const Chat = () => {
       return;
     }
 
-    const durationBucket = durationBucketFromSeconds(duration);
+    const durationSeconds = Math.min(
+      VIBE_CLIP_MAX_DURATION_SEC,
+      Math.max(0.5, Number.isFinite(duration) ? duration : 0.5),
+    );
+    const captureSource = meta?.captureSource ?? "web_recorder";
+    const durationBucket = durationBucketFromSeconds(durationSeconds);
     const threadBucket = threadBucketFromCount(displayMessages.length);
 
     if (!threadInvalidateScope) {
@@ -1204,7 +1279,7 @@ const Chat = () => {
 
     try {
       trackVibeClipEvent("clip_send_attempted", {
-        capture_source: "web_recorder",
+        capture_source: captureSource,
         duration_bucket: durationBucket,
         has_poster: false,
         thread_bucket: threadBucket,
@@ -1220,9 +1295,9 @@ const Chat = () => {
         payload: {
           kind: "video",
           blobKey,
-          durationSeconds: Math.max(0.5, duration),
-          mimeType: videoBlob.type || "video/mp4",
-          aspectRatio: null,
+          durationSeconds,
+          mimeType: meta?.mimeType || videoBlob.type || "video/mp4",
+          aspectRatio: meta?.aspectRatio ?? null,
         },
         invalidateScope: threadInvalidateScope,
       });
@@ -1308,6 +1383,10 @@ const Chat = () => {
     setIsRecordingVideo(true);
   }, [chatData?.matchId, composerMediaLocked, displayMessages.length, guardActiveConversation, id]);
 
+  const returnToMatches = useCallback(() => {
+    navigate("/matches", { replace: true });
+  }, [navigate]);
+
   return (
     <div className="h-[100dvh] bg-[#050508] flex justify-center relative overflow-hidden lg:px-4 lg:py-3">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,hsl(var(--primary)/0.11),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.025),transparent_32%)] pointer-events-none" />
@@ -1320,7 +1399,7 @@ const Chat = () => {
         headerActivity={headerActivity}
         threadAnchorLabel={threadAnchorLabel}
         matchId={chatData?.matchId || undefined}
-        onBack={() => navigate("/matches")}
+        onBack={returnToMatches}
         onVideoCall={(type) => {
           if (chatData?.matchId) {
             matchCall.startCall(type);
@@ -1337,7 +1416,14 @@ const Chat = () => {
           mainScrollRef.current = el;
         }}
         onScroll={onMainScroll}
-        className="flex-1 overflow-y-auto px-2 sm:px-3 py-1.5 space-y-0 min-h-0"
+        onWheel={onMainWheel}
+        onTouchStart={onMainTouchStart}
+        onTouchMove={onMainTouchMove}
+        onTouchEnd={onMainTouchEnd}
+        onTouchCancel={onMainTouchEnd}
+        className="flex-1 overflow-y-auto overscroll-contain px-2 sm:px-3 pt-1.5 pb-5 space-y-0 min-h-0"
+        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+        aria-label="Conversation messages"
       >
         {isLoadingChat ? (
           <div className="min-h-[min(100%,28rem)] flex flex-col">
@@ -1596,14 +1682,16 @@ const Chat = () => {
                       onClick={() => setPhotoLightboxInitialId(groupedMessage.id)}
                     >
                       {parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true })?.trim() ? (
-                        <img
-                          src={parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true }) || ""}
-                          alt="Shared image"
-                          className="w-60 max-w-full rounded-2xl object-cover border border-border/30 bg-secondary/40 transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
-                          loading="lazy"
-                        />
+                        <span className="block aspect-[4/5] w-60 max-w-full overflow-hidden rounded-2xl border border-border/30 bg-secondary/40">
+                          <img
+                            src={parseChatImageMessageContent(groupedMessage.text, { allowLocalPreviewUrls: true }) || ""}
+                            alt="Shared image"
+                            className="h-full w-full object-cover transition-transform duration-200 group-hover:brightness-[1.03] group-active:scale-[0.99]"
+                            loading="lazy"
+                          />
+                        </span>
                       ) : (
-                        <div className="w-60 h-32 max-w-full rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
+                        <div className="w-60 aspect-[4/5] max-w-full rounded-2xl border border-border/30 bg-muted/40 flex items-center justify-center text-[11px] text-muted-foreground px-2 text-center">
                           Preparing photo…
                         </div>
                       )}
@@ -1833,7 +1921,8 @@ const Chat = () => {
                 disabled={!hasActiveConversation}
                 onClick={() => setShowAttachmentTray((open) => !open)}
                 className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                  CHAT_COMPOSER_CONTROL_CLASS,
+                  "rounded-full flex items-center justify-center transition-colors",
                   "bg-secondary/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
                   "disabled:opacity-45 disabled:pointer-events-none"
                 )}
@@ -1841,7 +1930,7 @@ const Chat = () => {
                 aria-expanded={showAttachmentTray}
                 title={showAttachmentTray ? "Close attachments" : "Attachments"}
               >
-                {showAttachmentTray ? <X className="w-3.5 h-3.5" aria-hidden /> : <Plus className="w-3.5 h-3.5" aria-hidden />}
+                {showAttachmentTray ? <X className="w-4 h-4" aria-hidden /> : <Plus className="w-4 h-4" aria-hidden />}
               </motion.button>
             </div>
 
@@ -1857,10 +1946,9 @@ const Chat = () => {
                 aria-label="Message"
                 title={hasActiveConversation ? "Message" : "No active conversation"}
                 rows={1}
-                className="w-full text-[15px] leading-snug px-3 py-2 rounded-2xl border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32 disabled:opacity-55"
+                className="block box-border w-full min-h-10 text-[15px] leading-5 px-3 py-[9px] rounded-[20px] border border-border/45 bg-background/55 text-foreground placeholder:text-muted-foreground/55 placeholder:font-normal resize-none overflow-y-auto focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all max-h-32 disabled:opacity-55"
                 style={{
                   height: "auto",
-                  minHeight: "38px",
                 }}
               />
             </div>
@@ -1872,7 +1960,10 @@ const Chat = () => {
                 whileTap={{ scale: 0.9 }}
                 onClick={handleSend}
                 disabled={!hasActiveConversation}
-                className="shrink-0 w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-md disabled:opacity-45 disabled:pointer-events-none"
+                className={cn(
+                  "shrink-0 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-md disabled:opacity-45 disabled:pointer-events-none",
+                  CHAT_COMPOSER_CONTROL_CLASS
+                )}
                 aria-label="Send message"
                 title="Send"
               >
@@ -1890,7 +1981,10 @@ const Chat = () => {
                   <button
                     type="button"
                     disabled
-                    className="shrink-0 w-10 h-10 rounded-full bg-secondary/45 flex items-center justify-center text-muted-foreground"
+                    className={cn(
+                      "shrink-0 rounded-full bg-secondary/45 flex items-center justify-center text-muted-foreground",
+                      CHAT_COMPOSER_CONTROL_CLASS
+                    )}
                     aria-label="Voice message loading"
                   >
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1902,6 +1996,7 @@ const Chat = () => {
                   onUnavailable={() => toast.error("No active conversation found")}
                   onRecordingComplete={handleVoiceRecordingComplete}
                   onCancel={() => setIsRecording(false)}
+                  className={CHAT_COMPOSER_CONTROL_CLASS}
                 />
               </Suspense>
             )}
@@ -2005,14 +2100,7 @@ const Chat = () => {
                   }
                 : null
             }
-            counterContext={
-              composerCounter
-                ? {
-                    suggestionId: composerCounter.suggestionId,
-                    previousRevision: composerCounter.previousRevision,
-                  }
-                : null
-            }
+            counterContext={composerCounter}
             onSuccess={() => {
               void refetchDateSuggestions();
               if (id && currentUserId) {

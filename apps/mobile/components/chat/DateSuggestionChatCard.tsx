@@ -18,6 +18,7 @@ import type { DateSuggestionWithRelations } from '@/lib/useDateSuggestionData';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import type { DateCardThreadUi } from '../../../../shared/chat/threadPresentation';
+import { getDateSuggestionActionPolicy } from '../../../../shared/dateSuggestions/actionPolicy';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -93,9 +94,15 @@ export function DateSuggestionChatCard({
     return revs[revs.length - 1];
   }, [revs, suggestion.current_revision_id]);
 
-  const isProposer = suggestion.proposer_id === currentUserId;
-  const originalRecipient = suggestion.recipient_id === currentUserId;
-  const authorOfCurrent = current?.proposed_by === currentUserId;
+  const actionPolicy = getDateSuggestionActionPolicy({
+    status: suggestion.status,
+    currentUserId,
+    proposerId: suggestion.proposer_id,
+    recipientId: suggestion.recipient_id,
+    currentRevisionProposedBy: current?.proposed_by,
+    hasCurrentRevision: Boolean(current),
+  });
+  const authorOfCurrent = actionPolicy.isAuthorOfCurrent;
   const showAgreedChips =
     revs.length > 1 &&
     current &&
@@ -559,7 +566,7 @@ export function DateSuggestionChatCard({
       ) : null}
 
       <View style={[styles.actions, { borderTopColor: theme.border }]}>
-        {status === 'draft' && isProposer && (
+        {actionPolicy.canEditDraft && (
           <>
             {btn('Continue draft', () =>
               onOpenComposer({
@@ -572,25 +579,27 @@ export function DateSuggestionChatCard({
           </>
         )}
 
-        {['proposed', 'viewed', 'countered'].includes(status) && !authorOfCurrent && (
+        {actionPolicy.canRespondToCurrent && (
           <>
-            {btn('Accept', handleAccept, 'primary')}
-            {btn(
-              'Counter',
-              () =>
-                current &&
-                onOpenComposer({
-                  mode: 'counter',
-                  counter: { suggestionId: suggestion.id, previousRevision: current },
-                }),
-              'secondary'
-            )}
-            {btn('Not now', handleNotNow)}
-            {originalRecipient ? btn('Decline', handleDecline, 'ghost') : null}
+            {actionPolicy.canAccept ? btn('Accept', handleAccept, 'primary') : null}
+            {actionPolicy.canCounter
+              ? btn(
+                  'Counter',
+                  () =>
+                    current &&
+                    onOpenComposer({
+                      mode: 'counter',
+                      counter: { suggestionId: suggestion.id, previousRevision: current },
+                    }),
+                  'secondary'
+                )
+              : null}
+            {actionPolicy.canNotNow ? btn('Not now', handleNotNow) : null}
+            {actionPolicy.canDecline ? btn('Decline', handleDecline, 'ghost') : null}
           </>
         )}
 
-        {['proposed', 'viewed', 'countered', 'draft'].includes(status) && isProposer
+        {actionPolicy.canCancel
           ? btn('Cancel', handleCancel, 'ghost', cancelBusy)
           : null}
 

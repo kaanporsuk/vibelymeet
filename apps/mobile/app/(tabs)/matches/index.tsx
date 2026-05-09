@@ -42,7 +42,7 @@ import { formatConversationCount } from '@/lib/matchSortScore';
 import { useUndoableUnmatch } from '@/lib/useUnmatch';
 import { useBlockUser } from '@/lib/useBlockUser';
 import { useArchiveMatch } from '@/lib/useArchiveMatch';
-import { useMuteMatch } from '@/lib/useMuteMatch';
+import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
 import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
@@ -228,7 +228,7 @@ export default function MatchesListScreen() {
   const { archiveMatch, unarchiveMatch, isArchiving, isUnarchiving } = useArchiveMatch(user?.id);
   const { muteMatch, unmuteMatch, isMatchMuted } = useMuteMatch(user?.id);
   const [actionsMatch, setActionsMatch] = useState<(typeof matches)[0] | null>(null);
-  const [reportTarget, setReportTarget] = useState<{ id: string; name: string } | null>(null);
+  const [reportTarget, setReportTarget] = useState<{ id: string; name: string; reportedHasVibeVideo?: boolean } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const scrollCloseNonceSV = useSharedValue(0);
   const [activeSwipeMatchId, setActiveSwipeMatchId] = useState<string | null>(null);
@@ -309,10 +309,10 @@ export default function MatchesListScreen() {
   );
 
   const handleMute = useCallback(
-    async (matchId: string, name: string) => {
+    async (matchId: string, name: string, duration: MuteDuration) => {
       setActionLoading('mute');
       try {
-        await muteMatch({ matchId, duration: '1day' });
+        await muteMatch({ matchId, duration });
         setActionsMatch(null);
       } finally {
         setActionLoading(null);
@@ -900,11 +900,17 @@ export default function MatchesListScreen() {
         onArchive={() => actionsMatch && handleArchive(actionsMatch.matchId, actionsMatch.name)}
         onUnarchive={() => actionsMatch && handleUnarchive(actionsMatch.matchId)}
         onBlock={() => actionsMatch && handleBlock(actionsMatch.id, actionsMatch.name, actionsMatch.matchId)}
-        onMute={() => actionsMatch && handleMute(actionsMatch.matchId, actionsMatch.name)}
+        onMute={(duration) => actionsMatch && handleMute(actionsMatch.matchId, actionsMatch.name, duration)}
         onUnmute={() => actionsMatch && handleUnmute(actionsMatch.matchId)}
         onReport={() => {
           if (actionsMatch) {
-            setReportTarget({ id: actionsMatch.id, name: actionsMatch.name });
+            setReportTarget({
+              id: actionsMatch.id,
+              name: actionsMatch.name,
+              reportedHasVibeVideo:
+                typeof actionsMatch.bunnyVideoUid === 'string' &&
+                actionsMatch.bunnyVideoUid.trim().length > 0,
+            });
             setActionsMatch(null);
           }
         }}
@@ -935,6 +941,8 @@ export default function MatchesListScreen() {
           reportedId={reportTarget.id}
           reportedName={reportTarget.name}
           reporterId={user.id}
+          sourceSurface="native_matches"
+          reportedHasVibeVideo={!!reportTarget.reportedHasVibeVideo}
         />
       )}
 
@@ -946,7 +954,13 @@ export default function MatchesListScreen() {
         onConfirmUnmatch={confirmUnmatchFromSheet}
         onReportInstead={() => {
           if (unmatchSheetMatch) {
-            setReportTarget({ id: unmatchSheetMatch.id, name: unmatchSheetMatch.name });
+            setReportTarget({
+              id: unmatchSheetMatch.id,
+              name: unmatchSheetMatch.name,
+              reportedHasVibeVideo:
+                typeof unmatchSheetMatch.bunnyVideoUid === 'string' &&
+                unmatchSheetMatch.bunnyVideoUid.trim().length > 0,
+            });
           }
         }}
       />

@@ -92,13 +92,27 @@ export function webOutboxItemsToRows(items: WebChatOutboxItem[], previews: Outbo
       });
     } else {
       const url = previews[it.id]?.video;
+      const aspectRatio =
+        typeof it.payload.aspectRatio === "number" && Number.isFinite(it.payload.aspectRatio) && it.payload.aspectRatio > 0
+          ? it.payload.aspectRatio
+          : null;
       rows.push({
         ...base,
         text: "",
         type: "vibe_clip",
         videoUrl: url,
         videoDuration: it.payload.durationSeconds,
-        structuredPayload: { client_request_id: it.id },
+        structuredPayload: {
+          v: 2,
+          kind: "vibe_clip",
+          client_request_id: it.id,
+          duration_ms: Math.round(it.payload.durationSeconds * 1000),
+          thumbnail_url: null,
+          poster_source: "first_frame",
+          aspect_ratio: aspectRatio,
+          processing_status: "ready",
+          upload_provider: "bunny",
+        },
         status,
         sendError,
       });

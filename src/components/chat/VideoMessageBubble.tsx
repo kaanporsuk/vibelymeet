@@ -19,6 +19,8 @@ type VideoElementWithWebkitFullscreen = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
 };
 
+const VIDEO_BUBBLE_WIDTH_CLASS = "w-[min(17.5rem,calc(100vw-4rem))] max-w-full";
+
 const formatDuration = (s: number) => {
   const m = Math.floor(s / 60);
   const sec = s % 60;
@@ -167,7 +169,12 @@ export const VideoMessageBubble = ({
 
   if (loadError) {
     return (
-      <div className="w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden border border-fuchsia-500/20 bg-gradient-to-b from-secondary/30 to-black/40 flex flex-col items-center justify-center py-5 px-3 gap-1.5 shadow-inner shadow-black/30">
+      <div
+        className={cn(
+          VIDEO_BUBBLE_WIDTH_CLASS,
+          "rounded-xl overflow-hidden border border-fuchsia-500/20 bg-gradient-to-b from-secondary/30 to-black/40 flex flex-col items-center justify-center py-5 px-3 gap-1.5 shadow-inner shadow-black/30",
+        )}
+      >
         <AlertCircle className="w-6 h-6 text-muted-foreground" />
         <span className="text-[11px] text-muted-foreground text-center leading-snug">Couldn't load video</span>
         <button
@@ -191,7 +198,8 @@ export const VideoMessageBubble = ({
   return (
     <div
       className={cn(
-        "w-[min(17.5rem,90%)] max-w-[280px] rounded-xl overflow-hidden relative group cursor-pointer shadow-md shadow-black/20 ring-1 ring-white/10 transition-opacity duration-200",
+        VIDEO_BUBBLE_WIDTH_CLASS,
+        "rounded-xl overflow-hidden relative group cursor-pointer shadow-md shadow-black/20 ring-1 ring-white/10 transition-opacity duration-200",
         threadVisualRecede && "opacity-[0.9] ring-white/[0.06] shadow-black/10",
       )}
       onClick={onSurfaceInteract}
@@ -314,6 +322,7 @@ export const VideoMessageBubble = ({
                   e.stopPropagation();
                   toggleMute(e);
                 }}
+                aria-label={isMuted ? "Unmute video" : "Mute video"}
                 className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
               >
                 {isMuted ? <VolumeX className="w-3 h-3" /> : <Volume2 className="w-3 h-3" />}
@@ -321,6 +330,7 @@ export const VideoMessageBubble = ({
               <button
                 type="button"
                 onClick={handleFullscreen}
+                aria-label="Open video full screen"
                 className="rounded-md border border-white/10 bg-black/30 p-1 text-white/75 hover:bg-white/10 hover:text-white transition-colors"
               >
                 <Maximize className="w-3 h-3" />
