@@ -6,10 +6,15 @@
 /** Hard product cap for Vibe Clip length (seconds). */
 export const VIBE_CLIP_MAX_DURATION_SEC = 30;
 
-/** Upload cap enforced by upload-chat-video for chat Vibe Clips. */
-export const VIBE_CLIP_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+/**
+ * Upload cap enforced by upload-chat-video for chat Vibe Clips.
+ * This route posts multipart video data through Supabase Edge Functions, whose
+ * hosted request body limit is 10MB. Keep headroom for multipart fields and the
+ * optional generated thumbnail until chat clips move to direct/resumable upload.
+ */
+export const VIBE_CLIP_MAX_UPLOAD_BYTES = 9 * 1024 * 1024;
 
-export const VIBE_CLIP_MAX_UPLOAD_MB = 50;
+export const VIBE_CLIP_MAX_UPLOAD_MB = 9;
 
 /** Web chat composer — film control `title` (accessibility + hover). */
 export const VIBE_CLIP_CHAT_FILM_BUTTON_TITLE = `Vibe Clip — record a short front-camera video (up to ${VIBE_CLIP_MAX_DURATION_SEC}s)`;
