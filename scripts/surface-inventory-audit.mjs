@@ -55,7 +55,39 @@ function resolveRelative(fromFile, spec) {
   return null;
 }
 
-/** All static imports with resolvable local paths (src, shared, supabase _shared). */
+function resolveLocalImport(spec) {
+  if (
+    spec.startsWith("@/") ||
+    spec.startsWith("@shared/") ||
+    spec.startsWith("@clientShared/")
+  ) {
+    return resolveSpecifier(spec);
+  }
+  return null;
+}
+
+function maybeAddResolvedImport(out, fromFile, spec) {
+  if (!spec || spec.startsWith("node:")) return;
+
+  const aliased = resolveLocalImport(spec);
+  if (aliased) {
+    out.push(aliased);
+    return;
+  }
+
+  if (spec.startsWith(".")) {
+    const abs = resolveRelative(fromFile, spec);
+    if (
+      abs &&
+      (abs.startsWith(SRC) ||
+        abs.startsWith(path.join(ROOT, "shared")) ||
+        abs.startsWith(path.join(ROOT, "supabase/functions/_shared")))
+    )
+      out.push(abs);
+  }
+}
+
+/** All resolvable local imports (static imports plus literal dynamic import() paths). */
 function resolveImports(fromFile, source) {
   const out = [];
   const re =
@@ -63,26 +95,12 @@ function resolveImports(fromFile, source) {
   let m;
   while ((m = re.exec(source))) {
     const spec = m[1] || m[2];
-    if (!spec || spec.startsWith("node:")) continue;
-    if (
-      spec.startsWith("@/") ||
-      spec.startsWith("@shared/") ||
-      spec.startsWith("@clientShared/")
-    ) {
-      const abs = resolveSpecifier(spec);
-      if (abs) out.push(abs);
-      continue;
-    }
-    if (spec.startsWith(".")) {
-      const abs = resolveRelative(fromFile, spec);
-      if (
-        abs &&
-        (abs.startsWith(SRC) ||
-          abs.startsWith(path.join(ROOT, "shared")) ||
-          abs.startsWith(path.join(ROOT, "supabase/functions/_shared")))
-      )
-        out.push(abs);
-    }
+    maybeAddResolvedImport(out, fromFile, spec);
+  }
+
+  const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+  while ((m = dynamicRe.exec(source))) {
+    maybeAddResolvedImport(out, fromFile, m[1]);
   }
   return out;
 }
@@ -131,7 +149,7 @@ const report = {
   orphan_components: orphanComponents,
   caveats: [
     "Graph starts at src/App.tsx; follows @/, @shared/, @clientShared/, and relative imports.",
-    "Dynamic import() and string-based lazy() paths are not analyzed.",
+    "Literal dynamic import() paths are analyzed; computed dynamic paths are not.",
     "Files only loaded by Vite glob or runtime strings may false-positive as orphans.",
   ],
 };
