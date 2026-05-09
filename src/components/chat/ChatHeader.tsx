@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { Crown, Star } from "lucide-react";
 import { getUserBadge, useTierCapabilities } from "@/hooks/useEntitlements";
 import { motion, AnimatePresence } from "framer-motion";
@@ -166,18 +166,24 @@ export const ChatHeader = ({
     onVideoCall("video");
   };
 
+  const handleBackClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onBack();
+  };
+
   return (
     <>
       <header className="relative z-40 glass-card border-b border-border/40 px-3 py-2 shrink-0">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onBack}
+          <a
+            href="/matches"
+            onClick={handleBackClick}
             className="p-1.5 -ml-1 rounded-lg hover:bg-secondary/80 transition-colors"
             aria-label="Back to matches"
           >
             <ArrowLeft className="w-5 h-5 text-foreground" />
-          </button>
+          </a>
 
           <ProfileDetailDrawer
             match={{

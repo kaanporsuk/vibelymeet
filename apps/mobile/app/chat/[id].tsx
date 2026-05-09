@@ -128,6 +128,7 @@ import { durationBucketFromSeconds, threadBucketFromCount } from '../../../../sh
 import { outboxPhaseStatusLabel, type OutboxPayloadKind } from '../../../../shared/chat/outgoingStatusLabels';
 
 const WEB_APP_ORIGIN = process.env.EXPO_PUBLIC_WEB_APP_URL ?? 'https://www.vibelymeet.com';
+const MATCHES_TAB_HREF = '/(tabs)/matches' as const;
 
 /** When true, Games chip includes "Open in browser" alongside native game starts. */
 const GAMES_WEB_FALLBACK = true;
@@ -688,7 +689,9 @@ export default function ChatThreadScreen() {
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
   const goToMatches = useCallback(() => {
-    router.replace('/(tabs)/matches');
+    router.dismissTo(MATCHES_TAB_HREF);
+    requestAnimationFrame(() => router.replace(MATCHES_TAB_HREF));
+    setTimeout(() => router.replace(MATCHES_TAB_HREF), 150);
   }, []);
 
   useFocusEffect(

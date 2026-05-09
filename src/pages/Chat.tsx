@@ -82,6 +82,8 @@ type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
+const MATCHES_ROUTE = "/matches";
+const CHAT_ROUTE_RE = /^\/chat\/[^/]+\/?$/;
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
@@ -1384,7 +1386,23 @@ const Chat = () => {
   }, [chatData?.matchId, composerMediaLocked, displayMessages.length, guardActiveConversation, id]);
 
   const returnToMatches = useCallback(() => {
-    navigate("/matches", { replace: true });
+    navigate(MATCHES_ROUTE, { replace: true });
+
+    if (typeof window === "undefined") return;
+
+    const forceMatchesIfStillInChat = () => {
+      if (CHAT_ROUTE_RE.test(window.location.pathname)) {
+        window.location.replace(MATCHES_ROUTE);
+      }
+    };
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(forceMatchesIfStillInChat);
+    } else {
+      window.setTimeout(forceMatchesIfStillInChat, 0);
+    }
+
+    window.setTimeout(forceMatchesIfStillInChat, 150);
   }, [navigate]);
 
   return (
