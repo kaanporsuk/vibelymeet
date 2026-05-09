@@ -695,6 +695,13 @@ export default function ChatThreadScreen() {
     }
   }, []);
 
+  useEffect(
+    () => () => {
+      clearGoToMatchesScheduled();
+    },
+    [clearGoToMatchesScheduled],
+  );
+
   const stickToBottomRef = useRef(true);
   const userScrollIntentUntilRef = useRef(0);
   /** Until first content-size snap for this thread, ignore scroll race that clears stickToBottom before scrollToEnd. */
