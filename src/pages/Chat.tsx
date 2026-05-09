@@ -1,8 +1,9 @@
 import { lazy, Suspense, useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
+import { flushSync } from "react-dom";
 import * as Sentry from "@sentry/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -83,6 +84,11 @@ type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
 const MATCHES_ROUTE = "/matches";
+
+/** Trailing-slash–safe pathname compare for chat exit + recovery. */
+function normalizeWebPathname(path: string): string {
+  return path.replace(/\/$/, "") || "/";
+}
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
@@ -254,6 +260,7 @@ function VibeClipMessageRow({
 
 const Chat = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const { user } = useUserProfile();
   const currentUserId = user?.id || "";
@@ -330,6 +337,37 @@ const Chat = () => {
     },
     [clearChatBackNavWatchdogs],
   );
+
+  /** If `window.location` is already `/matches` but RR still renders this chat route, hard-sync. */
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const loc = normalizeWebPathname(location.pathname);
+    if (!loc.startsWith("/chat/")) return;
+
+    let cancelled = false;
+    const recoverIfAddressBarMatchesButRouterOnChat = () => {
+      if (cancelled) return;
+      const win = normalizeWebPathname(window.location.pathname);
+      if (win === normalizeWebPathname(MATCHES_ROUTE)) {
+        window.location.replace(MATCHES_ROUTE);
+      }
+    };
+
+    queueMicrotask(recoverIfAddressBarMatchesButRouterOnChat);
+    const raf: number | null =
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame(recoverIfAddressBarMatchesButRouterOnChat)
+        : null;
+    const t0 = window.setTimeout(recoverIfAddressBarMatchesButRouterOnChat, 0);
+    const t50 = window.setTimeout(recoverIfAddressBarMatchesButRouterOnChat, 50);
+
+    return () => {
+      cancelled = true;
+      if (raf != null) window.cancelAnimationFrame(raf);
+      window.clearTimeout(t0);
+      window.clearTimeout(t50);
+    };
+  }, [location.pathname]);
 
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || null,
@@ -1403,22 +1441,24 @@ const Chat = () => {
     setIsRecordingVideo(true);
   }, [chatData?.matchId, composerMediaLocked, displayMessages.length, guardActiveConversation, id]);
 
+  /** Chat header back: synchronous `navigate`, layout-effect recovery if bar≠router, timers if URL stuck on `/chat/:id`. */
   const returnToMatches = useCallback(() => {
-    navigate(MATCHES_ROUTE, { replace: true });
+    clearChatBackNavWatchdogs();
+
+    flushSync(() => {
+      navigate(MATCHES_ROUTE, { replace: true });
+    });
 
     if (typeof window === "undefined") return;
 
-    clearChatBackNavWatchdogs();
-
-    const normalizePathname = (path: string) => path.replace(/\/$/, "") || "/";
     const expected =
       id && typeof id === "string" && id.trim()
-        ? normalizePathname(`/chat/${id.trim()}`)
+        ? normalizeWebPathname(`/chat/${id.trim()}`)
         : null;
 
     const forceMatchesIfStillThisChat = () => {
       if (!expected) return;
-      const current = normalizePathname(window.location.pathname);
+      const current = normalizeWebPathname(window.location.pathname);
       if (current !== expected) return;
       window.location.replace(MATCHES_ROUTE);
     };
