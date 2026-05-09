@@ -563,6 +563,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       if (!matchId) return;
       if (trackedCallIdRef.current || incomingCallRef.current || callPhaseRef.current !== 'idle') return;
 
+      logMatchCallDiag('start_call_invoked', { match_id: matchId, call_type: type });
+
       setCallType(type);
       setCallPhase('ringing');
       setActiveMatchId(matchId);
@@ -575,9 +577,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       let createdCallId: string | null = null;
       let createdRoomName: string | null = null;
 
+      const startWatchdogId = setTimeout(() => {
+        if (callPhaseRef.current === 'ringing' && !trackedCallIdRef.current) {
+          logMatchCallDiag('start_call_watchdog_fired', { match_id: matchId, call_type: type });
+          Alert.alert("Couldn't start call", 'Please try again.');
+          void cleanupLocalCall({ skipServerTransition: true });
+        }
+      }, 15_000);
+
       try {
         const result = await createMatchCall(matchId, type);
+        logMatchCallDiag('start_call_edge_response', {
+          match_id: matchId,
+          ok: result.ok,
+          code: result.ok ? null : (result.code ?? null),
+        });
         if (!result.ok) {
+          clearTimeout(startWatchdogId);
           const dup = result.code === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL;
           Alert.alert(
             dup ? 'Call in progress' : "Couldn't start call",
@@ -594,6 +610,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         createdRoomName = payload.room_name;
         trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
+        clearTimeout(startWatchdogId);
 
         const callObject = Daily.createCallObject({
           audioSource: true,
@@ -629,7 +646,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             await cleanupLocalCall({ deleteRoomName: roomNameRef.current, skipServerTransition: true });
           })();
         }, 30000);
-      } catch {
+      } catch (error) {
+        clearTimeout(startWatchdogId);
+        logMatchCallDiag('start_call_threw', {
+          match_id: matchId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         if (createdCallId) {
           try {
             await transitionMatchCall(createdCallId, 'join_failed');
