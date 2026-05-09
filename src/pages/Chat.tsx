@@ -1396,6 +1396,8 @@ const Chat = () => {
       }
     };
 
+    queueMicrotask(forceMatchesIfStillInChat);
+
     if (typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(forceMatchesIfStillInChat);
     } else {
@@ -1403,6 +1405,7 @@ const Chat = () => {
     }
 
     window.setTimeout(forceMatchesIfStillInChat, 150);
+    window.setTimeout(forceMatchesIfStillInChat, 400);
   }, [navigate]);
 
   return (

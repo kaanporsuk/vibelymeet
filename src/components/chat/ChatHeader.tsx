@@ -166,8 +166,7 @@ export const ChatHeader = ({
     onVideoCall("video");
   };
 
-  const handleBackClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
+  const handleBackClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     onBack();
   };
@@ -176,14 +175,14 @@ export const ChatHeader = ({
     <>
       <header className="relative z-40 glass-card border-b border-border/40 px-3 py-2 shrink-0">
         <div className="flex items-center gap-2">
-          <a
-            href="/matches"
+          <button
+            type="button"
             onClick={handleBackClick}
             className="p-1.5 -ml-1 rounded-lg hover:bg-secondary/80 transition-colors"
             aria-label="Back to matches"
           >
             <ArrowLeft className="w-5 h-5 text-foreground" />
-          </a>
+          </button>
 
           <ProfileDetailDrawer
             match={{
