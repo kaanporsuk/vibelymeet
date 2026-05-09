@@ -689,9 +689,15 @@ export default function ChatThreadScreen() {
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
   const goToMatches = useCallback(() => {
-    router.dismissTo(MATCHES_TAB_HREF);
+    try {
+      router.dismissTo(MATCHES_TAB_HREF);
+    } catch {
+      /* dismissTo can fail when matches tab was not in the navigation stack (e.g. cold deep link). */
+    }
+    router.replace(MATCHES_TAB_HREF);
     requestAnimationFrame(() => router.replace(MATCHES_TAB_HREF));
     setTimeout(() => router.replace(MATCHES_TAB_HREF), 150);
+    setTimeout(() => router.replace(MATCHES_TAB_HREF), 400);
   }, []);
 
   useFocusEffect(
