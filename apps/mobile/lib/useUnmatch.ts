@@ -2,7 +2,7 @@
  * Unmatch through the server-owned atomic cleanup RPC. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -47,6 +47,14 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const queryClient = useQueryClient();
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
   const [hasPendingUnmatch, setHasPendingUnmatch] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const performUnmatch = useCallback(
     async (matchId: string) => {
@@ -54,7 +62,9 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
         await unmatchViaRpc(matchId);
         queryClient.invalidateQueries({ queryKey: ['matches'] });
         queryClient.invalidateQueries({ queryKey: ['messages'] });
-        options?.onUnmatchComplete?.();
+        if (mountedRef.current) {
+          options?.onUnmatchComplete?.();
+        }
       } catch (err) {
         if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);
       }
@@ -67,9 +77,13 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       clearTimeout(pendingRef.current.timeoutId);
       pendingRef.current = null;
     }
-    setHasPendingUnmatch(false);
+    if (mountedRef.current) {
+      setHasPendingUnmatch(false);
+    }
     queryClient.invalidateQueries({ queryKey: ['matches'] });
-    options?.onUndo?.();
+    if (mountedRef.current) {
+      options?.onUndo?.();
+    }
   }, [queryClient, options]);
 
   const initiateUnmatch = useCallback(
@@ -78,9 +92,12 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
         clearTimeout(pendingRef.current.timeoutId);
       }
       const timeoutId = setTimeout(() => {
-        performUnmatch(matchId);
         pendingRef.current = null;
-        setHasPendingUnmatch(false);
+        void performUnmatch(matchId).finally(() => {
+          if (mountedRef.current) {
+            setHasPendingUnmatch(false);
+          }
+        });
       }, 5000);
       pendingRef.current = { matchId, timeoutId };
       setHasPendingUnmatch(true);
