@@ -39,7 +39,8 @@ export function useUnmatch() {
 }
 
 export type UndoableUnmatchOptions = {
-  onUnmatchComplete?: () => void;
+  /** `matchId` is always passed so callers need not close over screen state. */
+  onUnmatchComplete?: (matchId: string) => void;
   onUndo?: () => void;
 };
 
@@ -48,6 +49,8 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
   const [hasPendingUnmatch, setHasPendingUnmatch] = useState(false);
   const mountedRef = useRef(true);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -56,21 +59,18 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
     };
   }, []);
 
-  const performUnmatch = useCallback(
-    async (matchId: string) => {
-      try {
-        await unmatchViaRpc(matchId);
-        queryClient.invalidateQueries({ queryKey: ['matches'] });
-        queryClient.invalidateQueries({ queryKey: ['messages'] });
-        if (mountedRef.current) {
-          options?.onUnmatchComplete?.();
-        }
-      } catch (err) {
-        if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);
+  const performUnmatch = useCallback(async (matchId: string) => {
+    try {
+      await unmatchViaRpc(matchId);
+      queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      if (mountedRef.current) {
+        optionsRef.current?.onUnmatchComplete?.(matchId);
       }
-    },
-    [queryClient, options]
-  );
+    } catch (err) {
+      if (__DEV__) console.warn('[useUndoableUnmatch] unmatch failed:', err);
+    }
+  }, [queryClient]);
 
   const cancelPending = useCallback(() => {
     if (pendingRef.current) {
@@ -82,9 +82,9 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
     }
     queryClient.invalidateQueries({ queryKey: ['matches'] });
     if (mountedRef.current) {
-      options?.onUndo?.();
+      optionsRef.current?.onUndo?.();
     }
-  }, [queryClient, options]);
+  }, [queryClient]);
 
   const initiateUnmatch = useCallback(
     (matchId: string) => {
