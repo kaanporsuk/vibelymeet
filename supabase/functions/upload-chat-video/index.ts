@@ -8,6 +8,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const CHAT_VIDEO_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -86,8 +88,15 @@ serve(async (req) => {
       );
     }
 
+    if (file.size <= 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Empty video file." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Max 20MB for chat video clips
-    if (file.size > 20 * 1024 * 1024) {
+    if (file.size > CHAT_VIDEO_MAX_UPLOAD_BYTES) {
       return new Response(
         JSON.stringify({ success: false, error: "File too large. Maximum 20MB." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -97,7 +106,7 @@ serve(async (req) => {
     const extMap: Record<string, string> = {
       "video/webm": "webm",
       "video/mp4": "mp4",
-      "video/quicktime": "mp4",
+      "video/quicktime": "mov",
       "video/x-m4v": "m4v",
     };
     const ext = extMap[baseType] ?? "webm";

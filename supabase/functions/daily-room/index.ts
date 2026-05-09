@@ -69,7 +69,6 @@ type MatchCallMatch = {
   id: string;
   profile_id_1: string;
   profile_id_2: string;
-  archived_at: string | null;
 };
 
 type MatchCallRow = {
@@ -902,7 +901,7 @@ async function maybeReturnBlockedMatchFallback(params: {
 
   const { data, error } = await serviceClient
     .from("matches")
-    .select("id, profile_id_1, profile_id_2, archived_at")
+    .select("id, profile_id_1, profile_id_2")
     .eq("id", matchId)
     .maybeSingle();
 
@@ -1573,18 +1572,17 @@ function profileIsSuspended(p: MatchCallProfileGate | null | undefined): boolean
   return p?.is_suspended === true;
 }
 
-/** Server-owned gates for chat match calls (aligns with product: no calls on archived/blocked/suspended/paused; one active/ringing row per match). */
+/** Server-owned gates for chat match calls (aligns with product: no calls on blocked/suspended/paused pairs; one active/ringing row per match). */
 async function assertCreateMatchCallAllowed(params: {
   serviceClient: ReturnType<typeof createClient>;
   matchId: string;
   callerId: string;
   calleeId: string;
-  archivedAt: string | null;
 }): Promise<
   | { ok: true }
   | { ok: false; status: number; code: string; message: string; duplicateCall?: OpenMatchCallForRetry | null }
 > {
-  const { serviceClient, matchId, callerId, calleeId, archivedAt } = params;
+  const { serviceClient, matchId, callerId, calleeId } = params;
 
   const { data: blockA } = await serviceClient
     .from("blocked_users")
@@ -1606,15 +1604,6 @@ async function assertCreateMatchCallAllowed(params: {
       status: 403,
       code: "USERS_BLOCKED",
       message: "Cannot call this user",
-    };
-  }
-
-  if (archivedAt != null) {
-    return {
-      ok: false,
-      status: 403,
-      code: "ARCHIVED_MATCH",
-      message: "Archived match cannot start a call",
     };
   }
 
@@ -3436,7 +3425,7 @@ serve(async (req) => {
     if (action === "create_match_call") {
       const { data: match } = await supabase
         .from("matches")
-        .select("id, profile_id_1, profile_id_2, archived_at")
+        .select("id, profile_id_1, profile_id_2")
         .eq("id", matchId)
         .maybeSingle();
 
@@ -3480,7 +3469,6 @@ serve(async (req) => {
         matchId,
         callerId: user.id,
         calleeId,
-        archivedAt: match.archived_at,
       });
 
       if (!gate.ok) {

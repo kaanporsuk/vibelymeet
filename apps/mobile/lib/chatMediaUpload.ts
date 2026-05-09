@@ -8,6 +8,11 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { generateChatVibeClipThumbnailFile } from '@/lib/chatVibeClipThumbnail';
 import { getCachedAccessToken } from '@/lib/nativeAuthSession';
+import {
+  VIBE_CLIP_MAX_UPLOAD_BYTES,
+  VIBE_CLIP_UPLOAD_EMPTY_FILE,
+  VIBE_CLIP_UPLOAD_TOO_LARGE,
+} from '../../../shared/chat/vibeClipCaptureCopy';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 
@@ -65,6 +70,18 @@ export async function uploadChatVideoMessage(
     throw new Error('[chatMediaUpload] EXPO_PUBLIC_SUPABASE_URL is not set.');
   }
 
+  try {
+    const info = await FileSystem.getInfoAsync(videoUri);
+    if (info.exists && !info.isDirectory) {
+      if (info.size <= 0) throw new Error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+      if (info.size > VIBE_CLIP_MAX_UPLOAD_BYTES) throw new Error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+    }
+  } catch (error) {
+    if (error instanceof Error && (error.message === VIBE_CLIP_UPLOAD_EMPTY_FILE || error.message === VIBE_CLIP_UPLOAD_TOO_LARGE())) {
+      throw error;
+    }
+  }
+
   let tempThumbUri: string | null = null;
   try {
     tempThumbUri = await generateChatVibeClipThumbnailFile(videoUri);
@@ -77,7 +94,11 @@ export async function uploadChatVideoMessage(
   if (typeof aspectRatio === 'number' && Number.isFinite(aspectRatio) && aspectRatio > 0) {
     formData.append('aspect_ratio', String(aspectRatio));
   }
-  const ext = mimeType.includes('quicktime') || mimeType.includes('x-m4v') ? 'mov' : 'mp4';
+  const ext =
+    mimeType.includes('quicktime') || mimeType.includes('mov') ? 'mov'
+    : mimeType.includes('x-m4v') || mimeType.includes('m4v') ? 'm4v'
+    : mimeType.includes('webm') ? 'webm'
+    : 'mp4';
   formData.append(
     'file',
     {

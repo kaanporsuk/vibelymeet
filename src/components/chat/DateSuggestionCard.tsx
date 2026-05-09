@@ -15,6 +15,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { Calendar, Check, Loader2, Sparkles, Share2 } from "lucide-react";
 import type { DateCardThreadUi } from "../../../shared/chat/threadPresentation";
+import { getDateSuggestionActionPolicy } from "../../../shared/dateSuggestions/actionPolicy";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
@@ -92,9 +93,15 @@ export function DateSuggestionCard({
     return revs[revs.length - 1];
   }, [revs, suggestion.current_revision_id]);
 
-  const isProposer = suggestion.proposer_id === currentUserId;
-  const originalRecipient = suggestion.recipient_id === currentUserId;
-  const authorOfCurrent = current?.proposed_by === currentUserId;
+  const actionPolicy = getDateSuggestionActionPolicy({
+    status: suggestion.status,
+    currentUserId,
+    proposerId: suggestion.proposer_id,
+    recipientId: suggestion.recipient_id,
+    currentRevisionProposedBy: current?.proposed_by,
+    hasCurrentRevision: Boolean(current),
+  });
+  const authorOfCurrent = actionPolicy.isAuthorOfCurrent;
   const showAgreedChips =
     revs.length > 1 &&
     current &&
@@ -450,7 +457,7 @@ export function DateSuggestionCard({
       )}
 
       <div className="mt-2.5 flex flex-wrap gap-2">
-        {status === "draft" && isProposer && (
+        {actionPolicy.canEditDraft && (
           <>
             <Button
               type="button"
@@ -484,49 +491,55 @@ export function DateSuggestionCard({
           </>
         )}
 
-        {["proposed", "viewed", "countered"].includes(status) && !authorOfCurrent && (
+        {actionPolicy.canRespondToCurrent && (
           <>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleAccept}
-              disabled={actionBusy}
-              aria-label="Accept date suggestion"
-              title="Accept date suggestion"
-            >
-              {busyAction === "accept" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-              Accept
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              disabled={actionBusy}
-              onClick={() =>
-                current &&
-                onOpenComposer({
-                  mode: "counter",
-                  counter: { suggestionId: suggestion.id, previousRevision: current },
-                })
-              }
-              aria-label="Counter date suggestion"
-              title="Counter date suggestion"
-            >
-              Counter
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleNotNow}
-              disabled={actionBusy}
-              aria-label="Respond not now"
-              title="Not now"
-            >
-              {busyAction === "not_now" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-              Not now
-            </Button>
-            {originalRecipient && (
+            {actionPolicy.canAccept && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleAccept}
+                disabled={actionBusy}
+                aria-label="Accept date suggestion"
+                title="Accept date suggestion"
+              >
+                {busyAction === "accept" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Accept
+              </Button>
+            )}
+            {actionPolicy.canCounter && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={actionBusy}
+                onClick={() =>
+                  current &&
+                  onOpenComposer({
+                    mode: "counter",
+                    counter: { suggestionId: suggestion.id, previousRevision: current },
+                  })
+                }
+                aria-label="Counter date suggestion"
+                title="Counter date suggestion"
+              >
+                Counter
+              </Button>
+            )}
+            {actionPolicy.canNotNow && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleNotNow}
+                disabled={actionBusy}
+                aria-label="Respond not now"
+                title="Not now"
+              >
+                {busyAction === "not_now" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Not now
+              </Button>
+            )}
+            {actionPolicy.canDecline && (
               <Button
                 type="button"
                 size="sm"
@@ -543,7 +556,7 @@ export function DateSuggestionCard({
           </>
         )}
 
-        {["proposed", "viewed", "countered", "draft"].includes(status) && isProposer && (
+        {actionPolicy.canCancel && (
           <Button
             type="button"
             size="sm"

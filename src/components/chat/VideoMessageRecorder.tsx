@@ -1,36 +1,104 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, SwitchCamera, Film, Sparkles } from "lucide-react";
+import { X, SwitchCamera, Film, Sparkles, Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
+  VIBE_CLIP_MAX_UPLOAD_BYTES,
   VIBE_CLIP_RECORDER_IDLE_HINT,
   VIBE_CLIP_RECORDER_RECORDING_REMAINING,
   VIBE_CLIP_RECORDER_SOFT_FRAMING,
   VIBE_CLIP_RECORDER_TAGLINE,
+  VIBE_CLIP_UPLOAD_DURATION_UNREADABLE,
+  VIBE_CLIP_UPLOAD_EMPTY_FILE,
+  VIBE_CLIP_UPLOAD_INVALID_TYPE,
+  VIBE_CLIP_UPLOAD_TOO_LARGE,
+  VIBE_CLIP_UPLOAD_TOO_LONG,
   VIBE_CLIP_WEB_TOAST_CAMERA_DENIED,
   VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC,
+  VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE,
   VIBE_CLIP_WEB_TOAST_UNSUPPORTED,
 } from "../../../shared/chat/vibeClipCaptureCopy";
 import { capturePromptForSeed } from "../../../shared/chat/vibeClipPrompts";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds } from "../../../shared/chat/vibeClipAnalytics";
+import type { CaptureSource } from "../../../shared/chat/vibeClipAnalytics";
+
+type VideoMessageCompleteMeta = {
+  captureSource?: CaptureSource;
+  mimeType?: string;
+  aspectRatio?: number | null;
+};
 
 interface VideoMessageRecorderProps {
-  onRecordingComplete: (videoBlob: Blob, duration: number) => void;
+  onRecordingComplete: (videoBlob: Blob, duration: number, meta?: VideoMessageCompleteMeta) => void;
   onCancel: () => void;
   /** Rotating capture idea; e.g. match id from chat. */
   promptSeed?: string;
 }
 
+type SelectedVideoMetadata = {
+  durationSeconds: number;
+  aspectRatio: number | null;
+};
+
+function looksLikeVideoFile(file: File): boolean {
+  if (file.type.startsWith("video/")) return true;
+  return /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(file.name);
+}
+
+function readSelectedVideoMetadata(file: File): Promise<SelectedVideoMetadata> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const objectUrl = URL.createObjectURL(file);
+    let settled = false;
+    let timeoutId: number | null = null;
+
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+      video.removeAttribute("src");
+      video.load();
+      URL.revokeObjectURL(objectUrl);
+    };
+
+    const fail = () => {
+      cleanup();
+      reject(new Error("duration_unreadable"));
+    };
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      const durationSeconds = video.duration;
+      const aspectRatio =
+        video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : null;
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+        fail();
+        return;
+      }
+      cleanup();
+      resolve({ durationSeconds, aspectRatio });
+    };
+    video.onerror = fail;
+    timeoutId = window.setTimeout(fail, 4500);
+    video.src = objectUrl;
+  });
+}
+
 const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: VideoMessageRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
+  const [isProcessingUpload, setIsProcessingUpload] = useState(false);
   const [duration, setDuration] = useState(0);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -45,50 +113,64 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
     [],
   );
 
-  useEffect(() => {
-    navigator.mediaDevices
-      .enumerateDevices()
-      .then((devices) => {
-        const videoInputs = devices.filter((d) => d.kind === "videoinput");
-        setHasMultipleCameras(videoInputs.length > 1);
-      })
-      .catch(() => {});
+  const refreshCameraCount = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        setHasMultipleCameras(false);
+        return;
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setHasMultipleCameras(videoInputs.length > 1);
+    } catch {
+      setHasMultipleCameras(false);
+    }
   }, []);
 
   const startCamera = useCallback(
-    async (facing: "user" | "environment") => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
+    async (facing: "user" | "environment", opts?: { cancelOnError?: boolean; silentError?: boolean }) => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraReady(false);
+        if (!opts?.silentError) toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
+        if (opts?.cancelOnError !== false) onCancel();
+        return null;
       }
 
+      const previousStream = streamRef.current;
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: facing }, width: { ideal: 480 } },
           audio: true,
         });
+        previousStream?.getTracks().forEach((t) => t.stop());
         streamRef.current = stream;
+        setCameraReady(true);
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
+        void refreshCameraCount();
         return stream;
       } catch (err: unknown) {
-        const name = err instanceof Error ? err.name : "";
-        if (name === "AbortError" || name === "NotAllowedError") {
-          toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_DENIED);
-        } else if (name === "NotSupportedError") {
-          toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
-        } else {
-          toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC);
+        if (!opts?.silentError) {
+          const name = err instanceof Error ? err.name : "";
+          if (name === "AbortError" || name === "NotAllowedError") {
+            toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_DENIED);
+          } else if (name === "NotSupportedError") {
+            toast.error(VIBE_CLIP_WEB_TOAST_UNSUPPORTED);
+          } else {
+            toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC);
+          }
         }
-        onCancel();
+        if (!previousStream) setCameraReady(false);
+        if (opts?.cancelOnError !== false) onCancel();
         return null;
       }
     },
-    [onCancel],
+    [onCancel, refreshCameraCount],
   );
 
   useEffect(() => {
-    startCamera(facingMode);
+    startCamera(facingMode, { cancelOnError: false });
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -97,16 +179,80 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    void refreshCameraCount();
+    if (!navigator.mediaDevices?.addEventListener) return undefined;
+    const handleDeviceChange = () => void refreshCameraCount();
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    };
+  }, [refreshCameraCount]);
+
   const flipCamera = async () => {
+    if (isRecording || isProcessingUpload) return;
     const newFacing = facingMode === "user" ? "environment" : "user";
-    setFacingMode(newFacing);
-    const stream = await startCamera(newFacing);
-    if (isRecording && mediaRecorderRef.current && stream) {
-      // Preview updates; recording continues on prior tracks
+    const stream = await startCamera(newFacing, { cancelOnError: false, silentError: true });
+    if (stream) {
+      setFacingMode(newFacing);
+      return;
+    }
+    toast.error(VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || isRecording || isProcessingUpload) return;
+
+    if (!looksLikeVideoFile(file)) {
+      toast.error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
+      return;
+    }
+
+    if (file.size <= 0) {
+      toast.error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
+      return;
+    }
+
+    if (file.size > VIBE_CLIP_MAX_UPLOAD_BYTES) {
+      toast.error(VIBE_CLIP_UPLOAD_TOO_LARGE());
+      return;
+    }
+
+    setIsProcessingUpload(true);
+    let completed = false;
+    try {
+      const metadata = await readSelectedVideoMetadata(file);
+      if (metadata.durationSeconds > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
+        toast.error(VIBE_CLIP_UPLOAD_TOO_LONG());
+        return;
+      }
+
+      trackVibeClipEvent("clip_record_started", {
+        capture_source: "library",
+        is_sender: true,
+      });
+      trackVibeClipEvent("clip_record_completed", {
+        capture_source: "library",
+        duration_bucket: durationBucketFromSeconds(metadata.durationSeconds),
+        is_sender: true,
+      });
+      onRecordingComplete(file, metadata.durationSeconds, {
+        captureSource: "library",
+        mimeType: file.type || undefined,
+        aspectRatio: metadata.aspectRatio,
+      });
+      completed = true;
+    } catch {
+      toast.error(VIBE_CLIP_UPLOAD_DURATION_UNREADABLE);
+    } finally {
+      if (!completed) setIsProcessingUpload(false);
     }
   };
 
   const startRecording = () => {
+    if (isProcessingUpload) return;
     const stream = streamRef.current;
     if (!stream) return;
 
@@ -180,6 +326,7 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
+    setCameraReady(false);
     setIsRecording(false);
     try {
       navigator.vibrate?.([30, 20, 30]);
@@ -198,6 +345,7 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
     }
+    setCameraReady(false);
     onCancel();
   };
 
@@ -214,6 +362,16 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black flex flex-col"
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*"
+        className="sr-only"
+        aria-hidden
+        tabIndex={-1}
+        onChange={handleFileUpload}
+      />
+
       <video
         ref={videoRef}
         autoPlay
@@ -279,11 +437,12 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
             )}
           </AnimatePresence>
 
-          {hasMultipleCameras ? (
+          {hasMultipleCameras && !isRecording ? (
             <motion.button
               whileTap={{ scale: 0.9 }}
               onClick={flipCamera}
-              className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center ring-1 ring-white/10"
+              disabled={isProcessingUpload}
+              className="w-10 h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center ring-1 ring-white/10 disabled:pointer-events-none disabled:opacity-45"
               type="button"
               aria-label="Flip camera"
             >
@@ -324,8 +483,9 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
           <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={isRecording ? stopRecording : startRecording}
+            disabled={!isRecording && (!cameraReady || isProcessingUpload)}
             className={cn(
-              "w-[5.25rem] h-[5.25rem] rounded-full border-[5px] flex items-center justify-center transition-shadow",
+              "w-[5.25rem] h-[5.25rem] rounded-full border-[5px] flex items-center justify-center transition-shadow disabled:pointer-events-none disabled:opacity-55",
               isRecording
                 ? "border-white shadow-[0_0_28px_rgba(255,255,255,0.2)]"
                 : "border-violet-400/90 shadow-[0_0_32px_rgba(139,92,246,0.45)]",
@@ -345,9 +505,25 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
           </motion.button>
 
           {!isRecording && (
-            <p className="text-white/55 text-[11px] text-center max-w-xs leading-relaxed">
-              {VIBE_CLIP_RECORDER_SOFT_FRAMING}
-            </p>
+            <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isProcessingUpload}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white/10 px-4 text-xs font-semibold text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-white/15 disabled:pointer-events-none disabled:opacity-60"
+                aria-label="Upload an existing Vibe Clip"
+              >
+                {isProcessingUpload ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Upload className="h-4 w-4" aria-hidden />
+                )}
+                Upload
+              </button>
+              <p className="text-white/55 text-[11px] text-center max-w-xs leading-relaxed">
+                {VIBE_CLIP_RECORDER_SOFT_FRAMING}
+              </p>
+            </>
           )}
         </div>
       </div>

@@ -227,6 +227,30 @@ export function DateSuggestionSheet({
     if (w.timeChoiceKey !== 'pick_a_time') setNativePickOpen(false);
   }, [w.timeChoiceKey]);
 
+  const submitErrorMessage = (error: unknown): string => {
+    if (!(error instanceof DateSuggestionDomainError)) {
+      return counterContext ? 'We couldn’t send your counter. Try again.' : 'We couldn’t send your suggestion. Try again.';
+    }
+    switch (error.code) {
+      case 'invalid_status':
+        return 'This date suggestion has already changed. Refresh the chat and try again.';
+      case 'cannot_counter_own_revision':
+      case 'author_cannot_accept_own_revision':
+        return 'They need to respond before you can change it again.';
+      case 'forbidden':
+        return 'This date suggestion is no longer available to you.';
+      case 'not_found':
+      case 'no_revision':
+        return 'This date suggestion is no longer available.';
+      case 'tier_capability_disabled':
+        return 'This date option is not available for your account right now.';
+      case 'revision_fields_required':
+        return 'Pick a type, time, and place before sending.';
+      default:
+        return counterContext ? 'We couldn’t send your counter. Try again.' : 'We couldn’t send your suggestion. Try again.';
+    }
+  };
+
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
     submitInFlightRef.current = true;
@@ -261,7 +285,7 @@ export function DateSuggestionSheet({
         console.error(e);
         showDialog({
           title: 'Couldn’t send',
-          message: counterContext ? 'We couldn’t send your counter. Try again.' : 'We couldn’t send your suggestion. Try again.',
+          message: submitErrorMessage(e),
           variant: 'warning',
           primaryAction: { label: 'OK', onPress: () => {} },
         });

@@ -1,3 +1,5 @@
+import { getDateSuggestionActionPolicy } from "../dateSuggestions/actionPolicy";
+
 export type ScheduleHubRevision = {
   id: string;
   date_suggestion_id: string;
@@ -129,7 +131,14 @@ export function buildScheduleHubItem(
   }
 
   const isProposer = record.proposer_id === currentUserId;
-  const canRespond = !isProposer && OPEN_STATUSES.has(record.status) && record.status !== "draft";
+  const actionPolicy = getDateSuggestionActionPolicy({
+    status: record.status,
+    currentUserId,
+    proposerId: record.proposer_id,
+    recipientId: record.recipient_id,
+    currentRevisionProposedBy: revision.proposed_by,
+    hasCurrentRevision: true,
+  });
 
   return {
     id: record.id,
@@ -142,7 +151,7 @@ export function buildScheduleHubItem(
     partnerUserId: record.partner_user_id,
     partnerAvatar: record.partner_avatar ?? null,
     isProposer,
-    isIncoming: !isProposer,
+    isIncoming: actionPolicy.isParticipant && !actionPolicy.isAuthorOfCurrent,
     startsAt,
     endsAt,
     dateTypeKey: revision.date_type_key,
@@ -156,9 +165,9 @@ export function buildScheduleHubItem(
     expiresAt: record.expires_at,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
-    canAccept: canRespond,
-    canDecline: canRespond,
-    canCancel: isProposer && OPEN_STATUSES.has(record.status),
+    canAccept: actionPolicy.canAccept,
+    canDecline: actionPolicy.canDecline,
+    canCancel: actionPolicy.canCancel,
   };
 }
 

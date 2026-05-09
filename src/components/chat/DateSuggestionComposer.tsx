@@ -83,7 +83,7 @@ const defaultWizard = (): WizardState => ({
   timeChoiceKey: "tomorrow",
   placeModeKey: "decide_together",
   venueText: "",
-  optionalMessage: "",
+  optionalMessage: OPTIONAL_MESSAGE_VARIANTS.coffee[0] ?? "",
   variantIndex: 0,
   scheduleShareEnabled: false,
   pickStartIso: null,
@@ -250,14 +250,29 @@ export function DateSuggestionComposer({
     if (w.timeChoiceKey !== "pick_a_time") setPickFlowOpen(false);
   }, [w.timeChoiceKey]);
 
-  useEffect(() => {
-    if (!open) return;
-    const v = OPTIONAL_MESSAGE_VARIANTS[w.dateTypeKey] || OPTIONAL_MESSAGE_VARIANTS.custom;
-    setW((prev) => ({
-      ...prev,
-      optionalMessage: v[prev.variantIndex] ?? v[0],
-    }));
-  }, [open, w.dateTypeKey, w.variantIndex]);
+  const submitErrorMessage = (error: unknown): string => {
+    if (!(error instanceof DateSuggestionDomainError)) {
+      return counterContext ? "Could not send counter" : "Could not send suggestion";
+    }
+    switch (error.code) {
+      case "invalid_status":
+        return "This date suggestion has already changed. Refresh the chat and try again.";
+      case "cannot_counter_own_revision":
+      case "author_cannot_accept_own_revision":
+        return "They need to respond before you can change it again.";
+      case "forbidden":
+        return "This date suggestion is no longer available to you.";
+      case "not_found":
+      case "no_revision":
+        return "This date suggestion is no longer available.";
+      case "tier_capability_disabled":
+        return "This date option is not available for your account right now.";
+      case "revision_fields_required":
+        return "Pick a type, time, and place before sending.";
+      default:
+        return counterContext ? "Could not send counter" : "Could not send suggestion";
+    }
+  };
 
   const submitProposal = async () => {
     if (submitInFlightRef.current || saving) return;
@@ -293,7 +308,7 @@ export function DateSuggestionComposer({
         toast.message("You already have an active date suggestion in this chat.");
       } else {
         console.error(e);
-        toast.error(counterContext ? "Could not send counter" : "Could not send suggestion");
+        toast.error(submitErrorMessage(e));
       }
     } finally {
       submitInFlightRef.current = false;
@@ -315,17 +330,18 @@ export function DateSuggestionComposer({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         className={cn(
-          "max-h-[90vh] overflow-y-auto border-border/60 bg-background shadow-2xl shadow-black/45",
-          "w-[min(100vw-1.5rem,100%)]",
-          step === 1 ? "max-w-2xl" : "max-w-lg",
+          "pointer-events-auto left-0 right-0 top-auto bottom-0 z-[120] flex max-h-[92dvh] w-full translate-x-0 translate-y-0 flex-col overflow-hidden rounded-t-2xl border-border/60 bg-background p-0 shadow-2xl shadow-black/45 outline-none",
+          "sm:left-[50%] sm:right-auto sm:top-[50%] sm:bottom-auto sm:w-[min(100vw-1.5rem,100%)] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl",
+          step === 1 ? "sm:max-w-2xl" : "sm:max-w-lg",
         )}
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0 px-4 pb-3 pt-5 text-left sm:px-6">
           <DialogTitle>
             {counterContext ? "Counter proposal" : `Suggest a date with ${partnerName}`}
           </DialogTitle>
         </DialogHeader>
 
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6">
         {launchSource === "vibe_clip" && !counterContext && (
           <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.06] px-3 py-2.5 mb-3 space-y-1.5">
             <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-200/95">
@@ -363,6 +379,8 @@ export function DateSuggestionComposer({
                       dateTypeKey: o.key,
                       customDateTypeText: o.key === "custom" ? p.customDateTypeText : "",
                       variantIndex: 0,
+                      optionalMessage:
+                        (OPTIONAL_MESSAGE_VARIANTS[o.key] || OPTIONAL_MESSAGE_VARIANTS.custom)[0] ?? "",
                     }))
                   }
                   className={cn(
@@ -676,7 +694,10 @@ export function DateSuggestionComposer({
                 <button
                   key={i}
                   type="button"
-                  onClick={() => setW((p) => ({ ...p, variantIndex: i }))}
+                  onClick={() => {
+                    const variants = OPTIONAL_MESSAGE_VARIANTS[w.dateTypeKey] || OPTIONAL_MESSAGE_VARIANTS.custom;
+                    setW((p) => ({ ...p, variantIndex: i, optionalMessage: variants[i] ?? variants[0] ?? "" }));
+                  }}
                   className={cn(
                     "text-xs rounded-full px-3 py-1 border",
                     w.variantIndex === i ? "border-primary bg-primary/10" : "border-border/60",
@@ -724,8 +745,9 @@ export function DateSuggestionComposer({
             )}
           </div>
         )}
+        </div>
 
-        <DialogFooter className="mt-2 flex-col gap-3 border-t border-border/40 pt-6 sm:flex-row sm:justify-end">
+        <DialogFooter className="shrink-0 flex-col gap-3 border-t border-border/40 bg-background/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-6">
           {step > 0 && (
             <Button type="button" variant="outline" onClick={() => setStep((s) => s - 1)}>
               <ChevronLeft className="h-4 w-4 mr-1" /> Back
