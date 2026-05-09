@@ -2,6 +2,7 @@ import {
   VIBE_CLIP_MAX_UPLOAD_BYTES,
   VIBE_CLIP_UPLOAD_EMPTY_FILE,
   VIBE_CLIP_UPLOAD_TOO_LARGE,
+  vibeClipMultipartFitsEdgeLimit,
 } from "../../shared/chat/vibeClipCaptureCopy";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -112,7 +113,11 @@ export async function uploadChatVideoToBunny(
   formData.append("file", videoBlob, `chat-video.${ext}`);
   formData.append("match_id", matchId);
   const thumb = await createWebVideoThumbnail(videoBlob);
-  if (thumb?.blob && thumb.blob.size > 0) {
+  if (
+    thumb?.blob &&
+    thumb.blob.size > 0 &&
+    vibeClipMultipartFitsEdgeLimit(videoBlob.size, thumb.blob.size)
+  ) {
     formData.append("thumbnail", thumb.blob, "chat-video-thumb.jpg");
   }
   if (thumb?.aspectRatio && Number.isFinite(thumb.aspectRatio) && thumb.aspectRatio > 0) {

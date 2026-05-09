@@ -8,7 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CHAT_VIDEO_MAX_UPLOAD_BYTES = 9 * 1024 * 1024;
+const CHAT_VIDEO_MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -95,11 +95,11 @@ serve(async (req) => {
       );
     }
 
-    // Max 9MB for chat video clips. The multipart request must stay under the
-    // hosted Supabase Edge Function 10MB request-body cap.
+    // Max 8MB for the video file; multipart POST must stay under the hosted
+    // Supabase Edge Function ~10MB request-body cap (thumbnail + overhead).
     if (file.size > CHAT_VIDEO_MAX_UPLOAD_BYTES) {
       return new Response(
-        JSON.stringify({ success: false, error: "File too large. Maximum 9MB." }),
+        JSON.stringify({ success: false, error: "File too large. Maximum 8MB." }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

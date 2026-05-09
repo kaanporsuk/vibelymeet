@@ -83,7 +83,6 @@ type ReactionEmoji = "❤️" | "🔥" | "🤣" | "😮" | "👎";
 const DATE_SUGGESTION_KEYWORDS = ["free", "video", "call", "meet", "date", "tonight", "later", "available"];
 const CHAT_COMPOSER_CONTROL_CLASS = "h-10 w-10";
 const MATCHES_ROUTE = "/matches";
-const CHAT_ROUTE_RE = /^\/chat\/[^/]+\/?$/;
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
@@ -312,6 +311,25 @@ const Chat = () => {
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backNavWatchdogTimeoutsRef = useRef<number[]>([]);
+  const backNavWatchdogRafRef = useRef<number | null>(null);
+
+  const clearChatBackNavWatchdogs = useCallback(() => {
+    if (typeof window === "undefined") return;
+    for (const t of backNavWatchdogTimeoutsRef.current) window.clearTimeout(t);
+    backNavWatchdogTimeoutsRef.current = [];
+    if (backNavWatchdogRafRef.current != null) {
+      window.cancelAnimationFrame(backNavWatchdogRafRef.current);
+      backNavWatchdogRafRef.current = null;
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearChatBackNavWatchdogs();
+    },
+    [clearChatBackNavWatchdogs],
+  );
 
   const matchCall = useMatchCall({
     matchId: chatData?.matchId || null,
@@ -1390,23 +1408,37 @@ const Chat = () => {
 
     if (typeof window === "undefined") return;
 
-    const forceMatchesIfStillInChat = () => {
-      if (CHAT_ROUTE_RE.test(window.location.pathname)) {
-        window.location.replace(MATCHES_ROUTE);
-      }
+    clearChatBackNavWatchdogs();
+
+    const normalizePathname = (path: string) => path.replace(/\/$/, "") || "/";
+    const expected =
+      id && typeof id === "string" && id.trim()
+        ? normalizePathname(`/chat/${id.trim()}`)
+        : null;
+
+    const forceMatchesIfStillThisChat = () => {
+      if (!expected) return;
+      const current = normalizePathname(window.location.pathname);
+      if (current !== expected) return;
+      window.location.replace(MATCHES_ROUTE);
     };
 
-    queueMicrotask(forceMatchesIfStillInChat);
+    queueMicrotask(forceMatchesIfStillThisChat);
 
     if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(forceMatchesIfStillInChat);
+      backNavWatchdogRafRef.current = window.requestAnimationFrame(() => {
+        backNavWatchdogRafRef.current = null;
+        forceMatchesIfStillThisChat();
+      });
     } else {
-      window.setTimeout(forceMatchesIfStillInChat, 0);
+      backNavWatchdogTimeoutsRef.current.push(window.setTimeout(forceMatchesIfStillThisChat, 0));
     }
 
-    window.setTimeout(forceMatchesIfStillInChat, 150);
-    window.setTimeout(forceMatchesIfStillInChat, 400);
-  }, [navigate]);
+    backNavWatchdogTimeoutsRef.current.push(
+      window.setTimeout(forceMatchesIfStillThisChat, 150),
+      window.setTimeout(forceMatchesIfStillThisChat, 400),
+    );
+  }, [navigate, id, clearChatBackNavWatchdogs]);
 
   return (
     <div className="h-[100dvh] bg-[#050508] flex justify-center relative overflow-hidden lg:px-4 lg:py-3">
