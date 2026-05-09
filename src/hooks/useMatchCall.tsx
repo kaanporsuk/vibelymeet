@@ -7,8 +7,6 @@ import {
   useMemo,
   useRef,
   useState,
-  lazy,
-  Suspense,
   type RefObject,
   type ReactNode,
 } from "react";
@@ -23,13 +21,8 @@ import {
   parseMatchCallEdgeCode,
 } from "@clientShared/chat/matchCallEdgeCodes";
 import { logMatchCallDiag } from "@clientShared/chat/matchCallDiag";
-
-const IncomingCallOverlay = lazy(() =>
-  import("@/components/chat/IncomingCallOverlay").then((mod) => ({ default: mod.IncomingCallOverlay }))
-);
-const ActiveCallOverlay = lazy(() =>
-  import("@/components/chat/ActiveCallOverlay").then((mod) => ({ default: mod.ActiveCallOverlay }))
-);
+import { IncomingCallOverlay } from "@/components/chat/IncomingCallOverlay";
+import { ActiveCallOverlay } from "@/components/chat/ActiveCallOverlay";
 
 type DailyIframeModule = typeof import("@daily-co/daily-js").default;
 
@@ -670,6 +663,8 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      logMatchCallDiag("start_call_invoked", { match_id: matchId, call_type: type });
+
       setCallType(type);
       setCallPhase("ringing");
       setActiveMatchId(matchId);
@@ -682,13 +677,28 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       let createdCallId: string | null = null;
       let createdRoomName: string | null = null;
 
+      const startWatchdogId = setTimeout(() => {
+        if (callPhaseRef.current === "ringing" && !trackedCallIdRef.current) {
+          logMatchCallDiag("start_call_watchdog_fired", { match_id: matchId, call_type: type });
+          toast.error("Call didn't start — please try again");
+          void cleanupLocalCall({ skipServerTransition: true });
+        }
+      }, 15_000);
+
       try {
         const { data, error } = await supabase.functions.invoke("daily-room", {
           body: { action: "create_match_call", matchId, callType: type },
         });
 
         const createEdgeCode = parseMatchCallEdgeCode(data);
+        logMatchCallDiag("start_call_edge_response", {
+          match_id: matchId,
+          ok: !error && Boolean(data?.token),
+          code: createEdgeCode ?? null,
+          has_token: Boolean(data?.token),
+        });
         if (error || !data?.token) {
+          clearTimeout(startWatchdogId);
           toast.error(
             messageForMatchCallEdgeCode(createEdgeCode) ?? "Couldn't start call",
           );
@@ -701,6 +711,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         createdRoomName = data.room_name;
         trackedCallIdRef.current = callId;
         roomNameRef.current = createdRoomName;
+        clearTimeout(startWatchdogId);
 
         const DailyIframe = await loadDailyIframe();
         const callObject = DailyIframe.createCallObject(
@@ -740,7 +751,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           })();
         }, 30000);
       } catch (error) {
+        clearTimeout(startWatchdogId);
         console.error("[MatchCall] Start error:", error);
+        logMatchCallDiag("start_call_threw", {
+          match_id: matchId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         toast.error("Couldn't start call");
 
         if (createdCallId) {
@@ -1157,43 +1173,39 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     <MatchCallContext.Provider value={contextValue}>
       {children}
 
-      <Suspense fallback={null}>
-        {incomingCall && (
-          <IncomingCallOverlay
-            incomingCall={incomingCall}
-            onAnswer={() => {
-              void answerCall();
-            }}
-            onDecline={() => {
-              void declineCall();
-            }}
-            onTimeout={markIncomingCallMissed}
-          />
-        )}
-      </Suspense>
+      {incomingCall && (
+        <IncomingCallOverlay
+          incomingCall={incomingCall}
+          onAnswer={() => {
+            void answerCall();
+          }}
+          onDecline={() => {
+            void declineCall();
+          }}
+          onTimeout={markIncomingCallMissed}
+        />
+      )}
 
-      <Suspense fallback={null}>
-        {(callPhase === "ringing" || callPhase === "in_call") && !incomingCall && (
-          <ActiveCallOverlay
-            isRinging={callPhase === "ringing"}
-            isInCall={callPhase === "in_call"}
-            callType={callType}
-            isMuted={isMuted}
-            isVideoOff={isVideoOff}
-            callDuration={callDuration}
-            partnerName={activePartner.name}
-            partnerAvatar={activePartner.avatarUrl ?? undefined}
-            localVideoRef={localVideoRef}
-            remoteVideoRef={remoteVideoRef}
-            localStream={localStream}
-            onToggleMute={toggleMute}
-            onToggleVideo={toggleVideo}
-            onEndCall={() => {
-              void endCall();
-            }}
-          />
-        )}
-      </Suspense>
+      {(callPhase === "ringing" || callPhase === "in_call") && !incomingCall && (
+        <ActiveCallOverlay
+          isRinging={callPhase === "ringing"}
+          isInCall={callPhase === "in_call"}
+          callType={callType}
+          isMuted={isMuted}
+          isVideoOff={isVideoOff}
+          callDuration={callDuration}
+          partnerName={activePartner.name}
+          partnerAvatar={activePartner.avatarUrl ?? undefined}
+          localVideoRef={localVideoRef}
+          remoteVideoRef={remoteVideoRef}
+          localStream={localStream}
+          onToggleMute={toggleMute}
+          onToggleVideo={toggleVideo}
+          onEndCall={() => {
+            void endCall();
+          }}
+        />
+      )}
     </MatchCallContext.Provider>
   );
 }
