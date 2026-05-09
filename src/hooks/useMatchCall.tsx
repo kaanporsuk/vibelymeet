@@ -777,6 +777,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             call_id: callId,
             match_id: matchId,
           });
+          clearTimeout(startWatchdogId);
+          try {
+            await transitionCall(callId, "join_failed");
+          } catch {
+            // ignore
+          }
+          if (roomName) {
+            await deleteRoom(roomName).catch(() => {});
+          }
           return;
         }
         createdCallId = callId;
@@ -854,6 +863,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callPhaseRef,
       cleanupLocalCall,
       clearRingingTimeout,
+      deleteRoom,
       incomingCallRef,
       setupCallEvents,
       runSingleJoinFlow,

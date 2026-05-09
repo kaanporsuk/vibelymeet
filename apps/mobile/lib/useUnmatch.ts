@@ -2,7 +2,7 @@
  * Unmatch through the server-owned atomic cleanup RPC. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -47,15 +47,6 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const queryClient = useQueryClient();
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
   const [hasPendingUnmatch, setHasPendingUnmatch] = useState(false);
-
-  useEffect(() => {
-    return () => {
-      if (pendingRef.current) {
-        clearTimeout(pendingRef.current.timeoutId);
-        pendingRef.current = null;
-      }
-    };
-  }, []);
 
   const performUnmatch = useCallback(
     async (matchId: string) => {

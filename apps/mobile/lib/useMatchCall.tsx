@@ -676,6 +676,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
             call_id: callId,
             match_id: matchId,
           });
+          clearTimeout(startWatchdogId);
+          try {
+            await transitionMatchCall(callId, 'join_failed');
+          } catch {
+            // ignore
+          }
+          if (roomName) {
+            await deleteMatchCallRoom(roomName).catch(() => {});
+          }
           return;
         }
         createdCallId = callId;

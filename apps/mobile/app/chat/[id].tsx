@@ -695,6 +695,13 @@ export default function ChatThreadScreen() {
     }
   }, []);
 
+  useEffect(
+    () => () => {
+      clearGoToMatchesScheduled();
+    },
+    [clearGoToMatchesScheduled],
+  );
+
   const stickToBottomRef = useRef(true);
   const userScrollIntentUntilRef = useRef(0);
   /** Until first content-size snap for this thread, ignore scroll race that clears stickToBottom before scrollToEnd. */
@@ -1162,14 +1169,24 @@ export default function ChatThreadScreen() {
   const [showReport, setShowReport] = useState(false);
   const [pendingUnmatchMatchId, setPendingUnmatchMatchId] = useState<string | null>(null);
   const [pendingUnmatchName, setPendingUnmatchName] = useState('');
+  /** Avoid goToMatches / setState after unmount when the 5s unmatch timer fires in the background. */
+  const chatScreenActiveRef = useRef(true);
+  useEffect(() => {
+    chatScreenActiveRef.current = true;
+    return () => {
+      chatScreenActiveRef.current = false;
+    };
+  }, []);
   const undoableUnmatchCallbacks = useMemo(
     () => ({
       onUnmatchComplete: () => {
+        if (!chatScreenActiveRef.current) return;
         setPendingUnmatchMatchId(null);
         setPendingUnmatchName('');
         goToMatches();
       },
       onUndo: () => {
+        if (!chatScreenActiveRef.current) return;
         setPendingUnmatchMatchId(null);
         setPendingUnmatchName('');
       },
