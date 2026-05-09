@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Copy, Share2, Sparkles, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BottomNav } from "@/components/navigation/BottomNav";
-import { useUserProfile } from "@/contexts/AuthContext";
+import { useAuth, useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { buildInviteLandingUrl } from "@/lib/inviteLinks";
 import { isWebShareAbortError } from "@/lib/webShare";
@@ -22,10 +22,13 @@ type ReferralStatus = {
 export default function Referrals() {
   const navigate = useNavigate();
   const { user } = useUserProfile();
+  const { session } = useAuth();
   const [status, setStatus] = useState<ReferralStatus | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
 
-  const inviteLink = useMemo(() => buildInviteLandingUrl(user?.id ?? null), [user?.id]);
+  const userId = session?.user?.id ?? user?.id ?? null;
+  const inviteReady = Boolean(userId);
+  const inviteLink = useMemo(() => buildInviteLandingUrl(userId), [userId]);
 
   useEffect(() => {
     trackEvent("invite_hub_viewed", { platform: "web" });
@@ -35,7 +38,7 @@ export default function Referrals() {
     let cancelled = false;
 
     const loadStatus = async () => {
-      if (!user?.id) {
+      if (!userId) {
         setStatus(null);
         setIsLoadingStatus(false);
         return;
@@ -45,7 +48,7 @@ export default function Referrals() {
       const { data, error } = await supabase
         .from("profiles")
         .select("referred_by")
-        .eq("id", user.id)
+        .eq("id", userId)
         .maybeSingle();
 
       if (cancelled) return;
@@ -85,9 +88,13 @@ export default function Referrals() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [userId]);
 
   const handleCopy = async () => {
+    if (!inviteReady) {
+      toast.error("Your invite link is still loading.");
+      return;
+    }
     try {
       await navigator.clipboard.writeText(inviteLink);
       toast.success("Invite link copied.");
@@ -98,6 +105,10 @@ export default function Referrals() {
   };
 
   const handleShare = async () => {
+    if (!inviteReady) {
+      toast.error("Your invite link is still loading.");
+      return;
+    }
     try {
       await navigator.share({
         title: SHARE_TITLE,
@@ -117,13 +128,17 @@ export default function Referrals() {
       ? status.referredByName
         ? `You joined from ${status.referredByName}'s invite`
         : "You joined from a friend's invite"
-      : "No invite linked yet";
+      : "No friend invite connected";
 
   const statusBody = isLoadingStatus
     ? "We’re loading the current referral attribution on your account."
     : status?.referredById
       ? "Your account is already connected to an inviter, so future shares keep your existing attribution intact."
-      : "Share your personal Vibely link with friends. When they land on the app, we preserve your referral id for signup attribution.";
+      : "You can still invite friends with your personal link. If they sign up from it, Vibely connects the signup to your account once.";
+  const inviteTitle = inviteReady ? "Your invite link is ready" : "Preparing your invite link";
+  const inviteBody = inviteReady
+    ? "Share your Vibely invite. Friends can open it in their browser and create an account from your link."
+    : "Hang tight while Vibely loads your account. Your personal link will appear here in a moment.";
 
   return (
     <div className="min-h-screen bg-background pb-[100px]">
@@ -150,25 +165,24 @@ export default function Referrals() {
               <UserPlus className="h-5 w-5 text-primary" />
             </div>
             <div className="flex-1">
-              <h2 className="text-lg font-display font-semibold text-foreground">Your referral link is ready</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Share one canonical Vibely link for signup attribution. Friends land on the existing
-                `/invite` flow and keep your `ref` attached.
-              </p>
+              <h2 className="text-lg font-display font-semibold text-foreground">{inviteTitle}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{inviteBody}</p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border/60 bg-background/70 p-3">
+          <div className="rounded-2xl border border-border/60 bg-background/70 p-3" aria-busy={!inviteReady}>
             <p className="mb-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">Invite Link</p>
-            <p className="break-all text-sm text-foreground">{inviteLink}</p>
+            <p className="break-all text-sm text-foreground">
+              {inviteReady ? inviteLink : "Loading your personal link..."}
+            </p>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <Button onClick={() => void handleShare()} className="gap-2">
+            <Button onClick={() => void handleShare()} className="gap-2" disabled={!inviteReady}>
               <Share2 className="h-4 w-4" />
               Share
             </Button>
-            <Button variant="outline" onClick={() => void handleCopy()} className="gap-2">
+            <Button variant="outline" onClick={() => void handleCopy()} className="gap-2" disabled={!inviteReady}>
               <Copy className="h-4 w-4" />
               Copy link
             </Button>
@@ -190,11 +204,6 @@ export default function Referrals() {
               <p className="text-sm text-muted-foreground">{statusBody}</p>
             </div>
           </div>
-          {status?.referredById ? (
-            <div className="rounded-2xl border border-border/60 bg-secondary/30 px-3 py-2 text-sm text-muted-foreground">
-              Existing `referred_by`: <span className="font-mono text-foreground">{status.referredById}</span>
-            </div>
-          ) : null}
         </motion.section>
 
         <motion.section
@@ -208,10 +217,10 @@ export default function Referrals() {
               <Sparkles className="h-5 w-5 text-pink-400" />
             </div>
             <div>
-              <h2 className="text-base font-display font-semibold text-foreground">What this foundation covers</h2>
+              <h2 className="text-base font-display font-semibold text-foreground">How it works</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Vibely keeps the existing invite URLs, real share flow, and backend `referred_by`
-                linkage without introducing a new rewards or campaign system.
+                A friend can use your invite when joining Vibely. There are no rewards to track right now;
+                this simply helps Vibely understand who invited whom.
               </p>
             </div>
           </div>

@@ -7,7 +7,7 @@ export function normalizeReferralId(value: string | null | undefined): string | 
   if (!normalized || !UUID_LIKE_RE.test(normalized)) {
     return null;
   }
-  return normalized;
+  return normalized.toLowerCase();
 }
 
 export function readReferralIdFromSearchParams(searchParams: URLSearchParams): string | null {

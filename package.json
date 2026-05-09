@@ -27,6 +27,7 @@
     "test:browser-diagnostics": "tsx scripts/browser-diagnostics.test.ts && tsx scripts/browser-deploy-contract.test.ts",
     "test:request-reduction-contract": "tsx scripts/request-reduction-contract.test.ts",
     "test:chat-media-cache": "tsx scripts/chat-media-resolver-cache.test.ts",
+    "test:referrals": "tsx shared/referrals.test.ts && tsx shared/referrals.contract.test.ts",
     "test:web-vibe-video-trust": "tsx scripts/web-vibe-video-trust.test.ts",
     "test:admin-events-p0": "tsx shared/admin/adminEventsP0ReadSafety.test.ts && tsx shared/admin/eventLifecycleAutoFinalization.test.ts",
     "test:admin-p1-ui-safety": "tsx shared/admin/adminP1UiSafety.test.ts",
@@ -38,6 +39,7 @@
     "test:event-booking-safety": "tsx shared/eventBookingEditability.test.ts && tsx shared/matching/eventRegistrationSelfCancelCutoff.test.ts && tsx shared/matching/eventBookingUiCutoff.test.ts",
     "test:hardening-contracts": "bash scripts/run_hardening_contract_tests.sh",
     "test:event-lobby-regression": "bash scripts/run_event_lobby_regression.sh",
+    "test:daily-drop-matcher": "tsx supabase/functions/_shared/dailyDropMatcher.test.ts",
     "regen:supabase-types": "./scripts/regen-supabase-types.sh",
     "audit:surfaces": "node scripts/surface-inventory-audit.mjs",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts"

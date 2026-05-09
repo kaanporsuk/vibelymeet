@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import { capture as posthogCapture } from "../_shared/posthog.ts";
+import { pickPairs, type MatcherUser } from "../_shared/dailyDropMatcher.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,6 +25,10 @@ type SupabaseDbError = {
   code?: string | null;
   details?: string | null;
   hint?: string | null;
+};
+type PostgrestFilterBuilder = {
+  gte: (column: string, value: string) => PostgrestFilterBuilder;
+  or: (filters: string) => PromiseLike<{ data: unknown[] | null; error: SupabaseDbError | null }>;
 };
 
 type CompleteGenerationRunArgs = {
@@ -55,6 +61,51 @@ function dbErrorDetails(error: SupabaseDbError | null | undefined): Record<strin
     db_details: error?.details ?? null,
     db_hint: error?.hint ?? null,
   };
+}
+
+const ELIGIBLE_FILTER_CHUNK_SIZE = 100;
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
+}
+
+async function selectEligiblePairRows<T extends Record<string, unknown>>(
+  supabase: ServiceClient,
+  table: string,
+  selectColumns: string,
+  leftColumn: string,
+  rightColumn: string,
+  eligibleUserIds: string[],
+  configure?: (query: PostgrestFilterBuilder) => PostgrestFilterBuilder,
+): Promise<{ data: T[]; error: SupabaseDbError | null }> {
+  const rows: T[] = [];
+  const seenRows = new Set<string>();
+
+  for (const chunk of chunkValues(eligibleUserIds, ELIGIBLE_FILTER_CHUNK_SIZE)) {
+    const eligibleIdsCsv = chunk.join(",");
+    let query = supabase
+      .from(table)
+      .select(selectColumns) as unknown as PostgrestFilterBuilder;
+    query = configure ? configure(query) : query;
+
+    const { data, error } = await query.or(`${leftColumn}.in.(${eligibleIdsCsv}),${rightColumn}.in.(${eligibleIdsCsv})`);
+    if (error) {
+      return { data: rows, error };
+    }
+
+    for (const row of data ?? []) {
+      const key = JSON.stringify(row);
+      if (seenRows.has(key)) continue;
+      seenRows.add(key);
+      rows.push(row as T);
+    }
+  }
+
+  return { data: rows, error: null };
 }
 
 async function createGenerationRun(
@@ -115,6 +166,21 @@ async function completeGenerationRun(
       console.error("[generate-daily-drops] run_tracking_update_failed", error);
     }
   }
+
+  void posthogCapture({
+    event: `daily_drop_run_${args.status}`,
+    distinct_id: args.adminId ?? `cron:${args.source}`,
+    properties: {
+      run_id: runId,
+      source: args.source,
+      force: args.force,
+      pairs_created: completion.pairs_created,
+      users_notified: completion.users_notified,
+      unpaired_users: completion.unpaired_users,
+      reason: completion.reason,
+      error: completion.error,
+    },
+  });
 
   if (!args.adminId) return;
 
@@ -214,6 +280,15 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
     generationRunId = await createGenerationRun(supabase, generationSource, forceRegenerate, adminUserId);
+    void posthogCapture({
+      event: "daily_drop_run_started",
+      distinct_id: adminUserId ?? `cron:${generationSource}`,
+      properties: {
+        run_id: generationRunId,
+        source: generationSource,
+        force: forceRegenerate,
+      },
+    });
 
     const failGenerationRun = async (
       errorCode: string,
@@ -264,64 +339,48 @@ serve(async (req) => {
       ),
     );
 
-    // STEP 1: Expire old unresolved drops
-    const { error: expireNoActionError } = await supabase
-      .from("daily_drops")
-      .update({ status: "expired_no_action", updated_at: new Date().toISOString() })
-      .lt("expires_at", now.toISOString())
-      .in("status", ["active_unopened", "active_viewed"]);
-    if (expireNoActionError) {
-      return await failDbStep("expire_old_unopened_drops", expireNoActionError);
+    // STEP 1: Expire old unresolved drops in one database-owned statement.
+    const { error: expirePendingError } = await supabase.rpc("expire_pending_daily_drops");
+    if (expirePendingError) {
+      return await failDbStep("expire_pending_daily_drops", expirePendingError);
     }
 
-    const { error: expireNoReplyError } = await supabase
-      .from("daily_drops")
-      .update({ status: "expired_no_reply", updated_at: new Date().toISOString() })
-      .lt("expires_at", now.toISOString())
-      .eq("status", "active_opener_sent");
-    if (expireNoReplyError) {
-      return await failDbStep("expire_old_opener_sent_drops", expireNoReplyError);
+    // STEP 2: Apply cooldowns for every expired/passed pair missing an active
+    // cooldown. This recovers safely if cron was down for more than one day.
+    const { data: pendingCooldownPairs, error: pendingCooldownPairsError } = await supabase
+      .rpc("select_pending_cooldown_pairs");
+    if (pendingCooldownPairsError) {
+      return await failDbStep("select_pending_cooldown_pairs", pendingCooldownPairsError);
     }
 
-    // STEP 2: Apply cooldowns for yesterday's drops only (avoid rows touched today for unrelated reasons)
-    const yesterday = new Date(now);
-    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-    const yesterdayDate = yesterday.toISOString().split("T")[0];
+    type PendingCooldownPair = {
+      user_a_id: string;
+      user_b_id: string;
+      drop_status: string;
+      expired_at?: string | null;
+    };
 
-    const { data: newlyExpired, error: newlyExpiredError } = await supabase
-      .from("daily_drops")
-      .select("user_a_id, user_b_id, status")
-      .eq("drop_date", yesterdayDate)
-      .in("status", ["expired_no_action", "expired_no_reply", "passed"]);
-    if (newlyExpiredError) {
-      return await failDbStep("select_newly_expired_drops", newlyExpiredError);
-    }
+    for (const drop of (pendingCooldownPairs || []) as PendingCooldownPair[]) {
+      let cooldownDays = 7;
+      let reason = "no_action";
+      if (drop.drop_status === "expired_no_reply") { cooldownDays = 21; reason = "no_reply"; }
+      if (drop.drop_status === "passed") { cooldownDays = 30; reason = "passed"; }
 
-    if (newlyExpired) {
-      for (const drop of newlyExpired) {
-        let cooldownDays = 7;
-        let reason = "no_action";
-        if (drop.status === "expired_no_reply") { cooldownDays = 21; reason = "no_reply"; }
-        if (drop.status === "passed") { cooldownDays = 30; reason = "passed"; }
+      const cooldownDate = new Date(now);
+      cooldownDate.setUTCDate(cooldownDate.getUTCDate() + cooldownDays);
 
-        const cooldownDate = new Date();
-        cooldownDate.setUTCDate(cooldownDate.getUTCDate() + cooldownDays);
-        const [cooldownUserA, cooldownUserB] = [drop.user_a_id, drop.user_b_id].sort();
-
-        const { error: cooldownError } = await supabase
-          .from("daily_drop_cooldowns")
-          .upsert({
-            user_a_id: cooldownUserA,
-            user_b_id: cooldownUserB,
-            cooldown_until: cooldownDate.toISOString().split("T")[0],
-            reason,
-          }, { onConflict: "user_a_id,user_b_id" });
-        if (cooldownError) {
-          return await failDbStep("upsert_daily_drop_cooldown", cooldownError, {
-            drop_status: drop.status,
-            cooldown_reason: reason,
-          });
-        }
+      const { error: cooldownError } = await supabase.rpc("apply_drop_cooldown", {
+        p_user_a: drop.user_a_id,
+        p_user_b: drop.user_b_id,
+        p_cooldown_until: cooldownDate.toISOString().split("T")[0],
+        p_reason: reason,
+      });
+      if (cooldownError) {
+        return await failDbStep("apply_drop_cooldown", cooldownError, {
+          drop_status: drop.drop_status,
+          cooldown_reason: reason,
+          expired_at: drop.expired_at ?? null,
+        });
       }
     }
 
@@ -356,15 +415,14 @@ serve(async (req) => {
       }
     }
 
-    // STEP 4: Get eligible users (active in last 7 days)
+    // STEP 4: Get eligible users (active in last 7 days, by last_seen_at with updated_at fallback)
     const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
 
     const { data: eligibleUsers, error: eligibleUsersError } = await supabase
       .from("profiles")
       .select(
-        "id, name, gender, interested_in, age, is_suspended, is_paused, paused_until, account_paused, account_paused_until, discoverable, discovery_mode, discovery_snooze_until, discovery_audience",
+        "id, name, gender, interested_in, age, preferred_age_min, preferred_age_max, last_seen_at, updated_at, is_suspended, is_paused, paused_until, account_paused, account_paused_until, discoverable, discovery_mode, discovery_snooze_until, discovery_audience",
       )
-      .gte("updated_at", sevenDaysAgo)
       .or("is_suspended.is.null,is_suspended.eq.false");
     if (eligibleUsersError) {
       return await failDbStep("select_eligible_users", eligibleUsersError);
@@ -374,6 +432,11 @@ serve(async (req) => {
       id: string;
       gender?: string | null;
       interested_in?: string[] | null;
+      age?: number | null;
+      preferred_age_min?: number | null;
+      preferred_age_max?: number | null;
+      last_seen_at?: string | null;
+      updated_at?: string | null;
       is_suspended?: boolean | null;
       is_paused?: boolean | null;
       paused_until?: string | null;
@@ -385,7 +448,16 @@ serve(async (req) => {
       discovery_audience?: string | null;
     };
 
+    const sevenDaysAgoMs = new Date(sevenDaysAgo).getTime();
+
     const eligibleUsersFiltered = (eligibleUsers || []).filter((u: EligibleRow) => {
+      // Recency: prefer last_seen_at, fall back to updated_at when null
+      const recencySource = u.last_seen_at ?? u.updated_at ?? null;
+      if (!recencySource) return false;
+      const recencyDate = new Date(recencySource);
+      if (Number.isNaN(recencyDate.getTime())) return false;
+      if (recencyDate.getTime() < sevenDaysAgoMs) return false;
+
       if (u.is_suspended) return false;
       if (u.discoverable === false) return false;
       if ((u.discovery_audience ?? "everyone") === "hidden") return false;
@@ -432,26 +504,66 @@ serve(async (req) => {
       return jsonResponse({ success: true, pairs_created: 0, reason: "Not enough eligible users" });
     }
 
-    // STEP 5: Get exclusions
-    const { data: existingMatches, error: existingMatchesError } = await supabase.from("matches").select("profile_id_1, profile_id_2");
+    // STEP 5: Get exclusions, scoped to currently eligible users to avoid
+    // monotonically growing full-table scans of matches/blocks/reports.
+    const eligibleUserIds = eligibleUsersFiltered.map((u: EligibleRow) => u.id);
+    const { data: existingMatches, error: existingMatchesError } = await selectEligiblePairRows<{
+      profile_id_1: string;
+      profile_id_2: string;
+    }>(
+      supabase,
+      "matches",
+      "profile_id_1, profile_id_2",
+      "profile_id_1",
+      "profile_id_2",
+      eligibleUserIds,
+    );
     if (existingMatchesError) {
       return await failDbStep("select_existing_matches", existingMatchesError);
     }
 
-    const { data: blocks, error: blocksError } = await supabase.from("blocked_users").select("blocker_id, blocked_id");
+    const { data: blocks, error: blocksError } = await selectEligiblePairRows<{
+      blocker_id: string;
+      blocked_id: string;
+    }>(
+      supabase,
+      "blocked_users",
+      "blocker_id, blocked_id",
+      "blocker_id",
+      "blocked_id",
+      eligibleUserIds,
+    );
     if (blocksError) {
       return await failDbStep("select_blocked_users", blocksError);
     }
 
-    const { data: reports, error: reportsError } = await supabase.from("user_reports").select("reporter_id, reported_id");
+    const { data: reports, error: reportsError } = await selectEligiblePairRows<{
+      reporter_id: string;
+      reported_id: string;
+    }>(
+      supabase,
+      "user_reports",
+      "reporter_id, reported_id",
+      "reporter_id",
+      "reported_id",
+      eligibleUserIds,
+    );
     if (reportsError) {
       return await failDbStep("select_user_reports", reportsError);
     }
 
-    const { data: activeCooldowns, error: activeCooldownsError } = await supabase
-      .from("daily_drop_cooldowns")
-      .select("user_a_id, user_b_id")
-      .gte("cooldown_until", today);
+    const { data: activeCooldowns, error: activeCooldownsError } = await selectEligiblePairRows<{
+      user_a_id: string;
+      user_b_id: string;
+    }>(
+      supabase,
+      "daily_drop_cooldowns",
+      "user_a_id, user_b_id",
+      "user_a_id",
+      "user_b_id",
+      eligibleUserIds,
+      (query) => query.gte("cooldown_until", today),
+    );
     if (activeCooldownsError) {
       return await failDbStep("select_active_cooldowns", activeCooldownsError);
     }
@@ -462,14 +574,13 @@ serve(async (req) => {
     const cooldownSet = new Set((activeCooldowns || []).map(c => [c.user_a_id, c.user_b_id].sort().join(":")));
 
     // STEP 6: Get vibe tags for scoring
-    const userIds = eligibleUsersFiltered.map(u => u.id);
     // Co-attendance is used only for internal event-based discovery eligibility.
     // Daily Drop rows, reasons, and notifications below do not expose event ids,
     // event names, or "you both attended" copy to users.
     const { data: confirmedRegistrations, error: confirmedRegistrationsError } = await supabase
       .from("event_registrations")
       .select("profile_id, event_id")
-      .in("profile_id", userIds)
+      .in("profile_id", eligibleUserIds)
       .eq("admission_status", "confirmed");
     if (confirmedRegistrationsError) {
       return await failDbStep("select_confirmed_event_registrations", confirmedRegistrationsError);
@@ -544,7 +655,7 @@ serve(async (req) => {
     const { data: allVibes, error: allVibesError } = await supabase
       .from("profile_vibes")
       .select("profile_id, vibe_tag_id")
-      .in("profile_id", userIds);
+      .in("profile_id", eligibleUserIds);
     if (allVibesError) {
       return await failDbStep("select_profile_vibes", allVibesError);
     }
@@ -567,71 +678,38 @@ serve(async (req) => {
     const tagMap: Record<string, { label: string; emoji: string }> = {};
     (tagLabels || []).forEach(t => { tagMap[t.id] = { label: t.label, emoji: t.emoji }; });
 
-    // STEP 8: Gender compatibility
-    const isGenderCompatible = (a: EligibleRow, b: EligibleRow): boolean => {
-      const aInt = Array.isArray(a.interested_in) ? a.interested_in : [];
-      const bInt = Array.isArray(b.interested_in) ? b.interested_in : [];
-      const aLikesB = aInt.length === 0 || aInt.includes(b.gender);
-      const bLikesA = bInt.length === 0 || bInt.includes(a.gender);
-      return aLikesB && bLikesA;
-    };
+    // STEPS 8 + 9: Score + greedy-pair via the shared matcher module so the
+    // algorithm is unit-tested independently of the Edge Function harness.
+    const matcherUsers: MatcherUser[] = eligibleUsersFiltered.map((u: EligibleRow) => ({
+      id: u.id,
+      gender: u.gender ?? null,
+      interested_in: u.interested_in ?? null,
+      age: u.age ?? null,
+      preferred_age_min: u.preferred_age_min ?? null,
+      preferred_age_max: u.preferred_age_max ?? null,
+    }));
 
-    // STEP 9: Score and pair
-    const scoredPairs: Array<{ id_a: string; id_b: string; score: number; reasons: string[] }> = [];
+    const eligibleById: Record<string, EligibleRow> = {};
+    for (const u of eligibleUsersFiltered) eligibleById[u.id] = u;
 
-    for (let i = 0; i < eligibleUsersFiltered.length; i++) {
-      for (let j = i + 1; j < eligibleUsersFiltered.length; j++) {
-        const a = eligibleUsersFiltered[i], b = eligibleUsersFiltered[j];
-        const [lo, hi] = [a.id, b.id].sort();
-        const pairKey = `${lo}:${hi}`;
-
-        if (
-          matchSet.has(pairKey)
-          || blockSet.has(`${a.id}:${b.id}`)
-          || blockSet.has(`${b.id}:${a.id}`)
-          || reportSet.has(`${a.id}:${b.id}`)
-          || reportSet.has(`${b.id}:${a.id}`)
-          || cooldownSet.has(pairKey)
-        ) continue;
-        if (!mutuallyDiscoverable(a, b)) continue;
-        if (!isGenderCompatible(a, b)) continue;
-
-        const aVibes = vibeMap[a.id] || new Set();
-        const bVibes = vibeMap[b.id] || new Set();
-        let overlap = 0;
-        const sharedTagIds: string[] = [];
-        aVibes.forEach(tagId => { if (bVibes.has(tagId)) { overlap++; sharedTagIds.push(tagId); } });
-
-        const reasons: string[] = [];
-        const sharedLabels = sharedTagIds.slice(0, 3).map(id => {
-          const tag = tagMap[id];
-          return tag ? `${tag.emoji} ${tag.label}` : null;
-        }).filter(Boolean);
-
-        if (sharedLabels.length > 0) reasons.push(`Shared vibes: ${sharedLabels.join(", ")}`);
-        if (overlap >= 3) reasons.push("Strong vibe alignment");
-        if (reasons.length === 0) reasons.push("New connection opportunity");
-
-        scoredPairs.push({ id_a: lo, id_b: hi, score: overlap, reasons });
-      }
-    }
-
-    scoredPairs.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      const c = a.id_a.localeCompare(b.id_a);
-      if (c !== 0) return c;
-      return a.id_b.localeCompare(b.id_b);
+    const matcherResult = pickPairs({
+      users: matcherUsers,
+      vibeMap,
+      tagMap,
+      matchSet,
+      blockSet,
+      reportSet,
+      cooldownSet,
+      mutuallyDiscoverable: (a, b) => {
+        const ra = eligibleById[a.id];
+        const rb = eligibleById[b.id];
+        if (!ra || !rb) return false;
+        return mutuallyDiscoverable(ra, rb);
+      },
     });
 
-    const paired = new Set<string>();
-    const pairs: Array<{ user_a_id: string; user_b_id: string; affinity_score: number; pick_reasons: string[] }> = [];
-
-    for (const sp of scoredPairs) {
-      if (paired.has(sp.id_a) || paired.has(sp.id_b)) continue;
-      paired.add(sp.id_a);
-      paired.add(sp.id_b);
-      pairs.push({ user_a_id: sp.id_a, user_b_id: sp.id_b, affinity_score: sp.score, pick_reasons: sp.reasons });
-    }
+    const pairs = matcherResult.pairs;
+    const paired = new Set<string>(pairs.flatMap((p) => [p.user_a_id, p.user_b_id]));
 
     // STEP 10: Insert pairs
     let insertedRows = 0;
@@ -718,9 +796,12 @@ serve(async (req) => {
     }
     let notifiedSuccessCount = 0;
     let notificationFailures = 0;
-    for (const userId of notifiedUserIds) {
-      try {
-        const { error: notifyError } = await supabase.functions.invoke("send-notification", {
+    const NOTIFY_CONCURRENCY = 25;
+    const userIdList = [...notifiedUserIds];
+    for (let i = 0; i < userIdList.length; i += NOTIFY_CONCURRENCY) {
+      const chunk = userIdList.slice(i, i + NOTIFY_CONCURRENCY);
+      const settled = await Promise.allSettled(chunk.map((userId) =>
+        supabase.functions.invoke("send-notification", {
           body: {
             user_id: userId,
             category: "daily_drop",
@@ -728,17 +809,18 @@ serve(async (req) => {
             body: "Someone new is waiting to meet you. Open the app to see who.",
             data: { url: "/matches" },
           },
-        });
-        if (notifyError) {
+        }).then(({ error }) => {
+          if (error) throw error;
+        })
+      ));
+      settled.forEach((result, idx) => {
+        if (result.status === "fulfilled") {
+          notifiedSuccessCount += 1;
+        } else {
           notificationFailures += 1;
-          console.error("[generate-daily-drops] notify_failed", userId, notifyError.message ?? notifyError);
-          continue;
+          console.error("[generate-daily-drops] notify_failed", chunk[idx], result.reason?.message ?? result.reason);
         }
-        notifiedSuccessCount += 1;
-      } catch (e) {
-        notificationFailures += 1;
-        console.error("[generate-daily-drops] notify_failed", userId, e);
-      }
+      });
     }
     if (notifiedUserIds.size > 0) {
       console.log("[generate-daily-drops] notify_fanout_end", {

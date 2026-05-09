@@ -139,9 +139,10 @@ export default function DailyDropScreen() {
   }
 
   if (!hasDrop || !drop) {
+    const nextBatchIn = formatCountdownToNextDailyDropBatchUtc();
     const emptySub = generationRanToday
-      ? "We looked for your best match today but couldn't find the right fit. Check back tomorrow at 6 PM."
-      : 'Your Daily Drop arrives at 6 PM. Come back then to see who we picked for you.';
+      ? `We looked for your best match today but couldn't find the right fit. Next batch in ${nextBatchIn}.`
+      : `Your next Daily Drop arrives in ${nextBatchIn}. Come back then to see who we picked for you.`;
     return (
       <>
         <View style={[styles.container, { backgroundColor: theme.background }]}>

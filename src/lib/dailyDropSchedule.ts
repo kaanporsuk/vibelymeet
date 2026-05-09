@@ -1,9 +1,10 @@
 /**
  * Canonical Daily Drop timing (single source of truth for product copy + countdowns).
  *
- * Backend: pg_cron invokes `generate-daily-drops` at minute 0 of hour 18 UTC daily
- * (`supabase/migrations/20260322200100_daily_drop_cron.sql`). New rows use UTC `drop_date`
- * and `expires_at` at the next 18:00 UTC boundary from generation (`generate-daily-drops`).
+ * Backend: pg_cron invokes `generate-daily-drops` at minute 0 of hour 18 UTC daily.
+ * The current canonical schedule is reasserted by
+ * `supabase/migrations/20260509210000_daily_drop_cron_observability.sql`. New rows use
+ * UTC `drop_date` and `expires_at` at the next 18:00 UTC boundary from generation.
  *
  * Clients must not assume “6 PM local”; use UTC batch semantics only.
  */

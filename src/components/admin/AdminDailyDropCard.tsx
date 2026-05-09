@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Droplet, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -125,6 +125,23 @@ export default function AdminDailyDropCard() {
     setOverrideOpen(true);
   };
 
+  useEffect(() => {
+    const channel = supabase
+      .channel('admin-daily-drop-runs')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'daily_drop_generation_runs' },
+        () => { void refetch(); },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'daily_drop_generation_runs' },
+        () => { void refetch(); },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [refetch]);
+
   return (
     <div className="glass-card p-6 rounded-2xl space-y-4">
       <div className="flex items-center gap-3">
@@ -138,10 +155,11 @@ export default function AdminDailyDropCard() {
       </div>
 
       <p className="text-xs text-muted-foreground rounded-lg bg-secondary/30 px-3 py-2">
-        Auto-generation: daily at 6:00 PM UTC (pg_cron → Edge Function when configured). Set{' '}
-        <code className="text-[10px]">app.supabase_url</code> and <code className="text-[10px]">app.cron_secret</code> on
-        the database — see migrations <code className="text-[10px]">20260322200100_daily_drop_cron.sql</code>,{' '}
-        <code className="text-[10px]">20260323140000_daily_drop_hardening.sql</code>.
+        Auto-generation: daily at 6:00 PM UTC (pg_cron to Edge Function). The canonical schedule reads Vault secrets{' '}
+        <code className="text-[10px]">project_url</code> and{' '}
+        <code className="text-[10px]">date_suggestion_cron_secret</code>; see migrations{' '}
+        <code className="text-[10px]">20260322200100_daily_drop_cron.sql</code> and{' '}
+        <code className="text-[10px]">20260509210000_daily_drop_cron_observability.sql</code>.
       </p>
 
       {isError && (

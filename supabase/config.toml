@@ -84,7 +84,9 @@ verify_jwt = false
 [functions.sync-revenuecat-subscriber]
 verify_jwt = true
 
-# generate-daily-drops: set CRON_SECRET in Dashboard (Edge secrets) for Bearer auth from pg_cron (see migration 20260322200000_daily_drop_cron.sql).
+# generate-daily-drops: pg_cron calls with Bearer CRON_SECRET. The canonical
+# schedule reads Vault secrets project_url + date_suggestion_cron_secret
+# (see migration 20260509210000_daily_drop_cron_observability.sql).
 [functions.generate-daily-drops]
 verify_jwt = false
 
@@ -176,3 +178,8 @@ verify_jwt = false
 # compliance permission, reason, scope, PII classification, audit, and expiry checks.
 [functions.admin-data-export]
 verify_jwt = true
+
+# Daily Drop cron health alert. Gateway JWT must stay off because pg_cron uses
+# Bearer CRON_SECRET; the function performs its own cron/admin auth.
+[functions.check-daily-drop-health]
+verify_jwt = false

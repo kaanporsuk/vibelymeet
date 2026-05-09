@@ -36,5 +36,6 @@ export async function applyNativeReferralAttribution(
     supabase as unknown as Parameters<typeof applyStoredReferralAttribution>[0],
     nativeReferralStorage,
     userId,
+    { platform: "native", surface: "auth_session_sync" },
   );
 }

@@ -120,7 +120,7 @@ const SchedulePage = () => {
 
   return (
     <div className="min-h-[100dvh] bg-background flex flex-col pb-[100px]">
-      {/* Notification Permission Flow */}
+      {/* Push setup flow */}
       <PushSetupFlow
         open={showNotificationFlow}
         onOpenChange={setShowNotificationFlow}

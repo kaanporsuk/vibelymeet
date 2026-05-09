@@ -38,5 +38,6 @@ export async function applyBrowserReferralAttribution(
     supabase as unknown as Parameters<typeof applyStoredReferralAttribution>[0],
     browserReferralStorage,
     userId,
+    { platform: "web", surface: "auth_post_login" },
   );
 }

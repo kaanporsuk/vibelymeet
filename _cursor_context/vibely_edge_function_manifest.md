@@ -30,13 +30,13 @@ This is a rebuild and hardening artifact, not a substitute for reading function 
 
 ### Current-state addendum (2026-05-01)
 
-- Current repo inventory is **54** deployable function directories and **54** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
+- Current repo inventory is **55** deployable function directories and **55** matching `[functions.<slug>]` entries in `supabase/config.toml`; no source/config gaps were observed.
 - **`forward-geocode`:** Explicitly configured with `verify_jwt = true`. It also resolves the Supabase user in code, permits admin/premium users plus onboarding city search, rate-limits by user, and then queries OpenStreetMap Nominatim.
 - **`push-webhook`:** Explicitly configured with `verify_jwt = false` because provider callbacks cannot present a Supabase JWT. It fail-closes unless `PUSH_WEBHOOK_SECRET` is set and the request sends the matching `x-webhook-secret` header. Repo evidence treats it as generic FCM/APNs/web receipt telemetry; OneSignal receipt dashboard wiring is not proven from source.
 
 ### Current-state addendum (2026-04-13)
 
-This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **54** deployable functions as of 2026-05-09 — see §2):
+This manifest started as a frozen/post-hardening baseline artifact. The current repo has moved ahead (inventory reconciled to **55** deployable functions as of 2026-05-09 — see §2):
 
 - Sprint 1 adds `process-media-delete-jobs` with `verify_jwt = false` and manual `CRON_SECRET` bearer auth in code.
 - Sprint 3 does **not** add a new Edge Function slug, but it changes:
@@ -57,6 +57,7 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
   - final `account_deleted` chat release and owned-media cleanup happen only when the deletion request becomes `completed`
 - Current repo-only additions beyond the original baseline list include:
   - `admin-media-lifecycle-controls`
+  - `check-daily-drop-health`
   - `admin-data-export`
   - `admin-video-date-ops`
   - `admin-proof-selfie-sign`
@@ -87,8 +88,8 @@ This manifest started as a frozen/post-hardening baseline artifact. The current 
 
 | Item | Count |
 |------|------:|
-| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **54** |
-| `[functions.<name>]` entries in `supabase/config.toml` | **54** |
+| Deployable Edge Function directories (`supabase/functions/*`, excluding `_shared`) | **55** |
+| `[functions.<name>]` entries in `supabase/config.toml` | **55** |
 
 The `_shared` directory is shared Deno helpers only — **not** a deployable function slug.
 
@@ -96,7 +97,7 @@ For a machine-readable list, regenerate `_cursor_context/vibely_machine_readable
 
 ### Historical baseline (frozen golden; superseded)
 
-The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, or **53** while the repo grew. **None of those older counts matches the current tree.** Use **54** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
+The original golden export documented **34** deployable functions; subsequent notes sometimes said **45**, **46**, **49**, **51**, or **53** while the repo grew. **None of those older counts matches the current tree.** Use **55** for ops, config review, and rebuild checklists. Sprint notes in §1 (e.g. `admin-media-lifecycle-controls`, media lifecycle dual-writes) remain valid as history.
 
 ### Gateway JWT posture from config (post-hardening)
 
@@ -104,7 +105,7 @@ The original golden export documented **34** deployable functions; subsequent no
 daily-room, delete-account, email-verification, event-notifications, verify-admin, geocode, phone-verify, admin-review-verification, admin-media-lifecycle-controls, admin-data-export, create-video-upload, sync-vibe-video-status, delete-vibe-video, upload-image, upload-voice, upload-chat-video, upload-event-cover, create-checkout-session, create-event-checkout, create-portal-session, cancel-deletion, sync-revenuecat-subscriber, send-notification, daily-drop-actions, send-message, send-game-event, swipe-actions, post-date-verdict, forward-geocode, date-suggestion-actions, send-support-reply, admin-proof-selfie-sign, admin-video-date-ops.
 
 **Public-but-protected (`verify_jwt = false`):**  
-event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, post-date-verdict-reminders, push-webhook, record-growth-attribution, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email.
+event-reminders, video-webhook, get-chat-media-url, stripe-webhook, create-credits-checkout, request-account-deletion, revenuecat-webhook, generate-daily-drops, check-daily-drop-health, post-date-verdict-reminders, push-webhook, record-growth-attribution, health, date-suggestion-expiry, credit-replenish, date-reminder-cron, process-waitlist-promotion-notify-queue, process-media-delete-jobs, match-call-room-cleanup, video-date-room-cleanup, send-email.
 
 ---
 
