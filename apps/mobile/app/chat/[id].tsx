@@ -21,7 +21,7 @@ import {
   type NativeSyntheticEvent,
   type NativeScrollEvent,
 } from 'react-native';
-import { useLocalSearchParams, router, usePathname } from 'expo-router';
+import { useLocalSearchParams, router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -680,9 +680,7 @@ export default function ChatThreadScreen() {
   const [expandedPendingClusterKey, setExpandedPendingClusterKey] = useState<string | null>(null);
   const listRef = useRef<FlatList<ChatListRow>>(null);
   const inputRef = useRef<TextInput>(null);
-  const pathname = usePathname();
-  const pathnameRef = useRef(pathname);
-  pathnameRef.current = pathname;
+  const [exiting, setExiting] = useState(false);
   const goToMatchesTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const goToMatchesRafRef = useRef<number | null>(null);
 
@@ -712,40 +710,33 @@ export default function ChatThreadScreen() {
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
 
+  /** Render-null instantly so the chat panel disappears, dismiss the stack, replace to matches, and unconditionally repeat at 300ms via a still-mounted watchdog. The cleanup effect cancels the timer on real unmount. */
   const goToMatches = useCallback(() => {
-    try {
-      router.dismissTo(MATCHES_TAB_HREF);
-    } catch {
-      /* dismissTo can fail when matches tab was not in the navigation stack (e.g. cold deep link). */
-    }
-    router.replace(MATCHES_TAB_HREF);
-
+    setExiting(true);
     clearGoToMatchesScheduled();
 
-    const expectedPath = otherUserId ? `/chat/${otherUserId}` : null;
-    const guardedReplace = () => {
-      if (!expectedPath || pathnameRef.current !== expectedPath) return;
-      try {
-        router.replace(MATCHES_TAB_HREF);
-      } catch {
-        /* replace can fail during rapid transitions */
-      }
+    try { router.dismissAll(); } catch { /* dismissAll fails on cold deep link with empty stack */ }
+    try { router.dismissTo(MATCHES_TAB_HREF); } catch { /* same */ }
+    try { router.replace(MATCHES_TAB_HREF); } catch { /* replace can fail during rapid transitions */ }
+
+    const repeatExit = () => {
+      try { router.dismissAll(); } catch { /* noop */ }
+      try { router.replace(MATCHES_TAB_HREF); } catch { /* noop */ }
     };
 
     goToMatchesRafRef.current = requestAnimationFrame(() => {
       goToMatchesRafRef.current = null;
-      guardedReplace();
+      repeatExit();
     });
     goToMatchesTimersRef.current.push(
-      setTimeout(guardedReplace, 150),
-      setTimeout(guardedReplace, 400),
+      setTimeout(repeatExit, 150),
+      setTimeout(repeatExit, 300),
     );
 
-    /** After transitions complete, repeat replace if navigation state still points at this chat URL. */
     InteractionManager.runAfterInteractions(() => {
-      guardedReplace();
+      repeatExit();
     });
-  }, [otherUserId, clearGoToMatchesScheduled]);
+  }, [clearGoToMatchesScheduled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -2152,6 +2143,8 @@ export default function ChatThreadScreen() {
       : activityLine?.variant === 'typing'
         ? theme.tint
         : theme.textSecondary;
+
+  if (exiting) return null;
 
   return (
     <View style={[styles.container, { backgroundColor: CHAT_CANVAS_BG }]}>

@@ -21,20 +21,23 @@ test("web chat exits replace the chat route with matches", () => {
   const webChatHeader = readRepoFile("src/components/chat/ChatHeader.tsx");
 
   assert.ok(webChatPage.includes('const MATCHES_ROUTE = "/matches";'));
-  assert.ok(webChatPage.includes("normalizeWebPathname"));
   assert.ok(webChatPage.includes("flushSync"));
-  assert.ok(webChatPage.includes("recoverIfAddressBarMatchesButRouterOnChat"));
   assert.ok(webChatPage.includes("clearChatBackNavWatchdogs"));
+  // Render-null exit guard: panel disappears the moment back is tapped, regardless of router.
+  assert.ok(webChatPage.includes("const [exiting, setExiting] = useState(false);"));
+  assert.ok(webChatPage.includes("if (exiting) return null;"));
+  // Still-mounted watchdog: replace (not assign) so the broken /chat entry is not left in history.
+  assert.ok(webChatPage.includes("window.location.replace(MATCHES_ROUTE)"));
   assert.match(
     webChatPage,
-    /const returnToMatches = useCallback\(\(\) => \{\s*clearChatBackNavWatchdogs\(\);\s*flushSync\(\(\) => \{\s*navigate\(MATCHES_ROUTE, \{ replace: true \}\);\s*\}\);/s,
+    /const returnToMatches = useCallback\(\(\) => \{\s*clearChatBackNavWatchdogs\(\);\s*setExiting\(true\);\s*flushSync\(\(\) => \{\s*navigate\(MATCHES_ROUTE, \{ replace: true \}\);\s*\}\);/s,
   );
-  assert.ok(webChatPage.includes("window.location.replace(MATCHES_ROUTE);"));
-  assert.ok(webChatPage.includes("queueMicrotask(forceMatchesIfStillThisChat);"));
-  assert.ok(webChatPage.includes("window.requestAnimationFrame("));
-  assert.ok(webChatPage.includes("forceMatchesIfStillThisChat"));
-  assert.ok(webChatPage.includes("window.setTimeout(forceMatchesIfStillThisChat, 400)"));
   assert.ok(webChatPage.includes("onBack={returnToMatches}"));
+
+  // The pathname-based watchdogs were the broken layer — they short-circuited
+  // when the URL had already updated to /matches, which is exactly the bug state.
+  assert.ok(!webChatPage.includes("recoverIfAddressBarMatchesButRouterOnChat"));
+  assert.ok(!webChatPage.includes("forceMatchesIfStillThisChat"));
 
   assert.ok(webChatHeader.includes('type="button"'));
   assert.ok(webChatHeader.includes("event.stopPropagation();"));
@@ -49,24 +52,33 @@ test("native chat exits replace the stack with the Vibe matches tab", () => {
 
   assert.ok(nativeChat.includes("const MATCHES_TAB_HREF = '/(tabs)/matches' as const;"));
   assert.ok(nativeChat.includes("InteractionManager.runAfterInteractions"));
+  // Render-null exit guard mirrors the web contract.
+  assert.ok(nativeChat.includes("const [exiting, setExiting] = useState(false);"));
+  assert.ok(nativeChat.includes("if (exiting) return null;"));
   const goIdx = nativeChat.indexOf("const goToMatches = useCallback");
   assert.ok(goIdx >= 0, "goToMatches callback present");
   const goChunk = nativeChat.slice(goIdx, goIdx + 2800);
   assertSubstringsInOrder(
     goChunk,
     [
+      "setExiting(true);",
+      "clearGoToMatchesScheduled();",
+      "router.dismissAll()",
       "router.dismissTo(MATCHES_TAB_HREF)",
       "router.replace(MATCHES_TAB_HREF)",
-      "clearGoToMatchesScheduled()",
-      "const guardedReplace",
-      "setTimeout(guardedReplace, 150)",
-      "setTimeout(guardedReplace, 400)",
+      "const repeatExit",
+      "setTimeout(repeatExit, 150)",
+      "setTimeout(repeatExit, 300)",
       "InteractionManager.runAfterInteractions(() => {",
-      "guardedReplace();",
-      "}, [otherUserId, clearGoToMatchesScheduled]);",
+      "repeatExit();",
+      "}, [clearGoToMatchesScheduled]);",
     ],
     "native goToMatches",
   );
+  // The expected-path guard short-circuited the very repair it was meant to perform.
+  assert.ok(!nativeChat.includes("expectedPath"));
+  assert.ok(!nativeChat.includes("pathnameRef"));
+
   assert.ok(nativeChat.includes("BackHandler.addEventListener('hardwareBackPress'"));
   assert.doesNotMatch(nativeChat, /router\.back\(\)/);
   assert.ok((nativeChat.match(/goToMatches/g)?.length ?? 0) >= 5);
