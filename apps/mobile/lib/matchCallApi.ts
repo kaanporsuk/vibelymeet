@@ -55,6 +55,7 @@ export type MatchCallEndReason =
   | 'join_failed'
   | 'stale_active'
   | 'provider_error'
+  | 'blocked_pair'
   | 'busy'
   | 'connection_lost'
   | 'media_failure';

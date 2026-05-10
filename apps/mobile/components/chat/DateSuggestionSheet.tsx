@@ -90,8 +90,9 @@ function resolveDateTypeValue(w: Pick<WizardState, 'dateTypeKey' | 'customDateTy
   return w.customDateTypeText.trim();
 }
 
-function buildRevision(w: WizardState) {
-  const share = w.timeChoiceKey === 'share_schedule';
+function buildRevision(w: WizardState, options?: { counterSharePick?: boolean }) {
+  const counterSharePick = options?.counterSharePick === true;
+  const share = w.timeChoiceKey === 'share_schedule' && !counterSharePick;
   let startsAt: string | null | undefined = w.pickStartIso;
   let endsAt: string | null | undefined = w.pickEndIso;
   let timeBlock: string | null | undefined = w.pickTimeBlock;
@@ -100,7 +101,7 @@ function buildRevision(w: WizardState) {
     startsAt = w.pickStartIso;
     endsAt = w.pickEndIso || w.pickStartIso;
   }
-  if (share && w.pickSlotDate && w.pickTimeBlock) {
+  if ((share || counterSharePick) && w.pickSlotDate && w.pickTimeBlock) {
     startsAt = slotDateBlockToStartsAt(w.pickSlotDate, w.pickTimeBlock);
     endsAt = null;
     timeBlock = w.pickTimeBlock;
@@ -108,7 +109,7 @@ function buildRevision(w: WizardState) {
 
   return {
     date_type_key: resolveDateTypeValue(w),
-    time_choice_key: w.timeChoiceKey,
+    time_choice_key: counterSharePick ? 'pick_a_time' : w.timeChoiceKey,
     place_mode_key: w.placeModeKey,
     venue_text: w.placeModeKey === 'custom_venue' ? (w.venueText.trim() || null) : null,
     optional_message: w.optionalMessage.trim() || null,
@@ -264,7 +265,9 @@ export function DateSuggestionSheet({
     submitInFlightRef.current = true;
     setSaving(true);
     try {
-      const revision = buildRevision(w);
+      const revision = buildRevision(w, {
+        counterSharePick: Boolean(counterContext && w.timeChoiceKey === 'share_schedule'),
+      });
       if (counterContext) {
         await dateSuggestionApply('counter', {
           suggestion_id: counterContext.suggestionId,
@@ -388,6 +391,10 @@ export function DateSuggestionSheet({
           {TIME_CHOICE_OPTIONS.map((o) => {
             const selected = w.timeChoiceKey === o.key;
             const isPickTime = o.key === 'pick_a_time';
+            const label =
+              counterContext && o.key === 'share_schedule'
+                ? 'Pick from shared availability'
+                : o.label;
             return (
               <Pressable
                 key={o.key}
@@ -424,7 +431,7 @@ export function DateSuggestionSheet({
                     { color: selected ? theme.text : theme.textSecondary },
                   ]}
                 >
-                  {o.label}
+                  {label}
                 </Text>
               </Pressable>
             );
@@ -480,7 +487,7 @@ export function DateSuggestionSheet({
           {shareEnabled && counterContext && (
             <View style={{ gap: spacing.sm }}>
               <Text style={[styles.hint, { color: theme.textSecondary }]}>
-                Pick a slot that fits their shared availability (next 14 days).
+                Pick a slot that fits their shared availability (next 14 days). This sends a concrete counter time, not a new schedule share.
               </Text>
               {slotsLoading ? (
                 <ActivityIndicator color={theme.tint} />
@@ -586,7 +593,9 @@ export function DateSuggestionSheet({
           </Text>
           <Text style={{ color: theme.text, fontSize: 14, marginTop: 6 }}>
             <Text style={{ color: theme.textSecondary }}>When: </Text>
-            {w.timeChoiceKey === 'pick_a_time' && w.pickStartIso
+            {counterContext && shareEnabled && w.pickSlotDate && w.pickTimeBlock
+              ? formatProposedDateTimeSummary(slotDateBlockToStartsAt(w.pickSlotDate, w.pickTimeBlock))
+              : w.timeChoiceKey === 'pick_a_time' && w.pickStartIso
               ? formatProposedDateTimeSummary(w.pickStartIso)
               : TIME_CHOICE_OPTIONS.find((x) => x.key === w.timeChoiceKey)?.label}
           </Text>
@@ -601,7 +610,9 @@ export function DateSuggestionSheet({
           </Text>
           {shareEnabled && (
             <Text style={{ color: '#f59e0b', fontSize: 12, marginTop: 8 }}>
-              Your Vibely Schedule will be shared with {partnerName} for 48 hours.
+              {counterContext
+                ? 'This counter uses their shared availability to propose a concrete time.'
+                : `Your Vibely Schedule will be shared with ${partnerName} for 48 hours.`}
             </Text>
           )}
         </View>

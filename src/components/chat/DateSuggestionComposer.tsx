@@ -101,8 +101,9 @@ function resolveDateTypeValue(w: Pick<WizardState, "dateTypeKey" | "customDateTy
   return w.customDateTypeText.trim();
 }
 
-function buildRevision(w: WizardState) {
-  const share = w.timeChoiceKey === "share_schedule";
+function buildRevision(w: WizardState, options?: { counterSharePick?: boolean }) {
+  const counterSharePick = options?.counterSharePick === true;
+  const share = w.timeChoiceKey === "share_schedule" && !counterSharePick;
   let startsAt: string | null | undefined = w.pickStartIso;
   let endsAt: string | null | undefined = w.pickEndIso;
   let timeBlock: string | null | undefined = w.pickTimeBlock;
@@ -111,7 +112,7 @@ function buildRevision(w: WizardState) {
     startsAt = w.pickStartIso;
     endsAt = w.pickEndIso || w.pickStartIso;
   }
-  if (share && w.pickSlotDate && w.pickTimeBlock) {
+  if ((share || counterSharePick) && w.pickSlotDate && w.pickTimeBlock) {
     startsAt = slotDateBlockToStartsAt(w.pickSlotDate, w.pickTimeBlock);
     endsAt = null;
     timeBlock = w.pickTimeBlock;
@@ -119,7 +120,7 @@ function buildRevision(w: WizardState) {
 
   return {
     date_type_key: resolveDateTypeValue(w),
-    time_choice_key: w.timeChoiceKey,
+    time_choice_key: counterSharePick ? "pick_a_time" : w.timeChoiceKey,
     place_mode_key: w.placeModeKey,
     venue_text: w.placeModeKey === "custom_venue" ? (w.venueText.trim() || null) : null,
     optional_message: w.optionalMessage.trim() || null,
@@ -223,8 +224,7 @@ export function DateSuggestionComposer({
         pickEndIso: r.ends_at,
         pickSlotDate: null,
         pickTimeBlock: r.time_block,
-        // Counter starts with empty selection — the recipient picks their OWN
-        // open blocks to share back, not the proposer's previous selections.
+        // Counter share picks use the partner's shared slots to choose a concrete time.
         selectedSlotKeys: [],
       });
       setStep(0);
@@ -290,7 +290,9 @@ export function DateSuggestionComposer({
     submitInFlightRef.current = true;
     setSaving(true);
     try {
-      const revision = buildRevision(w);
+      const revision = buildRevision(w, {
+        counterSharePick: Boolean(counterContext && w.timeChoiceKey === "share_schedule"),
+      });
       if (counterContext) {
         await dateSuggestionApply("counter", {
           suggestion_id: counterContext.suggestionId,
@@ -433,28 +435,34 @@ export function DateSuggestionComposer({
         {step === 1 && (
           <div className="space-y-5">
             <div className="grid grid-cols-1 gap-2.5">
-              {TIME_CHOICE_OPTIONS.map((o) => (
-                <button
-                  key={o.key}
-                  type="button"
-                  onClick={() =>
-                    setW((p) => ({
-                      ...p,
-                      timeChoiceKey: o.key,
-                      scheduleShareEnabled: o.key === "share_schedule",
-                      ...(o.key !== "pick_a_time" ? { pickStartIso: null, pickEndIso: null } : {}),
-                    }))
-                  }
-                  className={cn(
-                    "rounded-xl border px-4 py-3 text-left text-sm leading-snug transition-colors",
-                    w.timeChoiceKey === o.key
-                      ? "border-violet-500/45 bg-violet-500/10 text-foreground shadow-[0_0_0_1px_rgba(139,92,246,0.12)]"
-                      : "border-border/60 hover:bg-muted/40",
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
+              {TIME_CHOICE_OPTIONS.map((o) => {
+                const label =
+                  counterContext && o.key === "share_schedule"
+                    ? "Pick from shared availability"
+                    : o.label;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() =>
+                      setW((p) => ({
+                        ...p,
+                        timeChoiceKey: o.key,
+                        scheduleShareEnabled: o.key === "share_schedule",
+                        ...(o.key !== "pick_a_time" ? { pickStartIso: null, pickEndIso: null } : {}),
+                      }))
+                    }
+                    className={cn(
+                      "rounded-xl border px-4 py-3 text-left text-sm leading-snug transition-colors",
+                      w.timeChoiceKey === o.key
+                        ? "border-violet-500/45 bg-violet-500/10 text-foreground shadow-[0_0_0_1px_rgba(139,92,246,0.12)]"
+                        : "border-border/60 hover:bg-muted/40",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
             {w.timeChoiceKey === "pick_a_time" && (
               <div
@@ -658,7 +666,7 @@ export function DateSuggestionComposer({
             {shareEnabled && counterContext && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  Pick a slot that fits their shared availability (next 14 days).
+                  Pick a slot that fits their shared availability (next 14 days). This sends a concrete counter time, not a new schedule share.
                 </p>
                 {slotsLoading ? (
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -761,7 +769,9 @@ export function DateSuggestionComposer({
             </p>
             <p>
               <span className="text-muted-foreground">When:</span>{" "}
-              {w.timeChoiceKey === "pick_a_time" && w.pickStartIso
+              {counterContext && shareEnabled && w.pickSlotDate && w.pickTimeBlock
+                ? formatProposedDateTimeSummary(slotDateBlockToStartsAt(w.pickSlotDate, w.pickTimeBlock))
+                : w.timeChoiceKey === "pick_a_time" && w.pickStartIso
                 ? formatProposedDateTimeSummary(w.pickStartIso)
                 : TIME_CHOICE_OPTIONS.find((x) => x.key === w.timeChoiceKey)?.label}
             </p>
@@ -775,7 +785,9 @@ export function DateSuggestionComposer({
             </p>
             {shareEnabled && (
               <p className="text-xs text-amber-600/90">
-                Your Vibely Schedule will be shared with {partnerName} for 48 hours.
+                {counterContext
+                  ? "This counter uses their shared availability to propose a concrete time."
+                  : `Your Vibely Schedule will be shared with ${partnerName} for 48 hours.`}
               </p>
             )}
           </div>

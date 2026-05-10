@@ -724,11 +724,38 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           }
           // Backend redirected: there is an open incoming call from the partner. Bail out
           // of the create flow and let the IncomingCallOverlay drive the answer.
-          if (result.code === 'INCOMING_CALL_AVAILABLE') {
-            await cleanupLocalCall({ skipServerTransition: true });
+          if (result.code === 'INCOMING_CALL_AVAILABLE' && 'data' in result) {
+            const incoming = result.data;
+            invalidateStartCallAttempt();
+            const incomingType: 'voice' | 'video' =
+              incoming.existing_call_type === 'voice' || incoming.existing_call_type === 'video'
+                ? incoming.existing_call_type
+                : type;
+            const incomingPartnerName = partnerName?.trim() || DEFAULT_PARTNER.name;
+            trackedCallIdRef.current = incoming.call_id;
+            roomNameRef.current = null;
+            setCallType(incomingType);
+            setActiveMatchId(incoming.match_id);
+            setActivePartner({
+              userId: partnerUserId ?? null,
+              name: incomingPartnerName,
+              avatarUrl: partnerAvatarUri ?? null,
+            });
+            setIncomingCall({
+              callId: incoming.call_id,
+              matchId: incoming.match_id,
+              callerId: partnerUserId ?? '',
+              callerName: incomingPartnerName,
+              callerAvatarUri: partnerAvatarUri ?? null,
+              callType: incomingType,
+            });
+            setCallPhase('idle');
+            setCallDuration(0);
+            clearRingingTimeout();
+            stopDurationTimer();
             Alert.alert(
               'Incoming call',
-              `${(partnerName ?? 'Your match').trim() || 'Your match'} is calling — answer or decline.`,
+              `${incomingPartnerName} is calling — answer or decline.`,
             );
             return;
           }
@@ -874,6 +901,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       runSingleJoinFlow,
       setupCallEvents,
       startHeartbeat,
+      stopDurationTimer,
     ],
   );
 
