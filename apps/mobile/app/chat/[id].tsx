@@ -683,6 +683,7 @@ export default function ChatThreadScreen() {
   const [exiting, setExiting] = useState(false);
   const goToMatchesTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const goToMatchesRafRef = useRef<number | null>(null);
+  const goToMatchesInteractionRef = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
 
   const clearGoToMatchesScheduled = useCallback(() => {
     for (const t of goToMatchesTimersRef.current) clearTimeout(t);
@@ -691,6 +692,8 @@ export default function ChatThreadScreen() {
       cancelAnimationFrame(goToMatchesRafRef.current);
       goToMatchesRafRef.current = null;
     }
+    goToMatchesInteractionRef.current?.cancel();
+    goToMatchesInteractionRef.current = null;
   }, []);
 
   useEffect(
@@ -733,7 +736,8 @@ export default function ChatThreadScreen() {
       setTimeout(repeatExit, 300),
     );
 
-    InteractionManager.runAfterInteractions(() => {
+    goToMatchesInteractionRef.current = InteractionManager.runAfterInteractions(() => {
+      goToMatchesInteractionRef.current = null;
       repeatExit();
     });
   }, [clearGoToMatchesScheduled]);

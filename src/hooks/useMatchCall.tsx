@@ -59,6 +59,7 @@ type MatchCallEndReason =
   | "join_failed"
   | "stale_active"
   | "provider_error"
+  | "blocked_pair"
   | "busy"
   | "connection_lost"
   | "media_failure";
@@ -1066,8 +1067,44 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         if (data?.code === "INCOMING_CALL_AVAILABLE") {
           clearTimeout(startWatchdogId);
           if (!isCurrentStartCallAttempt()) return;
-          await cleanupLocalCall({ skipServerTransition: true });
-          toast.info(`${(partnerName ?? "Your match").trim() || "Your match"} is calling — answer or decline.`);
+          const incomingCallId = typeof data.call_id === "string" ? data.call_id : null;
+          if (!incomingCallId) {
+            toast.error("Incoming call is available, but couldn't load it.");
+            await cleanupLocalCall({ skipServerTransition: true });
+            return;
+          }
+
+          invalidateStartCallAttempt();
+          const incomingType: MatchCallType =
+            data.existing_call_type === "voice" || data.existing_call_type === "video"
+              ? data.existing_call_type
+              : type;
+          const incomingMatchId = typeof data.match_id === "string" ? data.match_id : matchId;
+          const callerName = partnerName?.trim() || DEFAULT_PARTNER.name;
+          const callerAvatar = partnerAvatar ?? null;
+
+          trackedCallIdRef.current = incomingCallId;
+          roomNameRef.current = null;
+          setCallType(incomingType);
+          setActiveMatchId(incomingMatchId);
+          setActivePartner({
+            userId: partnerUserId ?? null,
+            name: callerName,
+            avatarUrl: callerAvatar,
+          });
+          setIncomingCall({
+            callId: incomingCallId,
+            matchId: incomingMatchId,
+            callerId: partnerUserId ?? "",
+            callerName,
+            callerAvatar,
+            callType: incomingType,
+          });
+          setCallPhase("idle");
+          setCallDuration(0);
+          clearRingingTimeout();
+          stopDurationTimer();
+          toast.info(`${callerName} is calling — answer or decline.`);
           return;
         }
 
@@ -1243,6 +1280,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       setupCallEvents,
       runSingleJoinFlow,
       startHeartbeat,
+      stopDurationTimer,
       transitionCall,
     ],
   );

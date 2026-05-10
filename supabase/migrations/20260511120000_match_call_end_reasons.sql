@@ -22,6 +22,7 @@ ALTER TABLE public.match_calls
       'join_failed',
       'stale_active',
       'provider_error',
+      'blocked_pair',
       'busy',
       'connection_lost',
       'media_failure'
@@ -58,6 +59,7 @@ DECLARE
     'join_failed',
     'stale_active',
     'provider_error',
+    'blocked_pair',
     'busy',
     'connection_lost',
     'media_failure'
