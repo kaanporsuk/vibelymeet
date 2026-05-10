@@ -19,6 +19,9 @@ import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSugges
 import { useVibelyDialog } from '@/components/VibelyDialog';
 import type { DateCardThreadUi } from '../../../../shared/chat/threadPresentation';
 import { getDateSuggestionActionPolicy } from '../../../../shared/dateSuggestions/actionPolicy';
+import { intersectSlotKeys } from '../../../../shared/dateSuggestions/scheduleShare';
+import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
+import { ExactTimePinSheet } from './ExactTimePinSheet';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -75,7 +78,7 @@ export function DateSuggestionChatCard({
   suggestion,
   currentUserId,
   partnerName,
-  partnerUserId: _partnerUserId,
+  partnerUserId,
   onOpenComposer,
   onUpdated,
   threadUi = 'normal',
@@ -124,7 +127,17 @@ export function DateSuggestionChatCard({
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
   const optionalNote = current?.optional_message?.trim() ?? '';
 
+  const isScheduleShare = current?.time_choice_key === 'share_schedule';
+  const [pendingSlotKey, setPendingSlotKey] = useState<string | null>(null);
+  const [acceptBusy, setAcceptBusy] = useState(false);
+  const [cancelPlanBusy, setCancelPlanBusy] = useState(false);
+
   const handleAccept = async () => {
+    if (isScheduleShare) {
+      // Schedule-share: requires the user to tap a specific block chip below,
+      // which routes through the ExactTimePinSheet. Plain Accept is a no-op.
+      return;
+    }
     try {
       await dateSuggestionApply('accept', { suggestion_id: suggestion.id });
       showDialog({
@@ -143,6 +156,85 @@ export function DateSuggestionChatCard({
       });
     }
   };
+
+  const handleAcceptWithSlot = async (
+    slotKey: string,
+    startsAtIso: string,
+    endsAtIso: string,
+    localStartHour: number,
+  ) => {
+    setAcceptBusy(true);
+    try {
+      await dateSuggestionApply('accept', {
+        suggestion_id: suggestion.id,
+        chosen_slot_key: slotKey,
+        starts_at: startsAtIso,
+        ends_at: endsAtIso,
+        local_start_hour: localStartHour,
+      });
+      setPendingSlotKey(null);
+      showDialog({
+        title: "It's a date!",
+        message: 'Enjoy planning together.',
+        variant: 'success',
+        primaryAction: { label: 'Love it', onPress: () => {} },
+      });
+      onUpdated();
+    } catch (e) {
+      let msg = 'Something went wrong. Try again.';
+      if (e instanceof DateSuggestionDomainError) {
+        if (e.code === 'slot_already_locked') msg = 'That time was just taken by another date.';
+        else if (e.code === 'slot_user_busy') msg = 'One of you marked that block busy. Pick another.';
+        else if (e.code === 'exact_time_outside_block') msg = 'Pick a time inside the chosen block.';
+        else if (e.code === 'slot_not_in_share_grant') msg = 'That time is no longer available. Pick another.';
+      }
+      showDialog({
+        title: 'Couldn’t accept',
+        message: msg,
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } finally {
+      setAcceptBusy(false);
+    }
+  };
+
+  const handleCancelPlan = useCallback(async () => {
+    const planId = suggestion.date_plan_id;
+    if (!planId) {
+      showDialog({
+        title: 'Still syncing',
+        message: 'This date plan is still syncing.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+    setCancelPlanBusy(true);
+    try {
+      await dateSuggestionApply('cancel_plan', { plan_id: planId });
+      onUpdated();
+    } catch (e) {
+      if (e instanceof DateSuggestionDomainError && e.code === 'invalid_plan_status') {
+        showDialog({
+          title: 'Already updated',
+          message: 'This date can no longer be cancelled.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+        onUpdated();
+      } else {
+        showDialog({
+          title: 'Couldn’t cancel',
+          message: 'We couldn’t cancel this date. Try again.',
+          variant: 'warning',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      }
+    } finally {
+      setCancelPlanBusy(false);
+    }
+  }, [onUpdated, showDialog, suggestion.date_plan_id]);
 
   const handleDecline = async () => {
     try {
@@ -552,6 +644,22 @@ export function DateSuggestionChatCard({
         </View>
       )}
 
+      {isScheduleShare && current && status !== 'accepted' && status !== 'completed' ? (
+        <ScheduleShareOfferedBlocks
+          matchId={suggestion.match_id}
+          currentUserId={currentUserId}
+          offerAuthorId={current.proposed_by}
+          otherSideId={
+            current.proposed_by === suggestion.proposer_id
+              ? suggestion.recipient_id
+              : suggestion.proposer_id
+          }
+          partnerName={partnerName}
+          canPick={actionPolicy.canAccept && !acceptBusy}
+          onPickSlot={(slotKey) => setPendingSlotKey(slotKey)}
+        />
+      ) : null}
+
       {status === 'accepted' && plan ? (
         <View style={[styles.calendarBox, { borderColor: theme.border }]}>
           <View style={styles.calendarTitleRow}>
@@ -564,6 +672,18 @@ export function DateSuggestionChatCard({
           <Text style={[styles.safety, { color: theme.textSecondary }]}>{DATE_SAFETY_NOTE}</Text>
         </View>
       ) : null}
+
+      <ExactTimePinSheet
+        visible={pendingSlotKey !== null}
+        chosenSlotKey={pendingSlotKey ?? ''}
+        isSubmitting={acceptBusy}
+        onClose={() => setPendingSlotKey(null)}
+        onConfirm={(startsAt, endsAt, localHour) =>
+          pendingSlotKey
+            ? handleAcceptWithSlot(pendingSlotKey, startsAt, endsAt, localHour)
+            : Promise.resolve()
+        }
+      />
 
       <View style={[styles.actions, { borderTopColor: theme.border }]}>
         {actionPolicy.canEditDraft && (
@@ -616,6 +736,9 @@ export function DateSuggestionChatCard({
               <Text style={[styles.actionBtnText, { color: theme.text }]}>Share the date</Text>
             </Pressable>
             {btn('Mark complete', handleMarkComplete)}
+            {plan?.status === 'active' && suggestion.date_plan_id
+              ? btn('Cancel date', handleCancelPlan, 'ghost', cancelPlanBusy)
+              : null}
           </>
         )}
 
@@ -623,6 +746,168 @@ export function DateSuggestionChatCard({
     </View>
     {dialogEl}
     </>
+  );
+}
+
+const TIME_BLOCK_LABEL: Record<string, string> = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  night: 'Night',
+};
+
+function dayLabelNative(slotDate: string): string {
+  try {
+    return format(new Date(`${slotDate}T00:00:00`), 'EEE MMM d');
+  } catch {
+    return slotDate;
+  }
+}
+
+function ScheduleShareOfferedBlocks({
+  matchId,
+  currentUserId,
+  offerAuthorId,
+  otherSideId,
+  partnerName,
+  canPick,
+  onPickSlot,
+}: {
+  matchId: string;
+  currentUserId: string;
+  offerAuthorId: string;
+  otherSideId: string;
+  partnerName: string;
+  canPick: boolean;
+  onPickSlot: (slotKey: string) => void;
+}) {
+  const theme = Colors[useColorScheme()];
+  const isOwnOffer = offerAuthorId === currentUserId;
+
+  // Chips: whatever the latest offer-author shared (works for either side via
+  // get_shared_schedule_for_date_planning's "viewer OR subject" check).
+  const chipsOffer = useSharedPartnerSchedule(matchId, offerAuthorId, true);
+  // Mutual: the OTHER side's offered blocks (if they shared in any prior revision).
+  const otherOffer = useSharedPartnerSchedule(matchId, otherSideId, true);
+
+  const chipsSlots = chipsOffer.data ?? [];
+  const chipsSlotKeys = useMemo(() => chipsSlots.map((s) => s.slot_key), [chipsSlots]);
+  const otherSlotKeys = useMemo(
+    () => (otherOffer.data ?? []).map((s) => s.slot_key),
+    [otherOffer.data],
+  );
+  const mutualSet = useMemo(
+    () => new Set(intersectSlotKeys(chipsSlotKeys, otherSlotKeys)),
+    [chipsSlotKeys, otherSlotKeys],
+  );
+
+  const grouped = useMemo(() => {
+    const byDay = new Map<string, Array<{ slot_key: string; time_block: string; mutual: boolean }>>();
+    for (const slot of chipsSlots) {
+      const mutual = mutualSet.has(slot.slot_key);
+      const arr = byDay.get(slot.slot_date) ?? [];
+      arr.push({ slot_key: slot.slot_key, time_block: slot.time_block, mutual });
+      byDay.set(slot.slot_date, arr);
+    }
+    const blockOrder: Record<string, number> = { morning: 0, afternoon: 1, evening: 2, night: 3 };
+    for (const arr of byDay.values()) {
+      arr.sort((a, b) => (blockOrder[a.time_block] ?? 9) - (blockOrder[b.time_block] ?? 9));
+    }
+    return Array.from(byDay.entries()).sort(([dateA, slotsA], [dateB, slotsB]) => {
+      const aMutual = slotsA.some((s) => s.mutual) ? 0 : 1;
+      const bMutual = slotsB.some((s) => s.mutual) ? 0 : 1;
+      if (aMutual !== bMutual) return aMutual - bMutual;
+      return dateA.localeCompare(dateB);
+    });
+  }, [chipsSlots, mutualSet]);
+
+  if (chipsOffer.isLoading) {
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm }}>
+        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Loading offered blocks…</Text>
+      </View>
+    );
+  }
+  if (chipsOffer.isError) {
+    return (
+      <Text style={{ color: theme.textSecondary, fontSize: 12, marginTop: spacing.sm }}>
+        {isOwnOffer
+          ? 'Your share window has expired. Share again to keep planning.'
+          : 'Schedule access expired — share again to plan.'}
+      </Text>
+    );
+  }
+  if (chipsSlots.length === 0) {
+    return (
+      <View
+        style={{
+          marginTop: spacing.sm,
+          padding: spacing.sm,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: theme.border,
+          backgroundColor: theme.muted,
+        }}
+      >
+        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>
+          {isOwnOffer
+            ? 'No currently-visible blocks. (Some may have changed since you shared.)'
+            : `${partnerName} hasn't shared open blocks that align right now.`}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ marginTop: spacing.sm, gap: spacing.xs }}>
+      <Text style={{ color: theme.textSecondary, fontSize: 11 }}>
+        {isOwnOffer
+          ? `You shared these open blocks. Waiting for ${partnerName} to pick or share back.`
+          : `${partnerName} shared these open blocks. Tap to pick one or share yours back.`}
+      </Text>
+      {grouped.map(([dayDate, slots]) => (
+        <View key={dayDate} style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+          <Text style={{ color: theme.textSecondary, fontSize: 11, width: 78 }}>
+            {dayLabelNative(dayDate)}
+          </Text>
+          {slots.map((slot) => {
+            const canTap = !isOwnOffer && canPick;
+            return (
+              <Pressable
+                key={slot.slot_key}
+                disabled={!canTap}
+                onPress={() => canTap && onPickSlot(slot.slot_key)}
+                style={({ pressed }) => [
+                  {
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: slot.mutual ? 'rgba(245,158,11,0.6)' : 'rgba(34,211,238,0.5)',
+                    backgroundColor: slot.mutual ? 'rgba(245,158,11,0.15)' : 'rgba(34,211,238,0.1)',
+                    opacity: pressed && canTap ? 0.85 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: slot.mutual ? '#b45309' : '#0e7490',
+                    fontWeight: '600',
+                  }}
+                >
+                  {TIME_BLOCK_LABEL[slot.time_block] ?? slot.time_block}
+                  {slot.mutual ? ' · Both open' : ''}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ))}
+      <Text style={{ color: theme.textSecondary, fontSize: 10, fontStyle: 'italic' }}>
+        Only selected open blocks are shared. Visible for 48 hours.
+      </Text>
+    </View>
   );
 }
 

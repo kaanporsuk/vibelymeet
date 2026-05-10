@@ -19,20 +19,6 @@ export interface ScheduleData {
   [key: string]: TimeSlot;
 }
 
-export interface DateProposal {
-  id: string;
-  date: Date;
-  block: TimeBlock;
-  mode: "video" | "in-person";
-  message: string;
-  status: "pending" | "accepted" | "declined";
-  sentAt: Date;
-  isIncoming?: boolean;
-  senderName?: string;
-  senderAvatar?: string;
-  matchId?: string;
-}
-
 const TIME_BLOCK_INFO: Record<TimeBlock, { label: string; hours: string }> = {
   morning: { label: "Morning", hours: "08:00 - 12:00" },
   afternoon: { label: "Afternoon", hours: "12:00 - 17:00" },
@@ -218,45 +204,5 @@ export const useSchedule = () => {
     isSyncing: pendingSlots.size > 0,
     isSlotPending,
     refetch,
-  };
-};
-
-
-// Hook for viewing mutual availability with a match
-export const useMutualAvailability = (_matchId: string) => {
-  const { mySchedule, dateRange } = useSchedule();
-  // Empty schedule for now until we have actual match schedules from DB
-  const [matchSchedule] = useState<ScheduleData>({});
-
-  const getMutualSlots = useMemo(() => {
-    const slots: Array<{
-      date: Date;
-      block: TimeBlock;
-      type: "golden" | "available";
-    }> = [];
-
-    dateRange.forEach(date => {
-      (['morning', 'afternoon', 'evening', 'night'] as TimeBlock[]).forEach(block => {
-        const key = `${format(date, "yyyy-MM-dd")}_${block}`;
-        const mySlot = mySchedule[key];
-        const matchSlot = matchSchedule[key];
-
-        // Only show slots where match is open
-        if (matchSlot?.status === "open") {
-          if (mySlot?.status === "open") {
-            slots.push({ date, block, type: "golden" });
-          } else if (!mySlot || mySlot.status === "busy") {
-            slots.push({ date, block, type: "available" });
-          }
-        }
-      });
-    });
-
-    return slots;
-  }, [mySchedule, matchSchedule, dateRange]);
-
-  return {
-    mutualSlots: getMutualSlots,
-    dateRange,
   };
 };

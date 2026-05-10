@@ -93,8 +93,8 @@ const ChatPhotoLightbox = lazy(() =>
 const ChatVideoLightbox = lazy(() =>
   import("@/components/chat/ChatVideoLightbox").then((mod) => ({ default: mod.ChatVideoLightbox })),
 );
-const VibeSyncModal = lazy(() =>
-  import("@/components/schedule/VibeSyncModal").then((mod) => ({ default: mod.VibeSyncModal })),
+const ScheduleShareSheet = lazy(() =>
+  import("@/components/chat/ScheduleShareSheet").then((mod) => ({ default: mod.ScheduleShareSheet })),
 );
 const DateSuggestionComposer = lazy(() =>
   import("@/components/chat/DateSuggestionComposer").then((mod) => ({ default: mod.DateSuggestionComposer })),
@@ -280,7 +280,9 @@ const Chat = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
-  const [showVibeSync, setShowVibeSync] = useState(false);
+  const [showScheduleShare, setShowScheduleShare] = useState(false);
+  const [focusedSuggestionId, setFocusedSuggestionId] = useState<string | null>(null);
+  const [focusToken, setFocusToken] = useState(0);
   const [showAttachmentTray, setShowAttachmentTray] = useState(false);
   const [showDateComposer, setShowDateComposer] = useState(false);
   const [dateComposerLaunchSource, setDateComposerLaunchSource] =
@@ -1158,6 +1160,21 @@ const Chat = () => {
     }
   };
 
+  // Declared early so handleOpenDateComposerFromChip + handleOpenDateComposer
+  // can reference it without TS2448 (use-before-declaration under
+  // tsconfig.core-strict.json's noFunctionDeclarationsBeforeUse-style check).
+  const focusExistingSuggestion = useCallback((suggestionId: string | null) => {
+    if (!suggestionId) return;
+    setFocusedSuggestionId(suggestionId);
+    setFocusToken((t) => t + 1);
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-suggestion-id="${suggestionId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  }, []);
+
   const handleOpenDateComposerFromChip = () => {
     if (!chatData?.matchId || !id) {
       toast.error("No active conversation found");
@@ -1168,10 +1185,13 @@ const Chat = () => {
       match_id: chatData?.matchId ?? id,
       source: "chip",
     });
-    if (matchHasOpenDateSuggestion(dateSuggestions)) {
-      toast.message(
-        "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
-      );
+    const existing = matchHasOpenDateSuggestion(dateSuggestions);
+    if (existing) {
+      // Replace toast with focus/scroll/pulse on the existing card.
+      const existingId = dateSuggestions.find((s) =>
+        ["draft", "proposed", "viewed", "countered"].includes(s.status),
+      )?.id;
+      focusExistingSuggestion(existingId ?? null);
       return;
     }
     setComposerCounter(null);
@@ -1213,9 +1233,10 @@ const Chat = () => {
         setComposerCounter(null);
       } else {
         if (matchHasOpenDateSuggestion(dateSuggestions)) {
-          toast.message(
-            "You already have an active date suggestion in this chat. Use the card in the thread to continue, respond, or cancel before starting another.",
-          );
+          const existingId = dateSuggestions.find((s) =>
+            ["draft", "proposed", "viewed", "countered"].includes(s.status),
+          )?.id;
+          focusExistingSuggestion(existingId ?? null);
           return;
         }
         setComposerCounter(null);
@@ -1225,7 +1246,7 @@ const Chat = () => {
       }
       setShowDateComposer(true);
     },
-    [dateSuggestions],
+    [dateSuggestions, focusExistingSuggestion],
   );
 
   const closeDateComposer = useCallback(() => {
@@ -1368,11 +1389,25 @@ const Chat = () => {
     setShowArcade(true);
   }, [guardActiveConversation]);
 
-  const openVibeSync = useCallback(() => {
+  const openScheduleShare = useCallback(() => {
     if (!guardActiveConversation()) return;
-    setShowVibeSync(true);
+    setShowScheduleShare(true);
     setShowAttachmentTray(false);
   }, [guardActiveConversation]);
+
+  const openShareScheduleAsCounter = useCallback(
+    (suggestionId: string, previousRevision: DateSuggestionWithRelations["revisions"][0]) => {
+      // Counter response with own selected schedule blocks: routes through the
+      // existing composer in counter mode with share preselected. Composer's
+      // When step renders the ScheduleSharePicker inline.
+      setDateComposerLaunchSource("default");
+      setComposerCounter({ suggestionId, previousRevision });
+      setComposerDraftId(null);
+      setComposerDraftPayload(null);
+      setShowDateComposer(true);
+    },
+    [],
+  );
 
   const openPhotoPicker = useCallback(() => {
     if (composerMediaLocked) return;
@@ -1584,8 +1619,12 @@ const Chat = () => {
                         partnerName={otherUser.name}
                         partnerUserId={chatData?.otherUser?.id ?? id ?? ""}
                         onOpenComposer={handleOpenDateComposer}
+                        onShareMyScheduleAsCounter={openShareScheduleAsCounter}
                         onUpdated={onDateSuggestionUpdated}
                         threadUi={row.dateUi}
+                        highlightToken={
+                          focusedSuggestionId === groupedMessage.refId ? focusToken : undefined
+                        }
                       />
                     ) : (
                       <div className="rounded-2xl border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
@@ -1925,7 +1964,7 @@ const Chat = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={openVibeSync}
+                  onClick={openScheduleShare}
                   disabled={!hasActiveConversation}
                   className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/70 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
                   aria-label="Vibely schedule"
@@ -2150,16 +2189,28 @@ const Chat = () => {
             }}
             launchSource={dateComposerLaunchSource}
             threadMessageCount={displayMessages.length}
+            onActiveSuggestionConflict={focusExistingSuggestion}
           />
         )}
 
-        <VibeSyncModal
-          isOpen={showVibeSync}
-          onClose={() => setShowVibeSync(false)}
-          matchName={otherUser.name}
-          matchAvatar={otherUser.avatar_url}
-          matchId={chatData?.matchId ?? ""}
-        />
+        {chatData?.matchId && (
+          <ScheduleShareSheet
+            isOpen={showScheduleShare}
+            onClose={() => setShowScheduleShare(false)}
+            matchId={chatData.matchId}
+            partnerName={otherUser.name}
+            onActiveSuggestionConflict={focusExistingSuggestion}
+            onSent={() => {
+              void refetchDateSuggestions();
+              if (id && currentUserId) {
+                queryClient.invalidateQueries({
+                  queryKey: threadMessagesQueryKey(id, currentUserId),
+                  exact: true,
+                });
+              }
+            }}
+          />
+        )}
 
         <VibeArcadeMenu
           isOpen={showArcade}
