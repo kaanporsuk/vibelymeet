@@ -4,8 +4,10 @@ import {
   buildMeetingTokenProperties,
   canIssueAnswerTokenForMatchCallStatus,
   canReuseOpenMatchCallForCreateRetry,
+  canReuseOpenMatchCallSameParticipants,
   classifyDeleteRoomSafety,
   isDailyRoomAlreadyExistsErrorText,
+  isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
 } from "./dailyRoomContracts";
@@ -166,6 +168,82 @@ test("same-caller open match-call retry can reuse the existing canonical room", 
       callerId: "caller-1",
       calleeId: "callee-1",
       callType: "video",
+    }),
+    false,
+  );
+});
+
+test("same-participants variant tolerates call_type mismatch for rejoin", () => {
+  const call = {
+    id: "call-1",
+    match_id: "match-1",
+    caller_id: "caller-1",
+    callee_id: "callee-1",
+    call_type: "voice" as const,
+    daily_room_name: "call-match1",
+    daily_room_url: "https://vibelyapp.daily.co/call-match1",
+    status: "ringing" as const,
+  };
+  const requestVideo = {
+    matchId: "match-1",
+    callerId: "caller-1",
+    calleeId: "callee-1",
+    callType: "video" as const,
+  };
+  assert.equal(canReuseOpenMatchCallSameParticipants(call, requestVideo), true);
+  assert.equal(canReuseOpenMatchCallForCreateRetry(call, requestVideo), false);
+  assert.equal(
+    canReuseOpenMatchCallSameParticipants({ ...call, daily_room_name: null }, requestVideo),
+    false,
+  );
+  assert.equal(
+    canReuseOpenMatchCallSameParticipants({ ...call, status: "ended" }, requestVideo),
+    false,
+  );
+  assert.equal(
+    canReuseOpenMatchCallSameParticipants(
+      { ...call, caller_id: "callee-1", callee_id: "caller-1" },
+      requestVideo,
+    ),
+    false,
+  );
+});
+
+test("isIncomingMatchCallForRequester detects reverse-direction open call", () => {
+  const call = {
+    id: "call-1",
+    match_id: "match-1",
+    caller_id: "partner",
+    callee_id: "me",
+    call_type: "video" as const,
+    daily_room_name: "call-match1",
+    daily_room_url: "https://vibelyapp.daily.co/call-match1",
+    status: "ringing" as const,
+  };
+  assert.equal(
+    isIncomingMatchCallForRequester(call, {
+      matchId: "match-1",
+      callerId: "me",
+      calleeId: "partner",
+      callType: "voice",
+    }),
+    true,
+  );
+  assert.equal(
+    isIncomingMatchCallForRequester(call, {
+      matchId: "match-1",
+      callerId: "partner",
+      calleeId: "me",
+      callType: "voice",
+    }),
+    false,
+  );
+  assert.equal(
+    isIncomingMatchCallForRequester({ ...call, status: "ended" }, {
+      matchId: "match-1",
+      callerId: "me",
+      calleeId: "partner",
+      callType: "voice",
     }),
     false,
   );

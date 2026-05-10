@@ -160,6 +160,48 @@ export function canReuseOpenMatchCallForCreateRetry(
   );
 }
 
+/**
+ * Looser variant of canReuseOpenMatchCallForCreateRetry that allows the caller to rejoin an
+ * existing open call when the requested call_type differs from the existing call's call_type.
+ * Used by the rejoin contract: rather than returning 409, the edge function returns the existing
+ * room + fresh token plus an `existing_call_type` flag so the client can adapt its UI.
+ */
+export function canReuseOpenMatchCallSameParticipants(
+  call: OpenMatchCallForRetry | null | undefined,
+  request: MatchCallRetryRequest,
+): call is OpenMatchCallForRetry & {
+  match_id: string;
+  call_type: "voice" | "video";
+  daily_room_name: string;
+} {
+  return Boolean(
+    call &&
+      call.match_id === request.matchId &&
+      call.caller_id === request.callerId &&
+      call.callee_id === request.calleeId &&
+      isOpenMatchCallStatus(call.status) &&
+      call.daily_room_name,
+  );
+}
+
+/**
+ * True when the open call exists for this match but the requesting user is the CALLEE of that
+ * open call (i.e. an incoming call from the partner). The client should call `answer_match_call`
+ * with the returned `call_id` rather than create a new call.
+ */
+export function isIncomingMatchCallForRequester(
+  call: OpenMatchCallForRetry | null | undefined,
+  request: MatchCallRetryRequest,
+): boolean {
+  return Boolean(
+    call &&
+      call.match_id === request.matchId &&
+      call.caller_id === request.calleeId &&
+      call.callee_id === request.callerId &&
+      isOpenMatchCallStatus(call.status),
+  );
+}
+
 export function canIssueAnswerTokenForMatchCallStatus(status: MatchCallStatus): boolean {
   return status === "ringing" || status === "active";
 }

@@ -4,8 +4,10 @@ import {
   buildMeetingTokenProperties,
   canIssueAnswerTokenForMatchCallStatus,
   canReuseOpenMatchCallForCreateRetry,
+  canReuseOpenMatchCallSameParticipants,
   classifyDeleteRoomSafety,
   isDailyRoomAlreadyExistsErrorText,
+  isIncomingMatchCallForRequester,
   planDailyProviderRoomRecovery,
   resolveCanonicalVideoDateRoom,
   videoDateRoomNameForSession,
@@ -1700,6 +1702,43 @@ function createDuplicateActiveMatchCallResponse(matchId: string, callerId: strin
   );
 }
 
+function createIncomingMatchCallAvailableResponse(
+  call: OpenMatchCallForRetry,
+  matchId: string,
+  callerId: string,
+  calleeId: string,
+) {
+  console.log(
+    JSON.stringify({
+      event: "create_match_call_redirected_to_answer",
+      code: "INCOMING_CALL_AVAILABLE",
+      call_id: call.id,
+      match_id: matchId,
+      requesting_user_id: callerId,
+      partner_id: calleeId,
+      existing_caller_id: call.caller_id,
+      existing_callee_id: call.callee_id,
+      existing_call_type: call.call_type,
+      status: call.status,
+    }),
+  );
+  return new Response(
+    JSON.stringify({
+      code: "INCOMING_CALL_AVAILABLE",
+      call_id: call.id,
+      match_id: matchId,
+      existing_call_type: call.call_type,
+      status: call.status,
+      message:
+        "An incoming call from this match is already in progress. Answer it instead of starting a new one.",
+    }),
+    {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
 async function maybeCreateMatchCallRetryResponse(params: {
   call: OpenMatchCallForRetry | null | undefined;
   request: {
@@ -1709,9 +1748,12 @@ async function maybeCreateMatchCallRetryResponse(params: {
     callType: "voice" | "video";
   };
 }): Promise<Response | null> {
-  if (!canReuseOpenMatchCallForCreateRetry(params.call, params.request)) {
+  if (!canReuseOpenMatchCallSameParticipants(params.call, params.request)) {
     return null;
   }
+
+  const callTypeMatches = canReuseOpenMatchCallForCreateRetry(params.call, params.request);
+  const existingCallType = params.call.call_type;
 
   try {
     const providerRoom = await ensureMatchCallProviderRoomForToken({
@@ -1721,7 +1763,7 @@ async function maybeCreateMatchCallRetryResponse(params: {
       userId: params.request.callerId,
       roomName: params.call.daily_room_name,
       roomUrl: params.call.daily_room_url,
-      callType: params.request.callType,
+      callType: existingCallType,
     });
     const token = await createMeetingToken(
       providerRoom.roomName,
@@ -1738,7 +1780,9 @@ async function maybeCreateMatchCallRetryResponse(params: {
         match_id: params.request.matchId,
         caller_id: params.request.callerId,
         callee_id: params.request.calleeId,
-        call_type: params.request.callType,
+        requested_call_type: params.request.callType,
+        existing_call_type: existingCallType,
+        call_type_mismatch: !callTypeMatches,
         room_name: providerRoom.roomName,
         status: params.call.status,
         provider_room_recreated: providerRoom.providerRoomRecreated,
@@ -1750,11 +1794,18 @@ async function maybeCreateMatchCallRetryResponse(params: {
     return new Response(
       JSON.stringify({
         call_id: params.call.id,
+        match_id: params.call.match_id,
+        call_type: existingCallType,
+        existing_call_type: existingCallType,
+        requested_call_type: params.request.callType,
+        call_type_mismatch: !callTypeMatches,
         room_name: providerRoom.roomName,
         room_url: providerRoom.roomUrl,
         token,
-        reused_call: true,
         status: params.call.status,
+        reused: true,
+        reused_call: true,
+        participant_role: "caller",
         provider_room_recreated: providerRoom.providerRoomRecreated,
         provider_room_recovered: providerRoom.providerRoomRecovered,
       }),
@@ -3473,11 +3524,20 @@ serve(async (req) => {
 
       if (!gate.ok) {
         if (gate.code === "DUPLICATE_ACTIVE_CALL") {
+          const retryRequest = { matchId, callerId: user.id, calleeId, callType: callTypeValue };
           const retryResponse = await maybeCreateMatchCallRetryResponse({
             call: gate.duplicateCall ?? null,
-            request: { matchId, callerId: user.id, calleeId, callType: callTypeValue },
+            request: retryRequest,
           });
           if (retryResponse) return retryResponse;
+          if (gate.duplicateCall && isIncomingMatchCallForRequester(gate.duplicateCall, retryRequest)) {
+            return createIncomingMatchCallAvailableResponse(
+              gate.duplicateCall,
+              matchId,
+              user.id,
+              calleeId,
+            );
+          }
           return createDuplicateActiveMatchCallResponse(matchId, user.id, calleeId);
         }
         console.log(
@@ -3566,11 +3626,20 @@ serve(async (req) => {
         const pgCode = (callError as { code?: string }).code;
         if (pgCode === "23505") {
           const existingCall = await fetchOpenMatchCallForMatch(serviceClient, matchId);
+          const retryRequest = { matchId, callerId: user.id, calleeId, callType: callTypeValue };
           const retryResponse = await maybeCreateMatchCallRetryResponse({
             call: existingCall,
-            request: { matchId, callerId: user.id, calleeId, callType: callTypeValue },
+            request: retryRequest,
           });
           if (retryResponse) return retryResponse;
+          if (existingCall && isIncomingMatchCallForRequester(existingCall, retryRequest)) {
+            return createIncomingMatchCallAvailableResponse(
+              existingCall,
+              matchId,
+              user.id,
+              calleeId,
+            );
+          }
           console.log(
             JSON.stringify({
               event: "create_match_call_duplicate_db",
