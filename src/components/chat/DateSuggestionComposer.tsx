@@ -25,7 +25,8 @@ import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import type { DateSuggestionRevisionRow } from "@/hooks/useDateSuggestionData";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Clock, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Loader2, Sparkles, Calendar as CalendarIcon } from "lucide-react";
+import { ScheduleSharePicker } from "@/components/schedule/ScheduleSharePicker";
 import {
   CLIP_DATE_COMPOSER_PILL,
   CLIP_DATE_COMPOSER_SUBCOPY,
@@ -75,6 +76,8 @@ export type WizardState = {
   pickEndIso: string | null;
   pickSlotDate: string | null;
   pickTimeBlock: string | null;
+  /** Slots the user selected to share with the partner, when timeChoiceKey === "share_schedule". */
+  selectedSlotKeys: string[];
 };
 
 const defaultWizard = (): WizardState => ({
@@ -90,6 +93,7 @@ const defaultWizard = (): WizardState => ({
   pickEndIso: null,
   pickSlotDate: null,
   pickTimeBlock: null,
+  selectedSlotKeys: [],
 });
 
 function resolveDateTypeValue(w: Pick<WizardState, "dateTypeKey" | "customDateTypeText">): string {
@@ -123,6 +127,7 @@ function buildRevision(w: WizardState) {
     starts_at: startsAt ?? null,
     ends_at: endsAt ?? null,
     time_block: timeBlock ?? null,
+    selected_slot_keys: share && w.selectedSlotKeys.length > 0 ? w.selectedSlotKeys : null,
   };
 }
 
@@ -147,6 +152,8 @@ type Props = {
   onSuccess?: () => void;
   /** For analytics (thread warm/cold bucket). */
   threadMessageCount?: number;
+  /** Called with the existing suggestion id when active_suggestion_exists is returned. */
+  onActiveSuggestionConflict?: (suggestionId: string | null) => void;
 };
 
 export function DateSuggestionComposer({
@@ -162,6 +169,7 @@ export function DateSuggestionComposer({
   launchSource = "default",
   onSuccess,
   threadMessageCount = 0,
+  onActiveSuggestionConflict,
 }: Props) {
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(defaultWizard);
@@ -215,6 +223,9 @@ export function DateSuggestionComposer({
         pickEndIso: r.ends_at,
         pickSlotDate: null,
         pickTimeBlock: r.time_block,
+        // Counter starts with empty selection — the recipient picks their OWN
+        // open blocks to share back, not the proposer's previous selections.
+        selectedSlotKeys: [],
       });
       setStep(0);
       setDraftId(null);
@@ -305,7 +316,13 @@ export function DateSuggestionComposer({
         if (e.suggestionId) setDraftId(e.suggestionId);
         onSuccess?.();
         onClose();
-        toast.message("You already have an active date suggestion in this chat.");
+        if (onActiveSuggestionConflict) {
+          onActiveSuggestionConflict(e.suggestionId ?? null);
+        } else {
+          toast.message("You already have an active date suggestion in this chat.");
+        }
+      } else if (e instanceof DateSuggestionDomainError && e.code === "selected_slots_required") {
+        toast.error("Pick at least one open block to share.");
       } else {
         console.error(e);
         toast.error(submitErrorMessage(e));
@@ -320,6 +337,9 @@ export function DateSuggestionComposer({
     if (step === 0 && w.dateTypeKey === "custom" && !w.customDateTypeText.trim()) return false;
     if (step === 1 && w.timeChoiceKey === "pick_a_time" && !w.pickStartIso) return false;
     if (step === 1 && shareEnabled && counterContext && (!w.pickSlotDate || !w.pickTimeBlock)) {
+      return false;
+    }
+    if (step === 1 && shareEnabled && !counterContext && w.selectedSlotKeys.length === 0) {
       return false;
     }
     if (step === 2 && w.placeModeKey === "custom_venue" && !w.venueText.trim()) return false;
@@ -614,10 +634,26 @@ export function DateSuggestionComposer({
               </div>
             )}
             {shareEnabled && !counterContext && (
-              <p className="text-xs text-muted-foreground rounded-lg border border-border/50 p-2 bg-muted/20">
-                When you send, {partnerName} can view your Vibely Schedule availability for the next
-                14 days for 48 hours — live updates, open/busy windows only.
-              </p>
+              <div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+                <div className="px-3 pt-3 pb-2 flex items-start gap-2">
+                  <CalendarIcon className="h-4 w-4 text-cyan-500 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-foreground">
+                      Choose the open blocks you want to share with {partnerName}.
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Only selected open blocks are shared. Busy/private and unselected times are
+                      never shown. Visible for 48 hours.
+                    </p>
+                  </div>
+                </div>
+                <ScheduleSharePicker
+                  initialSelection={w.selectedSlotKeys}
+                  onSelectionChange={(keys) =>
+                    setW((p) => ({ ...p, selectedSlotKeys: keys }))
+                  }
+                />
+              </div>
             )}
             {shareEnabled && counterContext && (
               <div className="space-y-2">

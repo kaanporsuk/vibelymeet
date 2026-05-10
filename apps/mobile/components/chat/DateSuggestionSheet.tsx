@@ -36,6 +36,7 @@ import { slotDateBlockToStartsAt } from '@/lib/dateSuggestionTime';
 import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import type { DateSuggestionRevisionRow } from '@/lib/useDateSuggestionData';
+import { ScheduleSharePicker } from '@/components/schedule/ScheduleSharePicker';
 import {
   CLIP_DATE_COMPOSER_PILL,
   CLIP_DATE_COMPOSER_SUBCOPY,
@@ -62,6 +63,8 @@ export type WizardState = {
   pickEndIso: string | null;
   pickSlotDate: string | null;
   pickTimeBlock: string | null;
+  /** Slots the user selected to share when timeChoiceKey === 'share_schedule'. */
+  selectedSlotKeys: string[];
 };
 
 const defaultWizard = (): WizardState => ({
@@ -77,6 +80,7 @@ const defaultWizard = (): WizardState => ({
   pickEndIso: null,
   pickSlotDate: null,
   pickTimeBlock: null,
+  selectedSlotKeys: [],
 });
 
 const DATE_TYPE_KEYS = new Set<string>(DATE_TYPE_OPTIONS.map((o) => o.key));
@@ -112,6 +116,7 @@ function buildRevision(w: WizardState) {
     starts_at: startsAt ?? null,
     ends_at: endsAt ?? null,
     time_block: timeBlock ?? null,
+    selected_slot_keys: share && w.selectedSlotKeys.length > 0 ? w.selectedSlotKeys : null,
   };
 }
 
@@ -190,6 +195,7 @@ export function DateSuggestionSheet({
         pickEndIso: r.ends_at,
         pickSlotDate: null,
         pickTimeBlock: r.time_block,
+        selectedSlotKeys: [],
       });
       setStep(0);
       setDraftId(null);
@@ -246,6 +252,8 @@ export function DateSuggestionSheet({
         return 'This date option is not available for your account right now.';
       case 'revision_fields_required':
         return 'Pick a type, time, and place before sending.';
+      case 'selected_slots_required':
+        return 'Pick at least one open block to share.';
       default:
         return counterContext ? 'We couldn’t send your counter. Try again.' : 'We couldn’t send your suggestion. Try again.';
     }
@@ -300,6 +308,9 @@ export function DateSuggestionSheet({
     if (step === 0 && w.dateTypeKey === 'custom' && !w.customDateTypeText.trim()) return false;
     if (step === 1 && w.timeChoiceKey === 'pick_a_time' && !w.pickStartIso) return false;
     if (step === 1 && shareEnabled && counterContext && (!w.pickSlotDate || !w.pickTimeBlock)) {
+      return false;
+    }
+    if (step === 1 && shareEnabled && !counterContext && w.selectedSlotKeys.length === 0) {
       return false;
     }
     if (step === 2 && w.placeModeKey === 'custom_venue' && !w.venueText.trim()) return false;
@@ -453,10 +464,18 @@ export function DateSuggestionSheet({
             </View>
           )}
           {shareEnabled && !counterContext && (
-            <Text style={[styles.hint, { color: theme.textSecondary }]}>
-              When you send, {partnerName} can view your Vibely Schedule availability for the next 14 days for 48 hours —
-              open/busy windows only.
-            </Text>
+            <View style={{ gap: spacing.xs }}>
+              <Text style={[styles.hint, { color: theme.textSecondary }]}>
+                Choose the open blocks you want to share with {partnerName}. Only selected open blocks
+                are shared. Busy/private and unselected times are never shown. Visible for 48 hours.
+              </Text>
+              <ScheduleSharePicker
+                initialSelection={w.selectedSlotKeys}
+                onSelectionChange={(keys) =>
+                  setW((p) => ({ ...p, selectedSlotKeys: keys }))
+                }
+              />
+            </View>
           )}
           {shareEnabled && counterContext && (
             <View style={{ gap: spacing.sm }}>

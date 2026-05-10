@@ -11,11 +11,29 @@ import {
 } from "@/lib/dateSuggestionCopy";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
+import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { Calendar, Check, Loader2, Sparkles, Share2 } from "lucide-react";
+import { Calendar, Check, Loader2, Sparkles, Share2, X } from "lucide-react";
 import type { DateCardThreadUi } from "../../../shared/chat/threadPresentation";
 import { getDateSuggestionActionPolicy } from "../../../shared/dateSuggestions/actionPolicy";
+import { intersectSlotKeys } from "../../../shared/dateSuggestions/scheduleShare";
+import { ExactTimePinSheet } from "./ExactTimePinSheet";
+
+const TIME_BLOCK_LABEL: Record<string, string> = {
+  morning: "Morning",
+  afternoon: "Afternoon",
+  evening: "Evening",
+  night: "Night",
+};
+
+function dayLabel(slotDate: string): string {
+  try {
+    return format(new Date(`${slotDate}T00:00:00`), "EEE MMM d");
+  } catch {
+    return slotDate;
+  }
+}
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
@@ -66,9 +84,16 @@ type Props = {
     draftPayload?: Record<string, unknown> | null;
     counter?: { suggestionId: string; previousRevision: DateSuggestionWithRelations["revisions"][0] };
   }) => void;
+  /** Open the schedule-share picker as a counter response. */
+  onShareMyScheduleAsCounter?: (suggestionId: string, previousRevision: DateSuggestionWithRelations["revisions"][0]) => void;
   onUpdated: () => void;
   /** Thread presentation: older terminal rows render quieter. */
   threadUi?: DateCardThreadUi;
+  /**
+   * When this token changes, the card briefly pulses to draw attention
+   * (used by Chat.tsx to focus the existing card after active_suggestion_exists).
+   */
+  highlightToken?: number;
 };
 
 export function DateSuggestionCard({
@@ -77,14 +102,25 @@ export function DateSuggestionCard({
   partnerName,
   partnerUserId,
   onOpenComposer,
+  onShareMyScheduleAsCounter,
   onUpdated,
   threadUi = "normal",
+  highlightToken,
 }: Props) {
   const queryClient = useQueryClient();
   const cancelInFlightRef = useRef(false);
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "share" | "complete" | null>(null);
+  const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "share" | "complete" | "cancel_plan" | null>(null);
+  const [pendingChosenSlotKey, setPendingChosenSlotKey] = useState<string | null>(null);
+  const [pulse, setPulse] = useState(false);
   const markedRef = useRef(false);
+
+  useEffect(() => {
+    if (highlightToken === undefined) return;
+    setPulse(true);
+    const t = setTimeout(() => setPulse(false), 1500);
+    return () => clearTimeout(t);
+  }, [highlightToken]);
   const revs = suggestion.revisions;
   const current = useMemo(() => {
     if (suggestion.current_revision_id) {
@@ -124,8 +160,17 @@ export function DateSuggestionCard({
   const optionalNote = current?.optional_message ? tidyDateDisplayText(current.optional_message) : "";
   const actionBusy = cancelBusy || busyAction !== null;
 
+  const isScheduleShare = current?.time_choice_key === "share_schedule";
+
   const handleAccept = async () => {
     if (actionBusy) return;
+    // Schedule-share suggestions require picking a specific block first → open pin sheet
+    if (isScheduleShare) {
+      // Recipient is expected to use "Pick block" on a chip below; this Accept
+      // path covers the case where the partner already has a single offered slot.
+      // For multi-block proposals, the chip-level Pick action drives the flow.
+      return;
+    }
     setBusyAction("accept");
     try {
       await dateSuggestionApply("accept", { suggestion_id: suggestion.id });
@@ -137,6 +182,68 @@ export function DateSuggestionCard({
       setBusyAction(null);
     }
   };
+
+  const handleAcceptWithSlot = async (
+    slotKey: string,
+    startsAtIso: string,
+    endsAtIso: string,
+    localStartHour: number,
+  ) => {
+    if (actionBusy) return;
+    setBusyAction("accept");
+    try {
+      await dateSuggestionApply("accept", {
+        suggestion_id: suggestion.id,
+        chosen_slot_key: slotKey,
+        starts_at: startsAtIso,
+        ends_at: endsAtIso,
+        local_start_hour: localStartHour,
+      });
+      toast.success("It's a date!");
+      setPendingChosenSlotKey(null);
+      onUpdated();
+    } catch (e) {
+      if (e instanceof DateSuggestionDomainError) {
+        if (e.code === "slot_already_locked") {
+          toast.error("That time was just taken by another date.");
+        } else if (e.code === "slot_user_busy") {
+          toast.error("One of you marked that block busy. Pick another.");
+        } else if (e.code === "exact_time_outside_block") {
+          toast.error("Pick a time inside the chosen block.");
+        } else {
+          toast.error(e.message || "Could not accept");
+        }
+      } else {
+        toast.error("Could not accept");
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleCancelPlan = useCallback(async () => {
+    if (actionBusy) return;
+    const planId = suggestion.date_plan_id;
+    if (!planId) {
+      toast.message("This date plan is still syncing.");
+      return;
+    }
+    setBusyAction("cancel_plan");
+    try {
+      await dateSuggestionApply("cancel_plan", { plan_id: planId });
+      toast.message("Date cancelled");
+      onUpdated();
+    } catch (e) {
+      if (e instanceof DateSuggestionDomainError && e.code === "invalid_plan_status") {
+        toast.message("This date can no longer be cancelled.");
+        onUpdated();
+      } else {
+        toast.error("Could not cancel the date.");
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  }, [actionBusy, onUpdated, suggestion.date_plan_id]);
 
   const handleDecline = async () => {
     if (actionBusy) return;
@@ -357,11 +464,13 @@ export function DateSuggestionCard({
 
   return (
     <div
+      data-suggestion-id={suggestion.id}
       className={cn(
-        "w-full rounded-xl border px-3 py-2 text-sm shadow-sm",
+        "w-full rounded-xl border px-3 py-2 text-sm shadow-sm transition-all duration-300",
         showCelebration
           ? "border-primary/40 bg-gradient-to-br from-primary/15 to-transparent"
           : "border-border/60 bg-card/80 backdrop-blur-sm",
+        pulse && "ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse",
       )}
     >
       {showCelebration && (
@@ -443,6 +552,22 @@ export function DateSuggestionCard({
         </>
       )}
 
+      {isScheduleShare && current && status !== "accepted" && status !== "completed" && (
+        <ScheduleShareOfferedBlocks
+          matchId={suggestion.match_id}
+          currentUserId={currentUserId}
+          offerAuthorId={current.proposed_by}
+          otherSideId={
+            current.proposed_by === suggestion.proposer_id
+              ? suggestion.recipient_id
+              : suggestion.proposer_id
+          }
+          partnerName={partnerName}
+          canPick={actionPolicy.canAccept && !actionBusy}
+          onPickSlot={(slotKey) => setPendingChosenSlotKey(slotKey)}
+        />
+      )}
+
       {status === "accepted" && plan && (
         <div className="mt-2 rounded-lg border border-border/50 bg-background/50 p-1.5 space-y-0.5">
           <p className="text-xs font-medium flex items-center gap-1 text-emerald-600">
@@ -455,6 +580,18 @@ export function DateSuggestionCard({
           <p className="text-[10px] text-muted-foreground">{DATE_SAFETY_NOTE}</p>
         </div>
       )}
+
+      <ExactTimePinSheet
+        isOpen={pendingChosenSlotKey !== null}
+        chosenSlotKey={pendingChosenSlotKey ?? ""}
+        onClose={() => setPendingChosenSlotKey(null)}
+        onConfirm={(startsAt, endsAt, localHour) =>
+          pendingChosenSlotKey
+            ? handleAcceptWithSlot(pendingChosenSlotKey, startsAt, endsAt, localHour)
+            : Promise.resolve()
+        }
+        isSubmitting={busyAction === "accept"}
+      />
 
       <div className="mt-2.5 flex flex-wrap gap-2">
         {actionPolicy.canEditDraft && (
@@ -598,10 +735,187 @@ export function DateSuggestionCard({
               {busyAction === "complete" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               Mark complete
             </Button>
+            {suggestion.date_plan_id && plan?.status === "active" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleCancelPlan}
+                disabled={actionBusy}
+                className="gap-1 text-muted-foreground hover:text-destructive"
+                aria-label="Cancel the date"
+                title="Cancel the date"
+              >
+                {busyAction === "cancel_plan" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                Cancel date
+              </Button>
+            )}
           </>
         )}
 
+        {isScheduleShare && actionPolicy.canRespondToCurrent && onShareMyScheduleAsCounter && current && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={actionBusy}
+            onClick={() => onShareMyScheduleAsCounter(suggestion.id, current)}
+            aria-label="Share my Vibely Schedule"
+            title="Share my Vibely Schedule"
+            className="gap-1"
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            Share my Vibely Schedule
+          </Button>
+        )}
+
       </div>
+    </div>
+  );
+}
+
+/**
+ * Renders the latest schedule-share offer's blocks as chips, grouped by day.
+ * Marks blocks that the OTHER side also offered (mutual overlap) as "Both open".
+ * The non-author of the current revision can tap a chip to start exact-time pin.
+ *
+ * `offerAuthorId` is the current revision's `proposed_by` — whoever shared most
+ * recently. Their slots are the chips. After a counter, this flips correctly.
+ */
+function ScheduleShareOfferedBlocks({
+  matchId,
+  currentUserId,
+  offerAuthorId,
+  otherSideId,
+  partnerName,
+  canPick,
+  onPickSlot,
+}: {
+  matchId: string;
+  currentUserId: string;
+  offerAuthorId: string;
+  otherSideId: string;
+  partnerName: string;
+  canPick: boolean;
+  onPickSlot: (slotKey: string) => void;
+}) {
+  const isOwnOffer = offerAuthorId === currentUserId;
+
+  // Chips: whatever the latest offer-author shared (works for either side via
+  // get_shared_schedule_for_date_planning's "viewer OR subject" check).
+  const chipsOffer = useSharedPartnerSchedule(matchId, offerAuthorId, true);
+  // Mutual: the OTHER side's offered blocks (if they shared in any prior revision).
+  // Returns grant_required if they haven't shared — handled gracefully (no mutual chips).
+  const otherOffer = useSharedPartnerSchedule(matchId, otherSideId, true);
+
+  const chipsSlots = chipsOffer.data ?? [];
+  const chipsSlotKeys = useMemo(() => chipsSlots.map((s) => s.slot_key), [chipsSlots]);
+  const otherSlotKeys = useMemo(
+    () => (otherOffer.data ?? []).map((s) => s.slot_key),
+    [otherOffer.data],
+  );
+  const mutualSet = useMemo(
+    () => new Set(intersectSlotKeys(chipsSlotKeys, otherSlotKeys)),
+    [chipsSlotKeys, otherSlotKeys],
+  );
+
+  const grouped = useMemo(() => {
+    const byDay = new Map<string, Array<{ slot_key: string; time_block: string; mutual: boolean }>>();
+    for (const slot of chipsSlots) {
+      const mutual = mutualSet.has(slot.slot_key);
+      const arr = byDay.get(slot.slot_date) ?? [];
+      arr.push({ slot_key: slot.slot_key, time_block: slot.time_block, mutual });
+      byDay.set(slot.slot_date, arr);
+    }
+    const blockOrder: Record<string, number> = { morning: 0, afternoon: 1, evening: 2, night: 3 };
+    for (const arr of byDay.values()) {
+      arr.sort((a, b) => (blockOrder[a.time_block] ?? 9) - (blockOrder[b.time_block] ?? 9));
+    }
+    return Array.from(byDay.entries())
+      .sort(([dateA, slotsA], [dateB, slotsB]) => {
+        const aHasMutual = slotsA.some((s) => s.mutual) ? 0 : 1;
+        const bHasMutual = slotsB.some((s) => s.mutual) ? 0 : 1;
+        if (aHasMutual !== bHasMutual) return aHasMutual - bHasMutual;
+        return dateA.localeCompare(dateB);
+      });
+  }, [chipsSlots, mutualSet]);
+
+  if (chipsOffer.isLoading) {
+    return (
+      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading offered blocks…
+      </div>
+    );
+  }
+
+  if (chipsOffer.isError) {
+    // The author's grant is missing or expired — only meaningful for the partner
+    // (not for the author themselves, who knows they shared).
+    return (
+      <div className="mt-2 text-xs text-muted-foreground">
+        {isOwnOffer
+          ? "Your share window has expired. Share again to keep planning."
+          : "Schedule access expired — share again to plan."}
+      </div>
+    );
+  }
+
+  if (chipsSlots.length === 0) {
+    return (
+      <div className="mt-2 rounded-lg border border-border/40 bg-muted/10 p-2 text-xs text-muted-foreground">
+        {isOwnOffer
+          ? "No currently-visible blocks. (Some may have changed since you shared.)"
+          : `${partnerName} hasn't shared open blocks that align right now.`}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <p className="text-[11px] text-muted-foreground">
+        {isOwnOffer
+          ? `You shared these open blocks. Waiting for ${partnerName} to pick or share back.`
+          : `${partnerName} shared these open blocks. Tap to pick one or share yours back.`}
+      </p>
+      <div className="space-y-1">
+        {grouped.map(([dayDate, slots]) => (
+          <div key={dayDate} className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[11px] font-medium text-muted-foreground w-20 shrink-0">
+              {dayLabel(dayDate)}
+            </span>
+            {slots.map((slot) => {
+              const canTap = !isOwnOffer && canPick;
+              return (
+              <button
+                key={slot.slot_key}
+                type="button"
+                disabled={!canTap}
+                onClick={() => canTap && onPickSlot(slot.slot_key)}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors",
+                  slot.mutual
+                    ? "bg-amber-500/15 border-amber-400/60 text-amber-700 dark:text-amber-300"
+                    : "bg-cyan-500/10 border-cyan-400/50 text-cyan-700 dark:text-cyan-300",
+                  canTap && "hover:bg-primary/20 hover:border-primary cursor-pointer",
+                  !canTap && "cursor-default opacity-90",
+                )}
+              >
+                {TIME_BLOCK_LABEL[slot.time_block] ?? slot.time_block}
+                {slot.mutual && (
+                  <span className="ml-1 text-[10px] uppercase tracking-wide opacity-80">
+                    · Both open
+                  </span>
+                )}
+              </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground italic">
+        Only selected open blocks are shared. Visible for 48 hours.
+      </p>
     </div>
   );
 }

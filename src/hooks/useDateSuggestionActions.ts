@@ -30,6 +30,18 @@ export type RevisionPayload = {
   starts_at?: string | null;
   ends_at?: string | null;
   time_block?: string | null;
+  selected_slot_keys?: string[] | null;
+};
+
+export type AcceptPayload = {
+  suggestion_id: string;
+  chosen_slot_key: string;
+  starts_at: string;
+  ends_at: string;
+};
+
+export type CancelPlanPayload = {
+  plan_id: string;
 };
 
 async function invokeAction(action: string, payload: Record<string, unknown>) {
