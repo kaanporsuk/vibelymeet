@@ -1160,6 +1160,21 @@ const Chat = () => {
     }
   };
 
+  // Declared early so handleOpenDateComposerFromChip + handleOpenDateComposer
+  // can reference it without TS2448 (use-before-declaration under
+  // tsconfig.core-strict.json's noFunctionDeclarationsBeforeUse-style check).
+  const focusExistingSuggestion = useCallback((suggestionId: string | null) => {
+    if (!suggestionId) return;
+    setFocusedSuggestionId(suggestionId);
+    setFocusToken((t) => t + 1);
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-suggestion-id="${suggestionId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  }, []);
+
   const handleOpenDateComposerFromChip = () => {
     if (!chatData?.matchId || !id) {
       toast.error("No active conversation found");
@@ -1379,18 +1394,6 @@ const Chat = () => {
     setShowScheduleShare(true);
     setShowAttachmentTray(false);
   }, [guardActiveConversation]);
-
-  const focusExistingSuggestion = useCallback((suggestionId: string | null) => {
-    if (!suggestionId) return;
-    setFocusedSuggestionId(suggestionId);
-    setFocusToken((t) => t + 1);
-    requestAnimationFrame(() => {
-      const el = document.querySelector<HTMLElement>(`[data-suggestion-id="${suggestionId}"]`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    });
-  }, []);
 
   const openShareScheduleAsCounter = useCallback(
     (suggestionId: string, previousRevision: DateSuggestionWithRelations["revisions"][0]) => {
