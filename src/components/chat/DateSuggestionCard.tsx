@@ -210,6 +210,8 @@ export function DateSuggestionCard({
           toast.error("One of you marked that block busy. Pick another.");
         } else if (e.code === "exact_time_outside_block") {
           toast.error("Pick a time inside the chosen block.");
+        } else if (e.code === "slot_not_in_share_grant") {
+          toast.error("That time is no longer available. Pick another.");
         } else {
           toast.error(e.message || "Could not accept");
         }

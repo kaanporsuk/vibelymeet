@@ -753,6 +753,33 @@ BEGIN
       RETURN jsonb_build_object('ok', false, 'error', 'invalid_status');
     END IF;
 
+    -- Server-enforced grant validation for the schedule-share accept path.
+    -- The chosen slot MUST come from the offer-author's currently-active
+    -- grant_slots set AND must still be 'open' in their schedule. This
+    -- prevents a malicious accepter from crafting a stale or made-up
+    -- chosen_slot_key and locking both calendars on a slot the offer
+    -- author never shared.
+    IF a_chosen_slot_key IS NOT NULL THEN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.schedule_share_grants g
+        JOIN public.schedule_share_grant_slots s ON s.grant_id = g.id
+        JOIN public.user_schedules us
+          ON us.user_id = g.subject_user_id
+          AND us.slot_date = s.slot_date
+          AND us.time_block = s.time_block
+        WHERE g.match_id = v_suggestion.match_id
+          AND g.viewer_user_id = v_uid
+          AND g.subject_user_id = v_rev.proposed_by
+          AND g.expires_at > now()
+          AND s.slot_date = a_slot_date
+          AND s.time_block = a_time_block
+          AND us.status = 'open'
+      ) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'slot_not_in_share_grant');
+      END IF;
+    END IF;
+
     INSERT INTO public.date_plans (
       date_suggestion_id, match_id, starts_at, ends_at,
       venue_label, date_type_key, status
@@ -1301,6 +1328,31 @@ BEGIN
 
     IF v_suggestion.status NOT IN ('proposed', 'viewed', 'countered') THEN
       RETURN jsonb_build_object('ok', false, 'error', 'invalid_status');
+    END IF;
+
+    -- Server-enforced grant validation for the schedule-share accept path
+    -- (mirrors v1). Prevents a malicious accepter from crafting a stale or
+    -- made-up chosen_slot_key and locking both calendars on a slot the
+    -- offer-author never shared.
+    IF a_chosen_slot_key IS NOT NULL THEN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM public.schedule_share_grants g
+        JOIN public.schedule_share_grant_slots s ON s.grant_id = g.id
+        JOIN public.user_schedules us
+          ON us.user_id = g.subject_user_id
+          AND us.slot_date = s.slot_date
+          AND us.time_block = s.time_block
+        WHERE g.match_id = v_suggestion.match_id
+          AND g.viewer_user_id = v_uid
+          AND g.subject_user_id = v_rev.proposed_by
+          AND g.expires_at > now()
+          AND s.slot_date = a_slot_date
+          AND s.time_block = a_time_block
+          AND us.status = 'open'
+      ) THEN
+        RETURN jsonb_build_object('ok', false, 'error', 'slot_not_in_share_grant');
+      END IF;
     END IF;
 
     INSERT INTO public.date_plans (

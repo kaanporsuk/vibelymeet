@@ -186,6 +186,7 @@ export function DateSuggestionChatCard({
         if (e.code === 'slot_already_locked') msg = 'That time was just taken by another date.';
         else if (e.code === 'slot_user_busy') msg = 'One of you marked that block busy. Pick another.';
         else if (e.code === 'exact_time_outside_block') msg = 'Pick a time inside the chosen block.';
+        else if (e.code === 'slot_not_in_share_grant') msg = 'That time is no longer available. Pick another.';
       }
       showDialog({
         title: 'Couldn’t accept',
