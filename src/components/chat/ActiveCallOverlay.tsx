@@ -16,6 +16,7 @@ interface ActiveCallOverlayProps {
   partnerAvatar?: string;
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
   remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
+  remoteAudioRef: React.RefObject<HTMLAudioElement | null>;
   localStream?: MediaStream | null;
   onToggleMute: () => void;
   onToggleVideo: () => void;
@@ -39,6 +40,7 @@ export const ActiveCallOverlay = ({
   partnerAvatar,
   localVideoRef,
   remoteVideoRef,
+  remoteAudioRef,
   localStream,
   onToggleMute,
   onToggleVideo,
@@ -91,6 +93,11 @@ export const ActiveCallOverlay = ({
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background"
       >
+        {/* Hidden audio element for remote participant audio. Required because Daily's
+            createCallObject() (low-level) mode does not auto-attach audio — without this,
+            voice calls have no sound. */}
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+
         {/* Sound wave rings */}
         <div className="relative mb-6">
           {[0, 1, 2].map((i) => (
@@ -135,6 +142,11 @@ export const ActiveCallOverlay = ({
         playsInline
         className="absolute inset-0 w-full h-full object-cover"
       />
+
+      {/* Dedicated remote audio element — driven separately from the video element so that
+          audio survives even if the remote camera is off or the video track has not yet
+          transitioned to playable. */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
 
       {/* Duration */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm">

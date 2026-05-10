@@ -358,6 +358,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       stopDurationTimer();
 
       const callObject = callObjectRef.current;
+      // Null the ref BEFORE awaiting leave/destroy so any re-entrant call sees a clean
+      // slate and skips its own create. Without this, leave()/destroy() race a new
+      // createCallObject and the SDK warns about multiple call instances.
+      callObjectRef.current = null;
       if (callObject) {
         try {
           await callObject.leave();
@@ -365,11 +369,10 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           // ignore
         }
         try {
-          callObject.destroy();
+          await callObject.destroy();
         } catch {
           // ignore
         }
-        callObjectRef.current = null;
       }
 
       const roomName = deleteRoomName ?? roomNameRef.current;
@@ -563,6 +566,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       startDurationTimer();
 
       await runSingleJoinFlow(pendingIncoming.callId, async () => {
+        if (callObjectRef.current) {
+          logMatchCallDiag('answer_call_skipped_duplicate_join', {
+            call_id: pendingIncoming.callId,
+          });
+          return;
+        }
         const callObject = Daily.createCallObject({
           audioSource: true,
           videoSource: pendingIncoming.callType === 'video',
@@ -571,6 +580,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         setupCallEvents(callObject);
 
         await callObject.join({ url: payload.room_url, token: payload.token });
+
+        try {
+          await callObject.setLocalAudio(true);
+        } catch (err) {
+          logMatchCallDiag('set_local_audio_failed', {
+            call_id: pendingIncoming.callId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+        try {
+          await callObject.setLocalVideo(pendingIncoming.callType === 'video');
+        } catch (err) {
+          logMatchCallDiag('set_local_video_failed', {
+            call_id: pendingIncoming.callId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+
         const local = callObject.participants()?.local;
         if (local) {
           setLocalParticipant(local);
@@ -652,10 +679,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           match_id: matchId,
           ok: result.ok,
           code: result.ok ? null : (result.code ?? null),
+          reused: result.ok ? Boolean(result.data.reused) : null,
+          existing_call_type: result.ok ? result.data.existing_call_type ?? null : null,
+          call_type_mismatch: result.ok ? Boolean(result.data.call_type_mismatch) : null,
         });
         if (!result.ok) {
           clearTimeout(startWatchdogId);
           if (!isCurrentStartCallAttempt()) {
+            return;
+          }
+          // Backend redirected: there is an open incoming call from the partner. Bail out
+          // of the create flow and let the IncomingCallOverlay drive the answer.
+          if (result.code === 'INCOMING_CALL_AVAILABLE') {
+            await cleanupLocalCall({ skipServerTransition: true });
+            Alert.alert(
+              'Incoming call',
+              `${(partnerName ?? 'Your match').trim() || 'Your match'} is calling — answer or decline.`,
+            );
             return;
           }
           const dup = result.code === MATCH_CALL_EDGE_CODES.DUPLICATE_ACTIVE_CALL;
@@ -671,6 +711,19 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         const payload = result.data;
         const callId = payload.call_id;
         const roomName = payload.room_name;
+        // Honour the existing call's modality when the backend reused an open row of a
+        // different type. The UI mode-switches so the user sees the actual call.
+        const effectiveType: 'voice' | 'video' =
+          payload.call_type_mismatch &&
+          (payload.existing_call_type === 'voice' || payload.existing_call_type === 'video')
+            ? payload.existing_call_type
+            : type;
+        if (effectiveType !== type) {
+          setCallType(effectiveType);
+        }
+        if (payload.reused && payload.status === 'active') {
+          setCallPhase('in_call');
+        }
         if (!isCurrentStartCallAttempt()) {
           logMatchCallDiag('start_call_stale_success_ignored', {
             call_id: callId,
@@ -694,14 +747,42 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         clearTimeout(startWatchdogId);
 
         await runSingleJoinFlow(callId, async () => {
+          if (callObjectRef.current) {
+            logMatchCallDiag('start_call_skipped_duplicate_join', {
+              call_id: callId,
+              match_id: matchId,
+            });
+            return;
+          }
           const callObject = Daily.createCallObject({
             audioSource: true,
-            videoSource: type === 'video',
+            videoSource: effectiveType === 'video',
           });
           callObjectRef.current = callObject;
           setupCallEvents(callObject);
 
           await callObject.join({ url: payload.room_url, token: payload.token });
+
+          // Force-publish local media. Calling these explicitly guarantees the mic and
+          // (for video calls) camera produce tracks the remote participant can subscribe
+          // to. Without this, the call can look "connected" with no audio.
+          try {
+            await callObject.setLocalAudio(true);
+          } catch (err) {
+            logMatchCallDiag('set_local_audio_failed', {
+              call_id: callId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+          try {
+            await callObject.setLocalVideo(effectiveType === 'video');
+          } catch (err) {
+            logMatchCallDiag('set_local_video_failed', {
+              call_id: callId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+
           const local = callObject.participants()?.local;
           if (local) {
             setLocalParticipant(local);
@@ -861,6 +942,12 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
         const payload = result.data;
         await runSingleJoinFlow(row.id, async () => {
+          if (callObjectRef.current) {
+            logMatchCallDiag('rejoin_skipped_duplicate_join', {
+              call_id: row.id,
+            });
+            return;
+          }
           const callObject = Daily.createCallObject({
             audioSource: true,
             videoSource: nextCallType === 'video',
@@ -871,6 +958,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           startDurationTimer(row.started_at);
 
           await callObject.join({ url: payload.room_url, token: payload.token });
+
+          try {
+            await callObject.setLocalAudio(true);
+          } catch (err) {
+            logMatchCallDiag('set_local_audio_failed', {
+              call_id: row.id,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+          try {
+            await callObject.setLocalVideo(nextCallType === 'video');
+          } catch (err) {
+            logMatchCallDiag('set_local_video_failed', {
+              call_id: row.id,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+
           const local = callObject.participants()?.local;
           if (local) {
             setLocalParticipant(local);

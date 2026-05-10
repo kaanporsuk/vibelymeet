@@ -10,6 +10,22 @@ export type CreateMatchCallResult = {
   room_name: string;
   room_url: string;
   token: string;
+  /** Set when the backend reused an existing open call instead of creating a new one. */
+  reused?: boolean;
+  /** call_type of the existing call when the request was reused; may differ from the request. */
+  existing_call_type?: 'voice' | 'video';
+  /** True when the existing call's call_type differs from the requested call_type. */
+  call_type_mismatch?: boolean;
+  /** Status of the existing call when reused: usually "ringing" or "active". */
+  status?: 'ringing' | 'active' | 'ended' | 'missed' | 'declined';
+};
+
+export type IncomingMatchCallAvailable = {
+  code: 'INCOMING_CALL_AVAILABLE';
+  call_id: string;
+  match_id: string;
+  existing_call_type: 'voice' | 'video';
+  status: 'ringing' | 'active';
 };
 
 export type AnswerMatchCallResult = {
@@ -49,21 +65,61 @@ function readInvokeErrorMessage(data: unknown): string | undefined {
 export async function createMatchCall(
   matchId: string,
   callType: 'voice' | 'video',
-): Promise<InvokeOk<CreateMatchCallResult> | InvokeFail> {
+): Promise<
+  | InvokeOk<CreateMatchCallResult>
+  | { ok: false; code: 'INCOMING_CALL_AVAILABLE'; data: IncomingMatchCallAvailable }
+  | InvokeFail
+> {
   const { data, error } = await supabase.functions.invoke('daily-room', {
     body: { action: 'create_match_call', matchId, callType },
   });
-  if (!error && data && typeof data === 'object' && 'token' in data && (data as { token?: string }).token) {
-    const d = data as CreateMatchCallResult;
-    return {
-      ok: true,
-      data: {
-        call_id: d.call_id,
-        room_name: d.room_name,
-        room_url: d.room_url,
-        token: d.token,
-      },
-    };
+  if (!error && data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    if (obj.code === 'INCOMING_CALL_AVAILABLE' && typeof obj.call_id === 'string') {
+      return {
+        ok: false,
+        code: 'INCOMING_CALL_AVAILABLE',
+        data: {
+          code: 'INCOMING_CALL_AVAILABLE',
+          call_id: obj.call_id,
+          match_id: typeof obj.match_id === 'string' ? obj.match_id : matchId,
+          existing_call_type:
+            obj.existing_call_type === 'voice' || obj.existing_call_type === 'video'
+              ? obj.existing_call_type
+              : callType,
+          status:
+            obj.status === 'ringing' || obj.status === 'active'
+              ? (obj.status as 'ringing' | 'active')
+              : 'ringing',
+        },
+      };
+    }
+    if (typeof obj.token === 'string' && obj.token) {
+      const d = obj as CreateMatchCallResult & Record<string, unknown>;
+      return {
+        ok: true,
+        data: {
+          call_id: d.call_id,
+          room_name: d.room_name,
+          room_url: d.room_url,
+          token: d.token,
+          reused: Boolean(obj.reused),
+          existing_call_type:
+            obj.existing_call_type === 'voice' || obj.existing_call_type === 'video'
+              ? obj.existing_call_type
+              : undefined,
+          call_type_mismatch: Boolean(obj.call_type_mismatch),
+          status:
+            obj.status === 'ringing' ||
+            obj.status === 'active' ||
+            obj.status === 'ended' ||
+            obj.status === 'missed' ||
+            obj.status === 'declined'
+              ? (obj.status as CreateMatchCallResult['status'])
+              : undefined,
+        },
+      };
+    }
   }
   return {
     ok: false,
