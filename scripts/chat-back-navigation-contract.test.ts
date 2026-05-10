@@ -26,8 +26,8 @@ test("web chat exits replace the chat route with matches", () => {
   // Render-null exit guard: panel disappears the moment back is tapped, regardless of router.
   assert.ok(webChatPage.includes("const [exiting, setExiting] = useState(false);"));
   assert.ok(webChatPage.includes("if (exiting) return null;"));
-  // Still-mounted watchdog: hard-navigate via window.location.assign if Chat is still rendered at 250ms.
-  assert.ok(webChatPage.includes("window.location.assign(MATCHES_ROUTE)"));
+  // Still-mounted watchdog: replace (not assign) so the broken /chat entry is not left in history.
+  assert.ok(webChatPage.includes("window.location.replace(MATCHES_ROUTE)"));
   assert.match(
     webChatPage,
     /const returnToMatches = useCallback\(\(\) => \{\s*clearChatBackNavWatchdogs\(\);\s*setExiting\(true\);\s*flushSync\(\(\) => \{\s*navigate\(MATCHES_ROUTE, \{ replace: true \}\);\s*\}\);/s,

@@ -1418,7 +1418,7 @@ const Chat = () => {
 
     backNavWatchdogTimeoutsRef.current.push(
       window.setTimeout(() => {
-        window.location.assign(MATCHES_ROUTE);
+        window.location.replace(MATCHES_ROUTE);
       }, 250),
     );
   }, [navigate, clearChatBackNavWatchdogs]);

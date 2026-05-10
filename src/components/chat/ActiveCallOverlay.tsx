@@ -334,7 +334,7 @@ export const ActiveCallOverlay = ({
         {/* Hidden audio element for remote participant audio. Required because Daily's
             createCallObject() (low-level) mode does not auto-attach audio — without this,
             voice calls have no sound. */}
-        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        <audio ref={remoteAudioRef as React.RefObject<HTMLAudioElement>} autoPlay playsInline className="hidden" />
 
         {/* Sound wave rings */}
         <div className="relative mb-6">
@@ -411,7 +411,7 @@ export const ActiveCallOverlay = ({
       {/* Dedicated remote audio element — driven separately from the video element so that
           audio survives even if the remote camera is off or the video track has not yet
           transitioned to playable. */}
-      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      <audio ref={remoteAudioRef as React.RefObject<HTMLAudioElement>} autoPlay playsInline className="hidden" />
 
       {/* Duration */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full bg-black/50 backdrop-blur-sm">
