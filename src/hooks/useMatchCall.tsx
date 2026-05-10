@@ -45,8 +45,51 @@ type MatchCallAction =
   | "joined"
   | "join_failed";
 
+/**
+ * Reasons recognized by the backend match_call_transition RPC for terminal transitions.
+ * Mirrors the CHECK constraint on match_calls.ended_reason — keep these in sync with
+ * supabase/migrations/20260511120000_match_call_end_reasons.sql.
+ */
+type MatchCallEndReason =
+  | "declined"
+  | "hangup"
+  | "caller_cancelled"
+  | "missed"
+  | "timeout"
+  | "join_failed"
+  | "stale_active"
+  | "provider_error"
+  | "busy"
+  | "connection_lost"
+  | "media_failure";
+
+/** Daily participant track lifecycle. We use it to render rich button states. */
+type MediaTrackStatus =
+  | "off"
+  | "blocked"
+  | "loading"
+  | "interrupted"
+  | "playable"
+  | "playing"
+  | "sendable"
+  | "receivable";
+
+/** Caller-friendly description of why a call ended; used to render the terminal banner. */
+export type LastCallOutcome = {
+  callId: string;
+  reason: MatchCallEndReason;
+  endedByMe: boolean;
+  endedByPartner: boolean;
+  partnerName: string;
+  callType: MatchCallType;
+  /** Local user's role in the call. Lets us pick "Missed call" vs "Call canceled" copy. */
+  role: "caller" | "callee";
+};
+
 const MATCH_CALL_HEARTBEAT_MS = 15_000;
 const MATCH_CALL_REMOTE_RECONNECT_GRACE_MS = 30_000;
+/** How long the terminal banner stays on screen after a call ends. */
+const MATCH_CALL_OUTCOME_LINGER_MS = 5_000;
 
 type MatchCallCleanupOptions = {
   deleteRoomName?: string | null;
@@ -107,6 +150,8 @@ type MatchCallRow = {
   ended_at: string | null;
   duration_seconds: number | null;
   created_at: string;
+  ended_reason?: MatchCallEndReason | null;
+  ended_by_user_id?: string | null;
 };
 
 type MatchCallTransitionResult = {
@@ -158,22 +203,35 @@ type StartCallParams = {
 type MatchCallContextValue = {
   isInCall: boolean;
   isRinging: boolean;
+  isReconnecting: boolean;
   isMuted: boolean;
   isVideoOff: boolean;
+  /** Daily participant audio.state — lets the UI distinguish muted vs blocked vs loading. */
+  audioStatus: MediaTrackStatus;
+  videoStatus: MediaTrackStatus;
+  /** Set briefly after toggleMute / toggleVideo to disable buttons until Daily confirms. */
+  isAudioTogglePending: boolean;
+  isVideoTogglePending: boolean;
   callType: MatchCallType;
   callDuration: number;
   incomingCall: IncomingCallData | null;
+  /** Most-recent terminal outcome; cleared after MATCH_CALL_OUTCOME_LINGER_MS so the banner can show *why* the call ended. */
+  lastOutcome: LastCallOutcome | null;
   localVideoRef: RefObject<HTMLVideoElement | null>;
   remoteVideoRef: RefObject<HTMLVideoElement | null>;
   remoteAudioRef: RefObject<HTMLAudioElement | null>;
   activeMatchId: string | null;
+  /** True when ≥2 video input devices are detected and the call is a video call. */
+  canFlipCamera: boolean;
+  isFlippingCamera: boolean;
   startCall: (params: StartCallParams) => Promise<void>;
   answerCall: () => Promise<void>;
   declineCall: () => Promise<void>;
   markIncomingCallMissed: () => Promise<void>;
   endCall: () => Promise<void>;
-  toggleMute: () => void;
-  toggleVideo: () => void;
+  toggleMute: () => Promise<void>;
+  toggleVideo: () => Promise<void>;
+  flipCamera: () => Promise<void>;
 };
 
 const MatchCallContext = createContext<MatchCallContextValue | null>(null);
@@ -213,6 +271,14 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [audioStatus, setAudioStatus] = useState<MediaTrackStatus>("off");
+  const [videoStatus, setVideoStatus] = useState<MediaTrackStatus>("off");
+  const [isAudioTogglePending, setIsAudioTogglePending] = useState(false);
+  const [isVideoTogglePending, setIsVideoTogglePending] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [canFlipCamera, setCanFlipCamera] = useState(false);
+  const [isFlippingCamera, setIsFlippingCamera] = useState(false);
+  const [lastOutcome, setLastOutcome] = useState<LastCallOutcome | null>(null);
   const [activePartner, setActivePartner] = useState<PartnerSummary>(DEFAULT_PARTNER);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -236,10 +302,20 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const accessTokenRef = useRef<string | null>(null);
   /** When true, `pagehide`/`beforeunload` already posted a keepalive RPC; skip duplicate in `cleanupLocalCall`. */
   const documentUnloadRpcIssuedRef = useRef(false);
+  /** Held while a flipCamera() call is in flight so concurrent presses are coalesced. */
+  const flipCameraRef = useRef(false);
+  /** setTimeout id that clears the terminal banner after MATCH_CALL_OUTCOME_LINGER_MS. */
+  const outcomeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Local user id captured once Daily joined-meeting fires; used for ended_by_user_id derivation. */
+  const localUserIdRef = useRef<string | null>(null);
+  /** Reason the local user attributes to the next terminal transition (set before transition fires). */
+  const pendingEndReasonRef = useRef<MatchCallEndReason | null>(null);
 
   const callPhaseRef = useLatestRef(callPhase);
   const incomingCallRef = useLatestRef(incomingCall);
   const activePartnerRef = useLatestRef(activePartner);
+  const isReconnectingRef = useLatestRef(isReconnecting);
+  const callTypeRef = useLatestRef(callType);
   const reconcileCallRowRef = useRef<(row: MatchCallRow) => Promise<void>>(async () => {});
 
   const clearRingingTimeout = useCallback(() => {
@@ -278,31 +354,50 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /**
-   * Render local participant media to localVideoRef. Local audio is intentionally NOT
-   * piped through any audio element (would cause echo); Daily publishes the local mic
-   * to the remote, that's it.
+   * Render local participant media. The PIP component manages its own internal <video>
+   * element via the `stream` prop — `localVideoRef` is optional and we MUST keep
+   * `localStream` updated independently of whether any visible <video> is mounted,
+   * otherwise the PIP receives null and stays black.
+   *
+   * We also use this as the canonical opportunity to sync mute / camera-off / track-status
+   * UI state from Daily's actual participant tracks rather than from optimistic local
+   * booleans — this is the source-of-truth fix for the unreliable mute button.
    */
   const renderLocalMedia = useCallback(
     (participant: DailyParticipant | undefined) => {
-      const videoEl = localVideoRef.current;
-      if (!videoEl || !participant?.tracks) return;
+      if (!participant?.tracks) return;
 
-      const videoTrackState = participant.tracks.video?.state;
+      const audioTrackState = (participant.tracks.audio?.state ?? "off") as MediaTrackStatus;
+      const videoTrackState = (participant.tracks.video?.state ?? "off") as MediaTrackStatus;
       const videoTrack =
         videoTrackState === "playable" ? participant.tracks.video?.persistentTrack ?? null : null;
 
-      if (videoTrack) {
-        const current = videoEl.srcObject as MediaStream | null;
-        const currentVideoTrack = current?.getVideoTracks?.()[0] ?? null;
-        if (currentVideoTrack !== videoTrack) {
-          const stream = new MediaStream([videoTrack]);
-          videoEl.srcObject = stream;
-          setLocalStream(stream);
+      // Always update the local-stream state so the PIP can render even before the
+      // <video> element exists in the DOM (e.g., during ringing → in_call transition).
+      setLocalStream((previous) => {
+        const prevTrack = previous?.getVideoTracks?.()[0] ?? null;
+        if (prevTrack === videoTrack) return previous;
+        if (!videoTrack) return null;
+        return new MediaStream([videoTrack]);
+      });
+
+      // Best-effort: if there's a hidden local <video> element, mirror the stream onto it
+      // (used by some legacy code paths; safe to skip if absent).
+      const videoEl = localVideoRef.current;
+      if (videoEl) {
+        const currentEl = videoEl.srcObject as MediaStream | null;
+        const currentTrack = currentEl?.getVideoTracks?.()[0] ?? null;
+        if (currentTrack !== videoTrack) {
+          videoEl.srcObject = videoTrack ? new MediaStream([videoTrack]) : null;
         }
-      } else if (videoEl.srcObject) {
-        videoEl.srcObject = null;
-        setLocalStream(null);
       }
+
+      // Source-of-truth UI sync: mute and camera-off booleans now reflect Daily's
+      // real participant track state, not React's optimistic local toggle.
+      setIsMuted(audioTrackState === "off" || audioTrackState === "blocked");
+      setIsVideoOff(videoTrackState === "off" || videoTrackState === "blocked");
+      setAudioStatus(audioTrackState);
+      setVideoStatus(videoTrackState);
     },
     [],
   );
@@ -437,20 +532,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     };
   }, [callPhaseRef, incomingCallRef]);
 
-  const transitionCall = useCallback(async (callId: string, action: MatchCallAction) => {
-    const { data, error } = await supabase.rpc("match_call_transition", {
-      p_call_id: callId,
-      p_action: action,
-    });
-    if (error) {
-      throw error;
-    }
-    const result = (data ?? null) as MatchCallTransitionResult | null;
-    if (result?.ok === false) {
-      throw new Error(`match_call_transition rejected: ${result.code ?? "unknown"}`);
-    }
-    return result;
-  }, []);
+  const transitionCall = useCallback(
+    async (callId: string, action: MatchCallAction, reason?: MatchCallEndReason | null) => {
+      const { data, error } = await supabase.rpc("match_call_transition", {
+        p_call_id: callId,
+        p_action: action,
+        ...(reason ? { p_reason: reason } : {}),
+      });
+      if (error) {
+        throw error;
+      }
+      const result = (data ?? null) as MatchCallTransitionResult | null;
+      if (result?.ok === false) {
+        throw new Error(`match_call_transition rejected: ${result.code ?? "unknown"}`);
+      }
+      return result;
+    },
+    [],
+  );
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatIntervalRef.current) {
@@ -602,37 +701,72 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const endCall = useCallback(async () => {
-    const callId = trackedCallIdRef.current;
-    const roomName = roomNameRef.current;
+  /**
+   * End the active call, optionally tagging it with a specific reason. Defaults to
+   * `hangup` (user-initiated). Pass `connection_lost` for grace-expiry, `provider_error`
+   * for Daily errors, `media_failure` for permission/device failures.
+   */
+  const endCall = useCallback(
+    async (reason?: MatchCallEndReason) => {
+      const callId = trackedCallIdRef.current;
+      const roomName = roomNameRef.current;
+      const effectiveReason = reason ?? pendingEndReasonRef.current ?? null;
+      pendingEndReasonRef.current = null;
 
-    if (callId) {
-      try {
-        await transitionCall(callId, "end");
-      } catch {
-        // Backend reconciliation will still arrive over realtime when available.
+      if (callId) {
+        try {
+          await transitionCall(callId, "end", effectiveReason);
+        } catch {
+          // Backend reconciliation will still arrive over realtime when available.
+        }
       }
-    }
 
-    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
-  }, [cleanupLocalCall, transitionCall]);
+      await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
+    },
+    [cleanupLocalCall, transitionCall],
+  );
 
   const setupCallEvents = useCallback(
     (callObject: DailyCall, currentCallType: MatchCallType) => {
       callObject.on("joined-meeting", () => {
         logMatchCallDiag("joined_meeting", { call_type: currentCallType });
         refreshAllParticipantMedia();
+        // Detect available video inputs for the camera-flip button. Only meaningful for
+        // video calls — voice calls never publish a camera so the button is hidden.
+        if (currentCallType === "video" && navigator.mediaDevices?.enumerateDevices) {
+          void navigator.mediaDevices
+            .enumerateDevices()
+            .then((devices) => {
+              const videoInputs = devices.filter((d) => d.kind === "videoinput");
+              setCanFlipCamera(videoInputs.length >= 2);
+              logMatchCallDiag("camera_flip_capability", {
+                video_input_count: videoInputs.length,
+                can_flip: videoInputs.length >= 2,
+              });
+            })
+            .catch(() => {
+              setCanFlipCamera(false);
+            });
+        } else {
+          setCanFlipCamera(false);
+        }
       });
 
       callObject.on("participant-joined", (event) => {
         if (!event?.participant || event.participant.local) return;
         clearRingingTimeout();
         clearRemoteReconnectGrace();
+        // Resuming from reconnect grace? Don't show another "connected" toast — just clear
+        // the reconnecting banner. Otherwise this is a fresh connection.
+        const wasReconnecting = isReconnectingRef.current;
+        setIsReconnecting(false);
         setCallPhase("in_call");
         startDurationTimer();
         startHeartbeat();
         renderRemoteMedia(event.participant);
-        toast.success(currentCallType === "voice" ? "Voice call connected" : "Video call connected");
+        if (!wasReconnecting) {
+          toast.success(currentCallType === "voice" ? "Voice call connected" : "Video call connected");
+        }
       });
 
       callObject.on("participant-updated", (event) => {
@@ -669,11 +803,15 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callObject.on("participant-left", (event) => {
         if (!event?.participant || event.participant.local) return;
         clearRemoteReconnectGrace();
-        toast.info("Connection interrupted. Waiting for them to reconnect...");
+        // Render a reconnecting banner inside the call overlay rather than dropping
+        // back to chat immediately. If the partner returns within the grace window,
+        // we resume seamlessly; if not, we transition with reason `connection_lost`.
+        setIsReconnecting(true);
         remoteReconnectTimeoutRef.current = setTimeout(() => {
           remoteReconnectTimeoutRef.current = null;
           if (callPhaseRef.current !== "in_call" || !trackedCallIdRef.current) return;
-          void endCall();
+          setIsReconnecting(false);
+          void endCall("connection_lost");
         }, MATCH_CALL_REMOTE_RECONNECT_GRACE_MS);
       });
 
@@ -683,7 +821,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           message: event && typeof event === "object" && "errorMsg" in event ? String((event as { errorMsg?: unknown }).errorMsg ?? "") : null,
         });
         toast.error("Call connection error");
-        void endCall();
+        void endCall("provider_error");
       });
 
       callObject.on("left-meeting", () => {
@@ -1109,21 +1247,124 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  const toggleMute = useCallback(() => {
+  /**
+   * Toggle local audio. Source-of-truth: reads the current track state from Daily,
+   * sets a pending flag, calls Daily's setLocalAudio, then waits for the
+   * `participant-updated` event to update isMuted via renderLocalMedia. If Daily
+   * rejects (e.g., permission blocked), we surface a toast and the UI stays in the
+   * pre-toggle state on the next participant-updated tick.
+   */
+  const toggleMute = useCallback(async () => {
     const callObject = callObjectRef.current;
     if (!callObject) return;
-    const nextMuted = !isMuted;
-    callObject.setLocalAudio(!nextMuted);
-    setIsMuted(nextMuted);
-  }, [isMuted]);
+    const local = callObject.participants().local;
+    const audioState = (local?.tracks?.audio?.state ?? "off") as MediaTrackStatus;
+    if (audioState === "blocked") {
+      toast.error("Microphone is blocked. Allow it in your browser settings to unmute.");
+      return;
+    }
+    // After the blocked early-return, audioState can only be "off"/"loading"/"playable"/etc.
+    const wantOn = audioState === "off";
+    setIsAudioTogglePending(true);
+    try {
+      await callObject.setLocalAudio(wantOn);
+    } catch (err) {
+      logMatchCallDiag("toggle_mute_failed", {
+        message: err instanceof Error ? err.message : String(err),
+        want_on: wantOn,
+      });
+      toast.error(wantOn ? "Couldn't unmute microphone." : "Couldn't mute microphone.");
+    } finally {
+      // Brief debounce; the participant-updated event will follow within ~100ms and
+      // renderLocalMedia will sync isMuted to truth. Releasing pending here keeps the
+      // button responsive even if no event arrives (e.g., already in target state).
+      setTimeout(() => setIsAudioTogglePending(false), 250);
+    }
+  }, []);
 
-  const toggleVideo = useCallback(() => {
+  const toggleVideo = useCallback(async () => {
     const callObject = callObjectRef.current;
     if (!callObject) return;
-    const nextVideoOff = !isVideoOff;
-    callObject.setLocalVideo(!nextVideoOff);
-    setIsVideoOff(nextVideoOff);
-  }, [isVideoOff]);
+    const local = callObject.participants().local;
+    const videoState = (local?.tracks?.video?.state ?? "off") as MediaTrackStatus;
+    if (videoState === "blocked") {
+      toast.error("Camera is blocked. Allow it in your browser settings to turn it on.");
+      return;
+    }
+    const wantOn = videoState === "off";
+    setIsVideoTogglePending(true);
+    try {
+      await callObject.setLocalVideo(wantOn);
+    } catch (err) {
+      logMatchCallDiag("toggle_video_failed", {
+        message: err instanceof Error ? err.message : String(err),
+        want_on: wantOn,
+      });
+      toast.error(wantOn ? "Couldn't turn camera on." : "Couldn't turn camera off.");
+    } finally {
+      setTimeout(() => setIsVideoTogglePending(false), 250);
+    }
+  }, []);
+
+  /**
+   * Flip between front/back cameras without leaving the Daily room. Implementation
+   * pattern lifted from src/hooks/useVideoCall.ts (the scheduled video-date flow):
+   * prefer cycleCamera({ preferDifferentFacingMode }) and fall back to
+   * setInputDevicesAsync via enumerateDevices when the SDK can't infer facing modes.
+   * Daily keeps the previous track flowing until the replacement is playable, so the
+   * remote feed and PIP do not break during the swap.
+   */
+  const flipCamera = useCallback(async () => {
+    const callObject = callObjectRef.current;
+    if (!callObject) {
+      return;
+    }
+    if (flipCameraRef.current) return;
+    flipCameraRef.current = true;
+    setIsFlippingCamera(true);
+    try {
+      // Preferred path: Daily handles facing-mode toggle internally.
+      const cycleFn = (callObject as unknown as {
+        cycleCamera?: (opts?: { preferDifferentFacingMode?: boolean }) => Promise<{ device?: MediaDeviceInfo | null }>;
+      }).cycleCamera;
+      if (typeof cycleFn === "function") {
+        try {
+          await cycleFn.call(callObject, { preferDifferentFacingMode: true });
+          logMatchCallDiag("flip_camera_cycle_ok", {});
+          return;
+        } catch (err) {
+          logMatchCallDiag("flip_camera_cycle_failed_fallback", {
+            message: err instanceof Error ? err.message : String(err),
+          });
+          // fall through to enumerate-based fallback
+        }
+      }
+
+      // Fallback: enumerate video inputs and pick the next one that isn't the active device.
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      if (videoInputs.length < 2) {
+        toast.info("No additional camera available to switch to.");
+        return;
+      }
+      const inputDevices = await callObject.getInputDevices?.();
+      const currentCamera = (inputDevices?.camera ?? null) as { deviceId?: string } | null;
+      const currentDeviceId = currentCamera?.deviceId ?? null;
+      const next =
+        videoInputs.find((d) => d.deviceId && d.deviceId !== currentDeviceId) ?? videoInputs[0];
+      if (!next?.deviceId) return;
+      await callObject.setInputDevicesAsync({ videoDeviceId: next.deviceId });
+      logMatchCallDiag("flip_camera_setinput_ok", { device_label: next.label || null });
+    } catch (err) {
+      logMatchCallDiag("flip_camera_failed", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+      toast.error("Couldn't switch camera.");
+    } finally {
+      setIsFlippingCamera(false);
+      flipCameraRef.current = false;
+    }
+  }, []);
 
   const adoptIncomingCall = useCallback(
     async (row: MatchCallRow) => {
@@ -1370,12 +1611,46 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           break;
         case "declined":
         case "missed":
-        case "ended":
+        case "ended": {
+          // Capture the rich terminal outcome so the overlay can render a specific
+          // banner ("You ended the call." / "Direk declined." / "Connection lost.")
+          // before tearing down. The banner state lives for MATCH_CALL_OUTCOME_LINGER_MS.
+          const reason = (row.ended_reason ?? null) as MatchCallEndReason | null;
+          if (reason) {
+            const isCaller = row.caller_id === currentUserId;
+            const endedByMe = !!row.ended_by_user_id && row.ended_by_user_id === currentUserId;
+            const endedByPartner =
+              !!row.ended_by_user_id && row.ended_by_user_id !== currentUserId;
+            const partnerName = activePartnerRef.current.name || "Your match";
+            const outcome: LastCallOutcome = {
+              callId: row.id,
+              reason,
+              endedByMe,
+              endedByPartner,
+              partnerName,
+              callType: normalizeCallType(row.call_type),
+              role: isCaller ? "caller" : "callee",
+            };
+            setLastOutcome(outcome);
+            if (outcomeTimeoutRef.current) clearTimeout(outcomeTimeoutRef.current);
+            outcomeTimeoutRef.current = setTimeout(() => {
+              setLastOutcome((prev) => (prev?.callId === outcome.callId ? null : prev));
+              outcomeTimeoutRef.current = null;
+            }, MATCH_CALL_OUTCOME_LINGER_MS);
+            logMatchCallDiag("call_terminal_outcome", {
+              call_id: row.id,
+              reason,
+              ended_by_me: endedByMe,
+              ended_by_partner: endedByPartner,
+              role: outcome.role,
+            });
+          }
           await cleanupLocalCall({
             deleteRoomName: row.daily_room_name ?? roomNameRef.current,
             skipServerTransition: true,
           });
           break;
+        }
       }
     },
     [
@@ -1397,7 +1672,9 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   }, [reconcileCallRow]);
 
   const queueReconcileCallRow = useCallback((row: MatchCallRow) => {
-    const signature = `${row.status}:${row.started_at ?? ""}:${row.ended_at ?? ""}:${row.daily_room_name ?? ""}`;
+    // Include ended_reason in the signature so a row that becomes terminal with a
+    // populated reason (after a follow-up update) still triggers the outcome banner.
+    const signature = `${row.status}:${row.started_at ?? ""}:${row.ended_at ?? ""}:${row.daily_room_name ?? ""}:${row.ended_reason ?? ""}:${row.ended_by_user_id ?? ""}`;
     if (reconcileSignatureByCallIdRef.current.get(row.id) === signature) {
       return;
     }
@@ -1476,7 +1753,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       const sel =
-        "id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at";
+        "id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at, ended_reason, ended_by_user_id";
 
       const { data: calleeOpen } = await supabase
         .from("match_calls")
@@ -1522,15 +1799,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     () => ({
       isInCall: callPhase === "in_call",
       isRinging: callPhase === "ringing",
+      isReconnecting,
       isMuted,
       isVideoOff,
+      audioStatus,
+      videoStatus,
+      isAudioTogglePending,
+      isVideoTogglePending,
       callType,
       callDuration,
       incomingCall,
+      lastOutcome,
       localVideoRef,
       remoteVideoRef,
       remoteAudioRef,
       activeMatchId,
+      canFlipCamera,
+      isFlippingCamera,
       startCall,
       answerCall,
       declineCall,
@@ -1538,22 +1823,32 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       endCall,
       toggleMute,
       toggleVideo,
+      flipCamera,
     }),
     [
       activeMatchId,
       answerCall,
+      audioStatus,
       callDuration,
       callPhase,
       callType,
+      canFlipCamera,
       declineCall,
       endCall,
+      flipCamera,
       incomingCall,
+      isAudioTogglePending,
+      isFlippingCamera,
       isMuted,
+      isReconnecting,
       isVideoOff,
+      isVideoTogglePending,
+      lastOutcome,
       markIncomingCallMissed,
       startCall,
       toggleMute,
       toggleVideo,
+      videoStatus,
     ],
   );
 
@@ -1574,13 +1869,19 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         />
       )}
 
-      {(callPhase === "ringing" || callPhase === "in_call") && !incomingCall && (
+      {((callPhase === "ringing" || callPhase === "in_call") && !incomingCall) ||
+      lastOutcome ? (
         <ActiveCallOverlay
           isRinging={callPhase === "ringing"}
           isInCall={callPhase === "in_call"}
+          isReconnecting={isReconnecting}
           callType={callType}
           isMuted={isMuted}
           isVideoOff={isVideoOff}
+          audioStatus={audioStatus}
+          videoStatus={videoStatus}
+          isAudioTogglePending={isAudioTogglePending}
+          isVideoTogglePending={isVideoTogglePending}
           callDuration={callDuration}
           partnerName={activePartner.name}
           partnerAvatar={activePartner.avatarUrl ?? undefined}
@@ -1588,13 +1889,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           remoteVideoRef={remoteVideoRef}
           remoteAudioRef={remoteAudioRef}
           localStream={localStream}
-          onToggleMute={toggleMute}
-          onToggleVideo={toggleVideo}
+          canFlipCamera={canFlipCamera}
+          isFlippingCamera={isFlippingCamera}
+          lastOutcome={lastOutcome}
+          onToggleMute={() => {
+            void toggleMute();
+          }}
+          onToggleVideo={() => {
+            void toggleVideo();
+          }}
+          onFlipCamera={() => {
+            void flipCamera();
+          }}
           onEndCall={() => {
             void endCall();
           }}
         />
-      )}
+      ) : null}
     </MatchCallContext.Provider>
   );
 }

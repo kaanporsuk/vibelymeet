@@ -34,6 +34,7 @@ import {
   transitionMatchCall,
   updateMatchCallStatus,
   deleteMatchCallRoom,
+  type MatchCallEndReason,
   type MatchCallTransitionAction,
 } from '@/lib/matchCallApi';
 
@@ -54,7 +55,21 @@ type MatchCallRow = {
   ended_at: string | null;
   duration_seconds: number | null;
   created_at: string;
+  ended_reason?: MatchCallEndReason | null;
+  ended_by_user_id?: string | null;
 };
+
+export type NativeLastCallOutcome = {
+  callId: string;
+  reason: MatchCallEndReason;
+  endedByMe: boolean;
+  endedByPartner: boolean;
+  partnerName: string;
+  callType: MatchCallType;
+  role: 'caller' | 'callee';
+};
+
+const NATIVE_OUTCOME_LINGER_MS = 5_000;
 
 type PartnerSummary = {
   userId: string | null;
@@ -91,14 +106,18 @@ type UseMatchCallOptions = {
 type MatchCallContextValue = {
   isRinging: boolean;
   isInCall: boolean;
+  isReconnecting: boolean;
   callType: MatchCallType;
   callDuration: number;
   incomingCall: IncomingCallData | null;
   isMuted: boolean;
   isVideoOff: boolean;
+  lastOutcome: NativeLastCallOutcome | null;
   localParticipant: DailyParticipant | null;
   remoteParticipant: DailyParticipant | null;
   activeMatchId: string | null;
+  canFlipCamera: boolean;
+  isFlippingCamera: boolean;
   startCall: (params: StartCallParams) => Promise<void>;
   acceptCall: () => Promise<void>;
   declineCall: () => Promise<void>;
@@ -106,6 +125,7 @@ type MatchCallContextValue = {
   endCall: () => Promise<void>;
   toggleMute: () => void;
   toggleVideo: () => void;
+  flipCamera: () => Promise<void>;
   getTrack: (
     participant: DailyParticipant | undefined,
     kind: 'video' | 'audio'
@@ -222,6 +242,13 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [lastOutcome, setLastOutcome] = useState<NativeLastCallOutcome | null>(null);
+  // Native `Daily.createCallObject().cycleCamera()` is supported on both iOS and Android
+  // out of the box for devices with multiple cameras. Most phones qualify; we expose the
+  // toggle whenever we're in a video call.
+  const [isFlippingCamera, setIsFlippingCamera] = useState(false);
+  const flipCameraRef = useRef(false);
   const [activePartner, setActivePartner] = useState<PartnerSummary>(DEFAULT_PARTNER);
   const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
   const [localParticipant, setLocalParticipant] = useState<DailyParticipant | null>(null);
@@ -230,6 +257,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   const callObjectRef = useRef<ReturnType<typeof Daily.createCallObject> | null>(null);
   const trackedCallIdRef = useRef<string | null>(null);
   const roomNameRef = useRef<string | null>(null);
+  const outcomeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startCallAttemptRef = useRef(0);
   const startCallLockRef = useRef(false);
   const joiningCallIdRef = useRef<string | null>(null);
@@ -433,20 +461,23 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     await joinPromise;
   }, []);
 
-  const endCall = useCallback(async () => {
-    const callId = trackedCallIdRef.current;
-    const roomName = roomNameRef.current;
+  const endCall = useCallback(
+    async (reason?: MatchCallEndReason) => {
+      const callId = trackedCallIdRef.current;
+      const roomName = roomNameRef.current;
 
-    if (callId) {
-      try {
-        await updateMatchCallStatus(callId, 'ended');
-      } catch {
-        // Realtime terminal update can still reconcile remote ownership.
+      if (callId) {
+        try {
+          await transitionMatchCall(callId, 'end', reason ?? null);
+        } catch {
+          // Realtime terminal update can still reconcile remote ownership.
+        }
       }
-    }
 
-    await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
-  }, [cleanupLocalCall]);
+      await cleanupLocalCall({ deleteRoomName: roomName, skipServerTransition: true });
+    },
+    [cleanupLocalCall],
+  );
 
   const setupCallEvents = useCallback(
     (callObject: ReturnType<typeof Daily.createCallObject>) => {
@@ -454,6 +485,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
         if (!event?.participant || (event.participant as unknown as { local?: boolean }).local) return;
         clearRingingTimeout();
         clearRemoteReconnectGrace();
+        setIsReconnecting(false);
         setCallPhase('in_call');
         setRemoteParticipant(event.participant);
         startDurationTimer();
@@ -474,15 +506,17 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callObject.on('participant-left', (event: { participant?: DailyParticipant }) => {
         if (!event?.participant || (event.participant as unknown as { local?: boolean }).local) return;
         clearRemoteReconnectGrace();
+        setIsReconnecting(true);
         remoteReconnectTimeoutRef.current = setTimeout(() => {
           remoteReconnectTimeoutRef.current = null;
           if (callPhaseRef.current !== 'in_call' || !trackedCallIdRef.current) return;
-          void endCall();
+          setIsReconnecting(false);
+          void endCall('connection_lost');
         }, MATCH_CALL_REMOTE_RECONNECT_GRACE_MS);
       });
 
       callObject.on('error', () => {
-        void endCall();
+        void endCall('provider_error');
       });
 
       callObject.on('left-meeting', () => {
@@ -859,6 +893,34 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     setIsVideoOff(nextVideoOff);
   }, [isVideoOff]);
 
+  /**
+   * Switch between the device's front and rear cameras without leaving the Daily room.
+   * `cycleCamera()` is supported by `@daily-co/react-native-daily-js` and handles the
+   * track replacement for both the local PIP and the outgoing remote feed.
+   */
+  const flipCamera = useCallback(async () => {
+    const callObject = callObjectRef.current;
+    if (!callObject) return;
+    if (flipCameraRef.current) return;
+    flipCameraRef.current = true;
+    setIsFlippingCamera(true);
+    try {
+      const cycleFn = (callObject as unknown as { cycleCamera?: () => Promise<unknown> }).cycleCamera;
+      if (typeof cycleFn !== 'function') {
+        return;
+      }
+      await cycleFn.call(callObject);
+      logMatchCallDiag('flip_camera_cycle_ok', {});
+    } catch (err) {
+      logMatchCallDiag('flip_camera_failed', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setIsFlippingCamera(false);
+      flipCameraRef.current = false;
+    }
+  }, []);
+
   const adoptIncomingCall = useCallback(
     async (row: MatchCallRow) => {
       const existingIncoming = incomingCallRef.current;
@@ -1088,12 +1150,36 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
           break;
         case 'declined':
         case 'missed':
-        case 'ended':
+        case 'ended': {
+          const reason = (row.ended_reason ?? null) as MatchCallEndReason | null;
+          if (reason) {
+            const isCaller = row.caller_id === currentUserId;
+            const endedByMe = !!row.ended_by_user_id && row.ended_by_user_id === currentUserId;
+            const endedByPartner =
+              !!row.ended_by_user_id && row.ended_by_user_id !== currentUserId;
+            const partnerName = activePartnerRef.current.name || 'Your match';
+            const outcome: NativeLastCallOutcome = {
+              callId: row.id,
+              reason,
+              endedByMe,
+              endedByPartner,
+              partnerName,
+              callType: (row.call_type === 'voice' ? 'voice' : 'video') as MatchCallType,
+              role: isCaller ? 'caller' : 'callee',
+            };
+            setLastOutcome(outcome);
+            if (outcomeTimeoutRef.current) clearTimeout(outcomeTimeoutRef.current);
+            outcomeTimeoutRef.current = setTimeout(() => {
+              setLastOutcome((prev) => (prev?.callId === outcome.callId ? null : prev));
+              outcomeTimeoutRef.current = null;
+            }, NATIVE_OUTCOME_LINGER_MS);
+          }
           await cleanupLocalCall({
             deleteRoomName: row.daily_room_name ?? roomNameRef.current,
             skipServerTransition: true,
           });
           break;
+        }
       }
     },
     [
@@ -1115,7 +1201,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
   }, [reconcileCallRow]);
 
   const queueReconcileCallRow = useCallback((row: MatchCallRow) => {
-    const signature = `${row.status}:${row.started_at ?? ''}:${row.ended_at ?? ''}:${row.daily_room_name ?? ''}`;
+    const signature = `${row.status}:${row.started_at ?? ''}:${row.ended_at ?? ''}:${row.daily_room_name ?? ''}:${row.ended_reason ?? ''}:${row.ended_by_user_id ?? ''}`;
     if (reconcileSignatureByCallIdRef.current.get(row.id) === signature) {
       return;
     }
@@ -1194,7 +1280,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       const sel =
-        'id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at';
+        'id, match_id, caller_id, callee_id, call_type, daily_room_name, daily_room_url, status, started_at, ended_at, duration_seconds, created_at, ended_reason, ended_by_user_id';
 
       const { data: calleeOpen } = await supabase
         .from('match_calls')
@@ -1266,18 +1352,24 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
     };
   }, [cleanupLocalCall]);
 
+  const canFlipCamera = callPhase === 'in_call' && callType === 'video';
+
   const contextValue = useMemo<MatchCallContextValue>(
     () => ({
       isRinging: callPhase === 'ringing',
       isInCall: callPhase === 'in_call',
+      isReconnecting,
       callType,
       callDuration,
       incomingCall,
       isMuted,
       isVideoOff,
+      lastOutcome,
       localParticipant,
       remoteParticipant,
       activeMatchId,
+      canFlipCamera,
+      isFlippingCamera,
       startCall,
       acceptCall,
       declineCall,
@@ -1285,6 +1377,7 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       endCall,
       toggleMute,
       toggleVideo,
+      flipCamera,
       getTrack,
     }),
     [
@@ -1293,11 +1386,16 @@ export function MatchCallProvider({ children }: { children: ReactNode }) {
       callDuration,
       callPhase,
       callType,
+      canFlipCamera,
       declineCall,
       endCall,
+      flipCamera,
       incomingCall,
+      isFlippingCamera,
       isMuted,
+      isReconnecting,
       isVideoOff,
+      lastOutcome,
       localParticipant,
       markIncomingCallMissed,
       remoteParticipant,

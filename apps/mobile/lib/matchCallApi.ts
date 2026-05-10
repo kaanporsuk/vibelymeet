@@ -46,6 +46,19 @@ export type MatchCallTransitionAction =
   | 'joined'
   | 'join_failed';
 
+export type MatchCallEndReason =
+  | 'declined'
+  | 'hangup'
+  | 'caller_cancelled'
+  | 'missed'
+  | 'timeout'
+  | 'join_failed'
+  | 'stale_active'
+  | 'provider_error'
+  | 'busy'
+  | 'connection_lost'
+  | 'media_failure';
+
 export type MatchCallTransitionResult = {
   ok?: boolean;
   code?: string;
@@ -177,11 +190,14 @@ export async function joinMatchCall(callId: string): Promise<InvokeOk<JoinMatchC
 export async function transitionMatchCall(
   callId: string,
   action: MatchCallTransitionAction,
+  reason?: MatchCallEndReason | null,
 ): Promise<MatchCallTransitionResult> {
-  const { data, error } = await supabase.rpc('match_call_transition', {
+  const params: Record<string, unknown> = {
     p_call_id: callId,
     p_action: action,
-  });
+  };
+  if (reason) params.p_reason = reason;
+  const { data, error } = await supabase.rpc('match_call_transition', params);
   if (error) {
     throw new Error(`Failed to transition call: ${error.message}`);
   }
