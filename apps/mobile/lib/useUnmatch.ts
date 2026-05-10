@@ -2,7 +2,7 @@
  * Unmatch through the server-owned atomic cleanup RPC. Parity with web useUnmatch.
  * useUndoableUnmatch: show snackbar with Undo for 5s before executing.
  */
-import { useRef, useCallback, useState, useEffect } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 
@@ -47,7 +47,6 @@ export type UndoableUnmatchOptions = {
 export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
   const queryClient = useQueryClient();
   const pendingRef = useRef<{ matchId: string; timeoutId: ReturnType<typeof setTimeout> } | null>(null);
-  const [hasPendingUnmatch, setHasPendingUnmatch] = useState(false);
   const mountedRef = useRef(true);
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -77,9 +76,6 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       clearTimeout(pendingRef.current.timeoutId);
       pendingRef.current = null;
     }
-    if (mountedRef.current) {
-      setHasPendingUnmatch(false);
-    }
     queryClient.invalidateQueries({ queryKey: ['matches'] });
     if (mountedRef.current) {
       optionsRef.current?.onUndo?.();
@@ -93,17 +89,12 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       }
       const timeoutId = setTimeout(() => {
         pendingRef.current = null;
-        void performUnmatch(matchId).finally(() => {
-          if (mountedRef.current) {
-            setHasPendingUnmatch(false);
-          }
-        });
+        void performUnmatch(matchId);
       }, 5000);
       pendingRef.current = { matchId, timeoutId };
-      setHasPendingUnmatch(true);
     },
     [performUnmatch]
   );
 
-  return { initiateUnmatch, cancelPending, hasPendingUnmatch };
+  return { initiateUnmatch, cancelPending };
 }
