@@ -50,6 +50,8 @@ const REVIEW_FIX_MIGRATION =
   "supabase/migrations/20260511174500_date_suggestion_review_comment_fixes.sql";
 const UUID_GUARD_MIGRATION =
   "supabase/migrations/20260511180500_date_suggestion_uuid_payload_guards.sql";
+const COUNTER_SLOT_GUARD_MIGRATION =
+  "supabase/migrations/20260511185500_counter_selected_slot_keys_guard.sql";
 
 test("DateSuggestionCard Accept on schedule-share opens the block chooser (no direct accept)", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
@@ -665,6 +667,31 @@ test("PR 839 follow-up guards UUID and selected slot payload parsing", () => {
   assert.match(editBranch, /jsonb_typeof\(v_payload->'selected_slot_keys'\) <> 'array'/);
   assert.match(editBranch, /'invalid_selected_slot_keys'/);
   assert.match(editBranch, /jsonb_array_elements_text\(v_payload->'selected_slot_keys'\)/);
+});
+
+test("PR 840 follow-up guards counter selected slot payload parsing", () => {
+  const sql = readRepoFile(COUNTER_SLOT_GUARD_MIGRATION);
+
+  const counterStart = sql.indexOf("ELSIF p_action = 'counter' THEN");
+  assert.notEqual(counterStart, -1, "expected counter branch in counter slot guard migration");
+  const counterEnd = sql.indexOf("    IF v_suggestion_id IS NULL", counterStart);
+  assert.notEqual(counterEnd, -1, "expected counter payload parsing section");
+  const counterPayloadParsing = sql.slice(counterStart, counterEnd);
+
+  assert.match(
+    counterPayloadParsing,
+    /jsonb_typeof\(v_payload->'revision'->'selected_slot_keys'\) <> 'array'/,
+  );
+  assert.match(counterPayloadParsing, /'invalid_selected_slot_keys'/);
+  assert.match(
+    counterPayloadParsing,
+    /jsonb_array_elements_text\(v_payload->'revision'->'selected_slot_keys'\)/,
+  );
+  assert.ok(
+    counterPayloadParsing.indexOf("invalid_selected_slot_keys") <
+      counterPayloadParsing.indexOf("jsonb_array_elements_text"),
+    "counter branch must reject non-array selected_slot_keys before parsing it",
+  );
 });
 
 test("Edge function require-share-capability set includes edit_schedule_share_slots", () => {
