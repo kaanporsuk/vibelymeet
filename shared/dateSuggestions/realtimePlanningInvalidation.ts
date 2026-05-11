@@ -98,7 +98,7 @@ export function invalidateDateScheduleRealtimeEvent(
       }
       if (!event.userId) {
         invalidateParticipantSharedSchedules();
-      } else if (event.userId !== scope.currentUserId) {
+      } else {
         invalidateSharedSchedule(event.userId);
       }
       break;

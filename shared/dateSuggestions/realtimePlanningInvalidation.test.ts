@@ -70,6 +70,7 @@ test("user schedule realtime invalidates own grid and partner shared schedule", 
   assert.deepEqual(calls, [
     { queryKey: ["user-schedule", "user-a"], exact: true },
     { queryKey: ["schedule-hub", "user-a"], exact: true },
+    { queryKey: ["shared-schedule", "match-a", "user-a"], exact: true },
     { queryKey: ["shared-schedule", "match-a", "user-b"], exact: true },
   ]);
 });
