@@ -25,6 +25,7 @@ const CATEGORY_BY_KIND: Record<string, string> = {
   accepted: "date_suggestion_accepted",
   declined: "date_suggestion_declined",
   cancelled: "date_suggestion_cancelled",
+  schedule_share_updated: "date_suggestion_schedule_share_updated",
   // Emitted when an accepted date_plan is cancelled via the new cancel_plan
   // action — partner gets the same category as a regular cancellation so
   // existing notification templates continue to work.

@@ -55,6 +55,7 @@ const CATEGORY_TO_COLUMN: Record<string, string> = {
   date_suggestion_accepted: 'notify_messages',
   date_suggestion_declined: 'notify_messages',
   date_suggestion_cancelled: 'notify_messages',
+  date_suggestion_schedule_share_updated: 'notify_messages',
   date_suggestion_expiring_soon: 'notify_messages',
   new_match: 'notify_new_match',
   mutual_vibe: 'notify_new_match',
@@ -733,6 +734,7 @@ const NOTIFICATION_TEMPLATES: Record<string, { title: string; body: (ctx: any) =
   date_suggestion_accepted: { title: 'Date accepted! 🎉', body: (ctx) => `${ctx?.senderName ?? 'Someone'} accepted your date suggestion` },
   date_suggestion_declined: { title: 'Date suggestion declined', body: (ctx) => `${ctx?.senderName ?? 'Someone'} declined` },
   date_suggestion_cancelled: { title: 'Date suggestion cancelled', body: (ctx) => `${ctx?.senderName ?? 'Someone'} cancelled the suggestion` },
+  date_suggestion_schedule_share_updated: { title: 'Schedule updated', body: (ctx) => `${ctx?.senderName ?? 'Someone'} updated shared date blocks` },
   date_suggestion_expiring_soon: { title: 'Date suggestion expiring soon ⏳', body: () => 'Your date suggestion is about to expire. Open chat to respond.' },
   post_date_feedback_reminder: {
     title: 'Your video date is waiting for your feedback.',

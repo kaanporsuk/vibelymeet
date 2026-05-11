@@ -46,6 +46,9 @@ function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
 }
 
+const REVIEW_FIX_MIGRATION =
+  "supabase/migrations/20260511174500_date_suggestion_review_comment_fixes.sql";
+
 test("DateSuggestionCard Accept on schedule-share opens the block chooser (no direct accept)", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
 
@@ -112,6 +115,11 @@ test("Schedule-share Accept payload is start-time-only (no ends_at)", () => {
     body,
     /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/,
     "Accept payload must pull local_timezone from the browser's IANA zone",
+  );
+  assert.doesNotMatch(
+    body,
+    /\|\|\s*["']UTC["']/,
+    "Accept payload must not silently fall back to UTC when the browser timezone is unavailable",
   );
 
   // Date duration is not part of the commitment. The accept payload MUST NOT
@@ -585,6 +593,41 @@ test("Schedule-share Accept stores NULL ends_at in date_plans (start-time-only)"
   );
 });
 
+test("PR review follow-up guards schedule-share casts and active edit grants", () => {
+  const sql = readRepoFile(REVIEW_FIX_MIGRATION);
+
+  const acceptStart = sql.indexOf("ELSIF p_action = 'accept' THEN");
+  assert.notEqual(acceptStart, -1, "expected accept branch in review fix migration");
+  const acceptEnd = sql.indexOf("ELSIF p_action = 'decline'", acceptStart);
+  assert.notEqual(acceptEnd, -1, "expected end of accept branch");
+  const acceptBranch = sql.slice(acceptStart, acceptEnd);
+
+  assert.match(
+    acceptBranch,
+    /BEGIN\s+a_slot_date := substring\(a_chosen_slot_key from 1 for 10\)::date;\s+EXCEPTION WHEN OTHERS THEN\s+RETURN jsonb_build_object\('ok', false, 'error', 'invalid_slot_key'\);/,
+    "Invalid chosen_slot_key dates must return invalid_slot_key instead of throwing",
+  );
+  assert.match(
+    acceptBranch,
+    /BEGIN\s+a_starts_ts := a_starts::timestamptz;\s+EXCEPTION WHEN OTHERS THEN\s+RETURN jsonb_build_object\('ok', false, 'error', 'exact_time_required'\);/,
+    "Invalid starts_at timestamps must return exact_time_required instead of throwing",
+  );
+  assert.match(
+    acceptBranch,
+    /BEGIN\s+a_starts_hour := nullif\(p_payload->>'local_start_hour', ''\)::int;\s+EXCEPTION WHEN OTHERS THEN\s+RETURN jsonb_build_object\('ok', false, 'error', 'local_start_hour_mismatch'\);/,
+    "Invalid local_start_hour values must return local_start_hour_mismatch instead of throwing",
+  );
+
+  const editStart = sql.indexOf("ELSIF p_action = 'edit_schedule_share_slots' THEN");
+  assert.notEqual(editStart, -1, "expected edit branch in review fix migration");
+  const editEnd = sql.indexOf("END IF;\n\n  -- Non-handled actions", editStart);
+  assert.notEqual(editEnd, -1, "expected end of edit branch");
+  const editBranch = sql.slice(editStart, editEnd);
+
+  assert.match(editBranch, /g\.viewer_user_id\s*=\s*v_partner/);
+  assert.match(editBranch, /g\.expires_at\s*>\s*now\(\)/);
+});
+
 test("Edge function require-share-capability set includes edit_schedule_share_slots", () => {
   const src = readRepoFile("supabase/functions/date-suggestion-actions/index.ts");
 
@@ -593,6 +636,15 @@ test("Edge function require-share-capability set includes edit_schedule_share_sl
     /p_action === "edit_schedule_share_slots"/,
     "Edge function shareRequested gate must include edit_schedule_share_slots",
   );
+});
+
+test("Schedule-share edit notifications map to a send-notification category", () => {
+  const actions = readRepoFile("supabase/functions/date-suggestion-actions/index.ts");
+  const sender = readRepoFile("supabase/functions/send-notification/index.ts");
+
+  assert.match(actions, /schedule_share_updated:\s*"date_suggestion_schedule_share_updated"/);
+  assert.match(sender, /date_suggestion_schedule_share_updated:\s*'notify_messages'/);
+  assert.match(sender, /date_suggestion_schedule_share_updated:\s*\{\s*title:/);
 });
 
 test("Slot-key parsing rejects keys that could escape the offered set", () => {
