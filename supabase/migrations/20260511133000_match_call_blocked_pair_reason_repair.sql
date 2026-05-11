@@ -1,6 +1,6 @@
--- Preserve the server-owned block cleanup terminal reason after the match-call
--- end-reason expansion. This is safe to run even when the previous migration
--- was already corrected locally before being pushed.
+-- Preserve server-owned block and archive/unmatch terminal reasons after the
+-- match-call end-reason expansion. This is safe to run even when the previous
+-- migration was already corrected locally before being pushed.
 
 ALTER TABLE public.match_calls
   DROP CONSTRAINT IF EXISTS match_calls_ended_reason_check;
@@ -19,6 +19,7 @@ ALTER TABLE public.match_calls
       'stale_active',
       'provider_error',
       'blocked_pair',
+      'unmatched_pair',
       'busy',
       'connection_lost',
       'media_failure'
