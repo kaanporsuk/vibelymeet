@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { addDays, format, startOfWeek, startOfDay } from "date-fns";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useRealtimeUserScheduleState } from "@/hooks/useRealtimeDateScheduleState";
 
 export type TimeBlock = "morning" | "afternoon" | "evening" | "night";
 export type SlotStatus = "busy" | "open" | "event";
@@ -58,6 +59,7 @@ export const useSchedule = () => {
   const { user } = useUserProfile();
   const userId = user?.id ?? null;
   const queryClient = useQueryClient();
+  useRealtimeUserScheduleState(userId);
   const [pendingSlots, setPendingSlots] = useState<Set<string>>(new Set());
   const {
     data: mySchedule = {},

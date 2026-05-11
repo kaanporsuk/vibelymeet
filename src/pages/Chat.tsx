@@ -42,6 +42,7 @@ import type { WizardState } from "@/components/chat/DateSuggestionComposer";
 import { GameBubbleRenderer } from "@/components/arcade/GameBubbleRenderer";
 import { GameType, GameMessage, GamePayload } from "@/types/games";
 import { useRealtimeMessages } from "@/hooks/useRealtimeMessages";
+import { useRealtimeDateScheduleState } from "@/hooks/useRealtimeDateScheduleState";
 import { useTypingBroadcast } from "@/hooks/useTypingBroadcast";
 import { useMessageReactions } from "@/hooks/useMessageReactions";
 import { useMessages } from "@/hooks/useMessages";
@@ -359,6 +360,17 @@ const Chat = () => {
     threadOtherUserId: id || null,
     threadCurrentUserId: currentUserId || null,
     enabled: !!chatData?.matchId && !!id && !!currentUserId,
+  });
+  const dateScheduleParticipants = useMemo(
+    () => [currentUserId || null, chatData?.otherUser?.id ?? id ?? null],
+    [chatData?.otherUser?.id, currentUserId, id],
+  );
+  useRealtimeDateScheduleState({
+    matchId: chatData?.matchId || null,
+    currentUserId: currentUserId || null,
+    participantIds: dateScheduleParticipants,
+    threadOtherUserId: id || null,
+    enabled: !!chatData?.matchId && !!currentUserId,
   });
   const { partnerTyping } = useTypingBroadcast(
     chatData?.matchId ?? null,
