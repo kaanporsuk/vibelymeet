@@ -12,13 +12,15 @@ import {
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
+import { useCallerScheduleShareGrant } from "@/hooks/useCallerScheduleShareGrant";
 import { format } from "date-fns";
 import { toast } from "sonner";
-import { Calendar, Check, Loader2, Sparkles, Share2, X } from "lucide-react";
+import { Calendar, Check, Loader2, Pencil, Sparkles, Share2, X } from "lucide-react";
 import type { DateCardThreadUi } from "../../../shared/chat/threadPresentation";
 import { getDateSuggestionActionPolicy } from "../../../shared/dateSuggestions/actionPolicy";
 import { intersectSlotKeys } from "../../../shared/dateSuggestions/scheduleShare";
 import { ExactTimePinSheet } from "./ExactTimePinSheet";
+import { ChooseSharedBlockSheet, type OfferedBlock } from "./ChooseSharedBlockSheet";
 
 const TIME_BLOCK_LABEL: Record<string, string> = {
   morning: "Morning",
@@ -86,6 +88,13 @@ type Props = {
   }) => void;
   /** Open the schedule-share picker as a counter response. */
   onShareMyScheduleAsCounter?: (suggestionId: string, previousRevision: DateSuggestionWithRelations["revisions"][0]) => void;
+  /**
+   * Sender-only entry point: open the picker preloaded with the current
+   * actor's selected blocks to edit the SAME active suggestion.
+   * Implemented in the parent (Chat.tsx) so the sheet can mount above the
+   * thread without remounting the card.
+   */
+  onEditScheduleShareSlots?: (suggestionId: string) => void;
   onUpdated: () => void;
   /** Thread presentation: older terminal rows render quieter. */
   threadUi?: DateCardThreadUi;
@@ -103,6 +112,7 @@ export function DateSuggestionCard({
   partnerUserId,
   onOpenComposer,
   onShareMyScheduleAsCounter,
+  onEditScheduleShareSlots,
   onUpdated,
   threadUi = "normal",
   highlightToken,
@@ -112,6 +122,7 @@ export function DateSuggestionCard({
   const [cancelBusy, setCancelBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "share" | "complete" | "cancel_plan" | null>(null);
   const [pendingChosenSlotKey, setPendingChosenSlotKey] = useState<string | null>(null);
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const markedRef = useRef(false);
 
@@ -161,14 +172,66 @@ export function DateSuggestionCard({
   const actionBusy = cancelBusy || busyAction !== null;
 
   const isScheduleShare = current?.time_choice_key === "share_schedule";
+  const offerAuthorId = current?.proposed_by ?? null;
+
+  // For the Accept-button-driven chooser. React Query dedupes with the same
+  // hook call inside ScheduleShareOfferedBlocks, so this does NOT trigger a
+  // second network request.
+  const accepterOffer = useSharedPartnerSchedule(
+    suggestion.match_id,
+    offerAuthorId,
+    Boolean(
+      isScheduleShare &&
+        current &&
+        status !== "accepted" &&
+        status !== "completed" &&
+        actionPolicy.canAccept,
+    ),
+  );
+
+  // Grant-backed Edit gate: the sender-side "Edit selected blocks" affordance
+  // only shows when the current user actually owns an active
+  // schedule_share_grants row attached to THIS suggestion (as subject). This
+  // mirrors the server-side grant-owner authorization for
+  // edit_schedule_share_slots, so the UI cannot show Edit when the RPC would
+  // refuse it. Deliberately NOT gated on actionPolicy.isAuthorOfCurrent —
+  // after the partner counters/shares back, each side must still be able to
+  // edit their own grant independently of who authored the current revision.
+  const callerGrant = useCallerScheduleShareGrant(
+    suggestion.match_id,
+    suggestion.id,
+    currentUserId,
+    Boolean(
+      isScheduleShare &&
+        current &&
+        ["draft", "proposed", "viewed", "countered"].includes(status),
+    ),
+  );
+  const callerHasGrant = callerGrant.data?.hasGrant === true;
+
+  const canEditScheduleShareSlots = Boolean(
+    isScheduleShare &&
+      current &&
+      callerHasGrant &&
+      ["draft", "proposed", "viewed", "countered"].includes(status),
+  );
+
+  const chooserOfferedBlocks: OfferedBlock[] = useMemo(() => {
+    const slots = accepterOffer.data ?? [];
+    return slots.map((slot) => ({
+      slot_key: slot.slot_key,
+      slot_date: slot.slot_date,
+      time_block: slot.time_block,
+    }));
+  }, [accepterOffer.data]);
 
   const handleAccept = async () => {
     if (actionBusy) return;
-    // Schedule-share suggestions require picking a specific block first → open pin sheet
+    // Schedule-share Accept always follows: Accept → choose block → pin exact
+    // time → confirm. Even with a single offered block we still surface the
+    // choose-block step so the user explicitly confirms the block.
     if (isScheduleShare) {
-      // Recipient is expected to use "Pick block" on a chip below; this Accept
-      // path covers the case where the partner already has a single offered slot.
-      // For multi-block proposals, the chip-level Pick action drives the flow.
+      setChooserOpen(true);
       return;
     }
     setBusyAction("accept");
@@ -183,20 +246,38 @@ export function DateSuggestionCard({
     }
   };
 
+  const handleChooserContinue = (slotKey: string) => {
+    setChooserOpen(false);
+    setPendingChosenSlotKey(slotKey);
+  };
+
   const handleAcceptWithSlot = async (
     slotKey: string,
     startsAtIso: string,
-    endsAtIso: string,
     localStartHour: number,
   ) => {
     if (actionBusy) return;
     setBusyAction("accept");
     try {
+      // Start-time-only accept payload. ends_at is deliberately omitted:
+      // date duration is not part of the commitment, and the server stores
+      // date_plans.ends_at as NULL for schedule-share accepts. The product
+      // source of truth for the locked block is chosen_slot_key + starts_at.
+      //
+      // local_timezone is the IANA zone of the caller's browser at accept
+      // time. The server derives local date/hour from
+      // `starts_at AT TIME ZONE local_timezone` and enforces:
+      //   (a) local date of starts_at == date embedded in chosen_slot_key
+      //   (b) local hour falls inside the chosen_slot_key block
+      // local_start_hour is kept as a defense-in-depth cross-check; the
+      // timezone-derived hour is the server-side authority.
+      const localTimezone =
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
       await dateSuggestionApply("accept", {
         suggestion_id: suggestion.id,
         chosen_slot_key: slotKey,
         starts_at: startsAtIso,
-        ends_at: endsAtIso,
+        local_timezone: localTimezone,
         local_start_hour: localStartHour,
       });
       toast.success("It's a date!");
@@ -212,6 +293,13 @@ export function DateSuggestionCard({
           toast.error("Pick a time inside the chosen block.");
         } else if (e.code === "slot_not_in_share_grant") {
           toast.error("That time is no longer available. Pick another.");
+        } else if (
+          e.code === "local_date_mismatch" ||
+          e.code === "local_timezone_required" ||
+          e.code === "invalid_local_timezone" ||
+          e.code === "local_start_hour_mismatch"
+        ) {
+          toast.error("Pick a time inside the chosen block.");
         } else {
           toast.error(e.message || "Could not accept");
         }
@@ -583,13 +671,23 @@ export function DateSuggestionCard({
         </div>
       )}
 
+      <ChooseSharedBlockSheet
+        isOpen={chooserOpen}
+        onClose={() => setChooserOpen(false)}
+        offeredBlocks={chooserOfferedBlocks}
+        isLoading={accepterOffer.isLoading}
+        isError={accepterOffer.isError}
+        partnerName={partnerName}
+        onContinue={handleChooserContinue}
+      />
+
       <ExactTimePinSheet
         isOpen={pendingChosenSlotKey !== null}
         chosenSlotKey={pendingChosenSlotKey ?? ""}
         onClose={() => setPendingChosenSlotKey(null)}
-        onConfirm={(startsAt, endsAt, localHour) =>
+        onConfirm={(startsAt, localHour) =>
           pendingChosenSlotKey
-            ? handleAcceptWithSlot(pendingChosenSlotKey, startsAt, endsAt, localHour)
+            ? handleAcceptWithSlot(pendingChosenSlotKey, startsAt, localHour)
             : Promise.resolve()
         }
         isSubmitting={busyAction === "accept"}
@@ -693,6 +791,22 @@ export function DateSuggestionCard({
               </Button>
             )}
           </>
+        )}
+
+        {canEditScheduleShareSlots && onEditScheduleShareSlots && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onEditScheduleShareSlots(suggestion.id)}
+            disabled={actionBusy}
+            aria-label="Edit selected blocks"
+            title="Edit selected blocks"
+            className="gap-1"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit selected blocks
+          </Button>
         )}
 
         {actionPolicy.canCancel && (

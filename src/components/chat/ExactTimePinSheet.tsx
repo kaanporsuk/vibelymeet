@@ -10,8 +10,6 @@ import {
   type TimeBlock,
 } from "../../../shared/dateSuggestions/scheduleShare";
 
-const DEFAULT_DURATION_MINUTES = 90;
-
 const parseSlotKey = (slotKey: string): { date: Date; block: TimeBlock } | null => {
   const parsed = parseSlotKeyShared(slotKey);
   if (!parsed) return null;
@@ -43,13 +41,17 @@ interface ExactTimePinSheetProps {
   /** slot_key in YYYY-MM-DD_<block> format. */
   chosenSlotKey: string;
   /**
-   * Called with ISO starts_at, ends_at, and the user's wall-clock start hour
-   * (0-23). The hour is sent explicitly because EXTRACT(HOUR ...) on the
-   * server-side timestamp doesn't recover the user's local hour reliably.
+   * Called with ISO starts_at and the user's wall-clock start hour (0-23).
+   * The hour is sent explicitly because EXTRACT(HOUR ...) on the server-side
+   * timestamp doesn't recover the user's local hour reliably.
+   *
+   * NOTE: This sheet pins the meeting START TIME ONLY. End time / duration is
+   * deliberately NOT productized — physical-date length is not part of the
+   * commitment. The product source of truth for which Vibely Schedule block
+   * to lock is chosen_slot_key + starts_at (never starts_at + ends_at).
    */
   onConfirm: (
     startsAtIso: string,
-    endsAtIso: string,
     localStartHour: number,
   ) => void | Promise<void>;
   isSubmitting?: boolean;
@@ -57,11 +59,16 @@ interface ExactTimePinSheetProps {
 
 /**
  * Constrains the user to picking an exact start time inside the chosen block's
- * hour range. Default is mid-block; ends_at is start + 90 min unless that
- * overflows the block (then it gets clamped to the block end).
+ * hour range. Default is mid-block. Server-side validation
+ * (date_suggestion_apply_v2.accept) re-checks local_start_hour falls inside the
+ * chosen block; this UI is defense-in-depth and a friendlier picker than a
+ * free-form clock.
  *
- * Server-side validation lives in date_suggestion_apply.accept; this UI is
- * defense-in-depth and a friendlier picker than a free-form clock.
+ * Boundaries are end-exclusive:
+ *   Morning   = 08:00 <= start < 12:00
+ *   Afternoon = 12:00 <= start < 17:00
+ *   Evening   = 17:00 <= start < 21:00
+ *   Night     = 21:00 <= start < 00:00
  */
 export const ExactTimePinSheet = ({
   isOpen,
@@ -94,23 +101,11 @@ export const ExactTimePinSheet = ({
   const handleConfirm = async () => {
     const slot = slots[selectedIndex];
     if (!slot) return;
-    const { startHour, endHour } = BLOCK_RANGES[parsed.block];
 
     const startsAt = new Date(parsed.date);
     startsAt.setHours(slot.hour, slot.minute, 0, 0);
 
-    const endsAt = new Date(startsAt);
-    endsAt.setMinutes(endsAt.getMinutes() + DEFAULT_DURATION_MINUTES);
-
-    // Clamp ends_at to block end so the date doesn't visually spill past the block.
-    const blockEnd = new Date(parsed.date);
-    blockEnd.setHours(endHour === 24 ? 0 : endHour, 0, 0, 0);
-    if (endHour === 24) blockEnd.setDate(blockEnd.getDate() + 1);
-    if (endsAt > blockEnd) {
-      endsAt.setTime(blockEnd.getTime());
-    }
-
-    await onConfirm(startsAt.toISOString(), endsAt.toISOString(), slot.hour);
+    await onConfirm(startsAt.toISOString(), slot.hour);
   };
 
   return (
