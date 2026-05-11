@@ -54,6 +54,8 @@ const COUNTER_SLOT_GUARD_MIGRATION =
   "supabase/migrations/20260511185500_counter_selected_slot_keys_guard.sql";
 const COUNTER_PAYLOAD_REVIEW_FOLLOWUP_MIGRATION =
   "supabase/migrations/20260511195200_counter_payload_review_followups.sql";
+const EDIT_SLOT_NULL_PAYLOAD_FOLLOWUP_MIGRATION =
+  "supabase/migrations/20260512000500_edit_schedule_share_slots_null_payload_followup.sql";
 
 test("DateSuggestionCard Accept on schedule-share opens the block chooser (no direct accept)", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
@@ -728,6 +730,31 @@ test("PR 841 review follow-up parses counter booleans and JSON null slots safely
     counterPayloadParsing.indexOf("= 'null'") <
       counterPayloadParsing.indexOf("invalid_selected_slot_keys"),
     "counter branch must treat JSON null selected_slot_keys as absent before invalidating non-arrays",
+  );
+});
+
+test("PR 842 Copilot follow-up treats edit selected_slot_keys JSON null as absent", () => {
+  const sql = readRepoFile(EDIT_SLOT_NULL_PAYLOAD_FOLLOWUP_MIGRATION);
+
+  const editStart = sql.indexOf("ELSIF p_action = 'edit_schedule_share_slots' THEN");
+  assert.notEqual(editStart, -1, "expected edit_schedule_share_slots branch");
+  const editEnd = sql.indexOf("    SELECT * INTO v_suggestion", editStart);
+  assert.notEqual(editEnd, -1, "expected edit slot payload parsing section");
+  const editPayloadParsing = sql.slice(editStart, editEnd);
+
+  assert.match(
+    editPayloadParsing,
+    /jsonb_typeof\(v_payload->'selected_slot_keys'\) = 'null'/,
+  );
+  assert.ok(
+    editPayloadParsing.indexOf("= 'null'") <
+      editPayloadParsing.indexOf("invalid_selected_slot_keys"),
+    "edit branch must treat JSON null selected_slot_keys as absent before invalidating non-arrays",
+  );
+  assert.ok(
+    editPayloadParsing.indexOf("r_slot_keys := NULL") <
+      editPayloadParsing.indexOf("selected_slots_required"),
+    "edit branch JSON null handling must fall through to selected_slots_required",
   );
 });
 
