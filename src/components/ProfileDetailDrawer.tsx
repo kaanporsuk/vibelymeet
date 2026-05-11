@@ -61,6 +61,7 @@ interface ProfileDetailDrawerProps {
   onOpenChange?: (open: boolean) => void;
   showActions?: boolean; // Whether to show action buttons
   mode?: 'discovery' | 'match'; // discovery = X/Heart/Message/Video, match = Message/Video only
+  presentation?: "default" | "chatProfile";
 }
 
 export const ProfileDetailDrawer = ({
@@ -72,6 +73,7 @@ export const ProfileDetailDrawer = ({
   onOpenChange,
   showActions = true,
   mode = 'match',
+  presentation = "default",
 }: ProfileDetailDrawerProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -90,6 +92,7 @@ export const ProfileDetailDrawer = ({
   const [showVideoOverlay, setShowVideoOverlay] = useState(false);
   const [showFullscreenPhoto, setShowFullscreenPhoto] = useState(false);
   const [showScrollHint, setShowScrollHint] = useState(true);
+  const isChatProfileViewer = presentation === "chatProfile";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -97,6 +100,14 @@ export const ProfileDetailDrawer = ({
     if (open) {
       console.info("[diag] ProfileDetailDrawer opened", { matchId: match.id, path: window.location.pathname });
     }
+  }, [open, match.id]);
+
+  useEffect(() => {
+    if (!open) return;
+    setCurrentPhotoIndex(0);
+    setShowVideoOverlay(false);
+    setShowFullscreenPhoto(false);
+    setShowScrollHint(true);
   }, [open, match.id]);
 
   // Use photos from match prop - resolve storage paths to full URLs
@@ -120,9 +131,18 @@ export const ProfileDetailDrawer = ({
     prompts: fetchedProfile?.prompts ?? match.prompts ?? [],
   };
 
+  const displayName = fetchedProfile?.name?.trim() || match.name;
+  const displayAge = fetchedProfile?.age ?? match.age;
+  const photoVerified = fetchedProfile?.photo_verified ?? match.photoVerified ?? false;
+  const phoneVerified = match.phoneVerified ?? false;
+  const profileVibes =
+    fetchedProfile?.vibes && fetchedProfile.vibes.length > 0
+      ? fetchedProfile.vibes
+      : match.vibes;
   const tagline = fetchedProfile?.tagline?.trim() ?? "";
   const intentIdForDisplay =
     fetchedProfile?.relationship_intent?.trim() || fetchedProfile?.looking_for?.trim() || "";
+  const intentDisplay = intentIdForDisplay ? getRelationshipIntentDisplaySafe(intentIdForDisplay) : null;
   const aboutTrim = (profileData.aboutMe ?? "").trim();
   const showAboutMe = aboutTrim.length > 10;
   
@@ -141,6 +161,7 @@ export const ProfileDetailDrawer = ({
     [bunnyUid, bunnyStatus, vibeCaption],
   );
   const hasVideoIntro = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
+  const showCompatibilityBadge = compatibility > 0;
 
   // Hide scroll hint after a few seconds
   useEffect(() => {
@@ -172,6 +193,199 @@ export const ProfileDetailDrawer = ({
     Creative: "🎨",
   };
 
+  const renderProfilePhotoCard = (photoIndex: number, delay: number) => (
+    <motion.div
+      key={`photo-${photoIndex}`}
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay }}
+      className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
+    >
+      <img
+        src={photos[photoIndex]}
+        alt={`${displayName}'s photo`}
+        className="h-full w-full cursor-pointer object-cover"
+        onClick={() => {
+          setCurrentPhotoIndex(photoIndex);
+          setShowFullscreenPhoto(true);
+        }}
+      />
+    </motion.div>
+  );
+
+  const renderVibeVideoModule = (delay: number) => {
+    if (vibeVideo.state === "none") return null;
+
+    const isProcessing = vibeVideo.state === "processing" || vibeVideo.state === "stale_processing";
+    const thumbnailUrl = vibeVideo.thumbnailUrl ?? photos[0] ?? "";
+
+    const title = isProcessing
+      ? vibeVideo.state === "stale_processing"
+        ? "Vibe Video still processing"
+        : "Vibe Video processing"
+      : vibeVideo.state === "failed"
+        ? "Vibe Video needs a fresh take"
+        : "Vibe Video preview syncing";
+    const body = isProcessing
+      ? vibeVideo.state === "stale_processing"
+        ? "Their clip is saved, but playback is taking longer than usual."
+        : "Their clip is saved and getting ready for playback."
+      : vibeVideo.state === "failed"
+        ? "This clip did not finish processing."
+        : "The clip is ready on our side and playback should appear shortly.";
+
+    return (
+      <motion.div
+        key="vibe-video-module"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay }}
+        className="glass-card overflow-hidden rounded-2xl p-4"
+      >
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Video className="h-4 w-4 text-neon-cyan" aria-hidden />
+            <span className="text-sm font-medium text-muted-foreground">Vibe Video</span>
+          </div>
+          {hasVideoIntro ? (
+            <span className="rounded-full border border-neon-cyan/25 bg-neon-cyan/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-neon-cyan">
+              Ready
+            </span>
+          ) : null}
+        </div>
+
+        {hasVideoIntro && vibeVideo.playbackUrl ? (
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-secondary/60">
+            {showVideoOverlay ? (
+              <VibePlayer
+                videoUrl={vibeVideo.playbackUrl}
+                thumbnailUrl={thumbnailUrl || undefined}
+                vibeCaption={vibeCaption}
+                autoPlay
+                showControls
+                className="aspect-video w-full"
+                backendReportsReady
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowVideoOverlay(true)}
+                className="group relative block aspect-video w-full overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                aria-label="Watch Intro"
+                title="Watch Intro"
+              >
+                {thumbnailUrl ? (
+                  <img
+                    src={thumbnailUrl}
+                    alt="Vibe Video"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-secondary/80">
+                    <Video className="h-10 w-10 text-muted-foreground" aria-hidden />
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="flex h-16 w-16 items-center justify-center rounded-full border border-white/30 bg-white/15 shadow-lg backdrop-blur-md transition-transform group-hover:scale-105">
+                    <Play className="ml-1 h-7 w-7 fill-white text-white" aria-hidden />
+                  </span>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 flex items-end justify-between gap-3 p-4">
+                  <span className="text-sm font-semibold text-white">Watch Intro</span>
+                  {vibeCaption ? (
+                    <span className="max-w-[65%] truncate text-xs font-medium text-white/75">
+                      {vibeCaption}
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-secondary/45 p-4">
+            <div className="flex items-start gap-3">
+              {isProcessing ? (
+                <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-primary" aria-hidden />
+              ) : (
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" aria-hidden />
+              )}
+              <div>
+                <p className="text-sm font-semibold text-foreground">{title}</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{body}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  const renderChatDetailsSection = (delay: number) => {
+    if (!isChatProfileViewer) return null;
+
+    const details = [
+      tagline
+        ? { key: "tagline", icon: <Sparkles className="h-4 w-4" aria-hidden />, label: "Intro", value: tagline }
+        : null,
+      profileData.job
+        ? { key: "job", icon: <Briefcase className="h-4 w-4" aria-hidden />, label: "Work", value: profileData.job }
+        : null,
+      profileData.location
+        ? { key: "location", icon: <MapPin className="h-4 w-4" aria-hidden />, label: "Location", value: profileData.location }
+        : null,
+      profileData.distanceLabel
+        ? {
+            key: "distance",
+            icon: <MapPin className="h-4 w-4" aria-hidden />,
+            label: "Distance",
+            value: `${profileData.distanceLabel} away`,
+          }
+        : null,
+      profileData.height
+        ? { key: "height", icon: <Ruler className="h-4 w-4" aria-hidden />, label: "Height", value: `${profileData.height} cm` }
+        : null,
+      photoVerified
+        ? { key: "photo-verified", icon: <Info className="h-4 w-4" aria-hidden />, label: "Verified", value: "Photo verified" }
+        : null,
+      phoneVerified
+        ? { key: "phone-verified", icon: <Info className="h-4 w-4" aria-hidden />, label: "Status", value: "Phone verified" }
+        : null,
+    ].filter((item): item is { key: string; icon: JSX.Element; label: string; value: string } => Boolean(item));
+
+    if (details.length === 0) return null;
+
+    return (
+      <motion.div
+        key="details"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay }}
+        className="glass-card rounded-2xl p-5"
+      >
+        <div className="mb-3 flex items-center gap-2">
+          <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
+          <span className="text-sm font-medium text-muted-foreground">Details</span>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {details.map((item) => (
+            <div key={item.key} className="rounded-xl border border-white/10 bg-secondary/25 px-3 py-2.5">
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 text-primary">{item.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                    {item.label}
+                  </p>
+                  <p className="mt-0.5 break-words text-sm text-foreground/90">{item.value}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    );
+  };
+
   // Build content sections
   const renderContentSections = () => {
     const sections: JSX.Element[] = [];
@@ -192,32 +406,19 @@ export const ProfileDetailDrawer = ({
       );
     }
 
+    if (isChatProfileViewer) {
+      const vibeSection = renderVibeVideoModule(showAboutMe ? 0.14 : 0.1);
+      if (vibeSection) sections.push(vibeSection);
+    }
+
     // Photo 2
     if (photoIndex < photos.length) {
-      sections.push(
-        <motion.div
-          key={`photo-${photoIndex}`}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
-        >
-          <img
-            src={photos[photoIndex]}
-            alt={`${match.name}'s photo`}
-            className="w-full h-full object-cover cursor-pointer"
-            onClick={() => {
-              setCurrentPhotoIndex(photoIndex);
-              setShowFullscreenPhoto(true);
-            }}
-          />
-        </motion.div>
-      );
+      sections.push(renderProfilePhotoCard(photoIndex, 0.15));
       photoIndex++;
     }
 
     // Vibes section
-    if (match.vibes.length > 0) {
+    if (profileVibes.length > 0) {
       sections.push(
         <motion.div
           key="vibes"
@@ -231,7 +432,7 @@ export const ProfileDetailDrawer = ({
             <span className="text-sm font-medium text-muted-foreground">Interests</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            {match.vibes.map((vibe) => (
+            {profileVibes.map((vibe) => (
               <span
                 key={vibe}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/15 text-primary border border-primary/30 text-sm font-medium"
@@ -245,44 +446,14 @@ export const ProfileDetailDrawer = ({
       );
     }
 
-    if (!hasVideoIntro && (vibeVideo.state === "processing" || vibeVideo.state === "stale_processing" || vibeVideo.state === "failed" || vibeVideo.state === "ready")) {
-      const isProcessing = vibeVideo.state === "processing" || vibeVideo.state === "stale_processing";
-      const title = isProcessing
-        ? vibeVideo.state === "stale_processing"
-          ? "Vibe Video still processing"
-          : "Vibe Video processing"
-        : vibeVideo.state === "failed"
-          ? "Vibe Video needs a fresh take"
-          : "Vibe Video preview syncing";
-      const body = isProcessing
-        ? vibeVideo.state === "stale_processing"
-          ? "Their clip is saved, but playback is taking longer than usual."
-          : "Their clip is saved and getting ready for playback."
-        : vibeVideo.state === "failed"
-          ? "This clip did not finish processing."
-          : "The clip is ready on our side and playback should appear shortly.";
+    if (!isChatProfileViewer && !hasVideoIntro) {
+      const vibeSection = renderVibeVideoModule(0.22);
+      if (vibeSection) sections.push(vibeSection);
+    }
 
-      sections.push(
-        <motion.div
-          key="vibe-video-status"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.22 }}
-          className="glass-card p-5 rounded-2xl"
-        >
-          <div className="flex items-start gap-3">
-            {isProcessing ? (
-              <Loader2 className="mt-0.5 h-5 w-5 animate-spin text-primary" />
-            ) : (
-              <AlertCircle className="mt-0.5 h-5 w-5 text-amber-400" />
-            )}
-            <div>
-              <p className="text-sm font-semibold text-foreground">{title}</p>
-              <p className="mt-1 text-sm text-muted-foreground leading-relaxed">{body}</p>
-            </div>
-          </div>
-        </motion.div>
-      );
+    const detailsSection = renderChatDetailsSection(0.24);
+    if (detailsSection) {
+      sections.push(detailsSection);
     }
 
     // Prompts interspersed with remaining photos (only if user has prompts)
@@ -304,25 +475,7 @@ export const ProfileDetailDrawer = ({
 
           // Add a photo after every other prompt
           if (i % 2 === 0 && photoIndex < photos.length) {
-            sections.push(
-              <motion.div
-                key={`photo-${photoIndex}`}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 + i * 0.05 }}
-                className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
-              >
-                <img
-                  src={photos[photoIndex]}
-                  alt={`${match.name}'s photo`}
-                  className="w-full h-full object-cover cursor-pointer"
-                  onClick={() => {
-                    setCurrentPhotoIndex(photoIndex);
-                    setShowFullscreenPhoto(true);
-                  }}
-                />
-              </motion.div>
-            );
+            sections.push(renderProfilePhotoCard(photoIndex, 0.3 + i * 0.05));
             photoIndex++;
           }
         }
@@ -350,42 +503,119 @@ export const ProfileDetailDrawer = ({
 
     // Add remaining photos
     while (photoIndex < photos.length) {
-      sections.push(
-        <motion.div
-          key={`photo-${photoIndex}`}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.45 }}
-          className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl"
-        >
-          <img
-            src={photos[photoIndex]}
-            alt={`${match.name}'s photo`}
-            className="w-full h-full object-cover cursor-pointer"
-            onClick={() => {
-              setCurrentPhotoIndex(photoIndex);
-              setShowFullscreenPhoto(true);
-            }}
-          />
-        </motion.div>
-      );
+      sections.push(renderProfilePhotoCard(photoIndex, 0.45));
       photoIndex++;
     }
 
     return sections;
   };
 
+  const activeHeroPhoto = photos[currentPhotoIndex] ?? photos[0] ?? "";
+
+  const renderHeroPhoto = () => {
+    if (!activeHeroPhoto) {
+      return (
+        <div className="flex h-full w-full items-center justify-center bg-secondary/50">
+          <Sparkles className="h-12 w-12 text-muted-foreground/40" aria-hidden />
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {isChatProfileViewer ? (
+          <AnimatePresence mode="wait">
+            <motion.img
+              key={`hero-bg-${currentPhotoIndex}`}
+              src={activeHeroPhoto}
+              alt=""
+              aria-hidden
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="pointer-events-none absolute inset-0 hidden h-full w-full scale-[1.04] object-cover blur-2xl brightness-[0.42] md:block"
+            />
+          </AnimatePresence>
+        ) : null}
+        <AnimatePresence mode="wait">
+          <motion.img
+            key={`hero-${currentPhotoIndex}`}
+            src={activeHeroPhoto}
+            alt={`${displayName}'s photo`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className={cn(
+              "h-full w-full cursor-pointer",
+              isChatProfileViewer
+                ? "object-cover md:relative md:z-[1] md:object-contain md:drop-shadow-2xl"
+                : "object-cover",
+            )}
+            onClick={() => setShowFullscreenPhoto(true)}
+          />
+        </AnimatePresence>
+      </>
+    );
+  };
+
+  const renderPhotoIndicators = () => (
+    <div className="absolute left-4 right-16 top-3 z-30 flex gap-1.5">
+      {photos.map((_, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => goToPhoto(i)}
+          className="group flex h-11 min-w-0 flex-1 items-start rounded-sm pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-black/50"
+          aria-label={`Show photo ${i + 1} of ${photos.length}`}
+          aria-current={i === currentPhotoIndex ? "true" : undefined}
+          title={`Photo ${i + 1}`}
+        >
+          <span
+            className={cn(
+              "block h-1 w-full rounded-full transition-all duration-200 group-hover:bg-white/75",
+              i === currentPhotoIndex ? "bg-white" : "bg-white/40",
+            )}
+          />
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderTapZones = () => (
+    <>
+      <button
+        type="button"
+        onClick={() => goToPhoto(currentPhotoIndex - 1)}
+        disabled={currentPhotoIndex <= 0}
+        className="absolute bottom-28 left-0 top-16 z-20 min-w-11 w-1/3 rounded-r-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:pointer-events-none"
+        aria-label="Previous photo"
+        title="Previous photo"
+      />
+      <button
+        type="button"
+        onClick={() => goToPhoto(currentPhotoIndex + 1)}
+        disabled={currentPhotoIndex >= photos.length - 1}
+        className="absolute bottom-28 right-0 top-16 z-20 min-w-11 w-1/3 rounded-l-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:pointer-events-none"
+        aria-label="Next photo"
+        title="Next photo"
+      />
+    </>
+  );
+
   return (
     <Drawer open={open} onOpenChange={setOpen}>
       {trigger && <DrawerTrigger asChild>{trigger}</DrawerTrigger>}
-      <DrawerContent className="h-[95vh] max-w-full bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
+      <DrawerContent className="h-[95dvh] max-h-[95dvh] max-w-full bg-background border-t border-border/50 rounded-t-3xl flex flex-col overflow-hidden">
         {/* Close Button - Floating */}
-        <div className="absolute top-4 right-4 z-30">
+        <div className="absolute top-4 right-4 z-40">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setOpen(false)}
-            className="w-10 h-10 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background"
+            aria-label="Close profile"
+            className="h-11 w-11 rounded-full bg-background/80 backdrop-blur-sm hover:bg-background focus-visible:ring-2 focus-visible:ring-primary/60"
           >
             <X className="w-5 h-5" />
           </Button>
@@ -394,65 +624,15 @@ export const ProfileDetailDrawer = ({
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain">
           {/* Hero Section - Full Width Photo */}
-          <div className="relative w-full aspect-[3/4] max-h-[70vh] overflow-hidden">
-            {hasVideoIntro && !showVideoOverlay ? (
-              <>
-                <AnimatePresence mode="wait">
-                  <motion.img
-                    key={currentPhotoIndex}
-                    src={photos[currentPhotoIndex]}
-                    alt={`${match.name}'s photo`}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="w-full h-full object-cover"
-                    onClick={() => setShowFullscreenPhoto(true)}
-                  />
-                </AnimatePresence>
-
-                {/* Photo indicators */}
-                <div className="absolute top-4 left-4 right-16 flex gap-1.5">
-                  {photos.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => goToPhoto(i)}
-                      className={cn(
-                        "h-1 rounded-full flex-1 transition-all duration-200",
-                        i === currentPhotoIndex
-                          ? "bg-white"
-                          : "bg-white/40"
-                      )}
-                    />
-                  ))}
-                </div>
-
-                {/* Tap zones */}
-                <button
-                  onClick={() => goToPhoto(currentPhotoIndex - 1)}
-                  className="absolute left-0 top-16 bottom-32 w-1/3"
-                  aria-label="Previous photo"
-                />
-                <button
-                  onClick={() => goToPhoto(currentPhotoIndex + 1)}
-                  className="absolute right-0 top-16 bottom-32 w-1/3"
-                  aria-label="Next photo"
-                />
-
-                {/* Play Intro Video Button */}
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => setShowVideoOverlay(true)}
-                  className="absolute bottom-28 left-4 flex items-center gap-2 px-4 py-2.5 rounded-full bg-background/90 backdrop-blur-md border border-border/50 text-foreground font-medium shadow-lg"
-                >
-                  <div className="w-8 h-8 rounded-full bg-gradient-primary flex items-center justify-center">
-                    <Play className="w-4 h-4 text-primary-foreground fill-primary-foreground ml-0.5" />
-                  </div>
-                  <span className="text-sm">Watch Intro</span>
-                </motion.button>
-              </>
-            ) : hasVideoIntro && showVideoOverlay && vibeVideo.playbackUrl ? (
+          <div
+            className={cn(
+              "relative w-full overflow-hidden bg-background",
+              isChatProfileViewer
+                ? "aspect-[3/4] max-h-[70dvh] md:aspect-auto md:h-[clamp(420px,70dvh,760px)] md:max-h-[calc(100dvh-5rem)]"
+                : "aspect-[3/4] max-h-[70vh]",
+            )}
+          >
+            {hasVideoIntro && showVideoOverlay && vibeVideo.playbackUrl && !isChatProfileViewer ? (
               <VibePlayer
                 videoUrl={vibeVideo.playbackUrl}
                 thumbnailUrl={photos[0]}
@@ -464,67 +644,48 @@ export const ProfileDetailDrawer = ({
               />
             ) : (
               <>
-                <AnimatePresence mode="wait">
-                  <motion.img
-                    key={currentPhotoIndex}
-                    src={photos[currentPhotoIndex]}
-                    alt={`${match.name}'s photo`}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="w-full h-full object-cover"
-                    onClick={() => setShowFullscreenPhoto(true)}
-                  />
-                </AnimatePresence>
+                {renderHeroPhoto()}
+                {renderPhotoIndicators()}
+                {renderTapZones()}
 
-                <div className="absolute top-4 left-4 right-16 flex gap-1.5">
-                  {photos.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => goToPhoto(i)}
-                      className={cn(
-                        "h-1 rounded-full flex-1 transition-all duration-200",
-                        i === currentPhotoIndex
-                          ? "bg-white"
-                          : "bg-white/40"
-                      )}
-                    />
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => goToPhoto(currentPhotoIndex - 1)}
-                  className="absolute left-0 top-16 bottom-32 w-1/3"
-                  aria-label="Previous photo"
-                />
-                <button
-                  onClick={() => goToPhoto(currentPhotoIndex + 1)}
-                  className="absolute right-0 top-16 bottom-32 w-1/3"
-                  aria-label="Next photo"
-                />
+                {hasVideoIntro && !isChatProfileViewer ? (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    type="button"
+                    onClick={() => setShowVideoOverlay(true)}
+                    className="absolute bottom-28 left-4 z-30 flex min-h-11 items-center gap-2 rounded-full border border-border/50 bg-background/90 px-4 py-2.5 font-medium text-foreground shadow-lg backdrop-blur-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    aria-label="Watch Intro"
+                    title="Watch Intro"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-primary">
+                      <Play className="ml-0.5 h-4 w-4 fill-primary-foreground text-primary-foreground" aria-hidden />
+                    </div>
+                    <span className="text-sm">Watch Intro</span>
+                  </motion.button>
+                ) : null}
               </>
             )}
 
             {/* Gradient overlay */}
-            <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-background via-background/80 to-transparent pointer-events-none" />
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-48 bg-gradient-to-t from-background via-background/80 to-transparent" />
 
             {/* Profile info overlay */}
-            <div className="absolute bottom-0 left-0 right-0 p-5 pb-6">
-              <div className="flex items-end justify-between">
-                <div className="flex-1">
+            <div className="absolute bottom-0 left-0 right-0 z-30 p-5 pb-6">
+              <div className="flex items-end justify-between gap-4">
+                <div className="min-w-0 flex-1">
                   {/* Name and Age */}
-                  <div className="flex items-center gap-2 mb-1">
-                    <h2 className="text-4xl font-display font-bold text-foreground">
-                      {match.name}
+                  <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2">
+                    <h2 className="break-words text-3xl font-display font-bold leading-tight text-foreground sm:text-4xl">
+                      {displayName}
                     </h2>
-                    <span className="text-3xl font-light text-foreground/80">{match.age}</span>
-                    <PhotoVerifiedMark verified={!!match.photoVerified} size="md" />
+                    <span className="text-2xl font-light leading-tight text-foreground/80 sm:text-3xl">{displayAge}</span>
+                    <PhotoVerifiedMark verified={!!photoVerified} size="md" />
                   </div>
 
                   {/* Details */}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-foreground/80">
-                    {profileData.job && (
+                    {!isChatProfileViewer && profileData.job && (
                       <span className="flex items-center gap-1.5 text-sm">
                         <Briefcase className="w-4 h-4" />
                         {profileData.job}
@@ -542,7 +703,7 @@ export const ProfileDetailDrawer = ({
                         {profileData.distanceLabel} away
                       </span>
                     )}
-                    {profileData.height && (
+                    {!isChatProfileViewer && profileData.height && (
                       <span className="flex items-center gap-1.5 text-sm">
                         <Ruler className="w-4 h-4" />
                         {profileData.height} cm
@@ -550,61 +711,62 @@ export const ProfileDetailDrawer = ({
                     )}
                   </div>
 
-                  {tagline ? (
+                  {!isChatProfileViewer && tagline ? (
                     <p className="text-sm italic text-primary mt-2">&quot;{tagline}&quot;</p>
                   ) : null}
 
-                  {intentIdForDisplay ? (
+                  {intentDisplay ? (
                     <div className="mt-2">
                       <span className="inline-flex items-center px-3 py-1 rounded-full bg-primary/20 border border-primary/30 text-sm text-primary">
-                        {getRelationshipIntentDisplaySafe(intentIdForDisplay).emoji}{" "}
-                        {getRelationshipIntentDisplaySafe(intentIdForDisplay).label}
+                        {intentDisplay.emoji} {intentDisplay.label}
                       </span>
                     </div>
                   ) : null}
                 </div>
 
                 {/* Compatibility badge */}
-                <div className="flex flex-col items-center shrink-0">
-                  <div className="relative w-14 h-14">
-                    <svg className="w-full h-full -rotate-90">
-                      <circle
-                        cx="28"
-                        cy="28"
-                        r="24"
-                        stroke="hsl(var(--muted))"
-                        strokeWidth="4"
-                        fill="none"
-                      />
-                      <circle
-                        cx="28"
-                        cy="28"
-                        r="24"
-                        stroke="url(#gradient-compat)"
-                        strokeWidth="4"
-                        fill="none"
-                        strokeDasharray={`${compatibility * 1.51} 151`}
-                        strokeLinecap="round"
-                      />
-                      <defs>
-                        <linearGradient id="gradient-compat" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="hsl(var(--neon-violet))" />
-                          <stop offset="100%" stopColor="hsl(var(--neon-pink))" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-sm font-bold text-foreground">{compatibility}%</span>
+                {showCompatibilityBadge ? (
+                  <div className="flex shrink-0 flex-col items-center">
+                    <div className="relative w-14 h-14">
+                      <svg className="w-full h-full -rotate-90">
+                        <circle
+                          cx="28"
+                          cy="28"
+                          r="24"
+                          stroke="hsl(var(--muted))"
+                          strokeWidth="4"
+                          fill="none"
+                        />
+                        <circle
+                          cx="28"
+                          cy="28"
+                          r="24"
+                          stroke="url(#gradient-compat)"
+                          strokeWidth="4"
+                          fill="none"
+                          strokeDasharray={`${compatibility * 1.51} 151`}
+                          strokeLinecap="round"
+                        />
+                        <defs>
+                          <linearGradient id="gradient-compat" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stopColor="hsl(var(--neon-violet))" />
+                            <stop offset="100%" stopColor="hsl(var(--neon-pink))" />
+                          </linearGradient>
+                        </defs>
+                      </svg>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-sm font-bold text-foreground">{compatibility}%</span>
+                      </div>
                     </div>
+                    <span className="text-xs text-muted-foreground mt-1">Match</span>
                   </div>
-                  <span className="text-xs text-muted-foreground mt-1">Match</span>
-                </div>
+                ) : null}
               </div>
             </div>
           </div>
 
           {/* Content sections */}
-          <div className="px-4 space-y-4 pb-40 -mt-4">
+          <div className={cn("px-4 space-y-4 -mt-4", showActions ? "pb-40" : "pb-10 md:pb-8")}>
             {/* Scroll hint */}
             <motion.div
               initial={{ opacity: 0 }}

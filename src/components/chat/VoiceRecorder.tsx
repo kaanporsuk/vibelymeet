@@ -10,9 +10,19 @@ interface VoiceRecorderProps {
   disabled?: boolean;
   onUnavailable?: () => void;
   className?: string;
+  variant?: "icon" | "action";
+  label?: string;
 }
 
-const VoiceRecorder = ({ onRecordingComplete, onCancel, disabled = false, onUnavailable, className }: VoiceRecorderProps) => {
+const VoiceRecorder = ({
+  onRecordingComplete,
+  onCancel,
+  disabled = false,
+  onUnavailable,
+  className,
+  variant = "icon",
+  label = "Voice Note",
+}: VoiceRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -271,16 +281,26 @@ const VoiceRecorder = ({ onRecordingComplete, onCancel, disabled = false, onUnav
         type="button"
         whileTap={{ scale: 0.9 }}
         onPointerDown={startRecording}
+        onKeyDown={(event) => {
+          if (event.repeat) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void startRecording();
+          }
+        }}
         disabled={disabled}
-        aria-label="Record voice message"
-        title="Record voice message"
+        aria-label={variant === "action" ? label : "Record voice message"}
+        title={variant === "action" ? label : "Record voice message"}
         className={cn(
-          "shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg cursor-pointer select-none touch-none",
-          disabled && "opacity-45 cursor-not-allowed",
+          variant === "action"
+            ? "inline-flex h-11 min-h-11 w-full items-center justify-start gap-2 rounded-xl border border-border/35 bg-secondary/35 px-3 text-xs font-medium text-foreground/90 shadow-none transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45"
+            : "shrink-0 w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground shadow-lg cursor-pointer select-none touch-none",
+          disabled && "cursor-not-allowed opacity-45",
           className
         )}
       >
-        <Mic className="w-5 h-5" />
+        <Mic className={cn(variant === "action" ? "h-4 w-4 shrink-0 text-primary" : "w-5 h-5")} />
+        {variant === "action" ? <span className="truncate">{label}</span> : null}
       </motion.button>
     );
   }
