@@ -87,6 +87,32 @@ test("DateSuggestionCard Accept on schedule-share opens the block chooser (no di
   );
 });
 
+test("Native DateSuggestionChatCard Accept on schedule-share opens the block chooser", () => {
+  const src = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
+
+  assert.match(
+    src,
+    /if \(isScheduleShare\)\s*\{\s*setChooserOpen\(true\);\s*return;\s*\}/,
+    "Native handleAccept must open the chooser when isScheduleShare",
+  );
+  assert.doesNotMatch(
+    src,
+    /Plain Accept is a no-op/,
+    "Native schedule-share Accept must not remain a no-op",
+  );
+  assert.match(src, /<ChooseSharedBlockSheet\b/, "Native card must mount ChooseSharedBlockSheet");
+  assert.match(
+    src,
+    /handleChooserContinue[\s\S]{0,160}setPendingSlotKey\(slotKey\)/,
+    "Native chooser Continue must hand off to ExactTimePinSheet via setPendingSlotKey",
+  );
+  assert.match(
+    src,
+    /handleAcceptWithSlot\(pendingSlotKey,\s*startsAt,\s*localHour\)/,
+    "Native pin confirm must forward to handleAcceptWithSlot with the start-time-only signature",
+  );
+});
+
 test("Schedule-share Accept payload is start-time-only (no ends_at)", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
 
@@ -151,6 +177,59 @@ test("Schedule-share Accept payload is start-time-only (no ends_at)", () => {
   );
 });
 
+test("Native schedule-share Accept payload is start-time-only (no ends_at)", () => {
+  const src = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
+
+  const fnStart = src.indexOf("handleAcceptWithSlot = async (");
+  assert.notEqual(fnStart, -1, "expected native handleAcceptWithSlot function");
+  const fnEnd = src.indexOf("};", fnStart);
+  assert.notEqual(fnEnd, -1, "expected end of native handleAcceptWithSlot");
+  const body = src.slice(fnStart, fnEnd);
+
+  assert.match(
+    body,
+    /dateSuggestionApply\('accept'/,
+    "Native schedule-share accept must call dateSuggestionApply('accept', ...)",
+  );
+
+  for (const field of [
+    "suggestion_id",
+    "chosen_slot_key",
+    "starts_at",
+    "local_timezone",
+    "local_start_hour",
+  ]) {
+    assert.match(body, new RegExp(`\\b${field}\\b`), `native accept payload must include ${field}`);
+  }
+
+  assert.match(
+    body,
+    /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/,
+    "Native accept payload must pull local_timezone from the device Intl timezone",
+  );
+  assert.doesNotMatch(
+    body,
+    /\|\|\s*["']UTC["']/,
+    "Native accept payload must not silently fall back to UTC",
+  );
+
+  const handlerSignature = body.match(/handleAcceptWithSlot = async \([\s\S]*?\) => \{/);
+  assert.ok(handlerSignature, "expected native handleAcceptWithSlot signature");
+  assert.doesNotMatch(
+    handlerSignature![0],
+    /endsAt|ends_at/i,
+    "Native handleAcceptWithSlot must not accept an end-time argument",
+  );
+
+  const callMatch = body.match(/dateSuggestionApply\('accept',[\s\S]*?\}\)/);
+  assert.ok(callMatch, "expected native dateSuggestionApply('accept', { ... })");
+  assert.doesNotMatch(
+    callMatch![0],
+    /\bends_at\b/,
+    "native schedule-share accept payload must not include ends_at",
+  );
+});
+
 test("ExactTimePinSheet onConfirm is start-time-only (no ends_at)", () => {
   const src = readRepoFile("src/components/chat/ExactTimePinSheet.tsx");
 
@@ -195,6 +274,43 @@ test("ExactTimePinSheet onConfirm is start-time-only (no ends_at)", () => {
   );
 });
 
+test("Native ExactTimePinSheet onConfirm is start-time-only (no ends_at)", () => {
+  const src = readRepoFile("apps/mobile/components/chat/ExactTimePinSheet.tsx");
+
+  const propMatch = src.match(/onConfirm:\s*\(([\s\S]*?)\)\s*=>/);
+  assert.ok(propMatch, "expected native onConfirm signature on ExactTimePinSheet props");
+  const params = propMatch![1];
+  assert.match(params, /startsAtIso:\s*string/);
+  assert.match(params, /localStartHour:\s*number/);
+  assert.doesNotMatch(
+    params,
+    /endsAtIso|endsAt/,
+    "Native onConfirm must not take an end-time argument",
+  );
+  assert.doesNotMatch(
+    src,
+    /DEFAULT_DURATION_MINUTES/,
+    "Native pin sheet must not carry a duration constant",
+  );
+  assert.doesNotMatch(
+    src,
+    /\bendsAt\b/,
+    "Native pin sheet must not compute endsAt locally",
+  );
+  assert.match(
+    src,
+    /onConfirm\(startsAt\.toISOString\(\),\s*slot\.hour\)/,
+    "Native pin sheet must invoke onConfirm with (startsAtIso, localStartHour)",
+  );
+
+  const cardSrc = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
+  assert.match(
+    cardSrc,
+    /onConfirm=\{\(startsAt,\s*localHour\)\s*=>/,
+    "Native card must wire ExactTimePinSheet onConfirm with 2 args",
+  );
+});
+
 test("ChooseSharedBlockSheet only renders blocks passed in via offeredBlocks", () => {
   const src = readRepoFile("src/components/chat/ChooseSharedBlockSheet.tsx");
 
@@ -222,6 +338,27 @@ test("ChooseSharedBlockSheet only renders blocks passed in via offeredBlocks", (
   );
 });
 
+test("Native ChooseSharedBlockSheet only renders blocks passed in via offeredBlocks", () => {
+  const src = readRepoFile("apps/mobile/components/chat/ChooseSharedBlockSheet.tsx");
+
+  assert.match(src, /offeredBlocks: OfferedBlock\[\]/);
+  assert.doesNotMatch(
+    src,
+    /user_schedules|useSchedule\(|scheduleRecord|getSlotStatus/,
+    "Native chooser must not derive selectable blocks from the user's schedule",
+  );
+  assert.match(
+    src,
+    /offeredBlocks\.length === 1[\s\S]{0,80}setSelectedKey\(offeredBlocks\[0\]\.slot_key\)/,
+    "Native single offered block must be preselected without skipping the chooser",
+  );
+  assert.match(
+    src,
+    /disabled=\{!selectedKey/,
+    "Native Continue must require an explicit selection",
+  );
+});
+
 test("DateSuggestionCard passes only offered blocks to the chooser", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
 
@@ -239,6 +376,21 @@ test("DateSuggestionCard passes only offered blocks to the chooser", () => {
     src,
     /useSharedPartnerSchedule\(\s*suggestion\.match_id,\s*offerAuthorId,/,
     "Chooser must use the offer author's grant slots (proposed_by of current revision)",
+  );
+});
+
+test("Native DateSuggestionChatCard passes only offered blocks to the chooser", () => {
+  const src = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
+
+  assert.match(
+    src,
+    /const chooserOfferedBlocks[\s\S]{0,200}accepterOffer\.data/,
+    "Native chooserOfferedBlocks must come from useSharedPartnerSchedule (offer-author grant)",
+  );
+  assert.match(
+    src,
+    /useSharedPartnerSchedule\(\s*suggestion\.match_id,\s*offerAuthorId,/,
+    "Native chooser must use the offer author's grant slots",
   );
 });
 
@@ -718,7 +870,7 @@ test("PR 841 review follow-up parses counter booleans and JSON null slots safely
   );
   assert.doesNotMatch(
     counterPayloadParsing,
-    /r_share_raw IN \([^\)]*'on'[^\)]*\)/,
+    new RegExp(String.raw`r_share_raw IN \([^)]*'on'[^)]*\)`),
     "counter branch schedule_share_enabled truthy set must match truthyFlag (no 'on')",
   );
   assert.match(counterPayloadParsing, /'invalid_schedule_share_enabled'/);

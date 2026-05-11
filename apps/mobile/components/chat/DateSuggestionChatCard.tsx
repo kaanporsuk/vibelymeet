@@ -22,6 +22,7 @@ import { getDateSuggestionActionPolicy } from '../../../../shared/dateSuggestion
 import { intersectSlotKeys } from '../../../../shared/dateSuggestions/scheduleShare';
 import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
 import { ExactTimePinSheet } from './ExactTimePinSheet';
+import { ChooseSharedBlockSheet, type OfferedBlock } from './ChooseSharedBlockSheet';
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
@@ -155,17 +156,40 @@ export function DateSuggestionChatCard({
         : '';
 
   const isScheduleShare = current?.time_choice_key === 'share_schedule';
+  const offerAuthorId = current?.proposed_by ?? null;
   const [pendingSlotKey, setPendingSlotKey] = useState<string | null>(null);
+  const [chooserOpen, setChooserOpen] = useState(false);
   const [acceptBusy, setAcceptBusy] = useState(false);
   const [cancelPlanBusy, setCancelPlanBusy] = useState(false);
   const [markCompleteBusy, setMarkCompleteBusy] = useState(false);
+  const accepterOffer = useSharedPartnerSchedule(
+    suggestion.match_id,
+    offerAuthorId,
+    Boolean(
+      isScheduleShare &&
+        current &&
+        status !== 'accepted' &&
+        status !== 'completed' &&
+        actionPolicy.canAccept,
+    ),
+  );
+
+  const chooserOfferedBlocks: OfferedBlock[] = useMemo(() => {
+    const slots = accepterOffer.data ?? [];
+    return slots.map((slot) => ({
+      slot_key: slot.slot_key,
+      slot_date: slot.slot_date,
+      time_block: slot.time_block,
+    }));
+  }, [accepterOffer.data]);
 
   const handleAccept = async () => {
+    if (acceptBusy) return;
     if (isScheduleShare) {
-      // Schedule-share: requires the user to tap a specific block chip below,
-      // which routes through the ExactTimePinSheet. Plain Accept is a no-op.
+      setChooserOpen(true);
       return;
     }
+    setAcceptBusy(true);
     try {
       await dateSuggestionApply('accept', { suggestion_id: suggestion.id });
       showDialog({
@@ -182,25 +206,48 @@ export function DateSuggestionChatCard({
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
+    } finally {
+      setAcceptBusy(false);
     }
+  };
+
+  const handleChooserContinue = (slotKey: string) => {
+    setChooserOpen(false);
+    setPendingSlotKey(slotKey);
   };
 
   const handleAcceptWithSlot = async (
     slotKey: string,
     startsAtIso: string,
-    endsAtIso: string,
     localStartHour: number,
   ) => {
+    const localTimezone = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (!localTimezone) {
+      showDialog({
+        title: 'Couldn’t accept',
+        message: 'Could not read your timezone. Check device settings and try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
     setAcceptBusy(true);
     try {
       await dateSuggestionApply('accept', {
         suggestion_id: suggestion.id,
         chosen_slot_key: slotKey,
         starts_at: startsAtIso,
-        ends_at: endsAtIso,
+        local_timezone: localTimezone,
         local_start_hour: localStartHour,
       });
       setPendingSlotKey(null);
+      setChooserOpen(false);
       showDialog({
         title: "It's a date!",
         message: 'Enjoy planning together.',
@@ -215,6 +262,9 @@ export function DateSuggestionChatCard({
         else if (e.code === 'slot_user_busy') msg = 'One of you marked that block busy. Pick another.';
         else if (e.code === 'exact_time_outside_block') msg = 'Pick a time inside the chosen block.';
         else if (e.code === 'slot_not_in_share_grant') msg = 'That time is no longer available. Pick another.';
+        else if (e.code === 'local_timezone_required' || e.code === 'invalid_local_timezone') {
+          msg = 'Could not verify your timezone. Check device settings and try again.';
+        }
       }
       showDialog({
         title: 'Couldn’t accept',
@@ -735,11 +785,21 @@ export function DateSuggestionChatCard({
         chosenSlotKey={pendingSlotKey ?? ''}
         isSubmitting={acceptBusy}
         onClose={() => setPendingSlotKey(null)}
-        onConfirm={(startsAt, endsAt, localHour) =>
+        onConfirm={(startsAt, localHour) =>
           pendingSlotKey
-            ? handleAcceptWithSlot(pendingSlotKey, startsAt, endsAt, localHour)
+            ? handleAcceptWithSlot(pendingSlotKey, startsAt, localHour)
             : Promise.resolve()
         }
+      />
+
+      <ChooseSharedBlockSheet
+        visible={chooserOpen}
+        onClose={() => setChooserOpen(false)}
+        offeredBlocks={chooserOfferedBlocks}
+        isLoading={accepterOffer.isLoading}
+        isError={accepterOffer.isError}
+        partnerName={partnerName}
+        onContinue={handleChooserContinue}
       />
 
       <View style={[styles.actions, { borderTopColor: theme.border }]}>
@@ -758,7 +818,7 @@ export function DateSuggestionChatCard({
 
         {actionPolicy.canRespondToCurrent && (
           <>
-            {actionPolicy.canAccept ? btn('Accept', handleAccept, 'primary') : null}
+            {actionPolicy.canAccept ? btn('Accept', handleAccept, 'primary', acceptBusy) : null}
             {actionPolicy.canCounter
               ? btn(
                   'Counter',
@@ -861,7 +921,7 @@ function ScheduleShareOfferedBlocks({
   // Mutual: the OTHER side's offered blocks (if they shared in any prior revision).
   const otherOffer = useSharedPartnerSchedule(matchId, otherSideId, true);
 
-  const chipsSlots = chipsOffer.data ?? [];
+  const chipsSlots = useMemo(() => chipsOffer.data ?? [], [chipsOffer.data]);
   const chipsSlotKeys = useMemo(() => chipsSlots.map((s) => s.slot_key), [chipsSlots]);
   const otherSlotKeys = useMemo(
     () => (otherOffer.data ?? []).map((s) => s.slot_key),
