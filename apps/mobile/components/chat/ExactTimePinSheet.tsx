@@ -1,11 +1,10 @@
 /**
  * Native parity with src/components/chat/ExactTimePinSheet.tsx.
  * Constrains the user to picking a start time inside the chosen block's
- * hour range. Default = mid-block. ends_at = starts_at + 90 min, clamped
- * to the block's end. Server-side validation in date_suggestion_apply.accept
- * enforces this.
+ * hour range. Default = mid-block. Server-side validation in
+ * date_suggestion_apply.accept enforces this.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, Modal, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -17,8 +16,6 @@ import {
   parseSlotKey,
   type TimeBlock,
 } from '../../../../shared/dateSuggestions/scheduleShare';
-
-const DEFAULT_DURATION_MINUTES = 90;
 
 function halfHourSlots(block: TimeBlock): { hour: number; minute: number; label: string }[] {
   const { startHour, endHour } = BLOCK_HOUR_RANGES[block];
@@ -48,7 +45,6 @@ interface Props {
    */
   onConfirm: (
     startsAtIso: string,
-    endsAtIso: string,
     localStartHour: number,
   ) => void | Promise<void>;
 }
@@ -68,25 +64,21 @@ export function ExactTimePinSheet({ visible, chosenSlotKey, isSubmitting, onClos
 
   const [selectedIndex, setSelectedIndex] = useState(defaultIndex);
 
+  useEffect(() => {
+    setSelectedIndex(defaultIndex);
+  }, [defaultIndex]);
+
   if (!parsed) return null;
 
   const handleConfirm = async () => {
     const slot = slots[selectedIndex];
     if (!slot) return;
     const date = new Date(`${parsed.slotDate}T00:00:00`);
-    const { endHour } = BLOCK_HOUR_RANGES[parsed.timeBlock];
 
     const startsAt = new Date(date);
     startsAt.setHours(slot.hour, slot.minute, 0, 0);
-    const endsAt = new Date(startsAt);
-    endsAt.setMinutes(endsAt.getMinutes() + DEFAULT_DURATION_MINUTES);
 
-    const blockEnd = new Date(date);
-    blockEnd.setHours(endHour === 24 ? 0 : endHour, 0, 0, 0);
-    if (endHour === 24) blockEnd.setDate(blockEnd.getDate() + 1);
-    if (endsAt > blockEnd) endsAt.setTime(blockEnd.getTime());
-
-    await onConfirm(startsAt.toISOString(), endsAt.toISOString(), slot.hour);
+    await onConfirm(startsAt.toISOString(), slot.hour);
   };
 
   return (
