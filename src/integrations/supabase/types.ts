@@ -8067,7 +8067,7 @@ export type Database = {
       }
       tier_capability_type: {
         Args: { p_capability_key: string }
-        Returns: string
+        Returns: string | null
       }
       tier_config_override_value_is_valid: {
         Args: { p_capability_key: string; p_value: Json }

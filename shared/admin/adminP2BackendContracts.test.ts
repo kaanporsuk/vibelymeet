@@ -99,6 +99,7 @@ const createEventCheckoutFunction = read("supabase/functions/create-event-checko
 const dateSuggestionActionsFunction = read("supabase/functions/date-suggestion-actions/index.ts");
 const webEntitlementsContext = read("src/contexts/EntitlementsContext.tsx");
 const mobileEntitlementsContext = read("apps/mobile/context/EntitlementsContext.tsx");
+const supabaseTypes = read("src/integrations/supabase/types.ts");
 
 function fnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
@@ -633,6 +634,10 @@ test("tier config authority migration validates overrides and enforces backend e
   assert.match(tierConfigAuthorityMigration, /DELETE FROM public\.tier_config_overrides[\s\S]*tier_config_override_value_is_valid\(capability_key, value\)/);
   assert.match(tierConfigAuthorityMigration, /v_access_value jsonb/);
   assert.match(tierConfigAuthorityMigration, /COALESCE\(\([\s\S]*SELECT jsonb_agg\(tier[\s\S]*'\[\]'::jsonb\)/);
+  assert.match(
+    supabaseTypes,
+    /tier_capability_type: \{\s*Args: \{ p_capability_key: string \}\s*Returns: string \| null\s*\}/,
+  );
 
   const getUserCaps = tierConfigAuthorityFnSection("get_user_tier_capabilities");
   assert.match(getUserCaps, /SECURITY DEFINER/);
