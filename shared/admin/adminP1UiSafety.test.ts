@@ -48,6 +48,8 @@ const eventLifecycleAutoFinalizationMigration = read("supabase/migrations/202605
 const proofSelfieUrl = read("src/lib/proofSelfieUrl.ts");
 const adminProofSelfieSign = read("supabase/functions/admin-proof-selfie-sign/index.ts");
 const simplePhotoVerification = read("src/components/verification/SimplePhotoVerification.tsx");
+const selectUi = read("src/components/ui/select.tsx");
+const dialogUi = read("src/components/ui/dialog.tsx");
 
 function readTree(path: string): string[] {
   const dir = join(root, path);
@@ -76,6 +78,15 @@ test("admin confirmation dialog uses AlertDialog primitives", () => {
   assert.match(adminConfirmDialog, /AlertDialogTitle/);
   assert.match(adminConfirmDialog, /AlertDialogDescription/);
   assert.match(adminConfirmDialog, /onConfirm/);
+});
+
+test("photo verification rejection select layers above dialogs and hands off cleanly", () => {
+  assert.match(dialogUi, /z-\[120\]/);
+  assert.match(selectUi, /relative z-\[130\]/);
+  assert.match(
+    adminPhotoVerification,
+    /setRejectModal\(null\);\s*setRejectConfirmation\(\{ id: rejectModal\.id, userId: rejectModal\.userId, reason \}\);/,
+  );
 });
 
 test("event form footer still submits through validation path", () => {
