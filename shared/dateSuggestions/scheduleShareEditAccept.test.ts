@@ -48,6 +48,8 @@ function readRepoFile(relativePath: string): string {
 
 const REVIEW_FIX_MIGRATION =
   "supabase/migrations/20260511174500_date_suggestion_review_comment_fixes.sql";
+const UUID_GUARD_MIGRATION =
+  "supabase/migrations/20260511180500_date_suggestion_uuid_payload_guards.sql";
 
 test("DateSuggestionCard Accept on schedule-share opens the block chooser (no direct accept)", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
@@ -626,6 +628,43 @@ test("PR review follow-up guards schedule-share casts and active edit grants", (
 
   assert.match(editBranch, /g\.viewer_user_id\s*=\s*v_partner/);
   assert.match(editBranch, /g\.expires_at\s*>\s*now\(\)/);
+});
+
+test("PR 839 follow-up guards UUID and selected slot payload parsing", () => {
+  const sql = readRepoFile(UUID_GUARD_MIGRATION);
+
+  assert.match(sql, /v_match_id_raw text := nullif\(p_payload->>'match_id', ''\);/);
+  assert.match(sql, /v_suggestion_id_raw text := nullif\(p_payload->>'suggestion_id', ''\);/);
+  assert.doesNotMatch(
+    sql,
+    /v_match_id uuid := nullif\(p_payload->>'match_id', ''\)::uuid/,
+    "match_id must not be cast during DECLARE initialization",
+  );
+  assert.doesNotMatch(
+    sql,
+    /v_suggestion_id uuid := nullif\(p_payload->>'suggestion_id', ''\)::uuid/,
+    "suggestion_id must not be cast during DECLARE initialization",
+  );
+  assert.match(
+    sql,
+    /v_match_id := v_match_id_raw::uuid;[\s\S]*?'invalid_match_id'/,
+    "Malformed match_id must return invalid_match_id instead of throwing",
+  );
+  assert.match(
+    sql,
+    /v_suggestion_id := v_suggestion_id_raw::uuid;[\s\S]*?'invalid_suggestion_id'/,
+    "Malformed suggestion_id must return invalid_suggestion_id instead of throwing",
+  );
+
+  const editStart = sql.indexOf("ELSIF p_action = 'edit_schedule_share_slots' THEN");
+  assert.notEqual(editStart, -1, "expected edit branch in UUID guard migration");
+  const editEnd = sql.indexOf("END IF;\n\n  -- Non-handled actions", editStart);
+  assert.notEqual(editEnd, -1, "expected end of edit branch");
+  const editBranch = sql.slice(editStart, editEnd);
+
+  assert.match(editBranch, /jsonb_typeof\(v_payload->'selected_slot_keys'\) <> 'array'/);
+  assert.match(editBranch, /'invalid_selected_slot_keys'/);
+  assert.match(editBranch, /jsonb_array_elements_text\(v_payload->'selected_slot_keys'\)/);
 });
 
 test("Edge function require-share-capability set includes edit_schedule_share_slots", () => {
