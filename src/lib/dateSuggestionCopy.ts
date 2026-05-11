@@ -134,25 +134,32 @@ export function labelForPlaceMode(key: string): string {
 export const DATE_SAFETY_NOTE =
   "Meet in public first, tell a friend where you're going, and trust your instincts.";
 
+export function humanizeDateTypeLabel(key: string | null | undefined): string {
+  if (!key) return "Vibely date";
+  const known = labelForDateType(key);
+  if (known !== key) return known;
+  const cleaned = key.replace(/[_-]+/g, " ").trim();
+  if (!cleaned) return "Vibely date";
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function buildShareDateText(params: {
-  partnerFirstName: string;
+  partnerFirstName?: string;
+  partnerName?: string;
   dateTypeLabel: string;
   placeLabel: string;
   timeLabel: string;
-  optionalMessage?: string | null;
-  appUrl?: string;
 }): string {
+  const partner = params.partnerName || params.partnerFirstName || "your match";
   const lines = [
-    `Date with ${params.partnerFirstName}`,
-    `${params.dateTypeLabel}`,
-    `${params.placeLabel}`,
-    `${params.timeLabel}`,
+    `Date with ${partner}`,
     "",
-    params.optionalMessage?.trim() ? params.optionalMessage.trim() : "",
+    `When: ${params.timeLabel}`,
+    `Plan: ${params.dateTypeLabel || "Vibely date"}`,
+    `Place: ${params.placeLabel || "Let's decide together"}`,
     "",
-    DATE_SAFETY_NOTE,
-    "",
-    params.appUrl ?? (typeof window !== "undefined" ? window.location.origin : "https://www.vibelymeet.com"),
-  ].filter((l) => l !== "");
+    "Met on Vibely (vibelymeet.com).",
+    "I wanted to let you know.",
+  ];
   return lines.join("\n");
 }

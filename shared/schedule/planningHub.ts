@@ -24,6 +24,8 @@ export type ScheduleHubPlan = {
   date_type_key: string | null;
   status: string;
   completion_initiated_by: string | null;
+  completion_initiated_at?: string | null;
+  completion_confirmed_by?: string | null;
   completion_confirmed_at: string | null;
 };
 

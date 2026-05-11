@@ -37,7 +37,8 @@ export type AcceptPayload = {
   suggestion_id: string;
   chosen_slot_key: string;
   starts_at: string;
-  ends_at: string;
+  local_timezone: string;
+  local_start_hour?: number;
 };
 
 export type CancelPlanPayload = {
