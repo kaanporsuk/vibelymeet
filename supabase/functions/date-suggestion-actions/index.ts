@@ -114,8 +114,9 @@ serve(async (req) => {
     ].includes(p_action);
     const revision = isRecord(p_payload.revision) ? p_payload.revision : {};
     const shareRequested =
-      ["send_proposal", "counter"].includes(p_action) &&
-      truthyFlag(revision.schedule_share_enabled);
+      (["send_proposal", "counter"].includes(p_action) &&
+        truthyFlag(revision.schedule_share_enabled)) ||
+      p_action === "edit_schedule_share_slots";
 
     if (requiresDateSuggestionCapability || shareRequested) {
       const { data: authData, error: authError } = await userClient.auth.getUser();

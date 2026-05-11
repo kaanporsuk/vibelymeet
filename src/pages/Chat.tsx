@@ -96,6 +96,9 @@ const ChatVideoLightbox = lazy(() =>
 const ScheduleShareSheet = lazy(() =>
   import("@/components/chat/ScheduleShareSheet").then((mod) => ({ default: mod.ScheduleShareSheet })),
 );
+const ScheduleShareEditSheet = lazy(() =>
+  import("@/components/chat/ScheduleShareEditSheet").then((mod) => ({ default: mod.ScheduleShareEditSheet })),
+);
 const DateSuggestionComposer = lazy(() =>
   import("@/components/chat/DateSuggestionComposer").then((mod) => ({ default: mod.DateSuggestionComposer })),
 );
@@ -281,6 +284,8 @@ const Chat = () => {
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const [showScheduleShare, setShowScheduleShare] = useState(false);
+  const [editScheduleShareSuggestionId, setEditScheduleShareSuggestionId] =
+    useState<string | null>(null);
   const [focusedSuggestionId, setFocusedSuggestionId] = useState<string | null>(null);
   const [focusToken, setFocusToken] = useState(0);
   const [showAttachmentTray, setShowAttachmentTray] = useState(false);
@@ -1265,6 +1270,13 @@ const Chat = () => {
         exact: true,
       });
     }
+    // Schedule-share Accept locks blocks on both calendars; cancel_plan reverts.
+    // Invalidate the schedule caches so /schedule, the YOU mini-grid, and the
+    // shared-schedule chips on the card all see the new state without a manual
+    // refresh. Cheap for other actions (Decline/Counter/etc.) since the queries
+    // are not actively read in those code paths.
+    queryClient.invalidateQueries({ queryKey: ["user-schedule"] });
+    queryClient.invalidateQueries({ queryKey: ["shared-schedule"] });
   }, [refetchDateSuggestions, queryClient, id, currentUserId]);
 
   const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
@@ -1408,6 +1420,13 @@ const Chat = () => {
     },
     [],
   );
+
+  // Sender-side entry point: open the same ScheduleSharePicker preloaded with
+  // the sender's current selected blocks. Persists as `edit_schedule_share_slots`
+  // on the SAME active suggestion — never creates a new card.
+  const openEditScheduleShareSlots = useCallback((suggestionId: string) => {
+    setEditScheduleShareSuggestionId(suggestionId);
+  }, []);
 
   const openPhotoPicker = useCallback(() => {
     if (composerMediaLocked) return;
@@ -1620,6 +1639,7 @@ const Chat = () => {
                         partnerUserId={chatData?.otherUser?.id ?? id ?? ""}
                         onOpenComposer={handleOpenDateComposer}
                         onShareMyScheduleAsCounter={openShareScheduleAsCounter}
+                        onEditScheduleShareSlots={openEditScheduleShareSlots}
                         onUpdated={onDateSuggestionUpdated}
                         threadUi={row.dateUi}
                         highlightToken={
@@ -2202,6 +2222,33 @@ const Chat = () => {
             onActiveSuggestionConflict={focusExistingSuggestion}
             onSent={() => {
               void refetchDateSuggestions();
+              if (id && currentUserId) {
+                queryClient.invalidateQueries({
+                  queryKey: threadMessagesQueryKey(id, currentUserId),
+                  exact: true,
+                });
+              }
+            }}
+          />
+        )}
+
+        {chatData?.matchId && currentUserId && editScheduleShareSuggestionId && (
+          <ScheduleShareEditSheet
+            isOpen={editScheduleShareSuggestionId !== null}
+            onClose={() => setEditScheduleShareSuggestionId(null)}
+            matchId={chatData.matchId}
+            suggestionId={editScheduleShareSuggestionId}
+            currentUserId={currentUserId}
+            partnerName={otherUser.name}
+            onSaved={() => {
+              void refetchDateSuggestions();
+              // Refresh the shared schedule cache (both sides) so the sender's
+              // updated grant slot set reflects immediately on the card.
+              queryClient.invalidateQueries({ queryKey: ["shared-schedule"] });
+              // Refresh the sender's own user-schedule cache (no event-lock
+              // change is expected here, but adding/removing open blocks via
+              // the picker is possible).
+              queryClient.invalidateQueries({ queryKey: ["user-schedule"] });
               if (id && currentUserId) {
                 queryClient.invalidateQueries({
                   queryKey: threadMessagesQueryKey(id, currentUserId),
