@@ -136,7 +136,7 @@ export function DateSuggestionCard({
   const queryClient = useQueryClient();
   const cancelInFlightRef = useRef(false);
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "share" | "complete" | "cancel_plan" | null>(null);
+  const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "complete" | "cancel_plan" | null>(null);
   const [pendingChosenSlotKey, setPendingChosenSlotKey] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
@@ -508,9 +508,9 @@ export function DateSuggestionCard({
     } catch (e) {
       if (e instanceof DateSuggestionDomainError && e.code === "date_not_started") {
         toast.message("Available after the date starts.");
-      // Legacy fallback only. Current Edge -> date_plan_mark_complete_v2 returns
-      // completion_state instead of awaiting_partner_confirm.
       } else if (e instanceof DateSuggestionDomainError && e.code === "awaiting_partner_confirm") {
+        // Legacy fallback only. Current Edge -> date_plan_mark_complete_v2 returns
+        // completion_state instead of awaiting_partner_confirm.
         toast.message(`Waiting for ${partnerName} to confirm too.`);
       } else {
         toast.error("Could not update");
@@ -949,7 +949,7 @@ export function DateSuggestionCard({
               aria-label="Share the accepted date"
               title="Share the date"
             >
-              {busyAction === "share" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
+              <Share2 className="h-3.5 w-3.5" />
               Share the date
             </Button>
             {hasDateStarted && !currentUserMarkedComplete ? (
@@ -1072,7 +1072,7 @@ function ScheduleShareOfferedBlocks({
   // Returns grant_required if they haven't shared — handled gracefully (no mutual chips).
   const otherOffer = useSharedPartnerSchedule(matchId, otherSideId, true);
 
-  const chipsSlots = chipsOffer.data ?? [];
+  const chipsSlots = useMemo(() => chipsOffer.data ?? [], [chipsOffer.data]);
   const chipsSlotKeys = useMemo(() => chipsSlots.map((s) => s.slot_key), [chipsSlots]);
   const otherSlotKeys = useMemo(
     () => (otherOffer.data ?? []).map((s) => s.slot_key),
