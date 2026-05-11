@@ -19,6 +19,8 @@ type PhysicalDateFeedbackSheetProps = {
 };
 
 type Option<T extends string> = { value: T; label: string };
+type WouldMeetAgainValue = "yes" | "maybe" | "no";
+type ProfileAccurateValue = "yes" | "somewhat" | "no";
 
 const didMeetOptions: Option<SubmitDatePlanFeedbackInput["didMeet"]>[] = [
   { value: "yes", label: "Yes" },
@@ -31,13 +33,13 @@ const feltSafeOptions: Option<SubmitDatePlanFeedbackInput["feltSafe"]>[] = [
   { value: "report", label: "I want to report something" },
 ];
 
-const wouldMeetOptions: Option<NonNullable<SubmitDatePlanFeedbackInput["wouldMeetAgain"]>>[] = [
+const wouldMeetOptions: Option<WouldMeetAgainValue>[] = [
   { value: "yes", label: "Yes" },
   { value: "maybe", label: "Maybe" },
   { value: "no", label: "No" },
 ];
 
-const profileAccurateOptions: Option<NonNullable<SubmitDatePlanFeedbackInput["profileAccurate"]>>[] = [
+const profileAccurateOptions: Option<ProfileAccurateValue>[] = [
   { value: "yes", label: "Yes" },
   { value: "somewhat", label: "Somewhat" },
   { value: "no", label: "No" },
@@ -87,10 +89,8 @@ export function PhysicalDateFeedbackSheet({
 }: PhysicalDateFeedbackSheetProps) {
   const [didMeet, setDidMeet] = useState<SubmitDatePlanFeedbackInput["didMeet"] | null>(null);
   const [feltSafe, setFeltSafe] = useState<SubmitDatePlanFeedbackInput["feltSafe"] | null>(null);
-  const [wouldMeetAgain, setWouldMeetAgain] =
-    useState<SubmitDatePlanFeedbackInput["wouldMeetAgain"]>(null);
-  const [profileAccurate, setProfileAccurate] =
-    useState<SubmitDatePlanFeedbackInput["profileAccurate"]>(null);
+  const [wouldMeetAgain, setWouldMeetAgain] = useState<WouldMeetAgainValue | null>(null);
+  const [profileAccurate, setProfileAccurate] = useState<ProfileAccurateValue | null>(null);
   const [freeText, setFreeText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -148,17 +148,17 @@ export function PhysicalDateFeedbackSheet({
             </div>
 
             <div className="space-y-5">
-              <OptionGroup
+              <OptionGroup<SubmitDatePlanFeedbackInput["didMeet"]>
                 label="Did you meet?"
                 value={didMeet}
                 options={didMeetOptions}
-                onChange={(value) => setDidMeet(value)}
+                onChange={setDidMeet}
               />
-              <OptionGroup
+              <OptionGroup<SubmitDatePlanFeedbackInput["feltSafe"]>
                 label="Did you feel safe?"
                 value={feltSafe}
                 options={feltSafeOptions}
-                onChange={(value) => setFeltSafe(value)}
+                onChange={setFeltSafe}
               />
               {feltSafe === "report" ? (
                 <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-foreground">
@@ -176,17 +176,17 @@ export function PhysicalDateFeedbackSheet({
                   </Button>
                 </div>
               ) : null}
-              <OptionGroup
+              <OptionGroup<WouldMeetAgainValue>
                 label="Would you meet this person again?"
                 value={wouldMeetAgain}
                 options={wouldMeetOptions}
-                onChange={(value) => setWouldMeetAgain(value)}
+                onChange={setWouldMeetAgain}
               />
-              <OptionGroup
+              <OptionGroup<ProfileAccurateValue>
                 label="Was their profile accurate?"
                 value={profileAccurate}
                 options={profileAccurateOptions}
-                onChange={(value) => setProfileAccurate(value)}
+                onChange={setProfileAccurate}
               />
               <div className="space-y-2">
                 <p className="text-sm font-medium text-foreground">Anything Vibely should know?</p>
