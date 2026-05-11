@@ -272,7 +272,11 @@ export function DateSuggestionCard({
       // local_start_hour is kept as a defense-in-depth cross-check; the
       // timezone-derived hour is the server-side authority.
       const localTimezone =
-        Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (!localTimezone) {
+        toast.error("Could not read your timezone. Check browser settings and try again.");
+        return;
+      }
       await dateSuggestionApply("accept", {
         suggestion_id: suggestion.id,
         chosen_slot_key: slotKey,
@@ -294,6 +298,8 @@ export function DateSuggestionCard({
         } else if (e.code === "slot_not_in_share_grant") {
           toast.error("That time is no longer available. Pick another.");
         } else if (
+          e.code === "exact_time_required" ||
+          e.code === "invalid_slot_key" ||
           e.code === "local_date_mismatch" ||
           e.code === "local_timezone_required" ||
           e.code === "invalid_local_timezone" ||

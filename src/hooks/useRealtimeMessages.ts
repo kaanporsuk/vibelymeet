@@ -122,6 +122,12 @@ export const useRealtimeMessages = ({
 
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempted = false;
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
 
     // Subscribe to new messages for this match
     const channel = supabase
@@ -152,6 +158,7 @@ export const useRealtimeMessages = ({
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
+          clearRetryTimer();
           retryAttempted = false;
           retryCountRef.current = 0;
           return;
@@ -170,7 +177,7 @@ export const useRealtimeMessages = ({
       });
 
     return () => {
-      if (retryTimer) clearTimeout(retryTimer);
+      clearRetryTimer();
       supabase.removeChannel(channel);
     };
   }, [matchId, enabled, hasSession, invalidateMessages, patchMessage, retryNonce, threadCurrentUserId]);

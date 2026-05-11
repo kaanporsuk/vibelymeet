@@ -55,7 +55,7 @@ test("grant slot realtime invalidates shared schedule through the subject user",
   ]);
 });
 
-test("current user schedule realtime invalidates schedule grid and hub only for current user", () => {
+test("user schedule realtime invalidates own grid and partner shared schedule", () => {
   const { calls, client } = createRecorder();
 
   invalidateDateScheduleRealtimeEvent(client, scope, {
@@ -70,6 +70,7 @@ test("current user schedule realtime invalidates schedule grid and hub only for 
   assert.deepEqual(calls, [
     { queryKey: ["user-schedule", "user-a"], exact: true },
     { queryKey: ["schedule-hub", "user-a"], exact: true },
+    { queryKey: ["shared-schedule", "match-a", "user-b"], exact: true },
   ]);
 });
 
@@ -104,6 +105,7 @@ test("chat hook keeps realtime payloads on invalidation and lookup paths", () =>
   assert.match(helper, /shared-schedule/);
   assert.doesNotMatch(source, /setQueryData/);
   assert.match(source, /channel\(`match-date-schedule:\$\{scope\.matchId\}`\)/);
+  assert.match(source, /table: "user_schedules"/);
   assert.match(source, /filter: `user_id=eq\.\$\{currentUserId\}`/);
   assert.match(source, /supabase\.removeChannel\(channel\)/);
 });

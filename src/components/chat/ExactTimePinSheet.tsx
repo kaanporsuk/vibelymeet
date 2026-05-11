@@ -42,8 +42,8 @@ interface ExactTimePinSheetProps {
   chosenSlotKey: string;
   /**
    * Called with ISO starts_at and the user's wall-clock start hour (0-23).
-   * The hour is sent explicitly because EXTRACT(HOUR ...) on the server-side
-   * timestamp doesn't recover the user's local hour reliably.
+   * The server derives the authoritative local hour from starts_at plus the
+   * caller's IANA timezone; this hour is only a defense-in-depth cross-check.
    *
    * NOTE: This sheet pins the meeting START TIME ONLY. End time / duration is
    * deliberately NOT productized — physical-date length is not part of the

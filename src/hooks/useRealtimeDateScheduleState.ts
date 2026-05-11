@@ -210,8 +210,15 @@ export function useRealtimeDateScheduleState({
 
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempted = false;
-    const channel = supabase
-      .channel(`match-date-schedule:${scope.matchId}`)
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
+    const channel = supabase.channel(`match-date-schedule:${scope.matchId}`);
+
+    channel
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "date_suggestions", filter: `match_id=eq.${scope.matchId}` },
@@ -259,28 +266,46 @@ export function useRealtimeDateScheduleState({
         (payload) => {
           void resolveGrantSlotEvent(payload as RealtimePayload);
         },
-      )
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          retryAttempted = false;
-          retryCountRef.current = 0;
-          return;
-        }
-        if (status !== "CHANNEL_ERROR") return;
+      );
 
-        invalidate({ table: "channel_error", matchId: scope.matchId });
-        logRealtimeDiagnostic("[useRealtimeDateScheduleState] channel error", {
-          matchId: scope.matchId,
-        });
-        if (!retryAttempted && retryCountRef.current < 2) {
-          retryAttempted = true;
-          retryCountRef.current += 1;
-          retryTimer = setTimeout(() => setRetryNonce((value) => value + 1), 1500);
-        }
+    const userScheduleIds = new Set([...(scope.participantIds ?? []), scope.currentUserId]);
+    for (const participantId of userScheduleIds) {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "user_schedules", filter: `user_id=eq.${participantId}` },
+        (payload) => {
+          const row = realtimeRow(payload as RealtimePayload);
+          invalidate({
+            table: "user_schedules",
+            matchId: scope.matchId,
+            userId: stringValue(row, "user_id") ?? participantId,
+          });
+        },
+      );
+    }
+
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        clearRetryTimer();
+        retryAttempted = false;
+        retryCountRef.current = 0;
+        return;
+      }
+      if (status !== "CHANNEL_ERROR") return;
+
+      invalidate({ table: "channel_error", matchId: scope.matchId });
+      logRealtimeDiagnostic("[useRealtimeDateScheduleState] channel error", {
+        matchId: scope.matchId,
       });
+      if (!retryAttempted && retryCountRef.current < 2) {
+        retryAttempted = true;
+        retryCountRef.current += 1;
+        retryTimer = setTimeout(() => setRetryNonce((value) => value + 1), 1500);
+      }
+    });
 
     return () => {
-      if (retryTimer) clearTimeout(retryTimer);
+      clearRetryTimer();
       void supabase.removeChannel(channel);
     };
   }, [hasSession, invalidate, resolveGrantSlotEvent, resolveRevisionEvent, retryNonce, scope]);
@@ -300,6 +325,12 @@ export function useRealtimeUserScheduleState(
 
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempted = false;
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
     const invalidate = () => {
       void queryClient.invalidateQueries({ queryKey: ["user-schedule", currentUserId], exact: true });
       void queryClient.invalidateQueries({ queryKey: ["schedule-hub", currentUserId], exact: true });
@@ -314,6 +345,7 @@ export function useRealtimeUserScheduleState(
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
+          clearRetryTimer();
           retryAttempted = false;
           retryCountRef.current = 0;
           return;
@@ -332,7 +364,7 @@ export function useRealtimeUserScheduleState(
       });
 
     return () => {
-      if (retryTimer) clearTimeout(retryTimer);
+      clearRetryTimer();
       void supabase.removeChannel(channel);
     };
   }, [currentUserId, hasSession, queryClient, retryNonce]);
@@ -352,6 +384,12 @@ export function useRealtimeScheduleHubState(
 
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retryAttempted = false;
+    const clearRetryTimer = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+    };
     const invalidate = () => {
       void queryClient.invalidateQueries({ queryKey: ["schedule-hub", currentUserId], exact: true });
       void queryClient.invalidateQueries({ queryKey: ["user-schedule", currentUserId], exact: true });
@@ -376,6 +414,7 @@ export function useRealtimeScheduleHubState(
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
+          clearRetryTimer();
           retryAttempted = false;
           retryCountRef.current = 0;
           return;
@@ -394,7 +433,7 @@ export function useRealtimeScheduleHubState(
       });
 
     return () => {
-      if (retryTimer) clearTimeout(retryTimer);
+      clearRetryTimer();
       void supabase.removeChannel(channel);
     };
   }, [currentUserId, hasSession, queryClient, retryNonce]);

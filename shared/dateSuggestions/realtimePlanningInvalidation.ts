@@ -96,6 +96,11 @@ export function invalidateDateScheduleRealtimeEvent(
         invalidateCurrentUserSchedule();
         invalidateScheduleHub();
       }
+      if (!event.userId) {
+        invalidateParticipantSharedSchedules();
+      } else if (event.userId !== scope.currentUserId) {
+        invalidateSharedSchedule(event.userId);
+      }
       break;
     case "date_plans":
       invalidateDateSuggestions();

@@ -104,6 +104,14 @@ export const ScheduleShareEditSheet = ({
           toast.error("You can only edit blocks you shared.");
           return;
         }
+        if (err.code === "no_share_grant_to_edit") {
+          toast.error("Your shared blocks expired. Share your schedule again.");
+          return;
+        }
+        if (err.code === "selected_slot_not_open") {
+          toast.error("One of those blocks is no longer open. Pick open blocks and try again.");
+          return;
+        }
         toast.error(err.message || "Could not update your shared blocks.");
         return;
       }
