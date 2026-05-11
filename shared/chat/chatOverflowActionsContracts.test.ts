@@ -131,6 +131,9 @@ test("match-call end reason migrations preserve archive and block terminal reaso
   const cloudRepairMigration = read(
     "supabase/migrations/20260511143000_match_call_unmatched_pair_reason_cloud_repair.sql",
   );
+  const webMatchCallHook = read("src/hooks/useMatchCall.tsx");
+  const webActiveCallOverlay = read("src/components/chat/ActiveCallOverlay.tsx");
+  const nativeMatchCallApi = read("apps/mobile/lib/matchCallApi.ts");
 
   assert.match(endReasonMigration, /ended_reason IN \([\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
   assert.match(endReasonMigration, /v_allowed\s+text\[\]\s*:= ARRAY\[[\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
@@ -142,4 +145,9 @@ test("match-call end reason migrations preserve archive and block terminal reaso
   assert.doesNotMatch(cloudRepairMigration, /pg_get_functiondef\('public\.match_call_transition\(uuid,text,text\)'::regprocedure\)/);
   assert.match(cloudRepairMigration, /''provider_error'',\s*''blocked_pair'',\s*''unmatched_pair'',\s*''busy''/);
   assert.match(cloudRepairMigration, /''blocked_pair'',\s*''unmatched_pair'',\s*''busy''/);
+
+  for (const source of [webMatchCallHook, webActiveCallOverlay, nativeMatchCallApi]) {
+    assert.match(source, /unmatched_pair/);
+  }
+  assert.match(webActiveCallOverlay, /case "unmatched_pair":/);
 });

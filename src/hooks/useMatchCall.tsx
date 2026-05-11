@@ -60,6 +60,7 @@ type MatchCallEndReason =
   | "stale_active"
   | "provider_error"
   | "blocked_pair"
+  | "unmatched_pair"
   | "busy"
   | "connection_lost"
   | "media_failure";
