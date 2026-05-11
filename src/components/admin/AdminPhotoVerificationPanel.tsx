@@ -567,6 +567,7 @@ const AdminPhotoVerificationPanel = () => {
                     toast.error("Add a rejection reason before final confirmation.");
                     return;
                   }
+                  setRejectModal(null);
                   setRejectConfirmation({ id: rejectModal.id, userId: rejectModal.userId, reason });
                 }}
                 disabled={rejectMutation.isPending}
