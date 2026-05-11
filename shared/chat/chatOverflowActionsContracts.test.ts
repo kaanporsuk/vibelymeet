@@ -136,7 +136,10 @@ test("match-call end reason migrations preserve archive and block terminal reaso
   assert.match(endReasonMigration, /v_allowed\s+text\[\]\s*:= ARRAY\[[\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
   assert.match(repairMigration, /ended_reason IN \([\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
   assert.match(cloudRepairMigration, /ended_reason IN \([\s\S]*'blocked_pair'[\s\S]*'unmatched_pair'[\s\S]*'media_failure'/);
-  assert.match(cloudRepairMigration, /pg_get_functiondef\('public\.match_call_transition\(uuid,text,text\)'::regprocedure\)/);
+  assert.match(cloudRepairMigration, /v_transition_fn\s+regprocedure/);
+  assert.match(cloudRepairMigration, /to_regprocedure\('public\.match_call_transition\(uuid,text,text\)'\)/);
+  assert.match(cloudRepairMigration, /pg_get_functiondef\(v_transition_fn\)/);
+  assert.doesNotMatch(cloudRepairMigration, /pg_get_functiondef\('public\.match_call_transition\(uuid,text,text\)'::regprocedure\)/);
   assert.match(cloudRepairMigration, /''provider_error'',\s*''blocked_pair'',\s*''unmatched_pair'',\s*''busy''/);
   assert.match(cloudRepairMigration, /''blocked_pair'',\s*''unmatched_pair'',\s*''busy''/);
 });

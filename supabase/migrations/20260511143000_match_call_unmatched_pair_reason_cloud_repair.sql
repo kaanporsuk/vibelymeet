@@ -28,15 +28,18 @@ ALTER TABLE public.match_calls
 
 DO $$
 DECLARE
+  v_transition_fn regprocedure;
   v_definition text;
   v_repaired_definition text;
 BEGIN
-  SELECT pg_get_functiondef('public.match_call_transition(uuid,text,text)'::regprocedure)
-  INTO v_definition;
+  v_transition_fn := to_regprocedure('public.match_call_transition(uuid,text,text)');
 
-  IF v_definition IS NULL THEN
+  IF v_transition_fn IS NULL THEN
     RAISE EXCEPTION 'public.match_call_transition(uuid, text, text) is missing';
   END IF;
+
+  SELECT pg_get_functiondef(v_transition_fn)
+  INTO v_definition;
 
   v_repaired_definition := v_definition;
 
@@ -77,7 +80,7 @@ BEGIN
   IF v_repaired_definition IS DISTINCT FROM v_definition THEN
     EXECUTE v_repaired_definition;
   END IF;
-END $$;
 
-REVOKE ALL ON FUNCTION public.match_call_transition(uuid, text, text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.match_call_transition(uuid, text, text) TO authenticated;
+  REVOKE ALL ON FUNCTION public.match_call_transition(uuid, text, text) FROM PUBLIC;
+  GRANT EXECUTE ON FUNCTION public.match_call_transition(uuid, text, text) TO authenticated;
+END $$;
