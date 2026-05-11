@@ -1,12 +1,3 @@
-/**
- * Supabase `public` schema types — generated from the linked project.
- *
- * Regenerate:
- *   ./scripts/regen-supabase-types.sh
- *
- * Project id matches supabase/config.toml (linked).
- */
-
 export type Json =
   | string
   | number
@@ -694,6 +685,132 @@ export type Database = {
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "video_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      date_plan_completion_confirmations: {
+        Row: {
+          created_at: string
+          date_plan_id: string
+          id: string
+          marked_complete_at: string
+          match_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          date_plan_id: string
+          id?: string
+          marked_complete_at?: string
+          match_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          date_plan_id?: string
+          id?: string
+          marked_complete_at?: string
+          match_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "date_plan_completion_confirmations_date_plan_id_fkey"
+            columns: ["date_plan_id"]
+            isOneToOne: false
+            referencedRelation: "date_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plan_completion_confirmations_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plan_completion_confirmations_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      date_plan_feedback: {
+        Row: {
+          created_at: string
+          date_plan_id: string
+          did_meet: string
+          felt_safe: string
+          free_text: string | null
+          id: string
+          match_id: string
+          profile_accurate: string | null
+          report_requested: boolean
+          reviewer_user_id: string
+          subject_user_id: string
+          updated_at: string
+          would_meet_again: string | null
+        }
+        Insert: {
+          created_at?: string
+          date_plan_id: string
+          did_meet: string
+          felt_safe: string
+          free_text?: string | null
+          id?: string
+          match_id: string
+          profile_accurate?: string | null
+          report_requested?: boolean
+          reviewer_user_id: string
+          subject_user_id: string
+          updated_at?: string
+          would_meet_again?: string | null
+        }
+        Update: {
+          created_at?: string
+          date_plan_id?: string
+          did_meet?: string
+          felt_safe?: string
+          free_text?: string | null
+          id?: string
+          match_id?: string
+          profile_accurate?: string | null
+          report_requested?: boolean
+          reviewer_user_id?: string
+          subject_user_id?: string
+          updated_at?: string
+          would_meet_again?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "date_plan_feedback_date_plan_id_fkey"
+            columns: ["date_plan_id"]
+            isOneToOne: false
+            referencedRelation: "date_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plan_feedback_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plan_feedback_reviewer_user_id_fkey"
+            columns: ["reviewer_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "date_plan_feedback_subject_user_id_fkey"
+            columns: ["subject_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -6995,11 +7112,20 @@ export type Database = {
         Returns: Json
       }
       daily_drops_generation_ran_today: { Args: never; Returns: boolean }
+      date_plan_mark_complete_v2: { Args: { p_plan_id: string }; Returns: Json }
       date_suggestion_apply: {
         Args: { p_action: string; p_payload: Json }
         Returns: Json
       }
+      date_suggestion_apply_legacy_dispatch_20260512: {
+        Args: { p_action: string; p_payload: Json }
+        Returns: Json
+      }
       date_suggestion_apply_v2: {
+        Args: { p_action: string; p_payload: Json }
+        Returns: Json
+      }
+      date_suggestion_apply_v2_legacy_dispatch_20260512: {
         Args: { p_action: string; p_payload: Json }
         Returns: Json
       }
@@ -7340,6 +7466,10 @@ export type Database = {
           photo_url: string
           reason: string
         }[]
+      }
+      get_my_date_plan_feedback_status: {
+        Args: { p_plan_id: string }
+        Returns: Json
       }
       get_my_location_data: {
         Args: never
@@ -8012,6 +8142,17 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_date_plan_feedback: {
+        Args: {
+          p_did_meet: string
+          p_felt_safe: string
+          p_free_text?: string
+          p_plan_id: string
+          p_profile_accurate?: string
+          p_would_meet_again?: string
+        }
+        Returns: Json
+      }
       submit_post_date_safety_report_v1: {
         Args: {
           p_idempotency_key: string
@@ -8067,7 +8208,7 @@ export type Database = {
       }
       tier_capability_type: {
         Args: { p_capability_key: string }
-        Returns: string | null
+        Returns: string
       }
       tier_config_override_value_is_valid: {
         Args: { p_capability_key: string; p_value: Json }
