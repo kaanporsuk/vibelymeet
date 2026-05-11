@@ -1,3 +1,12 @@
+/**
+ * Supabase `public` schema types — generated from the linked project.
+ *
+ * Regenerate:
+ *   ./scripts/regen-supabase-types.sh
+ *
+ * Project id matches supabase/config.toml (linked).
+ */
+
 export type Json =
   | string
   | number
