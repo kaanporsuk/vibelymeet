@@ -41,6 +41,7 @@ This is the current Schedule / physical-date lifecycle contract. Clients should 
 ## Feedback Separation
 
 - `date_plan_feedback` stores optional post-physical-date feedback. The reviewer can read their own row; the subject cannot read feedback written about them; admins/moderators can read rows for safety review.
+- Current product surface for physical-date feedback is web-only; native date cards intentionally defer that voluntary CTA/sheet until native schedule feedback is brought into active scope.
 - `public.date_feedback`, `PostDateSurvey`, `video_sessions`, and the Vibely Video post-date survey flow are separate systems and must not be coupled to scheduled/physical-date feedback.
 - No public trust score or user-visible rating is produced by `date_plan_feedback`.
 

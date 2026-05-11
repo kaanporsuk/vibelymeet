@@ -39,9 +39,13 @@ test("accepted schedule-share cards render confirmed plan state, not planning me
 test("share-the-date uses editable text only and excludes schedule-share mechanics", () => {
   const sheet = readRepoFile("src/components/chat/ShareDateSheet.tsx");
   const copy = readRepoFile("src/lib/dateSuggestionCopy.ts");
+  const nativeCopy = readRepoFile("apps/mobile/lib/dateSuggestionCopy.ts");
   const fnStart = copy.indexOf("export function buildShareDateText");
   assert.notEqual(fnStart, -1, "expected buildShareDateText");
   const fnBody = copy.slice(fnStart);
+  const nativeFnStart = nativeCopy.indexOf("export function buildShareDateText");
+  assert.notEqual(nativeFnStart, -1, "expected native buildShareDateText");
+  const nativeFnBody = nativeCopy.slice(nativeFnStart);
 
   assert.match(sheet, /<Textarea[\s\S]{0,200}value=\{text\}/, "share text must be editable before sending");
   assert.match(sheet, /navigator\.share\(\{\s*title,\s*text\s*\}\)/, "navigator.share must pass title and text");
@@ -56,11 +60,15 @@ test("share-the-date uses editable text only and excludes schedule-share mechani
     "Both open",
   ]) {
     assert.doesNotMatch(fnBody, new RegExp(forbidden), `share text must not include ${forbidden}`);
+    assert.doesNotMatch(nativeFnBody, new RegExp(forbidden), `native share text must not include ${forbidden}`);
   }
+  assert.match(nativeFnBody, /Met on Vibely \(vibelymeet\.com\)\./);
+  assert.match(nativeFnBody, /I wanted to let you know\./);
 });
 
 test("mark-complete is gated after start and uses per-user completion confirmations", () => {
   const card = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
+  const nativeCard = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
   const edge = readRepoFile("supabase/functions/date-suggestion-actions/index.ts");
   const sql = readRepoFile(MIGRATION);
 
@@ -69,6 +77,15 @@ test("mark-complete is gated after start and uses per-user completion confirmati
     /hasDateStarted && !currentUserMarkedComplete/,
     "Mark complete button must only render/activate after date starts and before current user marks",
   );
+  assert.match(
+    nativeCard,
+    /hasDateStarted && !currentUserMarkedComplete/,
+    "native Mark complete button must only render/activate after date starts and before current user marks",
+  );
+  assert.match(nativeCard, /e instanceof DateSuggestionDomainError && e\.code === 'date_not_started'/);
+  assert.match(nativeCard, /completion_state\?: string/);
+  assert.match(nativeCard, /currentUserMarkedComplete && !isMutuallyCompleted/);
+  assert.match(nativeCard, /partnerMarkedComplete && !currentUserMarkedComplete && hasDateStarted/);
   assert.match(edge, /p_action === "plan_mark_complete"[\s\S]{0,240}date_plan_mark_complete_v2/);
   assert.match(
     edge,
@@ -81,6 +98,22 @@ test("mark-complete is gated after start and uses per-user completion confirmati
   assert.match(sql, /'date_not_started'/, "backend must reject plan_mark_complete before starts_at");
   assert.match(sql, /'completion_state', 'self_marked'/);
   assert.match(sql, /'completion_state', 'mutually_completed'/);
+});
+
+test("native accepted cards render confirmed plan state, not planning mechanics", () => {
+  const nativeCard = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
+
+  assert.match(
+    nativeCard,
+    /planStartsAt && \(status === 'accepted' \|\| status === 'completed'\)[\s\S]{0,120}format\(planStartsAt,\s*'MMM d, h:mm a'\)/,
+    "native accepted/completed cards must derive When from date_plan.starts_at when available",
+  );
+  assert.match(
+    nativeCard,
+    /current\.schedule_share_enabled && status !== 'accepted' && status !== 'completed'/,
+    "native schedule-share planning copy must be hidden after acceptance/completion",
+  );
+  assert.match(nativeCard, /timeLabel: confirmedWhenLabel \|\| 'Not decided yet'/);
 });
 
 test("legacy plan_mark_complete entrypoints route to date_plan_mark_complete_v2", () => {
@@ -165,6 +198,7 @@ test("physical date feedback is private, subject-scoped, and separate from video
 test("optional physical-date feedback remains voluntary and report-aware", () => {
   const sheet = readRepoFile("src/components/chat/PhysicalDateFeedbackSheet.tsx");
   const card = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
+  const doc = readRepoFile("docs/date-suggestion-backend-contract.md");
 
   assert.match(sheet, /Anything Vibely should know\?/);
   assert.match(sheet, /freeText/);
@@ -173,4 +207,5 @@ test("optional physical-date feedback remains voluntary and report-aware", () =>
   assert.match(card, /Want to fill a quick post-date survey\?/);
   assert.match(card, /Yes, share feedback/);
   assert.match(card, /Thanks for sharing\. Your feedback helps keep Vibely safe\./);
+  assert.match(doc, /physical-date feedback is web-only/);
 });

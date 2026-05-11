@@ -126,11 +126,39 @@ export function DateSuggestionChatCard({
 
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
   const optionalNote = current?.optional_message?.trim() ?? '';
+  const plan = suggestion.date_plan;
+  const planStartsAt = useMemo(() => {
+    if (!plan?.starts_at) return null;
+    const parsed = new Date(plan.starts_at);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [plan?.starts_at]);
+  const hasDateStarted = Boolean(planStartsAt && planStartsAt.getTime() <= Date.now());
+  const isMutuallyCompleted =
+    status === 'completed' ||
+    plan?.status === 'completed' ||
+    Boolean(plan?.completion_confirmed_at);
+  const currentUserMarkedComplete = Boolean(
+    plan &&
+      (plan.completion_initiated_by === currentUserId ||
+        plan.completion_confirmed_by === currentUserId),
+  );
+  const partnerMarkedComplete = Boolean(
+    plan &&
+      (plan.completion_initiated_by === partnerUserId ||
+        plan.completion_confirmed_by === partnerUserId),
+  );
+  const confirmedWhenLabel =
+    planStartsAt && (status === 'accepted' || status === 'completed')
+      ? format(planStartsAt, 'MMM d, h:mm a')
+      : current
+        ? formatWhen(current)
+        : '';
 
   const isScheduleShare = current?.time_choice_key === 'share_schedule';
   const [pendingSlotKey, setPendingSlotKey] = useState<string | null>(null);
   const [acceptBusy, setAcceptBusy] = useState(false);
   const [cancelPlanBusy, setCancelPlanBusy] = useState(false);
+  const [markCompleteBusy, setMarkCompleteBusy] = useState(false);
 
   const handleAccept = async () => {
     if (isScheduleShare) {
@@ -355,13 +383,11 @@ export function DateSuggestionChatCard({
 
   const handleShare = async () => {
     if (!current) return;
-    const first = partnerName.split(/\s+/)[0] || 'Match';
     const body = buildShareDateText({
-      partnerFirstName: first,
-      dateTypeLabel: labelForDateType(current.date_type_key),
+      partnerName,
+      dateTypeLabel: labelForDateType(plan?.date_type_key ?? current.date_type_key),
       placeLabel: placeLine(current),
-      timeLabel: formatWhen(current),
-      optionalMessage: current.optional_message,
+      timeLabel: confirmedWhenLabel || 'Not decided yet',
     });
     try {
       await Share.share({ title: 'Vibely date', message: body });
@@ -378,18 +404,48 @@ export function DateSuggestionChatCard({
   const handleMarkComplete = async () => {
     const planId = suggestion.date_plan_id;
     if (!planId) return;
-    try {
-      await dateSuggestionApply('plan_mark_complete', { plan_id: planId });
+    if (!hasDateStarted) {
       showDialog({
-        title: 'Thanks!',
-        message: 'Good to know.',
+        title: 'Available after the date starts',
+        message: 'You can mark the date complete once the scheduled time begins.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+    if (currentUserMarkedComplete) {
+      showDialog({
+        title: 'Already marked',
+        message: isMutuallyCompleted
+          ? 'This date is already marked complete.'
+          : 'Waiting for your match to confirm too.',
+        variant: 'info',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+      return;
+    }
+    setMarkCompleteBusy(true);
+    try {
+      const result = (await dateSuggestionApply('plan_mark_complete', { plan_id: planId })) as {
+        completion_state?: string;
+      };
+      const mutuallyCompleted = result.completion_state === 'mutually_completed';
+      showDialog({
+        title: mutuallyCompleted ? 'Date completed' : 'Marked complete',
+        message: mutuallyCompleted ? 'Thanks for confirming.' : 'Waiting for your match to confirm too.',
         variant: 'success',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
       onUpdated();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.includes('awaiting_partner_confirm')) {
+      if (e instanceof DateSuggestionDomainError && e.code === 'date_not_started') {
+        showDialog({
+          title: 'Available after the date starts',
+          message: 'You can mark the date complete once the scheduled time begins.',
+          variant: 'info',
+          primaryAction: { label: 'OK', onPress: () => {} },
+        });
+      } else if (e instanceof DateSuggestionDomainError && e.code === 'awaiting_partner_confirm') {
         showDialog({
           title: 'Almost there',
           message: 'Waiting for your match to confirm.',
@@ -404,6 +460,8 @@ export function DateSuggestionChatCard({
           primaryAction: { label: 'OK', onPress: () => {} },
         });
       }
+    } finally {
+      setMarkCompleteBusy(false);
     }
   };
 
@@ -471,7 +529,7 @@ export function DateSuggestionChatCard({
     if (threadUi === 'quiet_completed') {
       const when =
         current != null
-          ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+          ? `${labelForDateType(plan?.date_type_key ?? current.date_type_key)} · ${confirmedWhenLabel}`
           : '';
       return (
         <>
@@ -517,7 +575,6 @@ export function DateSuggestionChatCard({
   }
 
   const showCelebration = status === 'accepted';
-  const plan = suggestion.date_plan;
   const myParticipant = plan?.participants?.find((p) => p.user_id === currentUserId);
 
   const btn = (
@@ -614,10 +671,10 @@ export function DateSuggestionChatCard({
               <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>When</Text>
               {showAgreedChips && agreed?.time ? <AgreedChip /> : null}
             </View>
-            <Text style={[styles.lineValue, { color: theme.text }]}>{formatWhen(current)}</Text>
+            <Text style={[styles.lineValue, { color: theme.text }]}>{confirmedWhenLabel}</Text>
           </View>
 
-          {current.schedule_share_enabled ? (
+          {current.schedule_share_enabled && status !== 'accepted' && status !== 'completed' ? (
             <View style={styles.scheduleRow}>
               <Ionicons name="calendar-outline" size={14} color="#22d3ee" />
               <Text style={styles.scheduleText}>Vibely Schedule shared (48h live windows)</Text>
@@ -735,10 +792,24 @@ export function DateSuggestionChatCard({
               <Ionicons name="share-outline" size={16} color={theme.text} />
               <Text style={[styles.actionBtnText, { color: theme.text }]}>Share the date</Text>
             </Pressable>
-            {btn('Mark complete', handleMarkComplete)}
+            {hasDateStarted && !currentUserMarkedComplete
+              ? btn('Mark complete', handleMarkComplete, 'secondary', markCompleteBusy)
+              : null}
             {plan?.status === 'active' && suggestion.date_plan_id
               ? btn('Cancel date', handleCancelPlan, 'ghost', cancelPlanBusy)
               : null}
+            {currentUserMarkedComplete && !isMutuallyCompleted ? (
+              <View style={styles.completedRow}>
+                <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
+                <Text style={[styles.completedText, { color: theme.textSecondary }]}>
+                  Marked complete. Waiting for {partnerName} to confirm too.
+                </Text>
+              </View>
+            ) : partnerMarkedComplete && !currentUserMarkedComplete && hasDateStarted ? (
+              <Text style={[styles.completedText, { color: theme.textSecondary }]}>
+                {partnerName} marked this complete. Mark complete when you&apos;re ready.
+              </Text>
+            ) : null}
           </>
         )}
 
