@@ -25,6 +25,7 @@ type CallEndReason =
   | "stale_active"
   | "provider_error"
   | "blocked_pair"
+  | "unmatched_pair"
   | "busy"
   | "connection_lost"
   | "media_failure";
@@ -104,6 +105,10 @@ function formatOutcomeMessage(outcome: LastCallOutcome): string {
     case "busy":
       return `${partnerName} is busy on another call.`;
     case "blocked_pair":
+      return "Call ended.";
+    case "unmatched_pair":
+      if (endedByMe) return "You unmatched. Call ended.";
+      if (endedByPartner) return `${partnerName} unmatched. Call ended.`;
       return "Call ended.";
   }
   return "Call ended.";
