@@ -7,6 +7,7 @@ const exists = (path: string) => existsSync(new URL(`../../${path}`, import.meta
 
 test("chat overflow actions use server-owned archive, mute, and unmatch contracts", () => {
   const migration = read("supabase/migrations/20260509235500_chat_overflow_actions_server_contract.sql");
+  const unmatchActorMigration = read("supabase/migrations/20260511153000_match_call_unmatch_actor.sql");
   const webArchive = read("src/hooks/useArchiveMatch.ts");
   const webMute = read("src/hooks/useMuteMatch.ts");
   const webUnmatch = read("src/hooks/useUnmatch.ts");
@@ -28,6 +29,9 @@ test("chat overflow actions use server-owned archive, mute, and unmatch contract
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.set_match_notification_mute/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.clear_match_notification_mute/);
   assert.match(migration, /CREATE OR REPLACE FUNCTION public\.unmatch_match/);
+  assert.match(unmatchActorMigration, /CREATE OR REPLACE FUNCTION public\.unmatch_match/);
+  assert.match(unmatchActorMigration, /ended_reason = COALESCE\(ended_reason, 'unmatched_pair'\)/);
+  assert.match(unmatchActorMigration, /ended_by_user_id = COALESCE\(ended_by_user_id, v_uid\)/);
   assert.match(migration, /DROP POLICY IF EXISTS "Users can archive own matches"/);
   assert.match(migration, /DROP POLICY IF EXISTS "Users can manage own match mutes"/);
   assert.match(migration, /GRANT EXECUTE ON FUNCTION public\.set_match_archive_state\(uuid, boolean\) TO authenticated/);
