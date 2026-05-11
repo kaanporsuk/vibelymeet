@@ -52,6 +52,8 @@ const UUID_GUARD_MIGRATION =
   "supabase/migrations/20260511180500_date_suggestion_uuid_payload_guards.sql";
 const COUNTER_SLOT_GUARD_MIGRATION =
   "supabase/migrations/20260511185500_counter_selected_slot_keys_guard.sql";
+const COUNTER_PAYLOAD_REVIEW_FOLLOWUP_MIGRATION =
+  "supabase/migrations/20260511195200_counter_payload_review_followups.sql";
 
 test("DateSuggestionCard Accept on schedule-share opens the block chooser (no direct accept)", () => {
   const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
@@ -691,6 +693,36 @@ test("PR 840 follow-up guards counter selected slot payload parsing", () => {
     counterPayloadParsing.indexOf("invalid_selected_slot_keys") <
       counterPayloadParsing.indexOf("jsonb_array_elements_text"),
     "counter branch must reject non-array selected_slot_keys before parsing it",
+  );
+});
+
+test("PR 841 review follow-up parses counter booleans and JSON null slots safely", () => {
+  const sql = readRepoFile(COUNTER_PAYLOAD_REVIEW_FOLLOWUP_MIGRATION);
+
+  const counterStart = sql.indexOf("ELSIF p_action = 'counter' THEN");
+  assert.notEqual(counterStart, -1, "expected counter branch in payload follow-up migration");
+  const counterEnd = sql.indexOf("    IF v_suggestion_id IS NULL", counterStart);
+  assert.notEqual(counterEnd, -1, "expected counter payload parsing section");
+  const counterPayloadParsing = sql.slice(counterStart, counterEnd);
+
+  assert.match(
+    counterPayloadParsing,
+    /r_share_raw := lower\(coalesce\(v_payload->'revision'->>'schedule_share_enabled', 'false'\)\);/,
+  );
+  assert.doesNotMatch(
+    counterPayloadParsing,
+    /schedule_share_enabled'\)::boolean/,
+    "counter branch must not directly cast schedule_share_enabled to boolean",
+  );
+  assert.match(counterPayloadParsing, /'invalid_schedule_share_enabled'/);
+  assert.match(
+    counterPayloadParsing,
+    /jsonb_typeof\(v_payload->'revision'->'selected_slot_keys'\) = 'null'/,
+  );
+  assert.ok(
+    counterPayloadParsing.indexOf("= 'null'") <
+      counterPayloadParsing.indexOf("invalid_selected_slot_keys"),
+    "counter branch must treat JSON null selected_slot_keys as absent before invalidating non-arrays",
   );
 });
 
