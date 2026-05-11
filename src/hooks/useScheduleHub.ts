@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useUserProfile } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useRealtimeScheduleHubState } from "@/hooks/useRealtimeDateScheduleState";
 import {
   buildScheduleHubItem,
   partitionScheduleHubItems,
@@ -113,6 +114,7 @@ async function loadScheduleHubSuggestions(userId: string): Promise<ScheduleHubSu
 export function useScheduleHub() {
   const { user } = useUserProfile();
   const userId = user?.id ?? null;
+  useRealtimeScheduleHubState(userId);
   const query = useQuery({
     queryKey: ["schedule-hub", userId],
     queryFn: () => loadScheduleHubSuggestions(userId!),

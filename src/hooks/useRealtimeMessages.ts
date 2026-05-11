@@ -2,9 +2,10 @@
  * Realtime thread invalidation. Incoming message sound is intentionally not wired here — see
  * `src/lib/chatIncomingSound.ts` for defer rationale and a future hook point.
  */
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useSupabaseSessionReady } from "@/hooks/useRealtimeDateScheduleState";
 import { threadMessagesQueryKey } from "../../shared/chat/queryKeys";
 import {
   hydrateChatRowsForDisplay,
@@ -28,6 +29,9 @@ export const useRealtimeMessages = ({
   enabled = true,
 }: UseRealtimeMessagesOptions) => {
   const queryClient = useQueryClient();
+  const hasSession = useSupabaseSessionReady(threadCurrentUserId, enabled);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const retryCountRef = useRef(0);
 
   const invalidateMessages = useCallback(() => {
     if (threadOtherUserId && threadCurrentUserId) {
@@ -114,11 +118,14 @@ export const useRealtimeMessages = ({
   );
 
   useEffect(() => {
-    if (!matchId || !enabled) return;
+    if (!matchId || !enabled || !threadCurrentUserId || !hasSession) return;
+
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempted = false;
 
     // Subscribe to new messages for this match
     const channel = supabase
-      .channel(`messages-${matchId}`)
+      .channel(`messages:${matchId}`)
       .on(
         'postgres_changes',
         {
@@ -144,15 +151,29 @@ export const useRealtimeMessages = ({
         }
       )
       .subscribe((status) => {
-        if (status === 'CHANNEL_ERROR') {
-          console.error('[useRealtimeMessages] channel error for match', matchId);
+        if (status === "SUBSCRIBED") {
+          retryAttempted = false;
+          retryCountRef.current = 0;
+          return;
+        }
+        if (status === "CHANNEL_ERROR") {
+          invalidateMessages();
+          if (import.meta.env.DEV) {
+            console.warn("[useRealtimeMessages] channel error", { matchId });
+          }
+          if (!retryAttempted && retryCountRef.current < 2) {
+            retryAttempted = true;
+            retryCountRef.current += 1;
+            retryTimer = setTimeout(() => setRetryNonce((value) => value + 1), 1500);
+          }
         }
       });
 
     return () => {
+      if (retryTimer) clearTimeout(retryTimer);
       supabase.removeChannel(channel);
     };
-  }, [matchId, enabled, patchMessage]);
+  }, [matchId, enabled, hasSession, invalidateMessages, patchMessage, retryNonce, threadCurrentUserId]);
 
   return { invalidateMessages };
 };
