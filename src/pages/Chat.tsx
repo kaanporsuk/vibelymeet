@@ -13,8 +13,10 @@ import {
   CalendarDays,
   CalendarPlus,
   Gamepad2,
+  Phone,
   ChevronDown,
   Plus,
+  Video,
   X,
 } from "lucide-react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
@@ -1402,6 +1404,8 @@ const Chat = () => {
   const hasText = newMessage.trim().length > 0;
   const hasActiveConversation = Boolean(chatData?.matchId && id && currentUserId);
   const composerMediaLocked = sendingPhoto || isRecordingVideo;
+  const quickActionButtonClass =
+    "inline-flex h-11 min-h-11 w-full items-center justify-start gap-2 rounded-xl border border-border/35 bg-secondary/35 px-3 text-left text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45";
 
   const guardActiveConversation = useCallback((message = "No active conversation found") => {
     if (hasActiveConversation) return true;
@@ -1419,6 +1423,17 @@ const Chat = () => {
     setShowScheduleShare(true);
     setShowAttachmentTray(false);
   }, [guardActiveConversation]);
+
+  const startMatchCall = useCallback(
+    (type: "voice" | "video") => {
+      if (!chatData?.matchId) {
+        toast.error("No active match for calling");
+        return;
+      }
+      void matchCall.startCall(type);
+    },
+    [chatData?.matchId, matchCall],
+  );
 
   const openShareScheduleAsCounter = useCallback(
     (suggestionId: string, previousRevision: DateSuggestionWithRelations["revisions"][0]) => {
@@ -1505,13 +1520,7 @@ const Chat = () => {
         threadAnchorLabel={threadAnchorLabel}
         matchId={chatData?.matchId || undefined}
         onBack={returnToMatches}
-        onVideoCall={(type) => {
-          if (chatData?.matchId) {
-            matchCall.startCall(type);
-          } else {
-            toast.error("No active match for calling");
-          }
-        }}
+        onVideoCall={startMatchCall}
         onFocusInput={() => inputRef.current?.focus()}
       />
 
@@ -2115,7 +2124,7 @@ const Chat = () => {
       </div>
         </div>
 
-        <aside className="hidden w-72 shrink-0 border-l border-border/35 bg-[#09090d]/72 px-4 py-4 xl:flex xl:flex-col">
+        <aside className="hidden min-h-0 w-72 shrink-0 overflow-hidden border-l border-border/35 bg-[#09090d]/72 px-4 py-4 xl:flex xl:flex-col">
           <div className="flex items-center gap-3">
             <img
               src={otherUser.avatar_url}
@@ -2133,7 +2142,7 @@ const Chat = () => {
             </div>
           </div>
 
-          <div className="mt-6 space-y-4 text-sm">
+          <div className="mt-6 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 text-sm">
             <div className="border-t border-border/30 pt-4">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Conversation</p>
               <p className="mt-1 text-foreground/90">{threadAnchorLabel ?? "Private chat"}</p>
@@ -2152,26 +2161,111 @@ const Chat = () => {
             </div>
             <div className="border-t border-border/30 pt-4">
               <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">Quick Actions</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => inputRef.current?.focus()}
+                  onClick={handleOpenDateComposerFromChip}
                   disabled={!hasActiveConversation}
-                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 hover:bg-secondary/70 disabled:opacity-45"
-                  aria-label="Focus message composer"
-                  title="Message"
+                  className={quickActionButtonClass}
+                  aria-label="Open date planner"
+                  title="Date"
                 >
-                  Message
+                  <CalendarPlus className="h-4 w-4 shrink-0 text-rose-400/95" aria-hidden />
+                  <span className="truncate">Date</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openArcade}
+                  disabled={!hasActiveConversation}
+                  className={quickActionButtonClass}
+                  aria-label="Open games"
+                  title="Games"
+                >
+                  <Gamepad2 className="h-4 w-4 shrink-0 text-cyan-400/90" aria-hidden />
+                  <span className="truncate">Games</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startMatchCall("voice")}
+                  disabled={!chatData?.matchId}
+                  className={quickActionButtonClass}
+                  aria-label="Start voice call"
+                  title="Voice Call"
+                >
+                  <Phone className="h-4 w-4 shrink-0 text-emerald-300" aria-hidden />
+                  <span className="truncate">Voice Call</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startMatchCall("video")}
+                  disabled={!chatData?.matchId}
+                  className={quickActionButtonClass}
+                  aria-label="Start video call"
+                  title="Video Call"
+                >
+                  <Video className="h-4 w-4 shrink-0 text-violet-300" aria-hidden />
+                  <span className="truncate">Video Call</span>
                 </button>
                 <button
                   type="button"
                   onClick={openPhotoPicker}
                   disabled={composerMediaLocked || !hasActiveConversation}
-                  className="h-9 rounded-xl bg-secondary/45 text-xs font-medium text-foreground/90 hover:bg-secondary/70 disabled:opacity-45"
+                  className={quickActionButtonClass}
                   aria-label="Add photo"
-                  title="Add photo"
+                  title="Photo"
                 >
-                  Photo
+                  {sendingPhoto ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <Camera className="h-4 w-4 shrink-0 text-pink-300" aria-hidden />
+                  )}
+                  <span className="truncate">Photo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={openVibeClipRecorder}
+                  disabled={composerMediaLocked || !hasActiveConversation}
+                  className={quickActionButtonClass}
+                  aria-label={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
+                  title="Clip"
+                >
+                  <Film className="h-4 w-4 shrink-0 text-violet-300" aria-hidden />
+                  <span className="truncate">Clip</span>
+                </button>
+                <Suspense
+                  fallback={
+                    <button
+                      type="button"
+                      disabled
+                      className={quickActionButtonClass}
+                      aria-label="Voice note loading"
+                      title="Voice Note"
+                    >
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                      <span className="truncate">Voice Note</span>
+                    </button>
+                  }
+                >
+                  <VoiceRecorder
+                    variant="action"
+                    label="Voice Note"
+                    disabled={!hasActiveConversation || hasText || composerMediaLocked}
+                    onUnavailable={() => toast.error("No active conversation found")}
+                    onRecordingComplete={handleVoiceRecordingComplete}
+                    onCancel={() => setIsRecording(false)}
+                    className={quickActionButtonClass}
+                  />
+                </Suspense>
+                <button
+                  type="button"
+                  onClick={openScheduleShare}
+                  disabled={!hasActiveConversation}
+                  className={quickActionButtonClass}
+                  aria-label="Share Vibely Schedule"
+                  title="Share Schedule"
+                >
+                  <CalendarDays className="h-4 w-4 shrink-0 text-neon-cyan" aria-hidden />
+                  <span className="truncate">Share Schedule</span>
                 </button>
               </div>
             </div>

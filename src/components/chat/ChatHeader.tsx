@@ -200,9 +200,12 @@ export const ChatHeader = ({
               image: user.avatar_url,
               vibes: user.vibes,
               photos: user.photos,
+              photoVerified: user.photoVerified,
+              bunnyVideoUid: user.bunnyVideoUid,
             }}
             showActions={false}
             mode="match"
+            presentation="chatProfile"
             open={showProfileDrawer}
             onOpenChange={setShowProfileDrawer}
             trigger={
