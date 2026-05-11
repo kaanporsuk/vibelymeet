@@ -23,6 +23,7 @@ ALTER TABLE public.match_calls
       'stale_active',
       'provider_error',
       'blocked_pair',
+      'unmatched_pair',
       'busy',
       'connection_lost',
       'media_failure'
@@ -60,6 +61,7 @@ DECLARE
     'stale_active',
     'provider_error',
     'blocked_pair',
+    'unmatched_pair',
     'busy',
     'connection_lost',
     'media_failure'
