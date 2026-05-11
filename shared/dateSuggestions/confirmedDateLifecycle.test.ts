@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const MIGRATION = "supabase/migrations/20260512003000_confirmed_date_lifecycle_polish.sql";
+const LEGACY_COMPLETE_HARDENING_MIGRATION =
+  "supabase/migrations/20260512010500_date_lifecycle_contract_legacy_complete_path.sql";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
@@ -66,11 +68,42 @@ test("mark-complete is gated after start and uses per-user completion confirmati
     "Mark complete button must only render/activate after date starts and before current user marks",
   );
   assert.match(edge, /p_action === "plan_mark_complete"[\s\S]{0,240}date_plan_mark_complete_v2/);
+  assert.match(
+    edge,
+    /rpcName = p_action === "plan_mark_complete"[\s\S]{0,120}"date_plan_mark_complete_v2"/,
+    "Edge logs and invokes the dedicated completion RPC for plan_mark_complete",
+  );
+  assert.match(edge, /console\.error\(`\$\{rpcName\} error:`, rpcError\)/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS public\.date_plan_completion_confirmations/);
   assert.match(sql, /UNIQUE \(date_plan_id, user_id\)/);
   assert.match(sql, /'date_not_started'/, "backend must reject plan_mark_complete before starts_at");
   assert.match(sql, /'completion_state', 'self_marked'/);
   assert.match(sql, /'completion_state', 'mutually_completed'/);
+});
+
+test("legacy plan_mark_complete entrypoints route to date_plan_mark_complete_v2", () => {
+  const sql = readRepoFile(LEGACY_COMPLETE_HARDENING_MIGRATION);
+  const applyWrapperStart = sql.indexOf("CREATE OR REPLACE FUNCTION public.date_suggestion_apply(");
+  const applyV2WrapperStart = sql.indexOf("CREATE OR REPLACE FUNCTION public.date_suggestion_apply_v2(");
+  assert.notEqual(applyWrapperStart, -1, "expected legacy date_suggestion_apply wrapper");
+  assert.notEqual(applyV2WrapperStart, -1, "expected date_suggestion_apply_v2 wrapper");
+
+  const applyWrapper = sql.slice(applyWrapperStart, applyV2WrapperStart);
+  const applyV2Wrapper = sql.slice(applyV2WrapperStart);
+
+  for (const wrapper of [applyWrapper, applyV2Wrapper]) {
+    const planBranch = wrapper.indexOf("IF p_action = 'plan_mark_complete' THEN");
+    const v2Call = wrapper.indexOf("RETURN public.date_plan_mark_complete_v2(v_plan_id);");
+    const delegateCall = wrapper.indexOf("_legacy_dispatch_20260512(p_action, p_payload)");
+    assert.ok(planBranch >= 0, "wrapper must special-case plan_mark_complete");
+    assert.ok(v2Call > planBranch, "wrapper must route plan_mark_complete to date_plan_mark_complete_v2");
+    assert.ok(delegateCall > v2Call, "wrapper must route plan_mark_complete before legacy delegation");
+    assert.match(wrapper, /RETURN jsonb_build_object\('ok', false, 'error', 'plan_id_required'\)/);
+  }
+
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.date_suggestion_apply_legacy_dispatch_20260512\(text, jsonb\)[\s\S]{0,120}authenticated/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.date_suggestion_apply_v2_legacy_dispatch_20260512\(text, jsonb\)[\s\S]{0,120}authenticated/);
+  assert.doesNotMatch(sql, /awaiting_partner_confirm/);
 });
 
 test("physical date feedback is private, subject-scoped, and separate from video date_feedback", () => {

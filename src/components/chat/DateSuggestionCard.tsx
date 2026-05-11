@@ -508,6 +508,8 @@ export function DateSuggestionCard({
     } catch (e) {
       if (e instanceof DateSuggestionDomainError && e.code === "date_not_started") {
         toast.message("Available after the date starts.");
+      // Legacy fallback only. Current Edge -> date_plan_mark_complete_v2 returns
+      // completion_state instead of awaiting_partner_confirm.
       } else if (e instanceof DateSuggestionDomainError && e.code === "awaiting_partner_confirm") {
         toast.message(`Waiting for ${partnerName} to confirm too.`);
       } else {

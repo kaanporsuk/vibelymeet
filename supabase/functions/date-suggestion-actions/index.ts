@@ -169,20 +169,24 @@ serve(async (req) => {
       }
     }
 
+    const rpcName = p_action === "plan_mark_complete"
+      ? "date_plan_mark_complete_v2"
+      : "date_suggestion_apply_v2";
+
     const rpcCall =
-      p_action === "plan_mark_complete"
-        ? userClient.rpc("date_plan_mark_complete_v2", {
+      rpcName === "date_plan_mark_complete_v2"
+        ? userClient.rpc(rpcName, {
           p_plan_id: typeof p_payload.plan_id === "string" ? p_payload.plan_id : null,
         })
         : userClient.rpc(
-          "date_suggestion_apply_v2",
+          rpcName,
           { p_action, p_payload },
         );
 
     const { data: rpcResult, error: rpcError } = await rpcCall;
 
     if (rpcError) {
-      console.error("date_suggestion_apply_v2 error:", rpcError);
+      console.error(`${rpcName} error:`, rpcError);
       const rpcMessage = String(rpcError.message || "");
       const isActiveConflict =
         p_action === "send_proposal" &&
