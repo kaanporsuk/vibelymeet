@@ -714,6 +714,11 @@ test("PR 841 review follow-up parses counter booleans and JSON null slots safely
     /schedule_share_enabled'\)::boolean/,
     "counter branch must not directly cast schedule_share_enabled to boolean",
   );
+  assert.doesNotMatch(
+    counterPayloadParsing,
+    /r_share_raw IN \([^\)]*'on'[^\)]*\)/,
+    "counter branch schedule_share_enabled truthy set must match truthyFlag (no 'on')",
+  );
   assert.match(counterPayloadParsing, /'invalid_schedule_share_enabled'/);
   assert.match(
     counterPayloadParsing,

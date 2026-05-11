@@ -163,7 +163,7 @@ BEGIN
     r_venue := v_payload->'revision'->>'venue_text';
     r_optional := v_payload->'revision'->>'optional_message';
     r_share_raw := lower(coalesce(v_payload->'revision'->>'schedule_share_enabled', 'false'));
-    IF r_share_raw IN ('true', 't', '1', 'yes', 'on') THEN
+    IF r_share_raw IN ('true', 't', '1', 'yes') THEN
       r_share := true;
     ELSIF r_share_raw IN ('false', 'f', '0', 'no', 'off') THEN
       r_share := false;
