@@ -9,6 +9,8 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const MIGRATION = "supabase/migrations/20260512003000_confirmed_date_lifecycle_polish.sql";
 const LEGACY_COMPLETE_HARDENING_MIGRATION =
   "supabase/migrations/20260512010500_date_lifecycle_contract_legacy_complete_path.sql";
+const REVIEW_COMMENT_SECURITY_FOLLOWUP_MIGRATION =
+  "supabase/migrations/20260512012138_pr_review_comments_security_followups.sql";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
@@ -137,6 +139,35 @@ test("legacy plan_mark_complete entrypoints route to date_plan_mark_complete_v2"
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.date_suggestion_apply_legacy_dispatch_20260512\(text, jsonb\)[\s\S]{0,120}authenticated/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.date_suggestion_apply_v2_legacy_dispatch_20260512\(text, jsonb\)[\s\S]{0,120}authenticated/);
   assert.doesNotMatch(sql, /awaiting_partner_confirm/);
+});
+
+test("review follow-up keeps legacy and physical-date writes RPC-only", () => {
+  const sql = readRepoFile(REVIEW_COMMENT_SECURITY_FOLLOWUP_MIGRATION);
+
+  assert.match(
+    sql,
+    /REVOKE ALL ON FUNCTION public\.date_suggestion_apply\(text, jsonb\)[\s\S]{0,80}FROM PUBLIC, anon, authenticated/,
+    "legacy date_suggestion_apply must not be executable directly by authenticated clients",
+  );
+  assert.doesNotMatch(sql, /GRANT EXECUTE ON FUNCTION public\.date_suggestion_apply\(text, jsonb\) TO authenticated/);
+  assert.match(sql, /DROP POLICY IF EXISTS "date_plan_completion_confirmations_insert_own_participant"/);
+  assert.match(
+    sql,
+    /REVOKE INSERT, UPDATE, DELETE ON TABLE public\.date_plan_completion_confirmations[\s\S]{0,80}FROM PUBLIC, anon, authenticated/,
+    "completion confirmations must be written through date_plan_mark_complete_v2",
+  );
+  assert.match(sql, /DROP POLICY IF EXISTS "date_plan_feedback_insert_reviewer_only"/);
+  assert.match(sql, /DROP POLICY IF EXISTS "date_plan_feedback_update_reviewer_only"/);
+  assert.match(
+    sql,
+    /REVOKE INSERT, UPDATE, DELETE ON TABLE public\.date_plan_feedback[\s\S]{0,80}FROM PUBLIC, anon, authenticated/,
+    "physical-date feedback must be written through submit_date_plan_feedback",
+  );
+  assert.match(
+    sql,
+    /OLD\.completion_initiated_at IS DISTINCT FROM NEW\.completion_initiated_at/,
+    "early-completion trigger must guard completion_initiated_at too",
+  );
 });
 
 test("physical date feedback is private, subject-scoped, and separate from video date_feedback", () => {
