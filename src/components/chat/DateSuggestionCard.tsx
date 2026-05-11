@@ -7,12 +7,17 @@ import {
   labelForTimeChoice,
   labelForPlaceMode,
   buildShareDateText,
+  humanizeDateTypeLabel,
   DATE_SAFETY_NOTE,
 } from "@/lib/dateSuggestionCopy";
 import type { DateSuggestionWithRelations } from "@/hooks/useDateSuggestionData";
 import { dateSuggestionApply, DateSuggestionDomainError } from "@/hooks/useDateSuggestionActions";
 import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
 import { useCallerScheduleShareGrant } from "@/hooks/useCallerScheduleShareGrant";
+import {
+  datePlanFeedbackStatusQueryKey,
+  useDatePlanFeedbackStatus,
+} from "@/hooks/useDatePlanFeedback";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { Calendar, Check, Loader2, Pencil, Sparkles, Share2, X } from "lucide-react";
@@ -21,6 +26,8 @@ import { getDateSuggestionActionPolicy } from "../../../shared/dateSuggestions/a
 import { intersectSlotKeys } from "../../../shared/dateSuggestions/scheduleShare";
 import { ExactTimePinSheet } from "./ExactTimePinSheet";
 import { ChooseSharedBlockSheet, type OfferedBlock } from "./ChooseSharedBlockSheet";
+import { ShareDateSheet } from "./ShareDateSheet";
+import { PhysicalDateFeedbackSheet } from "./PhysicalDateFeedbackSheet";
 
 const TIME_BLOCK_LABEL: Record<string, string> = {
   morning: "Morning",
@@ -69,6 +76,15 @@ function formatWhen(r: {
 function placeLine(r: { place_mode_key: string; venue_text: string | null }): string {
   if (r.place_mode_key === "custom_venue" && r.venue_text) return tidyDateDisplayText(r.venue_text);
   return labelForPlaceMode(r.place_mode_key);
+}
+
+function planPlaceLine(
+  plan: DateSuggestionWithRelations["date_plan"],
+  revision: DateSuggestionWithRelations["revisions"][0],
+): string {
+  const venue = plan?.venue_label?.trim();
+  if (venue && venue !== revision.place_mode_key) return tidyDateDisplayText(venue);
+  return placeLine(revision);
 }
 
 function tidyDateDisplayText(value: string): string {
@@ -123,6 +139,8 @@ export function DateSuggestionCard({
   const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "share" | "complete" | "cancel_plan" | null>(null);
   const [pendingChosenSlotKey, setPendingChosenSlotKey] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [feedbackSheetOpen, setFeedbackSheetOpen] = useState(false);
   const [pulse, setPulse] = useState(false);
   const markedRef = useRef(false);
 
@@ -170,6 +188,37 @@ export function DateSuggestionCard({
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
   const optionalNote = current?.optional_message ? tidyDateDisplayText(current.optional_message) : "";
   const actionBusy = cancelBusy || busyAction !== null;
+  const plan = suggestion.date_plan;
+  const myParticipant = plan?.participants?.find((p) => p.user_id === currentUserId);
+  const planStartsAt = useMemo(() => {
+    if (!plan?.starts_at) return null;
+    const parsed = new Date(plan.starts_at);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [plan?.starts_at]);
+  const hasDateStarted = Boolean(planStartsAt && planStartsAt.getTime() <= Date.now());
+  const isMutuallyCompleted =
+    status === "completed" ||
+    plan?.status === "completed" ||
+    Boolean(plan?.completion_confirmed_at);
+  const currentUserMarkedComplete = Boolean(
+    plan &&
+      (plan.completion_initiated_by === currentUserId ||
+        plan.completion_confirmed_by === currentUserId),
+  );
+  const partnerMarkedComplete = Boolean(
+    plan &&
+      (plan.completion_initiated_by === partnerUserId ||
+        plan.completion_confirmed_by === partnerUserId),
+  );
+  const shouldOfferPhysicalFeedback = Boolean(
+    plan?.id && currentUserMarkedComplete,
+  );
+  const feedbackStatus = useDatePlanFeedbackStatus(
+    plan?.id,
+    currentUserId,
+    shouldOfferPhysicalFeedback,
+  );
+  const feedbackSubmitted = feedbackStatus.data?.submitted === true;
 
   const isScheduleShare = current?.time_choice_key === "share_schedule";
   const offerAuthorId = current?.proposed_by ?? null;
@@ -415,35 +464,26 @@ export function DateSuggestionCard({
     }
   }, [onUpdated, queryClient, suggestion.id, suggestion.match_id]);
 
-  const handleShare = async () => {
+  const confirmedWhenLabel =
+    planStartsAt && (status === "accepted" || status === "completed")
+      ? format(planStartsAt, "MMM d, h:mm a")
+      : current
+        ? formatWhen(current)
+        : "";
+  const confirmedPlanLabel = humanizeDateTypeLabel(plan?.date_type_key ?? current?.date_type_key);
+  const confirmedPlaceLabel = current ? planPlaceLine(plan, current) : "Let's decide together";
+  const shareTitle = `Vibely date with ${partnerName}`;
+  const shareBody = buildShareDateText({
+    partnerName,
+    dateTypeLabel: confirmedPlanLabel,
+    placeLabel: confirmedPlaceLabel,
+    timeLabel: confirmedWhenLabel || "Not decided yet",
+  });
+
+  const handleShare = () => {
     if (actionBusy) return;
     if (!current) return;
-    setBusyAction("share");
-    const first = partnerName.split(/\s+/)[0] || "Match";
-    const body = buildShareDateText({
-      partnerFirstName: first,
-      dateTypeLabel: labelForDateType(current.date_type_key),
-      placeLabel: placeLine(current),
-      timeLabel: formatWhen(current),
-      optionalMessage: current.optional_message,
-    });
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Vibely date", text: body });
-      } else {
-        await navigator.clipboard.writeText(body);
-        toast.success("Copied to clipboard");
-      }
-    } catch {
-      try {
-        await navigator.clipboard.writeText(body);
-        toast.success("Copied to clipboard");
-      } catch {
-        toast.error("Could not share this date");
-      }
-    } finally {
-      setBusyAction(null);
-    }
+    setShareSheetOpen(true);
   };
 
   const handleMarkComplete = async () => {
@@ -455,13 +495,21 @@ export function DateSuggestionCard({
     }
     setBusyAction("complete");
     try {
-      await dateSuggestionApply("plan_mark_complete", { plan_id: planId });
-      toast.success("Thanks for letting us know");
+      const result = await dateSuggestionApply("plan_mark_complete", { plan_id: planId }) as {
+        completion_state?: string;
+        waiting_for_user_id?: string | null;
+      };
+      if (result.completion_state === "mutually_completed") {
+        toast.success("Date completed");
+      } else {
+        toast.success(`Marked complete. Waiting for ${partnerName} to confirm too.`);
+      }
       onUpdated();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("awaiting_partner_confirm")) {
-        toast.message("Waiting for your match to confirm");
+      if (e instanceof DateSuggestionDomainError && e.code === "date_not_started") {
+        toast.message("Available after the date starts.");
+      } else if (e instanceof DateSuggestionDomainError && e.code === "awaiting_partner_confirm") {
+        toast.message(`Waiting for ${partnerName} to confirm too.`);
       } else {
         toast.error("Could not update");
       }
@@ -519,7 +567,7 @@ export function DateSuggestionCard({
     if (threadUi === "quiet_completed") {
       const when =
         current != null
-          ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+          ? `${humanizeDateTypeLabel(plan?.date_type_key ?? current.date_type_key)} · ${confirmedWhenLabel}`
           : "";
       return (
         <div className="w-full rounded-md border border-border/15 bg-muted/[0.04] px-2 py-1 text-[10px] text-muted-foreground/70 flex items-center gap-1.5">
@@ -550,13 +598,45 @@ export function DateSuggestionCard({
             New
           </Button>
         </div>
+        {currentUserMarkedComplete && !feedbackSubmitted && plan?.id ? (
+          <div className="mt-2 rounded-lg border border-border/40 bg-background/50 p-2">
+            <p className="text-[11px] font-medium text-foreground">
+              Want to fill a quick post-date survey?
+            </p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Your feedback helps keep Vibely safe and improve matches.
+            </p>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="mt-1 h-auto px-0 py-0 text-[11px]"
+              onClick={() => setFeedbackSheetOpen(true)}
+            >
+              Yes, share feedback
+            </Button>
+            <PhysicalDateFeedbackSheet
+              isOpen={feedbackSheetOpen}
+              onClose={() => setFeedbackSheetOpen(false)}
+              planId={plan.id}
+              partnerName={partnerName}
+              onSubmitted={() => {
+                queryClient.invalidateQueries({
+                  queryKey: datePlanFeedbackStatusQueryKey(plan.id, currentUserId),
+                });
+              }}
+            />
+          </div>
+        ) : currentUserMarkedComplete && feedbackSubmitted ? (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Thanks for sharing. Your feedback helps keep Vibely safe.
+          </p>
+        ) : null}
       </div>
     );
   }
 
   const showCelebration = status === "accepted";
-  const plan = suggestion.date_plan;
-  const myParticipant = plan?.participants?.find((p) => p.user_id === currentUserId);
 
   return (
     <div
@@ -600,15 +680,17 @@ export function DateSuggestionCard({
               <span className="text-muted-foreground text-xs">Type</span>{" "}
               {showAgreedChips && agreed?.date_type ? (
                 <span>
-                  <AgreedChip /> {labelForDateType(current.date_type_key)}
+                  <AgreedChip /> {humanizeDateTypeLabel(current.date_type_key)}
                 </span>
               ) : (
-                labelForDateType(current.date_type_key)
+                humanizeDateTypeLabel(current.date_type_key)
               )}
             </p>
             <p>
               <span className="text-muted-foreground text-xs">When</span>{" "}
-              {showAgreedChips && agreed?.time ? (
+              {status === "accepted" || status === "completed" ? (
+                confirmedWhenLabel
+              ) : showAgreedChips && agreed?.time ? (
                 <span>
                   <AgreedChip /> {formatWhen(current)}
                 </span>
@@ -616,7 +698,7 @@ export function DateSuggestionCard({
                 formatWhen(current)
               )}
             </p>
-            {current.schedule_share_enabled && (
+            {current.schedule_share_enabled && status !== "accepted" && status !== "completed" && (
               <p className="text-xs text-cyan-600/90 flex items-center gap-1">
                 <Calendar className="h-3.5 w-3.5" />
                 Vibely Schedule shared (48h live windows)
@@ -628,6 +710,8 @@ export function DateSuggestionCard({
                 <span>
                   <AgreedChip /> {placeLine(current)}
                 </span>
+              ) : status === "accepted" || status === "completed" ? (
+                confirmedPlaceLabel
               ) : (
                 placeLine(current)
               )}
@@ -698,6 +782,27 @@ export function DateSuggestionCard({
         }
         isSubmitting={busyAction === "accept"}
       />
+
+      <ShareDateSheet
+        isOpen={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+        title={shareTitle}
+        defaultText={shareBody}
+      />
+
+      {plan?.id ? (
+        <PhysicalDateFeedbackSheet
+          isOpen={feedbackSheetOpen}
+          onClose={() => setFeedbackSheetOpen(false)}
+          planId={plan.id}
+          partnerName={partnerName}
+          onSubmitted={() => {
+            queryClient.invalidateQueries({
+              queryKey: datePlanFeedbackStatusQueryKey(plan.id, currentUserId),
+            });
+          }}
+        />
+      ) : null}
 
       <div className="mt-2.5 flex flex-wrap gap-2">
         {actionPolicy.canEditDraft && (
@@ -845,18 +950,20 @@ export function DateSuggestionCard({
               {busyAction === "share" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Share2 className="h-3.5 w-3.5" />}
               Share the date
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={handleMarkComplete}
-              disabled={actionBusy}
-              aria-label="Mark date complete"
-              title="Mark complete"
-            >
-              {busyAction === "complete" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-              Mark complete
-            </Button>
+            {hasDateStarted && !currentUserMarkedComplete ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleMarkComplete}
+                disabled={actionBusy}
+                aria-label="Mark date complete"
+                title="Mark complete"
+              >
+                {busyAction === "complete" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Mark complete
+              </Button>
+            ) : null}
             {suggestion.date_plan_id && plan?.status === "active" && (
               <Button
                 type="button"
@@ -872,6 +979,39 @@ export function DateSuggestionCard({
                 Cancel date
               </Button>
             )}
+            {currentUserMarkedComplete && !isMutuallyCompleted ? (
+              <div className="basis-full rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs">
+                <p className="font-medium text-emerald-600">Marked complete</p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Waiting for {partnerName} to confirm too.
+                </p>
+              </div>
+            ) : partnerMarkedComplete && !currentUserMarkedComplete && hasDateStarted ? (
+              <p className="basis-full text-xs text-muted-foreground">
+                {partnerName} marked this complete. Mark complete when you&apos;re ready.
+              </p>
+            ) : null}
+            {currentUserMarkedComplete && !feedbackSubmitted ? (
+              <div className="basis-full rounded-lg border border-border/50 bg-background/50 px-3 py-2 text-xs">
+                <p className="font-medium text-foreground">Want to fill a quick post-date survey?</p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Your feedback helps keep Vibely safe and improve matches.
+                </p>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="mt-1 h-auto px-0 py-0 text-xs"
+                  onClick={() => setFeedbackSheetOpen(true)}
+                >
+                  Yes, share feedback
+                </Button>
+              </div>
+            ) : currentUserMarkedComplete && feedbackSubmitted ? (
+              <p className="basis-full text-xs text-muted-foreground">
+                Thanks for sharing. Your feedback helps keep Vibely safe.
+              </p>
+            ) : null}
           </>
         )}
 

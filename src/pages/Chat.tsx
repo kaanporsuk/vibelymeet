@@ -1289,6 +1289,7 @@ const Chat = () => {
     // are not actively read in those code paths.
     queryClient.invalidateQueries({ queryKey: ["user-schedule"] });
     queryClient.invalidateQueries({ queryKey: ["shared-schedule"] });
+    queryClient.invalidateQueries({ queryKey: ["schedule-hub", currentUserId] });
   }, [refetchDateSuggestions, queryClient, id, currentUserId]);
 
   const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {

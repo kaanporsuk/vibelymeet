@@ -169,10 +169,17 @@ serve(async (req) => {
       }
     }
 
-    const { data: rpcResult, error: rpcError } = await userClient.rpc(
-      "date_suggestion_apply_v2",
-      { p_action, p_payload },
-    );
+    const rpcCall =
+      p_action === "plan_mark_complete"
+        ? userClient.rpc("date_plan_mark_complete_v2", {
+          p_plan_id: typeof p_payload.plan_id === "string" ? p_payload.plan_id : null,
+        })
+        : userClient.rpc(
+          "date_suggestion_apply_v2",
+          { p_action, p_payload },
+        );
+
+    const { data: rpcResult, error: rpcError } = await rpcCall;
 
     if (rpcError) {
       console.error("date_suggestion_apply_v2 error:", rpcError);
