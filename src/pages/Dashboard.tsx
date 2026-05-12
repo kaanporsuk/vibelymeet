@@ -115,6 +115,19 @@ type HomeInfoBarUnread = {
   matchCount: number;
 };
 
+type HomeUnreadSummaryRow = {
+  message_count?: number | null;
+  match_count?: number | null;
+};
+
+function normalizeHomeUnreadSummary(data: unknown): HomeInfoBarUnread {
+  const row = Array.isArray(data) ? (data[0] as HomeUnreadSummaryRow | undefined) : undefined;
+  return {
+    messageCount: typeof row?.message_count === "number" ? row.message_count : 0,
+    matchCount: typeof row?.match_count === "number" ? row.match_count : 0,
+  };
+}
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
@@ -276,63 +289,16 @@ const Dashboard = () => {
   }, [activeSession?.sessionId, activeSession?.kind, activeSession?.queueStatus]);
 
   const { data: otherCities = [] } = useOtherCityEvents();
-  const { data: unreadMessageCount = 0, refetch: refetchUnread } = useQuery({
-    queryKey: ["unread-home", user?.id],
-    queryFn: async () => {
-      if (!user?.id) return 0;
-      const { count, error } = await supabase
-        .from("messages")
-        .select("id", { count: "exact", head: true })
-        .neq("sender_id", user.id)
-        .is("read_at", null);
-      if (error) {
-        if (import.meta.env.DEV) console.warn("[home] unread messages count error:", error.message);
-        throw error;
-      }
-      return count ?? 0;
-    },
-    enabled: !!user?.id,
-    refetchInterval: 30_000,
-  });
   const { data: homeInfoBarUnread = { messageCount: 0, matchCount: 0 }, refetch: refetchHomeInfoBarUnread } = useQuery<HomeInfoBarUnread>({
     queryKey: ["unread-home-info-bar", user?.id],
     queryFn: async () => {
       if (!user?.id) return { messageCount: 0, matchCount: 0 };
-      const { data: unreadRows, error } = await supabase
-        .from("messages")
-        .select("id, match_id")
-        .neq("sender_id", user.id)
-        .is("read_at", null);
+      const { data, error } = await supabase.rpc("get_home_unread_summary");
       if (error) {
         if (import.meta.env.DEV) console.warn("[home] unread info bar count error:", error.message);
         throw error;
       }
-
-      const unreadMatchIds = [
-        ...new Set(
-          (unreadRows ?? [])
-            .map((row) => row.match_id)
-            .filter((matchId): matchId is string => typeof matchId === "string" && matchId.length > 0),
-        ),
-      ];
-      if (unreadMatchIds.length === 0) return { messageCount: 0, matchCount: 0 };
-
-      const { data: archivedRows, error: archivedError } = await supabase
-        .from("match_archives")
-        .select("match_id")
-        .eq("user_id", user.id)
-        .in("match_id", unreadMatchIds);
-      if (archivedError) {
-        if (import.meta.env.DEV) console.warn("[home] unread conversations archive filter error:", archivedError.message);
-        throw archivedError;
-      }
-
-      const archivedMatchIds = new Set((archivedRows ?? []).map((row) => row.match_id));
-      const visibleMatchIds = new Set(unreadMatchIds.filter((matchId) => !archivedMatchIds.has(matchId)));
-      return {
-        messageCount: (unreadRows ?? []).filter((row) => visibleMatchIds.has(row.match_id)).length,
-        matchCount: visibleMatchIds.size,
-      };
+      return normalizeHomeUnreadSummary(data);
     },
     enabled: !!user?.id,
     refetchInterval: 30_000,
@@ -481,11 +447,10 @@ const Dashboard = () => {
       refetchNextEvent(),
       refetchEvents(),
       refetchMatches(),
-      refetchUnread(),
       refetchHomeInfoBarUnread(),
       refetchHomeProfile(),
     ]);
-  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchUnread, refetchHomeInfoBarUnread, refetchHomeProfile]);
+  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchHomeInfoBarUnread, refetchHomeProfile]);
 
   const handleNotificationClick = () => {
     recordUserAction("dashboard_notification_button_clicked", {

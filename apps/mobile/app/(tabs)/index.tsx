@@ -145,6 +145,19 @@ type HomeInfoBarUnread = {
   matchCount: number;
 };
 
+type HomeUnreadSummaryRow = {
+  message_count?: number | null;
+  match_count?: number | null;
+};
+
+function normalizeHomeUnreadSummary(data: unknown): HomeInfoBarUnread {
+  const row = Array.isArray(data) ? (data[0] as HomeUnreadSummaryRow | undefined) : undefined;
+  return {
+    messageCount: typeof row?.message_count === 'number' ? row.message_count : 0,
+    matchCount: typeof row?.match_count === 'number' ? row.match_count : 0,
+  };
+}
+
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -194,63 +207,16 @@ export default function DashboardScreen() {
   const { data: otherCities = [] } = useOtherCityEvents(user?.id);
   const dropReady = useDailyDropTabBadge(user?.id);
 
-  const { data: unreadMessageCount = 0, refetch: refetchUnread } = useQuery({
-    queryKey: ['unread-home', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return 0;
-      const { count, error } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .neq('sender_id', user.id)
-        .is('read_at', null);
-      if (error) {
-        if (__DEV__) console.warn('[home] unread messages count error:', error.message);
-        throw error;
-      }
-      return count ?? 0;
-    },
-    enabled: !!user?.id,
-    refetchInterval: 30_000,
-  });
   const { data: homeInfoBarUnread = { messageCount: 0, matchCount: 0 }, refetch: refetchHomeInfoBarUnread } = useQuery<HomeInfoBarUnread>({
     queryKey: ['unread-home-info-bar', user?.id],
     queryFn: async () => {
       if (!user?.id) return { messageCount: 0, matchCount: 0 };
-      const { data: unreadRows, error } = await supabase
-        .from('messages')
-        .select('id, match_id')
-        .neq('sender_id', user.id)
-        .is('read_at', null);
+      const { data, error } = await supabase.rpc('get_home_unread_summary');
       if (error) {
         if (__DEV__) console.warn('[home] unread info bar count error:', error.message);
         throw error;
       }
-
-      const unreadMatchIds = [
-        ...new Set(
-          (unreadRows ?? [])
-            .map((row) => row.match_id)
-            .filter((matchId): matchId is string => typeof matchId === 'string' && matchId.length > 0),
-        ),
-      ];
-      if (unreadMatchIds.length === 0) return { messageCount: 0, matchCount: 0 };
-
-      const { data: archivedRows, error: archivedError } = await supabase
-        .from('match_archives')
-        .select('match_id')
-        .eq('user_id', user.id)
-        .in('match_id', unreadMatchIds);
-      if (archivedError) {
-        if (__DEV__) console.warn('[home] unread conversations archive filter error:', archivedError.message);
-        throw archivedError;
-      }
-
-      const archivedMatchIds = new Set((archivedRows ?? []).map((row) => row.match_id));
-      const visibleMatchIds = new Set(unreadMatchIds.filter((matchId) => !archivedMatchIds.has(matchId)));
-      return {
-        messageCount: (unreadRows ?? []).filter((row) => visibleMatchIds.has(row.match_id)).length,
-        matchCount: visibleMatchIds.size,
-      };
+      return normalizeHomeUnreadSummary(data);
     },
     enabled: !!user?.id,
     refetchInterval: 30_000,
@@ -584,11 +550,10 @@ export default function DashboardScreen() {
       refetchMatches(),
       refetchActiveSession(),
       refetchHomeProfile(),
-      refetchUnread(),
       refetchHomeInfoBarUnread(),
     ]);
     setRefreshing(false);
-  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchActiveSession, refetchHomeProfile, refetchUnread, refetchHomeInfoBarUnread]);
+  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchActiveSession, refetchHomeProfile, refetchHomeInfoBarUnread]);
 
   const handleNotificationPress = useCallback(() => {
     trackEvent('notification_bell_clicked', {
@@ -712,8 +677,8 @@ export default function DashboardScreen() {
       return 'Your event is later today';
     if (nextEvent && hasEventAdmissionForNext && nextRegisteredTimingHeading === 'Tomorrow')
       return 'Your event is tomorrow';
-    if (unreadMessageCount > 0)
-      return `${unreadMessageCount} fresh conversation${unreadMessageCount > 1 ? 's' : ''}`;
+    if (infoBarUnreadMessageCount > 0)
+      return `${infoBarUnreadMessageCount} fresh message${infoBarUnreadMessageCount > 1 ? 's' : ''}`;
     if (newMatchCount > 0) return 'Someone new vibed with you';
     if (nextEvent && hasEventAdmissionForNext) return 'Your next event is coming up';
     return null;
@@ -907,10 +872,10 @@ export default function DashboardScreen() {
         onPress: () => router.push(`/event/${nextEvent.id}/lobby` as const),
       });
     }
-    if (unreadMessageCount > 0) {
+    if (infoBarUnreadMessageCount > 0) {
       actions.push({
         icon: 'chatbubble-outline',
-        label: `${unreadMessageCount} unread`,
+        label: `${infoBarUnreadMessageCount} unread`,
         color: theme.accent,
         onPress: () => router.push('/(tabs)/matches' as Href),
       });

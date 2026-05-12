@@ -13,6 +13,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const PAYLOAD_GUARD_MIGRATION =
   "supabase/migrations/20260512170000_date_suggestion_send_payload_shape_guard.sql";
+const LAST6_CODEX_FOLLOWUP_MIGRATION =
+  "supabase/migrations/20260513003000_last6_codex_review_followups.sql";
 
 function readRepoFile(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), "utf8");
@@ -159,6 +161,21 @@ test("RPC wrapper guards selected_slot_keys before legacy JSON array extraction"
     /jsonb_array_elements_text\(v_revision->'selected_slot_keys'\)/,
     "wrapper must not use text extraction before type checks",
   );
+});
+
+test("RPC wrapper entitlement-checks share_schedule before normalization dispatch", () => {
+  const sql = readRepoFile(LAST6_CODEX_FOLLOWUP_MIGRATION);
+  const shareChoiceIndex = sql.indexOf("v_time_choice = 'share_schedule'");
+  const entitlementIndex = sql.indexOf("_get_user_tier_capability_bool_unchecked(v_uid, 'canUseVibeSchedule')");
+  const normalizeIndex = sql.indexOf("jsonb_set(v_revision, '{schedule_share_enabled}', 'true'::jsonb, true)");
+  const delegateIndex = sql.indexOf("date_suggestion_apply_legacy_dispatch_20260512(p_action, v_payload)");
+
+  assert.ok(shareChoiceIndex > 0, "wrapper should treat share_schedule as schedule-share");
+  assert.ok(entitlementIndex > shareChoiceIndex, "wrapper should check canUseVibeSchedule for normalized share_schedule");
+  assert.ok(normalizeIndex > entitlementIndex, "wrapper should not flip schedule_share_enabled before entitlement");
+  assert.ok(delegateIndex > entitlementIndex, "wrapper must entitlement-check before legacy dispatch");
+  assert.match(sql, /'error_code', 'tier_capability_disabled'/);
+  assert.match(sql, /'capability', 'canUseVibeSchedule'/);
 });
 
 test("date suggestion dialog has a useful Radix description", () => {

@@ -189,8 +189,7 @@ const WebHomeUnreadInvalidator = () => {
     };
     const channel = supabase
       .channel(`web-home-unread-${userId}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, invalidateHomeUnread)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, invalidateHomeUnread)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, invalidateHomeUnread)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "match_archives", filter: `user_id=eq.${userId}` },
