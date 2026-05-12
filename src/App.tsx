@@ -25,6 +25,7 @@ import { WebPendingDeletionBanner } from "@/components/layout/WebPendingDeletion
 import { MatchCallProvider } from "@/hooks/useMatchCall";
 import { WebChatOutboxProvider, WebChatOutboxRunner } from "@/contexts/WebChatOutboxContext";
 import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxRunner";
+import { supabase } from "@/integrations/supabase/client";
 import {
   hasStaleBundleReloadAlreadyAttempted,
   isLikelyStaleBundleError,
@@ -176,6 +177,35 @@ const AuthenticatedPushPermissionPrompt = () => {
   );
 };
 
+const WebHomeUnreadInvalidator = () => {
+  const { session, isAuthenticated, isLoading } = useAuth();
+  const userId = session?.user?.id ?? null;
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !userId) return;
+    const invalidateHomeUnread = () => {
+      void queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      void queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
+    };
+    const channel = supabase
+      .channel(`web-home-unread-${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, invalidateHomeUnread)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, invalidateHomeUnread)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "match_archives", filter: `user_id=eq.${userId}` },
+        invalidateHomeUnread,
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [isAuthenticated, isLoading, userId]);
+
+  return null;
+};
+
 const RouteFallback = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
     <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -295,6 +325,7 @@ const App = () => {
                   <WebPasswordRecoveryHandler />
                   <PostHogPageTracker />
                   <RoutePrefetcher />
+                  <WebHomeUnreadInvalidator />
                   <SessionRouteHydration />
                   <WebOnBreakBanner />
                   <WebPendingDeletionBanner />

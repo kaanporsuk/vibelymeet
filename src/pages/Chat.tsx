@@ -404,6 +404,8 @@ const Chat = () => {
           queryKey: threadMessagesQueryKey(id || "", currentUserId),
           exact: true,
         });
+        void queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+        void queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
       });
     }, 400);
   }, [chatData?.matchId, currentUserId, id, queryClient, user?.id]);

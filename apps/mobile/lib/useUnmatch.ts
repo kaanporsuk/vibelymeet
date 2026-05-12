@@ -34,6 +34,8 @@ export function useUnmatch() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
     },
   });
 }
@@ -63,6 +65,8 @@ export function useUndoableUnmatch(options?: UndoableUnmatchOptions) {
       await unmatchViaRpc(matchId);
       queryClient.invalidateQueries({ queryKey: ['matches'] });
       queryClient.invalidateQueries({ queryKey: ['messages'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
       if (mountedRef.current) {
         optionsRef.current?.onUnmatchComplete?.(matchId);
       }
