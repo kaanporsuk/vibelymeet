@@ -48,7 +48,12 @@ const VoiceRecorder = ({
   const requestWakeLock = useCallback(async () => {
     if ('wakeLock' in navigator) {
       try {
-        wakeLockRef.current = await navigator.wakeLock.request('screen');
+        const wakeLock = await navigator.wakeLock.request('screen');
+        if (!mountedRef.current) {
+          void wakeLock.release().catch(() => undefined);
+          return;
+        }
+        wakeLockRef.current = wakeLock;
       } catch {
         // Wake lock is optional; recording still works when the browser denies it.
       }
@@ -322,6 +327,7 @@ const VoiceRecorder = ({
 
   // Cleanup on unmount
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       startInFlightRef.current = false;
