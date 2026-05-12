@@ -2,6 +2,7 @@ import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { View, Text, Pressable, StyleSheet, Share } from 'react-native';
 import * as Sentry from '@sentry/react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import Colors from '@/constants/Colors';
@@ -481,20 +482,46 @@ export function DateSuggestionChatCard({
     }
   }, [onUpdated, queryClient, showDialog, status, suggestion.id, suggestion.match_id]);
 
-  const handleShare = async () => {
+  const buildTrustedContactDateText = () => {
     if (!current) return;
-    const body = buildShareDateText({
+    return buildShareDateText({
       partnerName,
       dateTypeLabel: labelForDateType(plan?.date_type_key ?? current.date_type_key),
       placeLabel: confirmedPlaceLabel,
       timeLabel: confirmedWhenLabel || 'Not decided yet',
     });
+  };
+
+  const handleShare = async () => {
+    const body = buildTrustedContactDateText();
+    if (!body) return;
     try {
       await Share.share({ title: 'Vibely date', message: body });
     } catch {
       showDialog({
         title: 'Share didn’t open',
         message: 'We couldn’t open the share sheet. Try again.',
+        variant: 'warning',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    }
+  };
+
+  const handleCopy = async () => {
+    const body = buildTrustedContactDateText();
+    if (!body) return;
+    try {
+      await Clipboard.setStringAsync(body);
+      showDialog({
+        title: 'Date copied',
+        message: 'Your date details are copied and ready to send.',
+        variant: 'success',
+        primaryAction: { label: 'OK', onPress: () => {} },
+      });
+    } catch {
+      showDialog({
+        title: 'Couldn’t copy',
+        message: 'We couldn’t copy this date. Try again.',
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
@@ -896,6 +923,8 @@ export function DateSuggestionChatCard({
           <>
             <Pressable
               onPress={handleShare}
+              accessibilityRole="button"
+              accessibilityLabel="Share the date"
               style={({ pressed }) => [
                 styles.actionBtn,
                 { backgroundColor: theme.muted, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.85 : 1 },
@@ -903,6 +932,26 @@ export function DateSuggestionChatCard({
             >
               <Ionicons name="share-outline" size={16} color={theme.text} />
               <Text style={[styles.actionBtnText, { color: theme.text }]}>Share the date</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleCopy}
+              accessibilityRole="button"
+              accessibilityLabel="Copy date details"
+              style={({ pressed }) => [
+                styles.actionBtn,
+                {
+                  backgroundColor: theme.muted,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="copy-outline" size={16} color={theme.text} />
+              <Text style={[styles.actionBtnText, { color: theme.text }]}>Copy</Text>
             </Pressable>
             {hasDateStarted && !currentUserMarkedComplete
               ? btn('Mark complete', handleMarkComplete, 'secondary', markCompleteBusy)

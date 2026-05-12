@@ -2708,7 +2708,11 @@ export default function ChatThreadScreen() {
                 hitSlop={{ top: 2, bottom: 2 }}
                 style={({ pressed }) => [
                   styles.attachmentAction,
-                  { backgroundColor: theme.muted, opacity: shellLoading || composerInputLocked ? 0.45 : pressed ? 0.88 : 1 },
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
+                    opacity: shellLoading || composerInputLocked ? 0.45 : pressed ? 0.88 : 1,
+                  },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Photo"
@@ -2716,7 +2720,7 @@ export default function ChatThreadScreen() {
                 {sendingPhoto ? (
                   <ActivityIndicator size="small" color={theme.tint} />
                 ) : (
-                  <Ionicons name="camera-outline" size={18} color={theme.textSecondary} />
+                  <Ionicons name="camera-outline" size={14} color={theme.textSecondary} />
                 )}
                 <Text numberOfLines={1} style={[styles.attachmentActionLabel, { color: theme.text }]}>Photo</Text>
               </Pressable>
@@ -2727,7 +2731,8 @@ export default function ChatThreadScreen() {
                 style={({ pressed }) => [
                   styles.attachmentAction,
                   {
-                    backgroundColor: sendingVideo ? 'rgba(139,92,246,0.16)' : theme.muted,
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
                     opacity: shellLoading || composerInputLocked ? 0.45 : pressed ? 0.88 : 1,
                   },
                 ]}
@@ -2737,7 +2742,7 @@ export default function ChatThreadScreen() {
                 {sendingVideo ? (
                   <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
                 ) : (
-                  <Ionicons name="film-outline" size={18} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
+                  <Ionicons name="film-outline" size={14} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
                 )}
                 <Text numberOfLines={1} style={[styles.attachmentActionLabel, { color: theme.text }]}>Clip</Text>
               </Pressable>
@@ -2747,12 +2752,16 @@ export default function ChatThreadScreen() {
                 hitSlop={{ top: 2, bottom: 2 }}
                 style={({ pressed }) => [
                   styles.attachmentAction,
-                  { backgroundColor: theme.muted, opacity: shellLoading || !data?.matchId ? 0.45 : pressed ? 0.88 : 1 },
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: theme.border,
+                    opacity: shellLoading || !data?.matchId ? 0.45 : pressed ? 0.88 : 1,
+                  },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Share Vibely Schedule"
               >
-                <Ionicons name="calendar-outline" size={18} color={theme.neonCyan} />
+                <Ionicons name="calendar-outline" size={14} color={theme.neonCyan} />
                 <Text numberOfLines={1} style={[styles.attachmentActionLabel, { color: theme.text }]}>Schedule</Text>
               </Pressable>
             </View>
@@ -3336,16 +3345,17 @@ const styles = StyleSheet.create({
   attachmentAction: {
     flex: 1,
     minWidth: 0,
-    height: 42,
-    borderRadius: 12,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: spacing.sm,
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
   },
   attachmentActionLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     flexShrink: 1,
   },
