@@ -24,6 +24,8 @@ import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
 import { ExactTimePinSheet } from './ExactTimePinSheet';
 import { ChooseSharedBlockSheet, type OfferedBlock } from './ChooseSharedBlockSheet';
 
+const MAX_TIMER_DELAY_MS = 2147483647;
+
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
   proposed: 'Proposed',
@@ -149,16 +151,21 @@ export function DateSuggestionChatCard({
   }, [plan?.starts_at]);
   useEffect(() => {
     if (!planStartsAt) return;
-    const delayMs = planStartsAt.getTime() - Date.now();
-    if (delayMs <= 0) {
-      setTimeGateNow(Date.now());
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setTimeGateNow(Date.now());
-      queryClient.invalidateQueries({ queryKey: ['date-suggestions', suggestion.match_id] });
-    }, Math.min(delayMs + 1000, 2147483647));
-    return () => clearTimeout(timeout);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const scheduleNextRefresh = () => {
+      const now = Date.now();
+      const delayMs = planStartsAt.getTime() - now;
+      if (delayMs <= 0) {
+        setTimeGateNow(now);
+        queryClient.invalidateQueries({ queryKey: ['date-suggestions', suggestion.match_id] });
+        return;
+      }
+      timeout = setTimeout(scheduleNextRefresh, Math.min(delayMs + 1000, MAX_TIMER_DELAY_MS));
+    };
+    scheduleNextRefresh();
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
   }, [planStartsAt, queryClient, suggestion.match_id]);
   const hasDateStarted = Boolean(planStartsAt && planStartsAt.getTime() <= timeGateNow);
   const isMutuallyCompleted =

@@ -24,5 +24,9 @@ npx supabase gen types typescript --project-id schdyxcunwcvddlcshwd --schema pub
 # Supabase CLI emits scalar RPC returns as non-nullable, but this SQL function
 # intentionally returns NULL for unknown capability keys.
 perl -0pi -e 's/(tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*string\s*\}\s*Returns:\s*)string(\s*\})/${1}string | null${2}/' "$OUT"
+perl -0ne 'exit(/tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*string\s*\}\s*Returns:\s*string \| null\s*\}/ ? 0 : 1)' "$OUT" || {
+  echo "Expected tier_capability_type to return string | null in $OUT" >&2
+  exit 1
+}
 
 echo "Wrote $OUT"

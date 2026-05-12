@@ -644,6 +644,11 @@ test("tier config authority migration validates overrides and enforces backend e
     /tier_capability_type:[\s\S]*string \| null/,
     "Supabase type regeneration must preserve nullable tier_capability_type RPC return",
   );
+  assert.match(
+    regenSupabaseTypesScript,
+    /Expected tier_capability_type to return string \| null/,
+    "Supabase type regeneration must fail loudly if the nullable override stops applying",
+  );
 
   const getUserCaps = tierConfigAuthorityFnSection("get_user_tier_capabilities");
   assert.match(getUserCaps, /SECURITY DEFINER/);
