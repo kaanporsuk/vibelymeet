@@ -7,21 +7,28 @@ const exists = (path: string) => existsSync(new URL(`../../${path}`, import.meta
 
 test("web other-user profile entry points render canonical profile content", () => {
   const userRoute = read("src/pages/UserProfile.tsx");
+  const profilePreview = read("src/pages/ProfilePreview.tsx");
   const drawer = read("src/components/ProfileDetailDrawer.tsx");
   const chatHeader = read("src/components/chat/ChatHeader.tsx");
   const chat = read("src/pages/Chat.tsx");
   const matches = read("src/pages/Matches.tsx");
   const swipeRow = read("src/components/SwipeableMatchCard.tsx");
+  const lobbyCard = read("src/components/lobby/LobbyProfileCard.tsx");
   const partnerSheet = read("src/components/video-date/PartnerProfileSheet.tsx");
   const videoDate = read("src/pages/VideoDate.tsx");
 
   assert.match(userRoute, /OtherUserFullProfileView/);
   assert.match(userRoute, /useOtherUserFullProfile/);
+  assert.match(profilePreview, /OtherUserFullProfileView/);
+  assert.match(profilePreview, /useOtherUserFullProfile/);
+  assert.match(profilePreview, /useOtherUserFullProfile\(profileId\)/);
+  assert.doesNotMatch(profilePreview, /ProfilePhoto|LifestyleDetails|BottomNav|VibePlayer|resolveWebVibeVideoState/);
   assert.match(drawer, /OtherUserFullProfileView/);
   assert.match(drawer, /useOtherUserFullProfile/);
   assert.match(partnerSheet, /OtherUserFullProfileView/);
   assert.match(partnerSheet, /partnerProfileId/);
   assert.match(videoDate, /partnerProfileId=\{partnerId\}/);
+  assert.match(lobbyCard, /navigate\(`\/user\/\$\{profile\.id\}`\)/);
 
   assert.match(chatHeader, /ProfileDetailDrawer/);
   assert.match(chat, /ProfileDetailDrawer/);
@@ -48,6 +55,8 @@ test("adaptive web media is used for hero, gallery, and fullscreen profile photo
 test("native chat and matches route profile actions to the canonical user route", () => {
   const nativeChat = read("apps/mobile/app/chat/[id].tsx");
   const nativeMatches = read("apps/mobile/app/(tabs)/matches/index.tsx");
+  const nativeProfilePreview = read("apps/mobile/app/profile-preview.tsx");
+  const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
   const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
   const nativePartnerSheet = read("apps/mobile/components/video-date/PartnerProfileSheet.tsx");
 
@@ -62,8 +71,16 @@ test("native chat and matches route profile actions to the canonical user route"
   assert.match(nativeMatches, /\/user\/\$\{encodeURIComponent\(m\.id\)\}/);
   assert.doesNotMatch(nativeMatches, /ProfileDetailSheet/);
   assert.doesNotMatch(nativeMatches, /setProfileSheetMatch/);
+  assert.match(nativeProfilePreview, /useUserProfile\(profileId\)/);
+  assert.match(nativeProfilePreview, /UserProfileFullView/);
+  assert.match(nativeProfilePreview, /isOwnProfile=\{false\}/);
+  assert.doesNotMatch(nativeProfilePreview, /fetchMyProfile/);
+  assert.doesNotMatch(nativeProfilePreview, /profileRowToUserProfileView/);
+  assert.doesNotMatch(nativeProfilePreview, /onEditProfile/);
+  assert.match(nativeLobby, /router\.push\(`\/user\/\$\{profile\.id\}`\)/);
   assert.match(nativeVideoDate, /PartnerProfileSheet/);
   assert.match(nativePartnerSheet, /UserProfileFullView/);
+  assert.match(nativePartnerSheet, /isOwnProfile=\{false\}/);
   assert.doesNotMatch(nativePartnerSheet, /ProfileDetailSheet/);
   assert.equal(exists("apps/mobile/components/match/ProfileDetailSheet.tsx"), false);
 });
