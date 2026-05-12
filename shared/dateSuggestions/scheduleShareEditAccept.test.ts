@@ -67,6 +67,11 @@ test("DateSuggestionCard Accept on schedule-share opens the block chooser (no di
     /if \(isScheduleShare\)\s*\{\s*setChooserOpen\(true\);\s*return;\s*\}/,
     "handleAccept must open the chooser when isScheduleShare",
   );
+  assert.match(
+    src,
+    /const isScheduleShare =[\s\S]{0,140}current\?\.time_choice_key === "share_schedule" \|\| current\?\.schedule_share_enabled === true/,
+    "Web chat accept gate must treat schedule_share_enabled as schedule-share",
+  );
 
   // The card must mount the chooser sheet.
   assert.match(src, /<ChooseSharedBlockSheet\b/, "Card must mount ChooseSharedBlockSheet");
@@ -94,6 +99,11 @@ test("Native DateSuggestionChatCard Accept on schedule-share opens the block cho
     src,
     /if \(isScheduleShare\)\s*\{\s*setChooserOpen\(true\);\s*return;\s*\}/,
     "Native handleAccept must open the chooser when isScheduleShare",
+  );
+  assert.match(
+    src,
+    /const isScheduleShare =[\s\S]{0,140}current\?\.time_choice_key === 'share_schedule' \|\| current\?\.schedule_share_enabled === true/,
+    "Native chat accept gate must treat schedule_share_enabled as schedule-share",
   );
   assert.doesNotMatch(
     src,
@@ -753,6 +763,8 @@ test("Native ScheduleShareSheet sends selected schedule-share payload", () => {
   assert.match(src, /place_mode_key:\s*'decide_together'/);
   assert.match(src, /schedule_share_enabled:\s*true/);
   assert.match(src, /selected_slot_keys:\s*selectedSlotKeys/);
+  assert.match(src, /key=\{visible \? 'open' : 'closed'\}/);
+  assert.match(src, /initialSelection=\{selectedSlotKeys\}/);
   assert.match(src, /onSelectionChange=\{handleSelectionChange\}/);
   assert.match(src, /err\.code === 'active_suggestion_exists'/);
   assert.match(src, /onActiveSuggestionConflict\?\.\(err\.suggestionId\)/);

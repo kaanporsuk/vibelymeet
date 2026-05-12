@@ -1,9 +1,5 @@
--- Canonical other-user full profile safe field coverage.
---
--- Extends get_profile_for_viewer with only public/safe display fields needed by
--- the canonical other-user profile view. Private PII and raw location data stay
--- excluded from the RPC payload. The profile birth_date is used only inside the
--- function to derive public age/zodiac fields and is never returned.
+-- Codex review follow-up: keep canonical profile video freshness available
+-- after the original canonical profile RPC migration has already reached cloud.
 
 CREATE OR REPLACE FUNCTION public.get_profile_for_viewer(p_target_id uuid)
 RETURNS jsonb

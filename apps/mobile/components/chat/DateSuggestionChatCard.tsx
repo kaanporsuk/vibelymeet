@@ -190,7 +190,8 @@ export function DateSuggestionChatCard({
         : '';
   const confirmedPlaceLabel = current ? planPlaceLine(plan, current) : "Let's decide together";
 
-  const isScheduleShare = current?.time_choice_key === 'share_schedule';
+  const isScheduleShare =
+    current?.time_choice_key === 'share_schedule' || current?.schedule_share_enabled === true;
   const offerAuthorId = current?.proposed_by ?? null;
   const [pendingSlotKey, setPendingSlotKey] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);

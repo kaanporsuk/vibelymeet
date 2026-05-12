@@ -67,7 +67,9 @@ test("web chat routes media buttons through polished pickers without changing se
   assert.match(webChat, /const \[showVibeClipOptions, setShowVibeClipOptions\] = useState\(false\)/);
   assert.match(webChat, /setShowPhotoOptions\(true\)/);
   assert.match(webChat, /setShowVibeClipOptions\(true\)/);
-  assert.match(webChat, /onTakePhoto=\{triggerPhotoFilePicker\}/);
+  assert.match(webChat, /const photoCameraInputRef = useRef<HTMLInputElement>\(null\)/);
+  assert.match(webChat, /capture="environment"/);
+  assert.match(webChat, /onTakePhoto=\{triggerPhotoCameraPicker\}/);
   assert.match(webChat, /onChooseLibrary=\{triggerPhotoFilePicker\}/);
   assert.match(webChat, /onLibraryClipReady=\{handleVibeClipLibraryReady\}/);
   assert.match(webChat, /showLibraryUpload=\{false\}/);
@@ -86,7 +88,7 @@ test("web Vibe Clip options sheet owns library validation and preserves recorder
   assert.match(webVibeClipOptions, /VIBE_CLIP_LIBRARY_HINT/);
 });
 
-test("web photo options dialog keeps both actions on the existing file input behavior", () => {
+test("web photo options dialog keeps action routing in the caller", () => {
   assert.match(webPhotoOptions, /Send a photo/);
   assert.match(webPhotoOptions, /Choose how you'd like to add your picture\./);
   assert.match(webPhotoOptions, /onTakePhoto\(\)/);

@@ -221,7 +221,8 @@ export function DateSuggestionCard({
   );
   const feedbackSubmitted = feedbackStatus.data?.submitted === true;
 
-  const isScheduleShare = current?.time_choice_key === "share_schedule";
+  const isScheduleShare =
+    current?.time_choice_key === "share_schedule" || current?.schedule_share_enabled === true;
   const offerAuthorId = current?.proposed_by ?? null;
 
   // For the Accept-button-driven chooser. React Query dedupes with the same

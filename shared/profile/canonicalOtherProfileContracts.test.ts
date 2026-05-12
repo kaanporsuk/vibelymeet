@@ -142,11 +142,11 @@ test("profile RPC includes new safe fields and does not return private profile d
   const selectBlock = migration.slice(migration.indexOf("SELECT\n    p.id"), migration.indexOf("INTO v_profile"));
   const returnBlock = migration.slice(migration.indexOf("RETURN jsonb_build_object"), migration.indexOf(");\nEND;", migration.indexOf("RETURN jsonb_build_object")));
 
-  for (const safeField of ["p.birth_date", "p.company", "p.email_verified", "p.phone_verified"]) {
+  for (const safeField of ["p.updated_at", "p.birth_date", "p.company", "p.email_verified", "p.phone_verified"]) {
     assert.match(selectBlock, new RegExp(safeField.replace(".", "\\.")));
   }
   assert.match(migration, /jsonb_build_object\([\s\S]*'id', vt\.id[\s\S]*'emoji', vt\.emoji[\s\S]*'category', vt\.category/);
-  for (const safeKey of ["'zodiac'", "'company'", "'email_verified'", "'phone_verified'", "'vibe_tags'"]) {
+  for (const safeKey of ["'updated_at'", "'zodiac'", "'company'", "'email_verified'", "'phone_verified'", "'vibe_tags'"]) {
     assert.match(returnBlock, new RegExp(safeKey));
   }
   assert.doesNotMatch(returnBlock, /'birth_date'/);
