@@ -140,7 +140,7 @@ export function UserProfileFullView({
   const company = profile.company?.trim();
   const job = profile.job?.trim();
   const workLabel = job && company ? `${job} at ${company}` : job || company;
-  const zodiac = getZodiacFromBirthDate(profile.birth_date);
+  const zodiac = profile.zodiac?.trim() || getZodiacFromBirthDate(profile.birth_date);
   const vibeInfo = resolveVibeVideoState(profile);
   const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
   const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;

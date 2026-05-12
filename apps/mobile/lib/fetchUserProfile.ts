@@ -14,6 +14,7 @@ export type UserProfileView = {
   name: string | null;
   age: number | null;
   birth_date: string | null;
+  zodiac: string | null;
   gender: string | null;
   tagline: string | null;
   location: string | null;
@@ -121,6 +122,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
     name: typeof row.name === 'string' ? row.name : row.name === null ? null : null,
     age: typeof row.age === 'number' ? row.age : row.age === null ? null : null,
     birth_date: typeof row.birth_date === 'string' ? row.birth_date : row.birth_date === null ? null : null,
+    zodiac: typeof row.zodiac === 'string' ? row.zodiac : row.zodiac === null ? null : null,
     gender: typeof row.gender === 'string' ? row.gender : row.gender === null ? null : null,
     tagline: typeof row.tagline === 'string' ? row.tagline : row.tagline === null ? null : null,
     location: typeof row.location === 'string' ? row.location : row.location === null ? null : null,
@@ -178,6 +180,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
 export function profileRowToUserProfileView(row: ProfileRow): UserProfileView {
   return {
     ...row,
+    zodiac: null,
     display_location: row.location,
     distance_label: null,
     vibe_score: row.vibe_score ?? null,

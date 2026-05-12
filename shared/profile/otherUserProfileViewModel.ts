@@ -21,6 +21,7 @@ export type OtherUserFullProfileSource = {
   name?: string | null;
   age?: number | null;
   birth_date?: string | null;
+  zodiac?: string | null;
   tagline?: string | null;
   about_me?: string | null;
   bio?: string | null;
@@ -346,7 +347,7 @@ export function normalizeOtherUserFullProfile(
     company,
     workLabel,
     heightCm: normalizeNumber(source.height_cm),
-    zodiac: getZodiacFromBirthDate(source.birth_date),
+    zodiac: cleanString(source.zodiac) ?? getZodiacFromBirthDate(source.birth_date),
     lifestyleDetails: getOtherUserLifestyleDetails(source.lifestyle),
     prompts: normalizeOtherUserPrompts(source.prompts),
     vibes: vibeTags.length > 0 ? vibeTags : normalizeOtherUserVibes(source.vibes),

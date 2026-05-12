@@ -85,6 +85,14 @@ test("other-user age, zodiac, work, lifestyle aliases, and verification badges a
   assert.deepEqual(vm.photos, ["photos/a.jpg"]);
   assert.deepEqual(vm.verification, { email: true, phone: true, photo: true });
   assert.deepEqual(vm.lifestyleDetails, [{ key: "exercise", label: "Workout", value: "Daily" }]);
+
+  const rpcVm = normalizeOtherUserFullProfile({
+    id: "user-2",
+    age: 31,
+    zodiac: "Gemini",
+  });
+  assert.equal(rpcVm.age, 31);
+  assert.equal(rpcVm.zodiac, "Gemini");
 });
 
 test("other-user vibes preserve metadata when canonical RPC provides it", () => {

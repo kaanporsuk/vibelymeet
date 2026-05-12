@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getImageUrl } from "@/utils/imageUrl";
@@ -39,6 +39,11 @@ export function AdaptiveProfileMedia({
   const resolvedSrc = useMemo(() => getImageUrl(src, imageOptions[variant]), [src, variant]);
   const isInteractive = typeof onClick === "function";
   const Wrapper = isInteractive ? "button" : "div";
+
+  useEffect(() => {
+    setLoaded(false);
+    setFailed(false);
+  }, [resolvedSrc]);
 
   return (
     <Wrapper

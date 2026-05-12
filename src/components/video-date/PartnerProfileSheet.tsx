@@ -71,7 +71,7 @@ export const PartnerProfileSheet = ({
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
               ) : profile ? (
-                <OtherUserFullProfileView profile={profile} onClose={onClose} closeLabel="Close" />
+                <OtherUserFullProfileView profile={profile} />
               ) : (
                 <div className="flex h-[65dvh] flex-col items-center justify-center gap-4 px-6 text-center">
                   <p className="text-lg font-semibold text-foreground">Profile unavailable</p>

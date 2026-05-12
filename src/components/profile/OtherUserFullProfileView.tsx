@@ -5,6 +5,8 @@ import {
   ArrowLeft,
   BadgeCheck,
   Briefcase,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Dumbbell,
   Heart,
@@ -227,25 +229,31 @@ export function OtherUserFullProfileView({
                 />
               ))}
             </div>
-            <div className="absolute inset-0 z-10 flex">
+            <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-20 flex items-center justify-between px-3">
               <button
                 type="button"
-                className="h-full w-1/2"
+                className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur-md transition hover:bg-black/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:cursor-not-allowed disabled:opacity-35"
                 aria-label="Previous photo"
+                disabled={currentPhotoIndex === 0}
                 onClick={(event) => {
                   event.stopPropagation();
                   setCurrentPhotoIndex((index) => Math.max(0, index - 1));
                 }}
-              />
+              >
+                <ChevronLeft className="h-5 w-5" aria-hidden />
+              </button>
               <button
                 type="button"
-                className="h-full w-1/2"
+                className="pointer-events-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/25 text-white backdrop-blur-md transition hover:bg-black/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 disabled:cursor-not-allowed disabled:opacity-35"
                 aria-label="Next photo"
+                disabled={currentPhotoIndex >= photos.length - 1}
                 onClick={(event) => {
                   event.stopPropagation();
                   setCurrentPhotoIndex((index) => Math.min(photos.length - 1, index + 1));
                 }}
-              />
+              >
+                <ChevronRight className="h-5 w-5" aria-hidden />
+              </button>
             </div>
           </>
         ) : null}

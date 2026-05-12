@@ -2,7 +2,8 @@
 --
 -- Extends get_profile_for_viewer with only public/safe display fields needed by
 -- the canonical other-user profile view. Private PII and raw location data stay
--- excluded from the RPC payload.
+-- excluded from the RPC payload. The profile birth_date is used only inside the
+-- function to derive public age/zodiac fields and is never returned.
 
 CREATE OR REPLACE FUNCTION public.get_profile_for_viewer(p_target_id uuid)
 RETURNS jsonb
@@ -20,6 +21,8 @@ DECLARE
   v_is_admin boolean;
   v_show_event_count boolean;
   v_distance_label text;
+  v_birth_month integer;
+  v_birth_day integer;
 BEGIN
   IF v_viewer_id IS NULL OR p_target_id IS NULL THEN
     RETURN NULL;
@@ -86,6 +89,11 @@ BEGIN
 
   v_distance_label := public.get_profile_distance_label_for_viewer(p_target_id);
 
+  IF v_profile.birth_date IS NOT NULL THEN
+    v_birth_month := EXTRACT(MONTH FROM v_profile.birth_date)::integer;
+    v_birth_day := EXTRACT(DAY FROM v_profile.birth_date)::integer;
+  END IF;
+
   SELECT
     COALESCE(array_agg(vt.label ORDER BY vt.label), ARRAY[]::text[]),
     COALESCE(
@@ -110,8 +118,28 @@ BEGIN
   RETURN jsonb_build_object(
     'id', v_profile.id,
     'name', v_profile.name,
-    'age', v_profile.age,
-    'birth_date', v_profile.birth_date,
+    'age', COALESCE(
+      CASE
+        WHEN v_profile.birth_date IS NOT NULL THEN EXTRACT(YEAR FROM age(v_profile.birth_date))::integer
+        ELSE NULL
+      END,
+      v_profile.age
+    ),
+    'zodiac', CASE
+      WHEN v_birth_month IS NULL OR v_birth_day IS NULL THEN NULL
+      WHEN (v_birth_month = 3 AND v_birth_day >= 21) OR (v_birth_month = 4 AND v_birth_day <= 19) THEN 'Aries'
+      WHEN (v_birth_month = 4 AND v_birth_day >= 20) OR (v_birth_month = 5 AND v_birth_day <= 20) THEN 'Taurus'
+      WHEN (v_birth_month = 5 AND v_birth_day >= 21) OR (v_birth_month = 6 AND v_birth_day <= 20) THEN 'Gemini'
+      WHEN (v_birth_month = 6 AND v_birth_day >= 21) OR (v_birth_month = 7 AND v_birth_day <= 22) THEN 'Cancer'
+      WHEN (v_birth_month = 7 AND v_birth_day >= 23) OR (v_birth_month = 8 AND v_birth_day <= 22) THEN 'Leo'
+      WHEN (v_birth_month = 8 AND v_birth_day >= 23) OR (v_birth_month = 9 AND v_birth_day <= 22) THEN 'Virgo'
+      WHEN (v_birth_month = 9 AND v_birth_day >= 23) OR (v_birth_month = 10 AND v_birth_day <= 22) THEN 'Libra'
+      WHEN (v_birth_month = 10 AND v_birth_day >= 23) OR (v_birth_month = 11 AND v_birth_day <= 21) THEN 'Scorpio'
+      WHEN (v_birth_month = 11 AND v_birth_day >= 22) OR (v_birth_month = 12 AND v_birth_day <= 21) THEN 'Sagittarius'
+      WHEN (v_birth_month = 12 AND v_birth_day >= 22) OR (v_birth_month = 1 AND v_birth_day <= 19) THEN 'Capricorn'
+      WHEN (v_birth_month = 1 AND v_birth_day >= 20) OR (v_birth_month = 2 AND v_birth_day <= 18) THEN 'Aquarius'
+      ELSE 'Pisces'
+    END,
     'gender', v_profile.gender,
     'tagline', v_profile.tagline,
     'location', v_profile.location,
@@ -146,7 +174,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.get_profile_for_viewer(uuid) IS
-  'Safe profile read for app surfaces. Allows self, admin, established relationships, and eligible shared-event discovery; masks events_attended and returns only safe profile display fields plus backend-computed coarse distance_label, never private PII, location_data, or raw coordinates.';
+  'Safe profile read for app surfaces. Allows self, admin, established relationships, and eligible shared-event discovery; masks events_attended and returns only safe profile display fields plus backend-computed coarse distance_label and zodiac, never private PII, birth_date, location_data, or raw coordinates.';
 
 REVOKE ALL ON FUNCTION public.get_profile_for_viewer(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.get_profile_for_viewer(uuid) FROM anon;

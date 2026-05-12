@@ -106,9 +106,10 @@ test("profile RPC includes new safe fields and does not return private profile d
     assert.match(selectBlock, new RegExp(safeField.replace(".", "\\.")));
   }
   assert.match(migration, /jsonb_build_object\([\s\S]*'id', vt\.id[\s\S]*'emoji', vt\.emoji[\s\S]*'category', vt\.category/);
-  for (const safeKey of ["'birth_date'", "'company'", "'email_verified'", "'phone_verified'", "'vibe_tags'"]) {
+  for (const safeKey of ["'zodiac'", "'company'", "'email_verified'", "'phone_verified'", "'vibe_tags'"]) {
     assert.match(returnBlock, new RegExp(safeKey));
   }
+  assert.doesNotMatch(returnBlock, /'birth_date'/);
 
   for (const privateField of ["phone_number", "verified_email", "proof_selfie_url", "location_data"]) {
     assert.doesNotMatch(selectBlock, new RegExp(privateField));
