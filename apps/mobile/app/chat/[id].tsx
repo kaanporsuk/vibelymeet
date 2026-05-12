@@ -1307,7 +1307,9 @@ export default function ChatThreadScreen() {
     try {
       const { granted } = await requestRecordingPermissionsAsync();
       if (!granted) throw new Error('Permission denied');
+      if (!screenMountedRef.current) return;
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      if (!screenMountedRef.current) return;
       await audioRecorder.prepareToRecordAsync();
       if (!screenMountedRef.current) {
         await audioRecorder.stop().catch(() => undefined);
