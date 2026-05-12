@@ -1845,6 +1845,8 @@ export default function ChatThreadScreen() {
         <View style={[styles.voiceContentWrap, { width: mediaCardWidth }]}>
           <VoiceMessagePlayer
             uri={item.audio_url}
+            sourceRef={item.audio_source_ref}
+            messageId={item.id}
             durationSeconds={item.audio_duration_seconds}
             isMine={isMe}
             theme={theme}

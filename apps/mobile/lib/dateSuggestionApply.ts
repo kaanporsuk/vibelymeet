@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { normalizeDateSuggestionActionPayload } from '@shared/dateSuggestionActionContract';
 
 export class DateSuggestionDomainError extends Error {
   code: string;
@@ -22,8 +23,13 @@ export async function dateSuggestionApply(
   action: string,
   payload: Record<string, unknown>
 ): Promise<unknown> {
+  const normalized = normalizeDateSuggestionActionPayload(action, payload);
+  if (normalized.ok !== true) {
+    throw new DateSuggestionDomainError(normalized.error_code, normalized.error);
+  }
+
   const { data, error } = await supabase.functions.invoke('date-suggestion-actions', {
-    body: { action, payload },
+    body: { action, payload: normalized.payload },
   });
   if (error) throw error;
   const result = data as {

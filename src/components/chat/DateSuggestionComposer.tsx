@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -118,7 +119,7 @@ function buildRevision(w: WizardState, options?: { counterSharePick?: boolean })
     timeBlock = w.pickTimeBlock;
   }
 
-  return {
+  const revision: Record<string, unknown> = {
     date_type_key: resolveDateTypeValue(w),
     time_choice_key: counterSharePick ? "pick_a_time" : w.timeChoiceKey,
     place_mode_key: w.placeModeKey,
@@ -128,8 +129,11 @@ function buildRevision(w: WizardState, options?: { counterSharePick?: boolean })
     starts_at: startsAt ?? null,
     ends_at: endsAt ?? null,
     time_block: timeBlock ?? null,
-    selected_slot_keys: share && w.selectedSlotKeys.length > 0 ? w.selectedSlotKeys : null,
   };
+  if (share && w.selectedSlotKeys.length > 0) {
+    revision.selected_slot_keys = w.selectedSlotKeys;
+  }
+  return revision;
 }
 
 type Props = {
@@ -280,6 +284,12 @@ export function DateSuggestionComposer({
         return "This date option is not available for your account right now.";
       case "revision_fields_required":
         return "Pick a type, time, and place before sending.";
+      case "selected_slots_required":
+        return "Pick at least one open block to share.";
+      case "selected_slot_not_open":
+        return "One of those blocks is no longer open. Review your selection and try again.";
+      case "invalid_selected_slot_keys":
+        return "Your schedule selection could not be read. Pick your blocks again.";
       default:
         return counterContext ? "Could not send counter" : "Could not send suggestion";
     }
@@ -326,7 +336,9 @@ export function DateSuggestionComposer({
       } else if (e instanceof DateSuggestionDomainError && e.code === "selected_slots_required") {
         toast.error("Pick at least one open block to share.");
       } else {
-        console.error(e);
+        if (!(e instanceof DateSuggestionDomainError)) {
+          console.error(e);
+        }
         toast.error(submitErrorMessage(e));
       }
     } finally {
@@ -361,6 +373,9 @@ export function DateSuggestionComposer({
           <DialogTitle>
             {counterContext ? "Counter proposal" : `Suggest a date with ${partnerName}`}
           </DialogTitle>
+          <DialogDescription>
+            Review and send your date suggestion.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 sm:px-6">

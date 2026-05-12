@@ -140,6 +140,7 @@ interface ChatMessage {
   duration?: number;
   audioBlob?: Blob;
   audioUrl?: string;
+  audioSourceRef?: string;
   audioDuration?: number;
   videoUrl?: string;
   videoDuration?: number;
@@ -595,6 +596,7 @@ const Chat = () => {
           messageKind: m.messageKind,
         }) as ChatMessage["type"],
         audioUrl: m.audioUrl,
+        audioSourceRef: m.audioSourceRef,
         audioDuration: m.audioDuration,
         videoUrl: m.videoUrl,
         videoDuration: m.videoDuration,
@@ -1928,6 +1930,8 @@ const Chat = () => {
                   >
                     <VoiceMessageBubble
                       audioUrl={groupedMessage.audioUrl}
+                      audioSourceRef={groupedMessage.audioSourceRef}
+                      messageId={groupedMessage.id}
                       duration={groupedMessage.audioDuration || 0}
                       isMine={groupedMessage.sender === "me"}
                     />

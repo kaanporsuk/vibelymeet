@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { captureSupabaseError } from "@/lib/errorTracking";
+import { normalizeDateSuggestionActionPayload } from "@shared/dateSuggestionActionContract";
 
 export class DateSuggestionDomainError extends Error {
   code: string;
@@ -30,7 +31,7 @@ export type RevisionPayload = {
   starts_at?: string | null;
   ends_at?: string | null;
   time_block?: string | null;
-  selected_slot_keys?: string[] | null;
+  selected_slot_keys?: string[];
 };
 
 export type AcceptPayload = {
@@ -46,8 +47,13 @@ export type CancelPlanPayload = {
 };
 
 async function invokeAction(action: string, payload: Record<string, unknown>) {
+  const normalized = normalizeDateSuggestionActionPayload(action, payload);
+  if (normalized.ok !== true) {
+    throw new DateSuggestionDomainError(normalized.error_code, normalized.error);
+  }
+
   const { data, error } = await supabase.functions.invoke("date-suggestion-actions", {
-    body: { action, payload },
+    body: { action, payload: normalized.payload },
   });
   if (error) {
     captureSupabaseError("date-suggestion-actions", error);
@@ -98,8 +104,13 @@ export async function dateSuggestionApply(
   action: string,
   payload: Record<string, unknown>,
 ): Promise<unknown> {
+  const normalized = normalizeDateSuggestionActionPayload(action, payload);
+  if (normalized.ok !== true) {
+    throw new DateSuggestionDomainError(normalized.error_code, normalized.error);
+  }
+
   const { data, error } = await supabase.functions.invoke("date-suggestion-actions", {
-    body: { action, payload },
+    body: { action, payload: normalized.payload },
   });
   if (error) {
     captureSupabaseError("date-suggestion-actions", error);

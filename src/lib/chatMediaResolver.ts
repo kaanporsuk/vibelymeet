@@ -50,9 +50,29 @@ export async function getCachedChatMediaUrl(
   if (!rawRef) return null;
   if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
 
+  return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, false);
+}
+
+export async function refreshCachedChatMediaUrl(
+  messageId: string,
+  mediaKind: ChatMediaKind,
+  rawRef: string | null | undefined,
+): Promise<string | null> {
+  if (!rawRef) return null;
+  if (isLocalPreviewRef(rawRef) || !isUuid(messageId)) return rawRef;
+
+  return issueAndCacheChatMediaUrl(messageId, mediaKind, rawRef, true);
+}
+
+async function issueAndCacheChatMediaUrl(
+  messageId: string,
+  mediaKind: ChatMediaKind,
+  rawRef: string,
+  forceRefresh: boolean,
+): Promise<string | null> {
   const cacheKey = `${messageId}:${mediaKind}:${rawRef}`;
   const cached = mediaUrlCache.get(cacheKey);
-  if (cached && cached.expiresAtMs > Date.now()) return cached.url;
+  if (!forceRefresh && cached && cached.expiresAtMs > Date.now()) return cached.url;
   mediaUrlCache.delete(cacheKey);
 
   const payload = testMediaUrlIssuer
