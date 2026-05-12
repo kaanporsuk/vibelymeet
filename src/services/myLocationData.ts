@@ -52,8 +52,7 @@ export async function fetchMyLocationData(): Promise<MyLocationData | null> {
   }
   if (locationDataInFlight) return locationDataInFlight;
 
-  locationDataInFlight = supabase
-    .rpc("get_my_location_data")
+  locationDataInFlight = Promise.resolve(supabase.rpc("get_my_location_data"))
     .then(({ data, error }) => {
       if (error) throw error;
       const row = Array.isArray(data) ? data[0] : data;

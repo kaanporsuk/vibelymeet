@@ -159,7 +159,9 @@ test("native accepted cards render confirmed plan state, not planning mechanics"
   );
   assert.match(nativeCard, /timeLabel: confirmedWhenLabel \|\| 'Not decided yet'/);
   assert.match(nativeCard, /import \* as Clipboard from 'expo-clipboard'/);
+  assert.match(nativeCard, /humanizeDateTypeLabel/);
   assert.match(nativeCard, /const buildTrustedContactDateText = \(\) => \{[\s\S]{0,260}buildShareDateText/);
+  assert.match(nativeCard, /dateTypeLabel: humanizeDateTypeLabel\(plan\?\.date_type_key \?\? current\.date_type_key\)/);
   assert.match(nativeCard, /await Share\.share\(\{ title: 'Vibely date', message: body \}\)/);
   assert.match(nativeCard, /await Clipboard\.setStringAsync\(body\)/);
   assert.match(nativeCard, /accessibilityLabel="Share the date"/);

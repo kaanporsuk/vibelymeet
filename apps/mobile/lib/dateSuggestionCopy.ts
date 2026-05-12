@@ -32,7 +32,7 @@ export const PLACE_MODE_OPTIONS = [
   { key: 'near_you', label: 'Near you' },
   { key: 'midway', label: 'Midway' },
   { key: 'up_to_you', label: 'Up to you' },
-  { key: 'downtown_oldtown', label: 'downtown / oldtown' },
+  { key: 'downtown_oldtown', label: 'Downtown / Old Town' },
   { key: 'custom_venue', label: 'Custom venue name' },
 ] as const;
 
@@ -133,6 +133,15 @@ export function labelForPlaceMode(key: string): string {
 
 export const DATE_SAFETY_NOTE =
   "Meet in public first, tell a friend where you're going, and trust your instincts.";
+
+export function humanizeDateTypeLabel(key: string | null | undefined): string {
+  if (!key) return 'Vibely date';
+  const known = labelForDateType(key);
+  if (known !== key) return known;
+  const cleaned = key.replace(/[_-]+/g, ' ').trim();
+  if (!cleaned) return 'Vibely date';
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export function buildShareDateText(params: {
   partnerFirstName?: string;

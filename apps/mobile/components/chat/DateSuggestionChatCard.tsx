@@ -9,7 +9,7 @@ import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { spacing, radius } from '@/constants/theme';
 import {
-  labelForDateType,
+  humanizeDateTypeLabel,
   labelForTimeChoice,
   labelForPlaceMode,
   buildShareDateText,
@@ -486,7 +486,7 @@ export function DateSuggestionChatCard({
     if (!current) return;
     return buildShareDateText({
       partnerName,
-      dateTypeLabel: labelForDateType(plan?.date_type_key ?? current.date_type_key),
+      dateTypeLabel: humanizeDateTypeLabel(plan?.date_type_key ?? current.date_type_key),
       placeLabel: confirmedPlaceLabel,
       timeLabel: confirmedWhenLabel || 'Not decided yet',
     });
@@ -607,7 +607,7 @@ export function DateSuggestionChatCard({
   if (staleTerminal) {
     const summary =
       current != null
-        ? `${labelForDateType(current.date_type_key)} · ${formatWhen(current)}`
+        ? `${humanizeDateTypeLabel(current.date_type_key)} · ${formatWhen(current)}`
         : '';
     if (threadUi === 'quiet_stale') {
       return (
@@ -656,7 +656,7 @@ export function DateSuggestionChatCard({
     if (threadUi === 'quiet_completed') {
       const when =
         current != null
-          ? `${labelForDateType(plan?.date_type_key ?? current.date_type_key)} · ${confirmedWhenLabel}`
+          ? `${humanizeDateTypeLabel(plan?.date_type_key ?? current.date_type_key)} · ${confirmedWhenLabel}`
           : '';
       return (
         <>
@@ -790,7 +790,7 @@ export function DateSuggestionChatCard({
               <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Type</Text>
               {showAgreedChips && agreed?.date_type ? <AgreedChip /> : null}
             </View>
-            <Text style={[styles.lineValue, { color: theme.text }]}>{labelForDateType(current.date_type_key)}</Text>
+            <Text style={[styles.lineValue, { color: theme.text }]}>{humanizeDateTypeLabel(current.date_type_key)}</Text>
           </View>
 
           <View style={[styles.infoBlock, { borderColor: theme.border, backgroundColor: 'rgba(255,255,255,0.03)' }]}>
