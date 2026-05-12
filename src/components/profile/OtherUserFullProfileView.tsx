@@ -194,7 +194,7 @@ export function OtherUserFullProfileView({
             variant="glass"
             size="sm"
             onClick={onClose}
-            className="absolute left-4 top-4 z-20 rounded-full px-3"
+            className="absolute left-4 top-4 z-20 h-11 min-h-11 rounded-full px-3"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>{closeLabel}</span>
@@ -207,7 +207,7 @@ export function OtherUserFullProfileView({
             variant="glass"
             size="icon"
             onClick={onClose}
-            className="absolute right-4 top-4 z-20 h-10 w-10 rounded-full"
+            className="absolute right-4 top-4 z-20 h-11 min-h-11 w-11 rounded-full"
             aria-label="Close profile"
           >
             <X className="h-4 w-4" />
@@ -221,13 +221,17 @@ export function OtherUserFullProfileView({
                 <button
                   key={`${photo}-${index}`}
                   type="button"
-                  className={cn(
-                    "h-1.5 flex-1 rounded-full transition-colors",
-                    index === currentPhotoIndex ? "bg-white" : "bg-white/35",
-                  )}
+                  className="flex h-11 min-h-11 flex-1 items-start rounded-full pt-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
                   aria-label={`Show photo ${index + 1}`}
                   onClick={() => setCurrentPhotoIndex(index)}
-                />
+                >
+                  <span
+                    className={cn(
+                      "block h-1.5 w-full rounded-full transition-colors",
+                      index === currentPhotoIndex ? "bg-white" : "bg-white/35",
+                    )}
+                  />
+                </button>
               ))}
             </div>
             <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-20 flex items-center justify-between px-3">

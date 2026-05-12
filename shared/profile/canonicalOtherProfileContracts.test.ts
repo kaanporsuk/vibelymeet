@@ -59,6 +59,15 @@ test("adaptive web media is used for hero, gallery, and fullscreen profile photo
   assert.match(fullscreen, /object-contain/);
 });
 
+test("web profile hero controls keep reliable touch targets", () => {
+  const canonical = read("src/components/profile/OtherUserFullProfileView.tsx");
+
+  assert.match(canonical, /left-4 top-4 z-20 h-11 min-h-11/);
+  assert.match(canonical, /right-4 top-4 z-20 h-11 min-h-11 w-11/);
+  assert.match(canonical, /flex h-11 min-h-11 flex-1 items-start/);
+  assert.match(canonical, /block h-1\.5 w-full rounded-full transition-colors/);
+});
+
 test("native chat and matches route profile actions to the canonical user route", () => {
   const nativeChat = read("apps/mobile/app/chat/[id].tsx");
   const nativeMatches = read("apps/mobile/app/(tabs)/matches/index.tsx");
