@@ -93,8 +93,18 @@ test("mark-complete is gated after start and uses per-user completion confirmati
   );
   assert.match(
     nativeCard,
-    /setTimeout\(\(\) => \{[\s\S]{0,180}setTimeGateNow\(Date\.now\(\)\)[\s\S]{0,180}queryClient\.invalidateQueries\(\{ queryKey: \['date-suggestions', suggestion\.match_id\] \}\)/,
+    /const MAX_TIMER_DELAY_MS = 2147483647/,
+    "native card must name the maximum timer chunk for long start-time gates",
+  );
+  assert.match(
+    nativeCard,
+    /const scheduleNextRefresh = \(\) => \{[\s\S]{0,260}if \(delayMs <= 0\) \{[\s\S]{0,180}setTimeGateNow\(now\)[\s\S]{0,180}queryClient\.invalidateQueries\(\{ queryKey: \['date-suggestions', suggestion\.match_id\] \}\)/,
     "native card must refresh/invalidate when the date start time passes while mounted",
+  );
+  assert.match(
+    nativeCard,
+    /setTimeout\(scheduleNextRefresh, Math\.min\(delayMs \+ 1000, MAX_TIMER_DELAY_MS\)\)/,
+    "native card must reschedule long start-time gates in timer-sized chunks",
   );
   assert.match(
     nativeCard,
