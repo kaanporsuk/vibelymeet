@@ -30,13 +30,11 @@ const VoiceRecorder = ({
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(20).fill(0.1));
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  const mimeTypeRef = useRef<string>('');
   const durationRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingSessionRef = useRef(0);
@@ -45,11 +43,16 @@ const VoiceRecorder = ({
   const mountedRef = useRef(true);
 
   // Request wake lock to prevent screen sleep
-  const requestWakeLock = useCallback(async () => {
+  const requestWakeLock = useCallback(async (sessionId: number) => {
     if ('wakeLock' in navigator) {
       try {
         const wakeLock = await navigator.wakeLock.request('screen');
-        if (!mountedRef.current) {
+        const sessionStillActive =
+          mountedRef.current &&
+          recordingSessionRef.current === sessionId &&
+          cancelledSessionRef.current !== sessionId &&
+          mediaRecorderRef.current !== null;
+        if (!sessionStillActive) {
           void wakeLock.release().catch(() => undefined);
           return;
         }
@@ -170,8 +173,6 @@ const VoiceRecorder = ({
           break;
         }
       }
-      mimeTypeRef.current = mimeType;
-
       // Set up media recorder with detected MIME type
       const options = mimeType ? { mimeType } : undefined;
       const mediaRecorder = new MediaRecorder(stream, options);
@@ -181,7 +182,6 @@ const VoiceRecorder = ({
       cancelledSessionRef.current = null;
       mediaRecorderRef.current = mediaRecorder;
       const chunks: Blob[] = [];
-      audioChunksRef.current = chunks;
       durationRef.current = 0;
       resetVisualState();
 
@@ -196,11 +196,9 @@ const VoiceRecorder = ({
         stopHandled = true;
         const wasCancelled = cancelledSessionRef.current === sessionId;
         const recordedDuration = durationRef.current;
-        const blobType = mimeTypeRef.current || 'audio/webm';
+        const blobType = mimeType || 'audio/webm';
 
         mediaRecorderRef.current = null;
-        audioChunksRef.current = [];
-        mimeTypeRef.current = '';
         durationRef.current = 0;
         cancelledSessionRef.current = null;
         startInFlightRef.current = false;
@@ -239,7 +237,7 @@ const VoiceRecorder = ({
       analyzeAudio();
 
       // Request wake lock
-      requestWakeLock();
+      void requestWakeLock(sessionId);
 
       // Haptic feedback
       if ('vibrate' in navigator) {
@@ -249,7 +247,6 @@ const VoiceRecorder = ({
       const name = err instanceof Error ? err.name : "";
       stopLiveResources();
       mediaRecorderRef.current = null;
-      audioChunksRef.current = [];
       durationRef.current = 0;
       startInFlightRef.current = false;
       if (!mountedRef.current) return;
@@ -287,14 +284,13 @@ const VoiceRecorder = ({
   }, [onCancel, stopLiveResources]);
 
   // Cancel recording
-  const cancelRecording = useCallback((opts?: { silent?: boolean }) => {
+  const cancelRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
     cancelledSessionRef.current = recordingSessionRef.current;
     startInFlightRef.current = false;
 
     setIsRecording(false);
     resetVisualState();
-    audioChunksRef.current = [];
 
     if (recorder) {
       try {
@@ -310,11 +306,9 @@ const VoiceRecorder = ({
 
     stopLiveResources();
 
-    if (!opts?.silent) {
-      toast.info('Recording discarded', {
-        icon: <Trash2 className="w-4 h-4 text-destructive" />,
-      });
-    }
+    toast.info('Recording discarded', {
+      icon: <Trash2 className="w-4 h-4 text-destructive" />,
+    });
     onCancel?.();
   }, [onCancel, resetVisualState, stopLiveResources]);
 
