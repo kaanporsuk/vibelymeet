@@ -86,6 +86,21 @@ test("mark-complete is gated after start and uses per-user completion confirmati
   assert.match(nativeCard, /completion_state\?: string/);
   assert.match(nativeCard, /currentUserMarkedComplete && !isMutuallyCompleted/);
   assert.match(nativeCard, /partnerMarkedComplete && !currentUserMarkedComplete && hasDateStarted/);
+  assert.match(
+    nativeCard,
+    /const \[timeGateNow, setTimeGateNow\] = useState\(\(\) => Date\.now\(\)\)/,
+    "native card must keep a timer-driven clock for start-time gates",
+  );
+  assert.match(
+    nativeCard,
+    /setTimeout\(\(\) => \{[\s\S]{0,180}setTimeGateNow\(Date\.now\(\)\)[\s\S]{0,180}queryClient\.invalidateQueries\(\{ queryKey: \['date-suggestions', suggestion\.match_id\] \}\)/,
+    "native card must refresh/invalidate when the date start time passes while mounted",
+  );
+  assert.match(
+    nativeCard,
+    /hasDateStarted = Boolean\(planStartsAt && planStartsAt\.getTime\(\) <= timeGateNow\)/,
+    "native Mark complete gate must use the timer-driven clock",
+  );
   assert.match(edge, /p_action === "plan_mark_complete"[\s\S]{0,240}date_plan_mark_complete_v2/);
   assert.match(
     edge,
@@ -112,6 +127,18 @@ test("native accepted cards render confirmed plan state, not planning mechanics"
     nativeCard,
     /current\.schedule_share_enabled && status !== 'accepted' && status !== 'completed'/,
     "native schedule-share planning copy must be hidden after acceptance/completion",
+  );
+  assert.match(
+    nativeCard,
+    /function planPlaceLine[\s\S]{0,180}plan\?\.venue_label\?\.trim\(\)[\s\S]{0,180}return placeLine\(revision\)/,
+    "native accepted/completed place must prefer date_plan.venue_label when available",
+  );
+  assert.match(nativeCard, /const confirmedPlaceLabel = current \? planPlaceLine\(plan, current\) : "Let's decide together"/);
+  assert.match(nativeCard, /placeLabel: confirmedPlaceLabel/);
+  assert.match(
+    nativeCard,
+    /status === 'accepted' \|\| status === 'completed' \? confirmedPlaceLabel : placeLine\(current\)/,
+    "native accepted/completed card place display must use the confirmed plan place label",
   );
   assert.match(nativeCard, /timeLabel: confirmedWhenLabel \|\| 'Not decided yet'/);
 });

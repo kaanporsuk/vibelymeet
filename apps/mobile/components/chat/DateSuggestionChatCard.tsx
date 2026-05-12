@@ -54,8 +54,21 @@ function formatWhen(r: {
 }
 
 function placeLine(r: { place_mode_key: string; venue_text: string | null }): string {
-  if (r.place_mode_key === 'custom_venue' && r.venue_text) return r.venue_text;
+  if (r.place_mode_key === 'custom_venue' && r.venue_text) return tidyDateDisplayText(r.venue_text);
   return labelForPlaceMode(r.place_mode_key);
+}
+
+function planPlaceLine(
+  plan: DateSuggestionWithRelations['date_plan'],
+  revision: DateSuggestionWithRelations['revisions'][0],
+): string {
+  const venue = plan?.venue_label?.trim();
+  if (venue && venue !== revision.place_mode_key) return tidyDateDisplayText(venue);
+  return placeLine(revision);
+}
+
+function tidyDateDisplayText(value: string): string {
+  return value.replace(/^\[(?:fresh|smoke|test|debug|bootstrap)[^\]]*]\s*/i, '').trim();
 }
 
 type OpenComposerOpts = {
@@ -128,12 +141,26 @@ export function DateSuggestionChatCard({
   const agreed = current?.agreed_field_flags as Record<string, boolean> | undefined;
   const optionalNote = current?.optional_message?.trim() ?? '';
   const plan = suggestion.date_plan;
+  const [timeGateNow, setTimeGateNow] = useState(() => Date.now());
   const planStartsAt = useMemo(() => {
     if (!plan?.starts_at) return null;
     const parsed = new Date(plan.starts_at);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, [plan?.starts_at]);
-  const hasDateStarted = Boolean(planStartsAt && planStartsAt.getTime() <= Date.now());
+  useEffect(() => {
+    if (!planStartsAt) return;
+    const delayMs = planStartsAt.getTime() - Date.now();
+    if (delayMs <= 0) {
+      setTimeGateNow(Date.now());
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setTimeGateNow(Date.now());
+      queryClient.invalidateQueries({ queryKey: ['date-suggestions', suggestion.match_id] });
+    }, Math.min(delayMs + 1000, 2147483647));
+    return () => clearTimeout(timeout);
+  }, [planStartsAt, queryClient, suggestion.match_id]);
+  const hasDateStarted = Boolean(planStartsAt && planStartsAt.getTime() <= timeGateNow);
   const isMutuallyCompleted =
     status === 'completed' ||
     plan?.status === 'completed' ||
@@ -154,6 +181,7 @@ export function DateSuggestionChatCard({
       : current
         ? formatWhen(current)
         : '';
+  const confirmedPlaceLabel = current ? planPlaceLine(plan, current) : "Let's decide together";
 
   const isScheduleShare = current?.time_choice_key === 'share_schedule';
   const offerAuthorId = current?.proposed_by ?? null;
@@ -436,7 +464,7 @@ export function DateSuggestionChatCard({
     const body = buildShareDateText({
       partnerName,
       dateTypeLabel: labelForDateType(plan?.date_type_key ?? current.date_type_key),
-      placeLabel: placeLine(current),
+      placeLabel: confirmedPlaceLabel,
       timeLabel: confirmedWhenLabel || 'Not decided yet',
     });
     try {
@@ -736,7 +764,9 @@ export function DateSuggestionChatCard({
               <Text style={[styles.lineLabel, { color: theme.textSecondary }]}>Place</Text>
               {showAgreedChips && agreed?.place ? <AgreedChip /> : null}
             </View>
-            <Text style={[styles.lineValue, { color: theme.text }]}>{placeLine(current)}</Text>
+            <Text style={[styles.lineValue, { color: theme.text }]}>
+              {status === 'accepted' || status === 'completed' ? confirmedPlaceLabel : placeLine(current)}
+            </Text>
           </View>
 
           {optionalNote.length > 0 ? (
