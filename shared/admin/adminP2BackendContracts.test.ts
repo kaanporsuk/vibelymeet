@@ -100,6 +100,7 @@ const dateSuggestionActionsFunction = read("supabase/functions/date-suggestion-a
 const webEntitlementsContext = read("src/contexts/EntitlementsContext.tsx");
 const mobileEntitlementsContext = read("apps/mobile/context/EntitlementsContext.tsx");
 const supabaseTypes = read("src/integrations/supabase/types.ts");
+const regenSupabaseTypesScript = read("scripts/regen-supabase-types.sh");
 
 function fnSection(fnName: string): string {
   const marker = `CREATE OR REPLACE FUNCTION public.${fnName}`;
@@ -637,6 +638,11 @@ test("tier config authority migration validates overrides and enforces backend e
   assert.match(
     supabaseTypes,
     /tier_capability_type: \{\s*Args: \{ p_capability_key: string \}\s*Returns: string \| null\s*\}/,
+  );
+  assert.match(
+    regenSupabaseTypesScript,
+    /tier_capability_type:[\s\S]*string \| null/,
+    "Supabase type regeneration must preserve nullable tier_capability_type RPC return",
   );
 
   const getUserCaps = tierConfigAuthorityFnSection("get_user_tier_capabilities");
