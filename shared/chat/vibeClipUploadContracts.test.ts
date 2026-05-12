@@ -11,6 +11,9 @@ function read(path: string): string {
 
 const copy = read("shared/chat/vibeClipCaptureCopy.ts");
 const webRecorder = read("src/components/chat/VideoMessageRecorder.tsx");
+const webLibraryHelper = read("src/lib/webVibeClipLibraryUpload.ts");
+const webVibeClipOptions = read("src/components/chat/VibeClipSendOptionsSheet.tsx");
+const webPhotoOptions = read("src/components/chat/PhotoSendOptionsDialog.tsx");
 const webChat = read("src/pages/Chat.tsx");
 const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
@@ -37,15 +40,58 @@ test("web recorder supports saved-video upload with the same constraints", () =>
   assert.match(webRecorder, /type="file"[\s\S]{0,120}accept="video\/\*"/);
   assert.match(webRecorder, /startCamera\(facingMode, \{ cancelOnError: false \}\)/);
   assert.match(webRecorder, /disabled=\{!isRecording && \(!cameraReady \|\| isProcessingUpload\)\}/);
-  assert.match(webRecorder, /function looksLikeVideoFile/);
-  assert.match(webRecorder, /function readSelectedVideoMetadata/);
-  assert.match(webRecorder, /file\.size <= 0/);
-  assert.match(webRecorder, /file\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
-  assert.match(webRecorder, /metadata\.durationSeconds > VIBE_CLIP_MAX_DURATION_SEC \+ 0\.25/);
-  assert.match(webRecorder, /onRecordingComplete\(file, metadata\.durationSeconds/);
-  assert.match(webRecorder, /captureSource: "library"/);
-  assert.match(webRecorder, /mimeType: file\.type \|\| undefined/);
-  assert.match(webRecorder, /aspectRatio: metadata\.aspectRatio/);
+  assert.match(webRecorder, /prepareWebVibeClipLibraryFile/);
+  assert.match(webRecorder, /const prepared = await prepareWebVibeClipLibraryFile\(file\)/);
+  assert.match(webRecorder, /durationBucketFromSeconds\(prepared\.durationSeconds\)/);
+  assert.match(webRecorder, /onRecordingComplete\(prepared\.file, prepared\.durationSeconds, prepared\.meta\)/);
+  assert.match(webRecorder, /showLibraryUpload = true/);
+});
+
+test("web library helper validates saved-video uploads with the same constraints", () => {
+  assert.match(webLibraryHelper, /export function looksLikeVideoFile/);
+  assert.match(webLibraryHelper, /export function readSelectedVideoMetadata/);
+  assert.match(webLibraryHelper, /video\.onloadedmetadata = null/);
+  assert.match(webLibraryHelper, /URL\.revokeObjectURL\(objectUrl\)/);
+  assert.match(webLibraryHelper, /file\.size <= 0/);
+  assert.match(webLibraryHelper, /file\.size > VIBE_CLIP_MAX_UPLOAD_BYTES/);
+  assert.match(webLibraryHelper, /metadata\.durationSeconds > VIBE_CLIP_MAX_DURATION_SEC \+ 0\.25/);
+  assert.match(webLibraryHelper, /captureSource: "library"/);
+  assert.match(webLibraryHelper, /mimeType: file\.type \|\| undefined/);
+  assert.match(webLibraryHelper, /aspectRatio: metadata\.aspectRatio/);
+});
+
+test("web chat routes media buttons through polished pickers without changing send paths", () => {
+  assert.match(webChat, /VibeClipSendOptionsSheet = lazy/);
+  assert.match(webChat, /PhotoSendOptionsDialog = lazy/);
+  assert.match(webChat, /const \[showPhotoOptions, setShowPhotoOptions\] = useState\(false\)/);
+  assert.match(webChat, /const \[showVibeClipOptions, setShowVibeClipOptions\] = useState\(false\)/);
+  assert.match(webChat, /setShowPhotoOptions\(true\)/);
+  assert.match(webChat, /setShowVibeClipOptions\(true\)/);
+  assert.match(webChat, /onTakePhoto=\{triggerPhotoFilePicker\}/);
+  assert.match(webChat, /onChooseLibrary=\{triggerPhotoFilePicker\}/);
+  assert.match(webChat, /onLibraryClipReady=\{handleVibeClipLibraryReady\}/);
+  assert.match(webChat, /showLibraryUpload=\{false\}/);
+});
+
+test("web Vibe Clip options sheet owns library validation and preserves recorder path", () => {
+  assert.match(webVibeClipOptions, /type="file"[\s\S]{0,120}accept="video\/\*"/);
+  assert.match(webVibeClipOptions, /prepareWebVibeClipLibraryFile/);
+  assert.match(webVibeClipOptions, /const prepared = await prepareWebVibeClipLibraryFile\(file\)/);
+  assert.match(webVibeClipOptions, /trackVibeClipEvent\("clip_record_started"/);
+  assert.match(webVibeClipOptions, /trackVibeClipEvent\("clip_record_completed"/);
+  assert.match(webVibeClipOptions, /durationBucketFromSeconds\(prepared\.durationSeconds\)/);
+  assert.match(webVibeClipOptions, /await onLibraryClipReady\(prepared\.file, prepared\.durationSeconds, prepared\.meta\)/);
+  assert.match(webVibeClipOptions, /onRecord\(\)/);
+  assert.match(webVibeClipOptions, /VIBE_CLIP_SHEET_TITLE/);
+  assert.match(webVibeClipOptions, /VIBE_CLIP_LIBRARY_HINT/);
+});
+
+test("web photo options dialog keeps both actions on the existing file input behavior", () => {
+  assert.match(webPhotoOptions, /Send a photo/);
+  assert.match(webPhotoOptions, /Choose how you'd like to add your picture\./);
+  assert.match(webPhotoOptions, /onTakePhoto\(\)/);
+  assert.match(webPhotoOptions, /onChooseLibrary\(\)/);
+  assert.doesNotMatch(webPhotoOptions, /capture=/);
 });
 
 test("web recorder exposes safe camera flip on eligible devices", () => {
