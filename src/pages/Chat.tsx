@@ -1316,6 +1316,7 @@ const Chat = () => {
 
   const handleVoiceRecordingComplete = async (audioBlob: Blob, duration: number) => {
     setIsRecording(false);
+    setShowAttachmentTray(false);
 
     if (!chatData?.matchId || !user?.id || !id) {
       toast.error("Cannot send voice message right now");
@@ -1344,11 +1345,11 @@ const Chat = () => {
 
   const handleVoiceRecordingStart = useCallback(() => {
     setIsRecording(true);
-    setShowAttachmentTray(false);
   }, []);
 
   const handleVoiceRecordingCancel = useCallback(() => {
     setIsRecording(false);
+    setShowAttachmentTray(false);
   }, []);
 
   const handleVideoRecordingComplete = async (
