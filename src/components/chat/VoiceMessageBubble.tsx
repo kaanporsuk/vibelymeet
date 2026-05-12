@@ -2,25 +2,37 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Play, Pause, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { refreshCachedChatMediaUrl } from "@/lib/chatMediaResolver";
 import { waveformHeightsFromSeed } from "../../../shared/chat/voiceWaveformSeed";
 
 interface VoiceMessageBubbleProps {
   audioUrl?: string;
+  audioSourceRef?: string;
+  messageId?: string;
   duration: number;
   isMine: boolean;
 }
 
-export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine }: VoiceMessageBubbleProps) => {
+export const VoiceMessageBubble = ({
+  audioUrl,
+  audioSourceRef,
+  messageId,
+  duration: initialDuration,
+  isMine,
+}: VoiceMessageBubbleProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [resolvedDuration, setResolvedDuration] = useState(initialDuration);
   const [isLoading, setIsLoading] = useState(false);
   const [hasError, setHasError] = useState(false);
+  const [playableUrl, setPlayableUrl] = useState(audioUrl);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const pendingAutoplayRef = useRef(false);
+  const refreshAttemptedForUrlRef = useRef<string | null>(null);
   const waveformData = useMemo(
-    () => waveformHeightsFromSeed(`${audioUrl ?? ""}|${initialDuration}`, 28),
-    [audioUrl, initialDuration],
+    () => waveformHeightsFromSeed(`${audioSourceRef ?? playableUrl ?? ""}|${initialDuration}`, 28),
+    [audioSourceRef, playableUrl, initialDuration],
   );
 
   const totalDuration = (() => {
@@ -29,9 +41,23 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
     return resolved > 0 ? resolved : initial;
   })();
 
+  useEffect(() => {
+    setPlayableUrl(audioUrl);
+    setHasError(false);
+    refreshAttemptedForUrlRef.current = null;
+  }, [audioUrl]);
+
+  const refreshAudioUrl = useCallback(async (): Promise<string | null> => {
+    if (!messageId || !audioSourceRef) return null;
+    const freshUrl = await refreshCachedChatMediaUrl(messageId, "voice", audioSourceRef);
+    if (!freshUrl) return null;
+    setPlayableUrl(freshUrl);
+    return freshUrl;
+  }, [audioSourceRef, messageId]);
+
   // Create and configure audio element
   useEffect(() => {
-    if (!audioUrl) {
+    if (!playableUrl) {
       setHasError(false);
       setIsLoading(false);
       setIsPlaying(false);
@@ -45,16 +71,22 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
     audio.preload = "metadata";
     // Do not set crossOrigin: voice files are served from CDN/storage without CORS for anonymous
     // reads in many setups; credentialed CORS mode causes the element to fail load/play in browsers.
-    audio.src = audioUrl;
+    audio.src = playableUrl;
     audioRef.current = audio;
 
     const onCanPlay = () => setIsLoading(false);
     const onWaiting = () => setIsLoading(true);
     const onError = () => {
-      console.error("Audio failed to load:", audioUrl);
       setIsLoading(false);
-      setHasError(true);
       setIsPlaying(false);
+      if (audioSourceRef && messageId && refreshAttemptedForUrlRef.current !== playableUrl) {
+        refreshAttemptedForUrlRef.current = playableUrl;
+        void refreshAudioUrl().then((freshUrl) => {
+          if (!freshUrl || freshUrl === playableUrl) setHasError(true);
+        });
+        return;
+      }
+      setHasError(true);
     };
     const onTimeUpdate = () => {
       if (audio.duration && isFinite(audio.duration) && audio.duration !== Infinity) {
@@ -87,6 +119,21 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
     audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("ended", onEnded);
 
+    if (pendingAutoplayRef.current) {
+      pendingAutoplayRef.current = false;
+      setIsLoading(true);
+      void audio.play()
+        .then(() => {
+          setIsPlaying(true);
+          setIsLoading(false);
+          setHasError(false);
+        })
+        .catch(() => {
+          setIsLoading(false);
+          setHasError(true);
+        });
+    }
+
     return () => {
       audio.removeEventListener("canplay", onCanPlay);
       audio.removeEventListener("canplaythrough", onCanPlay);
@@ -99,10 +146,42 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
       audio.pause();
       audio.src = "";
     };
-  }, [audioUrl]);
+  }, [audioSourceRef, messageId, playableUrl, refreshAudioUrl]);
+
+  const playCurrentAudio = useCallback(async () => {
+    if (!audioRef.current) throw new Error("audio_unavailable");
+    await audioRef.current.play();
+    setIsPlaying(true);
+    setIsLoading(false);
+    setHasError(false);
+  }, []);
+
+  const refreshAndPlay = useCallback(async (fallbackToCurrentAudio: boolean) => {
+    setHasError(false);
+    setIsLoading(true);
+    pendingAutoplayRef.current = true;
+    const freshUrl = await refreshAudioUrl();
+
+    if (freshUrl && freshUrl !== playableUrl) return;
+
+    pendingAutoplayRef.current = false;
+    if (!freshUrl && !fallbackToCurrentAudio) {
+      setIsLoading(false);
+      setHasError(true);
+      return;
+    }
+
+    try {
+      if (!freshUrl) audioRef.current?.load();
+      await playCurrentAudio();
+    } catch {
+      setIsLoading(false);
+      setHasError(true);
+    }
+  }, [playCurrentAudio, playableUrl, refreshAudioUrl]);
 
   const togglePlay = useCallback(async () => {
-    if (!audioRef.current || hasError) return;
+    if (!audioRef.current) return;
 
     if (isPlaying) {
       audioRef.current.pause();
@@ -111,22 +190,22 @@ export const VoiceMessageBubble = ({ audioUrl, duration: initialDuration, isMine
       setIsLoading(true);
       setHasError(false);
       try {
-        await audioRef.current.play();
-        setIsPlaying(true);
-        setIsLoading(false);
+        await playCurrentAudio();
       } catch {
+        if (audioSourceRef && messageId && refreshAttemptedForUrlRef.current !== playableUrl) {
+          refreshAttemptedForUrlRef.current = playableUrl ?? null;
+          await refreshAndPlay(false);
+          return;
+        }
         setIsLoading(false);
         setHasError(true);
       }
     }
-  }, [isPlaying, hasError]);
+  }, [audioSourceRef, isPlaying, messageId, playableUrl, playCurrentAudio, refreshAndPlay]);
 
-  const retry = useCallback(() => {
-    setHasError(false);
-    if (audioRef.current) {
-      audioRef.current.load();
-    }
-  }, []);
+  const retry = useCallback(async () => {
+    await refreshAndPlay(true);
+  }, [refreshAndPlay]);
 
   const formatDuration = (s: number) => {
     const totalSecs = Math.round(s);

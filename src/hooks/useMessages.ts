@@ -85,6 +85,7 @@ export interface Message {
   /** Partner read receipt for outbound messages (matches native `read_at` → status). */
   readAt?: string | null;
   audioUrl?: string;
+  audioSourceRef?: string;
   audioDuration?: number;
   videoUrl?: string;
   videoDuration?: number;
@@ -226,6 +227,9 @@ export async function hydrateChatRowsForDisplay(
   currentUserId: string,
 ): Promise<Message[]> {
   const collapsedRows = collapseVibeGameRowsForWeb(rows.map(normalizeRawMessage));
+  const audioSourceRefById = new Map(
+    collapsedRows.map((row) => [row.id, row.audio_url || null] as const),
+  );
   const displayRows = await Promise.all(collapsedRows.map((row) => resolveChatMessageMediaForDisplay(row)));
 
   return displayRows.map((row) => ({
@@ -236,6 +240,7 @@ export async function hydrateChatRowsForDisplay(
     createdAt: row.created_at,
     readAt: row.read_at,
     audioUrl: row.audio_url || undefined,
+    audioSourceRef: audioSourceRefById.get(row.id) || undefined,
     audioDuration: row.audio_duration_seconds || undefined,
     videoUrl: row.video_url || undefined,
     videoDuration: row.video_duration_seconds || undefined,

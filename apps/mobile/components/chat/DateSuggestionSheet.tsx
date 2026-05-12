@@ -109,7 +109,7 @@ function buildRevision(w: WizardState, options?: { counterSharePick?: boolean })
     timeBlock = w.pickTimeBlock;
   }
 
-  return {
+  const revision: Record<string, unknown> = {
     date_type_key: resolveDateTypeValue(w),
     time_choice_key: counterSharePick ? 'pick_a_time' : w.timeChoiceKey,
     place_mode_key: w.placeModeKey,
@@ -119,8 +119,11 @@ function buildRevision(w: WizardState, options?: { counterSharePick?: boolean })
     starts_at: startsAt ?? null,
     ends_at: endsAt ?? null,
     time_block: timeBlock ?? null,
-    selected_slot_keys: share && w.selectedSlotKeys.length > 0 ? w.selectedSlotKeys : null,
   };
+  if (share && w.selectedSlotKeys.length > 0) {
+    revision.selected_slot_keys = w.selectedSlotKeys;
+  }
+  return revision;
 }
 
 type CounterCtx = {
@@ -310,7 +313,9 @@ export function DateSuggestionSheet({
         ) {
           refreshOwnSchedule();
         }
-        console.error(e);
+        if (!(e instanceof DateSuggestionDomainError)) {
+          console.error(e);
+        }
         showDialog({
           title: 'Couldn’t send',
           message: submitErrorMessage(e),

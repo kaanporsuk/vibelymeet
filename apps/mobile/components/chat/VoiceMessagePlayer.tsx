@@ -1,8 +1,9 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, type StyleProp, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import Colors from '@/constants/Colors';
+import { refreshCachedChatMediaUrl } from '@/lib/chatMediaResolver';
 import { waveformHeightsFromSeed } from '../../../../shared/chat/voiceWaveformSeed';
 
 export function formatVoiceDurationClock(seconds: number): string {
@@ -14,6 +15,8 @@ export function formatVoiceDurationClock(seconds: number): string {
 
 export type VoiceMessagePlayerProps = {
   uri: string;
+  sourceRef?: string | null;
+  messageId?: string | null;
   durationSeconds?: number | null;
   isMine: boolean;
   theme: (typeof Colors)['light'];
@@ -27,13 +30,19 @@ export type VoiceMessagePlayerProps = {
  */
 export function VoiceMessagePlayer({
   uri,
+  sourceRef,
+  messageId,
   durationSeconds,
   isMine,
   theme,
   footer,
   wrapStyle,
 }: VoiceMessagePlayerProps) {
-  const player = useAudioPlayer(uri);
+  const [playableUri, setPlayableUri] = useState(uri);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshAttemptedForUriRef = useRef<string | null>(null);
+  const pendingPlayAfterRefreshRef = useRef(false);
+  const player = useAudioPlayer(playableUri);
   const status = useAudioPlayerStatus(player);
   const [hasError, setHasError] = useState(false);
   const playing = status.playing;
@@ -48,8 +57,8 @@ export function VoiceMessagePlayer({
 
   const barCount = 22;
   const waveform = useMemo(
-    () => waveformHeightsFromSeed(`${uri}|${fromDb || fromPlayer}`, barCount),
-    [uri, fromDb, fromPlayer],
+    () => waveformHeightsFromSeed(`${sourceRef ?? playableUri}|${fromDb || fromPlayer}`, barCount),
+    [sourceRef, playableUri, fromDb, fromPlayer],
   );
   const playheadIdx =
     totalDuration > 0 ? Math.min(barCount - 1, Math.floor(progress * barCount)) : -1;
@@ -61,24 +70,94 @@ export function VoiceMessagePlayer({
   const statusError = (status as { error?: unknown }).error;
 
   useEffect(() => {
+    setPlayableUri(uri);
     setHasError(false);
+    refreshAttemptedForUriRef.current = null;
   }, [uri]);
 
-  useEffect(() => {
-    if (statusError) setHasError(true);
-  }, [statusError]);
+  const refreshUri = useCallback(async (): Promise<string | null> => {
+    if (!messageId || !sourceRef) return null;
+    setRefreshing(true);
+    try {
+      const fresh = await refreshCachedChatMediaUrl(messageId, 'voice', sourceRef);
+      if (fresh) {
+        setPlayableUri(fresh);
+        return fresh;
+      }
+      return null;
+    } finally {
+      setRefreshing(false);
+    }
+  }, [messageId, sourceRef]);
 
-  const toggle = () => {
+  const playCurrent = useCallback((): boolean => {
+    try {
+      const result = (player.play as () => unknown)();
+      if (result && typeof (result as Promise<void>).catch === 'function') {
+        void (result as Promise<void>).catch(() => setHasError(true));
+      }
+      return true;
+    } catch {
+      setHasError(true);
+      return false;
+    }
+  }, [player]);
+
+  const refreshAndQueuePlay = useCallback(async (): Promise<boolean> => {
+    setHasError(false);
+    pendingPlayAfterRefreshRef.current = true;
+    const fresh = await refreshUri();
+    if (!fresh) {
+      pendingPlayAfterRefreshRef.current = false;
+      setHasError(true);
+      return false;
+    }
+    if (fresh === playableUri) {
+      pendingPlayAfterRefreshRef.current = false;
+      return playCurrent();
+    }
+    return true;
+  }, [playCurrent, playableUri, refreshUri]);
+
+  useEffect(() => {
+    if (!statusError) return;
+    if (messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri) {
+      refreshAttemptedForUriRef.current = playableUri;
+      void refreshUri().then((fresh) => {
+        if (!fresh || fresh === playableUri) setHasError(true);
+      });
+      return;
+    }
+    setHasError(true);
+  }, [messageId, playableUri, refreshUri, sourceRef, statusError]);
+
+  useEffect(() => {
+    if (!pendingPlayAfterRefreshRef.current) return;
+    pendingPlayAfterRefreshRef.current = false;
+    playCurrent();
+  }, [playCurrent, playableUri]);
+
+  const toggle = async () => {
     try {
       let result: unknown;
       if (playing) {
         result = player.pause();
+      } else if (hasError) {
+        await refreshAndQueuePlay();
+        return;
       } else {
         setHasError(false);
         result = player.play();
       }
       if (result && typeof (result as Promise<void>).catch === 'function') {
-        void (result as Promise<void>).catch(() => setHasError(true));
+        void (result as Promise<void>).catch(() => {
+          if (!playing && !hasError && messageId && sourceRef && refreshAttemptedForUriRef.current !== playableUri) {
+            refreshAttemptedForUriRef.current = playableUri;
+            void refreshAndQueuePlay();
+            return;
+          }
+          setHasError(true);
+        });
       }
     } catch {
       setHasError(true);
@@ -87,6 +166,7 @@ export function VoiceMessagePlayer({
 
   const rightTimeLabel = (() => {
     if (hasError) return 'Tap to retry';
+    if (refreshing) return 'Refreshing...';
     if (!playing) {
       if (totalDuration > 0) return formatVoiceDurationClock(totalDuration);
       return 'Voice message';

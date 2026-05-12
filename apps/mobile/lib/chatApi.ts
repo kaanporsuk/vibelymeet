@@ -330,6 +330,7 @@ export type ChatMessage = {
   /** Epoch ms from `created_at` — for deterministic merge ordering with local/outbox rows */
   sortAtMs?: number;
   audio_url?: string | null;
+  audio_source_ref?: string | null;
   audio_duration_seconds?: number | null;
   video_url?: string | null;
   video_duration_seconds?: number | null;
@@ -428,6 +429,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           sortAtMs: new Date(m.created_at).getTime(),
           audio_url: m.audio_url ?? undefined,
+          audio_source_ref: m.audio_source_ref ?? undefined,
           audio_duration_seconds: m.audio_duration_seconds ?? undefined,
           video_url: m.video_url ?? undefined,
           video_duration_seconds: m.video_duration_seconds ?? undefined,
@@ -458,6 +460,7 @@ export function useMessages(otherUserId: string | undefined, currentUserId: stri
           created_at: m.created_at,
           read_at: m.read_at,
           audio_url: m.audio_url,
+          audio_source_ref: m.audio_url,
           audio_duration_seconds: m.audio_duration_seconds,
           video_url: m.video_url,
           video_duration_seconds: m.video_duration_seconds,
@@ -681,7 +684,12 @@ export function useTypingBroadcast(
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED' && isTypingRef.current) {
-          channel.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, typing: true } });
+          void (channel.send as (args: Record<string, unknown>) => Promise<unknown>)({
+            type: 'broadcast',
+            event: 'typing',
+            payload: { userId: currentUserId, typing: true },
+            extras: { httpSend: true },
+          });
         }
       });
     return () => {
@@ -694,7 +702,12 @@ export function useTypingBroadcast(
   const sendTyping = useCallback(
     (typing: boolean) => {
       if (!matchId || !currentUserId || !channelRef.current) return;
-      channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { userId: currentUserId, typing } });
+      void (channelRef.current.send as (args: Record<string, unknown>) => Promise<unknown>)({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { userId: currentUserId, typing },
+        extras: { httpSend: true },
+      });
     },
     [matchId, currentUserId]
   );

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { corsHeadersForRequest, jsonResponse, preflightResponse } from "../_shared/cors.ts";
+import { syncChatMessageMedia } from "../_shared/media-lifecycle.ts";
 
 type MediaKind = "image" | "voice" | "video" | "vibe_clip" | "thumbnail";
 
@@ -163,7 +164,14 @@ async function handleIssueUrl(req: Request): Promise<Response> {
     return jsonResponse(req, { success: false, error: "not_found" }, { status: 404, headers: corsHeaders });
   }
 
-  const asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
+  let asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
+  if (!asset?.provider_path) {
+    const syncResult = await syncChatMessageMedia(serviceClient, messageId);
+    if (!syncResult.success) {
+      console.error("get-chat-media-url sync_chat_message_media failed:", syncResult.error);
+    }
+    asset = await resolveMessageAsset(serviceClient, messageId, mediaKind);
+  }
   if (!asset?.provider_path) {
     return jsonResponse(req, { success: false, error: "media_not_found" }, { status: 404, headers: corsHeaders });
   }

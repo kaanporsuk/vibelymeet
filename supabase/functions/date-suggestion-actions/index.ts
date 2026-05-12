@@ -4,6 +4,10 @@
  */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
+import {
+  dateSuggestionRpcErrorCode,
+  normalizeDateSuggestionActionPayload,
+} from "../_shared/dateSuggestionActionContract.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,6 +42,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function truthyFlag(value: unknown): boolean {
   return ["true", "t", "1", "yes"].includes(String(value ?? "false").toLowerCase());
+}
+
+function domainErrorResponse(error: string) {
+  return new Response(
+    JSON.stringify({ ok: false, error, error_code: error }),
+    {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
 }
 
 async function sendNotify(
@@ -97,16 +111,19 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const p_action = typeof body.action === "string" ? body.action : "";
-    const p_payload = isRecord(body.payload)
+    const rawPayload = isRecord(body.payload)
       ? body.payload
       : {};
 
     if (!p_action) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "action_required" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return domainErrorResponse("action_required");
     }
+
+    const normalized = normalizeDateSuggestionActionPayload(p_action, rawPayload);
+    if (normalized.ok !== true) {
+      return domainErrorResponse(normalized.error);
+    }
+    const p_payload = normalized.payload;
 
     const requiresDateSuggestionCapability = [
       "create_draft",
@@ -115,6 +132,7 @@ serve(async (req) => {
     ].includes(p_action);
     const revision = isRecord(p_payload.revision) ? p_payload.revision : {};
     const shareRequested =
+      normalized.shareRequested ||
       (["send_proposal", "counter"].includes(p_action) &&
         truthyFlag(revision.schedule_share_enabled)) ||
       p_action === "edit_schedule_share_slots";
@@ -134,10 +152,7 @@ serve(async (req) => {
       );
 
       if (capabilityError) {
-        return new Response(
-          JSON.stringify({ ok: false, error: "entitlements_unavailable" }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
+        return domainErrorResponse("entitlements_unavailable");
       }
 
       const caps = capabilities && typeof capabilities === "object" && !Array.isArray(capabilities)
@@ -225,14 +240,17 @@ serve(async (req) => {
         );
       }
 
-      return new Response(
-        JSON.stringify({ ok: false, error: rpcError.message }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      const mappedError = dateSuggestionRpcErrorCode(rpcError.message);
+      if (mappedError) return domainErrorResponse(mappedError);
+
+      return domainErrorResponse("date_suggestion_action_failed");
     }
 
     const result = rpcResult as Record<string, unknown>;
     if (result?.ok !== true) {
+      const mappedError = dateSuggestionRpcErrorCode(result?.error);
+      if (mappedError) return domainErrorResponse(mappedError);
+
       return new Response(JSON.stringify(result), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

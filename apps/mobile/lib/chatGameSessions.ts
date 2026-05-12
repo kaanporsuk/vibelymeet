@@ -11,6 +11,7 @@ export type ChatGameSessionMessageRow = {
   created_at: string;
   read_at: string | null;
   audio_url: string | null;
+  audio_source_ref?: string | null;
   audio_duration_seconds: number | null;
   video_url: string | null;
   video_duration_seconds: number | null;

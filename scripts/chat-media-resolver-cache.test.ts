@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   __chatMediaUrlCacheSizeForTests,
   __clearChatMediaUrlCacheForTests,
   __setChatMediaUrlIssuerForTests,
   getCachedChatMediaUrl,
+  refreshCachedChatMediaUrl,
 } from "../src/lib/chatMediaResolver";
+
+const root = process.cwd();
+const read = (path: string) => readFileSync(join(root, path), "utf8");
 
 __clearChatMediaUrlCacheForTests();
 
@@ -28,10 +34,12 @@ try {
   const messageId = "550e8400-e29b-41d4-a716-446655440000";
   const first = await getCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
   const second = await getCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
+  const refreshed = await refreshCachedChatMediaUrl(messageId, "voice", "voice/test.webm");
 
   assert.equal(first, "https://signed.example.com/media-1");
   assert.equal(second, first);
-  assert.equal(invokeCount, 1);
+  assert.equal(refreshed, "https://signed.example.com/media-2");
+  assert.equal(invokeCount, 2);
   assert.equal(__chatMediaUrlCacheSizeForTests(), 1);
 } finally {
   __setChatMediaUrlIssuerForTests(null);
@@ -63,5 +71,22 @@ try {
   __setChatMediaUrlIssuerForTests(null);
   __clearChatMediaUrlCacheForTests();
 }
+
+const resolver = read("supabase/functions/get-chat-media-url/index.ts");
+const webBubble = read("src/components/chat/VoiceMessageBubble.tsx");
+const nativeBubble = read("apps/mobile/components/chat/VoiceMessagePlayer.tsx");
+const nativeChat = read("apps/mobile/lib/chatApi.ts");
+
+assert.match(resolver, /syncChatMessageMedia/);
+assert.match(
+  resolver,
+  /let asset = await resolveMessageAsset[\s\S]*syncChatMessageMedia[\s\S]*asset = await resolveMessageAsset/,
+);
+assert.match(webBubble, /refreshCachedChatMediaUrl/);
+assert.match(webBubble, /await audioRef\.current\.play\(\);[\s\S]{0,500}refreshAudioUrl/);
+assert.doesNotMatch(webBubble, /console\.error\("Audio failed to load:/);
+assert.match(nativeBubble, /refreshCachedChatMediaUrl/);
+assert.match(nativeBubble, /player\.play\(\)[\s\S]{0,600}refreshAndQueuePlay/);
+assert.match(nativeChat, /extras:\s*\{\s*httpSend:\s*true\s*\}/);
 
 console.log("chat-media-resolver-cache tests passed");
