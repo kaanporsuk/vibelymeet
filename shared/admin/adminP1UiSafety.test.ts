@@ -548,7 +548,10 @@ test("photo verification submission preflights pending rows and profile photo be
   assert.match(simplePhotoVerification, /\.from\("photo_verifications"\)[\s\S]*\.eq\("status", "pending"\)/);
   assert.match(simplePhotoVerification, /Your verification is already under review/);
   assert.match(simplePhotoVerification, /Please add a profile photo before starting photo verification/);
-  assert.match(simplePhotoVerification, /const profilePhoto = await loadSubmissionPreflight\(\);[\s\S]*const blob = await/);
+  assert.match(simplePhotoVerification, /const profilePhoto = await loadSubmissionPreflight\(submissionUserId\);[\s\S]*const payload = prepareWebProofSelfieUploadPayload\(capturedImage\);/);
+  assert.match(simplePhotoVerification, /\.upload\(fileName, payload\.body, \{[\s\S]*contentType: payload\.contentType,[\s\S]*cacheControl: "3600",[\s\S]*upsert: false,[\s\S]*\}\)/);
+  assert.match(simplePhotoVerification, /disabled=\{!isCameraReady\}/);
+  assert.doesNotMatch(simplePhotoVerification, /fetch\(capturedImage\)[\s\S]{0,80}\.blob\(\)/);
   assert.match(simplePhotoVerification, /profile_photo_url: profilePhoto/);
   assert.match(simplePhotoVerification, /isPostgrestCode\(insertError, "23505"\)/);
   assert.match(simplePhotoVerification, /\.from\("proof-selfies"\)\.remove\(\[fileName\]\)/);

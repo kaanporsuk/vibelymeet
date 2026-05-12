@@ -5,32 +5,38 @@ import { Camera, RotateCcw, Check, AlertCircle, Loader2, Shield, Clock } from "l
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
+import { resolvePhotoVerificationState } from "@/lib/photoVerificationState";
+import {
+  prepareWebProofSelfieUploadPayload,
+  WebProofSelfiePayloadError,
+} from "@/lib/webProofSelfieUpload";
 
 interface SimplePhotoVerificationProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  userId: string;
   /**
    * Called after a successful selfie upload + `photo_verifications` insert,
    * which means the backend state is now "submitted / pending review".
    */
   onSubmissionComplete: () => void;
-  profilePhotoUrl?: string;
 }
 
 type Screen = "intro" | "camera" | "preview" | "uploading" | "submitted" | "error";
 
 type VerificationSubmitErrorOptions = {
   markPending?: boolean;
+  closeWithoutStateChange?: boolean;
 };
 
 class VerificationSubmitError extends Error {
   markPending: boolean;
+  closeWithoutStateChange: boolean;
 
   constructor(message: string, options: VerificationSubmitErrorOptions = {}) {
     super(message);
     this.name = "VerificationSubmitError";
     this.markPending = options.markPending ?? false;
+    this.closeWithoutStateChange = options.closeWithoutStateChange ?? false;
   }
 }
 
@@ -65,9 +71,7 @@ function firstProfilePhoto(raw: unknown): string {
 export function SimplePhotoVerification({
   open,
   onOpenChange,
-  userId,
   onSubmissionComplete,
-  profilePhotoUrl,
 }: SimplePhotoVerificationProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -75,6 +79,7 @@ export function SimplePhotoVerification({
   /** Data URL shown in preview; same bytes are uploaded (avoids async canvas.toBlob races that produced 0-byte Storage objects). */
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -86,12 +91,18 @@ export function SimplePhotoVerification({
     }
   }, []);
 
+  const markCameraReady = useCallback(() => {
+    const video = videoRef.current;
+    setIsCameraReady(!!video && video.videoWidth > 0 && video.videoHeight > 0);
+  }, []);
+
   useEffect(() => {
     if (!open) {
       stopCamera();
       setScreen("intro");
       setCapturedImage(null);
       setCameraError(null);
+      setIsCameraReady(false);
     }
   }, [open, stopCamera]);
 
@@ -108,6 +119,7 @@ export function SimplePhotoVerification({
     }
 
     setCameraError(null);
+    setIsCameraReady(false);
     setScreen("camera");
 
     await new Promise((r) => setTimeout(r, 300));
@@ -123,6 +135,7 @@ export function SimplePhotoVerification({
         videoRef.current.srcObject = stream;
         try {
           await videoRef.current.play();
+          markCameraReady();
         } catch (e) {
           console.warn("play() failed, autoPlay should handle it:", e);
         }
@@ -130,6 +143,7 @@ export function SimplePhotoVerification({
     } catch (err: unknown) {
       const errorName = browserErrorName(err);
       console.error("Camera error:", err);
+      setIsCameraReady(false);
       if (errorName === "NotAllowedError") {
         setCameraError("Camera access denied. Please allow camera in your browser settings, then reload the page.");
       } else if (errorName === "NotFoundError") {
@@ -143,21 +157,38 @@ export function SimplePhotoVerification({
 
   const takeSelfie = () => {
     if (!videoRef.current) return;
+    if (!isCameraReady || videoRef.current.videoWidth <= 0 || videoRef.current.videoHeight <= 0) {
+      setCameraError("Camera is still starting. Please wait a moment and try again.");
+      return;
+    }
 
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      setCameraError("Your browser could not prepare the selfie. Please try again.");
+      setScreen("error");
+      return;
+    }
 
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(videoRef.current, 0, 0);
+    let dataUrl = "";
+    try {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(videoRef.current, 0, 0);
+      dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    } catch (err) {
+      console.error("Selfie capture failed:", err);
+      setCameraError("Could not capture selfie. Please try again.");
+      setScreen("error");
+      return;
+    }
 
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
     setCapturedImage(dataUrl);
 
     stopCamera();
+    setIsCameraReady(false);
     setScreen("preview");
   };
 
@@ -166,18 +197,18 @@ export function SimplePhotoVerification({
     startCamera();
   };
 
-  const loadSubmissionPreflight = async () => {
+  const loadSubmissionPreflight = async (submissionUserId: string) => {
     const [{ data: profileData, error: profileError }, { data: pendingVerification, error: pendingError }] =
       await Promise.all([
         supabase
           .from("profiles")
-          .select("photos")
-          .eq("id", userId)
+          .select("photos, photo_verified, photo_verification_expires_at")
+          .eq("id", submissionUserId)
           .maybeSingle(),
         supabase
           .from("photo_verifications")
           .select("id")
-          .eq("user_id", userId)
+          .eq("user_id", submissionUserId)
           .eq("status", "pending")
           .limit(1)
           .maybeSingle(),
@@ -185,13 +216,23 @@ export function SimplePhotoVerification({
 
     if (profileError) throw profileError;
     if (pendingError) throw pendingError;
+    const currentStatus = resolvePhotoVerificationState({
+      photoVerified: profileData?.photo_verified,
+      photoVerificationExpiresAt: profileData?.photo_verification_expires_at,
+      latestPhotoVerificationStatus: pendingVerification ? "pending" : null,
+    });
+    if (currentStatus === "approved") {
+      throw new VerificationSubmitError("Photo already verified.", {
+        closeWithoutStateChange: true,
+      });
+    }
     if (pendingVerification) {
       throw new VerificationSubmitError("Your verification is already under review.", {
         markPending: true,
       });
     }
 
-    const profilePhoto = profilePhotoUrl?.trim() || firstProfilePhoto(profileData?.photos);
+    const profilePhoto = firstProfilePhoto(profileData?.photos);
     if (!profilePhoto) {
       throw new VerificationSubmitError("Please add a profile photo before starting photo verification.");
     }
@@ -204,18 +245,25 @@ export function SimplePhotoVerification({
     setScreen("uploading");
 
     try {
-      const profilePhoto = await loadSubmissionPreflight();
-      const blob = await (await fetch(capturedImage)).blob();
-      if (!blob.size) {
-        throw new Error("Selfie data was empty. Please retake the photo.");
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const submissionUserId = authData.user?.id;
+      if (!submissionUserId) {
+        throw new VerificationSubmitError("Please sign in again before submitting photo verification.");
       }
 
-      const fileName = `${userId}/${Date.now()}_verification.jpg`;
+      const profilePhoto = await loadSubmissionPreflight(submissionUserId);
+      const payload = prepareWebProofSelfieUploadPayload(capturedImage);
+      const fileName = `${submissionUserId}/${Date.now()}_verification.jpg`;
 
       // Upload to proof-selfies bucket
       const { error: uploadError } = await supabase.storage
         .from("proof-selfies")
-        .upload(fileName, blob, { contentType: "image/jpeg", cacheControl: "3600" });
+        .upload(fileName, payload.body, {
+          contentType: payload.contentType,
+          cacheControl: "3600",
+          upsert: false,
+        });
 
       const selfieUrl = fileName;
       if (uploadError) {
@@ -226,7 +274,7 @@ export function SimplePhotoVerification({
       const { error: insertError } = await supabase
         .from("photo_verifications")
         .insert({
-          user_id: userId,
+          user_id: submissionUserId,
           selfie_url: selfieUrl,
           profile_photo_url: profilePhoto,
           status: "pending",
@@ -250,7 +298,7 @@ export function SimplePhotoVerification({
       await supabase
         .from("profiles")
         .update({ proof_selfie_url: selfieUrl })
-        .eq("id", userId);
+        .eq("id", submissionUserId);
 
       // Do NOT set photo_verified = true — admin will do that
       trackEvent('photo_verification_submitted');
@@ -270,7 +318,16 @@ export function SimplePhotoVerification({
         onOpenChange(false);
         return;
       }
-      setCameraError(err instanceof VerificationSubmitError ? err.message : "Failed to upload selfie. Please try again.");
+      if (err instanceof VerificationSubmitError && err.closeWithoutStateChange) {
+        toast.success(err.message);
+        onOpenChange(false);
+        return;
+      }
+      setCameraError(
+        err instanceof VerificationSubmitError || err instanceof WebProofSelfiePayloadError
+          ? err.message
+          : "Failed to upload selfie. Please try again.",
+      );
       setScreen("error");
     }
   };
@@ -328,6 +385,8 @@ export function SimplePhotoVerification({
                   muted
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{ transform: "scaleX(-1)" }}
+                  onLoadedMetadata={markCameraReady}
+                  onCanPlay={markCameraReady}
                 />
                 {/* Face guide oval */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -338,9 +397,9 @@ export function SimplePhotoVerification({
                 </p>
               </div>
 
-              <Button variant="gradient" className="w-full" onClick={takeSelfie}>
+              <Button variant="gradient" className="w-full" onClick={takeSelfie} disabled={!isCameraReady}>
                 <Camera className="w-4 h-4 mr-2" />
-                Take Selfie
+                {isCameraReady ? "Take Selfie" : "Starting Camera..."}
               </Button>
             </div>
           )}
