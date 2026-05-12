@@ -765,6 +765,7 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
   const userProfile = read("src/pages/UserProfile.tsx");
   const drawer = read("src/components/ProfileDetailDrawer.tsx");
   const otherUserFullProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
+  const otherUserViewModel = read("shared/profile/otherUserProfileViewModel.ts");
 
   assert.match(drops, /resolveWebVibeVideoState/);
   assert.match(drops, /vibeVideoBadgeLabel/);
@@ -781,6 +782,10 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
 
   assert.match(userProfile, /OtherUserFullProfileView/);
   assert.match(drawer, /OtherUserFullProfileView/);
+  assert.match(otherUserViewModel, /updated_at\?: string \| null;/);
+  assert.match(otherUserViewModel, /updatedAt: string \| null;/);
+  assert.match(otherUserViewModel, /updatedAt: cleanString\(source\.updated_at\)/);
+  assert.match(otherUserFullProfile, /updated_at: profile\.updatedAt/);
   assert.match(otherUserFullProfile, /Vibe Video processing/);
   assert.match(otherUserFullProfile, /Vibe Video still processing/);
   assert.match(otherUserFullProfile, /Vibe Video needs a fresh take/);
