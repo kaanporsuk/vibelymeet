@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { startOfDay } from 'date-fns';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -36,6 +37,7 @@ import { slotDateBlockToStartsAt } from '@/lib/dateSuggestionTime';
 import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
 import { dateSuggestionApply, DateSuggestionDomainError } from '@/lib/dateSuggestionApply';
 import type { DateSuggestionRevisionRow } from '@/lib/useDateSuggestionData';
+import { SCHEDULE_QUERY_KEY } from '@/lib/useSchedule';
 import { ScheduleSharePicker } from '@/components/schedule/ScheduleSharePicker';
 import {
   CLIP_DATE_COMPOSER_PILL,
@@ -145,7 +147,7 @@ export function DateSuggestionSheet({
   visible,
   onClose,
   matchId,
-  currentUserId: _currentUserId,
+  currentUserId,
   partnerUserId,
   partnerName,
   draftSuggestionId,
@@ -155,6 +157,7 @@ export function DateSuggestionSheet({
   onSuccess,
 }: Props) {
   const theme = Colors[useColorScheme()];
+  const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [w, setW] = useState<WizardState>(defaultWizard);
   const [saving, setSaving] = useState(false);
@@ -230,6 +233,10 @@ export function DateSuggestionSheet({
     setNativePickOpen(true);
   }, [w.pickStartIso]);
 
+  const refreshOwnSchedule = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: SCHEDULE_QUERY_KEY(currentUserId) });
+  }, [currentUserId, queryClient]);
+
   useEffect(() => {
     if (w.timeChoiceKey !== 'pick_a_time') setNativePickOpen(false);
   }, [w.timeChoiceKey]);
@@ -255,6 +262,10 @@ export function DateSuggestionSheet({
         return 'Pick a type, time, and place before sending.';
       case 'selected_slots_required':
         return 'Pick at least one open block to share.';
+      case 'selected_slot_not_open':
+        return 'One of those blocks is no longer open. Review your selection and try again.';
+      case 'invalid_selected_slot_keys':
+        return 'Your schedule selection could not be read. Pick your blocks again.';
       default:
         return counterContext ? 'We couldn’t send your counter. Try again.' : 'We couldn’t send your suggestion. Try again.';
     }
@@ -293,6 +304,12 @@ export function DateSuggestionSheet({
           primaryAction: { label: 'Got it', onPress: () => {} },
         });
       } else {
+        if (
+          e instanceof DateSuggestionDomainError &&
+          (e.code === 'selected_slot_not_open' || e.code === 'invalid_selected_slot_keys')
+        ) {
+          refreshOwnSchedule();
+        }
         console.error(e);
         showDialog({
           title: 'Couldn’t send',

@@ -567,6 +567,99 @@ test("Chat.tsx wires the same-suggestion edit handler and ScheduleShareEditSheet
   assert.doesNotMatch(editMount![0], /send_proposal/);
 });
 
+test("Native ScheduleShareSheet sends selected schedule-share payload", () => {
+  const src = readRepoFile("apps/mobile/components/chat/ScheduleShareSheet.tsx");
+
+  assert.match(src, /dateSuggestionApply\(\s*'send_proposal'/);
+  assert.match(src, /match_id:\s*matchId/);
+  assert.match(src, /date_type_key:\s*'hangout'/);
+  assert.match(src, /time_choice_key:\s*'share_schedule'/);
+  assert.match(src, /place_mode_key:\s*'decide_together'/);
+  assert.match(src, /schedule_share_enabled:\s*true/);
+  assert.match(src, /selected_slot_keys:\s*selectedSlotKeys/);
+  assert.match(src, /onSelectionChange=\{handleSelectionChange\}/);
+  assert.match(src, /err\.code === 'active_suggestion_exists'/);
+  assert.match(src, /onActiveSuggestionConflict\?\.\(err\.suggestionId\)/);
+  assert.match(src, /err\.code === 'selected_slot_not_open'/);
+  assert.match(src, /err\.code === 'invalid_selected_slot_keys'/);
+  assert.match(
+    src,
+    /invalidateQueries\(\{ queryKey: SCHEDULE_QUERY_KEY\(user\.id\) \}\)/,
+    "Native schedule share sheet must refresh own schedule after stale selected-slot errors",
+  );
+});
+
+test("Native chat composer wires plus attachment tray and Schedule share sheet", () => {
+  const src = readRepoFile("apps/mobile/app/chat/[id].tsx");
+
+  assert.match(src, /const \[showAttachmentTray,\s*setShowAttachmentTray\]/);
+  assert.match(src, /const \[showScheduleShare,\s*setShowScheduleShare\]/);
+  assert.match(src, /<ScheduleShareSheet\b/);
+  assert.match(src, /visible=\{showScheduleShare\}/);
+  assert.match(src, /onSent=\{\(\) => onDateSuggestionUpdated\(\)\}/);
+  assert.match(
+    src,
+    /onActiveSuggestionConflict=\{\(\) => \{[\s\S]*onDateSuggestionUpdated\(\);[\s\S]*setShowActiveDateSuggestionWarning\(true\);[\s\S]*\}\}/,
+    "Native schedule share conflict must refresh date suggestions and show the active suggestion warning",
+  );
+  assert.match(
+    src,
+    /showAttachmentTray \? \([\s\S]*accessibilityLabel="Photo"[\s\S]*accessibilityLabel="Vibe Clip - record or choose a clip"[\s\S]*accessibilityLabel="Share Vibely Schedule"/,
+    "Native attachment tray must expose Photo, Clip, and Schedule",
+  );
+  assert.match(
+    src,
+    /Ionicons name=\{showAttachmentTray \? 'close' : 'add'\}/,
+    "Native composer primary media button must toggle plus/close",
+  );
+
+  const dock = src.match(/<View style=\{styles\.composerDockRow\}>[\s\S]*?<TextInput/);
+  assert.ok(dock, "expected native composer dock row");
+  assert.match(dock![0], /setShowAttachmentTray\(\(open\) => !open\)/);
+  assert.doesNotMatch(dock![0], /openPhotoOptions|openVideoMessageOptions/);
+});
+
+test("Native ScheduleSharePicker preserves busy blocks and treats unset blocks as addable", () => {
+  const src = readRepoFile("apps/mobile/components/schedule/ScheduleSharePicker.tsx");
+
+  assert.match(src, /const \{ days,\s*schedule,\s*isLoading,\s*getSlotState,\s*toggleSlot \} = useSchedule\(\)/);
+  assert.match(src, /const rawStatus = schedule\[key\]\?\.status \?\? null/);
+  assert.match(
+    src,
+    /if \(rawStatus === 'busy'\) return;/,
+    "Native schedule share picker must not overwrite explicit busy blocks",
+  );
+  assert.match(
+    src,
+    /useEffect\(\(\) => \{[\s\S]*schedule\[key\]\?\.status === 'open'[\s\S]*setSelected\(next\)[\s\S]*onSelectionChange\?\.\(Array\.from\(next\)\)/,
+    "Native picker must prune stale selected keys after schedule refresh",
+  );
+  assert.match(
+    src,
+    /disabled=\{isLocked \|\| isPending \|\| isBusy\}/,
+    "Native busy blocks must be non-tappable like web",
+  );
+  assert.match(
+    src,
+    /\) : isBusy \? \([\s\S]*?Busy[\s\S]*?\) : \([\s\S]*?<Ionicons name="add"/,
+    "Native unset blocks must render as addable plus cells, not as Busy",
+  );
+});
+
+test("Native date composer has friendly stale schedule selection errors", () => {
+  const src = readRepoFile("apps/mobile/components/chat/DateSuggestionSheet.tsx");
+
+  assert.match(src, /case 'selected_slot_not_open':/);
+  assert.match(src, /One of those blocks is no longer open/);
+  assert.match(src, /case 'invalid_selected_slot_keys':/);
+  assert.match(src, /Your schedule selection could not be read/);
+  assert.match(
+    src,
+    /invalidateQueries\(\{ queryKey: SCHEDULE_QUERY_KEY\(currentUserId\) \}\)/,
+    "Native date composer must refresh own schedule after stale selected-slot errors",
+  );
+});
+
 test("date_suggestion_apply_v2 edit_schedule_share_slots is grant-owner gated, not authorship gated", () => {
   const sql = readRepoFile(
     "supabase/migrations/20260511150000_date_suggestion_edit_schedule_share_slots.sql",

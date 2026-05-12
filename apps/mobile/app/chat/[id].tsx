@@ -68,6 +68,7 @@ import { ReactionPicker } from '@/components/chat/ReactionPicker';
 import { VoiceMessagePlayer } from '@/components/chat/VoiceMessagePlayer';
 import { DateSuggestionSheet, type WizardState } from '@/components/chat/DateSuggestionSheet';
 import { DateSuggestionChatCard } from '@/components/chat/DateSuggestionChatCard';
+import { ScheduleShareSheet } from '@/components/chat/ScheduleShareSheet';
 import { ActiveDateSuggestionWarningModal } from '@/components/chat/ActiveDateSuggestionWarningModal';
 import { CharadesStartSheet } from '@/components/chat/games/CharadesStartSheet';
 import { GameSessionBubble } from '@/components/chat/games/GameSessionBubble';
@@ -653,6 +654,8 @@ export default function ChatThreadScreen() {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [showDateSheet, setShowDateSheet] = useState(false);
   const [dateComposerLaunchSource, setDateComposerLaunchSource] = useState<DateComposerLaunchSource>('default');
+  const [showAttachmentTray, setShowAttachmentTray] = useState(false);
+  const [showScheduleShare, setShowScheduleShare] = useState(false);
   const [showVibeClipSendSheet, setShowVibeClipSendSheet] = useState(false);
   const [showCharadesStart, setShowCharadesStart] = useState(false);
   const [showIntuitionStart, setShowIntuitionStart] = useState(false);
@@ -1478,6 +1481,7 @@ export default function ChatThreadScreen() {
   };
 
   const openVideoMessageOptions = () => {
+    setShowAttachmentTray(false);
     setShowVibeClipSendSheet(true);
   };
 
@@ -1569,6 +1573,7 @@ export default function ChatThreadScreen() {
   };
 
   const openPhotoOptions = () => {
+    setShowAttachmentTray(false);
     showAppDialog({
       title: 'Send a photo',
       message: 'Choose how you’d like to add your picture.',
@@ -1651,7 +1656,14 @@ export default function ChatThreadScreen() {
   };
 
   const openGamesEntry = () => {
+    setShowAttachmentTray(false);
     setShowGamesPicker(true);
+  };
+
+  const openScheduleShare = () => {
+    if (shellLoading || !data?.matchId) return;
+    setShowAttachmentTray(false);
+    setShowScheduleShare(true);
   };
 
   const handleGamesPickerSelect = (game: GamesPickerGameId) => {
@@ -2498,6 +2510,7 @@ export default function ChatThreadScreen() {
           <Pressable
             onPress={() => {
               if (shellLoading) return;
+              setShowAttachmentTray(false);
               openDateComposer({ mode: 'new' });
             }}
             disabled={shellLoading}
@@ -2560,30 +2573,74 @@ export default function ChatThreadScreen() {
               </View>
             </View>
           ) : null}
+          {showAttachmentTray ? (
+            <View
+              style={[
+                styles.attachmentTray,
+                { borderColor: theme.border, backgroundColor: 'rgba(12,12,18,0.92)' },
+              ]}
+            >
+              <Pressable
+                onPress={() => openPhotoOptions()}
+                disabled={shellLoading || composerInputLocked}
+                style={({ pressed }) => [
+                  styles.attachmentAction,
+                  { backgroundColor: theme.muted, opacity: shellLoading || composerInputLocked ? 0.45 : pressed ? 0.88 : 1 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Photo"
+              >
+                {sendingPhoto ? (
+                  <ActivityIndicator size="small" color={theme.tint} />
+                ) : (
+                  <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
+                )}
+                <Text numberOfLines={1} style={[styles.attachmentActionLabel, { color: theme.text }]}>Photo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => openVideoMessageOptions()}
+                disabled={shellLoading || composerInputLocked}
+                style={({ pressed }) => [
+                  styles.attachmentAction,
+                  {
+                    backgroundColor: sendingVideo ? 'rgba(139,92,246,0.16)' : theme.muted,
+                    opacity: shellLoading || composerInputLocked ? 0.45 : pressed ? 0.88 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Vibe Clip - record or choose a clip"
+              >
+                {sendingVideo ? (
+                  <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
+                ) : (
+                  <Ionicons name="film-outline" size={20} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
+                )}
+                <Text numberOfLines={1} style={[styles.attachmentActionLabel, { color: theme.text }]}>Clip</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => openScheduleShare()}
+                disabled={shellLoading || !data?.matchId}
+                style={({ pressed }) => [
+                  styles.attachmentAction,
+                  { backgroundColor: theme.muted, opacity: shellLoading || !data?.matchId ? 0.45 : pressed ? 0.88 : 1 },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Share Vibely Schedule"
+              >
+                <Ionicons name="calendar-outline" size={20} color={theme.neonCyan} />
+                <Text numberOfLines={1} style={[styles.attachmentActionLabel, { color: theme.text }]}>Schedule</Text>
+              </Pressable>
+            </View>
+          ) : null}
           <View style={styles.composerDockRow}>
             <Pressable
               style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
-              onPress={() => openPhotoOptions()}
-              disabled={shellLoading || composerInputLocked}
-              accessibilityLabel="Photo"
+              onPress={() => setShowAttachmentTray((open) => !open)}
+              disabled={shellLoading || !data?.matchId}
+              accessibilityLabel={showAttachmentTray ? 'Close attachments' : 'Open attachments'}
+              accessibilityState={{ expanded: showAttachmentTray, disabled: shellLoading || !data?.matchId }}
             >
-              {sendingPhoto ? (
-                <ActivityIndicator size="small" color={theme.tint} />
-              ) : (
-                <Ionicons name="camera-outline" size={20} color={theme.textSecondary} />
-              )}
-            </Pressable>
-            <Pressable
-              style={[styles.composerIconBtn, { backgroundColor: sendingVideo ? 'rgba(139,92,246,0.12)' : theme.muted }]}
-              onPress={() => openVideoMessageOptions()}
-              disabled={shellLoading || composerInputLocked}
-              accessibilityLabel="Vibe Clip — record or choose a clip"
-            >
-              {sendingVideo ? (
-                <ActivityIndicator size="small" color="rgba(139,92,246,1)" />
-              ) : (
-                <Ionicons name="film-outline" size={20} color={sendingVideo ? 'rgba(139,92,246,1)' : theme.textSecondary} />
-              )}
+              <Ionicons name={showAttachmentTray ? 'close' : 'add'} size={24} color={theme.textSecondary} />
             </Pressable>
             <TextInput
               ref={inputRef}
@@ -2701,6 +2758,19 @@ export default function ChatThreadScreen() {
             setShowGamesPicker(false);
             void openGamesWebInBrowser();
           }}
+        />
+      ) : null}
+      {data?.matchId ? (
+        <ScheduleShareSheet
+          visible={showScheduleShare}
+          onClose={() => setShowScheduleShare(false)}
+          matchId={data.matchId}
+          partnerName={otherName}
+          onActiveSuggestionConflict={() => {
+            onDateSuggestionUpdated();
+            setShowActiveDateSuggestionWarning(true);
+          }}
+          onSent={() => onDateSuggestionUpdated()}
         />
       ) : null}
       {data?.matchId && user?.id && otherUserId ? (
@@ -3000,6 +3070,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  attachmentTray: {
+    flexDirection: 'row',
+    gap: COMPOSER_GAP,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 18,
+    padding: 6,
+    marginBottom: spacing.sm,
+  },
+  attachmentAction: {
+    flex: 1,
+    minWidth: 0,
+    height: 46,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: spacing.sm,
+  },
+  attachmentActionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    flexShrink: 1,
   },
   composerIconBtn: {
     width: COMPOSER_CONTROL_SIZE,

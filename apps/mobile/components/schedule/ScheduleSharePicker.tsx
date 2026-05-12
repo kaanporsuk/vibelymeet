@@ -6,7 +6,7 @@
  * blocks here also updates /schedule). Selection is local state — the caller
  * submits it through dateSuggestionApply.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '@/constants/Colors';
@@ -24,7 +24,7 @@ interface Props {
 
 export function ScheduleSharePicker({ initialSelection = [], onSelectionChange }: Props) {
   const theme = Colors[useColorScheme()];
-  const { days, isLoading, getSlotState, toggleSlot } = useSchedule();
+  const { days, schedule, isLoading, getSlotState, toggleSlot } = useSchedule();
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelection));
 
   const emit = useCallback(
@@ -45,12 +45,25 @@ export function ScheduleSharePicker({ initialSelection = [], onSelectionChange }
     return n;
   }, [days, getSlotState]);
 
+  useEffect(() => {
+    if (isLoading || selected.size === 0) return;
+    const next = new Set<string>();
+    selected.forEach((key) => {
+      if (schedule[key]?.status === 'open') next.add(key);
+    });
+    if (next.size === selected.size) return;
+    setSelected(next);
+    onSelectionChange?.(Array.from(next));
+  }, [isLoading, onSelectionChange, schedule, selected]);
+
   const handleCellTap = useCallback(
     async (isoDate: string, block: ScheduleTimeBucket) => {
       const key = formatSlotKey(isoDate, block);
       const state = getSlotState(isoDate, block);
+      const rawStatus = schedule[key]?.status ?? null;
 
       if (state === 'locked' || state === 'saving') return;
+      if (rawStatus === 'busy') return;
 
       if (state === 'open') {
         const next = new Set(selected);
@@ -60,7 +73,7 @@ export function ScheduleSharePicker({ initialSelection = [], onSelectionChange }
         return;
       }
 
-      // Busy or unset → mark open in user_schedules, auto-select after add
+      // Unset → mark open in user_schedules, auto-select after add
       try {
         await toggleSlot(isoDate, block);
         const next = new Set(selected);
@@ -70,7 +83,7 @@ export function ScheduleSharePicker({ initialSelection = [], onSelectionChange }
         /* useSchedule logs; UI already optimistically updated */
       }
     },
-    [emit, getSlotState, selected, toggleSlot],
+    [emit, getSlotState, schedule, selected, toggleSlot],
   );
 
   if (isLoading) {
@@ -126,11 +139,12 @@ export function ScheduleSharePicker({ initialSelection = [], onSelectionChange }
               {BLOCKS.map((block) => {
                 const key = formatSlotKey(day.isoDate, block);
                 const state = getSlotState(day.isoDate, block);
+                const rawStatus = schedule[key]?.status ?? null;
                 const isSelected = selected.has(key);
                 const isLocked = state === 'locked';
                 const isOpen = state === 'open';
                 const isPending = state === 'saving';
-                const isBusy = state === 'busy';
+                const isBusy = rawStatus === 'busy';
 
                 let cellStyle: ViewStyleLike = {
                   borderColor: theme.border,
@@ -149,11 +163,11 @@ export function ScheduleSharePicker({ initialSelection = [], onSelectionChange }
                   <Pressable
                     key={key}
                     onPress={() => void handleCellTap(day.isoDate, block)}
-                    disabled={isLocked || isPending}
+                    disabled={isLocked || isPending || isBusy}
                     style={({ pressed }) => [
                       styles.cell,
                       cellStyle,
-                      pressed && !isLocked && !isPending && { opacity: 0.85 },
+                      pressed && !isLocked && !isPending && !isBusy && { opacity: 0.85 },
                     ]}
                   >
                     {isPending ? (
