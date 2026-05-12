@@ -93,6 +93,11 @@ const ALLOWED_APEX_REFERENCES = [
     allow: [/Authenticated browser rendered `https:\/\/vibelymeet\.com\/invite\?ref=/],
   },
   {
+    path: "docs/branch-deltas/fix-resend-email-provider-operational-qa.md",
+    reason: "Historical Resend provider QA records apex redirect proof.",
+    allow: [/`curl -I -L https:\/\/vibelymeet\.com\/`: HTTP 307 to `https:\/\/www\.vibelymeet\.com\/`, then HTTP 200\./],
+  },
+  {
     path: "docs/rebuild-rehearsal-log.md",
     reason: "Historical rebuild proof log records earlier apex production checks.",
     allow: [/`https:\/\/vibelymeet\.com\/(OneSignalSDK\.sw\.js|invite\?ref=<smoke-profile-uuid>|schedule|vibe-studio)`/, /`https:\/\/vibelymeet\.com\/(OneSignalSDK\.sw\.js|invite\?ref=<uuid>|schedule|vibe-studio)`/],
