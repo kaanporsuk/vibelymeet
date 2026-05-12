@@ -60,7 +60,6 @@ import { useArchiveMatch } from '@/lib/useArchiveMatch';
 import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
-import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
 import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
 import { TypingIndicator } from '@/components/chat/TypingIndicator';
 import { MessageStatus } from '@/components/chat/MessageStatus';
@@ -671,7 +670,6 @@ export default function ChatThreadScreen() {
     suggestionId: string;
     previousRevision: DateSuggestionWithRelations['revisions'][0];
   } | null>(null);
-  const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [photoViewer, setPhotoViewer] = useState<{ initialId: string } | null>(null);
   const [videoViewer, setVideoViewer] = useState<{ uri: string; poster?: string | null } | null>(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -1702,6 +1700,13 @@ export default function ChatThreadScreen() {
     }
   }, [data?.messages]);
 
+  const openOtherProfile = useCallback(() => {
+    if (!otherUserId) return;
+    const matchId = data?.matchId ?? matchRowEarly?.matchId;
+    const query = matchId ? `?matchId=${encodeURIComponent(matchId)}` : '';
+    (router as { push: (p: string) => void }).push(`/user/${encodeURIComponent(otherUserId)}${query}`);
+  }, [data?.matchId, matchRowEarly?.matchId, otherUserId]);
+
   if (!otherUserId || !user?.id) {
     return (
       <>
@@ -2174,7 +2179,7 @@ export default function ChatThreadScreen() {
             <Ionicons name="chevron-back" size={22} color={theme.text} />
           </Pressable>
           <Pressable
-              onPress={() => setShowProfileSheet(true)}
+              onPress={openOtherProfile}
               style={({ pressed }) => [styles.headerCenter, pressed && { opacity: 0.92 }]}
               accessibilityRole="button"
               accessibilityLabel="View profile"
@@ -2268,21 +2273,6 @@ export default function ChatThreadScreen() {
           </View>
       </View>
 
-      <ProfileDetailSheet
-        visible={showProfileSheet}
-        onClose={() => setShowProfileSheet(false)}
-        match={
-          otherUserId && (otherUser || matches.find((m) => m.id === otherUserId))
-            ? {
-                id: otherUserId,
-                name: otherUser?.name ?? otherName,
-                age: otherUser?.age ?? matches.find((m) => m.id === otherUserId)?.age ?? 0,
-                image: otherAvatarUri ?? '',
-              }
-            : null
-        }
-      />
-
       {matchForActions && (
         <>
           <MatchActionsSheet
@@ -2291,7 +2281,7 @@ export default function ChatThreadScreen() {
             matchName={matchForActions.name}
             onViewProfile={() => {
               setShowActions(false);
-              setShowProfileSheet(true);
+              openOtherProfile();
             }}
             isArchived={!!matchForActions.archived_at}
             isMuted={isMatchMuted(matchForActions.matchId)}
@@ -2896,17 +2886,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     gap: 4,
   },
-  backBtn: { padding: spacing.xs },
+  backBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', padding: spacing.xs },
   headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   headerIconBtn: {
     padding: 8,
     borderRadius: 12,
-    minWidth: 34,
+    minWidth: 44,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
-  headerAvatar: { width: 40, height: 40, borderRadius: 20 },
+  headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0, minHeight: 44 },
+  headerAvatar: { width: 44, height: 44, borderRadius: 22 },
   headerAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
   headerAvatarLetter: { fontSize: 16, fontWeight: '600' },
   headerTextWrap: { flex: 1, minWidth: 0 },

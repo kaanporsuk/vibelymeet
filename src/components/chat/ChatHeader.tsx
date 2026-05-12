@@ -205,7 +205,6 @@ export const ChatHeader = ({
             }}
             showActions={false}
             mode="match"
-            presentation="chatProfile"
             open={showProfileDrawer}
             onOpenChange={setShowProfileDrawer}
             trigger={

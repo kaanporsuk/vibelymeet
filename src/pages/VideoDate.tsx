@@ -3812,6 +3812,7 @@ const VideoDate = () => {
         isOpen={showProfileSheet}
         onClose={() => setShowProfileSheet(false)}
         partner={partner}
+        partnerProfileId={partnerId}
       />
 
       {/* ─── Audio Output Picker ─── */}

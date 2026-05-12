@@ -23,21 +23,19 @@ import { spacing, radius, fonts, layout } from '@/constants/theme';
 import { useColorScheme } from '@/components/useColorScheme';
 import { Text } from '@/components/Themed';
 import type { UserProfileView } from '@/lib/fetchUserProfile';
-import { avatarUrl, deckCardUrl, getImageUrl } from '@/lib/imageUrl';
+import { getImageUrl } from '@/lib/imageUrl';
 import { formatBirthdayUsWithZodiac } from '@/lib/profileApi';
 import { resolveVibeVideoState } from '@/lib/vibeVideoState';
 import { PROMPT_EMOJIS } from '@/components/profile/PROMPT_CONSTANTS';
 import { getLookingForDisplay } from '@/components/profile/RelationshipIntentSelector';
-import { LifestyleDetailsSection } from '@/components/profile/LifestyleDetailsSection';
-import { getLifestyleDisplayChips } from '@/lib/lifestyleChips';
 import FullscreenVibeVideoModal from '@/components/video/FullscreenVibeVideoModal';
-
-const HERO_HEIGHT = 250;
-const AVATAR_SIZE = 160;
-const AVATAR_RADIUS = 20;
-
-/** Matches legacy client scoring threshold intent; stricter than Profile Preview’s “any trim”. */
-const ABOUT_ME_MIN_CHARS = 10;
+import {
+  calculateAgeFromBirthDate,
+  dedupeOtherUserPhotos,
+  getOtherUserLifestyleDetails,
+  getZodiacFromBirthDate,
+  normalizeOtherUserVibes,
+} from '@clientShared/profile/otherUserProfileViewModel';
 
 export type UserProfileFullViewProps = {
   profile: UserProfileView;
@@ -47,6 +45,59 @@ export type UserProfileFullViewProps = {
   onClose?: () => void;
   hideHero?: boolean;
 };
+
+function AdaptiveNativeProfileMedia({
+  uri,
+  height,
+  onPress,
+  accessibilityLabel,
+}: {
+  uri: string;
+  height: number;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const resolvedUri = getImageUrl(uri, { width: 1400, quality: 88 });
+
+  const content = failed ? (
+    <RNView style={[s.adaptiveFallback, { height }]}>
+      <Ionicons name="image-outline" size={36} color="rgba(255,255,255,0.72)" />
+      <Text style={s.adaptiveFallbackText}>Photo unavailable</Text>
+    </RNView>
+  ) : (
+    <>
+      <Image
+        source={{ uri: resolvedUri }}
+        style={s.adaptiveBackground}
+        resizeMode="cover"
+        blurRadius={22}
+        onError={() => setFailed(true)}
+      />
+      <RNView style={s.adaptiveDim} />
+      <Image
+        source={{ uri: resolvedUri }}
+        style={s.adaptiveForeground}
+        resizeMode="contain"
+        onError={() => setFailed(true)}
+      />
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        accessibilityLabel={accessibilityLabel ?? 'View profile photo'}
+        style={[s.adaptiveMedia, { height }]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <RNView style={[s.adaptiveMedia, { height }]}>{content}</RNView>;
+}
 
 export function UserProfileFullView({
   profile,
@@ -76,12 +127,20 @@ export function UserProfileFullView({
     [],
   );
 
-  const mainPhoto = profile.photos?.[0] ?? profile.avatar_url ?? null;
+  const photos = useMemo(
+    () => dedupeOtherUserPhotos(profile.photos, profile.avatar_url),
+    [profile.photos, profile.avatar_url],
+  );
+  const mainPhoto = photos[0] ?? profile.avatar_url ?? null;
   const nameTrim = profile.name?.trim() ?? '';
-  const age = profile.age;
+  const age = calculateAgeFromBirthDate(profile.birth_date) ?? profile.age;
   const tagline = profile.tagline?.trim();
   const location = profile.display_location?.trim() || profile.location?.trim();
   const distanceLabel = profile.distance_label?.trim();
+  const company = profile.company?.trim();
+  const job = profile.job?.trim();
+  const workLabel = job && company ? `${job} at ${company}` : job || company;
+  const zodiac = profile.zodiac?.trim() || getZodiacFromBirthDate(profile.birth_date);
   const vibeInfo = resolveVibeVideoState(profile);
   const hasPlayableVibeVideo = vibeInfo.state === 'ready' && vibeInfo.canPlay;
   const vibeReadyAwaitingPlayback = vibeInfo.state === 'ready' && !vibeInfo.canPlay;
@@ -92,7 +151,7 @@ export function UserProfileFullView({
   const caption = vibeInfo.caption ?? '';
 
   const aboutMeRaw = profile.about_me?.trim() ?? '';
-  const showAboutMe = aboutMeRaw.length > ABOUT_ME_MIN_CHARS;
+  const showAboutMe = aboutMeRaw.length > 0;
 
   const filledPrompts = useMemo(
     () => (profile.prompts ?? []).filter((p) => p.question?.trim() && p.answer?.trim()),
@@ -103,33 +162,34 @@ export function UserProfileFullView({
     setHideVibingOnLabelAfterComplete(false);
   }, [vibeInfo.playbackUrl, vibeInfo.uid, profile.id]);
 
-  const photos = useMemo(() => (profile.photos ?? []).filter(Boolean), [profile.photos]);
-  const vibes = profile.vibes ?? [];
+  const vibeItems = useMemo(() => {
+    const metadata = normalizeOtherUserVibes(profile.vibe_tags);
+    return metadata.length > 0 ? metadata : normalizeOtherUserVibes(profile.vibes);
+  }, [profile.vibe_tags, profile.vibes]);
   const lookingForId = profile.relationship_intent ?? profile.looking_for;
   const lookingForDisplay = getLookingForDisplay(lookingForId);
-  const lifestyle = profile.lifestyle ?? {};
-  const lifestyleChips = getLifestyleDisplayChips(lifestyle);
+  const lifestyleDetails = useMemo(
+    () => getOtherUserLifestyleDetails(profile.lifestyle ?? {}),
+    [profile.lifestyle],
+  );
 
   const ownTrustProfile = profile as UserProfileView & {
     email_verified?: boolean | null;
     phone_verified?: boolean | null;
   };
-  const emailVerified = isOwnProfile && ownTrustProfile.email_verified === true;
-  const phoneVerified = isOwnProfile && ownTrustProfile.phone_verified === true;
+  const emailVerified = ownTrustProfile.email_verified === true;
+  const phoneVerified = ownTrustProfile.phone_verified === true;
   const photoVerified = profile.photo_verified === true;
-  /** Public/member profile: photo verification only (no email/phone on others’ profiles). */
-  const showEmailTrustPill = isOwnProfile && emailVerified;
-  const showPhoneTrustPill = isOwnProfile && phoneVerified;
+  const showEmailTrustPill = emailVerified;
+  const showPhoneTrustPill = phoneVerified;
   const showPhotoTrustPill = photoVerified;
   const showAnyTrustPill = showEmailTrustPill || showPhoneTrustPill || showPhotoTrustPill;
 
   const hasLookingFor =
     typeof lookingForId === 'string' && lookingForId.trim().length > 0 && !!lookingForDisplay;
 
-  const photoGridGap = spacing.sm;
-  const gridPadding = layout.containerPadding * 2;
-  const gridWidth = winWidth - gridPadding;
-  const photoCellSize = Math.floor((gridWidth - photoGridGap * 2) / 3);
+  const heroHeight = Math.min(winHeight * 0.58, 620);
+  const galleryHeight = Math.min(winHeight * 0.48, 500);
 
   useEffect(() => {
     if (photoViewerIndex === null || photos.length === 0) return;
@@ -140,23 +200,30 @@ export function UserProfileFullView({
   }, [photoViewerIndex, photos.length, winWidth]);
 
   const basicsItems = useMemo(() => {
-    const rows = [
+    const rows: Array<{
+      icon: React.ComponentProps<typeof Ionicons>['name'];
+      label: string;
+      value?: string | null;
+    }> = [
+      isOwnProfile
+        ? { icon: 'calendar-outline', label: 'Birthday', value: formatBirthdayUsWithZodiac(profile.birth_date) }
+        : { icon: 'sparkles-outline', label: 'Zodiac', value: zodiac },
+      { icon: 'briefcase-outline', label: 'Work', value: workLabel },
       {
-        icon: 'calendar-outline' as const,
-        label: 'Birthday',
-        value: formatBirthdayUsWithZodiac(profile.birth_date),
-      },
-      { icon: 'briefcase-outline' as const, label: 'Work', value: profile.job?.trim() },
-      {
-        icon: 'resize-outline' as const,
+        icon: 'resize-outline',
         label: 'Height',
         value: profile.height_cm ? `${profile.height_cm} cm` : undefined,
       },
-      { icon: 'location-outline' as const, label: 'Location', value: location },
-      { icon: 'navigate-outline' as const, label: 'Distance', value: distanceLabel ? `${distanceLabel} away` : undefined },
-    ] as const;
+      { icon: 'location-outline', label: 'Location', value: location },
+      { icon: 'navigate-outline', label: 'Distance', value: distanceLabel ? `${distanceLabel} away` : undefined },
+      ...lifestyleDetails.map((detail) => ({
+        icon: 'checkmark-circle-outline' as React.ComponentProps<typeof Ionicons>['name'],
+        label: detail.label,
+        value: detail.value,
+      })),
+    ];
     return rows.filter((item) => item.value && item.value !== 'Not set');
-  }, [profile.birth_date, profile.job, profile.height_cm, location, distanceLabel]);
+  }, [isOwnProfile, profile.birth_date, zodiac, workLabel, profile.height_cm, location, distanceLabel, lifestyleDetails]);
 
   const nameAgeLine =
     nameTrim || age != null
@@ -174,12 +241,26 @@ export function UserProfileFullView({
       >
         {!hideHero ? (
           <>
-            <LinearGradient
-              colors={['#8B5CF6', '#E84393']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={s.hero}
-            />
+            <RNView style={[s.hero, { height: heroHeight, backgroundColor: theme.surfaceSubtle }]}>
+              {mainPhoto ? (
+                <AdaptiveNativeProfileMedia
+                  uri={mainPhoto}
+                  height={heroHeight}
+                  onPress={() => setPhotoViewerIndex(0)}
+                />
+              ) : (
+                <RNView style={[s.adaptiveFallback, { height: heroHeight }]}>
+                  <Ionicons name="person" size={64} color={theme.mutedForeground} />
+                  <Text style={{ color: theme.textSecondary, marginTop: 8 }}>No photo yet</Text>
+                </RNView>
+              )}
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(0,0,0,0.42)', 'transparent', 'rgba(0,0,0,0.58)']}
+                locations={[0, 0.45, 1]}
+                style={StyleSheet.absoluteFill}
+              />
+            </RNView>
 
             <RNView style={[s.headerBar, { paddingTop: insets.top + 8 }]}>
               {onClose ? (
@@ -196,16 +277,6 @@ export function UserProfileFullView({
                 </Pressable>
               ) : (
                 <RNView style={s.headerBtn} />
-              )}
-            </RNView>
-
-            <RNView style={s.avatarWrap}>
-              {mainPhoto ? (
-                <Image source={{ uri: avatarUrl(mainPhoto) }} style={s.avatar} resizeMode="cover" />
-              ) : (
-                <RNView style={[s.avatar, s.avatarPlaceholder, { backgroundColor: theme.surfaceSubtle }]}>
-                  <Ionicons name="person" size={64} color={theme.mutedForeground} />
-                </RNView>
               )}
             </RNView>
 
@@ -393,6 +464,16 @@ export function UserProfileFullView({
             </RNView>
           ) : null}
 
+          {hasLookingFor ? (
+            <RNView style={s.section}>
+              <Text style={[s.sectionTitle, { color: theme.text }]}>Looking For</Text>
+              <RNView style={[s.intentChip, { backgroundColor: theme.tintSoft, borderColor: theme.border }]}>
+                <Text style={{ fontSize: 18 }}>{lookingForDisplay?.emoji}</Text>
+                <Text style={[s.intentChipLabel, { color: theme.text }]}>{lookingForDisplay?.label}</Text>
+              </RNView>
+            </RNView>
+          ) : null}
+
           {filledPrompts.length > 0 ? (
             <RNView style={s.section}>
               <Text style={[s.sectionTitle, { color: theme.text }]}>Conversation Starters</Text>
@@ -434,12 +515,15 @@ export function UserProfileFullView({
             </RNView>
           ) : null}
 
-          {hasLookingFor ? (
+          {vibeItems.length > 0 ? (
             <RNView style={s.section}>
-              <Text style={[s.sectionTitle, { color: theme.text }]}>Looking For</Text>
-              <RNView style={[s.intentChip, { backgroundColor: theme.tintSoft, borderColor: theme.border }]}>
-                <Text style={{ fontSize: 18 }}>{lookingForDisplay?.emoji}</Text>
-                <Text style={[s.intentChipLabel, { color: theme.text }]}>{lookingForDisplay?.label}</Text>
+              <Text style={[s.sectionTitle, { color: theme.text }]}>My Vibes</Text>
+              <RNView style={s.vibesWrap}>
+                {vibeItems.map((v) => (
+                  <RNView key={v.id ?? v.label} style={s.vibeChip}>
+                    <Text style={s.vibeChipText}>{v.emoji ? `${v.emoji} ${v.label}` : v.label}</Text>
+                  </RNView>
+                ))}
               </RNView>
             </RNView>
           ) : null}
@@ -447,19 +531,15 @@ export function UserProfileFullView({
           {photos.length > 0 ? (
             <RNView style={s.section}>
               <Text style={[s.sectionTitle, { color: theme.text }]}>Photos</Text>
-              <RNView style={[s.photoGrid, { gap: photoGridGap }]}>
+              <RNView style={s.photoGalleryStack}>
                 {photos.map((url, i) => (
-                  <Pressable
+                  <AdaptiveNativeProfileMedia
                     key={`photo-${i}`}
+                    uri={url}
+                    height={galleryHeight}
                     onPress={() => setPhotoViewerIndex(i)}
                     accessibilityLabel={`View photo ${i + 1} of ${photos.length}`}
-                    style={[
-                      s.photoCell,
-                      { width: photoCellSize, height: photoCellSize, backgroundColor: theme.surfaceSubtle },
-                    ]}
-                  >
-                    <Image source={{ uri: deckCardUrl(url) }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                  </Pressable>
+                  />
                 ))}
               </RNView>
             </RNView>
@@ -467,7 +547,7 @@ export function UserProfileFullView({
 
           {basicsItems.length > 0 ? (
             <RNView style={s.section}>
-              <Text style={[s.sectionTitle, { color: theme.text }]}>The Basics</Text>
+              <Text style={[s.sectionTitle, { color: theme.text }]}>Details</Text>
               <RNView style={s.basicsGrid}>
                 {basicsItems.map((item) => (
                   <RNView
@@ -487,25 +567,32 @@ export function UserProfileFullView({
             </RNView>
           ) : null}
 
-          {vibes.length > 0 ? (
+          {showAnyTrustPill ? (
             <RNView style={s.section}>
-              <Text style={[s.sectionTitle, { color: theme.text }]}>My Vibes</Text>
-              <RNView style={s.vibesWrap}>
-                {vibes.map((v) => (
-                  <RNView key={v} style={s.vibeChip}>
-                    <Text style={s.vibeChipText}>{v}</Text>
+              <Text style={[s.sectionTitle, { color: theme.text }]}>Verification Status</Text>
+              <RNView style={[s.badgeRow, { marginTop: 0 }]}>
+                {showEmailTrustPill ? (
+                  <RNView style={s.verifiedPill}>
+                    <Ionicons name="mail" size={12} color="#0D9488" />
+                    <Text style={s.verifiedPillText}>Email verified</Text>
                   </RNView>
-                ))}
+                ) : null}
+                {showPhotoTrustPill ? (
+                  <RNView style={s.verifiedPill}>
+                    <Ionicons name="camera" size={12} color="#0D9488" />
+                    <Text style={s.verifiedPillText}>Photo verified</Text>
+                  </RNView>
+                ) : null}
+                {showPhoneTrustPill ? (
+                  <RNView style={s.verifiedPill}>
+                    <Ionicons name="call" size={12} color="#0D9488" />
+                    <Text style={s.verifiedPillText}>Phone verified</Text>
+                  </RNView>
+                ) : null}
               </RNView>
             </RNView>
           ) : null}
 
-          {lifestyleChips.length > 0 ? (
-            <RNView style={s.section}>
-              <Text style={[s.sectionTitle, { color: theme.text }]}>Lifestyle</Text>
-              <LifestyleDetailsSection values={lifestyle} editable={false} />
-            </RNView>
-          ) : null}
         </RNView>
       </ScrollView>
 
@@ -578,8 +665,42 @@ export function UserProfileFullView({
 
 const s = StyleSheet.create({
   hero: {
-    height: HERO_HEIGHT,
     width: '100%',
+    overflow: 'hidden',
+  },
+  adaptiveMedia: {
+    width: '100%',
+    overflow: 'hidden',
+    borderRadius: 18,
+    backgroundColor: '#111118',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  adaptiveBackground: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.42,
+    transform: [{ scale: 1.08 }],
+  },
+  adaptiveDim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.34)',
+  },
+  adaptiveForeground: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  adaptiveFallback: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#111118',
+  },
+  adaptiveFallbackText: {
+    marginTop: 8,
+    color: 'rgba(255,255,255,0.74)',
+    fontSize: 13,
+    fontFamily: fonts.bodyMedium,
   },
   headerBar: {
     position: 'absolute',
@@ -603,22 +724,6 @@ const s = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.bodySemiBold,
     color: '#fff',
-  },
-  avatarWrap: {
-    alignItems: 'center',
-    marginTop: -(AVATAR_SIZE / 2),
-    zIndex: 5,
-  },
-  avatar: {
-    width: AVATAR_SIZE,
-    height: AVATAR_SIZE,
-    borderRadius: AVATAR_RADIUS,
-    borderWidth: 4,
-    borderColor: '#0D0D12',
-  },
-  avatarPlaceholder: {
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   identitySection: {
     alignItems: 'center',
@@ -647,6 +752,7 @@ const s = StyleSheet.create({
   },
   badgeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
     marginTop: spacing.sm,
   },
@@ -822,6 +928,9 @@ const s = StyleSheet.create({
   photoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  photoGalleryStack: {
+    gap: spacing.md,
   },
   photoCell: {
     borderRadius: 12,

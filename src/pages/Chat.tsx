@@ -23,6 +23,7 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { DateSuggestionChip } from "@/components/chat/DateSuggestionChip";
 import { ChatHeader, type ChatHeaderActivityLine } from "@/components/chat/ChatHeader";
+import { ProfileDetailDrawer } from "@/components/ProfileDetailDrawer";
 import { ChatThreadSkeleton } from "@/components/chat/ChatThreadSkeleton";
 import { VoiceMessageBubble } from "@/components/chat/VoiceMessageBubble";
 import { VideoMessageBubble } from "@/components/chat/VideoMessageBubble";
@@ -2147,22 +2148,42 @@ const Chat = () => {
         </div>
 
         <aside className="hidden min-h-0 w-72 shrink-0 overflow-hidden border-l border-border/35 bg-[#09090d]/72 px-4 py-4 xl:flex xl:flex-col">
-          <div className="flex items-center gap-3">
-            <img
-              src={otherUser.avatar_url}
-              alt=""
-              className="h-14 w-14 rounded-full object-cover ring-2 ring-primary/25"
-              loading="eager"
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-foreground">
-                {otherUser.name}{otherUser.age ? `, ${otherUser.age}` : ""}
-              </p>
-              <p className={cn("text-xs", otherUser.isOnline ? "text-green-500" : "text-muted-foreground")}>
-                {otherUser.isOnline ? "Active now" : threadAnchorLabel ?? "Private chat"}
-              </p>
-            </div>
-          </div>
+          <ProfileDetailDrawer
+            match={{
+              id: otherUser.id,
+              name: otherUser.name,
+              age: otherUser.age,
+              image: otherUser.avatar_url,
+              vibes: otherUser.vibes,
+              photos: otherUser.photos,
+              photoVerified: otherUser.photoVerified,
+              bunnyVideoUid: otherUser.bunnyVideoUid,
+            }}
+            showActions={false}
+            mode="match"
+            trigger={
+              <button
+                type="button"
+                className="flex min-h-14 w-full items-center gap-3 rounded-2xl text-left transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+                aria-label={`Open ${otherUser.name}'s profile`}
+              >
+                <img
+                  src={otherUser.avatar_url}
+                  alt=""
+                  className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-primary/25"
+                  loading="eager"
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    {otherUser.name}{otherUser.age ? `, ${otherUser.age}` : ""}
+                  </p>
+                  <p className={cn("text-xs", otherUser.isOnline ? "text-green-500" : "text-muted-foreground")}>
+                    {otherUser.isOnline ? "Active now" : threadAnchorLabel ?? "Private chat"}
+                  </p>
+                </div>
+              </button>
+            }
+          />
 
           <div className="mt-6 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1 text-sm">
             <div className="border-t border-border/30 pt-4">

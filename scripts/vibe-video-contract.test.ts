@@ -764,6 +764,7 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
   const wizard = read("src/components/wizard/ProfileWizard.tsx");
   const userProfile = read("src/pages/UserProfile.tsx");
   const drawer = read("src/components/ProfileDetailDrawer.tsx");
+  const otherUserFullProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
 
   assert.match(drops, /resolveWebVibeVideoState/);
   assert.match(drops, /vibeVideoBadgeLabel/);
@@ -778,12 +779,12 @@ test("web Vibe Video surfaces use resolver-owned readiness and processing states
   assert.match(card, /Still processing your Vibe Video/);
   assert.doesNotMatch(card, /None \/ error/);
 
-  assert.match(userProfile, /Vibe Video processing/);
-  assert.match(userProfile, /Vibe Video still processing/);
-  assert.match(userProfile, /Vibe Video needs a fresh take/);
-  assert.match(drawer, /Vibe Video processing/);
-  assert.match(drawer, /Vibe Video still processing/);
-  assert.match(drawer, /Their clip is saved and getting ready for playback/);
+  assert.match(userProfile, /OtherUserFullProfileView/);
+  assert.match(drawer, /OtherUserFullProfileView/);
+  assert.match(otherUserFullProfile, /Vibe Video processing/);
+  assert.match(otherUserFullProfile, /Vibe Video still processing/);
+  assert.match(otherUserFullProfile, /Vibe Video needs a fresh take/);
+  assert.match(otherUserFullProfile, /Their clip is saved and getting ready for playback/);
 
   assert.match(fullscreen, /resolveWebVibeVideoState/);
   assert.doesNotMatch(fullscreen, /normalizeBunnyVideoStatus/);
