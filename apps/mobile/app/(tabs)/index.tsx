@@ -75,7 +75,6 @@ import { deriveEventPhase, getCountdownParts } from '@/lib/eventPhase';
 import { resolvePrimaryProfilePhotoPath } from '../../../../shared/profilePhoto/resolvePrimaryProfilePhotoPath';
 import {
   classifyEventTimingHeading,
-  getDashboardAmbientEventLine,
   getDashboardEventRailHeading,
 } from '@clientShared/eventTimingBuckets';
 import {
@@ -139,6 +138,11 @@ type HomeProfile = {
   vibeCount: number;
   phoneVerified: boolean | null;
   phoneNumber: string | null;
+};
+
+type HomeInfoBarUnread = {
+  messageCount: number;
+  matchCount: number;
 };
 
 export default function DashboardScreen() {
@@ -208,6 +212,51 @@ export default function DashboardScreen() {
     enabled: !!user?.id,
     refetchInterval: 30_000,
   });
+  const { data: homeInfoBarUnread = { messageCount: 0, matchCount: 0 }, refetch: refetchHomeInfoBarUnread } = useQuery<HomeInfoBarUnread>({
+    queryKey: ['unread-home-info-bar', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return { messageCount: 0, matchCount: 0 };
+      const { data: unreadRows, error } = await supabase
+        .from('messages')
+        .select('id, match_id')
+        .neq('sender_id', user.id)
+        .is('read_at', null);
+      if (error) {
+        if (__DEV__) console.warn('[home] unread info bar count error:', error.message);
+        throw error;
+      }
+
+      const unreadMatchIds = [
+        ...new Set(
+          (unreadRows ?? [])
+            .map((row) => row.match_id)
+            .filter((matchId): matchId is string => typeof matchId === 'string' && matchId.length > 0),
+        ),
+      ];
+      if (unreadMatchIds.length === 0) return { messageCount: 0, matchCount: 0 };
+
+      const { data: archivedRows, error: archivedError } = await supabase
+        .from('match_archives')
+        .select('match_id')
+        .eq('user_id', user.id)
+        .in('match_id', unreadMatchIds);
+      if (archivedError) {
+        if (__DEV__) console.warn('[home] unread conversations archive filter error:', archivedError.message);
+        throw archivedError;
+      }
+
+      const archivedMatchIds = new Set((archivedRows ?? []).map((row) => row.match_id));
+      const visibleMatchIds = new Set(unreadMatchIds.filter((matchId) => !archivedMatchIds.has(matchId)));
+      return {
+        messageCount: (unreadRows ?? []).filter((row) => visibleMatchIds.has(row.match_id)).length,
+        matchCount: visibleMatchIds.size,
+      };
+    },
+    enabled: !!user?.id,
+    refetchInterval: 30_000,
+  });
+  const infoBarUnreadMessageCount = homeInfoBarUnread.messageCount;
+  const unreadConversationCount = homeInfoBarUnread.matchCount;
 
   const { data: homeProfile, refetch: refetchHomeProfile } = useQuery({
     queryKey: ['home-dashboard-profile', user?.id],
@@ -334,11 +383,6 @@ export default function DashboardScreen() {
 
   const eventSectionTitle = useMemo(
     () => getDashboardEventRailHeading(homeRailEvents, new Date(liveClockMs)),
-    [homeRailEvents, liveClockMs],
-  );
-
-  const ambientEventLine = useMemo(
-    () => getDashboardAmbientEventLine(homeRailEvents, new Date(liveClockMs)),
     [homeRailEvents, liveClockMs],
   );
 
@@ -541,9 +585,10 @@ export default function DashboardScreen() {
       refetchActiveSession(),
       refetchHomeProfile(),
       refetchUnread(),
+      refetchHomeInfoBarUnread(),
     ]);
     setRefreshing(false);
-  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchActiveSession, refetchHomeProfile, refetchUnread]);
+  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchActiveSession, refetchHomeProfile, refetchUnread, refetchHomeInfoBarUnread]);
 
   const handleNotificationPress = useCallback(() => {
     trackEvent('notification_bell_clicked', {
@@ -942,13 +987,8 @@ export default function DashboardScreen() {
   }
 
   function AmbientPulse() {
-    const hasConversations = unreadMessageCount > 0;
-    const lines: string[] = [];
-    if (ambientEventLine) lines.push(ambientEventLine);
-    if (hasConversations)
-      lines.push(`${unreadMessageCount} conversation${unreadMessageCount > 1 ? 's' : ''} need your reply`);
-    if (newMatchCount > 0) lines.push(`${newMatchCount} new connection${newMatchCount > 1 ? 's' : ''} this week`);
-    if (lines.length === 0) return null;
+    if (infoBarUnreadMessageCount === 0) return null;
+    const lines = [`You have ${infoBarUnreadMessageCount} unread messages from ${unreadConversationCount} matches`];
     return (
       <View style={[styles.pulseStrip, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
         {lines.map((line, i) => (

@@ -43,7 +43,6 @@ import { preloadRoute } from "@/lib/routePreload";
 import { differenceInSeconds, differenceInMinutes, format } from "date-fns";
 import { isWithinDiscoverHomeGraceWindow } from "@clientShared/discoverEventVisibility";
 import {
-  getDashboardAmbientEventLine,
   getDashboardEventRailHeading,
 } from "@clientShared/eventTimingBuckets";
 import {
@@ -109,6 +108,11 @@ type HomeProfile = {
   avatar_url: string | null;
   vibeCount: number;
   phoneVerified: boolean | null;
+};
+
+type HomeInfoBarUnread = {
+  messageCount: number;
+  matchCount: number;
 };
 
 const Dashboard = () => {
@@ -290,6 +294,51 @@ const Dashboard = () => {
     enabled: !!user?.id,
     refetchInterval: 30_000,
   });
+  const { data: homeInfoBarUnread = { messageCount: 0, matchCount: 0 }, refetch: refetchHomeInfoBarUnread } = useQuery<HomeInfoBarUnread>({
+    queryKey: ["unread-home-info-bar", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return { messageCount: 0, matchCount: 0 };
+      const { data: unreadRows, error } = await supabase
+        .from("messages")
+        .select("id, match_id")
+        .neq("sender_id", user.id)
+        .is("read_at", null);
+      if (error) {
+        if (import.meta.env.DEV) console.warn("[home] unread info bar count error:", error.message);
+        throw error;
+      }
+
+      const unreadMatchIds = [
+        ...new Set(
+          (unreadRows ?? [])
+            .map((row) => row.match_id)
+            .filter((matchId): matchId is string => typeof matchId === "string" && matchId.length > 0),
+        ),
+      ];
+      if (unreadMatchIds.length === 0) return { messageCount: 0, matchCount: 0 };
+
+      const { data: archivedRows, error: archivedError } = await supabase
+        .from("match_archives")
+        .select("match_id")
+        .eq("user_id", user.id)
+        .in("match_id", unreadMatchIds);
+      if (archivedError) {
+        if (import.meta.env.DEV) console.warn("[home] unread conversations archive filter error:", archivedError.message);
+        throw archivedError;
+      }
+
+      const archivedMatchIds = new Set((archivedRows ?? []).map((row) => row.match_id));
+      const visibleMatchIds = new Set(unreadMatchIds.filter((matchId) => !archivedMatchIds.has(matchId)));
+      return {
+        messageCount: (unreadRows ?? []).filter((row) => visibleMatchIds.has(row.match_id)).length,
+        matchCount: visibleMatchIds.size,
+      };
+    },
+    enabled: !!user?.id,
+    refetchInterval: 30_000,
+  });
+  const infoBarUnreadMessageCount = homeInfoBarUnread.messageCount;
+  const unreadConversationCount = homeInfoBarUnread.matchCount;
 
   const { data: homeProfile, isLoading: homeProfileLoading, refetch: refetchHomeProfile } = useQuery({
     queryKey: ["home-dashboard-profile", user?.id],
@@ -427,20 +476,16 @@ const Dashboard = () => {
     [homeRailEvents, nowMs],
   );
 
-  const ambientEventLine = useMemo(
-    () => getDashboardAmbientEventLine(homeRailEvents, new Date(nowMs)),
-    [homeRailEvents, nowMs],
-  );
-
   const handleRefresh = useCallback(async () => {
     await Promise.all([
       refetchNextEvent(),
       refetchEvents(),
       refetchMatches(),
       refetchUnread(),
+      refetchHomeInfoBarUnread(),
       refetchHomeProfile(),
     ]);
-  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchUnread, refetchHomeProfile]);
+  }, [refetchNextEvent, refetchEvents, refetchMatches, refetchUnread, refetchHomeInfoBarUnread, refetchHomeProfile]);
 
   const handleNotificationClick = () => {
     recordUserAction("dashboard_notification_button_clicked", {
@@ -605,16 +650,8 @@ const Dashboard = () => {
   }
 
   function AmbientPulse() {
-    const lines: string[] = [];
-    if (ambientEventLine) lines.push(ambientEventLine);
-    if (unreadMessageCount > 0)
-      lines.push(
-        `${unreadMessageCount} conversation${unreadMessageCount > 1 ? "s" : ""} need your reply`,
-      );
-    if (newMatchCount > 0)
-      lines.push(`${newMatchCount} new connection${newMatchCount > 1 ? "s" : ""} this week`);
-
-    if (lines.length === 0) return null;
+    if (infoBarUnreadMessageCount === 0) return null;
+    const lines = [`You have ${infoBarUnreadMessageCount} unread messages from ${unreadConversationCount} matches`];
 
     return (
       <div className="glass-card p-4 space-y-2 border border-white/10">

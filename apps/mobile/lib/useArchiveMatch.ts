@@ -32,6 +32,8 @@ export function useArchiveMatch(userId: string | null | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
     },
   });
 
@@ -47,6 +49,8 @@ export function useArchiveMatch(userId: string | null | undefined) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['matches'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home'] });
+      queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
     },
   });
 

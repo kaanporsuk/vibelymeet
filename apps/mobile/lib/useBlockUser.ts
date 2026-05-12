@@ -28,6 +28,8 @@ export function useBlockUser(userId: string | null | undefined) {
     queryClient.invalidateQueries({ queryKey: ['blocked-users'] });
     queryClient.invalidateQueries({ queryKey: ['matches'] });
     queryClient.invalidateQueries({ queryKey: ['messages'] });
+    queryClient.invalidateQueries({ queryKey: ['unread-home'] });
+    queryClient.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
     queryClient.invalidateQueries({ queryKey: ['match-mutes'] });
     queryClient.invalidateQueries({ queryKey: ['daily-drop'] });
     queryClient.invalidateQueries({ queryKey: ['daily-drops'] });

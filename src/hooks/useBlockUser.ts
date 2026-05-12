@@ -48,6 +48,8 @@ export const useBlockUser = () => {
     queryClient.invalidateQueries({ queryKey: ["matches"] });
     queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
     queryClient.invalidateQueries({ queryKey: ["messages"] });
+    queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+    queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
     queryClient.invalidateQueries({ queryKey: ["match-mutes"] });
     queryClient.invalidateQueries({ queryKey: ["daily-drop"] });
     queryClient.invalidateQueries({ queryKey: ["daily-drops"] });

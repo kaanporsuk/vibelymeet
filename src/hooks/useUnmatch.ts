@@ -41,6 +41,8 @@ export const useUnmatch = () => {
       // Invalidate matches queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
     },
     onError: (error) => {
       console.error("Unmatch error:", error);
@@ -83,6 +85,8 @@ export const useUndoableUnmatch = (options?: UndoableUnmatchOptions) => {
 
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
 
       if (mountedRef.current) {
         optionsRef.current?.onUnmatchComplete?.(matchId);

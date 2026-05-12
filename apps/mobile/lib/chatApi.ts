@@ -624,6 +624,8 @@ export function useGlobalMessagesInboxInvalidation(userId: string | null | undef
     const invalidateInbox = () => {
       qc.invalidateQueries({ queryKey: ['unread-message-count'] });
       qc.invalidateQueries({ queryKey: ['badge-count'] });
+      qc.invalidateQueries({ queryKey: ['unread-home'] });
+      qc.invalidateQueries({ queryKey: ['unread-home-info-bar'] });
     };
     const channel = supabase
       .channel('global-messages-inbox')
@@ -635,6 +637,11 @@ export function useGlobalMessagesInboxInvalidation(userId: string | null | undef
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
+        invalidateInbox
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'match_archives', filter: `user_id=eq.${userId}` },
         invalidateInbox
       )
       .subscribe();

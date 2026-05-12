@@ -35,6 +35,8 @@ export const useArchiveMatch = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["archived-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
     },
   });
 
@@ -52,6 +54,8 @@ export const useArchiveMatch = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["matches"] });
       queryClient.invalidateQueries({ queryKey: ["archived-matches"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-home-info-bar"] });
     },
   });
 
