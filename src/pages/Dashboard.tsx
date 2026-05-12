@@ -651,7 +651,7 @@ const Dashboard = () => {
 
   function AmbientPulse() {
     if (infoBarUnreadMessageCount === 0) return null;
-    const lines = [`You have ${infoBarUnreadMessageCount} unread messages from ${unreadConversationCount} matches`];
+    const lines = [`You have ${infoBarUnreadMessageCount} unread message${infoBarUnreadMessageCount === 1 ? '' : 's'} from ${unreadConversationCount} match${unreadConversationCount === 1 ? '' : 'es'}`];
 
     return (
       <div className="glass-card p-4 space-y-2 border border-white/10">

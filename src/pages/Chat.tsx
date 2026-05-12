@@ -93,6 +93,7 @@ const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
 const VibeClipSendOptionsSheet = lazy(() => import("@/components/chat/VibeClipSendOptionsSheet"));
 const PhotoSendOptionsDialog = lazy(() => import("@/components/chat/PhotoSendOptionsDialog"));
+const PhotoCameraCaptureDialog = lazy(() => import("@/components/chat/PhotoCameraCaptureDialog"));
 const ChatPhotoLightbox = lazy(() =>
   import("@/components/chat/ChatPhotoLightbox").then((mod) => ({ default: mod.ChatPhotoLightbox })),
 );
@@ -290,6 +291,7 @@ const Chat = () => {
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showPhotoCamera, setShowPhotoCamera] = useState(false);
   const [showVibeClipOptions, setShowVibeClipOptions] = useState(false);
   const [showScheduleShare, setShowScheduleShare] = useState(false);
   const [editScheduleShareSuggestionId, setEditScheduleShareSuggestionId] =
@@ -325,7 +327,6 @@ const Chat = () => {
   const [newBelowCue, setNewBelowCue] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const photoCameraInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1114,22 +1115,19 @@ const Chat = () => {
     [chatData?.matchId, currentUserId, id, newMessage, threadInvalidateScope, webOutbox],
   );
 
-  const handlePhotoFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (!file) return;
+  const queuePhotoFile = useCallback(
+    async (file: File): Promise<boolean> => {
       if (!file.type.startsWith("image/")) {
         toast.error("Please choose an image file");
-        return;
+        return false;
       }
       if (!chatData?.matchId || !user?.id || !id) {
         toast.error("Cannot send photo right now");
-        return;
+        return false;
       }
       if (!threadInvalidateScope) {
         toast.error("Cannot send photo right now");
-        return;
+        return false;
       }
       setSendingPhoto(true);
       try {
@@ -1145,14 +1143,26 @@ const Chat = () => {
         if (typeof navigator !== "undefined" && navigator.vibrate) {
           navigator.vibrate(8);
         }
+        return true;
       } catch (err) {
         console.error("Photo queue error:", err);
         toast.error(err instanceof Error ? err.message : "Couldn't add photo to send queue");
+        return false;
       } finally {
         setSendingPhoto(false);
       }
     },
     [chatData?.matchId, currentUserId, id, threadInvalidateScope, user?.id, webOutbox],
+  );
+
+  const handlePhotoFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      await queuePhotoFile(file);
+    },
+    [queuePhotoFile],
   );
 
   const handleSend = () => {
@@ -1476,9 +1486,16 @@ const Chat = () => {
     photoInputRef.current?.click();
   }, []);
 
-  const triggerPhotoCameraPicker = useCallback(() => {
-    photoCameraInputRef.current?.click();
-  }, []);
+  const openPhotoCamera = useCallback(() => {
+    if (composerMediaLocked) return;
+    if (!guardActiveConversation("Cannot send photo right now")) return;
+    if (!navigator.onLine) {
+      toast.error("You're offline — try again when connected");
+      return;
+    }
+    setShowAttachmentTray(false);
+    setShowPhotoCamera(true);
+  }, [composerMediaLocked, guardActiveConversation]);
 
   const openPhotoPicker = useCallback(() => {
     if (composerMediaLocked) return;
@@ -2061,16 +2078,6 @@ const Chat = () => {
             tabIndex={-1}
             onChange={handlePhotoFileChange}
           />
-          <input
-            ref={photoCameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="sr-only"
-            aria-hidden
-            tabIndex={-1}
-            onChange={handlePhotoFileChange}
-          />
           <div className="flex items-end gap-1 max-w-2xl mx-auto">
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
@@ -2337,9 +2344,16 @@ const Chat = () => {
         <PhotoSendOptionsDialog
           open={showPhotoOptions}
           onOpenChange={setShowPhotoOptions}
-          onTakePhoto={triggerPhotoCameraPicker}
+          onTakePhoto={openPhotoCamera}
           onChooseLibrary={triggerPhotoFilePicker}
           disabled={composerMediaLocked || !hasActiveConversation || sendingPhoto}
+        />
+
+        <PhotoCameraCaptureDialog
+          open={showPhotoCamera}
+          onOpenChange={setShowPhotoCamera}
+          onCapturePhoto={queuePhotoFile}
+          disabled={sendingPhoto}
         />
 
         <VibeClipSendOptionsSheet
