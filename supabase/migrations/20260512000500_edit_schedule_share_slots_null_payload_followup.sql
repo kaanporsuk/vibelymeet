@@ -309,9 +309,9 @@ BEGIN
     --
     -- ends_at is intentionally ignored here. date_plans.ends_at is nullable
     -- in the schema (supabase/migrations/20260326120000_date_suggestion_foundation.sql),
-    -- so for the schedule-share accept path we persist NULL. Legacy accept
-    -- paths (no chosen_slot_key) continue to use the revision's ends_at to
-    -- preserve all existing accept call sites.
+    -- so for the schedule-share accept path we persist NULL. Legacy
+    -- NON-schedule-share accept paths (no chosen_slot_key) continue to use
+    -- the revision's ends_at to preserve existing non-share accept call sites.
     IF v_suggestion_id IS NULL THEN
       RETURN jsonb_build_object('ok', false, 'error', 'suggestion_id_required');
     END IF;
@@ -418,6 +418,20 @@ BEGIN
       RETURN jsonb_build_object('ok', false, 'error', 'invalid_status');
     END IF;
 
+    -- Definitive server-side invariant: only schedule-share proposals may
+    -- carry chosen_slot_key, and schedule-share proposals cannot fall through
+    -- the legacy accept path. Older clients or secondary UI surfaces must
+    -- still choose one shared block and pin an exact start time.
+    IF a_chosen_slot_key IS NOT NULL
+       AND NOT (v_rev.time_choice_key = 'share_schedule' OR v_rev.schedule_share_enabled IS TRUE) THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'not_a_schedule_share_revision');
+    END IF;
+
+    IF (v_rev.time_choice_key = 'share_schedule' OR v_rev.schedule_share_enabled IS TRUE)
+       AND a_chosen_slot_key IS NULL THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'exact_time_required');
+    END IF;
+
     IF a_chosen_slot_key IS NOT NULL THEN
       IF NOT EXISTS (
         SELECT 1
@@ -430,6 +444,7 @@ BEGIN
         WHERE g.match_id = v_suggestion.match_id
           AND g.viewer_user_id = v_uid
           AND g.subject_user_id = v_rev.proposed_by
+          AND g.source_date_suggestion_id = v_suggestion_id
           AND g.expires_at > now()
           AND s.slot_date = a_slot_date
           AND s.time_block = a_time_block
@@ -447,8 +462,9 @@ BEGIN
       v_suggestion.match_id,
       COALESCE(a_starts_ts, v_rev.starts_at),
       -- Schedule-share accept (chosen_slot_key present): ends_at is NULL
-      -- because date duration is not part of the commitment. Legacy accept
-      -- paths (no chosen_slot_key) keep the revision's ends_at.
+      -- because date duration is not part of the commitment. Legacy
+      -- non-schedule-share accept paths (no chosen_slot_key) keep the
+      -- revision's ends_at.
       CASE WHEN a_chosen_slot_key IS NOT NULL THEN NULL ELSE v_rev.ends_at END,
       CASE
         WHEN v_rev.place_mode_key IN ('custom_venue', 'custom') THEN v_rev.venue_text

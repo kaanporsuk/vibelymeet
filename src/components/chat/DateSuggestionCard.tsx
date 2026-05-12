@@ -137,6 +137,7 @@ export function DateSuggestionCard({
   const cancelInFlightRef = useRef(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<"accept" | "decline" | "not_now" | "complete" | "cancel_plan" | null>(null);
+  const acceptInFlightRef = useRef(false);
   const [pendingChosenSlotKey, setPendingChosenSlotKey] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
@@ -275,7 +276,7 @@ export function DateSuggestionCard({
   }, [accepterOffer.data]);
 
   const handleAccept = async () => {
-    if (actionBusy) return;
+    if (actionBusy || acceptInFlightRef.current) return;
     // Schedule-share Accept always follows: Accept → choose block → pin exact
     // time → confirm. Even with a single offered block we still surface the
     // choose-block step so the user explicitly confirms the block.
@@ -283,6 +284,7 @@ export function DateSuggestionCard({
       setChooserOpen(true);
       return;
     }
+    acceptInFlightRef.current = true;
     setBusyAction("accept");
     try {
       await dateSuggestionApply("accept", { suggestion_id: suggestion.id });
@@ -291,6 +293,7 @@ export function DateSuggestionCard({
     } catch {
       toast.error("Could not accept");
     } finally {
+      acceptInFlightRef.current = false;
       setBusyAction(null);
     }
   };
@@ -305,7 +308,8 @@ export function DateSuggestionCard({
     startsAtIso: string,
     localStartHour: number,
   ) => {
-    if (actionBusy) return;
+    if (actionBusy || acceptInFlightRef.current) return;
+    acceptInFlightRef.current = true;
     setBusyAction("accept");
     try {
       // Start-time-only accept payload. ends_at is deliberately omitted:
@@ -362,6 +366,7 @@ export function DateSuggestionCard({
         toast.error("Could not accept");
       }
     } finally {
+      acceptInFlightRef.current = false;
       setBusyAction(null);
     }
   };

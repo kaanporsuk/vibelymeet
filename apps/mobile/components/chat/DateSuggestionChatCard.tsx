@@ -195,6 +195,7 @@ export function DateSuggestionChatCard({
   const [pendingSlotKey, setPendingSlotKey] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [acceptBusy, setAcceptBusy] = useState(false);
+  const acceptInFlightRef = useRef(false);
   const [cancelPlanBusy, setCancelPlanBusy] = useState(false);
   const [markCompleteBusy, setMarkCompleteBusy] = useState(false);
   const accepterOffer = useSharedPartnerSchedule(
@@ -219,11 +220,12 @@ export function DateSuggestionChatCard({
   }, [accepterOffer.data]);
 
   const handleAccept = async () => {
-    if (acceptBusy) return;
+    if (acceptBusy || acceptInFlightRef.current) return;
     if (isScheduleShare) {
       setChooserOpen(true);
       return;
     }
+    acceptInFlightRef.current = true;
     setAcceptBusy(true);
     try {
       await dateSuggestionApply('accept', { suggestion_id: suggestion.id });
@@ -242,6 +244,7 @@ export function DateSuggestionChatCard({
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     } finally {
+      acceptInFlightRef.current = false;
       setAcceptBusy(false);
     }
   };
@@ -256,6 +259,8 @@ export function DateSuggestionChatCard({
     startsAtIso: string,
     localStartHour: number,
   ) => {
+    if (acceptBusy || acceptInFlightRef.current) return;
+    acceptInFlightRef.current = true;
     const localTimezone = (() => {
       try {
         return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -270,6 +275,7 @@ export function DateSuggestionChatCard({
         variant: 'warning',
         primaryAction: { label: 'OK', onPress: () => {} },
       });
+      acceptInFlightRef.current = false;
       return;
     }
     setAcceptBusy(true);
@@ -297,7 +303,14 @@ export function DateSuggestionChatCard({
         else if (e.code === 'slot_user_busy') msg = 'One of you marked that block busy. Pick another.';
         else if (e.code === 'exact_time_outside_block') msg = 'Pick a time inside the chosen block.';
         else if (e.code === 'slot_not_in_share_grant') msg = 'That time is no longer available. Pick another.';
-        else if (e.code === 'local_timezone_required' || e.code === 'invalid_local_timezone') {
+        else if (
+          e.code === 'exact_time_required' ||
+          e.code === 'invalid_slot_key' ||
+          e.code === 'local_date_mismatch' ||
+          e.code === 'local_start_hour_mismatch'
+        ) {
+          msg = 'Pick a time inside the chosen block.';
+        } else if (e.code === 'local_timezone_required' || e.code === 'invalid_local_timezone') {
           msg = 'Could not verify your timezone. Check device settings and try again.';
         }
       }
@@ -308,6 +321,7 @@ export function DateSuggestionChatCard({
         primaryAction: { label: 'OK', onPress: () => {} },
       });
     } finally {
+      acceptInFlightRef.current = false;
       setAcceptBusy(false);
     }
   };

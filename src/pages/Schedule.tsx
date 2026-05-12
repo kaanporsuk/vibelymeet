@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Calendar } from "lucide-react";
@@ -6,12 +6,15 @@ import { Button } from "@/components/ui/button";
 import { VibeSchedule } from "@/components/schedule/VibeSchedule";
 import { MyDatesSection } from "@/components/schedule/MyDatesSection";
 import { DateReminderCard } from "@/components/schedule/DateReminderCard";
+import { ChooseSharedBlockSheet, type OfferedBlock } from "@/components/chat/ChooseSharedBlockSheet";
+import { ExactTimePinSheet } from "@/components/chat/ExactTimePinSheet";
 import { PushSetupButton, PushSetupFlow } from "@/components/notifications/PushSetupFlow";
 import { BottomNav } from "@/components/BottomNav";
 import { useSchedule } from "@/hooks/useSchedule";
 import { useDateReminders } from "@/hooks/useDateReminders";
 import { useScheduleHub } from "@/hooks/useScheduleHub";
-import { dateSuggestionApply } from "@/hooks/useDateSuggestionActions";
+import { useSharedPartnerSchedule } from "@/hooks/useSharedPartnerSchedule";
+import { DateSuggestionDomainError, dateSuggestionApply } from "@/hooks/useDateSuggestionActions";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { usePushDeliveryHealth } from "@/hooks/usePushDeliveryHealth";
 import { toast } from "sonner";
@@ -20,10 +23,42 @@ import { requestWebPushPermissionAndSync } from "@/lib/requestWebPushPermission"
 import { supabase } from "@/integrations/supabase/client";
 import type { ScheduleHubItem } from "../../shared/schedule/planningHub";
 
+function isScheduleShareHubItem(item: ScheduleHubItem): boolean {
+  return item.timeChoiceKey === "share_schedule" || item.scheduleShareEnabled;
+}
+
+function scheduleShareAcceptErrorMessage(error: unknown): string {
+  if (error instanceof DateSuggestionDomainError) {
+    if (error.code === "slot_already_locked") {
+      return "That time was just taken by another date.";
+    }
+    if (error.code === "slot_user_busy") {
+      return "One of you marked that block busy. Pick another.";
+    }
+    if (error.code === "slot_not_in_share_grant") {
+      return "That time is no longer available. Pick another.";
+    }
+    if (
+      error.code === "exact_time_outside_block" ||
+      error.code === "exact_time_required" ||
+      error.code === "invalid_slot_key" ||
+      error.code === "local_date_mismatch" ||
+      error.code === "local_start_hour_mismatch"
+    ) {
+      return "Pick a time inside the chosen block.";
+    }
+    if (error.code === "local_timezone_required" || error.code === "invalid_local_timezone") {
+      return "Could not verify your timezone. Check browser settings and try again.";
+    }
+    return error.message || "Could not accept this plan.";
+  }
+  return "Could not accept this plan.";
+}
+
 const SchedulePage = () => {
   const navigate = useNavigate();
   const { user } = useUserProfile();
-  const { mySchedule } = useSchedule();
+  const { mySchedule, refetch: refetchUserSchedule } = useSchedule();
   const {
     pendingItems,
     upcomingItems,
@@ -37,6 +72,24 @@ const SchedulePage = () => {
   const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth();
   const [showNotificationFlow, setShowNotificationFlow] = useState(false);
   const [activeDateSessionId, setActiveDateSessionId] = useState<string | null>(null);
+  const [scheduleShareChooserItem, setScheduleShareChooserItem] = useState<ScheduleHubItem | null>(null);
+  const [scheduleSharePinItem, setScheduleSharePinItem] = useState<ScheduleHubItem | null>(null);
+  const [pendingScheduleShareSlotKey, setPendingScheduleShareSlotKey] = useState<string | null>(null);
+  const [scheduleShareAcceptBusy, setScheduleShareAcceptBusy] = useState(false);
+  const scheduleShareAcceptInFlightRef = useRef(false);
+  const scheduleShareOffer = useSharedPartnerSchedule(
+    scheduleShareChooserItem?.matchId,
+    scheduleShareChooserItem?.partnerUserId,
+    Boolean(scheduleShareChooserItem),
+  );
+  const scheduleShareOfferedBlocks: OfferedBlock[] = useMemo(() => {
+    const slots = scheduleShareOffer.data ?? [];
+    return slots.map((slot) => ({
+      slot_key: slot.slot_key,
+      slot_date: slot.slot_date,
+      time_block: slot.time_block,
+    }));
+  }, [scheduleShareOffer.data]);
 
   useEffect(() => {
     const checkActiveDateSession = async () => {
@@ -83,6 +136,12 @@ const SchedulePage = () => {
   }, [user?.id, refreshPushDeliveryHealth, refreshSubscriptionState]);
 
   const handleAcceptProposal = useCallback(async (item: ScheduleHubItem) => {
+    if (isScheduleShareHubItem(item)) {
+      setScheduleShareChooserItem(item);
+      setScheduleSharePinItem(null);
+      setPendingScheduleShareSlotKey(null);
+      return;
+    }
     try {
       await dateSuggestionApply("accept", { suggestion_id: item.suggestionId });
       toast.success("Plan confirmed.");
@@ -91,6 +150,75 @@ const SchedulePage = () => {
       toast.error("Could not accept this plan.");
     }
   }, [refetchScheduleHub]);
+
+  const handleScheduleShareChooserClose = useCallback(() => {
+    setScheduleShareChooserItem(null);
+    setPendingScheduleShareSlotKey(null);
+  }, []);
+
+  const handleScheduleShareChooserContinue = useCallback((slotKey: string) => {
+    setPendingScheduleShareSlotKey(slotKey);
+    setScheduleSharePinItem(scheduleShareChooserItem);
+    setScheduleShareChooserItem(null);
+  }, [scheduleShareChooserItem]);
+
+  const handleScheduleSharePinClose = useCallback(() => {
+    if (scheduleShareAcceptInFlightRef.current) return;
+    setScheduleSharePinItem(null);
+    setPendingScheduleShareSlotKey(null);
+  }, []);
+
+  const handleScheduleShareExactTimeConfirm = useCallback(async (
+    startsAtIso: string,
+    localStartHour: number,
+  ) => {
+    if (
+      scheduleShareAcceptBusy ||
+      scheduleShareAcceptInFlightRef.current ||
+      !scheduleSharePinItem ||
+      !pendingScheduleShareSlotKey
+    ) {
+      return;
+    }
+    scheduleShareAcceptInFlightRef.current = true;
+    const localTimezone = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (!localTimezone) {
+      toast.error("Could not read your timezone. Check browser settings and try again.");
+      scheduleShareAcceptInFlightRef.current = false;
+      return;
+    }
+    setScheduleShareAcceptBusy(true);
+    try {
+      await dateSuggestionApply("accept", {
+        suggestion_id: scheduleSharePinItem.suggestionId,
+        chosen_slot_key: pendingScheduleShareSlotKey,
+        starts_at: startsAtIso,
+        local_timezone: localTimezone,
+        local_start_hour: localStartHour,
+      });
+      toast.success("Plan confirmed.");
+      setScheduleSharePinItem(null);
+      setPendingScheduleShareSlotKey(null);
+      await Promise.all([refetchScheduleHub(), refetchUserSchedule()]);
+    } catch (error) {
+      toast.error(scheduleShareAcceptErrorMessage(error));
+    } finally {
+      scheduleShareAcceptInFlightRef.current = false;
+      setScheduleShareAcceptBusy(false);
+    }
+  }, [
+    pendingScheduleShareSlotKey,
+    refetchScheduleHub,
+    refetchUserSchedule,
+    scheduleShareAcceptBusy,
+    scheduleSharePinItem,
+  ]);
 
   const handleDeclineProposal = useCallback(async (item: ScheduleHubItem) => {
     try {
@@ -221,6 +349,22 @@ const SchedulePage = () => {
         </div>
       </motion.main>
 
+      <ChooseSharedBlockSheet
+        isOpen={Boolean(scheduleShareChooserItem)}
+        onClose={handleScheduleShareChooserClose}
+        offeredBlocks={scheduleShareOfferedBlocks}
+        isLoading={scheduleShareOffer.isLoading}
+        isError={scheduleShareOffer.isError}
+        partnerName={scheduleShareChooserItem?.partnerName ?? "your match"}
+        onContinue={handleScheduleShareChooserContinue}
+      />
+      <ExactTimePinSheet
+        isOpen={Boolean(scheduleSharePinItem && pendingScheduleShareSlotKey)}
+        onClose={handleScheduleSharePinClose}
+        chosenSlotKey={pendingScheduleShareSlotKey ?? ""}
+        isSubmitting={scheduleShareAcceptBusy}
+        onConfirm={handleScheduleShareExactTimeConfirm}
+      />
       <BottomNav />
     </div>
   );

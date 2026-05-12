@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Clock, Loader2 } from "lucide-react";
 import { format } from "date-fns";
@@ -93,6 +93,10 @@ export const ExactTimePinSheet = ({
   }, [parsed, slots]);
 
   const [selectedIndex, setSelectedIndex] = useState<number>(defaultIndex);
+
+  useEffect(() => {
+    setSelectedIndex(defaultIndex);
+  }, [defaultIndex, chosenSlotKey]);
 
   if (!parsed) return null;
 
