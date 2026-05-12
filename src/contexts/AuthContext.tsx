@@ -4,12 +4,15 @@ import { Session, User as SupabaseUser } from "@supabase/supabase-js";
 import { END_ACCOUNT_BREAK_PROFILE_UPDATE } from "@/lib/endAccountBreak";
 import { trackEvent } from "@/lib/analytics";
 import {
+  getFallbackEntryState,
   getAuthProvider,
   getEntryStateOnboardingStatus,
   resolveEntryState,
   type EntryStateResponse,
 } from "@shared/entryState";
 import { clearPreparedVideoDateEntryCache } from "@clientShared/matching/videoDatePrepareEntry";
+import { clearMyLocationDataCache } from "@/services/myLocationData";
+import { recordBrowserEvent, removeAllRealtimeChannels } from "@/lib/browserDiagnostics";
 
 interface User {
   id: string;
@@ -49,6 +52,29 @@ interface ProfileContextType {
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
+const BOOT_TIMEOUT_MS = 9_000;
+const AUTH_SESSION_TIMEOUT_MS = 5_000;
+
+function withBootTimeout<T>(
+  promise: PromiseLike<T>,
+  operation: string,
+  timeoutMs = BOOT_TIMEOUT_MS,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      recordBrowserEvent("browser.boot_timeout", {
+        operation,
+        timeout_ms: timeoutMs,
+      });
+      reject(new Error(`${operation}_timeout`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 function transformSupabaseUser(supabaseUser: SupabaseUser, profileData?: Record<string, unknown>): User {
   const untilIso =
@@ -83,14 +109,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const currentUserId = session?.user?.id ?? null;
   const currentAuthProvider = getAuthProvider(session?.user);
   const authUserIdRef = useRef<string | null>(null);
+  const sessionUserRef = useRef<SupabaseUser | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         const nextUserId = session?.user?.id ?? null;
         const previousUserId = authUserIdRef.current;
         setSession(session);
         authUserIdRef.current = nextUserId;
+        sessionUserRef.current = session?.user ?? null;
         if (!nextUserId) {
           clearPreparedVideoDateEntryCache();
           setEntryState(null);
@@ -107,19 +136,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    withBootTimeout(
+      supabase.auth.getSession(),
+      "auth.getSession",
+      AUTH_SESSION_TIMEOUT_MS,
+    ).then(({ data: { session } }) => {
+      if (cancelled) return;
       const nextUserId = session?.user?.id ?? null;
       authUserIdRef.current = nextUserId;
+      sessionUserRef.current = session?.user ?? null;
       setSession(session);
       setEntryStateLoading(!!nextUserId);
       if (!session?.user && !navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
-      setIsLoading(false);
     }).catch(() => {
+      if (cancelled) return;
+      sessionUserRef.current = null;
       if (!navigator.onLine) {
         setIsOfflineAtBoot(true);
       }
+      setEntryStateLoading(false);
+    }).finally(() => {
+      if (cancelled) return;
       setIsLoading(false);
     });
 
@@ -128,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener("online", handleOnline);
 
     return () => {
+      cancelled = true;
       subscription.unsubscribe();
       window.removeEventListener("online", handleOnline);
     };
@@ -147,35 +187,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = currentUserId;
 
     const profileSelect =
-      "id, name, age, gender, job, height_cm, location, about_me, avatar_url, photos, total_matches, total_conversations, updated_at, created_at, is_premium, subscription_tier, photo_verified, is_paused, paused_at, paused_until, pause_reason, account_paused, account_paused_until, discoverable, discovery_mode, onboarding_complete";
+      "id, name, age, gender, location, avatar_url, photos, is_premium, subscription_tier, photo_verified, is_paused, paused_until, account_paused, account_paused_until";
 
     try {
-      let { data: profile } = await supabase
-        .from("profiles")
-        .select(profileSelect)
-        .eq("id", userId)
-        .maybeSingle();
+      let { data: profile } = await withBootTimeout(
+        supabase
+          .from("profiles")
+          .select(profileSelect)
+          .eq("id", userId)
+          .maybeSingle(),
+        "profiles.bootstrap_select",
+      );
 
       // Web auto-expiry: timed account pause ended — align DB with native clearExpiredAccountPauseIfNeeded
       if (profile?.account_paused && profile.account_paused_until) {
         const until = new Date(profile.account_paused_until as string);
         if (until <= new Date()) {
-          await supabase
-            .from("profiles")
-            .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
-            .eq("id", userId);
-          const { data: refreshed } = await supabase
-            .from("profiles")
-            .select(profileSelect)
-            .eq("id", userId)
-            .maybeSingle();
+          await withBootTimeout(
+            supabase
+              .from("profiles")
+              .update(END_ACCOUNT_BREAK_PROFILE_UPDATE)
+              .eq("id", userId),
+            "profiles.pause_clear",
+            4_000,
+          );
+          const { data: refreshed } = await withBootTimeout(
+            supabase
+              .from("profiles")
+              .select(profileSelect)
+              .eq("id", userId)
+              .maybeSingle(),
+            "profiles.pause_refresh",
+          );
           profile = refreshed ?? profile;
         }
       }
 
-      const { data: { user: supabaseUser } } = await supabase.auth.getUser();
-      if (supabaseUser) {
+      const supabaseUser =
+        sessionUserRef.current ??
+        (await withBootTimeout(
+          supabase.auth.getUser(),
+          "auth.getUser",
+          AUTH_SESSION_TIMEOUT_MS,
+        )).data.user;
+      if (supabaseUser && authUserIdRef.current === userId) {
         setUser(transformSupabaseUser(supabaseUser, profile || undefined));
+      }
+    } catch (error) {
+      const supabaseUser = sessionUserRef.current;
+      if (supabaseUser && authUserIdRef.current === userId) {
+        setUser(transformSupabaseUser(supabaseUser));
+      }
+      if (import.meta.env.DEV) {
+        console.warn("[auth] profile bootstrap failed:", error);
       }
     } finally {
       setIsProfileLoading(false);
@@ -190,7 +254,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setEntryStateLoading(true);
     try {
-      const nextEntryState = await resolveEntryState(supabase);
+      const nextEntryState = await withBootTimeout(
+        resolveEntryState(supabase),
+        "resolve_entry_state",
+      );
       setEntryState(nextEntryState);
       trackEvent("entry_state_resolved", {
         state: nextEntryState.state,
@@ -200,6 +267,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         evaluation_version: nextEntryState.evaluation_version,
       });
       return nextEntryState;
+    } catch (error) {
+      const fallbackEntryState = getFallbackEntryState("resolver_exception");
+      setEntryState(fallbackEntryState);
+      trackEvent("entry_state_resolved", {
+        state: fallbackEntryState.state,
+        reason_code: fallbackEntryState.reason_code,
+        platform: "web",
+        provider: currentAuthProvider,
+        evaluation_version: fallbackEntryState.evaluation_version,
+        fallback: true,
+      });
+      if (import.meta.env.DEV) {
+        console.warn("[auth] entry state bootstrap failed:", error);
+      }
+      return fallbackEntryState;
     } finally {
       setEntryStateLoading(false);
     }
@@ -225,23 +307,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const userId = currentUserId;
     clearPreparedVideoDateEntryCache();
+    clearMyLocationDataCache();
+    removeAllRealtimeChannels(supabase, "logout");
     void import("@/lib/onesignal").then(({ removeExternalUserId }) => {
       removeExternalUserId();
     });
     if (userId) {
       try {
-        await supabase
-          .from("notification_preferences")
-          .update({
-            onesignal_player_id: null,
-            onesignal_subscribed: false,
-          })
-          .eq("user_id", userId);
+        await withBootTimeout(
+          supabase
+            .from("notification_preferences")
+            .update({
+              onesignal_player_id: null,
+              onesignal_subscribed: false,
+            })
+            .eq("user_id", userId),
+          "notification_preferences.logout_clear",
+          4_000,
+        );
       } catch {
         /* don't block logout */
       }
     }
-    await supabase.auth.signOut();
+    await withBootTimeout(supabase.auth.signOut(), "auth.signOut", AUTH_SESSION_TIMEOUT_MS).catch(() => undefined);
+    sessionUserRef.current = null;
+    authUserIdRef.current = null;
     setUser(null);
     setSession(null);
     setEntryState(null);

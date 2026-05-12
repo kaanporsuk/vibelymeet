@@ -8,6 +8,7 @@ const BUNNY_CDN_PATH_PREFIX = (() => {
   return raw.trim().replace(/^\/+|\/+$/g, "");
 })();
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const CONFIRMED_BUNNY_STORAGE_PREFIXES = ["photos/", "events/", "voice/", "media/"];
 
 const PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%231F1F2E'/%3E%3Ccircle cx='100' cy='80' r='35' fill='%234B4B6B'/%3E%3Cellipse cx='100' cy='160' rx='55' ry='40' fill='%234B4B6B'/%3E%3C/svg%3E";
@@ -66,8 +67,9 @@ export function getImageUrl(
     return p;
   }
 
-  // Bunny path — starts with "photos/" (new uploads)
-  if (p.startsWith("photos/")) {
+  // Confirmed Bunny Storage paths. Chat video remains resolved by get-chat-media-url
+  // until that source of truth is fully verified.
+  if (CONFIRMED_BUNNY_STORAGE_PREFIXES.some((prefix) => p.startsWith(prefix))) {
     if (!BUNNY_CDN) return PLACEHOLDER;
     const params = new URLSearchParams();
     if (opts?.width) params.set("width", String(opts.width));

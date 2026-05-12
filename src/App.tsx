@@ -28,7 +28,9 @@ import { WebPostDateOutboxRunner } from "@/lib/postDateOutbox/WebPostDateOutboxR
 import { supabase } from "@/integrations/supabase/client";
 import {
   hasStaleBundleReloadAlreadyAttempted,
+  instrumentSupabaseRealtimeDiagnostics,
   isLikelyStaleBundleError,
+  pruneDuplicateRealtimeChannels,
   recoverFromStaleBundleError,
   recordBrowserError,
   recordBrowserEvent,
@@ -81,6 +83,8 @@ const CreditsSuccess = lazyWithPreload(routeLoaders.creditsSuccess);
 const UserProfile = lazyWithPreload(routeLoaders.userProfile);
 const AdminLogin = lazyWithPreload(routeLoaders.adminLogin);
 const NotFound = lazyWithPreload(routeLoaders.notFound);
+
+instrumentSupabaseRealtimeDiagnostics(supabase);
 const PushPermissionPrompt = lazy(() =>
   import("./components/PushPermissionPrompt").then((mod) => ({ default: mod.PushPermissionPrompt }))
 );
@@ -189,7 +193,6 @@ const WebHomeUnreadInvalidator = () => {
     };
     const channel = supabase
       .channel(`web-home-unread-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, invalidateHomeUnread)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "match_archives", filter: `user_id=eq.${userId}` },
@@ -201,6 +204,34 @@ const WebHomeUnreadInvalidator = () => {
       void supabase.removeChannel(channel);
     };
   }, [isAuthenticated, isLoading, userId]);
+
+  return null;
+};
+
+const RealtimeLifecycleJanitor = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    window.setTimeout(() => {
+      pruneDuplicateRealtimeChannels(supabase, `route:${location.pathname}`);
+    }, 0);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const prune = (reason: string) => {
+      pruneDuplicateRealtimeChannels(supabase, reason);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") prune("tab_hidden");
+    };
+    const onPageHide = () => prune("pagehide");
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, []);
 
   return null;
 };
@@ -323,6 +354,7 @@ const App = () => {
                   <WebPostDateOutboxRunner />
                   <WebPasswordRecoveryHandler />
                   <PostHogPageTracker />
+                  <RealtimeLifecycleJanitor />
                   <RoutePrefetcher />
                   <WebHomeUnreadInvalidator />
                   <SessionRouteHydration />

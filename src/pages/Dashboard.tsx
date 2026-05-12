@@ -146,8 +146,8 @@ const Dashboard = () => {
   const { isBrowserPermissionGranted, scheduleDateReminder, refreshSubscriptionState } =
     usePushNotifications();
   const { health: pushDeliveryHealth, refresh: refreshPushDeliveryHealth } = usePushDeliveryHealth();
-  const notificationInbox = useNotificationInbox(user?.id);
   const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+  const notificationInbox = useNotificationInbox(user?.id, { loadRows: notificationCenterOpen });
 
   const handleRequestOneSignalPermission = useCallback(async (): Promise<boolean> => {
     if (!user?.id) return false;
@@ -301,7 +301,9 @@ const Dashboard = () => {
       return normalizeHomeUnreadSummary(data);
     },
     enabled: !!user?.id,
-    refetchInterval: 30_000,
+    refetchInterval: () =>
+      typeof document === "undefined" || document.visibilityState === "visible" ? 60_000 : false,
+    refetchIntervalInBackground: false,
   });
   const infoBarUnreadMessageCount = homeInfoBarUnread.messageCount;
   const unreadConversationCount = homeInfoBarUnread.matchCount;

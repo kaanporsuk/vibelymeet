@@ -16,6 +16,9 @@ const MAX_PAYLOAD_CHARS = 8_000;
 const SLOW_EXCHANGE_MS = 10_000;
 const STALE_BUNDLE_RELOAD_KEY_PREFIX = "vibely.stale_bundle_reload.v1:";
 const STALE_BUNDLE_WINDOW_NAME_PREFIX = "vibely_stale_bundle_reload:";
+const BOOT_SUMMARY_DELAY_MS = 12_000;
+const SUPABASE_HOST_RE = /\.supabase\.(?:co|in)$/i;
+const BUNNY_HOST_RE = /(?:^|\.)b-cdn\.net$|(?:^|\.)bunnycdn\.com$/i;
 
 const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
@@ -52,6 +55,10 @@ export const BROWSER_DIAGNOSTIC_EVENTS = [
   "browser.service_worker_state",
   "browser.user_action",
   "browser.api_exchange",
+  "browser.boot_supabase_summary",
+  "browser.boot_timeout",
+  "browser.health_check_capped",
+  "browser.realtime_channel_state",
   "browser.react_error_boundary",
   "browser.stale_bundle_recovery",
 ] as const;
@@ -63,6 +70,444 @@ const ALLOWED_EVENTS = new Set<string>(BROWSER_DIAGNOSTIC_EVENTS);
 let initialized = false;
 let fetchPatched = false;
 let staleBundleReloadScheduled = false;
+let bootSummaryScheduled = false;
+
+type SupabaseTrafficSurface =
+  | "Database/PostgREST"
+  | "RPC"
+  | "Auth"
+  | "Edge Functions"
+  | "Realtime"
+  | "Storage"
+  | "Media/CDN"
+  | "Other";
+
+type BootRequestBucket = {
+  count: number;
+  errorCount: number;
+  estimatedBytes: number;
+  totalDurationMs: number;
+  maxDurationMs: number;
+};
+
+type BootPathBucket = BootRequestBucket & {
+  method: string;
+  path: string;
+  surface: SupabaseTrafficSurface;
+};
+
+type BootHealthSnapshot = {
+  networkCalls: number;
+  cappedCalls: number;
+  lastStatus: number | null;
+};
+
+type BootRealtimeSnapshot = {
+  activeChannels: number;
+  createdChannels: number;
+  removedChannels: number;
+  duplicateCreates: number;
+  duplicateActiveTopics: string[];
+  orphanCleanupEvents: number;
+  activeByTopic: Record<string, number>;
+};
+
+export type BootDiagnosticsSnapshot = {
+  startedAt: string;
+  updatedAt: string;
+  requestsBySurface: Record<string, BootRequestBucket>;
+  topPaths: BootPathBucket[];
+  health: BootHealthSnapshot;
+  realtime: BootRealtimeSnapshot;
+};
+
+type HealthResponseSnapshot = {
+  status: number;
+  statusText: string;
+  headers: [string, string][];
+  bodyText: string;
+};
+
+const bootStartedAt = new Date().toISOString();
+const requestBuckets = new Map<SupabaseTrafficSurface, BootRequestBucket>();
+const pathBuckets = new Map<string, BootPathBucket>();
+const realtimeChannelTopics = new WeakMap<object, string>();
+const activeRealtimeChannels = new Map<object, string>();
+const activeRealtimeByTopic = new Map<string, number>();
+const bootHealth: BootHealthSnapshot = {
+  networkCalls: 0,
+  cappedCalls: 0,
+  lastStatus: null,
+};
+const bootRealtime: Omit<BootRealtimeSnapshot, "activeChannels" | "duplicateActiveTopics" | "activeByTopic"> = {
+  createdChannels: 0,
+  removedChannels: 0,
+  duplicateCreates: 0,
+  orphanCleanupEvents: 0,
+};
+let cachedHealthResponse: HealthResponseSnapshot | null = null;
+let healthResponseInFlight: Promise<HealthResponseSnapshot> | null = null;
+
+declare global {
+  interface Window {
+    __vibelyBootDiagnostics?: BootDiagnosticsSnapshot;
+  }
+}
+
+function emptyRequestBucket(): BootRequestBucket {
+  return {
+    count: 0,
+    errorCount: 0,
+    estimatedBytes: 0,
+    totalDurationMs: 0,
+    maxDurationMs: 0,
+  };
+}
+
+function addToBucket(bucket: BootRequestBucket, args: { status: number | null; durationMs: number; estimatedBytes: number }): void {
+  bucket.count += 1;
+  if (args.status === null || args.status >= 400) bucket.errorCount += 1;
+  bucket.estimatedBytes += args.estimatedBytes;
+  bucket.totalDurationMs += args.durationMs;
+  bucket.maxDurationMs = Math.max(bucket.maxDurationMs, args.durationMs);
+}
+
+function isSupabaseHost(hostname: string): boolean {
+  return SUPABASE_HOST_RE.test(hostname);
+}
+
+function isBunnyHost(hostname: string): boolean {
+  return BUNNY_HOST_RE.test(hostname);
+}
+
+function classifyTrafficSurface(url: string): SupabaseTrafficSurface | null {
+  try {
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "https://www.vibelymeet.com");
+    const hostname = parsed.hostname.toLowerCase();
+    const path = parsed.pathname;
+    if (isBunnyHost(hostname)) return "Media/CDN";
+    if (!isSupabaseHost(hostname)) return null;
+    if (path.startsWith("/rest/v1/rpc/")) return "RPC";
+    if (path.startsWith("/rest/v1/")) return "Database/PostgREST";
+    if (path.startsWith("/auth/v1/")) return "Auth";
+    if (path.startsWith("/functions/v1/")) return "Edge Functions";
+    if (path.startsWith("/realtime/v1/")) return "Realtime";
+    if (path.startsWith("/storage/v1/")) return "Storage";
+    return "Other";
+  } catch {
+    return null;
+  }
+}
+
+function normalizedTrafficPath(url: string): string {
+  const sanitized = sanitizeDiagnosticUrl(url);
+  return sanitized ?? "[unknown]";
+}
+
+function estimatedBytesFromResponse(response: Response, override?: number | null): number {
+  if (typeof override === "number" && Number.isFinite(override) && override >= 0) return Math.round(override);
+  const raw = response.headers.get("content-length");
+  if (!raw) return 0;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : 0;
+}
+
+function currentRealtimeSnapshot(): BootRealtimeSnapshot {
+  const activeByTopic = Object.fromEntries(
+    Array.from(activeRealtimeByTopic.entries())
+      .filter(([, count]) => count > 0)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+  return {
+    ...bootRealtime,
+    activeChannels: activeRealtimeChannels.size,
+    duplicateActiveTopics: Object.entries(activeByTopic)
+      .filter(([, count]) => count > 1)
+      .map(([topic]) => topic),
+    activeByTopic,
+  };
+}
+
+export function getBootDiagnosticsSnapshot(): BootDiagnosticsSnapshot {
+  return {
+    startedAt: bootStartedAt,
+    updatedAt: new Date().toISOString(),
+    requestsBySurface: Object.fromEntries(requestBuckets.entries()),
+    topPaths: Array.from(pathBuckets.values())
+      .sort((a, b) => b.count - a.count || b.estimatedBytes - a.estimatedBytes)
+      .slice(0, 20),
+    health: { ...bootHealth },
+    realtime: currentRealtimeSnapshot(),
+  };
+}
+
+function publishBootDiagnosticsSnapshot(): void {
+  if (typeof window === "undefined") return;
+  window.__vibelyBootDiagnostics = getBootDiagnosticsSnapshot();
+}
+
+function scheduleBootSummary(): void {
+  if (bootSummaryScheduled || typeof window === "undefined") return;
+  bootSummaryScheduled = true;
+  window.setTimeout(() => {
+    publishBootDiagnosticsSnapshot();
+    recordBrowserEvent("browser.boot_supabase_summary", {
+      requests_by_surface: getBootDiagnosticsSnapshot().requestsBySurface,
+      health: bootHealth,
+      realtime: currentRealtimeSnapshot(),
+    });
+  }, BOOT_SUMMARY_DELAY_MS);
+}
+
+function recordSupabaseTraffic(args: {
+  url: string;
+  method: string;
+  status: number | null;
+  durationMs: number;
+  estimatedBytes: number;
+}): void {
+  const surface = classifyTrafficSurface(args.url);
+  if (!surface) return;
+
+  const surfaceBucket = requestBuckets.get(surface) ?? emptyRequestBucket();
+  addToBucket(surfaceBucket, args);
+  requestBuckets.set(surface, surfaceBucket);
+
+  const path = normalizedTrafficPath(args.url);
+  const key = `${surface}|${args.method}|${path}`;
+  const pathBucket = pathBuckets.get(key) ?? {
+    ...emptyRequestBucket(),
+    method: args.method,
+    path,
+    surface,
+  };
+  addToBucket(pathBucket, args);
+  pathBuckets.set(key, pathBucket);
+
+  if (isHealthCheckUrl(args.url)) {
+    bootHealth.networkCalls += 1;
+    bootHealth.lastStatus = args.status;
+  }
+
+  publishBootDiagnosticsSnapshot();
+}
+
+function isHealthCheckUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.origin : "https://www.vibelymeet.com");
+    return isSupabaseHost(parsed.hostname.toLowerCase()) && parsed.pathname === "/functions/v1/health";
+  } catch {
+    return /\/functions\/v1\/health(?:[?#]|$)/.test(url);
+  }
+}
+
+function responseFromHealthSnapshot(snapshot: HealthResponseSnapshot): Response {
+  return new Response(snapshot.bodyText, {
+    status: snapshot.status,
+    statusText: snapshot.statusText,
+    headers: snapshot.headers,
+  });
+}
+
+async function snapshotHealthResponse(response: Response): Promise<HealthResponseSnapshot> {
+  const clone = response.clone();
+  const bodyText = await clone.text().catch(() => "");
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    headers: Array.from(response.headers.entries()),
+    bodyText,
+  };
+}
+
+function recordHealthCapped(): void {
+  bootHealth.cappedCalls += 1;
+  publishBootDiagnosticsSnapshot();
+  recordBrowserEvent("browser.health_check_capped", {
+    capped_calls: bootHealth.cappedCalls,
+    network_calls: bootHealth.networkCalls,
+  });
+}
+
+async function fetchHealthWithOnePerBootCap(
+  originalFetch: typeof window.fetch,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  url: string,
+  method: string,
+): Promise<Response> {
+  if (cachedHealthResponse) {
+    recordHealthCapped();
+    return responseFromHealthSnapshot(cachedHealthResponse);
+  }
+
+  if (healthResponseInFlight) {
+    const snapshot = await healthResponseInFlight;
+    recordHealthCapped();
+    return responseFromHealthSnapshot(snapshot);
+  }
+
+  let resolveSnapshot: (snapshot: HealthResponseSnapshot) => void;
+  let rejectSnapshot: (error: unknown) => void;
+  healthResponseInFlight = new Promise<HealthResponseSnapshot>((resolve, reject) => {
+    resolveSnapshot = resolve;
+    rejectSnapshot = reject;
+  });
+  healthResponseInFlight.catch(() => undefined);
+
+  const startedAt = performance.now();
+  try {
+    const response = await originalFetch(input, init);
+    const durationMs = Math.round(performance.now() - startedAt);
+    const snapshot = await snapshotHealthResponse(response);
+    cachedHealthResponse = snapshot;
+    resolveSnapshot!(snapshot);
+    recordSupabaseTraffic({
+      url,
+      method,
+      status: response.status,
+      durationMs,
+      estimatedBytes: estimatedBytesFromResponse(response, snapshot.bodyText.length),
+    });
+    return response;
+  } catch (error) {
+    rejectSnapshot!(error);
+    recordSupabaseTraffic({
+      url,
+      method,
+      status: null,
+      durationMs: Math.round(performance.now() - startedAt),
+      estimatedBytes: 0,
+    });
+    throw error;
+  } finally {
+    healthResponseInFlight = null;
+  }
+}
+
+function normalizeRealtimeTopic(channelNameOrTopic: string): string {
+  return channelNameOrTopic.replace(/^realtime:/, "");
+}
+
+function recordRealtimeStateEvent(reason: string): void {
+  publishBootDiagnosticsSnapshot();
+  recordBrowserEvent("browser.realtime_channel_state", {
+    reason,
+    ...currentRealtimeSnapshot(),
+  });
+}
+
+export function recordRealtimeChannelCreated(channel: unknown, channelName: string): void {
+  if (!channel || typeof channel !== "object") return;
+  const topic = normalizeRealtimeTopic(channelName);
+  realtimeChannelTopics.set(channel, topic);
+  activeRealtimeChannels.set(channel, topic);
+  const nextCount = (activeRealtimeByTopic.get(topic) ?? 0) + 1;
+  activeRealtimeByTopic.set(topic, nextCount);
+  bootRealtime.createdChannels += 1;
+  if (nextCount > 1) bootRealtime.duplicateCreates += 1;
+  publishBootDiagnosticsSnapshot();
+}
+
+export function recordRealtimeChannelRemoved(channel: unknown, reason = "remove_channel"): void {
+  if (!channel || typeof channel !== "object") return;
+  const topic = activeRealtimeChannels.get(channel) ?? realtimeChannelTopics.get(channel);
+  if (!topic) return;
+  activeRealtimeChannels.delete(channel);
+  const nextCount = Math.max((activeRealtimeByTopic.get(topic) ?? 1) - 1, 0);
+  if (nextCount === 0) activeRealtimeByTopic.delete(topic);
+  else activeRealtimeByTopic.set(topic, nextCount);
+  bootRealtime.removedChannels += 1;
+  if (reason !== "remove_channel") recordRealtimeStateEvent(reason);
+  else publishBootDiagnosticsSnapshot();
+}
+
+type SupabaseRealtimeClientLike = {
+  channel?: (channelName: string, opts?: unknown) => unknown;
+  getChannels?: () => unknown[];
+  removeChannel?: (channel: unknown) => unknown;
+  removeAllChannels?: () => unknown;
+  __vibelyRealtimeDiagnosticsInstrumented?: boolean;
+};
+
+export function instrumentSupabaseRealtimeDiagnostics(client: SupabaseRealtimeClientLike): void {
+  if (
+    typeof window === "undefined" ||
+    client.__vibelyRealtimeDiagnosticsInstrumented ||
+    typeof client.channel !== "function" ||
+    typeof client.removeChannel !== "function"
+  ) {
+    return;
+  }
+
+  const originalChannel = client.channel.bind(client);
+  const originalRemoveChannel = client.removeChannel.bind(client);
+  client.channel = ((channelName: string, opts?: unknown) => {
+    const channel = originalChannel(channelName, opts);
+    recordRealtimeChannelCreated(channel, channelName);
+    return channel;
+  }) as SupabaseRealtimeClientLike["channel"];
+  client.removeChannel = ((channel: unknown) => {
+    recordRealtimeChannelRemoved(channel);
+    return originalRemoveChannel(channel);
+  }) as SupabaseRealtimeClientLike["removeChannel"];
+  client.__vibelyRealtimeDiagnosticsInstrumented = true;
+}
+
+function channelTopic(channel: unknown): string | null {
+  if (!channel || typeof channel !== "object") return null;
+  const record = channel as Record<string, unknown>;
+  const rawTopic =
+    typeof record.topic === "string"
+      ? record.topic
+      : typeof record.subTopic === "string"
+        ? record.subTopic
+        : null;
+  return rawTopic ? normalizeRealtimeTopic(rawTopic) : realtimeChannelTopics.get(channel) ?? null;
+}
+
+export function pruneDuplicateRealtimeChannels(
+  client: SupabaseRealtimeClientLike,
+  reason: string,
+): void {
+  if (typeof client.getChannels !== "function" || typeof client.removeChannel !== "function") return;
+  const channels = client.getChannels();
+  const firstByTopic = new Set<string>();
+  let removed = 0;
+  for (const channel of channels) {
+    const topic = channelTopic(channel);
+    if (!topic) continue;
+    if (!firstByTopic.has(topic)) {
+      firstByTopic.add(topic);
+      continue;
+    }
+    removed += 1;
+    void client.removeChannel(channel);
+  }
+  if (removed > 0) {
+    bootRealtime.orphanCleanupEvents += 1;
+    recordRealtimeStateEvent(`duplicate_prune:${reason}`);
+  } else {
+    publishBootDiagnosticsSnapshot();
+  }
+}
+
+export function removeAllRealtimeChannels(
+  client: SupabaseRealtimeClientLike,
+  reason: string,
+): void {
+  if (typeof client.getChannels !== "function" || typeof client.removeChannel !== "function") {
+    if (typeof client.removeAllChannels === "function") void client.removeAllChannels();
+    bootRealtime.orphanCleanupEvents += 1;
+    recordRealtimeStateEvent(`remove_all:${reason}`);
+    return;
+  }
+  for (const channel of client.getChannels()) {
+    void client.removeChannel(channel);
+  }
+  bootRealtime.orphanCleanupEvents += 1;
+  recordRealtimeStateEvent(`remove_all:${reason}`);
+}
 
 function safeImportEnvFlag(name: string): boolean {
   const env = import.meta.env as Record<string, unknown> | undefined;
@@ -482,9 +927,19 @@ function patchFetchForDiagnostics(): void {
     const startedAt = performance.now();
     const url = urlFromFetchInput(input);
     const method = methodFromFetch(input, init);
+    if (isHealthCheckUrl(url)) {
+      return fetchHealthWithOnePerBootCap(originalFetch, input, init, url, method);
+    }
     try {
       const response = await originalFetch(input, init);
       const durationMs = Math.round(performance.now() - startedAt);
+      recordSupabaseTraffic({
+        url,
+        method,
+        status: response.status,
+        durationMs,
+        estimatedBytes: estimatedBytesFromResponse(response),
+      });
       if (response.status >= 400) {
         recordApiExchange({ url, method, status: response.status, durationMs, outcome: "http_error" });
       } else if (durationMs >= SLOW_EXCHANGE_MS) {
@@ -498,6 +953,13 @@ function patchFetchForDiagnostics(): void {
         status: null,
         durationMs: Math.round(performance.now() - startedAt),
         outcome: "network_error",
+      });
+      recordSupabaseTraffic({
+        url,
+        method,
+        status: null,
+        durationMs: Math.round(performance.now() - startedAt),
+        estimatedBytes: 0,
       });
       throw error;
     }
@@ -628,5 +1090,7 @@ export function initializeBrowserDiagnostics(): void {
   });
 
   patchFetchForDiagnostics();
+  scheduleBootSummary();
+  publishBootDiagnosticsSnapshot();
   void recordServiceWorkerState("diagnostics_initialized");
 }

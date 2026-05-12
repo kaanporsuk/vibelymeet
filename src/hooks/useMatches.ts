@@ -121,37 +121,38 @@ export const useMatches = () => {
   useEffect(() => {
     if (!userId) return;
 
-    const channel = supabase
-      .channel(`matches-realtime-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "matches",
-        },
-        (payload) => {
-          const row = payload.new as MatchRealtimeRow;
-          if (row.profile_id_1 === userId || row.profile_id_2 === userId) {
-            queryClient.invalidateQueries({ queryKey: ["matches"] });
-            queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "matches",
-        },
-        (payload) => {
-          const row = payload.new as MatchRealtimeRow;
-          if (row.profile_id_1 === userId || row.profile_id_2 === userId) {
-            queryClient.invalidateQueries({ queryKey: ["matches"] });
-          }
-        }
-      )
+    const invalidateMatches = (payload?: { new?: MatchRealtimeRow }) => {
+      const row = payload?.new;
+      if (row && row.profile_id_1 !== userId && row.profile_id_2 !== userId) return;
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-matches"] });
+    };
+
+    const channel = supabase.channel(`matches-realtime-${userId}`);
+    for (const filter of [`profile_id_1=eq.${userId}`, `profile_id_2=eq.${userId}`]) {
+      channel
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "matches",
+            filter,
+          },
+          invalidateMatches,
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "matches",
+            filter,
+          },
+          invalidateMatches,
+        );
+    }
+    channel
       .on(
         "postgres_changes",
         {
@@ -404,7 +405,8 @@ export const useDashboardMatches = () => {
         .from("matches")
         .select("id, matched_at, profile_id_1, profile_id_2")
         .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-        .order("matched_at", { ascending: false });
+        .order("matched_at", { ascending: false })
+        .limit(20);
 
       if (error) throw error;
       if (!matches?.length) return [];
@@ -420,8 +422,9 @@ export const useDashboardMatches = () => {
       const archivedMatchIds = new Set((archives || []).map((row) => row.match_id));
       const visibleMatches = matches.filter((match) => !archivedMatchIds.has(match.id));
       if (!visibleMatches.length) return [];
+      const dashboardMatches = visibleMatches.slice(0, 5);
 
-      const otherProfileIds = visibleMatches.map((m) =>
+      const otherProfileIds = dashboardMatches.map((m) =>
         m.profile_id_1 === userId ? m.profile_id_2 : m.profile_id_1
       );
 
@@ -430,7 +433,7 @@ export const useDashboardMatches = () => {
         .select("id, name, avatar_url, photos")
         .in("id", otherProfileIds);
 
-      return visibleMatches.slice(0, 5).map((match) => {
+      return dashboardMatches.map((match) => {
         const otherProfileId =
           match.profile_id_1 === userId
             ? match.profile_id_2
