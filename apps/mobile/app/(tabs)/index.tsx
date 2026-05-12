@@ -988,7 +988,7 @@ export default function DashboardScreen() {
 
   function AmbientPulse() {
     if (infoBarUnreadMessageCount === 0) return null;
-    const lines = [`You have ${infoBarUnreadMessageCount} unread messages from ${unreadConversationCount} matches`];
+    const lines = [`You have ${infoBarUnreadMessageCount} unread message${infoBarUnreadMessageCount === 1 ? '' : 's'} from ${unreadConversationCount} match${unreadConversationCount === 1 ? '' : 'es'}`];
     return (
       <View style={[styles.pulseStrip, { backgroundColor: theme.glassSurface, borderColor: theme.glassBorder }]}>
         {lines.map((line, i) => (

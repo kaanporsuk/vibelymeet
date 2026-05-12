@@ -14,6 +14,7 @@ const webRecorder = read("src/components/chat/VideoMessageRecorder.tsx");
 const webLibraryHelper = read("src/lib/webVibeClipLibraryUpload.ts");
 const webVibeClipOptions = read("src/components/chat/VibeClipSendOptionsSheet.tsx");
 const webPhotoOptions = read("src/components/chat/PhotoSendOptionsDialog.tsx");
+const webPhotoCamera = read("src/components/chat/PhotoCameraCaptureDialog.tsx");
 const webChat = read("src/pages/Chat.tsx");
 const webVibeClipBubble = read("src/components/chat/VibeClipBubble.tsx");
 const webVideoBubble = read("src/components/chat/VideoMessageBubble.tsx");
@@ -63,14 +64,18 @@ test("web library helper validates saved-video uploads with the same constraints
 test("web chat routes media buttons through polished pickers without changing send paths", () => {
   assert.match(webChat, /VibeClipSendOptionsSheet = lazy/);
   assert.match(webChat, /PhotoSendOptionsDialog = lazy/);
+  assert.match(webChat, /PhotoCameraCaptureDialog = lazy/);
   assert.match(webChat, /const \[showPhotoOptions, setShowPhotoOptions\] = useState\(false\)/);
+  assert.match(webChat, /const \[showPhotoCamera, setShowPhotoCamera\] = useState\(false\)/);
   assert.match(webChat, /const \[showVibeClipOptions, setShowVibeClipOptions\] = useState\(false\)/);
   assert.match(webChat, /setShowPhotoOptions\(true\)/);
+  assert.match(webChat, /setShowPhotoCamera\(true\)/);
   assert.match(webChat, /setShowVibeClipOptions\(true\)/);
-  assert.match(webChat, /const photoCameraInputRef = useRef<HTMLInputElement>\(null\)/);
-  assert.match(webChat, /capture="environment"/);
-  assert.match(webChat, /onTakePhoto=\{triggerPhotoCameraPicker\}/);
+  assert.doesNotMatch(webChat, /photoCameraInputRef/);
+  assert.doesNotMatch(webChat, /capture="environment"/);
+  assert.match(webChat, /onTakePhoto=\{openPhotoCamera\}/);
   assert.match(webChat, /onChooseLibrary=\{triggerPhotoFilePicker\}/);
+  assert.match(webChat, /onCapturePhoto=\{queuePhotoFile\}/);
   assert.match(webChat, /onLibraryClipReady=\{handleVibeClipLibraryReady\}/);
   assert.match(webChat, /showLibraryUpload=\{false\}/);
 });
@@ -94,6 +99,25 @@ test("web photo options dialog keeps action routing in the caller", () => {
   assert.match(webPhotoOptions, /onTakePhoto\(\)/);
   assert.match(webPhotoOptions, /onChooseLibrary\(\)/);
   assert.doesNotMatch(webPhotoOptions, /capture=/);
+});
+
+test("web take-photo path opens in-app camera capture instead of upload picker", () => {
+  assert.match(webPhotoCamera, /navigator\.mediaDevices\?\.getUserMedia/);
+  assert.match(webPhotoCamera, /facingMode:\s*\{\s*ideal: "environment"/);
+  assert.match(webPhotoCamera, /function shouldRetryWithGenericCamera/);
+  assert.match(webPhotoCamera, /name !== "NotAllowedError" && name !== "SecurityError"/);
+  assert.match(webPhotoCamera, /getUserMedia\(\{\s*audio: false,\s*video: true/);
+  assert.match(webPhotoCamera, /streamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+  assert.match(webPhotoCamera, /canvas\.toBlob/);
+  assert.match(webPhotoCamera, /function dataUrlToBlob/);
+  assert.match(webPhotoCamera, /canvas\.toDataURL\(CAPTURE_FILE_TYPE, CAPTURE_QUALITY\)/);
+  assert.match(webPhotoCamera, /new File\(\[blob\], `chat-photo-\$\{Date\.now\(\)\}\.jpg`, \{ type: CAPTURE_FILE_TYPE \}\)/);
+  assert.match(webPhotoCamera, /const CAPTURE_FILE_TYPE = "image\/jpeg"/);
+  assert.match(webPhotoCamera, /const CAPTURE_QUALITY = 0\.85/);
+  assert.match(webPhotoCamera, /const captureLockRef = useRef\(false\)/);
+  assert.match(webPhotoCamera, /const submitLockRef = useRef\(false\)/);
+  assert.match(webPhotoCamera, /submitLockRef\.current/);
+  assert.match(webPhotoCamera, /await onCapturePhoto\(capturedFile\)/);
 });
 
 test("web recorder exposes safe camera flip on eligible devices", () => {
