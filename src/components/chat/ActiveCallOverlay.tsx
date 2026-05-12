@@ -396,7 +396,9 @@ export const ActiveCallOverlay = ({
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black flex flex-col"
     >
-      {/* Blurred-fill background for portrait sources so the framing isn't aggressively
+      {/* Match/chat calls are intentionally full-bleed today for landscape remote video;
+          Video Date keeps its stricter contain-only contract in src/pages/VideoDate.tsx.
+          Blurred-fill background for portrait sources so the framing isn't aggressively
           cropped to landscape. Same track as the foreground; rendered behind it. We
           attach a separate <video> with srcObject mirrored from the foreground via an
           effect so both stay in sync. The foreground video gets object-contain, which
