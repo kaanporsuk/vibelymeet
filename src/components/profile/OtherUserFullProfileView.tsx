@@ -148,9 +148,10 @@ export function OtherUserFullProfileView({
       resolveWebVibeVideoState({
         bunny_video_uid: profile.vibeVideo.uid,
         bunny_video_status: profile.vibeVideo.status,
+        updated_at: profile.updatedAt,
         vibe_caption: profile.vibeVideo.caption,
       }),
-    [profile.vibeVideo.uid, profile.vibeVideo.status, profile.vibeVideo.caption],
+    [profile.vibeVideo.uid, profile.vibeVideo.status, profile.updatedAt, profile.vibeVideo.caption],
   );
   const hasPlayableVibeVideo = vibeVideo.state === "ready" && !!vibeVideo.playbackUrl;
   const verificationBadges = [

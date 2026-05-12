@@ -18,6 +18,7 @@ export type OtherUserLifestyleDetail = {
 
 export type OtherUserFullProfileSource = {
   id: string;
+  updated_at?: string | null;
   name?: string | null;
   age?: number | null;
   birth_date?: string | null;
@@ -53,6 +54,7 @@ export type OtherUserFullProfileSource = {
 
 export type OtherUserFullProfileViewModel = {
   id: string;
+  updatedAt: string | null;
   name: string | null;
   age: number | null;
   tagline: string | null;
@@ -335,6 +337,7 @@ export function normalizeOtherUserFullProfile(
 
   return {
     id: source.id,
+    updatedAt: cleanString(source.updated_at),
     name: cleanString(source.name),
     age: computedAge ?? storedAge,
     tagline: cleanString(source.tagline),
