@@ -5,7 +5,7 @@
  * planning hub to the active backend-backed `date_suggestions` / `date_plans` flow
  * already used by chat surfaces. No new schema or recurrence logic is introduced here.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -20,9 +20,12 @@ import { hrefForActiveSession } from '@/lib/activeSessionRoutes';
 import { useActiveSession } from '@/lib/useActiveSession';
 import { usePushDeliveryHealth } from '@/lib/usePushDeliveryHealth';
 import { useScheduleHub } from '@/lib/useScheduleHub';
-import { dateSuggestionApply } from '@/lib/dateSuggestionApply';
+import { useSharedPartnerSchedule } from '@/lib/useSharedPartnerSchedule';
+import { DateSuggestionDomainError, dateSuggestionApply } from '@/lib/dateSuggestionApply';
 import { VibeScheduleGrid } from '@/components/schedule/VibeScheduleGrid';
 import { DateReminderCard } from '@/components/schedule/DateReminderCard';
+import { ChooseSharedBlockSheet, type OfferedBlock } from '@/components/chat/ChooseSharedBlockSheet';
+import { ExactTimePinSheet } from '@/components/chat/ExactTimePinSheet';
 import { spacing, layout } from '@/constants/theme';
 import { OnBreakBanner } from '@/components/OnBreakBanner';
 import { labelForDateType, labelForPlaceMode, labelForTimeChoice } from '@/lib/dateSuggestionCopy';
@@ -63,6 +66,32 @@ function resolvePlaceLabel(item: ScheduleHubItem): string {
   return labelForPlaceMode(item.placeModeKey);
 }
 
+function isScheduleShareHubItem(item: ScheduleHubItem): boolean {
+  return item.timeChoiceKey === 'share_schedule' || item.scheduleShareEnabled;
+}
+
+function scheduleShareAcceptErrorMessage(error: unknown): string {
+  if (error instanceof DateSuggestionDomainError) {
+    if (error.code === 'slot_already_locked') return 'That time was just taken by another date.';
+    if (error.code === 'slot_user_busy') return 'One of you marked that block busy. Pick another.';
+    if (error.code === 'slot_not_in_share_grant') return 'That time is no longer available. Pick another.';
+    if (
+      error.code === 'exact_time_outside_block' ||
+      error.code === 'exact_time_required' ||
+      error.code === 'invalid_slot_key' ||
+      error.code === 'local_date_mismatch' ||
+      error.code === 'local_start_hour_mismatch'
+    ) {
+      return 'Pick a time inside the chosen block.';
+    }
+    if (error.code === 'local_timezone_required' || error.code === 'invalid_local_timezone') {
+      return 'Could not verify your timezone. Check device settings and try again.';
+    }
+    return error.message || 'Something went wrong. Try again.';
+  }
+  return 'Something went wrong. Try again.';
+}
+
 async function openChatFromMatch(matchId: string, userId: string) {
   const { data, error } = await supabase
     .from('matches')
@@ -84,6 +113,7 @@ export default function ScheduleScreen() {
     schedule,
     toggleSlot,
     rollPreviousWeek,
+    refetch: refetchUserSchedule,
     dateRange,
     shiftRange,
     getSlotState,
@@ -103,6 +133,24 @@ export default function ScheduleScreen() {
   const [banner, setBanner] = useState<'success' | 'error' | null>(null);
   const [rollLoading, setRollLoading] = useState(false);
   const [datesTab, setDatesTab] = useState<'pending' | 'upcoming' | 'history'>('pending');
+  const [scheduleShareChooserItem, setScheduleShareChooserItem] = useState<ScheduleHubItem | null>(null);
+  const [scheduleSharePinItem, setScheduleSharePinItem] = useState<ScheduleHubItem | null>(null);
+  const [pendingScheduleShareSlotKey, setPendingScheduleShareSlotKey] = useState<string | null>(null);
+  const [scheduleShareAcceptBusy, setScheduleShareAcceptBusy] = useState(false);
+  const scheduleShareAcceptInFlightRef = useRef(false);
+  const scheduleShareOffer = useSharedPartnerSchedule(
+    scheduleShareChooserItem?.matchId,
+    scheduleShareChooserItem?.partnerUserId,
+    Boolean(scheduleShareChooserItem)
+  );
+  const scheduleShareOfferedBlocks: OfferedBlock[] = useMemo(() => {
+    const slots = scheduleShareOffer.data ?? [];
+    return slots.map((slot) => ({
+      slot_key: slot.slot_key,
+      slot_date: slot.slot_date,
+      time_block: slot.time_block,
+    }));
+  }, [scheduleShareOffer.data]);
   const availabilityCount = useMemo(
     () => Object.values(schedule).filter((slot) => slot.status === 'open').length,
     [schedule]
@@ -153,6 +201,12 @@ export default function ScheduleScreen() {
 
   const runSuggestionAction = useCallback(
     async (action: 'accept' | 'decline' | 'cancel', item: ScheduleHubItem) => {
+      if (action === 'accept' && isScheduleShareHubItem(item)) {
+        setScheduleShareChooserItem(item);
+        setScheduleSharePinItem(null);
+        setPendingScheduleShareSlotKey(null);
+        return;
+      }
       try {
         await dateSuggestionApply(action, { suggestion_id: item.suggestionId });
         await refetchScheduleHub();
@@ -164,6 +218,75 @@ export default function ScheduleScreen() {
       }
     },
     [refetchScheduleHub]
+  );
+
+  const handleScheduleShareChooserClose = useCallback(() => {
+    setScheduleShareChooserItem(null);
+    setPendingScheduleShareSlotKey(null);
+  }, []);
+
+  const handleScheduleShareChooserContinue = useCallback((slotKey: string) => {
+    setPendingScheduleShareSlotKey(slotKey);
+    setScheduleSharePinItem(scheduleShareChooserItem);
+    setScheduleShareChooserItem(null);
+  }, [scheduleShareChooserItem]);
+
+  const handleScheduleSharePinClose = useCallback(() => {
+    if (scheduleShareAcceptInFlightRef.current) return;
+    setScheduleSharePinItem(null);
+    setPendingScheduleShareSlotKey(null);
+  }, []);
+
+  const handleScheduleShareExactTimeConfirm = useCallback(
+    async (startsAtIso: string, localStartHour: number) => {
+      if (
+        scheduleShareAcceptBusy ||
+        scheduleShareAcceptInFlightRef.current ||
+        !scheduleSharePinItem ||
+        !pendingScheduleShareSlotKey
+      ) {
+        return;
+      }
+      scheduleShareAcceptInFlightRef.current = true;
+      const localTimezone = (() => {
+        try {
+          return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        } catch {
+          return undefined;
+        }
+      })();
+      if (!localTimezone) {
+        Alert.alert('Couldn’t accept', 'Could not read your timezone. Check device settings and try again.');
+        scheduleShareAcceptInFlightRef.current = false;
+        return;
+      }
+      setScheduleShareAcceptBusy(true);
+      try {
+        await dateSuggestionApply('accept', {
+          suggestion_id: scheduleSharePinItem.suggestionId,
+          chosen_slot_key: pendingScheduleShareSlotKey,
+          starts_at: startsAtIso,
+          local_timezone: localTimezone,
+          local_start_hour: localStartHour,
+        });
+        setScheduleSharePinItem(null);
+        setPendingScheduleShareSlotKey(null);
+        await Promise.all([refetchScheduleHub(), refetchUserSchedule()]);
+        Alert.alert("It's a date!", 'You can keep coordinating in chat.');
+      } catch (error) {
+        Alert.alert('Couldn’t accept', scheduleShareAcceptErrorMessage(error));
+      } finally {
+        scheduleShareAcceptInFlightRef.current = false;
+        setScheduleShareAcceptBusy(false);
+      }
+    },
+    [
+      pendingScheduleShareSlotKey,
+      refetchScheduleHub,
+      refetchUserSchedule,
+      scheduleShareAcceptBusy,
+      scheduleSharePinItem,
+    ]
   );
 
   if (scheduleLoading) {
@@ -380,7 +503,9 @@ export default function ScheduleScreen() {
                   <View style={styles.proposalActions}>
                     {item.canAccept ? (
                       <Pressable style={[styles.actionBtn, styles.actionBtnPrimary]} onPress={() => void runSuggestionAction('accept', item)}>
-                        <Text style={styles.actionBtnPrimaryText}>Accept</Text>
+                        <Text style={styles.actionBtnPrimaryText}>
+                          {isScheduleShareHubItem(item) ? 'Choose time' : 'Accept'}
+                        </Text>
                       </Pressable>
                     ) : null}
                     {item.canDecline ? (
@@ -464,6 +589,22 @@ export default function ScheduleScreen() {
           </View>
         </View>
       </ScrollView>
+      <ChooseSharedBlockSheet
+        visible={Boolean(scheduleShareChooserItem)}
+        onClose={handleScheduleShareChooserClose}
+        offeredBlocks={scheduleShareOfferedBlocks}
+        isLoading={scheduleShareOffer.isLoading}
+        isError={scheduleShareOffer.isError}
+        partnerName={scheduleShareChooserItem?.partnerName ?? 'your match'}
+        onContinue={handleScheduleShareChooserContinue}
+      />
+      <ExactTimePinSheet
+        visible={Boolean(scheduleSharePinItem && pendingScheduleShareSlotKey)}
+        onClose={handleScheduleSharePinClose}
+        chosenSlotKey={pendingScheduleShareSlotKey ?? ''}
+        isSubmitting={scheduleShareAcceptBusy}
+        onConfirm={handleScheduleShareExactTimeConfirm}
+      />
     </View>
   );
 }

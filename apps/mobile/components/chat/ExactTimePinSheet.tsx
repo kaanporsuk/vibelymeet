@@ -66,7 +66,7 @@ export function ExactTimePinSheet({ visible, chosenSlotKey, isSubmitting, onClos
 
   useEffect(() => {
     setSelectedIndex(defaultIndex);
-  }, [defaultIndex]);
+  }, [defaultIndex, chosenSlotKey]);
 
   if (!parsed) return null;
 

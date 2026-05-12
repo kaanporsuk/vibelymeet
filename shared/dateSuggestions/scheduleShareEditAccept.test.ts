@@ -230,6 +230,95 @@ test("Native schedule-share Accept payload is start-time-only (no ends_at)", () 
   );
 });
 
+test("Schedule hubs route schedule-share Accept through chooser and exact-time picker", () => {
+  const webSrc = readRepoFile("src/pages/Schedule.tsx");
+  const mobileSrc = readRepoFile("apps/mobile/app/schedule.tsx");
+
+  assert.match(webSrc, /<ChooseSharedBlockSheet\b/, "Web schedule hub must mount the shared-block chooser");
+  assert.match(webSrc, /<ExactTimePinSheet\b/, "Web schedule hub must mount the exact-time picker");
+  assert.match(
+    webSrc,
+    /useSharedPartnerSchedule\(\s*scheduleShareChooserItem\?\.matchId,\s*scheduleShareChooserItem\?\.partnerUserId,/,
+    "Web schedule hub chooser must load the current offer author's shared blocks",
+  );
+
+  const webAcceptStart = webSrc.indexOf("const handleAcceptProposal = useCallback");
+  assert.notEqual(webAcceptStart, -1, "expected web Schedule handleAcceptProposal");
+  const webAcceptEnd = webSrc.indexOf("const handleScheduleShareChooserClose", webAcceptStart);
+  assert.notEqual(webAcceptEnd, -1, "expected end of web Schedule handleAcceptProposal");
+  const webAcceptBody = webSrc.slice(webAcceptStart, webAcceptEnd);
+  assert.match(webAcceptBody, /if \(isScheduleShareHubItem\(item\)\)/);
+  assert.match(webAcceptBody, /setScheduleShareChooserItem\(item\)/);
+  assert.ok(
+    webAcceptBody.indexOf("isScheduleShareHubItem(item)") <
+      webAcceptBody.indexOf('dateSuggestionApply("accept"'),
+    "Web schedule-share guard must run before the legacy direct accept call",
+  );
+
+  const webConfirmStart = webSrc.indexOf("const handleScheduleShareExactTimeConfirm");
+  assert.notEqual(webConfirmStart, -1, "expected web Schedule exact-time confirm handler");
+  const webConfirmEnd = webSrc.indexOf("const handleDeclineProposal", webConfirmStart);
+  assert.notEqual(webConfirmEnd, -1, "expected end of web Schedule exact-time confirm handler");
+  const webConfirmBody = webSrc.slice(webConfirmStart, webConfirmEnd);
+  for (const field of [
+    "suggestion_id",
+    "chosen_slot_key",
+    "starts_at",
+    "local_timezone",
+    "local_start_hour",
+  ]) {
+    assert.match(webConfirmBody, new RegExp(`\\b${field}\\b`), `web Schedule accept payload must include ${field}`);
+  }
+  assert.doesNotMatch(webConfirmBody, /\bends_at\b/, "web Schedule accept payload must omit ends_at");
+  assert.match(webConfirmBody, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
+
+  assert.match(mobileSrc, /<ChooseSharedBlockSheet\b/, "Native schedule hub must mount the shared-block chooser");
+  assert.match(mobileSrc, /<ExactTimePinSheet\b/, "Native schedule hub must mount the exact-time picker");
+  assert.match(
+    mobileSrc,
+    /useSharedPartnerSchedule\(\s*scheduleShareChooserItem\?\.matchId,\s*scheduleShareChooserItem\?\.partnerUserId,/,
+    "Native schedule hub chooser must load the current offer author's shared blocks",
+  );
+
+  const nativeActionStart = mobileSrc.indexOf("const runSuggestionAction = useCallback");
+  assert.notEqual(nativeActionStart, -1, "expected native Schedule runSuggestionAction");
+  const nativeActionEnd = mobileSrc.indexOf("const handleScheduleShareChooserClose", nativeActionStart);
+  assert.notEqual(nativeActionEnd, -1, "expected end of native Schedule runSuggestionAction");
+  const nativeActionBody = mobileSrc.slice(nativeActionStart, nativeActionEnd);
+  assert.match(nativeActionBody, /action === 'accept' && isScheduleShareHubItem\(item\)/);
+  assert.match(nativeActionBody, /setScheduleShareChooserItem\(item\)/);
+  assert.ok(
+    nativeActionBody.indexOf("isScheduleShareHubItem(item)") <
+      nativeActionBody.indexOf("dateSuggestionApply(action"),
+    "Native schedule-share guard must run before the generic direct action call",
+  );
+
+  const nativeConfirmStart = mobileSrc.indexOf("const handleScheduleShareExactTimeConfirm");
+  assert.notEqual(nativeConfirmStart, -1, "expected native Schedule exact-time confirm handler");
+  const nativeConfirmEnd = mobileSrc.indexOf("if (scheduleLoading)", nativeConfirmStart);
+  assert.notEqual(nativeConfirmEnd, -1, "expected end of native Schedule exact-time confirm handler");
+  const nativeConfirmBody = mobileSrc.slice(nativeConfirmStart, nativeConfirmEnd);
+  for (const field of [
+    "suggestion_id",
+    "chosen_slot_key",
+    "starts_at",
+    "local_timezone",
+    "local_start_hour",
+  ]) {
+    assert.match(nativeConfirmBody, new RegExp(`\\b${field}\\b`), `native Schedule accept payload must include ${field}`);
+  }
+  assert.doesNotMatch(nativeConfirmBody, /\bends_at\b/, "native Schedule accept payload must omit ends_at");
+  assert.match(nativeConfirmBody, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
+});
+
+test("Schedule hub labels schedule-share Accept as choosing a time", () => {
+  const webListSrc = readRepoFile("src/components/schedule/MyDatesSection.tsx");
+  const nativeSrc = readRepoFile("apps/mobile/app/schedule.tsx");
+
+  assert.match(webListSrc, /scheduleShareAccept[\s\S]*Choose time/);
+  assert.match(nativeSrc, /isScheduleShareHubItem\(item\) \? 'Choose time' : 'Accept'/);
+});
+
 test("ExactTimePinSheet onConfirm is start-time-only (no ends_at)", () => {
   const src = readRepoFile("src/components/chat/ExactTimePinSheet.tsx");
 
@@ -262,6 +351,11 @@ test("ExactTimePinSheet onConfirm is start-time-only (no ends_at)", () => {
     src,
     /onConfirm\(startsAt\.toISOString\(\),\s*slot\.hour\)/,
     "Pin sheet must invoke onConfirm with (startsAtIso, localStartHour)",
+  );
+  assert.match(
+    src,
+    /useEffect\(\(\) => \{\s*setSelectedIndex\(defaultIndex\);\s*\}, \[defaultIndex,\s*chosenSlotKey\]\);/,
+    "Pin sheet must reset selectedIndex when the actual chosenSlotKey changes",
   );
 
   // Callsite parity: the card's <ExactTimePinSheet onConfirm=...> must use the
@@ -302,12 +396,94 @@ test("Native ExactTimePinSheet onConfirm is start-time-only (no ends_at)", () =>
     /onConfirm\(startsAt\.toISOString\(\),\s*slot\.hour\)/,
     "Native pin sheet must invoke onConfirm with (startsAtIso, localStartHour)",
   );
+  assert.match(
+    src,
+    /useEffect\(\(\) => \{\s*setSelectedIndex\(defaultIndex\);\s*\}, \[defaultIndex,\s*chosenSlotKey\]\);/,
+    "Native pin sheet must reset selectedIndex when the actual chosenSlotKey changes",
+  );
 
   const cardSrc = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
   assert.match(
     cardSrc,
     /onConfirm=\{\(startsAt,\s*localHour\)\s*=>/,
     "Native card must wire ExactTimePinSheet onConfirm with 2 args",
+  );
+});
+
+test("Native schedule-share exact-time accept mirrors server validation errors and guards double confirm", () => {
+  const src = readRepoFile("apps/mobile/components/chat/DateSuggestionChatCard.tsx");
+
+  assert.match(
+    src,
+    /const acceptInFlightRef = useRef\(false\)/,
+    "Native card must use a ref-backed accept in-flight guard",
+  );
+
+  const fnStart = src.indexOf("handleAcceptWithSlot = async (");
+  assert.notEqual(fnStart, -1, "expected native handleAcceptWithSlot function");
+  const fnEnd = src.indexOf("const handleCancelPlan", fnStart);
+  assert.notEqual(fnEnd, -1, "expected end of native handleAcceptWithSlot");
+  const body = src.slice(fnStart, fnEnd);
+
+  assert.match(
+    body,
+    /if \(acceptBusy \|\| acceptInFlightRef\.current\) return;/,
+    "Native exact-time confirm must return immediately while accept is in flight",
+  );
+  assert.match(
+    body,
+    /acceptInFlightRef\.current = true/,
+    "Native exact-time confirm must set the in-flight ref before calling accept",
+  );
+  assert.match(
+    body,
+    /finally\s*\{[\s\S]*acceptInFlightRef\.current = false[\s\S]*setAcceptBusy\(false\);[\s\S]*\}/,
+    "Native exact-time confirm must clear the in-flight ref in finally",
+  );
+
+  for (const code of [
+    "exact_time_required",
+    "invalid_slot_key",
+    "local_date_mismatch",
+    "local_start_hour_mismatch",
+  ]) {
+    assert.match(
+      body,
+      new RegExp(`e\\.code === '${code}'`),
+      `Native exact-time accept must map ${code} to the block-picking warning`,
+    );
+  }
+});
+
+test("Web schedule-share exact-time accept guards double confirm before React state flushes", () => {
+  const src = readRepoFile("src/components/chat/DateSuggestionCard.tsx");
+
+  assert.match(
+    src,
+    /const acceptInFlightRef = useRef\(false\)/,
+    "Web card must use a ref-backed accept in-flight guard",
+  );
+
+  const fnStart = src.indexOf("handleAcceptWithSlot = async (");
+  assert.notEqual(fnStart, -1, "expected web handleAcceptWithSlot function");
+  const fnEnd = src.indexOf("const handleCancelPlan", fnStart);
+  assert.notEqual(fnEnd, -1, "expected end of web handleAcceptWithSlot");
+  const body = src.slice(fnStart, fnEnd);
+
+  assert.match(
+    body,
+    /if \(actionBusy \|\| acceptInFlightRef\.current\) return;/,
+    "Web exact-time confirm must return immediately while accept is in flight",
+  );
+  assert.match(
+    body,
+    /acceptInFlightRef\.current = true/,
+    "Web exact-time confirm must set the in-flight ref before calling accept",
+  );
+  assert.match(
+    body,
+    /finally\s*\{[\s\S]*acceptInFlightRef\.current = false[\s\S]*setBusyAction\(null\);[\s\S]*\}/,
+    "Web exact-time confirm must clear the in-flight ref in finally",
   );
 });
 
@@ -844,6 +1020,67 @@ test("Schedule-share Accept stores NULL ends_at in date_plans (start-time-only)"
     acceptBranch,
     /_apply_date_plan_event_lock\(v_plan\.id,\s*v_suggestion\.recipient_id/,
   );
+});
+
+test("Final apply_v2 rejects schedule-share Accept without chosen_slot_key", () => {
+  const sql = readRepoFile(EDIT_SLOT_NULL_PAYLOAD_FOLLOWUP_MIGRATION);
+
+  const acceptStart = sql.indexOf("ELSIF p_action = 'accept' THEN");
+  assert.notEqual(acceptStart, -1, "expected accept branch in final follow-up migration");
+  const acceptEnd = sql.indexOf("ELSIF p_action = 'decline'", acceptStart);
+  assert.notEqual(acceptEnd, -1, "expected end of accept branch");
+  const acceptBranch = sql.slice(acceptStart, acceptEnd);
+
+  const revisionLoadIndex = acceptBranch.indexOf("SELECT * INTO v_rev");
+  const guardIndex = acceptBranch.indexOf("AND a_chosen_slot_key IS NULL");
+  const insertIndex = acceptBranch.indexOf("INSERT INTO public.date_plans");
+  assert.notEqual(revisionLoadIndex, -1, "accept branch must load current revision");
+  assert.notEqual(guardIndex, -1, "accept branch must guard missing schedule-share chosen_slot_key");
+  assert.notEqual(insertIndex, -1, "accept branch must create date plan after validation");
+  assert.ok(
+    revisionLoadIndex < guardIndex && guardIndex < insertIndex,
+    "missing chosen_slot_key guard must run after revision load and before date_plan insert",
+  );
+
+  const guardBlock = acceptBranch.slice(Math.max(0, guardIndex - 160), guardIndex + 200);
+  assert.match(guardBlock, /v_rev\.time_choice_key = 'share_schedule'/);
+  assert.match(guardBlock, /v_rev\.schedule_share_enabled IS TRUE/);
+  assert.match(guardBlock, /RETURN jsonb_build_object\('ok', false, 'error', 'exact_time_required'\)/);
+});
+
+test("Final apply_v2 binds chosen_slot_key accepts to this schedule-share suggestion", () => {
+  const sql = readRepoFile(EDIT_SLOT_NULL_PAYLOAD_FOLLOWUP_MIGRATION);
+
+  const acceptStart = sql.indexOf("ELSIF p_action = 'accept' THEN");
+  assert.notEqual(acceptStart, -1, "expected accept branch in final follow-up migration");
+  const acceptEnd = sql.indexOf("ELSIF p_action = 'decline'", acceptStart);
+  assert.notEqual(acceptEnd, -1, "expected end of accept branch");
+  const acceptBranch = sql.slice(acceptStart, acceptEnd);
+
+  const nonShareGuardIndex = acceptBranch.indexOf("not_a_schedule_share_revision");
+  const shareMissingGuardIndex = acceptBranch.indexOf("AND a_chosen_slot_key IS NULL");
+  const grantCheckIndex = acceptBranch.indexOf("FROM public.schedule_share_grants g");
+  const insertIndex = acceptBranch.indexOf("INSERT INTO public.date_plans");
+  assert.notEqual(nonShareGuardIndex, -1, "chosen_slot_key must be rejected on non-share revisions");
+  assert.notEqual(shareMissingGuardIndex, -1, "schedule-share revisions must require chosen_slot_key");
+  assert.notEqual(grantCheckIndex, -1, "accept branch must check schedule-share grant membership");
+  assert.notEqual(insertIndex, -1, "accept branch must create date plan after validation");
+  assert.ok(
+    nonShareGuardIndex < shareMissingGuardIndex &&
+      shareMissingGuardIndex < grantCheckIndex &&
+      grantCheckIndex < insertIndex,
+    "chosen-slot revision guards and grant membership must run before date_plan insert",
+  );
+
+  const nonShareGuardBlock = acceptBranch.slice(Math.max(0, nonShareGuardIndex - 240), nonShareGuardIndex + 120);
+  assert.match(nonShareGuardBlock, /a_chosen_slot_key IS NOT NULL/);
+  assert.match(nonShareGuardBlock, /NOT \(v_rev\.time_choice_key = 'share_schedule' OR v_rev\.schedule_share_enabled IS TRUE\)/);
+
+  const grantBlock = acceptBranch.slice(grantCheckIndex, insertIndex);
+  assert.match(grantBlock, /g\.source_date_suggestion_id\s*=\s*v_suggestion_id/);
+  assert.match(grantBlock, /g\.viewer_user_id\s*=\s*v_uid/);
+  assert.match(grantBlock, /g\.subject_user_id\s*=\s*v_rev\.proposed_by/);
+  assert.match(grantBlock, /us\.status\s*=\s*'open'/);
 });
 
 test("PR review follow-up guards schedule-share casts and active edit grants", () => {

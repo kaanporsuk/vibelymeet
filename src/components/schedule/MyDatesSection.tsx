@@ -63,6 +63,7 @@ export const MyDatesSection = ({
     const placeLabel = resolvePlaceLabel(item);
     const showResponseActions = item.canAccept || item.canDecline;
     const showCancel = item.canCancel;
+    const scheduleShareAccept = item.canAccept && (item.timeChoiceKey === "share_schedule" || item.scheduleShareEnabled);
 
     return (
       <motion.div
@@ -113,8 +114,8 @@ export const MyDatesSection = ({
           {showResponseActions ? (
             <>
               <Button size="sm" className="gap-1" onClick={() => onAccept?.(item)}>
-                <Check className="h-3.5 w-3.5" />
-                Accept
+                {scheduleShareAccept ? <Clock className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                {scheduleShareAccept ? "Choose time" : "Accept"}
               </Button>
               <Button size="sm" variant="outline" className="gap-1" onClick={() => onDecline?.(item)}>
                 <X className="h-3.5 w-3.5" />
