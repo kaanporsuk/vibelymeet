@@ -4,9 +4,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  getProfilePreviewVibeVideoSections,
-} from "../src/lib/vibeVideo/profilePreviewVisibility.ts";
-import {
   MAX_VIBE_CAPTION_LEN,
   MAX_VIBE_VIDEO_DURATION_S,
 } from "../src/lib/vibeVideo/constants.ts";
@@ -14,36 +11,25 @@ import {
 const root = process.cwd();
 const read = (path: string) => readFileSync(join(root, path), "utf8");
 
-function sectionTypes(
-  state: Parameters<typeof getProfilePreviewVibeVideoSections>[0]["state"],
-  playbackUrl: string | null,
-  isOwnProfile?: boolean,
-): string[] {
-  return getProfilePreviewVibeVideoSections({ state, playbackUrl }, isOwnProfile).map((section) => section.type);
-}
+test("canonical web full profile shows non-playable Vibe Video states to all viewers", () => {
+  const canonicalProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
 
-test("ProfilePreview shows processing state to all viewers", () => {
-  assert.deepEqual(sectionTypes("processing", null, true), ["vibe_pipeline"]);
-  assert.deepEqual(sectionTypes("stale_processing", null, true), ["vibe_pipeline"]);
-
-  assert.deepEqual(sectionTypes("processing", null, false), ["vibe_pipeline"]);
-  assert.deepEqual(sectionTypes("stale_processing", null, false), ["vibe_pipeline"]);
-  assert.deepEqual(sectionTypes("processing", null), ["vibe_pipeline"]);
-  assert.deepEqual(sectionTypes("stale_processing", null), ["vibe_pipeline"]);
+  assert.match(canonicalProfile, /vibeVideo\.state === "processing" \|\| vibeVideo\.state === "stale_processing"/);
+  assert.match(canonicalProfile, /Vibe Video still processing/);
+  assert.match(canonicalProfile, /Vibe Video processing/);
+  assert.match(canonicalProfile, /vibeVideo\.state === "failed" \|\| vibeVideo\.state === "error"/);
+  assert.match(canonicalProfile, /Vibe Video needs a fresh take/);
+  assert.match(canonicalProfile, /Vibe Video unavailable/);
+  assert.match(canonicalProfile, /vibeVideo\.state === "ready" && !vibeVideo\.playbackUrl/);
+  assert.match(canonicalProfile, /Vibe Video preview syncing/);
 });
 
-test("ProfilePreview shows failed state to all viewers", () => {
-  assert.deepEqual(sectionTypes("failed", null, true), ["vibe_failed"]);
-  assert.deepEqual(sectionTypes("failed", null, false), ["vibe_failed"]);
-});
+test("canonical web full profile still shows ready playable Vibe Video", () => {
+  const canonicalProfile = read("src/components/profile/OtherUserFullProfileView.tsx");
 
-test("ProfilePreview shows CDN-stuck ready state to all viewers", () => {
-  assert.deepEqual(sectionTypes("ready", null, true), ["vibe_cdn"]);
-  assert.deepEqual(sectionTypes("ready", null, false), ["vibe_cdn"]);
-});
-
-test("ProfilePreview still shows ready playable Vibe Video to non-owners", () => {
-  assert.deepEqual(sectionTypes("ready", "https://cdn.example/video/playlist.m3u8", false), ["video"]);
+  assert.match(canonicalProfile, /hasPlayableVibeVideo && vibeVideo\.playbackUrl/);
+  assert.match(canonicalProfile, /<VibePlayer/);
+  assert.match(canonicalProfile, /aria-label="Watch Intro"/);
 });
 
 test("web Vibe Video duration and caption constants are canonical and wired into web upload surfaces", () => {

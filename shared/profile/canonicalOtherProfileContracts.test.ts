@@ -14,6 +14,7 @@ test("web other-user profile entry points render canonical profile content", () 
   const matches = read("src/pages/Matches.tsx");
   const swipeRow = read("src/components/SwipeableMatchCard.tsx");
   const lobbyCard = read("src/components/lobby/LobbyProfileCard.tsx");
+  const eventDetails = read("src/pages/EventDetails.tsx");
   const partnerSheet = read("src/components/video-date/PartnerProfileSheet.tsx");
   const videoDate = read("src/pages/VideoDate.tsx");
 
@@ -22,6 +23,9 @@ test("web other-user profile entry points render canonical profile content", () 
   assert.match(profilePreview, /OtherUserFullProfileView/);
   assert.match(profilePreview, /useOtherUserFullProfile/);
   assert.match(profilePreview, /useOtherUserFullProfile\(profileId\)/);
+  assert.match(profilePreview, /refetch\(\)[\s\S]*result\.isError/);
+  assert.match(profilePreview, /result\.data\?\.id !== profileId/);
+  assert.match(profilePreview, /freshPreviewFailed \|\| !profile/);
   assert.doesNotMatch(profilePreview, /ProfilePhoto|LifestyleDetails|BottomNav|VibePlayer|resolveWebVibeVideoState/);
   assert.match(drawer, /OtherUserFullProfileView/);
   assert.match(drawer, /useOtherUserFullProfile/);
@@ -29,11 +33,14 @@ test("web other-user profile entry points render canonical profile content", () 
   assert.match(partnerSheet, /partnerProfileId/);
   assert.match(videoDate, /partnerProfileId=\{partnerId\}/);
   assert.match(lobbyCard, /navigate\(`\/user\/\$\{profile\.id\}`\)/);
+  assert.match(eventDetails, /navigate\(`\/user\/\$\{attendee\.id\}`\)/);
+  assert.match(eventDetails, /navigate\(`\/user\/\$\{profileId\}`\)/);
 
   assert.match(chatHeader, /ProfileDetailDrawer/);
   assert.match(chat, /ProfileDetailDrawer/);
   assert.match(matches, /ProfileDetailDrawer/);
   assert.match(swipeRow, /ProfileDetailDrawer/);
+  assert.equal(exists("src/components/ProfilePreview.tsx"), false);
 });
 
 test("adaptive web media is used for hero, gallery, and fullscreen profile photos", () => {
@@ -57,6 +64,7 @@ test("native chat and matches route profile actions to the canonical user route"
   const nativeMatches = read("apps/mobile/app/(tabs)/matches/index.tsx");
   const nativeProfilePreview = read("apps/mobile/app/profile-preview.tsx");
   const nativeLobby = read("apps/mobile/app/event/[eventId]/lobby.tsx");
+  const nativeEventDetails = read("apps/mobile/app/(tabs)/events/[id].tsx");
   const nativeVideoDate = read("apps/mobile/app/date/[id].tsx");
   const nativePartnerSheet = read("apps/mobile/components/video-date/PartnerProfileSheet.tsx");
 
@@ -74,10 +82,14 @@ test("native chat and matches route profile actions to the canonical user route"
   assert.match(nativeProfilePreview, /useUserProfile\(profileId\)/);
   assert.match(nativeProfilePreview, /UserProfileFullView/);
   assert.match(nativeProfilePreview, /isOwnProfile=\{false\}/);
+  assert.match(nativeProfilePreview, /refetch\(\)[\s\S]*result\.isError/);
+  assert.match(nativeProfilePreview, /result\.data\?\.id !== profileId/);
+  assert.match(nativeProfilePreview, /freshPreviewFailed \|\| \(isError && !profile\) \|\| !profile/);
   assert.doesNotMatch(nativeProfilePreview, /fetchMyProfile/);
   assert.doesNotMatch(nativeProfilePreview, /profileRowToUserProfileView/);
   assert.doesNotMatch(nativeProfilePreview, /onEditProfile/);
   assert.match(nativeLobby, /router\.push\(`\/user\/\$\{profile\.id\}`\)/);
+  assert.match(nativeEventDetails, /router\.push\(`\/user\/\$\{attendee\.id\}` as const\)/);
   assert.match(nativeVideoDate, /PartnerProfileSheet/);
   assert.match(nativePartnerSheet, /UserProfileFullView/);
   assert.match(nativePartnerSheet, /isOwnProfile=\{false\}/);
@@ -99,6 +111,8 @@ test("web and native fetchers preserve legacy prompt shapes for the canonical vi
     assert.match(source, /normalizeVibeTags/);
     assert.match(source, /row\.vibe_tags/);
   }
+  assert.doesNotMatch(nativeFetcher, /profileRowToUserProfileView/);
+  assert.doesNotMatch(nativeFetcher, /@\/lib\/profileApi/);
 });
 
 test("native full profile includes adaptive media and explicit verification status coverage", () => {

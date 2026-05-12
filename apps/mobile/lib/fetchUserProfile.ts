@@ -5,7 +5,6 @@
  *
  * Returns null if user not found.
  */
-import type { ProfileRow } from '@/lib/profileApi';
 import { supabase } from '@/lib/supabase';
 
 export type UserProfileView = {
@@ -174,18 +173,4 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
     vibes,
     vibe_tags: vibeTags,
   };
-}
-
-/** Map `fetchMyProfile` row → `UserProfileView` (extra ProfileRow fields ignored at runtime). */
-export function profileRowToUserProfileView(row: ProfileRow): UserProfileView {
-  return {
-    ...row,
-    zodiac: null,
-    display_location: row.location,
-    distance_label: null,
-    vibe_score: row.vibe_score ?? null,
-    vibe_score_label: row.vibe_score_label ?? null,
-    vibes: row.vibes ?? [],
-    vibe_tags: [],
-  } as UserProfileView;
 }
