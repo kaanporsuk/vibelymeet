@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
-import { Mic, Trash2, Lock, X } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { Mic, Send, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 interface VoiceRecorderProps {
   onRecordingComplete: (audioBlob: Blob, duration: number) => void;
+  onRecordingStart?: () => void;
   onCancel?: () => void;
   disabled?: boolean;
   onUnavailable?: () => void;
@@ -16,6 +17,7 @@ interface VoiceRecorderProps {
 
 const VoiceRecorder = ({
   onRecordingComplete,
+  onRecordingStart,
   onCancel,
   disabled = false,
   onUnavailable,
@@ -24,23 +26,26 @@ const VoiceRecorder = ({
   label = "Voice Note",
 }: VoiceRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
   const [duration, setDuration] = useState(0);
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(20).fill(0.1));
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const mimeTypeRef = useRef<string>('');
   const durationRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingSessionRef = useRef(0);
+  const cancelledSessionRef = useRef<number | null>(null);
+  const startInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
 
   // Request wake lock to prevent screen sleep
-  const requestWakeLock = async () => {
+  const requestWakeLock = useCallback(async () => {
     if ('wakeLock' in navigator) {
       try {
         wakeLockRef.current = await navigator.wakeLock.request('screen');
@@ -48,15 +53,45 @@ const VoiceRecorder = ({
         // Wake lock is optional; recording still works when the browser denies it.
       }
     }
-  };
+  }, []);
 
   // Release wake lock
-  const releaseWakeLock = () => {
+  const releaseWakeLock = useCallback(() => {
     if (wakeLockRef.current) {
       wakeLockRef.current.release();
       wakeLockRef.current = null;
     }
-  };
+  }, []);
+
+  const stopLiveResources = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      void audioContextRef.current.close().catch(() => undefined);
+      audioContextRef.current = null;
+    }
+
+    analyserRef.current = null;
+    releaseWakeLock();
+  }, [releaseWakeLock]);
+
+  const resetVisualState = useCallback(() => {
+    setDuration(0);
+    setAudioLevels(new Array(20).fill(0.1));
+  }, []);
 
   // Analyze audio for visualization
   const analyzeAudio = useCallback(() => {
@@ -68,12 +103,12 @@ const VoiceRecorder = ({
     // Sample 20 frequency bands
     const levels: number[] = [];
     const step = Math.floor(dataArray.length / 20);
-    
+
     for (let i = 0; i < 20; i++) {
       const value = dataArray[i * step] / 255;
       levels.push(Math.max(0.1, value));
     }
-    
+
     setAudioLevels(levels);
     animationFrameRef.current = requestAnimationFrame(analyzeAudio);
   }, []);
@@ -84,12 +119,31 @@ const VoiceRecorder = ({
       onUnavailable?.();
       return;
     }
+    if (isRecording || mediaRecorderRef.current || startInFlightRef.current) return;
+    startInFlightRef.current = true;
+
     try {
+      if (typeof MediaRecorder === 'undefined') {
+        throw new DOMException('MediaRecorder is not available', 'NotSupportedError');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        startInFlightRef.current = false;
+        return;
+      }
       streamRef.current = stream;
       
       // Set up audio analysis
-      const audioContext = new AudioContext();
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) {
+        throw new DOMException('AudioContext is not available', 'NotSupportedError');
+      }
+      const audioContext = new AudioContextCtor();
+      audioContextRef.current = audioContext;
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 256;
@@ -116,27 +170,58 @@ const VoiceRecorder = ({
       // Set up media recorder with detected MIME type
       const options = mimeType ? { mimeType } : undefined;
       const mediaRecorder = new MediaRecorder(stream, options);
+      const sessionId = recordingSessionRef.current + 1;
+      let stopHandled = false;
+      recordingSessionRef.current = sessionId;
+      cancelledSessionRef.current = null;
       mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      const chunks: Blob[] = [];
+      audioChunksRef.current = chunks;
       durationRef.current = 0;
+      resetVisualState();
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+        if (cancelledSessionRef.current !== sessionId && event.data.size > 0) {
+          chunks.push(event.data);
         }
       };
 
       mediaRecorder.onstop = () => {
+        if (stopHandled) return;
+        stopHandled = true;
+        const wasCancelled = cancelledSessionRef.current === sessionId;
+        const recordedDuration = durationRef.current;
         const blobType = mimeTypeRef.current || 'audio/webm';
-        const audioBlob = new Blob(audioChunksRef.current, { type: blobType });
-        onRecordingComplete(audioBlob, durationRef.current);
+
+        mediaRecorderRef.current = null;
+        audioChunksRef.current = [];
+        mimeTypeRef.current = '';
+        durationRef.current = 0;
+        cancelledSessionRef.current = null;
+        startInFlightRef.current = false;
+        stopLiveResources();
+
+        if (!wasCancelled && chunks.length > 0) {
+          if (mountedRef.current) {
+            setIsRecording(false);
+            resetVisualState();
+          }
+          const audioBlob = new Blob(chunks, { type: blobType });
+          onRecordingComplete(audioBlob, recordedDuration);
+        } else if (!wasCancelled) {
+          if (mountedRef.current) {
+            setIsRecording(false);
+            resetVisualState();
+          }
+          onCancel?.();
+        }
       };
 
       mediaRecorder.start(100);
       setIsRecording(true);
-      setDuration(0);
+      onRecordingStart?.();
 
-      // Start timer — update both state and ref
+      // Start timer; update both state and ref.
       timerRef.current = setInterval(() => {
         setDuration((prev) => {
           const next = prev + 1;
@@ -157,6 +242,13 @@ const VoiceRecorder = ({
       }
     } catch (err: unknown) {
       const name = err instanceof Error ? err.name : "";
+      stopLiveResources();
+      mediaRecorderRef.current = null;
+      audioChunksRef.current = [];
+      durationRef.current = 0;
+      startInFlightRef.current = false;
+      if (!mountedRef.current) return;
+      resetVisualState();
       if (name === "AbortError" || name === "NotAllowedError") {
         toast.error("Microphone access was denied or cancelled");
       } else if (name === "NotSupportedError") {
@@ -169,89 +261,57 @@ const VoiceRecorder = ({
 
   // Stop recording
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-    
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
 
-    releaseWakeLock();
+    startInFlightRef.current = false;
     setIsRecording(false);
-    setIsLocked(false);
-    setDragOffset({ x: 0, y: 0 });
     setAudioLevels(new Array(20).fill(0.1));
-  }, []);
+    try {
+      if (recorder.state !== 'inactive') {
+        recorder.stop();
+      }
+    } catch (err) {
+      mediaRecorderRef.current = null;
+      console.error('Failed to stop voice recording:', err);
+      toast.error('Could not finish voice recording');
+      onCancel?.();
+    } finally {
+      stopLiveResources();
+    }
+  }, [onCancel, stopLiveResources]);
 
   // Cancel recording
-  const cancelRecording = useCallback(() => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.ondataavailable = null;
-      mediaRecorderRef.current.onstop = null;
-      if (mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-    }
-    
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-    
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-    
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
+  const cancelRecording = useCallback((opts?: { silent?: boolean }) => {
+    const recorder = mediaRecorderRef.current;
+    cancelledSessionRef.current = recordingSessionRef.current;
+    startInFlightRef.current = false;
 
-    releaseWakeLock();
     setIsRecording(false);
-    setIsLocked(false);
-    setDragOffset({ x: 0, y: 0 });
-    setAudioLevels(new Array(20).fill(0.1));
-    
-    toast.info('Recording discarded', {
-      icon: <Trash2 className="w-4 h-4 text-destructive" />,
-    });
-    
-    onCancel?.();
-  }, [onCancel]);
+    resetVisualState();
+    audioChunksRef.current = [];
 
-  // Handle drag
-  const handleDrag = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    setDragOffset({ x: info.offset.x, y: info.offset.y });
-  };
-
-  // Handle drag end
-  const handleDragEnd = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    // Slide up to lock
-    if (info.offset.y < -60 && !isLocked) {
-      setIsLocked(true);
-      setDragOffset({ x: 0, y: 0 });
-      if ('vibrate' in navigator) {
-        navigator.vibrate([30, 20, 30]);
+    if (recorder) {
+      try {
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        } else {
+          mediaRecorderRef.current = null;
+        }
+      } catch {
+        mediaRecorderRef.current = null;
       }
-      return;
     }
 
-    // Slide left to cancel
-    if (info.offset.x < -80) {
-      cancelRecording();
-      return;
-    }
+    stopLiveResources();
 
-    setDragOffset({ x: 0, y: 0 });
-  };
+    if (!opts?.silent) {
+      toast.info('Recording discarded', {
+        icon: <Trash2 className="w-4 h-4 text-destructive" />,
+      });
+    }
+    onCancel?.();
+  }, [onCancel, resetVisualState, stopLiveResources]);
 
   // Format duration
   const formatDuration = (seconds: number) => {
@@ -263,31 +323,30 @@ const VoiceRecorder = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      releaseWakeLock();
+      mountedRef.current = false;
+      startInFlightRef.current = false;
+      cancelledSessionRef.current = recordingSessionRef.current;
+      stopLiveResources();
+      const recorder = mediaRecorderRef.current;
+      if (recorder) {
+        try {
+          if (recorder.state !== 'inactive') {
+            recorder.stop();
+          }
+        } catch {
+          // Best-effort cleanup during unmount.
+        }
+        mediaRecorderRef.current = null;
+      }
     };
-  }, []);
-
-  // Cancel slide threshold
-  const cancelThreshold = -80;
-  const lockThreshold = -60;
-  const showCancelHint = dragOffset.x < cancelThreshold / 2;
-  const showLockHint = dragOffset.y < lockThreshold / 2 && !isLocked;
+  }, [stopLiveResources]);
 
   if (!isRecording) {
     return (
       <motion.button
         type="button"
         whileTap={{ scale: 0.9 }}
-        onPointerDown={startRecording}
-        onKeyDown={(event) => {
-          if (event.repeat) return;
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            void startRecording();
-          }
-        }}
+        onClick={() => void startRecording()}
         disabled={disabled}
         aria-label={variant === "action" ? label : "Record voice message"}
         title={variant === "action" ? label : "Record voice message"}
@@ -306,68 +365,47 @@ const VoiceRecorder = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center pb-safe pointer-events-none">
-      {/* Backdrop */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm pointer-events-auto"
-        onClick={isLocked ? undefined : cancelRecording}
-      />
-
-      {/* Recording interface */}
+    <div className="fixed inset-x-0 bottom-0 z-50 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pointer-events-none">
       <motion.div
         initial={{ y: 100, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 100, opacity: 0 }}
-        className="relative w-full max-w-2xl mx-4 mb-4 pointer-events-auto"
+        className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-[28px] border border-white/10 bg-[#101014]/95 p-2 shadow-2xl shadow-black/45 backdrop-blur-xl pointer-events-auto"
       >
-        {/* Lock indicator */}
-        <AnimatePresence>
-          {showLockHint && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="absolute -top-20 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
-            >
-              <div className="w-12 h-12 rounded-full bg-secondary/80 backdrop-blur-sm flex items-center justify-center border border-border">
-                <Lock className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <span className="text-xs text-muted-foreground">Release to lock</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.92 }}
+          onClick={() => cancelRecording()}
+          className="flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/80 transition-colors hover:bg-destructive/18 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/45"
+          aria-label="Discard voice recording"
+          title="Discard voice recording"
+        >
+          <Trash2 className="h-5 w-5" aria-hidden />
+        </motion.button>
 
-        {/* Cancel indicator */}
-        <AnimatePresence>
-          {showCancelHint && (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-2"
-            >
-              <motion.div
-                animate={{ scale: [1, 1.1, 1] }}
-                transition={{ repeat: Infinity, duration: 0.5 }}
-                className="w-12 h-12 rounded-full bg-destructive/20 flex items-center justify-center"
-              >
-                <Trash2 className="w-5 h-5 text-destructive" />
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="min-w-0 flex-1 rounded-[22px] border border-white/[0.08] bg-white/[0.035] px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <motion.span
+                animate={{ scale: [1, 1.18, 1] }}
+                transition={{ repeat: Infinity, duration: 1 }}
+                className="h-2.5 w-2.5 shrink-0 rounded-full bg-pink-500 shadow-[0_0_12px_rgba(236,72,153,0.8)]"
+                aria-hidden
+              />
+              <span className="truncate text-sm font-semibold text-white/92">
+                Recording
+              </span>
+            </div>
+            <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-white">
+              {formatDuration(duration)}
+            </span>
+          </div>
 
-        {/* Main recording card */}
-        <div className="glass-card rounded-3xl border border-border/50 p-4 shadow-2xl">
-          {/* Waveform visualization */}
-          <div className="flex items-center justify-center gap-0.5 h-16 mb-4">
+          <div className="mt-2 flex h-7 items-center justify-center gap-0.5 overflow-hidden">
             {audioLevels.map((level, i) => (
               <motion.div
                 key={i}
-                className="w-1.5 rounded-full bg-gradient-to-t from-pink-500 to-pink-400"
+                className="w-1.5 rounded-full bg-gradient-to-t from-neon-violet to-neon-pink"
                 animate={{
                   height: `${level * 100}%`,
                 }}
@@ -375,89 +413,22 @@ const VoiceRecorder = ({
                   duration: 0.1,
                   ease: 'linear',
                 }}
-                style={{ minHeight: '8px' }}
+                style={{ minHeight: '6px' }}
               />
             ))}
           </div>
-
-          {/* Duration and controls */}
-          <div className="flex items-center justify-between">
-            {/* Cancel button (locked mode) */}
-            {isLocked ? (
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={cancelRecording}
-                className="w-12 h-12 rounded-full bg-destructive/20 flex items-center justify-center text-destructive"
-              >
-                <X className="w-5 h-5" />
-              </motion.button>
-            ) : (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                <motion.span
-                  animate={{ opacity: [1, 0.5, 1] }}
-                  transition={{ repeat: Infinity, duration: 1 }}
-                >
-                  ← Slide to cancel
-                </motion.span>
-              </div>
-            )}
-
-            {/* Timer */}
-            <div className="flex items-center gap-2">
-              <motion.div
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ repeat: Infinity, duration: 1 }}
-                className="w-3 h-3 rounded-full bg-pink-500"
-              />
-              <span className="font-mono text-lg font-semibold text-foreground">
-                {formatDuration(duration)}
-              </span>
-            </div>
-
-            {/* Send/Lock button */}
-            <motion.button
-              drag={!isLocked}
-              dragConstraints={{ top: -100, bottom: 0, left: -150, right: 0 }}
-              dragElastic={0.1}
-              onDrag={handleDrag}
-              onDragEnd={handleDragEnd}
-              whileTap={isLocked ? { scale: 0.9 } : undefined}
-              onClick={isLocked ? stopRecording : undefined}
-              onPointerUp={!isLocked ? stopRecording : undefined}
-              animate={{
-                x: isLocked ? 0 : dragOffset.x,
-                y: isLocked ? 0 : dragOffset.y,
-              }}
-              className={cn(
-                "w-14 h-14 rounded-full flex items-center justify-center shadow-lg touch-none select-none transition-colors",
-                isLocked 
-                  ? "bg-gradient-to-r from-neon-violet to-neon-pink cursor-pointer" 
-                  : "bg-gradient-to-r from-pink-500 to-pink-400"
-              )}
-            >
-              {isLocked ? (
-                <motion.div
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="w-6 h-6 rounded bg-white"
-                />
-              ) : (
-                <Mic className="w-6 h-6 text-white" />
-              )}
-            </motion.button>
-          </div>
-
-          {/* Lock hint */}
-          {!isLocked && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center mt-3 text-xs text-muted-foreground"
-            >
-              ↑ Slide up to lock • Release to send
-            </motion.div>
-          )}
         </div>
+
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.92 }}
+          onClick={stopRecording}
+          className="flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-neon-violet to-neon-pink text-white shadow-lg shadow-pink-500/25 transition-opacity hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-pink/55"
+          aria-label="Send voice recording"
+          title="Send voice recording"
+        >
+          <Send className="h-5 w-5" aria-hidden />
+        </motion.button>
       </motion.div>
     </div>
   );

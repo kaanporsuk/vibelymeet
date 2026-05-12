@@ -792,7 +792,7 @@ test("Native chat composer wires plus attachment tray and Schedule share sheet",
   );
   assert.match(
     src,
-    /showAttachmentTray \? \([\s\S]*accessibilityLabel="Photo"[\s\S]*accessibilityLabel="Vibe Clip - record or choose a clip"[\s\S]*accessibilityLabel="Share Vibely Schedule"/,
+    /showAttachmentTray && !recording \? \([\s\S]*accessibilityLabel="Photo"[\s\S]*accessibilityLabel="Vibe Clip - record or choose a clip"[\s\S]*accessibilityLabel="Share Vibely Schedule"/,
     "Native attachment tray must expose Photo, Clip, and Schedule",
   );
   assert.match(
