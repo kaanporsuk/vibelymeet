@@ -17,6 +17,7 @@ export type ProfileRow = {
   location: string | null;
   location_data: { lat: number; lng: number } | null;
   job: string | null;
+  company: string | null;
   about_me: string | null;
   /** @deprecated Prefer relationship_intent for new reads */
   looking_for: string | null;
@@ -150,7 +151,7 @@ export async function fetchProfileLiveCounts(userId: string): Promise<{
 
 /** Full profile row for PostgREST. */
 const PROFILE_SELECT_WITH_VIBE =
-  'id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs';
+  'id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until, vibe_score, vibe_score_label, preferred_age_min, preferred_age_max, event_discovery_prefs';
 
 /**
  * Minimal `profiles` projection when the first select fails (missing vibe columns, discovery
@@ -158,7 +159,7 @@ const PROFILE_SELECT_WITH_VIBE =
  * with the same missing fields would always fail and break `fetchMyProfile`.
  */
 const PROFILE_SELECT_BASE =
-  'id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
+  'id, updated_at, name, birth_date, age, gender, interested_in, tagline, height_cm, location, job, company, about_me, looking_for, relationship_intent, onboarding_complete, photos, avatar_url, bunny_video_uid, bunny_video_status, total_matches, total_conversations, lifestyle, prompts, vibe_caption, photo_verified, phone_number, phone_verified, email_verified, verified_email, is_premium, premium_until';
 
 export async function fetchMyProfile(): Promise<ProfileRow | null> {
   try {
@@ -225,6 +226,7 @@ export async function fetchMyProfile(): Promise<ProfileRow | null> {
       updated_at: (row.updated_at as string | null | undefined) ?? null,
       relationship_intent: (row.relationship_intent as string | null) ?? null,
       location_data: locationResult?.location_data ?? null,
+      company: (row.company as string | null | undefined) ?? null,
       onboarding_complete: (row.onboarding_complete as boolean | null) ?? null,
       events_attended: counts.events,
       total_matches: counts.matches,

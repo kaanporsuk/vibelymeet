@@ -45,7 +45,6 @@ import { useArchiveMatch } from '@/lib/useArchiveMatch';
 import { useMuteMatch, type MuteDuration } from '@/lib/useMuteMatch';
 import { MatchActionsSheet } from '@/components/match/MatchActionsSheet';
 import { ReportFlowModal } from '@/components/match/ReportFlowModal';
-import { ProfileDetailSheet } from '@/components/match/ProfileDetailSheet';
 import { UnmatchSnackbar } from '@/components/match/UnmatchSnackbar';
 import { UnmatchConfirmationSheet } from '@/components/match/UnmatchConfirmationSheet';
 import { SwipeableMatchConversationRow } from '@/components/matches/SwipeableMatchConversationRow';
@@ -217,7 +216,6 @@ export default function MatchesListScreen() {
 
   const [pendingUnmatchMatchId, setPendingUnmatchMatchId] = useState<string | null>(null);
   const [pendingUnmatchName, setPendingUnmatchName] = useState<string>('');
-  const [profileSheetMatch, setProfileSheetMatch] = useState<{ id: string; name: string; age: number; image: string } | null>(null);
   const { initiateUnmatch, cancelPending } = useUndoableUnmatch({
     onUnmatchComplete: () => {
       setPendingUnmatchMatchId(null);
@@ -452,7 +450,8 @@ export default function MatchesListScreen() {
           onLongPress={() => setActionsMatch(m)}
           onSwipeRightCommit={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            (router as { push: (p: string) => void }).push(`/user/${m.id}`);
+            const query = m.matchId ? `?matchId=${encodeURIComponent(m.matchId)}` : '';
+            (router as { push: (p: string) => void }).push(`/user/${encodeURIComponent(m.id)}${query}`);
           }}
           onSwipeLeftCommit={() => {
             void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -886,12 +885,8 @@ export default function MatchesListScreen() {
         onViewProfile={
           actionsMatch
             ? () => {
-                setProfileSheetMatch({
-                  id: actionsMatch.id,
-                  name: actionsMatch.name,
-                  age: actionsMatch.age,
-                  image: actionsMatch.image,
-                });
+                const query = actionsMatch.matchId ? `?matchId=${encodeURIComponent(actionsMatch.matchId)}` : '';
+                router.push(`/user/${encodeURIComponent(actionsMatch.id)}${query}` as Href);
                 setActionsMatch(null);
               }
             : undefined
@@ -915,12 +910,6 @@ export default function MatchesListScreen() {
           }
         }}
         loading={actionLoading}
-      />
-
-      <ProfileDetailSheet
-        visible={!!profileSheetMatch}
-        onClose={() => setProfileSheetMatch(null)}
-        match={profileSheetMatch}
       />
 
       <UnmatchSnackbar

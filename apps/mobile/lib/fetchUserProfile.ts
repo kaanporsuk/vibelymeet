@@ -20,6 +20,7 @@ export type UserProfileView = {
   display_location: string | null;
   distance_label: string | null;
   job: string | null;
+  company: string | null;
   height_cm: number | null;
   about_me: string | null;
   /** @deprecated Compatibility-only fallback. Prefer relationship_intent. */
@@ -33,26 +34,55 @@ export type UserProfileView = {
   lifestyle: Record<string, string> | null;
   prompts: Array<{ question: string; answer: string }> | null;
   photo_verified: boolean | null;
+  email_verified: boolean | null;
+  phone_verified: boolean | null;
   vibe_score: number | null;
   vibe_score_label: string | null;
   is_premium: boolean | null;
   events_attended: number | null;
   vibes: string[];
+  vibe_tags: Array<{ id?: string; label: string; emoji?: string; category?: string }>;
 };
 
 function normalizePrompts(raw: unknown): Array<{ question: string; answer: string }> | null {
   if (!raw || !Array.isArray(raw)) return null;
   const out: Array<{ question: string; answer: string }> = [];
+  const pickString = (value: unknown) => (typeof value === 'string' ? value : '');
   for (const p of raw) {
     if (!p || typeof p !== 'object') continue;
-    const q = (p as { question?: unknown }).question;
-    const a = (p as { answer?: unknown }).answer;
+    const row = p as Record<string, unknown>;
+    const q = pickString(row.question) || pickString(row.prompt) || pickString(row.title) || pickString(row.label);
+    const a = pickString(row.answer) || pickString(row.response) || pickString(row.value) || pickString(row.text);
     out.push({
-      question: typeof q === 'string' ? q : '',
-      answer: typeof a === 'string' ? a : '',
+      question: q,
+      answer: a,
     });
   }
   return out.length > 0 ? out : null;
+}
+
+function normalizeVibeTags(raw: unknown): UserProfileView['vibe_tags'] {
+  if (!Array.isArray(raw)) return [];
+  const out: UserProfileView['vibe_tags'] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const label = typeof row.label === 'string' ? row.label.trim() : '';
+    if (!label) continue;
+    const key = label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      id: typeof row.id === 'string' && row.id.trim() ? row.id.trim() : undefined,
+      label,
+      emoji: typeof row.emoji === 'string' && row.emoji.trim() ? row.emoji.trim() : undefined,
+      category: typeof row.category === 'string' && row.category.trim() ? row.category.trim() : undefined,
+    });
+  }
+
+  return out;
 }
 
 export async function fetchUserProfile(profileId: string): Promise<UserProfileView | null> {
@@ -83,6 +113,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
   const vibes = Array.isArray(row.vibes)
     ? row.vibes.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
     : [];
+  const vibeTags = normalizeVibeTags(row.vibe_tags);
 
   return {
     id: row.id,
@@ -101,6 +132,7 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
           : null,
     distance_label: typeof row.distance_label === 'string' ? row.distance_label : null,
     job: typeof row.job === 'string' ? row.job : row.job === null ? null : null,
+    company: typeof row.company === 'string' ? row.company : row.company === null ? null : null,
     height_cm: typeof row.height_cm === 'number' ? row.height_cm : row.height_cm === null ? null : null,
     about_me: typeof row.about_me === 'string' ? row.about_me : row.about_me === null ? null : null,
     looking_for: typeof row.looking_for === 'string' ? row.looking_for : row.looking_for === null ? null : null,
@@ -129,11 +161,16 @@ export async function fetchUserProfile(profileId: string): Promise<UserProfileVi
           : null,
     prompts: normalizePrompts(row.prompts),
     photo_verified: typeof row.photo_verified === 'boolean' ? row.photo_verified : row.photo_verified === null ? null : null,
+    email_verified:
+      typeof row.email_verified === 'boolean' ? row.email_verified : row.email_verified === null ? null : null,
+    phone_verified:
+      typeof row.phone_verified === 'boolean' ? row.phone_verified : row.phone_verified === null ? null : null,
     vibe_score: vibeScore,
     vibe_score_label: vibeScoreLabel,
     is_premium: typeof row.is_premium === 'boolean' ? row.is_premium : row.is_premium === null ? null : null,
     events_attended: typeof row.events_attended === 'number' ? row.events_attended : null,
     vibes,
+    vibe_tags: vibeTags,
   };
 }
 
@@ -146,5 +183,6 @@ export function profileRowToUserProfileView(row: ProfileRow): UserProfileView {
     vibe_score: row.vibe_score ?? null,
     vibe_score_label: row.vibe_score_label ?? null,
     vibes: row.vibes ?? [],
+    vibe_tags: [],
   } as UserProfileView;
 }
