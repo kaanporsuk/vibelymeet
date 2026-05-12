@@ -1342,6 +1342,15 @@ const Chat = () => {
     }
   };
 
+  const handleVoiceRecordingStart = useCallback(() => {
+    setIsRecording(true);
+    setShowAttachmentTray(false);
+  }, []);
+
+  const handleVoiceRecordingCancel = useCallback(() => {
+    setIsRecording(false);
+  }, []);
+
   const handleVideoRecordingComplete = async (
     videoBlob: Blob,
     duration: number,
@@ -1431,7 +1440,7 @@ const Chat = () => {
 
   const hasText = newMessage.trim().length > 0;
   const hasActiveConversation = Boolean(chatData?.matchId && id && currentUserId);
-  const composerMediaLocked = sendingPhoto || isRecordingVideo;
+  const composerMediaLocked = sendingPhoto || isRecordingVideo || isRecording;
   const quickActionButtonClass =
     "inline-flex h-11 min-h-11 w-full items-center justify-start gap-2 rounded-xl border border-border/35 bg-secondary/35 px-3 text-left text-xs font-medium text-foreground/90 transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 disabled:pointer-events-none disabled:opacity-45";
 
@@ -2164,8 +2173,9 @@ const Chat = () => {
                 <VoiceRecorder
                   disabled={!hasActiveConversation}
                   onUnavailable={() => toast.error("No active conversation found")}
+                  onRecordingStart={handleVoiceRecordingStart}
                   onRecordingComplete={handleVoiceRecordingComplete}
-                  onCancel={() => setIsRecording(false)}
+                  onCancel={handleVoiceRecordingCancel}
                   className={CHAT_COMPOSER_CONTROL_CLASS}
                 />
               </Suspense>
@@ -2322,8 +2332,9 @@ const Chat = () => {
                     label="Voice Note"
                     disabled={!hasActiveConversation || hasText || composerMediaLocked}
                     onUnavailable={() => toast.error("No active conversation found")}
+                    onRecordingStart={handleVoiceRecordingStart}
                     onRecordingComplete={handleVoiceRecordingComplete}
-                    onCancel={() => setIsRecording(false)}
+                    onCancel={handleVoiceRecordingCancel}
                     className={quickActionButtonClass}
                   />
                 </Suspense>

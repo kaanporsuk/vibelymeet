@@ -30,7 +30,13 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import { useAudioRecorder, RecordingPresets, setAudioModeAsync, requestRecordingPermissionsAsync } from 'expo-audio';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  setAudioModeAsync,
+  requestRecordingPermissionsAsync,
+} from 'expo-audio';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Colors from '@/constants/Colors';
 import { ErrorState } from '@/components/ui';
@@ -173,6 +179,12 @@ const COMPOSER_GAP = 6;
 const COMPOSER_INPUT_MAX_HEIGHT = 120;
 const MEDIA_CARD_MIN_WIDTH = 150;
 const MEDIA_CARD_MAX_WIDTH = 280;
+const VOICE_RECORDING_BARS = [0.3, 0.62, 0.42, 0.75, 0.38, 0.58, 0.48, 0.82, 0.34, 0.7, 0.46, 0.64];
+
+function formatVoiceRecordingDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  return `${Math.floor(safeSeconds / 60)}:${(safeSeconds % 60).toString().padStart(2, '0')}`;
+}
 
 function isPickedVideoAsset(asset: ImagePicker.ImagePickerAsset): boolean {
   if (asset.type === 'video') return true;
@@ -207,6 +219,15 @@ async function fileSizeBytesForVideoAsset(
     }
   }
   return null;
+}
+
+async function discardTemporaryVoiceUri(uri: string | null | undefined): Promise<void> {
+  if (!uri || uri.startsWith('blob:')) return;
+  try {
+    await FileSystem.deleteAsync(uri, { idempotent: true });
+  } catch {
+    // Best effort only; cancel must never enter the upload/send path.
+  }
 }
 
 function getAdaptiveChatMediaWidth(windowWidth: number): number {
@@ -673,7 +694,13 @@ export default function ChatThreadScreen() {
   const [photoViewer, setPhotoViewer] = useState<{ initialId: string } | null>(null);
   const [videoViewer, setVideoViewer] = useState<{ uri: string; poster?: string | null } | null>(null);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const audioRecorderState = useAudioRecorderState(audioRecorder, 250);
   const voiceRecordStartedAtRef = useRef<number | null>(null);
+  const voiceStopIntentRef = useRef<'send' | 'cancel' | null>(null);
+  const voiceStopInFlightRef = useRef(false);
+  const voiceStartInFlightRef = useRef(false);
+  const screenMountedRef = useRef(true);
+  const recordingRef = useRef(false);
   const [recording, setRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -713,6 +740,50 @@ export default function ChatThreadScreen() {
   const [newBelowCue, setNewBelowCue] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
   const { show: showAppDialog, dialog: appDialog } = useVibelyDialog();
+
+  useEffect(() => {
+    recordingRef.current = recording;
+  }, [recording]);
+
+  useEffect(
+    () => () => {
+      screenMountedRef.current = false;
+      voiceStartInFlightRef.current = false;
+    },
+    [],
+  );
+
+  useEffect(
+    () => () => {
+      if (voiceStopInFlightRef.current && voiceStopIntentRef.current === 'send') return;
+      if (!recordingRef.current && !audioRecorder.isRecording) return;
+      voiceStopIntentRef.current = 'cancel';
+      voiceRecordStartedAtRef.current = null;
+      void audioRecorder
+        .stop()
+        .then(() => discardTemporaryVoiceUri(audioRecorder.uri))
+        .catch(() => undefined);
+    },
+    [audioRecorder],
+  );
+
+  useEffect(() => {
+    if (!exiting) return;
+    if (voiceStopInFlightRef.current && voiceStopIntentRef.current === 'send') return;
+    if (!recordingRef.current && !audioRecorder.isRecording) return;
+
+    voiceStopInFlightRef.current = true;
+    voiceStopIntentRef.current = 'cancel';
+    voiceRecordStartedAtRef.current = null;
+    void audioRecorder
+      .stop()
+      .then(() => discardTemporaryVoiceUri(audioRecorder.uri))
+      .catch(() => undefined)
+      .finally(() => {
+        voiceStopIntentRef.current = null;
+        voiceStopInFlightRef.current = false;
+      });
+  }, [audioRecorder, exiting]);
 
   /** Render-null instantly so the chat panel disappears, dismiss the stack, replace to matches, and unconditionally repeat at 300ms via a still-mounted watchdog. The cleanup effect cancels the timer on real unmount. */
   const goToMatches = useCallback(() => {
@@ -1226,16 +1297,30 @@ export default function ChatThreadScreen() {
   };
 
   const startVoiceRecording = async () => {
+    if (recording || voiceStopInFlightRef.current || voiceStartInFlightRef.current) return;
+    voiceStartInFlightRef.current = true;
     setVoiceError(null);
+    voiceStopIntentRef.current = null;
     try {
       const { granted } = await requestRecordingPermissionsAsync();
       if (!granted) throw new Error('Permission denied');
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
+      if (!screenMountedRef.current) return;
       voiceRecordStartedAtRef.current = Date.now();
       audioRecorder.record();
+      if (!screenMountedRef.current) {
+        voiceRecordStartedAtRef.current = null;
+        await audioRecorder.stop().catch(() => undefined);
+        await discardTemporaryVoiceUri(audioRecorder.uri);
+        return;
+      }
       setRecording(true);
+      setShowAttachmentTray(false);
     } catch (e) {
+      voiceRecordStartedAtRef.current = null;
+      voiceStopIntentRef.current = null;
+      if (!screenMountedRef.current) return;
       const isPerm =
         e instanceof Error &&
         (e.message.toLowerCase().includes('permission') || e.message.toLowerCase().includes('denied'));
@@ -1259,17 +1344,50 @@ export default function ChatThreadScreen() {
           primaryAction: { label: 'OK', onPress: () => {} },
         });
       }
+    } finally {
+      voiceStartInFlightRef.current = false;
+    }
+  };
+
+  const cancelVoiceRecording = async (opts?: { silent?: boolean }) => {
+    if (voiceStopInFlightRef.current) return;
+    voiceStopInFlightRef.current = true;
+    voiceStopIntentRef.current = 'cancel';
+    setRecording(false);
+    setVoiceError(null);
+    voiceRecordStartedAtRef.current = null;
+
+    try {
+      if (audioRecorder.isRecording || recordingRef.current) {
+        await audioRecorder.stop();
+      }
+      await discardTemporaryVoiceUri(audioRecorder.uri);
+      if (!opts?.silent) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch {
+      await discardTemporaryVoiceUri(audioRecorder.uri);
+    } finally {
+      voiceStopIntentRef.current = null;
+      voiceStopInFlightRef.current = false;
     }
   };
 
   const stopVoiceRecordingAndSend = async () => {
+    if (voiceStopInFlightRef.current) return;
     if (!data?.matchId || !user?.id) {
-      setRecording(false);
+      await cancelVoiceRecording({ silent: true });
       return;
     }
+    voiceStopInFlightRef.current = true;
+    voiceStopIntentRef.current = 'send';
     setRecording(false);
     try {
       await audioRecorder.stop();
+      if (voiceStopIntentRef.current !== 'send') {
+        await discardTemporaryVoiceUri(audioRecorder.uri);
+        return;
+      }
       const uri = audioRecorder.uri;
       if (!uri) throw new Error('No recording file');
       const elapsed =
@@ -1281,11 +1399,14 @@ export default function ChatThreadScreen() {
       const fromRecorder = typeof recAny.currentTime === 'number' ? recAny.currentTime : 0;
       const durationSec = Math.max(1, Math.round(elapsed > 0.3 ? elapsed : fromRecorder > 0 ? fromRecorder : 1));
       const stable = await copyUriToChatOutboxCache(uri, extForPayload('voice'));
-      void enqueue({
+      const queuedId = enqueue({
         matchId: data.matchId,
         otherUserId: otherUserId ?? '',
         payload: { kind: 'voice', uri: stable, durationSeconds: durationSec },
       });
+      if (queuedId && stable !== uri) {
+        await discardTemporaryVoiceUri(uri);
+      }
     } catch (e) {
       const msg = chatFriendlyErrorFromUnknown(e);
       if (!(isOffline && isLikelyNetworkFailure(e))) {
@@ -1296,6 +1417,10 @@ export default function ChatThreadScreen() {
           primaryAction: { label: 'OK', onPress: () => {} },
         });
       }
+    } finally {
+      voiceRecordStartedAtRef.current = null;
+      voiceStopIntentRef.current = null;
+      voiceStopInFlightRef.current = false;
     }
   };
 
@@ -1779,6 +1904,14 @@ export default function ChatThreadScreen() {
   const composerMediaError = voiceError || videoError;
   const suppressComposerMediaError =
     !!composerMediaError && isOffline && isLikelyNetworkFailure({ message: composerMediaError });
+  const voiceRecordingSeconds = recording
+    ? Math.max(
+        Math.round((audioRecorderState.durationMillis ?? 0) / 1000),
+        voiceRecordStartedAtRef.current != null
+          ? Math.floor((Date.now() - voiceRecordStartedAtRef.current) / 1000)
+          : 0,
+      )
+    : 0;
 
   const renderBubbleContent = (
     item: ThreadMessage,
@@ -2553,21 +2686,7 @@ export default function ChatThreadScreen() {
             },
           ]}
         >
-          {recording ? (
-            <View style={styles.recordingHintRow}>
-              <View
-                style={[
-                  styles.recordingHintPill,
-                  { backgroundColor: theme.surface, borderColor: 'rgba(255,255,255,0.1)' },
-                ]}
-              >
-                <Text style={[styles.recordingHintPillText, { color: theme.textSecondary }]}>
-                  Recording… Tap mic to send
-                </Text>
-              </View>
-            </View>
-          ) : null}
-          {showAttachmentTray ? (
+          {showAttachmentTray && !recording ? (
             <View
               style={[
                 styles.attachmentTray,
@@ -2629,73 +2748,141 @@ export default function ChatThreadScreen() {
               </Pressable>
             </View>
           ) : null}
-          <View style={styles.composerDockRow}>
-            <Pressable
-              style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
-              onPress={() => setShowAttachmentTray((open) => !open)}
-              disabled={shellLoading || !data?.matchId}
-              accessibilityLabel={showAttachmentTray ? 'Close attachments' : 'Open attachments'}
-              accessibilityState={{ expanded: showAttachmentTray, disabled: shellLoading || !data?.matchId }}
-            >
-              <Ionicons name={showAttachmentTray ? 'close' : 'add'} size={24} color={theme.textSecondary} />
-            </Pressable>
-            <TextInput
-              ref={inputRef}
+          {recording ? (
+            <View
               style={[
-                styles.inputDock,
+                styles.voiceRecordingBar,
                 {
-                  borderColor: 'rgba(255,255,255,0.1)',
-                  color: theme.text,
-                  backgroundColor: theme.surface,
-                  opacity: shellLoading ? 0.55 : 1,
+                  borderColor: 'rgba(236,72,153,0.24)',
+                  backgroundColor: 'rgba(14,14,20,0.96)',
                 },
               ]}
-              placeholder={shellLoading ? 'Loading…' : 'Message'}
-              placeholderTextColor={theme.textSecondary}
-              value={input}
-              onChangeText={handleInputChange}
-              multiline
-              blurOnSubmit={false}
-              maxLength={2000}
-              editable={!shellLoading && !composerInputLocked}
-            />
-            <Pressable
-              style={[
-                styles.composerIconBtn,
-                {
-                  backgroundColor: recording
-                    ? theme.dangerSoft
-                    : voiceReplyHint
-                      ? 'rgba(139,92,246,0.18)'
-                      : theme.muted,
-                },
-                voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
-              ]}
-              onPress={handleVoicePress}
-              disabled={(shellLoading || composerInputLocked) && !recording}
-              accessibilityLabel="Voice message"
             >
-              {sendingVoice ? (
-                <ActivityIndicator size="small" color={theme.tint} />
-              ) : recording ? (
-                <Ionicons name="stop" size={20} color={theme.danger} />
-              ) : (
-                <Ionicons name="mic-outline" size={20} color={voiceReplyHint ? 'rgba(139,92,246,1)' : theme.textSecondary} />
-              )}
-            </Pressable>
-            <Pressable
-              style={[
-                styles.sendFab,
-                { backgroundColor: theme.tint },
-                sendFabDisabled && styles.sendBtnDisabled,
-              ]}
-              onPress={handleSend}
-              disabled={sendFabDisabled}
-              accessibilityLabel="Send message"
-            >
-              <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
-            </Pressable>
-          </View>
+              <Pressable
+                onPress={() => void cancelVoiceRecording()}
+                style={({ pressed }) => [
+                  styles.voiceRecordingControl,
+                  {
+                    backgroundColor: 'rgba(255,255,255,0.06)',
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    opacity: pressed ? 0.82 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Discard voice recording"
+              >
+                <Ionicons name="trash-outline" size={20} color={theme.textSecondary} />
+              </Pressable>
+
+              <View style={styles.voiceRecordingCenter}>
+                <View style={styles.voiceRecordingMetaRow}>
+                  <View style={styles.voiceRecordingState}>
+                    <View style={[styles.voiceRecordingDot, { backgroundColor: theme.neonPink }]} />
+                    <Text numberOfLines={1} style={[styles.voiceRecordingLabel, { color: theme.text }]}>
+                      Recording
+                    </Text>
+                  </View>
+                  <Text style={[styles.voiceRecordingTimer, { color: theme.text }]}>
+                    {formatVoiceRecordingDuration(voiceRecordingSeconds)}
+                  </Text>
+                </View>
+                <View style={styles.voiceRecordingWaveform} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                  {VOICE_RECORDING_BARS.map((level, index) => {
+                    const isLifted = (voiceRecordingSeconds + index) % 3 === 0;
+                    return (
+                      <View
+                        key={`voice-recording-bar-${index}`}
+                        style={[
+                          styles.voiceRecordingWaveBar,
+                          {
+                            height: 8 + level * 24 + (isLifted ? 5 : 0),
+                            backgroundColor: index % 2 === 0 ? 'rgba(236,72,153,0.78)' : 'rgba(168,85,247,0.72)',
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => void stopVoiceRecordingAndSend()}
+                style={({ pressed }) => [
+                  styles.voiceRecordingSend,
+                  {
+                    backgroundColor: theme.tint,
+                    opacity: pressed ? 0.88 : 1,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel="Send voice recording"
+              >
+                <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.composerDockRow}>
+              <Pressable
+                style={[styles.composerIconBtn, { backgroundColor: theme.muted }]}
+                onPress={() => setShowAttachmentTray((open) => !open)}
+                disabled={shellLoading || !data?.matchId}
+                accessibilityLabel={showAttachmentTray ? 'Close attachments' : 'Open attachments'}
+                accessibilityState={{ expanded: showAttachmentTray, disabled: shellLoading || !data?.matchId }}
+              >
+                <Ionicons name={showAttachmentTray ? 'close' : 'add'} size={24} color={theme.textSecondary} />
+              </Pressable>
+              <TextInput
+                ref={inputRef}
+                style={[
+                  styles.inputDock,
+                  {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    color: theme.text,
+                    backgroundColor: theme.surface,
+                    opacity: shellLoading ? 0.55 : 1,
+                  },
+                ]}
+                placeholder={shellLoading ? 'Loading…' : 'Message'}
+                placeholderTextColor={theme.textSecondary}
+                value={input}
+                onChangeText={handleInputChange}
+                multiline
+                blurOnSubmit={false}
+                maxLength={2000}
+                editable={!shellLoading && !composerInputLocked}
+              />
+              <Pressable
+                style={[
+                  styles.composerIconBtn,
+                  {
+                    backgroundColor: voiceReplyHint ? 'rgba(139,92,246,0.18)' : theme.muted,
+                  },
+                  voiceReplyHint && { borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(139,92,246,0.5)' },
+                ]}
+                onPress={handleVoicePress}
+                disabled={shellLoading || composerInputLocked}
+                accessibilityLabel="Voice message"
+              >
+                {sendingVoice ? (
+                  <ActivityIndicator size="small" color={theme.tint} />
+                ) : (
+                  <Ionicons name="mic-outline" size={20} color={voiceReplyHint ? 'rgba(139,92,246,1)' : theme.textSecondary} />
+                )}
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.sendFab,
+                  { backgroundColor: theme.tint },
+                  sendFabDisabled && styles.sendBtnDisabled,
+                ]}
+                onPress={handleSend}
+                disabled={sendFabDisabled}
+                accessibilityLabel="Send message"
+              >
+                <Ionicons name="arrow-up" size={22} color={theme.primaryForeground} />
+              </Pressable>
+            </View>
+          )}
           {composerMediaError && !suppressComposerMediaError ? (
             <Text style={[styles.voiceError, { color: theme.danger }]}>{composerMediaError}</Text>
           ) : null}
@@ -3053,21 +3240,81 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: COMPOSER_GAP,
   },
-  recordingHintRow: {
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  recordingHintPill: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 999,
+  voiceRecordingBar: {
+    minHeight: 56,
+    borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
-    maxWidth: '100%',
+    padding: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  recordingHintPillText: {
-    fontSize: 12,
-    fontWeight: '500',
-    textAlign: 'center',
+  voiceRecordingControl: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voiceRecordingCenter: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,0.035)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  voiceRecordingMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  voiceRecordingState: {
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flexShrink: 1,
+  },
+  voiceRecordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  voiceRecordingLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  voiceRecordingTimer: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  voiceRecordingWaveform: {
+    marginTop: 7,
+    height: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+    overflow: 'hidden',
+  },
+  voiceRecordingWaveBar: {
+    width: 4,
+    borderRadius: 999,
+    minHeight: 8,
+  },
+  voiceRecordingSend: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   attachmentTray: {
     flexDirection: 'row',
