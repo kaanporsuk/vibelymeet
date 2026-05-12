@@ -746,9 +746,12 @@ export default function ChatThreadScreen() {
   }, [recording]);
 
   useEffect(
-    () => () => {
-      screenMountedRef.current = false;
-      voiceStartInFlightRef.current = false;
+    () => {
+      screenMountedRef.current = true;
+      return () => {
+        screenMountedRef.current = false;
+        voiceStartInFlightRef.current = false;
+      };
     },
     [],
   );
@@ -1306,7 +1309,11 @@ export default function ChatThreadScreen() {
       if (!granted) throw new Error('Permission denied');
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
-      if (!screenMountedRef.current) return;
+      if (!screenMountedRef.current) {
+        await audioRecorder.stop().catch(() => undefined);
+        await discardTemporaryVoiceUri(audioRecorder.uri);
+        return;
+      }
       voiceRecordStartedAtRef.current = Date.now();
       audioRecorder.record();
       if (!screenMountedRef.current) {

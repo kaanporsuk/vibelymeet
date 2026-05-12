@@ -2097,7 +2097,7 @@ const Chat = () => {
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.9 }}
-                disabled={!hasActiveConversation}
+                disabled={!hasActiveConversation || composerMediaLocked}
                 onClick={() => setShowAttachmentTray((open) => !open)}
                 className={cn(
                   CHAT_COMPOSER_CONTROL_CLASS,
@@ -2121,7 +2121,7 @@ const Chat = () => {
                 value={newMessage}
                 onChange={(e) => handleComposerChange(e.target.value)}
                 onKeyPress={handleKeyPress}
-                disabled={!hasActiveConversation}
+                disabled={!hasActiveConversation || isRecording}
                 aria-label="Message"
                 title={hasActiveConversation ? "Message" : "No active conversation"}
                 rows={1}
@@ -2133,7 +2133,7 @@ const Chat = () => {
             </div>
 
             {/* Send / Mic button */}
-            {hasText ? (
+            {hasText && !isRecording ? (
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.9 }}
@@ -2171,7 +2171,7 @@ const Chat = () => {
                 }
               >
                 <VoiceRecorder
-                  disabled={!hasActiveConversation}
+                  disabled={!hasActiveConversation || composerMediaLocked}
                   onUnavailable={() => toast.error("No active conversation found")}
                   onRecordingStart={handleVoiceRecordingStart}
                   onRecordingComplete={handleVoiceRecordingComplete}
