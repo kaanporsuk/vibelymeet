@@ -5,16 +5,10 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   VIBE_CLIP_MAX_DURATION_SEC,
-  VIBE_CLIP_MAX_UPLOAD_BYTES,
   VIBE_CLIP_RECORDER_IDLE_HINT,
   VIBE_CLIP_RECORDER_RECORDING_REMAINING,
   VIBE_CLIP_RECORDER_SOFT_FRAMING,
   VIBE_CLIP_RECORDER_TAGLINE,
-  VIBE_CLIP_UPLOAD_DURATION_UNREADABLE,
-  VIBE_CLIP_UPLOAD_EMPTY_FILE,
-  VIBE_CLIP_UPLOAD_INVALID_TYPE,
-  VIBE_CLIP_UPLOAD_TOO_LARGE,
-  VIBE_CLIP_UPLOAD_TOO_LONG,
   VIBE_CLIP_WEB_TOAST_CAMERA_DENIED,
   VIBE_CLIP_WEB_TOAST_CAMERA_GENERIC,
   VIBE_CLIP_WEB_TOAST_CAMERA_SWITCH_UNAVAILABLE,
@@ -23,73 +17,26 @@ import {
 import { capturePromptForSeed } from "../../../shared/chat/vibeClipPrompts";
 import { trackVibeClipEvent } from "@/lib/vibeClipAnalytics";
 import { durationBucketFromSeconds } from "../../../shared/chat/vibeClipAnalytics";
-import type { CaptureSource } from "../../../shared/chat/vibeClipAnalytics";
-
-type VideoMessageCompleteMeta = {
-  captureSource?: CaptureSource;
-  mimeType?: string;
-  aspectRatio?: number | null;
-};
+import {
+  prepareWebVibeClipLibraryFile,
+  type WebVibeClipCompleteMeta,
+} from "@/lib/webVibeClipLibraryUpload";
 
 interface VideoMessageRecorderProps {
-  onRecordingComplete: (videoBlob: Blob, duration: number, meta?: VideoMessageCompleteMeta) => void;
+  onRecordingComplete: (videoBlob: Blob, duration: number, meta?: WebVibeClipCompleteMeta) => void;
   onCancel: () => void;
   /** Rotating capture idea; e.g. match id from chat. */
   promptSeed?: string;
+  /** Keeps legacy recorder upload available by default; chat can move upload to the pre-sheet. */
+  showLibraryUpload?: boolean;
 }
 
-type SelectedVideoMetadata = {
-  durationSeconds: number;
-  aspectRatio: number | null;
-};
-
-function looksLikeVideoFile(file: File): boolean {
-  if (file.type.startsWith("video/")) return true;
-  return /\.(mp4|m4v|mov|webm|avi|mkv)$/i.test(file.name);
-}
-
-function readSelectedVideoMetadata(file: File): Promise<SelectedVideoMetadata> {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement("video");
-    const objectUrl = URL.createObjectURL(file);
-    let settled = false;
-    let timeoutId: number | null = null;
-
-    const cleanup = () => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId != null) window.clearTimeout(timeoutId);
-      video.removeAttribute("src");
-      video.load();
-      URL.revokeObjectURL(objectUrl);
-    };
-
-    const fail = () => {
-      cleanup();
-      reject(new Error("duration_unreadable"));
-    };
-
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-    video.onloadedmetadata = () => {
-      const durationSeconds = video.duration;
-      const aspectRatio =
-        video.videoWidth > 0 && video.videoHeight > 0 ? video.videoWidth / video.videoHeight : null;
-      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-        fail();
-        return;
-      }
-      cleanup();
-      resolve({ durationSeconds, aspectRatio });
-    };
-    video.onerror = fail;
-    timeoutId = window.setTimeout(fail, 4500);
-    video.src = objectUrl;
-  });
-}
-
-const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: VideoMessageRecorderProps) => {
+const VideoMessageRecorder = ({
+  onRecordingComplete,
+  onCancel,
+  promptSeed,
+  showLibraryUpload = true,
+}: VideoMessageRecorderProps) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessingUpload, setIsProcessingUpload] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -205,47 +152,23 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
     event.target.value = "";
     if (!file || isRecording || isProcessingUpload) return;
 
-    if (!looksLikeVideoFile(file)) {
-      toast.error(VIBE_CLIP_UPLOAD_INVALID_TYPE);
-      return;
-    }
-
-    if (file.size <= 0) {
-      toast.error(VIBE_CLIP_UPLOAD_EMPTY_FILE);
-      return;
-    }
-
-    if (file.size > VIBE_CLIP_MAX_UPLOAD_BYTES) {
-      toast.error(VIBE_CLIP_UPLOAD_TOO_LARGE());
-      return;
-    }
-
     setIsProcessingUpload(true);
     let completed = false;
     try {
-      const metadata = await readSelectedVideoMetadata(file);
-      if (metadata.durationSeconds > VIBE_CLIP_MAX_DURATION_SEC + 0.25) {
-        toast.error(VIBE_CLIP_UPLOAD_TOO_LONG());
-        return;
-      }
-
+      const prepared = await prepareWebVibeClipLibraryFile(file);
       trackVibeClipEvent("clip_record_started", {
         capture_source: "library",
         is_sender: true,
       });
       trackVibeClipEvent("clip_record_completed", {
         capture_source: "library",
-        duration_bucket: durationBucketFromSeconds(metadata.durationSeconds),
+        duration_bucket: durationBucketFromSeconds(prepared.durationSeconds),
         is_sender: true,
       });
-      onRecordingComplete(file, metadata.durationSeconds, {
-        captureSource: "library",
-        mimeType: file.type || undefined,
-        aspectRatio: metadata.aspectRatio,
-      });
+      onRecordingComplete(prepared.file, prepared.durationSeconds, prepared.meta);
       completed = true;
-    } catch {
-      toast.error(VIBE_CLIP_UPLOAD_DURATION_UNREADABLE);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't read this video. Choose another clip.");
     } finally {
       if (!completed) setIsProcessingUpload(false);
     }
@@ -362,15 +285,17 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black flex flex-col"
     >
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*"
-        className="sr-only"
-        aria-hidden
-        tabIndex={-1}
-        onChange={handleFileUpload}
-      />
+      {showLibraryUpload ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          className="sr-only"
+          aria-hidden
+          tabIndex={-1}
+          onChange={handleFileUpload}
+        />
+      ) : null}
 
       <video
         ref={videoRef}
@@ -506,20 +431,22 @@ const VideoMessageRecorder = ({ onRecordingComplete, onCancel, promptSeed }: Vid
 
           {!isRecording && (
             <>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isProcessingUpload}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white/10 px-4 text-xs font-semibold text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-white/15 disabled:pointer-events-none disabled:opacity-60"
-                aria-label="Upload an existing Vibe Clip"
-              >
-                {isProcessingUpload ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Upload className="h-4 w-4" aria-hidden />
-                )}
-                Upload
-              </button>
+              {showLibraryUpload ? (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isProcessingUpload}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-white/10 px-4 text-xs font-semibold text-white/85 ring-1 ring-white/15 backdrop-blur-md transition-colors hover:bg-white/15 disabled:pointer-events-none disabled:opacity-60"
+                  aria-label="Upload an existing Vibe Clip"
+                >
+                  {isProcessingUpload ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Upload className="h-4 w-4" aria-hidden />
+                  )}
+                  Upload
+                </button>
+              ) : null}
               <p className="text-white/55 text-[11px] text-center max-w-xs leading-relaxed">
                 {VIBE_CLIP_RECORDER_SOFT_FRAMING}
               </p>

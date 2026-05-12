@@ -90,6 +90,8 @@ const MATCHES_ROUTE = "/matches";
 
 const VoiceRecorder = lazy(() => import("@/components/chat/VoiceRecorder"));
 const VideoMessageRecorder = lazy(() => import("@/components/chat/VideoMessageRecorder"));
+const VibeClipSendOptionsSheet = lazy(() => import("@/components/chat/VibeClipSendOptionsSheet"));
+const PhotoSendOptionsDialog = lazy(() => import("@/components/chat/PhotoSendOptionsDialog"));
 const ChatPhotoLightbox = lazy(() =>
   import("@/components/chat/ChatPhotoLightbox").then((mod) => ({ default: mod.ChatPhotoLightbox })),
 );
@@ -286,6 +288,8 @@ const Chat = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [sendingPhoto, setSendingPhoto] = useState(false);
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showVibeClipOptions, setShowVibeClipOptions] = useState(false);
   const [showScheduleShare, setShowScheduleShare] = useState(false);
   const [editScheduleShareSuggestionId, setEditScheduleShareSuggestionId] =
     useState<string | null>(null);
@@ -1381,6 +1385,14 @@ const Chat = () => {
     }
   };
 
+  const handleVibeClipLibraryReady = async (
+    videoBlob: Blob,
+    duration: number,
+    meta?: { captureSource?: CaptureSource; mimeType?: string; aspectRatio?: number | null },
+  ) => {
+    await handleVideoRecordingComplete(videoBlob, duration, meta);
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1456,6 +1468,10 @@ const Chat = () => {
     setEditScheduleShareSuggestionId(suggestionId);
   }, []);
 
+  const triggerPhotoFilePicker = useCallback(() => {
+    photoInputRef.current?.click();
+  }, []);
+
   const openPhotoPicker = useCallback(() => {
     if (composerMediaLocked) return;
     if (!guardActiveConversation("Cannot send photo right now")) return;
@@ -1468,10 +1484,10 @@ const Chat = () => {
       match_id: chatData?.matchId,
     });
     setShowAttachmentTray(false);
-    photoInputRef.current?.click();
+    setShowPhotoOptions(true);
   }, [chatData?.matchId, composerMediaLocked, guardActiveConversation]);
 
-  const openVibeClipRecorder = useCallback(() => {
+  const openVibeClipOptions = useCallback(() => {
     if (composerMediaLocked) return;
     if (!guardActiveConversation("Cannot record a Vibe Clip right now")) return;
     recordUserAction("chat_vibe_clip_record_clicked", {
@@ -1484,8 +1500,14 @@ const Chat = () => {
       launched_from: "chat",
     });
     setShowAttachmentTray(false);
-    setIsRecordingVideo(true);
+    setShowVibeClipOptions(true);
   }, [chatData?.matchId, composerMediaLocked, displayMessages.length, guardActiveConversation, id]);
+
+  const startVibeClipRecorder = useCallback(() => {
+    if (composerMediaLocked) return;
+    if (!guardActiveConversation("Cannot record a Vibe Clip right now")) return;
+    setIsRecordingVideo(true);
+  }, [composerMediaLocked, guardActiveConversation]);
 
   /** Chat header back: render-null instantly so the panel disappears, navigate, and hard-reload as the unconditional escape hatch if Chat is still mounted at 250ms. */
   const returnToMatches = useCallback(() => {
@@ -1722,7 +1744,7 @@ const Chat = () => {
                   threadMessageCount={displayMessages.length}
                   immersiveVideoUrl={videoLightbox?.url ?? null}
                   onRequestImmersiveVideo={(url, posterUrl) => setVideoLightbox({ url, posterUrl })}
-                  onReplyWithClip={() => setIsRecordingVideo(true)}
+                  onReplyWithClip={openVibeClipOptions}
                   onVoiceReply={() => scrollToBottom()}
                   onSuggestDate={() =>
                     handleOpenDateComposer({ mode: "new", launchFrom: "vibe_clip" })
@@ -1995,7 +2017,7 @@ const Chat = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={openVibeClipRecorder}
+                  onClick={openVibeClipOptions}
                   disabled={composerMediaLocked || !hasActiveConversation}
                   className="h-9 rounded-xl bg-violet-500/14 text-xs font-medium text-violet-100 transition-colors hover:bg-violet-500/24 disabled:pointer-events-none disabled:opacity-45 inline-flex items-center justify-center gap-1.5"
                   aria-label={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
@@ -2223,7 +2245,7 @@ const Chat = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={openVibeClipRecorder}
+                  onClick={openVibeClipOptions}
                   disabled={composerMediaLocked || !hasActiveConversation}
                   className={quickActionButtonClass}
                   aria-label={VIBE_CLIP_CHAT_FILM_BUTTON_TITLE}
@@ -2274,6 +2296,23 @@ const Chat = () => {
       </section>
 
       <Suspense fallback={null}>
+        <PhotoSendOptionsDialog
+          open={showPhotoOptions}
+          onOpenChange={setShowPhotoOptions}
+          onTakePhoto={triggerPhotoFilePicker}
+          onChooseLibrary={triggerPhotoFilePicker}
+          disabled={composerMediaLocked || !hasActiveConversation || sendingPhoto}
+        />
+
+        <VibeClipSendOptionsSheet
+          open={showVibeClipOptions}
+          onOpenChange={setShowVibeClipOptions}
+          onRecord={startVibeClipRecorder}
+          onLibraryClipReady={handleVibeClipLibraryReady}
+          disabled={composerMediaLocked || !hasActiveConversation}
+          promptSeed={chatData?.matchId ?? id ?? ""}
+        />
+
         {/* Video recording overlay */}
         <AnimatePresence>
           {isRecordingVideo && (
@@ -2281,6 +2320,7 @@ const Chat = () => {
               promptSeed={chatData?.matchId ?? id ?? ""}
               onRecordingComplete={handleVideoRecordingComplete}
               onCancel={() => setIsRecordingVideo(false)}
+              showLibraryUpload={false}
             />
           )}
         </AnimatePresence>
