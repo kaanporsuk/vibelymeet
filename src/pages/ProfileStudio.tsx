@@ -858,6 +858,14 @@ const ProfileStudio = () => {
         break;
       case "photo_verify":
         scrollToSection("verification");
+        if (photoVerificationStatus === "approved") {
+          toast.success("Photo already verified ✓");
+          return;
+        }
+        if (photoVerificationStatus === "pending") {
+          toast.info("Your verification is under review.");
+          return;
+        }
         if (profile.photos.length === 0) {
           toast.error("Please add a profile photo first");
           return;
@@ -1818,8 +1826,6 @@ const ProfileStudio = () => {
           <SimplePhotoVerification
             open={showPhotoVerification}
             onOpenChange={setShowPhotoVerification}
-            userId={profile.id}
-            profilePhotoUrl={profile.photos[0]}
             onSubmissionComplete={() => {
               // Persisted backend state after submission is "pending" (admin approval is server-side).
               setPhotoVerificationStatus("pending");
