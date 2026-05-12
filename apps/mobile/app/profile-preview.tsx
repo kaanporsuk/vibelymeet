@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import Colors from '@/constants/Colors';
@@ -15,12 +15,23 @@ export default function ProfilePreviewScreen() {
   const theme = Colors[useColorScheme()];
   const profileId = user?.id ?? null;
   const { data: profile, isPending, isError, error, refetch } = useUserProfile(profileId);
+  const [hasFreshPreview, setHasFreshPreview] = useState(false);
+  const [freshPreviewFailed, setFreshPreviewFailed] = useState(false);
 
   const retry = useCallback(() => {
+    setHasFreshPreview(false);
+    setFreshPreviewFailed(false);
     if (!profileId) return;
-    void refetch().catch((e) => {
-      if (__DEV__) console.warn('[profile-preview] refetch failed:', e);
-    });
+    void refetch()
+      .then((result) => {
+        setFreshPreviewFailed(result.isError || result.data?.id !== profileId);
+        setHasFreshPreview(true);
+      })
+      .catch((e) => {
+        setFreshPreviewFailed(true);
+        setHasFreshPreview(true);
+        if (__DEV__) console.warn('[profile-preview] refetch failed:', e);
+      });
   }, [profileId, refetch]);
 
   useFocusEffect(
@@ -49,7 +60,7 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  if (isPending && !profile) {
+  if ((isPending && !profile) || !hasFreshPreview) {
     return (
       <View style={centered}>
         <LoadingState title="Loading preview..." message="Just a sec..." />
@@ -57,7 +68,7 @@ export default function ProfilePreviewScreen() {
     );
   }
 
-  if ((isError && !profile) || !profile) {
+  if (freshPreviewFailed || (isError && !profile) || !profile) {
     const msg =
       isError && !profile
         ? error instanceof Error

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { OtherUserFullProfileView } from "@/components/profile/OtherUserFullProfileView";
@@ -9,9 +10,32 @@ const ProfilePreview = () => {
   const navigate = useNavigate();
   const { user } = useViewerProfile();
   const profileId = user?.id ?? null;
-  const { data: profile, isLoading } = useOtherUserFullProfile(profileId);
+  const { data: profile, isLoading, refetch } = useOtherUserFullProfile(profileId);
+  const [hasFreshPreview, setHasFreshPreview] = useState(false);
+  const [freshPreviewFailed, setFreshPreviewFailed] = useState(false);
 
   const handleClose = () => navigate(-1);
+
+  useEffect(() => {
+    setHasFreshPreview(false);
+    setFreshPreviewFailed(false);
+    if (!profileId) return;
+    let cancelled = false;
+    void refetch()
+      .then((result) => {
+        if (cancelled) return;
+        setFreshPreviewFailed(result.isError || result.data?.id !== profileId);
+        setHasFreshPreview(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFreshPreviewFailed(true);
+        setHasFreshPreview(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileId, refetch]);
 
   if (!profileId) {
     return (
@@ -27,7 +51,7 @@ const ProfilePreview = () => {
     );
   }
 
-  if (isLoading) {
+  if (isLoading || !hasFreshPreview) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -35,7 +59,7 @@ const ProfilePreview = () => {
     );
   }
 
-  if (!profile) {
+  if (freshPreviewFailed || !profile) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
         <div className="w-full max-w-sm rounded-2xl border border-border bg-card/70 p-6 text-center">
