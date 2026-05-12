@@ -634,12 +634,7 @@ export function useGlobalMessagesInboxInvalidation(userId: string | null | undef
       .channel('global-messages-inbox')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        invalidateInbox
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        { event: '*', schema: 'public', table: 'messages' },
         invalidateInbox
       )
       .on(
