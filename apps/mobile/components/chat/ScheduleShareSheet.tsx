@@ -210,7 +210,11 @@ export function ScheduleShareSheet({
           </Pressable>
         </View>
 
-        <ScheduleSharePicker onSelectionChange={handleSelectionChange} />
+        <ScheduleSharePicker
+          key={visible ? 'open' : 'closed'}
+          initialSelection={selectedSlotKeys}
+          onSelectionChange={handleSelectionChange}
+        />
       </KeyboardAwareBottomSheetModal>
       {dialog}
     </>

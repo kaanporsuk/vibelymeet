@@ -325,6 +325,7 @@ const Chat = () => {
   const [newBelowCue, setNewBelowCue] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const photoCameraInputRef = useRef<HTMLInputElement>(null);
   const gameStartLockRef = useRef(false);
   const actionLockRef = useRef<Set<string>>(new Set());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1473,6 +1474,10 @@ const Chat = () => {
     photoInputRef.current?.click();
   }, []);
 
+  const triggerPhotoCameraPicker = useCallback(() => {
+    photoCameraInputRef.current?.click();
+  }, []);
+
   const openPhotoPicker = useCallback(() => {
     if (composerMediaLocked) return;
     if (!guardActiveConversation("Cannot send photo right now")) return;
@@ -2054,6 +2059,16 @@ const Chat = () => {
             tabIndex={-1}
             onChange={handlePhotoFileChange}
           />
+          <input
+            ref={photoCameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            aria-hidden
+            tabIndex={-1}
+            onChange={handlePhotoFileChange}
+          />
           <div className="flex items-end gap-1 max-w-2xl mx-auto">
             {/* Action buttons */}
             <div className="flex items-center gap-0.5 shrink-0">
@@ -2320,7 +2335,7 @@ const Chat = () => {
         <PhotoSendOptionsDialog
           open={showPhotoOptions}
           onOpenChange={setShowPhotoOptions}
-          onTakePhoto={triggerPhotoFilePicker}
+          onTakePhoto={triggerPhotoCameraPicker}
           onChooseLibrary={triggerPhotoFilePicker}
           disabled={composerMediaLocked || !hasActiveConversation || sendingPhoto}
         />

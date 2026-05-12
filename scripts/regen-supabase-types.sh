@@ -4,9 +4,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/src/integrations/supabase/types.ts"
-TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
-npx supabase gen types typescript --project-id schdyxcunwcvddlcshwd --schema public >"$TMP"
+GENERATED="$(mktemp)"
+PATCHED="$(mktemp)"
+trap 'rm -f "$GENERATED" "$PATCHED"' EXIT
+npx supabase gen types typescript --project-id schdyxcunwcvddlcshwd --schema public >"$GENERATED"
 {
   printf '%s\n' \
     '/**' \
@@ -18,15 +19,16 @@ npx supabase gen types typescript --project-id schdyxcunwcvddlcshwd --schema pub
     ' * Project id matches supabase/config.toml (linked).' \
     ' */' \
     ''
-  cat "$TMP"
-} >"$OUT"
+  cat "$GENERATED"
+} >"$PATCHED"
 
 # Supabase CLI emits scalar RPC returns as non-nullable, but this SQL function
 # intentionally returns NULL for unknown capability keys.
-perl -0pi -e 's/(tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*string\s*\}\s*Returns:\s*)string(\s*\})/${1}string | null${2}/' "$OUT"
-perl -0ne 'exit(/tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*string\s*\}\s*Returns:\s*string \| null\s*\}/ ? 0 : 1)' "$OUT" || {
-  echo "Expected tier_capability_type to return string | null in $OUT" >&2
+perl -0pi -e 's/(tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*string\s*\}\s*Returns:\s*)string(\s*\})/${1}string | null${2}/' "$PATCHED"
+perl -0ne 'exit(/tier_capability_type:\s*\{\s*Args:\s*\{\s*p_capability_key:\s*string\s*\}\s*Returns:\s*string \| null\s*\}/ ? 0 : 1)' "$PATCHED" || {
+  echo "Expected tier_capability_type to return string | null before writing $OUT" >&2
   exit 1
 }
 
+mv "$PATCHED" "$OUT"
 echo "Wrote $OUT"

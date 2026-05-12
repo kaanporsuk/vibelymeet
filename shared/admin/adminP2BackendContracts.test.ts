@@ -649,6 +649,21 @@ test("tier config authority migration validates overrides and enforces backend e
     /Expected tier_capability_type to return string \| null/,
     "Supabase type regeneration must fail loudly if the nullable override stops applying",
   );
+  assert.match(
+    regenSupabaseTypesScript,
+    /PATCHED="\$\(mktemp\)"/,
+    "Supabase type regeneration must stage patched output separately",
+  );
+  assert.match(
+    regenSupabaseTypesScript,
+    /mv "\$PATCHED" "\$OUT"/,
+    "Supabase type regeneration must only overwrite tracked types after validation",
+  );
+  assert.doesNotMatch(
+    regenSupabaseTypesScript,
+    />"\$OUT"/,
+    "Supabase type regeneration must not write unvalidated CLI output to tracked types",
+  );
 
   const getUserCaps = tierConfigAuthorityFnSection("get_user_tier_capabilities");
   assert.match(getUserCaps, /SECURITY DEFINER/);
