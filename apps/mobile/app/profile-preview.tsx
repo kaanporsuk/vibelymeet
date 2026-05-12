@@ -1,49 +1,63 @@
 import React, { useCallback } from 'react';
 import { useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
 import { View } from '@/components/Themed';
 import { LoadingState, ErrorState } from '@/components/ui';
 import { useAuth } from '@/context/AuthContext';
-import { fetchMyProfile } from '@/lib/profileApi';
-import { profileRowToUserProfileView } from '@/lib/fetchUserProfile';
+import { useUserProfile } from '@/lib/useUserProfile';
 import { UserProfileFullView } from '@/components/profile/UserProfileFullView';
 
 export default function ProfilePreviewScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const theme = Colors[useColorScheme()];
-  const { data: profile, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['my-profile'],
-    queryFn: fetchMyProfile,
-    enabled: !!user?.id,
-  });
+  const profileId = user?.id ?? null;
+  const { data: profile, isPending, isError, error, refetch } = useUserProfile(profileId);
+
   const retry = useCallback(() => {
+    if (!profileId) return;
     void refetch().catch((e) => {
       if (__DEV__) console.warn('[profile-preview] refetch failed:', e);
     });
-  }, [refetch]);
+  }, [profileId, refetch]);
+
   useFocusEffect(
     useCallback(() => {
-      if (user?.id) retry();
-    }, [user?.id, retry]),
+      retry();
+    }, [retry]),
   );
+
   const centered = {
     flex: 1,
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
     backgroundColor: theme.background,
   };
-  if (isLoading && !profile) {
+
+  if (!profileId) {
     return (
-      <View style={centered}>
-        <LoadingState title="Loading preview…" message="Just a sec…" />
+      <View style={[centered, { flex: 1 }]}>
+        <ErrorState
+          title="Sign in required"
+          message="Log in to preview your public profile."
+          actionLabel="Go back"
+          onActionPress={() => router.back()}
+        />
       </View>
     );
   }
-  if ((isError && !profile) || (!isLoading && user?.id && !profile)) {
+
+  if (isPending && !profile) {
+    return (
+      <View style={centered}>
+        <LoadingState title="Loading preview..." message="Just a sec..." />
+      </View>
+    );
+  }
+
+  if ((isError && !profile) || !profile) {
     const msg =
       isError && !profile
         ? error instanceof Error
@@ -56,24 +70,6 @@ export default function ProfilePreviewScreen() {
       </View>
     );
   }
-  if (!profile) {
-    return (
-      <View style={[centered, { flex: 1 }]}>
-        <ErrorState
-          title="Sign in required"
-          message="Log in to preview your profile."
-          actionLabel="Go back"
-          onActionPress={() => router.back()}
-        />
-      </View>
-    );
-  }
-  return (
-    <UserProfileFullView
-      profile={profileRowToUserProfileView(profile)}
-      isOwnProfile
-      onEditProfile={() => router.back()}
-      onClose={() => router.back()}
-    />
-  );
+
+  return <UserProfileFullView profile={profile} isOwnProfile={false} onClose={() => router.back()} />;
 }
