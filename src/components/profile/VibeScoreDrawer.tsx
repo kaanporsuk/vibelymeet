@@ -36,6 +36,14 @@ import {
 } from "@/lib/vibeScoreIncompleteActions";
 
 const PILL_LIMIT = 6;
+const VIBE_SCORE_DRAWER_PROPS = {
+  shouldScaleBackground: false,
+  fixed: true,
+} as const;
+const VIBE_SCORE_DRAWER_CONTENT_CLASS =
+  "max-h-[88dvh] w-full max-w-[100svw] overflow-hidden border-white/10 bg-zinc-950";
+const VIBE_SCORE_DRAWER_BODY_CLASS =
+  "min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-2";
 
 const ICON_MAP: Record<VibeScoreActionIcon, LucideIcon> = {
   images: Images,
@@ -91,8 +99,8 @@ export function VibeScoreDrawer({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent className="max-h-[85vh] border-white/10 bg-zinc-950">
+    <Drawer {...VIBE_SCORE_DRAWER_PROPS} open={open} onOpenChange={onOpenChange}>
+      <DrawerContent className={VIBE_SCORE_DRAWER_CONTENT_CLASS}>
         <DrawerHeader className="relative border-b border-white/5 pb-3">
           <DrawerTitle className="text-center font-display text-lg text-white">Vibe Score</DrawerTitle>
           <button
@@ -105,7 +113,7 @@ export function VibeScoreDrawer({
           </button>
         </DrawerHeader>
 
-        <div className="max-h-[min(78vh,620px)] overflow-y-auto px-4 pb-8 pt-2">
+        <div className={VIBE_SCORE_DRAWER_BODY_CLASS}>
           <p className="text-3xl font-display font-bold text-white">{Math.round(clamped)}</p>
           <p className="mt-1 text-[15px] font-semibold text-pink-500">
             Vibe Score · {tierLabel}
