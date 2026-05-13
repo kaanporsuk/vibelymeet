@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { AppState, Pressable, View, Text, StyleSheet } from 'react-native';
+import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useQuery } from '@tanstack/react-query';
@@ -42,7 +42,7 @@ function VibelyTabBar({ state, navigation }: BottomTabBarProps) {
       return count ?? 0;
     },
     enabled: !!user?.id,
-    refetchInterval: () => (AppState.currentState === 'active' ? UNREAD_BADGE_POLL_MS : false),
+    refetchInterval: UNREAD_BADGE_POLL_MS,
     refetchIntervalInBackground: false,
   });
 

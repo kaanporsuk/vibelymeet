@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { AppState } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { DAILY_DROP_ACTIONABLE_STATUSES } from '@/lib/dailyDropSchedule';
 
@@ -30,7 +29,7 @@ export function useDailyDropTabBadge(userId: string | null | undefined): boolean
     queryKey: dailyDropTabBadgeQueryKey(userId),
     enabled: !!userId,
     queryFn: () => fetchDailyDropTabBadge(userId!),
-    refetchInterval: () => (AppState.currentState === 'active' ? 60_000 : false),
+    refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
 
