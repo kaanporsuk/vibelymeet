@@ -51,7 +51,7 @@ test("adaptive web media is used for hero, gallery, and fullscreen profile photo
   assert.match(media, /object-contain/);
   assert.match(media, /object-cover/);
   assert.match(media, /h-\[clamp\(360px,62dvh,680px\)\]/);
-  assert.match(media, /h-\[clamp\(260px,48dvh,520px\)\]/);
+  assert.match(media, /h-\[clamp\(260px,36dvh,420px\)\]/);
   assert.match(canonical, /variant="hero"/);
   assert.match(canonical, /variant="gallery"/);
   assert.match(canonical, /PhotoPreviewModal/);
@@ -62,10 +62,34 @@ test("adaptive web media is used for hero, gallery, and fullscreen profile photo
 test("web profile hero controls keep reliable touch targets", () => {
   const canonical = read("src/components/profile/OtherUserFullProfileView.tsx");
 
-  assert.match(canonical, /left-4 top-4 z-20 h-11 min-h-11/);
-  assert.match(canonical, /right-4 top-4 z-20 h-11 min-h-11 w-11/);
+  assert.match(canonical, /left-4 top-4 z-20 h-11 min-h-11 rounded-full px-3 sm:hidden/);
+  assert.match(canonical, /right-4 top-4 z-20 hidden h-11 min-h-11 w-11 rounded-full sm:inline-flex/);
   assert.match(canonical, /flex h-11 min-h-11 flex-1 items-start/);
   assert.match(canonical, /block h-1\.5 w-full rounded-full transition-colors/);
+});
+
+test("web canonical profile keeps substance above the body photo gallery", () => {
+  const canonical = read("src/components/profile/OtherUserFullProfileView.tsx");
+  const chat = read("src/pages/Chat.tsx");
+
+  const identityStart = canonical.indexOf("<section className=\"space-y-3\">");
+  const identityEnd = canonical.indexOf("{vibeVideo.state !== \"none\"");
+  assert.ok(identityStart > -1 && identityEnd > identityStart);
+  const identityBlock = canonical.slice(identityStart, identityEnd);
+  assert.match(identityBlock, /Verified/);
+  assert.doesNotMatch(identityBlock, /Email verified|Phone verified|Photo verified/);
+
+  const detailsIndex = canonical.indexOf("title=\"Details\"");
+  const verificationIndex = canonical.indexOf("title=\"Verification Status\"");
+  const photosIndex = canonical.indexOf("title=\"Photos\"");
+  assert.ok(detailsIndex > -1 && verificationIndex > -1 && photosIndex > -1);
+  assert.ok(detailsIndex < photosIndex);
+  assert.ok(verificationIndex < photosIndex);
+
+  assert.match(chat, /Voice note loading[\s\S]*className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
+  assert.match(chat, /VoiceRecorder[\s\S]*className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
+  assert.match(chat, /className=\{cn\(quickActionButtonClass, "col-span-2 justify-center text-center"\)\}/);
+  assert.match(chat, /<span className="whitespace-nowrap">Share Schedule<\/span>/);
 });
 
 test("native chat and matches route profile actions to the canonical user route", () => {
@@ -130,8 +154,15 @@ test("native full profile includes adaptive media and explicit verification stat
   assert.match(nativeFullView, /AdaptiveNativeProfileMedia/);
   assert.match(nativeFullView, /resizeMode="contain"/);
   assert.match(nativeFullView, /Math\.min\(winHeight \* 0\.58, 620\)/);
-  assert.match(nativeFullView, /Math\.min\(winHeight \* 0\.48, 500\)/);
+  assert.match(nativeFullView, /Math\.max\(220, Math\.min\(winHeight \* 0\.4, 420\)\)/);
+  assert.match(nativeFullView, /function CompactTrustPill/);
   assert.match(nativeFullView, /Verification Status/);
+  const nativeDetailsIndex = nativeFullView.indexOf(">Details<");
+  const nativeVerificationIndex = nativeFullView.indexOf(">Verification Status<");
+  const nativePhotosIndex = nativeFullView.indexOf(">Photos<");
+  assert.ok(nativeDetailsIndex > -1 && nativeVerificationIndex > -1 && nativePhotosIndex > -1);
+  assert.ok(nativeDetailsIndex < nativePhotosIndex);
+  assert.ok(nativeVerificationIndex < nativePhotosIndex);
   assert.match(nativeFullView, /isOwnProfile[\s\S]*Birthday/);
   assert.match(nativeFullView, /Zodiac/);
   assert.doesNotMatch(nativeFullView, /ABOUT_ME_MIN_CHARS/);

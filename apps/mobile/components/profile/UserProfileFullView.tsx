@@ -88,6 +88,7 @@ function AdaptiveNativeProfileMedia({
     return (
       <Pressable
         onPress={onPress}
+        accessibilityRole="button"
         accessibilityLabel={accessibilityLabel ?? 'View profile photo'}
         style={[s.adaptiveMedia, { height }]}
       >
@@ -97,6 +98,15 @@ function AdaptiveNativeProfileMedia({
   }
 
   return <RNView style={[s.adaptiveMedia, { height }]}>{content}</RNView>;
+}
+
+function CompactTrustPill() {
+  return (
+    <RNView style={s.verifiedPill}>
+      <Ionicons name="shield-checkmark" size={12} color="#0D9488" />
+      <Text style={s.verifiedPillText}>Verified</Text>
+    </RNView>
+  );
 }
 
 export function UserProfileFullView({
@@ -189,7 +199,7 @@ export function UserProfileFullView({
     typeof lookingForId === 'string' && lookingForId.trim().length > 0 && !!lookingForDisplay;
 
   const heroHeight = Math.min(winHeight * 0.58, 620);
-  const galleryHeight = Math.min(winHeight * 0.48, 500);
+  const galleryHeight = Math.max(220, Math.min(winHeight * 0.4, 420));
 
   useEffect(() => {
     if (photoViewerIndex === null || photos.length === 0) return;
@@ -264,7 +274,12 @@ export function UserProfileFullView({
 
             <RNView style={[s.headerBar, { paddingTop: insets.top + 8 }]}>
               {onClose ? (
-                <Pressable onPress={onClose} style={s.headerBtn} accessibilityLabel="Go back">
+                <Pressable
+                  onPress={onClose}
+                  style={s.headerBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Go back"
+                >
                   <Ionicons name="arrow-back" size={22} color="#fff" />
                 </Pressable>
               ) : (
@@ -272,7 +287,7 @@ export function UserProfileFullView({
               )}
               <RNView style={s.headerCenterSpacer} />
               {isOwnProfile && onEditProfile ? (
-                <Pressable onPress={onEditProfile} style={s.headerBtn}>
+                <Pressable onPress={onEditProfile} style={s.headerBtn} accessibilityRole="button">
                   <Text style={s.headerEditText}>Edit</Text>
                 </Pressable>
               ) : (
@@ -300,24 +315,7 @@ export function UserProfileFullView({
 
               {showAnyTrustPill ? (
                 <RNView style={s.badgeRow}>
-                  {showEmailTrustPill ? (
-                    <RNView style={s.verifiedPill}>
-                      <Ionicons name="mail" size={12} color="#0D9488" />
-                      <Text style={s.verifiedPillText}>Email verified</Text>
-                    </RNView>
-                  ) : null}
-                  {showPhotoTrustPill ? (
-                    <RNView style={s.verifiedPill}>
-                      <Ionicons name="camera" size={12} color="#0D9488" />
-                      <Text style={s.verifiedPillText}>Photo verified</Text>
-                    </RNView>
-                  ) : null}
-                  {showPhoneTrustPill ? (
-                    <RNView style={s.verifiedPill}>
-                      <Ionicons name="call" size={12} color="#0D9488" />
-                      <Text style={s.verifiedPillText}>Phone verified</Text>
-                    </RNView>
-                  ) : null}
+                  <CompactTrustPill />
                 </RNView>
               ) : null}
             </RNView>
@@ -329,24 +327,7 @@ export function UserProfileFullView({
         {hideHero && showAnyTrustPill ? (
           <RNView style={[s.identitySection, { paddingTop: spacing.md }]}>
             <RNView style={s.badgeRow}>
-              {showEmailTrustPill ? (
-                <RNView style={s.verifiedPill}>
-                  <Ionicons name="mail" size={12} color="#0D9488" />
-                  <Text style={s.verifiedPillText}>Email verified</Text>
-                </RNView>
-              ) : null}
-              {showPhotoTrustPill ? (
-                <RNView style={s.verifiedPill}>
-                  <Ionicons name="camera" size={12} color="#0D9488" />
-                  <Text style={s.verifiedPillText}>Photo verified</Text>
-                </RNView>
-              ) : null}
-              {showPhoneTrustPill ? (
-                <RNView style={s.verifiedPill}>
-                  <Ionicons name="call" size={12} color="#0D9488" />
-                  <Text style={s.verifiedPillText}>Phone verified</Text>
-                </RNView>
-              ) : null}
+              <CompactTrustPill />
             </RNView>
           </RNView>
         ) : null}
@@ -434,6 +415,7 @@ export function UserProfileFullView({
                 <RNView style={s.videoPlayOverlay} pointerEvents="box-none">
                   <Pressable
                     style={s.videoPlayBtn}
+                    accessibilityRole="button"
                     accessibilityLabel="Play vibe video"
                     disabled={!vibeInfo.canPlay}
                     onPress={() => {
@@ -528,23 +510,6 @@ export function UserProfileFullView({
             </RNView>
           ) : null}
 
-          {photos.length > 0 ? (
-            <RNView style={s.section}>
-              <Text style={[s.sectionTitle, { color: theme.text }]}>Photos</Text>
-              <RNView style={s.photoGalleryStack}>
-                {photos.map((url, i) => (
-                  <AdaptiveNativeProfileMedia
-                    key={`photo-${i}`}
-                    uri={url}
-                    height={galleryHeight}
-                    onPress={() => setPhotoViewerIndex(i)}
-                    accessibilityLabel={`View photo ${i + 1} of ${photos.length}`}
-                  />
-                ))}
-              </RNView>
-            </RNView>
-          ) : null}
-
           {basicsItems.length > 0 ? (
             <RNView style={s.section}>
               <Text style={[s.sectionTitle, { color: theme.text }]}>Details</Text>
@@ -593,6 +558,22 @@ export function UserProfileFullView({
             </RNView>
           ) : null}
 
+          {photos.length > 0 ? (
+            <RNView style={s.section}>
+              <Text style={[s.sectionTitle, { color: theme.text }]}>Photos</Text>
+              <RNView style={s.photoGalleryStack}>
+                {photos.map((url, i) => (
+                  <AdaptiveNativeProfileMedia
+                    key={`photo-${i}`}
+                    uri={url}
+                    height={galleryHeight}
+                    onPress={() => setPhotoViewerIndex(i)}
+                    accessibilityLabel={`View photo ${i + 1} of ${photos.length}`}
+                  />
+                ))}
+              </RNView>
+            </RNView>
+          ) : null}
         </RNView>
       </ScrollView>
 
@@ -634,6 +615,7 @@ export function UserProfileFullView({
           <Pressable
             onPress={() => setPhotoViewerIndex(null)}
             style={[s.photoModalClose, { top: insets.top + 12 }]}
+            accessibilityRole="button"
             accessibilityLabel="Close photo viewer"
           >
             <Ionicons name="close" size={28} color="#fff" />
@@ -716,6 +698,9 @@ const s = StyleSheet.create({
   headerBtn: {
     padding: 8,
     minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerCenterSpacer: {
     flex: 1,
@@ -925,16 +910,8 @@ const s = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.bodySemiBold,
   },
-  photoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
   photoGalleryStack: {
     gap: spacing.md,
-  },
-  photoCell: {
-    borderRadius: 12,
-    overflow: 'hidden',
   },
   basicsGrid: {
     flexDirection: 'row',
